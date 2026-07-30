@@ -51,13 +51,13 @@ import type {
 	SearchInputDef,
 } from "@/lib/domain";
 import {
-	canonicalCasePropertyName,
 	DEFAULT_CASE_SEARCH_BUTTON_LABEL,
 	DEFAULT_CASE_SEARCH_TITLE,
 	effectiveCaseSearchConfig,
 	effectiveCaseTypes,
+	type OrdinaryCaseSearchConfig,
 	orderedColumns,
-	resolveCommCareDatePattern,
+	searchInputDefault,
 	tileCellFor,
 } from "@/lib/domain";
 import {
@@ -140,6 +140,7 @@ import { moduleTypeContext } from "../validator/rules/case-list/shared";
  */
 function projectColumnToDetail(
 	column: Column,
+	doc: BlueprintDoc,
 	assets?: AssetManifest,
 	caseProperties: readonly CaseProperty[] = [],
 	typeContext?: TypeContext,
@@ -153,7 +154,9 @@ function projectColumnToDetail(
 			undefined,
 			typeContext ?? {},
 			undefined,
-			lookupNaming === undefined ? {} : { lookup: { naming: lookupNaming } },
+			lookupNaming === undefined
+				? {}
+				: { lookup: { naming: lookupNaming, instanceScope: "suite" } },
 		);
 		return {
 			...detailColumn(calcXpath, headerRecord),
@@ -162,10 +165,7 @@ function projectColumnToDetail(
 		};
 	}
 
-	const base: WireDetailColumn = detailColumn(
-		canonicalCasePropertyName(column.field),
-		headerRecord,
-	);
+	const base: WireDetailColumn = detailColumn(column.field, headerRecord);
 
 	switch (column.kind) {
 		case "plain": {
@@ -181,6 +181,7 @@ function projectColumnToDetail(
 					field: plainSelectDisplayXpath(
 						emitCasePropertyWirePath(column.field),
 						property,
+						doc,
 					),
 					format: "calculate",
 					useXpathExpression: true,
@@ -194,7 +195,7 @@ function projectColumnToDetail(
 			return {
 				...base,
 				format: "date",
-				date_format: resolveCommCareDatePattern(column.pattern),
+				date_format: column.pattern,
 			};
 		case "phone":
 			return {
@@ -263,6 +264,7 @@ function projectColumnToDetail(
  */
 function projectColumnForShortDetail(
 	column: Column,
+	doc: BlueprintDoc,
 	assets?: AssetManifest,
 	caseProperties: readonly CaseProperty[] = [],
 	typeContext?: TypeContext,
@@ -270,6 +272,7 @@ function projectColumnForShortDetail(
 ): WireDetailColumn {
 	const projected = projectColumnToDetail(
 		column,
+		doc,
 		assets,
 		caseProperties,
 		typeContext,
@@ -389,7 +392,7 @@ function projectSortElements(
 				// CCHQ joins SortElement.field to DetailColumn.field by exact
 				// string. HQ JSON stores the domain/CCHQ field token here (not the
 				// direct-suite XPath's `@status` attribute spelling).
-				field: canonicalCasePropertyName(sourceColumn.field),
+				field: sourceColumn.field,
 				type,
 				direction,
 				blanks: "",
@@ -462,7 +465,12 @@ function projectCaseListFilter(
 					undefined,
 					lookupNaming === undefined
 						? {}
-						: { lookup: { naming: lookupNaming } },
+						: {
+								lookup: {
+									naming: lookupNaming,
+									instanceScope: "suite",
+								},
+							},
 				);
 	const ownerFilter = emitExcludedOwnerFilterExpression(
 		excludedOwnerIds,
@@ -529,16 +537,16 @@ function projectSearchInput(
 	if (mapping.input !== undefined) property.input_ = mapping.input;
 	if (mapping.appearance !== undefined)
 		property.appearance = mapping.appearance;
-	// A date-range answer is a paired wire value; the domain's legacy scalar
-	// default cannot express it. The validator makes the repair visible, and
-	// this omission keeps a bypassed legacy doc from becoming an exact query.
-	if (input.type !== "date-range" && input.default !== undefined) {
+	const defaultValue = searchInputDefault(input);
+	if (defaultValue !== undefined) {
 		property.default_value = emitOnDeviceExpression(
-			input.default,
+			defaultValue,
 			undefined,
 			typeContext ?? {},
 			undefined,
-			lookupNaming === undefined ? {} : { lookup: { naming: lookupNaming } },
+			lookupNaming === undefined
+				? {}
+				: { lookup: { naming: lookupNaming, instanceScope: "suite" } },
 		);
 	}
 	// Mirrors the suite-XML `<prompt exclude="true()">` decision; one
@@ -575,8 +583,7 @@ function projectSearchProperties(
 	lookupNaming?: LookupWireNaming,
 ): CaseSearchProperty[] {
 	const out: CaseSearchProperty[] = [];
-	// DISPLAY order (`sort-by-(order, uuid)`) — the search prompts render in
-	// this sequence.
+	// Search prompts render in searchInputs array order.
 	for (const input of [...searchInputs]) {
 		out.push(
 			projectSearchInput(
@@ -679,7 +686,7 @@ const ZERO_INPUT_SEARCH_SENTINEL: DefaultCaseSearchProperty = {
  * apply when CCHQ regenerates the suite for the web entry point.
  */
 function buildSearchConfigDocument(
-	caseSearchConfig: DomainCaseSearchConfig | undefined,
+	caseSearchConfig: OrdinaryCaseSearchConfig | undefined,
 	caseListConfig: CaseListConfig | undefined,
 	_caseType: string | undefined,
 	typeContext?: TypeContext,
@@ -719,7 +726,9 @@ function buildSearchConfigDocument(
 				undefined,
 				typeContext ?? {},
 				undefined,
-				lookupNaming === undefined ? {} : { lookup: { naming: lookupNaming } },
+				lookupNaming === undefined
+					? {}
+					: { lookup: { naming: lookupNaming, instanceScope: "suite" } },
 			);
 		}
 		if (caseSearchConfig.excludedOwnerIds !== undefined) {
@@ -734,14 +743,16 @@ function buildSearchConfigDocument(
 
 	// Search properties are server-query configuration, not a second copy of
 	// the always-on case-list filter. `effectiveCaseSearchConfig` has already
-	// folded legacy modules with authored search inputs into `{}`; when it is
-	// still undefined this is an ordinary on-device list and must not acquire a
-	// dormant `_xpath_query` merely because the list has a filter.
+	// projected authored search inputs without separate display settings to
+	// `{}`; when it is still undefined this is an ordinary on-device list and
+	// must not acquire a dormant `_xpath_query` merely because the list has a
+	// filter.
 	if (caseSearchConfig !== undefined && caseListConfig !== undefined) {
 		const xpathQueryEmission = composeXPathQueryEmission(
 			caseListConfig,
 			_caseType,
 			typeContext,
+			lookupNaming,
 		);
 		config.properties = projectSearchProperties(
 			caseListConfig.searchInputs,
@@ -837,6 +848,7 @@ export function projectCaseListForHq(
 	const shortColumns = shortSourceColumns.map((c) =>
 		projectColumnForShortDetail(
 			c,
+			doc,
 			assets,
 			caseProperties,
 			typeContext,
@@ -844,7 +856,14 @@ export function projectCaseListForHq(
 		),
 	);
 	const longColumns = longSourceColumns.map((c) =>
-		projectColumnToDetail(c, assets, caseProperties, typeContext, lookupNaming),
+		projectColumnToDetail(
+			c,
+			doc,
+			assets,
+			caseProperties,
+			typeContext,
+			lookupNaming,
+		),
 	);
 	const sortElements = projectSortElements(
 		mod,

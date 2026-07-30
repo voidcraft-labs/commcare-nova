@@ -3,8 +3,8 @@
 `lib/lookup` is Nova's single persistence and validation boundary for
 Project-scoped lookup tables. Lookup rows are app-state data in the shared Cloud
 SQL/Postgres database. They are not case rows, not part of `BlueprintDoc`, and
-not CommCare-shaped storage. A later compiler resolves stable Nova UUID
-references and emits the CommCare fixture wire.
+not CommCare-shaped storage. The local CCZ compiler resolves stable Nova UUID
+references and emits the exact CommCare fixture wire.
 
 ## Identity and tenancy
 
@@ -47,10 +47,12 @@ are canonical nonnegative decimal strings within signed-int64 range on every
 application wire. Never convert one through `Number`, serialize native `bigint`,
 or compare revision strings lexically.
 
-The public lookup surface permits additive columns; table delete, column
-removal, and column retype are the three schema-governance actions below.
-Those three, plus established table-tag and column-wire-name changes, require
-the existing `delete` capability; all row operations and non-identity edits
+Table deletion, column removal, and column retype are IMPLEMENTED but not yet
+reachable: `applyLookupSchemaGovernance` has no caller outside its own tests, and
+`actions.ts` exports none of the three. They leave package-private scope when the
+Project data workspace ships their blocker/impact confirmation UX. Established
+table-tag and column-wire-name changes plus those destructive schema actions
+require the existing `delete` capability; row operations and non-identity edits
 require `edit`; reads require `view`.
 
 ## Reference edges and schema governance
@@ -59,35 +61,22 @@ require `edit`; reads require `view`.
 Project/table/column/app UUID identity, never names, wire names, carrier paths,
 or caller-provided edge deltas. A column edge is constrained to an existing
 table edge. Authoritative app commits replace each app's complete freshly
-extracted edge sets in their own transaction; S05a's immutable production
+extracted edge sets in their own transaction; the immutable production
 registry covers every lookup carrier. Both are app-state tables, not Project
 lookup resources, and must not be exposed through this package's table/row APIs.
 
-`schemaGovernance.ts` is the server-only seam behind the three destructive
-Project data actions — `deleteLookupTableAction`, `removeLookupColumnAction`,
-and `retypeLookupColumnAction`. There is still no route, MCP tool, or public
-barrel export. It reuses `writerTransaction.ts`, the same Project-state/table
-lock and revision helpers as every live lookup writer. Both its wrapper and
-transaction core require the scope's `delete` capability before taking a lock
-and collapse an insufficient role to the same not-found shape as a missing or
-foreign resource; `runLookupGovernanceAction` authorizes the same capability on
-the explicit Project id first, so the gate is doubled rather than delegated.
-
+`schemaGovernance.ts` is the server-only transaction authority the confirmation
+UX will call; nothing reaches it today. It reuses `writerTransaction.ts`, the same
+Project-state/table lock and revision helpers as every lookup writer. Its
+wrapper and transaction core require the scope's `delete` capability before
+taking a lock and collapse an insufficient role to the same not-found shape as
+a missing or foreign resource.
 Its complete lock prefix is Project state `FOR UPDATE` -> exact table `FOR
-UPDATE` -> exact table/column edges. It never takes an app lock, which is what
-lets a table deletion racing an app commit serialize instead of deadlocking.
+UPDATE` -> exact table/column edges. It never takes an app lock. Blocker results
+contain the sorted exact app-id set only; a fresh carrier-path re-walk belongs to
+confirmation UX.
 
-**The transactional edge check is the authority; the confirmation's scan is
-advisory.** `readLookupReferencingApps` (`lib/db/lookupReferenceEdges.ts`) names
-the apps that would break BEFORE the author asks, but a scan cannot authorize a
-destructive schema change because it races a concurrent app commit. Blocker
-results from the seam carry the sorted exact app-id set only; `actions.ts`
-resolves those ids to names outside the transaction, so a refusal reads the
-same way as the pre-flight warning. A soft-deleted app still holds its edges
-and still blocks the change, so it is named with its trashed state rather than
-omitted — a blocker the author cannot find reads as a phantom.
-
-Inside that closed seam, an unreferenced table deletion uses the existing
+An unreferenced table deletion uses the existing
 row/column cascades, retains Project state, and advances/notifies once. Column
 removal rejects the last column before row changes, removes only that immutable
 UUID key where present, uses Postgres-generated before/after `value_bytes`,
@@ -103,10 +92,7 @@ remain allowed while referenced and do not rewrite edges.
   unknown column ids, NUL, and unpaired UTF-16 surrogates are invalid. Empty text
   is valid for typed writes; an empty CSV cell omits the key.
 - Integer is canonical signed int4, decimal is a finite JSON number, and temporal
-  values reuse Nova's strict date/time/date-time schemas. Stored time and
-  date-time values always carry an RFC 3339 timezone; Nova currently has no
-  authored app timezone, so a newly authored value defaults to UTC rather than
-  inventing a local zone.
+  values reuse Nova's strict date/time/date-time schemas.
 - Server-minted order keys use the shared base-62 fractional-order primitives and
   Postgres `C` collation. Reads always tie-break on stable UUID. Bulk replacement
   uses the balanced generator, never a 5,000-key sequential chain.
@@ -138,9 +124,6 @@ no `server-only` runtime marker: authoritative `apps.ts` writers are also in
 plain `tsx` inspector dependency graphs. `service.ts` re-exports the same
 function for lookup-package callers; the transaction type remains the server
 boundary.
-`getLookupDefinitionAction` is the authorized single-table browser projection
-for authoring pickers. Those pickers use it instead of `getLookupTable`, because
-selecting columns must never download the table's rows.
 
 `getLookupFixtureData(scope, tableIds)` is the one-generation
 definitions-plus-rows read: the same definitions projection plus every present
@@ -156,18 +139,23 @@ definitions and the rows map.
 fans exact decimal revisions only to subscribers for that Project, and the app
 stream relays seq-less full-manifest frames over the builder's existing
 EventSource. Lookup frames never set SSE `id:`; that cursor belongs exclusively
-to accepted app mutations. The relay subscribes before its initial snapshot,
+to app changes. The relay subscribes before its initial snapshot,
 coalesces pokes, and retries failed manifest reads for the stream lifetime with
 a capped, unref'ed delay. The collaboration context exposes
 `subscribeLookupManifest`; lookup snapshots remain outside blueprint reconciler
-state and its mutation `baseSeq`.
+state and its mutation `baseSeq`. The relay validates the complete manifest
+before emitting it. The client treats malformed, regressing, cross-Project, or
+same-revision/different-content pages as failures: it clears the manifest plus
+dependent definition/fixture caches and refetches the exact authorized Project
+snapshot before lookup authoring or Preview can resume. It never retains a
+stale manifest or installs a partial table page.
 
 ## Boundaries
 
 - `service.ts` is server-only and owns SQL. It accepts an authorized
   `LookupScope`; no route or action contains database logic.
 - `writerTransaction.ts` is the one private lookup-writer lock/revision/notify
-  protocol shared by `service.ts` and dormant schema governance. Do not fork its
+  protocol shared by `service.ts` and schema governance. Do not fork its
   lock order in a new writer.
 - `actions.ts` authenticates, runtime-parses untrusted arguments, authorizes the
   explicit Project, calls the service, and maps typed errors to discriminated
@@ -176,9 +164,10 @@ state and its mutation `baseSeq`.
   actual oversize bodies, authorizes before parsing, then calls the server-only
   replacement service. Parsing/coercion happens before the transaction and is
   repeated against the locked current definition inside it.
-- Do not import `lib/commcare` here. S05 owns expression/export meaning and the
-  aggregate compiled-artifact budget; it may reject an unrepresentable use but
-  cannot reinterpret S01's persisted values.
+- Do not import `lib/commcare` here. The compile boundary owns
+  expression/export meaning and the aggregate compiled-artifact budget; it may
+  reject an unrepresentable use but cannot reinterpret persisted Project data
+  values.
 
 Keep pure schema/coercion/CSV/order tests separate from Postgres integration
 tests. Bundle Postgres-focused tests into one invocation so local and CI runs do

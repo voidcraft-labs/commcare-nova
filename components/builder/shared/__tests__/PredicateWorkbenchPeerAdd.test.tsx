@@ -1,17 +1,18 @@
-import { asUuid } from "@/lib/domain";
 // @vitest-environment happy-dom
 
 import {
 	cleanup,
 	fireEvent,
-	render,
+	render as rtlRender,
 	screen,
 	waitFor,
 	within,
 } from "@testing-library/react";
-import { useState } from "react";
+import { type ReactElement, type ReactNode, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { activateWithEnter } from "@/__tests__/helpers/baseUiInteractions";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { BlueprintDocProvider } from "@/lib/doc/provider";
 import type { CaseType } from "@/lib/domain";
 import {
 	ancestorPath,
@@ -29,27 +30,47 @@ import {
 	relationStep,
 	whenInput,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { comparisonDefault } from "../cards/ComparisonCard";
 import { PredicateWorkbench } from "../PredicateWorkbench";
+
+// The surfaces here spell authored prose against the document; every production
+// mount sits inside the builder's provider. Wrapping at `render` reproduces it
+// and carries through each `rerender`.
+function DocumentProvider({ children }: { readonly children: ReactNode }) {
+	return (
+		<BlueprintDocProvider appId="test-app">{children}</BlueprintDocProvider>
+	);
+}
+
+function render(ui: ReactElement) {
+	return rtlRender(ui, { wrapper: DocumentProvider });
+}
 
 const CASE_TYPES: readonly CaseType[] = [
 	{
 		name: "patient",
 		parent_type: "household",
 		properties: [
-			{ name: "name", label: "Patient name", data_type: "text" },
-			{ name: "region", label: "Region", data_type: "text" },
+			{
+				name: "case_name",
+				label: proseText("Patient name"),
+				data_type: "text",
+			},
+			{ name: "region", label: proseText("Region"), data_type: "text" },
 		],
 	},
 	{
 		name: "household",
-		properties: [{ name: "region", label: "Region", data_type: "text" }],
+		properties: [
+			{ name: "region", label: proseText("Region"), data_type: "text" },
+		],
 	},
 ];
 
 const KNOWN_INPUTS = [
 	{
-		uuid: asUuid("d794ebfb-9f47-450f-8af3-964849456a34"),
+		uuid: testUuid("query"),
 		name: "query",
 		label: "Client search",
 		data_type: "text",
@@ -327,9 +348,7 @@ describe("PredicateWorkbench structural peer addition", () => {
 	});
 
 	it("uses the authored search-field label throughout the focused condition", () => {
-		renderWorkbench(
-			whenInput(input(asUuid("d794ebfb-9f47-450f-8af3-964849456a34")), NORTH),
-		);
+		renderWorkbench(whenInput(input(testUuid("query")), NORTH));
 		expect(screen.getByText("When Client search is answered")).toBeDefined();
 		expect(
 			screen.getByRole("button", { name: "Search field Client search" }),
@@ -341,8 +360,7 @@ describe("PredicateWorkbench structural peer addition", () => {
 		["Exclude when", () => not(NORTH)],
 		[
 			"Search-answer condition",
-			() =>
-				whenInput(input(asUuid("d794ebfb-9f47-450f-8af3-964849456a34")), NORTH),
+			() => whenInput(input(testUuid("query")), NORTH),
 		],
 		["Related case exists", () => exists(VIA)],
 		["Related case is missing", () => missing(VIA)],
@@ -432,10 +450,7 @@ describe("PredicateWorkbench structural peer addition", () => {
 	});
 
 	it("keeps complete labels available in the condition trail", () => {
-		const focused = whenInput(
-			input(asUuid("d794ebfb-9f47-450f-8af3-964849456a34")),
-			SOUTH,
-		);
+		const focused = whenInput(input(testUuid("query")), SOUTH);
 		renderWorkbench(and(NORTH, focused));
 
 		fireEvent.click(ruleFocusTarget(["and", 1]));
@@ -571,7 +586,7 @@ describe("PredicateWorkbench structural peer addition", () => {
 				NORTH,
 				not(
 					whenInput(
-						input(asUuid("d794ebfb-9f47-450f-8af3-964849456a34")),
+						input(testUuid("query")),
 						exists(VIA, and(householdRegion, not(householdRegion))),
 					),
 				),
@@ -692,7 +707,7 @@ describe("PredicateWorkbench deletion focus", () => {
 	});
 
 	it("focuses the next condition after deleting a row", async () => {
-		const third = eq(prop("patient", "name"), literal("Taylor"));
+		const third = eq(prop("patient", "case_name"), literal("Taylor"));
 		render(<ControlledWorkbench initial={and(NORTH, SOUTH, third)} />);
 		activateWithEnter(
 			within(focusRegion(["and", 0])).getByRole("button", {
@@ -708,7 +723,7 @@ describe("PredicateWorkbench deletion focus", () => {
 	});
 
 	it("focuses the previous condition after deleting the last row", async () => {
-		const third = eq(prop("patient", "name"), literal("Taylor"));
+		const third = eq(prop("patient", "case_name"), literal("Taylor"));
 		render(<ControlledWorkbench initial={and(NORTH, SOUTH, third)} />);
 		fireEvent.click(
 			within(focusRegion(["and", 2])).getByRole("button", {
@@ -773,7 +788,7 @@ describe("PredicateWorkbench deletion focus", () => {
 	});
 
 	it("focuses the resulting group after grouping from the keyboard", async () => {
-		const third = eq(prop("patient", "name"), literal("Taylor"));
+		const third = eq(prop("patient", "case_name"), literal("Taylor"));
 		render(<ControlledWorkbench initial={and(NORTH, SOUTH, third)} />);
 		activateWithEnter(
 			within(focusRegion(["and", 0])).getByRole("button", {
@@ -797,7 +812,7 @@ describe("PredicateWorkbench deletion focus", () => {
 
 	it("focuses the first released row after ungrouping from the keyboard", async () => {
 		const nested = or(NORTH, SOUTH);
-		const third = eq(prop("patient", "name"), literal("Taylor"));
+		const third = eq(prop("patient", "case_name"), literal("Taylor"));
 		render(<ControlledWorkbench initial={and(nested, third)} />);
 		activateWithEnter(
 			within(focusRegion(["and", 0])).getByRole("button", {
@@ -819,7 +834,7 @@ describe("PredicateWorkbench deletion focus", () => {
 
 	it("names ungrouping by the logic the parent group will use", async () => {
 		const nested = and(NORTH, SOUTH);
-		const third = eq(prop("patient", "name"), literal("Taylor"));
+		const third = eq(prop("patient", "case_name"), literal("Taylor"));
 		render(<ControlledWorkbench initial={or(nested, third)} />);
 
 		activateWithEnter(

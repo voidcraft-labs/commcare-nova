@@ -6,8 +6,8 @@
 // a placement or a stated refusal; the canvas only draws the answer.
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import {
-	asUuid,
 	type CaseListConfig,
 	type Column,
 	emptyCaseListConfig,
@@ -38,12 +38,12 @@ function column(
 	slots: Partial<Column> = {},
 ): Column {
 	return {
-		...plainColumn(asUuid(id), id, header),
+		...plainColumn(testUuid(id), id, header),
 		...slots,
 	} as Column;
 }
 
-const NAME = column("name", "Patient name", {
+const NAME = column("case_name", "Patient name", {
 	tile: tileCell(0, 0, 6, 1),
 });
 const VILLAGE = column("village", "Village", {

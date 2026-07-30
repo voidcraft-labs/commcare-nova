@@ -24,41 +24,28 @@ import {
 	fieldReferenceSlotsFor,
 	isXPathExpression,
 	MODULE_REFERENCE_SLOTS,
+	mapCasePropertiesInProse,
+	mapCasePropertiesInXPath,
+	type ProseTemplate,
 	readSlotValues,
-	renameCasePropertyInXPath,
-	rewriteSlotStrings,
-	type XPathCasePropertyRename,
 } from "@/lib/domain";
 import {
-	type CasePropertyRename,
+	type CasePropertyNameResolver,
+	mapCasePropertiesInExpression,
+	mapCasePropertiesInPredicate,
 	relationDestinationCaseType,
-	renameCasePropertyInExpression,
-	renameCasePropertyInPredicate,
 } from "@/lib/domain/predicate";
-import { transformBareHashtags } from "@/lib/preview/engine/labelRefs";
 
 /**
- * What one field-slot rewrite pass carries:
+ * One case-property cascade over field-owned typed carriers.
  *
- *   - `xpath` — the string rewriter for string-stored XPath slots and
- *     for the hashtag substrings embedded in prose (prose is located
- *     by the shared matcher first; surrounding text is never parsed
- *     as XPath).
- *   - `caseLeafRename` — present only on the case-property cascade:
- *     AST-stored slots rename matching leaves STRUCTURALLY
- *     (`renameCasePropertyInXPath`). Form-local rename/move passes
- *     leave it absent because AST slots need nothing from them —
- *     identity leaves resolve at print, so there is no rewrite.
+ * Form-local references need no rename/move pass: XPath and prose both store
+ * field UUID atoms and project the current path at print. The only rewrite is
+ * the deliberate structural rename of name-keyed `(caseType, property)`
+ * leaves.
  */
 export interface FieldSlotRewriteOps {
-	xpath: (expr: string) => string;
-	caseLeafRename?: {
-		rename: XPathCasePropertyRename;
-		/** True when the carrier's owning module has the renamed case
-		 *  type — gates the transitional contextual `#case/…` leaves,
-		 *  which follow the module's type rather than naming one. */
-		contextualMatches: boolean;
-	};
+	resolveCaseProperty: CasePropertyNameResolver;
 }
 
 /**
@@ -80,50 +67,57 @@ export function rewriteFieldReferenceSlots(
 	for (const slot of fieldReferenceSlotsFor(field.kind, repeatMode)) {
 		switch (slot.kind) {
 			case "xpath-ast": {
-				const leafRename = ops.caseLeafRename;
-				if (leafRename === undefined) break;
 				for (const entry of readSlotValues(field, slot.path)) {
 					if (!isXPathExpression(entry.value)) continue;
-					const renamed = renameCasePropertyInXPath(
+					const renamed = mapCasePropertiesInXPath(
 						entry.value,
-						leafRename.rename,
-						{ contextualMatches: leafRename.contextualMatches },
+						ops.resolveCaseProperty,
 					);
 					if (renamed > 0) changed++;
 				}
 				break;
 			}
 			case "prose":
-				changed += rewriteSlotStrings(field, slot.path, (text) =>
-					transformBareHashtags(text, ops.xpath),
-				);
+				for (const entry of readSlotValues(field, slot.path)) {
+					changed += mapCasePropertiesInProse(
+						entry.value as ProseTemplate,
+						ops.resolveCaseProperty,
+					);
+				}
 				break;
 			case "case-type-ref":
-				// Names a case TYPE (`case_property_on`) — field renames and
-				// case-property renames never change a type name.
+				// `caseWrite.caseType` names a case TYPE. A property rename
+				// never changes it.
 				break;
 			case "lookup-carrier": {
-				const leafRename = ops.caseLeafRename;
 				if (
-					leafRename !== undefined &&
 					(field.kind === "single_select" || field.kind === "multi_select") &&
 					field.optionsSource.kind === "lookup" &&
 					field.optionsSource.filter !== undefined
 				) {
-					changed += renameCasePropertyInPredicate(
+					changed += mapCasePropertiesInPredicate(
 						field.optionsSource.filter,
-						leafRename.rename,
+						ops.resolveCaseProperty,
 					);
+				}
+				break;
+			}
+			case "case-property-ref": {
+				if (!("caseWrite" in field) || field.caseWrite === undefined) break;
+				const property = ops.resolveCaseProperty(
+					field.caseWrite.caseType,
+					field.caseWrite.property,
+				);
+				if (property !== undefined && property !== field.caseWrite.property) {
+					field.caseWrite.property = property;
+					changed++;
 				}
 				break;
 			}
 			case "predicate-ast":
 			case "entity-uuid":
-			case "case-property-ref":
 				// No field slot carries these kinds today. A new one must
-				// pick up its rewrite arm here — until then this is
-				// unreachable, kept explicit so the registry's kind union
-				// stays exhaustively handled.
+				// pick up its rewrite arm here.
 				break;
 			default: {
 				const _exhaustive: never = slot.kind;
@@ -139,17 +133,14 @@ export function rewriteFieldReferenceSlots(
  * identity-stored (uuid pointers and expression ASTs), so the only
  * pass with anything to do is the case-property cascade: a structural
  * leaf rename over the form's expression slots (same contract as
- * `FieldSlotRewriteOps.caseLeafRename`). Form-link conditions/datums
+ * `FieldSlotRewriteOps.resolveCaseProperty`). Form-link conditions/datums
  * and Connect bindings reference the form's OWN fields (CCHQ's
  * end-of-form navigation evaluates `link.xpath` in the source form's
  * context), which is why the cascade's per-carrier module match is
  * meaningful here at all.
  */
 export interface FormSlotRewriteContext {
-	caseLeafRename: {
-		rename: XPathCasePropertyRename;
-		contextualMatches: boolean;
-	};
+	resolveCaseProperty: CasePropertyNameResolver;
 }
 
 /**
@@ -171,9 +162,9 @@ export function rewriteFormReferenceSlots(
 		switch (slot.slot) {
 			case "form_display_condition":
 				if (form.displayCondition !== undefined) {
-					changed += renameCasePropertyInPredicate(
+					changed += mapCasePropertiesInPredicate(
 						form.displayCondition,
-						ctx.caseLeafRename.rename,
+						ctx.resolveCaseProperty,
 					);
 				}
 				break;
@@ -184,13 +175,11 @@ export function rewriteFormReferenceSlots(
 			case "deliver_entity_name": {
 				// AST-stored — identity leaves follow renames/moves at print;
 				// only a case-property rename touches them, structurally.
-				const leafRename = ctx.caseLeafRename;
 				for (const entry of readSlotValues(form, slot.path)) {
 					if (!isXPathExpression(entry.value)) continue;
-					const renamed = renameCasePropertyInXPath(
+					const renamed = mapCasePropertiesInXPath(
 						entry.value,
-						leafRename.rename,
-						{ contextualMatches: leafRename.contextualMatches },
+						ctx.resolveCaseProperty,
 					);
 					if (renamed > 0) changed++;
 				}
@@ -203,32 +192,33 @@ export function rewriteFormReferenceSlots(
 			case "case_operation_write_value":
 			case "case_operation_link_target_expression":
 				for (const entry of readSlotValues(form, slot.path)) {
-					changed += renameCasePropertyInExpression(
-						entry.value as Parameters<typeof renameCasePropertyInExpression>[0],
-						ctx.caseLeafRename.rename,
+					changed += mapCasePropertiesInExpression(
+						entry.value as Parameters<typeof mapCasePropertiesInExpression>[0],
+						ctx.resolveCaseProperty,
 					);
 				}
 				break;
 			case "case_operation_condition":
 			case "case_operation_write_condition":
 				for (const entry of readSlotValues(form, slot.path)) {
-					changed += renameCasePropertyInPredicate(
-						entry.value as Parameters<typeof renameCasePropertyInPredicate>[0],
-						ctx.caseLeafRename.rename,
+					changed += mapCasePropertiesInPredicate(
+						entry.value as Parameters<typeof mapCasePropertiesInPredicate>[0],
+						ctx.resolveCaseProperty,
 					);
 				}
 				break;
 			case "case_operation_write_property":
 				for (const operation of form.caseOperations ?? []) {
-					if (
-						(operation.retype ?? operation.caseType) !==
-						ctx.caseLeafRename.rename.caseType
-					) {
-						continue;
-					}
 					for (const write of operation.writes ?? []) {
-						if (write.property !== ctx.caseLeafRename.rename.oldName) continue;
-						write.property = ctx.caseLeafRename.rename.newName;
+						const caseType = operation.retype ?? operation.caseType;
+						const destination = ctx.resolveCaseProperty(
+							caseType,
+							write.property,
+						);
+						if (destination === undefined || destination === write.property) {
+							continue;
+						}
+						write.property = destination;
 						changed++;
 					}
 				}
@@ -287,17 +277,19 @@ export interface ModuleCaseRefRewrites {
  */
 export function rewriteModuleCaseRefs(
 	mod: Module,
-	rename: CasePropertyRename,
+	resolveCaseProperty: CasePropertyNameResolver,
 ): ModuleCaseRefRewrites {
 	let columnsRewritten = 0;
 	let astRefsRewritten = 0;
-	const ownTypeMatches = mod.caseType === rename.caseType;
 	for (const slot of MODULE_REFERENCE_SLOTS) {
 		switch (slot.slot) {
 			case "module_display_condition": {
 				const condition = mod.displayCondition;
 				if (condition !== undefined) {
-					astRefsRewritten += renameCasePropertyInPredicate(condition, rename);
+					astRefsRewritten += mapCasePropertiesInPredicate(
+						condition,
+						resolveCaseProperty,
+					);
 				}
 				break;
 			}
@@ -305,22 +297,22 @@ export function rewriteModuleCaseRefs(
 				// Names a case TYPE — untouched by a property rename.
 				break;
 			case "case_list_column_field": {
-				if (!ownTypeMatches) break;
 				for (const col of mod.caseListConfig?.columns ?? []) {
 					if (col.kind === "calculated") continue;
-					if (col.field === rename.oldName) {
-						col.field = rename.newName;
-						columnsRewritten++;
-					}
+					if (mod.caseType === undefined) continue;
+					const destination = resolveCaseProperty(mod.caseType, col.field);
+					if (destination === undefined || destination === col.field) continue;
+					col.field = destination;
+					columnsRewritten++;
 				}
 				break;
 			}
 			case "case_list_column_expression": {
 				for (const col of mod.caseListConfig?.columns ?? []) {
 					if (col.kind !== "calculated") continue;
-					astRefsRewritten += renameCasePropertyInExpression(
+					astRefsRewritten += mapCasePropertiesInExpression(
 						col.expression,
-						rename,
+						resolveCaseProperty,
 					);
 				}
 				break;
@@ -328,20 +320,25 @@ export function rewriteModuleCaseRefs(
 			case "case_list_filter": {
 				const filter = mod.caseListConfig?.filter;
 				if (filter !== undefined) {
-					astRefsRewritten += renameCasePropertyInPredicate(filter, rename);
+					astRefsRewritten += mapCasePropertiesInPredicate(
+						filter,
+						resolveCaseProperty,
+					);
 				}
 				break;
 			}
 			case "search_input_property": {
 				for (const inputDef of mod.caseListConfig?.searchInputs ?? []) {
 					if (inputDef.kind !== "simple") continue;
-					if (inputDef.property !== rename.oldName) continue;
 					const destination = relationDestinationCaseType(
 						inputDef.via,
 						mod.caseType,
 					);
-					if (destination !== rename.caseType) continue;
-					inputDef.property = rename.newName;
+					if (destination === undefined) continue;
+					const property = resolveCaseProperty(destination, inputDef.property);
+					if (property === undefined || property === inputDef.property)
+						continue;
+					inputDef.property = property;
 					astRefsRewritten++;
 				}
 				break;
@@ -352,10 +349,10 @@ export function rewriteModuleCaseRefs(
 				break;
 			case "search_input_default": {
 				for (const inputDef of mod.caseListConfig?.searchInputs ?? []) {
-					if (inputDef.default !== undefined) {
-						astRefsRewritten += renameCasePropertyInExpression(
+					if ("default" in inputDef && inputDef.default !== undefined) {
+						astRefsRewritten += mapCasePropertiesInExpression(
 							inputDef.default,
-							rename,
+							resolveCaseProperty,
 						);
 					}
 				}
@@ -364,25 +361,35 @@ export function rewriteModuleCaseRefs(
 			case "search_input_predicate": {
 				for (const inputDef of mod.caseListConfig?.searchInputs ?? []) {
 					if (inputDef.kind === "advanced") {
-						astRefsRewritten += renameCasePropertyInPredicate(
+						astRefsRewritten += mapCasePropertiesInPredicate(
 							inputDef.predicate,
-							rename,
+							resolveCaseProperty,
 						);
 					}
 				}
 				break;
 			}
 			case "search_button_display_condition": {
-				const condition = mod.caseSearchConfig?.searchButtonDisplayCondition;
+				const condition =
+					mod.caseSearchConfig !== undefined &&
+					"searchButtonDisplayCondition" in mod.caseSearchConfig
+						? mod.caseSearchConfig.searchButtonDisplayCondition
+						: undefined;
 				if (condition !== undefined) {
-					astRefsRewritten += renameCasePropertyInPredicate(condition, rename);
+					astRefsRewritten += mapCasePropertiesInPredicate(
+						condition,
+						resolveCaseProperty,
+					);
 				}
 				break;
 			}
 			case "excluded_owner_ids": {
 				const excluded = mod.caseSearchConfig?.excludedOwnerIds;
 				if (excluded !== undefined) {
-					astRefsRewritten += renameCasePropertyInExpression(excluded, rename);
+					astRefsRewritten += mapCasePropertiesInExpression(
+						excluded,
+						resolveCaseProperty,
+					);
 				}
 				break;
 			}

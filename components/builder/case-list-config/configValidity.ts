@@ -33,7 +33,8 @@
 //     including search-input problems and column-kind applicability
 //     mismatches. A broken column badges only the screen that shows it;
 //     off-screen sort carriers belong to Results because Default order uses
-//     them. Hidden recovery items never make an unrelated tab look broken.
+//     them. A fully hidden definition is still validated and included in
+//     `brokenColumns`, but has no screen tab to badge.
 //   - `brokenColumns` — the per-column set behind the in-canvas
 //     error marks (a tab dot must point at something findable).
 //   - `filterBroken` — used to mark Results' Cases available composer
@@ -46,11 +47,12 @@
 
 import { caseSearchPredicateVerdict } from "@/lib/doc/hooks/predicateVerdicts";
 import type { CaseWorkspaceBoundaryVerdicts } from "@/lib/doc/hooks/useCaseWorkspaceVerdicts";
+import type { ProseProjector } from "@/lib/doc/hooks/useProseProjection";
 import {
 	type CaseListConfig,
 	type CaseType,
 	type Column,
-	caseListColumnHasRuntimeRole,
+	searchInputDefault,
 	type Uuid,
 } from "@/lib/domain";
 import {
@@ -114,6 +116,7 @@ export function caseListConfigVerdicts(
 	config: CaseListConfig,
 	caseTypes: readonly CaseType[],
 	currentCaseType: string,
+	project: ProseProjector,
 	options: CaseListConfigVerdictOptions = {},
 ): CaseListConfigVerdicts {
 	const caseSearchEnabled =
@@ -138,7 +141,6 @@ export function caseListConfigVerdicts(
 		if (column.visibleInDetail !== false) detailColumnsBroken = true;
 	};
 	for (const col of config.columns) {
-		if (!caseListColumnHasRuntimeRole(col)) continue;
 		if (col.kind === "calculated") {
 			if (checkValueExpression(col.expression, bareCtx).ok) continue;
 			markBrokenColumn(col);
@@ -151,9 +153,7 @@ export function caseListConfigVerdicts(
 	}
 	for (const uuid of boundary.brokenColumnUuids) {
 		const column = config.columns.find((candidate) => candidate.uuid === uuid);
-		if (column !== undefined && caseListColumnHasRuntimeRole(column)) {
-			markBrokenColumn(column);
-		}
+		if (column !== undefined) markBrokenColumn(column);
 	}
 
 	// ── Tile placement ──
@@ -200,7 +200,12 @@ export function caseListConfigVerdicts(
 	};
 	let search =
 		boundary.searchInputsBroken || boundary.searchButtonConditionBroken;
-	const resolved = resolveRows(config.searchInputs, caseTypes, currentCaseType);
+	const resolved = resolveRows(
+		config.searchInputs,
+		caseTypes,
+		currentCaseType,
+		project,
+	);
 	for (let i = 0; i < config.searchInputs.length; i++) {
 		const row = config.searchInputs[i];
 		const rowResolved = resolved[i];
@@ -210,16 +215,10 @@ export function caseListConfigVerdicts(
 			continue;
 		}
 
-		if (row.default !== undefined) {
-			// A daterange answer is an indivisible start/end pair on the wire.
-			// The legacy scalar default slot cannot represent it faithfully, so
-			// keep Preview gated until the author removes that imported setting.
-			if (row.type === "date-range") {
-				search = true;
-				continue;
-			}
+		const rowDefault = searchInputDefault(row);
+		if (rowDefault !== undefined) {
 			const verdict = checkValueExpression(
-				row.default,
+				rowDefault,
 				defaultCtx,
 				expectedTypeForDefault(row.type),
 			);

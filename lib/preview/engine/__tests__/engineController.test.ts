@@ -7,27 +7,39 @@
  * The doc store's `load()` accepts this shape and rebuilds `fieldParent`
  * on load.
  */
+
 import { describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { xp } from "@/lib/__tests__/docHelpers";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { CaseType, Field, Uuid } from "@/lib/domain";
-import { asUuid } from "@/lib/domain";
 import type { PersistableDoc } from "@/lib/domain/blueprint";
+import { proseText } from "@/lib/domain/prose";
 import { DEFAULT_RUNTIME_STATE, EngineController } from "../engineController";
 import { previewAsMe, type ResolvedPreviewIdentity } from "../identity";
 
 // ── Fixtures ───────────────────────────────────────────────────────────
 
-const MODULE_UUID = asUuid("module-1-uuid");
-const FORM_UUID = asUuid("form-1-uuid");
-const Q1_UUID = asUuid("aaaaaaaa-0001-0001-0001-000000000001");
-const Q2_UUID = asUuid("aaaaaaaa-0002-0002-0002-000000000002");
+const MODULE_UUID = testUuid("module-1-uuid");
+const FORM_UUID = testUuid("form-1-uuid");
+const Q1_UUID = testUuid("aaaaaaaa-0001-0001-0001-000000000001");
+const Q2_UUID = testUuid("aaaaaaaa-0002-0002-0002-000000000002");
 
 /** Build a minimal survey doc with the given fields attached to a single form. */
 function makeDoc(
 	fields: Record<string, Field> = {
-		[Q1_UUID]: { uuid: Q1_UUID, id: "name", kind: "text", label: "Name" },
-		[Q2_UUID]: { uuid: Q2_UUID, id: "age", kind: "int", label: "Age" },
+		[Q1_UUID]: {
+			uuid: Q1_UUID,
+			id: "name",
+			kind: "text",
+			label: proseText("Name"),
+		},
+		[Q2_UUID]: {
+			uuid: Q2_UUID,
+			id: "age",
+			kind: "int",
+			label: proseText("Age"),
+		},
 	},
 	fieldOrder: Record<string, Uuid[]> = {
 		[FORM_UUID]: [Q1_UUID, Q2_UUID],
@@ -126,7 +138,7 @@ describe("EngineController", () => {
 		});
 
 		it("classifies capture blockers through hide, re-show, and field deletion", async () => {
-			const captureUuid = asUuid("aaaaaaaa-0020-0020-0020-000000000020");
+			const captureUuid = testUuid("aaaaaaaa-0020-0020-0020-000000000020");
 			const store = createLoadedStore(
 				makeDoc(
 					{
@@ -134,7 +146,7 @@ describe("EngineController", () => {
 							uuid: captureUuid,
 							id: "signature",
 							kind: "signature",
-							label: "Signature",
+							label: proseText("Signature"),
 							relevant: xp("false()"),
 						},
 					},
@@ -170,8 +182,8 @@ describe("EngineController", () => {
 		});
 
 		it("retires a capture path when its repeat instance is removed", () => {
-			const repeatUuid = asUuid("aaaaaaaa-0030-0030-0030-000000000030");
-			const captureUuid = asUuid("aaaaaaaa-0031-0031-0031-000000000031");
+			const repeatUuid = testUuid("aaaaaaaa-0030-0030-0030-000000000030");
+			const captureUuid = testUuid("aaaaaaaa-0031-0031-0031-000000000031");
 			const store = createLoadedStore(
 				makeDoc(
 					{
@@ -179,14 +191,14 @@ describe("EngineController", () => {
 							uuid: repeatUuid,
 							id: "visits",
 							kind: "repeat",
-							label: "Visits",
+							label: proseText("Visits"),
 							repeat_mode: "user_controlled",
 						},
 						[captureUuid]: {
 							uuid: captureUuid,
 							id: "photo",
 							kind: "image",
-							label: "Photo",
+							label: proseText("Photo"),
 						},
 					},
 					{
@@ -212,8 +224,8 @@ describe("EngineController", () => {
 		});
 
 		it("preserves repeat render identities across a same-entry rebuild", () => {
-			const repeatUuid = asUuid("aaaaaaaa-0010-0010-0010-000000000010");
-			const childUuid = asUuid("aaaaaaaa-0011-0011-0011-000000000011");
+			const repeatUuid = testUuid("aaaaaaaa-0010-0010-0010-000000000010");
+			const childUuid = testUuid("aaaaaaaa-0011-0011-0011-000000000011");
 			const store = createLoadedStore(
 				makeDoc(
 					{
@@ -221,14 +233,14 @@ describe("EngineController", () => {
 							uuid: repeatUuid,
 							id: "members",
 							kind: "repeat",
-							label: "Members",
+							label: proseText("Members"),
 							repeat_mode: "user_controlled",
 						},
 						[childUuid]: {
 							uuid: childUuid,
 							id: "name",
 							kind: "text",
-							label: "Name",
+							label: proseText("Name"),
 						},
 					},
 					{
@@ -259,28 +271,23 @@ describe("EngineController", () => {
 			const ctrl = new EngineController();
 			ctrl.setDocStore(store);
 
-			ctrl.activateForm(asUuid("does-not-exist"));
+			ctrl.activateForm(testUuid("does-not-exist"));
 
 			/* Runtime store should be empty — no form was activated */
 			expect(Object.keys(ctrl.store.getState())).toHaveLength(0);
 		});
 
-		it("returns early when the form is not referenced by any module", () => {
-			/* Orphan case: the form entity exists but no module lists it in
-			 * `formOrder`. `findModuleForForm` returns undefined and the
-			 * controller bails before touching the engine — no case-type
-			 * context, no activation. */
+		it("refuses to load a form that is not referenced by any module", () => {
+			/* Closed topology prevents an orphan form from becoming preview
+			 * state at all. The controller's unknown-form guard still covers
+			 * a stale route, while hydration rejects a structurally detached
+			 * entity before the engine can observe it. */
 			const orphanDoc = makeDoc();
 			orphanDoc.formOrder = { [MODULE_UUID]: [] };
 			const store = createBlueprintDocStore();
-			store.getState().load(orphanDoc);
-			store.getState().startTracking();
-
-			const ctrl = new EngineController();
-			ctrl.setDocStore(store);
-			ctrl.activateForm(FORM_UUID);
-
-			expect(Object.keys(ctrl.store.getState())).toHaveLength(0);
+			expect(() => store.getState().load(orphanDoc)).toThrow(
+				/invalid blueprint topology/,
+			);
 		});
 
 		it("returns early when no doc store is installed", () => {
@@ -328,7 +335,7 @@ describe("EngineController", () => {
 			/* Initial state should have 2 fields */
 			expect(Object.keys(ctrl.store.getState())).toHaveLength(2);
 
-			const newUuid = asUuid("bbbbbbbb-0003-0003-0003-000000000003");
+			const newUuid = testUuid("bbbbbbbb-0003-0003-0003-000000000003");
 			store.getState().applyMany([
 				{
 					kind: "addField",
@@ -337,7 +344,7 @@ describe("EngineController", () => {
 						uuid: newUuid,
 						id: "new_q",
 						kind: "text",
-						label: "New Field",
+						label: proseText("New Field"),
 					},
 				},
 			]);
@@ -397,17 +404,17 @@ describe("EngineController", () => {
 		});
 
 		it("re-applies the new field's default value on retype", async () => {
-			const groupUuid = asUuid("dddddddd-0001-0001-0001-000000000001");
+			const groupUuid = testUuid("dddddddd-0001-0001-0001-000000000001");
 			const doc = makeDoc(
 				{
 					[groupUuid]: {
 						uuid: groupUuid,
 						id: "container",
 						kind: "group",
-						label: "Container",
+						label: proseText("Container"),
 					},
 				},
-				{ [FORM_UUID]: [groupUuid] },
+				{ [FORM_UUID]: [groupUuid], [groupUuid]: [] },
 			);
 			const store = createLoadedStore(doc);
 			const ctrl = new EngineController();
@@ -430,28 +437,28 @@ describe("EngineController", () => {
 		});
 
 		it("preserves answered child values across a group→repeat conversion (re-path, not drop)", async () => {
-			const groupUuid = asUuid("dddddddd-0002-0002-0002-000000000001");
-			const childAUuid = asUuid("dddddddd-0002-0002-0002-000000000002");
-			const childBUuid = asUuid("dddddddd-0002-0002-0002-000000000003");
+			const groupUuid = testUuid("dddddddd-0002-0002-0002-000000000001");
+			const childAUuid = testUuid("dddddddd-0002-0002-0002-000000000002");
+			const childBUuid = testUuid("dddddddd-0002-0002-0002-000000000003");
 			const doc = makeDoc(
 				{
 					[groupUuid]: {
 						uuid: groupUuid,
 						id: "container",
 						kind: "group",
-						label: "Container",
+						label: proseText("Container"),
 					},
 					[childAUuid]: {
 						uuid: childAUuid,
 						id: "child_a",
 						kind: "text",
-						label: "Child A",
+						label: proseText("Child A"),
 					},
 					[childBUuid]: {
 						uuid: childBUuid,
 						id: "child_b",
 						kind: "text",
-						label: "Child B",
+						label: proseText("Child B"),
 					},
 				},
 				{
@@ -486,22 +493,22 @@ describe("EngineController", () => {
 		});
 
 		it("preserves answered child values across a repeat→group conversion", async () => {
-			const repeatUuid = asUuid("dddddddd-0003-0003-0003-000000000001");
-			const childUuid = asUuid("dddddddd-0003-0003-0003-000000000002");
+			const repeatUuid = testUuid("dddddddd-0003-0003-0003-000000000001");
+			const childUuid = testUuid("dddddddd-0003-0003-0003-000000000002");
 			const doc = makeDoc(
 				{
 					[repeatUuid]: {
 						uuid: repeatUuid,
 						id: "container",
 						kind: "repeat",
-						label: "Container",
+						label: proseText("Container"),
 						repeat_mode: "user_controlled",
 					},
 					[childUuid]: {
 						uuid: childUuid,
 						id: "child",
 						kind: "text",
-						label: "Child",
+						label: proseText("Child"),
 					},
 				},
 				{
@@ -532,28 +539,34 @@ describe("EngineController", () => {
 
 		it("a converted group→repeat's child value reaches computeSubmissionMutation at the reindexed path", async () => {
 			/* A registration form whose primary case type is `patient`. The group
-			 * holds a case-property child; after group→repeat the child's value
-			 * must survive the re-path so the submission mutation carries it (not
-			 * an empty reindexed path). `note` writes the module's OWN case type,
-			 * so it stays in the primary's `properties` — the walk reads it at the
-			 * reindexed `/data/container[0]/note`, proving submit sees the value. */
+			 * holds an admitted direct-child bucket; after group→repeat its values
+			 * must survive the re-path so submission materializes that same bucket
+			 * from `/data/container[0]/...`. */
 			const patientCaseType: CaseType = {
 				name: "patient",
 				properties: [
-					{ name: "case_name", label: "Name", data_type: "text" },
-					{ name: "note", label: "Note", data_type: "text" },
+					{ name: "case_name", label: proseText("Name"), data_type: "text" },
 				],
 			};
-			const moduleUuid = asUuid("eeeeeeee-0001-0001-0001-000000000001");
-			const formUuid = asUuid("eeeeeeee-0002-0002-0002-000000000001");
-			const nameUuid = asUuid("eeeeeeee-0003-0003-0003-000000000001");
-			const groupUuid = asUuid("eeeeeeee-0004-0004-0004-000000000001");
-			const noteUuid = asUuid("eeeeeeee-0005-0005-0005-000000000001");
+			const noteCaseType: CaseType = {
+				name: "note_entry",
+				parent_type: "patient",
+				properties: [
+					{ name: "case_name", label: proseText("Name"), data_type: "text" },
+					{ name: "note", label: proseText("Note"), data_type: "text" },
+				],
+			};
+			const moduleUuid = testUuid("eeeeeeee-0001-0001-0001-000000000001");
+			const formUuid = testUuid("eeeeeeee-0002-0002-0002-000000000001");
+			const nameUuid = testUuid("eeeeeeee-0003-0003-0003-000000000001");
+			const groupUuid = testUuid("eeeeeeee-0004-0004-0004-000000000001");
+			const childNameUuid = testUuid("eeeeeeee-0004-0004-0004-000000000002");
+			const noteUuid = testUuid("eeeeeeee-0005-0005-0005-000000000001");
 			const doc: PersistableDoc = {
 				appId: "test-app",
 				appName: "Test App",
 				connectType: null,
-				caseTypes: [patientCaseType],
+				caseTypes: [patientCaseType, noteCaseType],
 				modules: {
 					[moduleUuid]: {
 						uuid: moduleUuid,
@@ -575,28 +588,38 @@ describe("EngineController", () => {
 						uuid: nameUuid,
 						id: "case_name",
 						kind: "text",
-						label: "Name",
-						case_property_on: "patient",
+						label: proseText("Name"),
+						caseWrite: { caseType: "patient", property: "case_name" },
 					},
 					[groupUuid]: {
 						uuid: groupUuid,
 						id: "container",
 						kind: "group",
-						label: "Container",
+						label: proseText("Container"),
+					},
+					[childNameUuid]: {
+						uuid: childNameUuid,
+						id: "entry_name",
+						kind: "hidden",
+						calculate: xp("'Note entry'"),
+						caseWrite: {
+							caseType: "note_entry",
+							property: "case_name",
+						},
 					},
 					[noteUuid]: {
 						uuid: noteUuid,
 						id: "note",
 						kind: "text",
-						label: "Note",
-						case_property_on: "patient",
+						label: proseText("Note"),
+						caseWrite: { caseType: "note_entry", property: "note" },
 					},
 				},
 				moduleOrder: [moduleUuid],
 				formOrder: { [moduleUuid]: [formUuid] },
 				fieldOrder: {
 					[formUuid]: [nameUuid, groupUuid],
-					[groupUuid]: [noteUuid],
+					[groupUuid]: [childNameUuid, noteUuid],
 				},
 			};
 			const store = createBlueprintDocStore();
@@ -617,18 +640,19 @@ describe("EngineController", () => {
 				]);
 			await new Promise((r) => setTimeout(r, 10));
 
-			/* The child value survived the re-path — the walk reads it at the
-			 * reindexed `/data/container[0]/note`. `note` targets the module's own
-			 * case type, so it lands in the primary's `properties` (the child-case
-			 * fan-out is only for fields writing a DIFFERENT case type); the point
-			 * is the value is present, not dropped. */
-			const mutation = ctrl.computeSubmissionMutation({
-				caseTypes: [patientCaseType],
-			});
+			/* The child value survived the re-path and lands in the canonical
+			 * direct-child bucket for this concrete repeat instance. */
+			const mutation = ctrl.computeSubmissionMutation({});
 			expect(mutation.kind).toBe("registration");
 			if (mutation.kind === "registration") {
-				expect(mutation.primary.properties.note).toBe("in-progress note");
 				expect(mutation.primary.caseName).toBe("Alice");
+				expect(mutation.children).toEqual([
+					{
+						caseType: "note_entry",
+						caseName: "Note entry",
+						properties: { note: "in-progress note" },
+					},
+				]);
 			}
 		});
 	});
@@ -657,7 +681,7 @@ describe("EngineController", () => {
 						uuid: Q1_UUID,
 						id: "name",
 						kind: "text",
-						label: "Name",
+						label: proseText("Name"),
 					},
 				},
 			]);
@@ -706,8 +730,8 @@ describe("EngineController", () => {
 	});
 
 	describe("repeat-instance runtime state", () => {
-		const repeatUuid = asUuid("eeeeeeee-0001-0001-0001-000000000001");
-		const nameUuid = asUuid("eeeeeeee-0001-0001-0001-000000000002");
+		const repeatUuid = testUuid("eeeeeeee-0001-0001-0001-000000000001");
+		const nameUuid = testUuid("eeeeeeee-0001-0001-0001-000000000002");
 
 		function repeatDoc(): PersistableDoc {
 			return makeDoc(
@@ -716,14 +740,14 @@ describe("EngineController", () => {
 						uuid: repeatUuid,
 						id: "orders",
 						kind: "repeat",
-						label: "Orders",
+						label: proseText("Orders"),
 						repeat_mode: "user_controlled",
 					},
 					[nameUuid]: {
 						uuid: nameUuid,
 						id: "name",
 						kind: "text",
-						label: "Name",
+						label: proseText("Name"),
 					},
 				},
 				{
@@ -744,13 +768,13 @@ describe("EngineController", () => {
 							uuid: repeatUuid,
 							id: "orders",
 							kind: "group",
-							label: "Orders",
+							label: proseText("Orders"),
 						};
 			doc.fields[nameUuid] = {
 				uuid: nameUuid,
 				id: "photo",
 				kind: "image",
-				label: "Photo",
+				label: proseText("Photo"),
 			};
 			return doc;
 		}
@@ -936,8 +960,8 @@ describe("EngineController", () => {
 		});
 
 		it("atomically swaps two capture paths once from the complete pre/post maps", () => {
-			const firstUuid = asUuid("eeeeeeee-0010-0010-0010-000000000001");
-			const secondUuid = asUuid("eeeeeeee-0010-0010-0010-000000000002");
+			const firstUuid = testUuid("eeeeeeee-0010-0010-0010-000000000001");
+			const secondUuid = testUuid("eeeeeeee-0010-0010-0010-000000000002");
 			const store = createLoadedStore(
 				makeDoc(
 					{
@@ -945,13 +969,13 @@ describe("EngineController", () => {
 							uuid: firstUuid,
 							id: "photo",
 							kind: "image",
-							label: "Photo",
+							label: proseText("Photo"),
 						},
 						[secondUuid]: {
 							uuid: secondUuid,
 							id: "document",
 							kind: "file",
-							label: "Document",
+							label: proseText("Document"),
 						},
 					},
 					{ [FORM_UUID]: [firstUuid, secondUuid] },
@@ -1024,9 +1048,9 @@ describe("EngineController", () => {
 		});
 
 		it("preserves a capture moved directly between group and repeat parents", () => {
-			const groupUuid = asUuid("eeeeeeee-0011-0011-0011-000000000001");
-			const repeatParentUuid = asUuid("eeeeeeee-0011-0011-0011-000000000002");
-			const captureUuid = asUuid("eeeeeeee-0011-0011-0011-000000000003");
+			const groupUuid = testUuid("eeeeeeee-0011-0011-0011-000000000001");
+			const repeatParentUuid = testUuid("eeeeeeee-0011-0011-0011-000000000002");
+			const captureUuid = testUuid("eeeeeeee-0011-0011-0011-000000000003");
 			const store = createLoadedStore(
 				makeDoc(
 					{
@@ -1034,20 +1058,20 @@ describe("EngineController", () => {
 							uuid: groupUuid,
 							id: "visit",
 							kind: "group",
-							label: "Visit",
+							label: proseText("Visit"),
 						},
 						[repeatParentUuid]: {
 							uuid: repeatParentUuid,
 							id: "rounds",
 							kind: "repeat",
-							label: "Rounds",
+							label: proseText("Rounds"),
 							repeat_mode: "user_controlled",
 						},
 						[captureUuid]: {
 							uuid: captureUuid,
 							id: "photo",
 							kind: "image",
-							label: "Photo",
+							label: proseText("Photo"),
 						},
 					},
 					{
@@ -1123,9 +1147,9 @@ describe("EngineController", () => {
 		});
 
 		it("preserves capture descendants when their ancestor moves into and out of a repeat", () => {
-			const repeatParentUuid = asUuid("eeeeeeee-0012-0012-0012-000000000001");
-			const ancestorUuid = asUuid("eeeeeeee-0012-0012-0012-000000000002");
-			const captureUuid = asUuid("eeeeeeee-0012-0012-0012-000000000003");
+			const repeatParentUuid = testUuid("eeeeeeee-0012-0012-0012-000000000001");
+			const ancestorUuid = testUuid("eeeeeeee-0012-0012-0012-000000000002");
+			const captureUuid = testUuid("eeeeeeee-0012-0012-0012-000000000003");
 			const store = createLoadedStore(
 				makeDoc(
 					{
@@ -1133,20 +1157,20 @@ describe("EngineController", () => {
 							uuid: repeatParentUuid,
 							id: "rounds",
 							kind: "repeat",
-							label: "Rounds",
+							label: proseText("Rounds"),
 							repeat_mode: "user_controlled",
 						},
 						[ancestorUuid]: {
 							uuid: ancestorUuid,
 							id: "visit",
 							kind: "group",
-							label: "Visit",
+							label: proseText("Visit"),
 						},
 						[captureUuid]: {
 							uuid: captureUuid,
 							id: "photo",
 							kind: "image",
-							label: "Photo",
+							label: proseText("Photo"),
 						},
 					},
 					{
@@ -1313,12 +1337,17 @@ describe("EngineController", () => {
 			ctrl.activateForm(FORM_UUID);
 			ctrl.addRepeat(repeatUuid);
 
-			const doseUuid = asUuid("eeeeeeee-0002-0002-0002-000000000001");
+			const doseUuid = testUuid("eeeeeeee-0002-0002-0002-000000000001");
 			store.getState().applyMany([
 				{
 					kind: "addField",
 					parentUuid: repeatUuid,
-					field: { uuid: doseUuid, id: "dose", kind: "text", label: "Dose" },
+					field: {
+						uuid: doseUuid,
+						id: "dose",
+						kind: "text",
+						label: proseText("Dose"),
+					},
 				},
 			]);
 			await new Promise((r) => setTimeout(r, 10));
@@ -1416,7 +1445,7 @@ describe("EngineController", () => {
 		});
 
 		it("an expression edit recomputes every live instance", async () => {
-			const tagUuid = asUuid("eeeeeeee-0003-0003-0003-000000000001");
+			const tagUuid = testUuid("eeeeeeee-0003-0003-0003-000000000001");
 			const doc = repeatDoc();
 			doc.fields[tagUuid] = {
 				uuid: tagUuid,
@@ -1447,17 +1476,28 @@ describe("EngineController", () => {
 		});
 
 		it("per-instance values reach the submission walk", () => {
+			const patientNameUuid = testUuid("eeeeeeee-0001-0001-0001-000000000003");
 			const patientCaseType: CaseType = {
 				name: "patient",
-				properties: [{ name: "case_name", label: "Name", data_type: "text" }],
+				properties: [
+					{ name: "case_name", label: proseText("Name"), data_type: "text" },
+				],
 			};
 			const doc = repeatDoc();
+			doc.fields[patientNameUuid] = {
+				uuid: patientNameUuid,
+				id: "patient_name",
+				kind: "hidden",
+				calculate: xp("'Patient'"),
+				caseWrite: { caseType: "patient", property: "case_name" },
+			};
 			const nameField = doc.fields[nameUuid];
 			doc.fields[nameUuid] = {
 				...nameField,
 				id: "case_name",
-				case_property_on: "medication_order",
+				caseWrite: { caseType: "medication_order", property: "case_name" },
 			} as Field;
+			doc.fieldOrder[FORM_UUID] = [patientNameUuid, repeatUuid];
 			doc.fieldOrder[repeatUuid] = [nameUuid];
 			doc.forms[FORM_UUID] = {
 				...doc.forms[FORM_UUID],
@@ -1467,6 +1507,20 @@ describe("EngineController", () => {
 				...doc.modules[MODULE_UUID],
 				caseType: "patient",
 			};
+			doc.caseTypes = [
+				patientCaseType,
+				{
+					name: "medication_order",
+					parent_type: "patient",
+					properties: [
+						{
+							name: "case_name",
+							label: proseText("Medication order name"),
+							data_type: "text",
+						},
+					],
+				},
+			];
 			const store = createLoadedStore(doc);
 			const ctrl = new EngineController();
 			ctrl.setDocStore(store);
@@ -1476,9 +1530,7 @@ describe("EngineController", () => {
 			ctrl.setValueAt("/data/orders[0]/case_name", "Hydrangea");
 			ctrl.setValueAt("/data/orders[1]/case_name", "Aspirin");
 
-			const mutation = ctrl.computeSubmissionMutation({
-				caseTypes: [patientCaseType],
-			});
+			const mutation = ctrl.computeSubmissionMutation({});
 			expect(mutation).toMatchObject({
 				kind: "registration",
 				children: [
@@ -1493,24 +1545,24 @@ describe("EngineController", () => {
 		const patientCaseType: CaseType = {
 			name: "patient",
 			properties: [
-				{ name: "case_name", label: "Name", data_type: "text" },
-				{ name: "age", label: "Age", data_type: "int" },
+				{ name: "case_name", label: proseText("Name"), data_type: "text" },
+				{ name: "age", label: proseText("Age"), data_type: "int" },
 			],
 		};
 
 		it("throws when no engine is active", () => {
 			const ctrl = new EngineController();
-			expect(() =>
-				ctrl.computeSubmissionMutation({ caseTypes: [patientCaseType] }),
-			).toThrow(/controller has no active engine/);
+			expect(() => ctrl.computeSubmissionMutation({})).toThrow(
+				/controller has no active engine/,
+			);
 		});
 
 		it("delegates to the engine and returns the typed mutation", () => {
 			// Build a registration-form fixture against a `patient` module.
-			const moduleUuid = asUuid("module-2-uuid");
-			const formUuid = asUuid("form-2-uuid");
-			const nameUuid = asUuid("cccccccc-0001-0001-0001-000000000001");
-			const ageUuid = asUuid("cccccccc-0002-0002-0002-000000000002");
+			const moduleUuid = testUuid("module-2-uuid");
+			const formUuid = testUuid("form-2-uuid");
+			const nameUuid = testUuid("cccccccc-0001-0001-0001-000000000001");
+			const ageUuid = testUuid("cccccccc-0002-0002-0002-000000000002");
 			const doc: PersistableDoc = {
 				appId: "test-app",
 				appName: "Test App",
@@ -1537,15 +1589,15 @@ describe("EngineController", () => {
 						uuid: nameUuid,
 						id: "case_name",
 						kind: "text",
-						label: "Name",
-						case_property_on: "patient",
+						label: proseText("Name"),
+						caseWrite: { caseType: "patient", property: "case_name" },
 					},
 					[ageUuid]: {
 						uuid: ageUuid,
 						id: "age",
 						kind: "int",
-						label: "Age",
-						case_property_on: "patient",
+						label: proseText("Age"),
+						caseWrite: { caseType: "patient", property: "age" },
 					},
 				},
 				moduleOrder: [moduleUuid],
@@ -1563,15 +1615,13 @@ describe("EngineController", () => {
 			ctrl.onValueChange(nameUuid, "Alice");
 			ctrl.onValueChange(ageUuid, "30");
 
-			const mutation = ctrl.computeSubmissionMutation({
-				caseTypes: [patientCaseType],
-			});
+			const mutation = ctrl.computeSubmissionMutation({});
 			// The controller injects THIS entry's attachment scope, which is why
 			// the assertion is on the case-bearing slots plus explicit checks
 			// on the required submission protocol rather than whole-object equality.
 			expect(mutation).toMatchObject({
 				kind: "registration",
-				formUuid: "form-2-uuid",
+				formUuid,
 				primary: {
 					caseType: "patient",
 					caseName: "Alice",
@@ -1599,15 +1649,20 @@ describe("EngineController", () => {
 	});
 
 	describe("setPreviewIdentity", () => {
-		const WHO_UUID = asUuid("aaaaaaaa-0009-0009-0009-000000000009");
-		const REGION_UUID = asUuid("aaaaaaaa-0010-0010-0010-000000000010");
+		const WHO_UUID = testUuid("aaaaaaaa-0009-0009-0009-000000000009");
+		const REGION_UUID = testUuid("aaaaaaaa-0010-0010-0010-000000000010");
 		const ME = { id: "worker-1", email: "amina@example.org" };
 
 		/** Standard two-field doc plus a hidden `#user/username` calculate. */
 		function docWithUserCalc(): PersistableDoc {
 			return makeDoc(
 				{
-					[Q1_UUID]: { uuid: Q1_UUID, id: "name", kind: "text", label: "Name" },
+					[Q1_UUID]: {
+						uuid: Q1_UUID,
+						id: "name",
+						kind: "text",
+						label: proseText("Name"),
+					},
 					[WHO_UUID]: {
 						uuid: WHO_UUID,
 						id: "who",
@@ -1705,7 +1760,12 @@ describe("EngineController", () => {
 		it("a custom worker-property rename reprints the same AST identity in an open form", () => {
 			const doc = makeDoc(
 				{
-					[Q1_UUID]: { uuid: Q1_UUID, id: "name", kind: "text", label: "Name" },
+					[Q1_UUID]: {
+						uuid: Q1_UUID,
+						id: "name",
+						kind: "text",
+						label: proseText("Name"),
+					},
 					[WHO_UUID]: {
 						uuid: WHO_UUID,
 						id: "region",
@@ -1729,6 +1789,7 @@ describe("EngineController", () => {
 					label: "Assigned region",
 				},
 			};
+			doc.userPropertyOrder = [REGION_UUID];
 			const identity: ResolvedPreviewIdentity = {
 				actorUserId: ME.id,
 				ownerId: ME.id,

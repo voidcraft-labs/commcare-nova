@@ -42,7 +42,7 @@ interface CaseTypeDisplay {
 
 /**
  * Case types are stored as identifiers but read as concepts in the builder.
- * Only legacy identifiers that collapse to the same friendly label need their
+ * Only identifiers that collapse to the same friendly label need their
  * stored value exposed so a person can tell them apart.
  */
 function caseTypeDisplays(

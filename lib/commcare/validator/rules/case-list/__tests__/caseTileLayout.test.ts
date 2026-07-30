@@ -5,10 +5,10 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
-	asUuid,
 	type CaseTileLayout,
 	type Column,
 	plainColumn,
@@ -39,7 +39,7 @@ const registrationForm = {
 			kind: "text" as const,
 			id: "case_name",
 			label: "Name",
-			case_property_on: "patient",
+			caseWrite: { caseType: "patient", property: "case_name" },
 		}),
 	],
 };
@@ -70,7 +70,7 @@ function codesFor(
 }
 
 function named(uuid: string, field: string, cell?: TileCell): Column {
-	return plainColumn(asUuid(uuid), field, field, cell && { tile: cell });
+	return plainColumn(testUuid(uuid), field, field, cell && { tile: cell });
 }
 
 describe("caseTileLayout", () => {
@@ -140,7 +140,7 @@ describe("caseTileLayout", () => {
 
 	it("ignores an overlap between cells nothing draws", () => {
 		const hidden = (uuid: string, field: string, cell: TileCell): Column =>
-			plainColumn(asUuid(uuid), field, field, {
+			plainColumn(testUuid(uuid), field, field, {
 				tile: cell,
 				visibleInList: false,
 			});
@@ -171,7 +171,7 @@ describe("caseTileLayout", () => {
 		// zero-width sort carrier, which is CommCare's own reserved spelling
 		// for a carried-but-hidden field, and both tile templates render it
 		// inside a `d-none` wrapper.
-		const sortCarrier = plainColumn(asUuid("s"), "town", "Town", {
+		const sortCarrier = plainColumn(testUuid("s"), "town", "Town", {
 			visibleInList: false,
 			sort: { direction: "asc", priority: 0 },
 		});
@@ -184,7 +184,7 @@ describe("caseTileLayout", () => {
 	});
 
 	it("leaves a hidden field alone when it orders nothing", () => {
-		const inert = plainColumn(asUuid("h"), "town", "Town", {
+		const inert = plainColumn(testUuid("h"), "town", "Town", {
 			visibleInList: false,
 		});
 		expect(

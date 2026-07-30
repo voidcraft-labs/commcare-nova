@@ -24,6 +24,10 @@ export interface FieldState {
 	resolvedLabel?: string;
 	/** Hint with hashtag refs evaluated to runtime values. Only set when the hint contains refs. */
 	resolvedHint?: string;
+	/** Help text with structural refs evaluated to runtime values. */
+	resolvedHelp?: string;
+	/** Structural option-label refs evaluated by stable option uuid. */
+	resolvedOptionLabels?: Readonly<Record<string, string>>;
 	/** Live instance count for repeat fields. Only set on `repeat` kinds —
 	 *  undefined elsewhere. Surfaced through `useEngineState(uuid)` so the
 	 *  preview's `RepeatField` re-renders when add/remove mutates
@@ -78,8 +82,23 @@ export function fieldStatesEqual(a: FieldState, b: FieldState): boolean {
 		a.errorMessage === b.errorMessage &&
 		a.resolvedLabel === b.resolvedLabel &&
 		a.resolvedHint === b.resolvedHint &&
+		a.resolvedHelp === b.resolvedHelp &&
+		stringRecordsEqual(a.resolvedOptionLabels, b.resolvedOptionLabels) &&
 		a.repeatCount === b.repeatCount &&
 		lookupChoicesEqual(a.choices, b.choices)
+	);
+}
+
+export function stringRecordsEqual(
+	left: Readonly<Record<string, string>> | undefined,
+	right: Readonly<Record<string, string>> | undefined,
+): boolean {
+	if (left === right) return true;
+	if (!left || !right) return false;
+	const leftKeys = Object.keys(left);
+	return (
+		leftKeys.length === Object.keys(right).length &&
+		leftKeys.every((key) => left[key] === right[key])
 	);
 }
 

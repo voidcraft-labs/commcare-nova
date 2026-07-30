@@ -24,11 +24,15 @@ import { __setAuthDbForTests, type AuthDatabase } from "@/lib/auth/db";
 import { runAuthAppMigrations } from "@/lib/auth/migrate";
 import { authMigrateOptions } from "@/lib/auth-migrate-options";
 import { AUTH_TABLE_NAMES } from "@/lib/auth-schema-shared";
+import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
 
 const TEST_SECRET = "x".repeat(32);
 
-const dbHandle = setupPerTestDatabase({ databaseNamePrefix: "auth_oauth_" });
+const dbHandle = setupPerTestDatabase({
+	databaseNamePrefix: "auth_oauth_",
+	establishLocalMigrationAuthority: true,
+});
 
 /**
  * Mirror of `lib/auth.ts`'s oauth stack — same table names (so writes land in
@@ -76,6 +80,7 @@ describe("oauth-consents integration", () => {
 	let authDb: Kysely<AuthDatabase>;
 
 	beforeEach(async () => {
+		await runCaseStoreMigrations(dbHandle.db);
 		const { runMigrations } = await getMigrations(
 			authMigrateOptions(dbHandle.pool),
 		);

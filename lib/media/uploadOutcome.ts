@@ -7,7 +7,7 @@
 //
 // HQ reports `unmatched_files` as `{path, reason}` — the wire path of each
 // file it couldn't match, plus a technical reason. This module joins the doc's
-// reference walk (carrier → `AssetId`) with the manifest's asset → wire-path
+// reference walk (carrier → `MediaAssetId`) with the manifest's asset → wire-path
 // projection to turn each unmatched wire path back into its carrier(s), then
 // partitions:
 //

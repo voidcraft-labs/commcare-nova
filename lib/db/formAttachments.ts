@@ -46,7 +46,7 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { type Selectable, sql } from "kysely";
 import { roleAllowsApp } from "@/lib/auth/projectRoles";
-import { isCaptureFieldKind } from "@/lib/domain";
+import { isCaptureFieldKind, type Uuid } from "@/lib/domain";
 import {
 	captureAttachmentName,
 	captureExtensionFor,
@@ -63,6 +63,7 @@ import {
 	lockFormAttachmentProjectQuota,
 	lockFormSubmissionEntry,
 } from "./formAttachmentLocks";
+import { safePersistedSequence } from "./persistedJson";
 import type { FormAttachmentsTable } from "./pg";
 import { getAppDb, withAppTx } from "./pg";
 import { projectRoleForInTransaction } from "./projectMembership";
@@ -88,7 +89,7 @@ export interface FormAttachmentRecord {
 	projectId: string;
 	createdBy: string;
 	entryKey: string;
-	fieldUuid: string;
+	fieldUuid: Uuid;
 	instancePath: string;
 	originalFilename: string;
 	extension: string;
@@ -106,7 +107,7 @@ export interface FormAttachmentRecord {
 }
 
 export interface FormSubmissionReceiptRecord {
-	readonly formUuid: string;
+	readonly formUuid: Uuid;
 	readonly requestDigest: string;
 	readonly result: unknown;
 }
@@ -145,7 +146,7 @@ export async function loadAuthorizedFormSubmissionSnapshot(args: {
 			.where("id", "=", args.appId)
 			.forShare()
 			.executeTakeFirst();
-		if (!appRow?.project_id || appRow.deleted_at !== null) {
+		if (!appRow || appRow.deleted_at !== null) {
 			throw new FormAttachmentWriteRejectedError("App not found.");
 		}
 		const role = await projectRoleForInTransaction(
@@ -239,7 +240,7 @@ export async function createPendingFormAttachment(args: {
 	expectedAppMutationSeq: number;
 	createdBy: string;
 	entryKey: string;
-	fieldUuid: string;
+	fieldUuid: Uuid;
 	instancePath: string;
 	originalFilename: string;
 	extension: string;
@@ -264,7 +265,7 @@ export async function createPendingFormAttachment(args: {
 			.where("id", "=", args.appId)
 			.forShare()
 			.executeTakeFirst();
-		if (!app?.project_id || app.deleted_at !== null) {
+		if (!app || app.deleted_at !== null) {
 			throw new FormAttachmentWriteRejectedError("App not found.");
 		}
 		const role = await projectRoleForInTransaction(
@@ -280,7 +281,12 @@ export async function createPendingFormAttachment(args: {
 				"The app changed Projects. Reload and attach the file again.",
 			);
 		}
-		if (Number(app.mutation_seq) !== args.expectedAppMutationSeq) {
+		if (
+			safePersistedSequence(
+				app.mutation_seq,
+				`apps.mutation_seq for app ${args.appId}`,
+			) !== args.expectedAppMutationSeq
+		) {
 			throw new FormAttachmentWriteRejectedError(
 				"The form changed while the upload started. Reload and attach the file again.",
 			);
@@ -425,7 +431,7 @@ export async function compensatePendingFormAttachmentInitiation(args: {
 	projectId: string;
 	createdBy: string;
 	entryKey: string;
-	fieldUuid: string;
+	fieldUuid: Uuid;
 	instancePath: string;
 	objectKey: string;
 }): Promise<boolean> {
@@ -522,7 +528,11 @@ export async function authorizePendingFormAttachmentUpload(args: {
 			.where("id", "=", candidate.app_id)
 			.forShare()
 			.executeTakeFirst();
-		if (app?.project_id !== candidate.project_id || app.deleted_at !== null) {
+		if (
+			!app ||
+			app.deleted_at !== null ||
+			app.project_id !== candidate.project_id
+		) {
 			return null;
 		}
 		const role = await projectRoleForInTransaction(
@@ -598,7 +608,11 @@ export async function confirmFormAttachment(args: {
 			.where("id", "=", candidate.app_id)
 			.forShare()
 			.executeTakeFirst();
-		if (app?.project_id !== args.expectedProjectId || app.deleted_at !== null) {
+		if (
+			!app ||
+			app.deleted_at !== null ||
+			app.project_id !== args.expectedProjectId
+		) {
 			return { kind: "not_found" };
 		}
 		const role = await projectRoleForInTransaction(
@@ -718,11 +732,11 @@ export async function beginFormAttachmentPreparation(args: {
 	projectId: string;
 	actorUserId: string;
 	entryKey: string;
-	formUuid: string;
+	formUuid: Uuid;
 	requestDigest: string;
 	attachments: ReadonlyArray<{
 		attachmentName: string;
-		fieldUuid: string;
+		fieldUuid: Uuid;
 		instancePath: string;
 	}>;
 }): Promise<
@@ -738,7 +752,7 @@ export async function beginFormAttachmentPreparation(args: {
 			.where("id", "=", args.appId)
 			.forShare()
 			.executeTakeFirst();
-		if (app?.project_id !== args.projectId || app.deleted_at !== null) {
+		if (!app || app.deleted_at !== null || app.project_id !== args.projectId) {
 			throw new FormAttachmentWriteRejectedError("App not found.");
 		}
 		const role = await projectRoleForInTransaction(
@@ -919,7 +933,11 @@ export async function deleteUnsubmittedFormAttachment(args: {
 			.where("id", "=", candidate.app_id)
 			.forShare()
 			.executeTakeFirst();
-		if (app?.project_id !== args.expectedProjectId || app.deleted_at !== null) {
+		if (
+			!app ||
+			app.deleted_at !== null ||
+			app.project_id !== args.expectedProjectId
+		) {
 			return null;
 		}
 		const role = await projectRoleForInTransaction(
@@ -1007,7 +1025,11 @@ export async function retargetStagedFormAttachment(args: {
 			.where("id", "=", candidate.app_id)
 			.forShare()
 			.executeTakeFirst();
-		if (app?.project_id !== args.expectedProjectId || app.deleted_at !== null) {
+		if (
+			!app ||
+			app.deleted_at !== null ||
+			app.project_id !== args.expectedProjectId
+		) {
 			return null;
 		}
 		const role = await projectRoleForInTransaction(

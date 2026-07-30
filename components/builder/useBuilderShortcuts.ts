@@ -4,7 +4,6 @@ import { usePreviewModeTransition } from "@/components/builder/usePreviewModeTra
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useCanRedo, useCanUndo } from "@/lib/doc/hooks/useUndoRedo";
-import { notifyMoveRename } from "@/lib/doc/mutations/notify";
 import {
 	flattenFieldRefs,
 	getCrossLevelFieldMoveTargets,
@@ -196,8 +195,6 @@ export function useBuilderShortcuts(
 				},
 			},
 			// Shift+ArrowUp/Shift+ArrowDown — cross-level (indent/outdent) reorder.
-			// `notifyMoveRename` pops the rename-dedup toast when a cross-parent
-			// move collided with a sibling id and the reducer auto-renamed.
 			{
 				key: "ArrowUp",
 				shift: true,
@@ -208,12 +205,11 @@ export function useBuilderShortcuts(
 						asUuid(loc.selectedUuid),
 					);
 					if (!up) return false;
-					const result = moveField(asUuid(loc.selectedUuid), {
+					moveField(asUuid(loc.selectedUuid), {
 						toParentUuid: up.toParentUuid,
 						...(up.beforeUuid ? { beforeUuid: up.beforeUuid } : {}),
 						...(up.afterUuid ? { afterUuid: up.afterUuid } : {}),
 					});
-					notifyMoveRename(result);
 					return true;
 				},
 			},
@@ -227,12 +223,11 @@ export function useBuilderShortcuts(
 						asUuid(loc.selectedUuid),
 					);
 					if (!down) return false;
-					const result = moveField(asUuid(loc.selectedUuid), {
+					moveField(asUuid(loc.selectedUuid), {
 						toParentUuid: down.toParentUuid,
 						...(down.beforeUuid ? { beforeUuid: down.beforeUuid } : {}),
 						...(down.afterUuid ? { afterUuid: down.afterUuid } : {}),
 					});
-					notifyMoveRename(result);
 					return true;
 				},
 			},

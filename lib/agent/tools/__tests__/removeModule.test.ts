@@ -15,20 +15,28 @@
 
 import { describe, expect, it, vi } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import type { PreparedMutationCandidate } from "@/lib/doc/commitVerdicts";
+import type { AdmittedMutationStages } from "@/lib/doc/mutationAdmission";
+import { proseText } from "@/lib/domain/prose";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { removeModuleTool } from "../removeModule";
 
 function makeCtx() {
 	// The guarded writer returns `{ events, committedDoc }`; echo the passed
 	// post-mutation doc as the committed doc so the tool's `newDoc` reflects it.
-	const recordMutations = vi.fn(async (_m: unknown, doc: unknown) => ({
-		events: [],
-		committedDoc: doc,
-	}));
-	const recordMutationStages = vi.fn(
-		async (stages: Array<{ doc: unknown }>) => ({
+	const recordMutations = vi.fn(
+		async (prepared: PreparedMutationCandidate) => ({
 			events: [],
-			committedDoc: stages[stages.length - 1]?.doc,
+			committedDoc: prepared.nextDoc,
+		}),
+	);
+	const recordMutationStages = vi.fn(
+		async (
+			prepared: PreparedMutationCandidate,
+			_stages: AdmittedMutationStages,
+		) => ({
+			events: [],
+			committedDoc: prepared.nextDoc,
 		}),
 	);
 	const ctx: ToolExecutionContext = {
@@ -46,14 +54,14 @@ const registrationFields = (caseType: string) => [
 	f({
 		kind: "text",
 		id: "case_name",
-		label: "Name",
-		case_property_on: caseType,
+		label: proseText("Name"),
+		caseWrite: { caseType, property: "case_name" },
 	}),
 	f({
 		kind: "text",
 		id: "village",
-		label: "Village",
-		case_property_on: caseType,
+		label: proseText("Village"),
+		caseWrite: { caseType, property: "village" },
 	}),
 ];
 
@@ -76,8 +84,8 @@ function record(name: string, parentType?: string) {
 	return {
 		name,
 		properties: [
-			{ name: "case_name", label: "Name" },
-			{ name: "village", label: "Village" },
+			{ name: "case_name", label: proseText("Name") },
+			{ name: "village", label: proseText("Village") },
 		],
 		...(parentType && { parent_type: parentType }),
 	};
@@ -157,8 +165,8 @@ describe("removeModule", () => {
 								f({
 									kind: "text",
 									id: "visit_note",
-									label: "Visit note",
-									case_property_on: "visit",
+									label: proseText("Visit note"),
+									caseWrite: { caseType: "visit", property: "visit_note" },
 								}),
 							],
 						},

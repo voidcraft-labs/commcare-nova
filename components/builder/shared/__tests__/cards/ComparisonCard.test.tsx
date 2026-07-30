@@ -1,4 +1,3 @@
-import { asUuid } from "@/lib/domain";
 // @vitest-environment happy-dom
 //
 // components/builder/shared/__tests__/cards/ComparisonCard.test.tsx
@@ -18,8 +17,16 @@ import { asUuid } from "@/lib/domain";
 // the card shell's footer. Mounts through the full `PredicateCardEditor`
 // so the validity index is the real one produced by `checkPredicate`.
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+	fireEvent,
+	render as rtlRender,
+	screen,
+	waitFor,
+} from "@testing-library/react";
+import type { ReactElement, ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { BlueprintDocProvider } from "@/lib/doc/provider";
 import type { CaseType } from "@/lib/domain";
 import {
 	checkPredicate,
@@ -33,19 +40,33 @@ import {
 	sessionContext,
 	sessionUser,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { PredicateCardEditor } from "../../PredicateCardEditor";
+
+// The surfaces here spell authored prose against the document; every production
+// mount sits inside the builder's provider. Wrapping at `render` reproduces it
+// and carries through each `rerender`.
+function DocumentProvider({ children }: { readonly children: ReactNode }) {
+	return (
+		<BlueprintDocProvider appId="test-app">{children}</BlueprintDocProvider>
+	);
+}
+
+function render(ui: ReactElement) {
+	return rtlRender(ui, { wrapper: DocumentProvider });
+}
 
 const PATIENT: CaseType = {
 	name: "patient",
 	properties: [
-		{ name: "age", label: "Age", data_type: "int" },
-		{ name: "name", label: "Name", data_type: "text" },
+		{ name: "age", label: proseText("Age"), data_type: "int" },
+		{ name: "case_name", label: proseText("Case name"), data_type: "text" },
 	],
 };
 
 describe("ComparisonCard — inline errors", () => {
 	it("renders no error rows for a well-typed comparison", () => {
-		const value = eq(prop("patient", "name"), literal("Alice"));
+		const value = eq(prop("patient", "case_name"), literal("Alice"));
 		const { container } = render(
 			<PredicateCardEditor
 				value={value}
@@ -103,12 +124,12 @@ describe("ComparisonCard — exhaustive subject authoring", () => {
 		currentCaseType: "patient",
 		knownInputs: [
 			{
-				uuid: asUuid("b3dba847-fcda-4409-84cb-64e94fca14cc"),
+				uuid: testUuid("name_search"),
 				name: "name_search",
 				data_type: "text" as const,
 			},
 			{
-				uuid: asUuid("be272c54-4980-4e32-8944-26c03cae7b07"),
+				uuid: testUuid("minimum_age"),
 				name: "minimum_age",
 				data_type: "int" as const,
 			},
@@ -129,7 +150,7 @@ describe("ComparisonCard — exhaustive subject authoring", () => {
 	}
 
 	it("keeps the common property subject compact", () => {
-		renderEditor(eq(prop("patient", "name"), literal("Alice")));
+		renderEditor(eq(prop("patient", "case_name"), literal("Alice")));
 
 		expect(
 			screen.getByRole("button", {
@@ -169,7 +190,7 @@ describe("ComparisonCard — exhaustive subject authoring", () => {
 
 	it("authors a search answer as the subject and stays valid", async () => {
 		const onChange = renderEditor(
-			eq(prop("patient", "name"), literal("Alice")),
+			eq(prop("patient", "case_name"), literal("Alice")),
 		);
 
 		fireEvent.click(
@@ -191,14 +212,14 @@ describe("ComparisonCard — exhaustive subject authoring", () => {
 		if (next.kind !== "eq") throw new Error("Expected an equality predicate");
 		expect(next.left).toEqual({
 			kind: "term",
-			term: input(asUuid("b3dba847-fcda-4409-84cb-64e94fca14cc")),
+			term: input(testUuid("name_search")),
 		});
 		expect(checkPredicate(next, ctx).ok).toBe(true);
 	});
 
 	it("authors app information as the subject and stays valid", async () => {
 		const onChange = renderEditor(
-			eq(prop("patient", "name"), literal("Alice")),
+			eq(prop("patient", "case_name"), literal("Alice")),
 		);
 
 		fireEvent.click(
@@ -227,7 +248,7 @@ describe("ComparisonCard — exhaustive subject authoring", () => {
 
 	it("collects a schema-valid user field before replacing case information", async () => {
 		const onChange = renderEditor(
-			eq(prop("patient", "name"), literal("Alice")),
+			eq(prop("patient", "case_name"), literal("Alice")),
 		);
 
 		fireEvent.click(

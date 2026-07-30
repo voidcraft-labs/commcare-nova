@@ -39,6 +39,10 @@ const TOOL_ACTIONS: Record<string, ActionPhrases> = {
 	createModule: { doing: "Creating module", done: "Created module" },
 	updateModule: { doing: "Renaming module", done: "Renamed module" },
 	removeModule: { doing: "Removing module", done: "Removed module" },
+	renameCaseProperties: {
+		doing: "Renaming case properties",
+		done: "Renamed case properties",
+	},
 	addCaseListColumns: { doing: "Adding columns", done: "Added columns" },
 	updateCaseListColumn: { doing: "Updating column", done: "Updated column" },
 	removeCaseListColumn: { doing: "Removing column", done: "Removed column" },
@@ -120,6 +124,10 @@ const TOOL_ACTIONS: Record<string, ActionPhrases> = {
 	removePersona: { doing: "Removing persona", done: "Removed persona" },
 	getUsers: { doing: "Inspecting users", done: "Inspected users" },
 	updateApp: { doing: "Updating app settings", done: "Updated app settings" },
+	configureConnect: {
+		doing: "Configuring CommCare Connect",
+		done: "Configured CommCare Connect",
+	},
 	generateSchema: {
 		doing: "Recording the data model",
 		done: "Recorded the data model",
@@ -136,7 +144,7 @@ const TOOL_ACTIONS: Record<string, ActionPhrases> = {
 	getField: { doing: "Inspecting a field", done: "Inspected a field" },
 };
 
-/** Verb phrases for the app-level Connect flip, keyed by the resulting state
+/** Verb phrases for the app-level Connect target, keyed by the resulting state
  *  the tool reported (`summary.connect`). The fact is the RESULT, not the
  *  transition, so the set/switch cases share one honest "Set …" phrasing. */
 const CONNECT_ACTIONS: Record<string, string> = {
@@ -145,9 +153,9 @@ const CONNECT_ACTIONS: Record<string, string> = {
 	off: "Turned off CommCare Connect",
 };
 
-/** `updateApp` has exactly two slots (name, connect type), so its row names the
- *  act itself — "Named the app" / "Renamed the app" / a Connect phrase — instead
- *  of the generic "Updated app settings". The name renders on the secondary "→"
+/** `updateApp` owns only the app name, so its row names the act itself —
+ *  "Named the app" / "Renamed the app" — instead of the generic "Updated app
+ *  settings". The name renders on the secondary "→"
  *  line (see `toolLocation`), never inline where a long title truncates the
  *  headline. Falls back to the generic phrase for a row recorded before the
  *  tool reported these facts. */
@@ -158,9 +166,16 @@ const updateAppAction = (
 	if (summary?.nameChange) {
 		return summary.nameChange === "named" ? "Named the app" : "Renamed the app";
 	}
-	if (summary?.connect) return CONNECT_ACTIONS[summary.connect];
 	return TOOL_ACTIONS.updateApp[tense];
 };
+
+const configureConnectAction = (
+	summary: ToolCallSummary | undefined,
+	tense: keyof ActionPhrases,
+): string =>
+	summary?.connect
+		? CONNECT_ACTIONS[summary.connect]
+		: TOOL_ACTIONS.configureConnect[tense];
 
 /** Tools whose single call performs a MULTI-ITEM action — the friendly action
  *  folds in `summary.count` ("Added 3 fields", "Reordered 5 columns"), each
@@ -173,6 +188,8 @@ const COUNTABLE_ACTIONS: Record<string, (n: number) => string> = {
 		`Added ${n} ${n === 1 ? "search input" : "search inputs"}`,
 	addCaseOperations: (n) =>
 		`Added ${n} case ${n === 1 ? "operation" : "operations"}`,
+	renameCaseProperties: (n) =>
+		`Renamed ${n} case ${n === 1 ? "property" : "properties"}`,
 	addUserProperties: (n) =>
 		`Added ${n} worker-information ${n === 1 ? "property" : "properties"}`,
 	addUserTypes: (n) => `Added ${n} ${n === 1 ? "role" : "roles"}`,
@@ -315,6 +332,9 @@ export const toolAction = (part: ToolUIPart): string => {
 		return `Checked a conversion${summary.subject ? ` "${summary.subject}"` : ""}`;
 	}
 	if (name === "updateApp") return updateAppAction(summary, tense);
+	if (name === "configureConnect") {
+		return configureConnectAction(summary, tense);
+	}
 	// Multi-item actions fold the count into the verb+noun ("Added 3 fields").
 	// Count lives on the summary, which only a completed call carries — so the
 	// past tense these phrases speak is always earned.
@@ -364,14 +384,6 @@ export const toolDetail = (part: ToolUIPart): string | null => {
 	const out = part.output;
 	if (typeof out === "object" && out !== null && "error" in out) {
 		return String((out as { error: unknown }).error);
-	}
-	// updateApp's headline carries the name verb when BOTH slots changed —
-	// surface the Connect flip on the detail line so neither change is hidden.
-	if (toolName(part) === "updateApp") {
-		const summary = outputOf(part)?.summary;
-		if (summary?.nameChange && summary.connect) {
-			return CONNECT_ACTIONS[summary.connect];
-		}
 	}
 	// A structured summary already drives the action + breadcrumb — no prose
 	// needed. Only fall back to the prose `message` (or a bare-string result)

@@ -20,6 +20,8 @@
  */
 
 import type { ConversionImpact } from "@/lib/case-store";
+import type { PreparedMutationCandidate } from "@/lib/doc/commitVerdicts";
+import type { AdmittedMutationStages } from "@/lib/doc/mutationAdmission";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, CasePropertyDataType } from "@/lib/domain";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
@@ -29,14 +31,12 @@ import type {
 	MutationEvent,
 } from "@/lib/log/types";
 import type { LookupDefinitionsSnapshot } from "@/lib/lookup/types";
-import type { MediaAttachExpectation } from "@/lib/media/attachVerdicts";
 
 /**
  * What a mutation-recording commit returns: the event envelopes it logged, plus
  * the fully-hydrated committed doc (the guarded writer's `nextDoc`). The chat SA
  * adopts `committedDoc` as its working doc so it always builds on what actually
- * landed (a concurrent peer edit merged in); MCP coalesces it with the
- * post-mutation doc it already holds on a top-level dedup hit.
+ * landed (including a concurrent peer edit merged in); MCP does the same.
  *
  */
 export interface RecordMutationsResult {
@@ -111,19 +111,10 @@ export interface ToolExecutionContext {
 	 * promise resolution alone — consult the concrete surface's docstring
 	 * for the actual persistence semantics.
 	 *
-	 * `mediaExpectations` carries the media attach verdict's per-asset
-	 * requirements when the batch attaches asset references (see
-	 * `lib/media/attachVerdicts.ts`). The tool has already run the
-	 * pre-commit verdict; BOTH surfaces then re-apply the per-asset judgment
-	 * to rows read INSIDE the guarded transaction that re-verdicts the batch,
-	 * so a peer deleting the asset between the pre-commit read and the commit
-	 * can't strand a dangling reference (it surfaces here, not at export).
 	 */
 	recordMutations(
-		mutations: Mutation[],
-		doc: BlueprintDoc,
+		prepared: PreparedMutationCandidate,
 		stage?: string,
-		mediaExpectations?: readonly MediaAttachExpectation[],
 	): Promise<RecordMutationsResult>;
 
 	/**
@@ -152,7 +143,8 @@ export interface ToolExecutionContext {
 	 * is the blueprint AFTER that stage applied to the previous one's.
 	 */
 	recordMutationStages(
-		stages: StagedMutationBatch[],
+		prepared: PreparedMutationCandidate,
+		stages: AdmittedMutationStages,
 	): Promise<RecordMutationsResult>;
 
 	/** Persist a conversation event (assistant text/reasoning, tool
@@ -173,9 +165,9 @@ export interface ToolExecutionContext {
 }
 
 /**
- * Render a saga commit's park outcome as the note the tool wrapper
+ * Render a committed row migration's park outcome as the note the tool wrapper
  * appends to its success message (see `consumeParkedNote`). Typed
- * structurally so this leaf imports nothing from the saga layer.
+ * structurally so this leaf imports no storage implementation.
  */
 export function describeParkedOutcome(outcome: {
 	readonly parked: number;
@@ -201,7 +193,6 @@ export function describeParkedOutcome(outcome: {
  * edit (see `recordMutationStages`).
  */
 export interface StagedMutationBatch {
-	mutations: Mutation[];
-	doc: BlueprintDoc;
-	stage?: string;
+	readonly mutations: Mutation[];
+	readonly stage: string;
 }

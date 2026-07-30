@@ -241,7 +241,6 @@ function walkOuter(p: Predicate, findings: NestedWalkFinding[]): void {
 		case "lte":
 		case "in":
 		case "between":
-		case "is-null":
 		case "is-blank":
 		case "match":
 		case "multi-select-contains":
@@ -343,7 +342,6 @@ function walkInsideAncestor(
 			if (p.upper !== undefined)
 				scanExpressionInsideAncestor(p.upper, outerKind, findings);
 			return;
-		case "is-null":
 		case "is-blank":
 			scanExpressionInsideAncestor(p.left, outerKind, findings);
 			return;

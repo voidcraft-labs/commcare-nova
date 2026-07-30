@@ -228,34 +228,27 @@ export async function readLookupReferencingApps(
  * This is never a delta API. Deletes are app-wide and child-first so stale
  * source-Project edges are removed; inserts are parent-first in canonical
  * order so every column's implied table edge exists before its column edge.
- * A null/invalid Project may clear to the empty set but can never gain targets.
+ * The app's required Project is part of every replacement, including an empty
+ * target set.
  */
 export async function replaceLookupReferenceEdges(
 	tx: Transaction<AppDatabase>,
 	args: {
 		appId: string;
-		projectId: string | null;
+		projectId: string;
 		targets: LookupReferenceTargetSet;
 	},
 ): Promise<void> {
 	const targets = normalizeLookupReferenceTargetSet(args.targets);
 	const hasTargets =
 		targets.tableIds.length > 0 || targets.columnTargets.length > 0;
-	const targetProjectId =
-		typeof args.projectId === "string" && args.projectId.length > 0
-			? args.projectId
-			: null;
 
-	// Reject before deleting anything so even a caller that catches the typed
-	// error inside its transaction cannot accidentally turn a bad replacement
-	// into an edge clear.
-	if (hasTargets && targetProjectId === null) throwMismatch();
 	if (hasTargets) {
 		const app = await tx
 			.selectFrom("apps")
 			.select("id")
 			.where("id", "=", args.appId)
-			.where("project_id", "=", targetProjectId)
+			.where("project_id", "=", args.projectId)
 			.executeTakeFirst();
 		if (!app) throwMismatch();
 	}
@@ -269,13 +262,13 @@ export async function replaceLookupReferenceEdges(
 		.where("app_id", "=", args.appId)
 		.execute();
 
-	if (!hasTargets || targetProjectId === null) return;
+	if (!hasTargets) return;
 
 	await tx
 		.insertInto("lookup_table_references")
 		.values(
 			targets.tableIds.map((tableId) => ({
-				project_id: targetProjectId,
+				project_id: args.projectId,
 				table_id: tableId,
 				app_id: args.appId,
 			})),
@@ -287,7 +280,7 @@ export async function replaceLookupReferenceEdges(
 			.insertInto("lookup_column_references")
 			.values(
 				targets.columnTargets.map(({ tableId, columnId }) => ({
-					project_id: targetProjectId,
+					project_id: args.projectId,
 					table_id: tableId,
 					column_id: columnId,
 					app_id: args.appId,

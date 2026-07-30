@@ -13,13 +13,14 @@ import { describe, expect, it } from "vitest";
 import { focusElement } from "@/__tests__/helpers/baseUiInteractions";
 import type { CaseType } from "@/lib/domain";
 import { coalesce, literal, term } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { ExpressionCardEditor } from "../../../ExpressionCardEditor";
 
 const PATIENT: CaseType = {
 	name: "patient",
 	properties: [
-		{ name: "primary", label: "Primary", data_type: "text" },
-		{ name: "fallback", label: "Fallback", data_type: "text" },
+		{ name: "primary", label: proseText("Primary"), data_type: "text" },
+		{ name: "fallback", label: proseText("Fallback"), data_type: "text" },
 	],
 };
 

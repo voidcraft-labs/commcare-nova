@@ -9,7 +9,8 @@ import {
 	useRef,
 } from "react";
 import { useReconcilerContext } from "@/lib/collab/context";
-import { isBuiltinIconRef } from "@/lib/domain/builtinIcons";
+import { type IconRef, isBuiltinIconRef } from "@/lib/domain/builtinIcons";
+import type { MediaAssetId } from "@/lib/domain/multimedia";
 import { useAccessPhase, useProjectScopeEpoch } from "@/lib/session/hooks";
 import { mediaSrc } from "./mediaClient";
 
@@ -36,7 +37,7 @@ function retireResource(element: ProjectResourceElement | null): void {
 }
 
 function useProjectResource<T extends ProjectResourceElement>(
-	assetId: string,
+	assetId: IconRef,
 ): {
 	ref: RefObject<T | null>;
 	scopeKey: string;
@@ -57,7 +58,7 @@ function useProjectResource<T extends ProjectResourceElement>(
 
 /** Authorized URL for non-embedded uses such as a download link. Resource
  * elements should use the wrappers below so they also get synchronous teardown. */
-export function useProjectMediaUrl(assetId: string): {
+export function useProjectMediaUrl(assetId: IconRef): {
 	scopeKey: string;
 	src: string | undefined;
 } {
@@ -81,7 +82,7 @@ type ProjectMediaImageProps = Omit<
 	ComponentPropsWithoutRef<"img">,
 	"src" | "alt"
 > & {
-	assetId: string;
+	assetId: IconRef;
 	alt: string;
 };
 
@@ -105,7 +106,7 @@ export function ProjectMediaImage({
 }
 
 type ProjectMediaAudioProps = Omit<ComponentPropsWithoutRef<"audio">, "src"> & {
-	assetId: string;
+	assetId: MediaAssetId;
 };
 
 export function ProjectMediaAudio({
@@ -125,7 +126,7 @@ export function ProjectMediaAudio({
 }
 
 type ProjectMediaVideoProps = Omit<ComponentPropsWithoutRef<"video">, "src"> & {
-	assetId: string;
+	assetId: MediaAssetId;
 };
 
 export function ProjectMediaVideo({
@@ -147,7 +148,7 @@ export function ProjectMediaVideo({
 type ProjectMediaFrameProps = Omit<
 	ComponentPropsWithoutRef<"iframe">,
 	"src"
-> & { assetId: string };
+> & { assetId: MediaAssetId };
 
 export function ProjectMediaFrame({
 	assetId,

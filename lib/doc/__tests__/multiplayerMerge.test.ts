@@ -1,4 +1,6 @@
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { proseText } from "@/lib/domain/prose";
 /**
  * Phase 2 — merge-by-construction state-model tests.
  *
@@ -15,10 +17,10 @@ import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { updateColumnMutation } from "@/lib/agent/blueprintHelpers";
 import { assembleFieldMutations } from "@/lib/agent/tools/shared/fieldAssembly";
-import { batchTargetsMissing } from "@/lib/db/commitGuard";
+import { mutationTargetsInvalid } from "@/lib/db/commitGuard";
 import {
+	columnContentSnapshot,
 	columnSnapshotMutations,
-	legacyCompatibleColumnSnapshot,
 } from "@/lib/doc/caseListColumnMutations";
 import {
 	cleanupCaseSearchAfterFinalInputMutation,
@@ -42,22 +44,15 @@ import { searchInputUpdateMutation } from "@/lib/doc/searchInputMutations";
 import type { Mutation, Uuid } from "@/lib/doc/types";
 import { updateUserTypeValueMutations } from "@/lib/doc/userMutations";
 import {
-	asUuid,
 	type BlueprintDoc,
 	calculatedColumn,
 	emptyCaseListConfig,
 	type Field,
-	type Module,
+	fieldCaseWrite,
+	proseTemplateText,
 	simpleSearchInputDef,
 } from "@/lib/domain";
-import {
-	eq,
-	expressionReferencesSearchInput,
-	input,
-	literal,
-	predicateReferencesSearchInput,
-	term,
-} from "@/lib/domain/predicate";
+import { input, literal, term } from "@/lib/domain/predicate";
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
@@ -67,30 +62,8 @@ function apply(doc: BlueprintDoc, ...batches: Mutation[][]): BlueprintDoc {
 	});
 }
 
-/** The pre-visibility-patch updateColumn reducer kept for rolling-deploy proof. */
-function applyWithLegacyColumnReducer(
-	doc: BlueprintDoc,
-	batch: Mutation[],
-): BlueprintDoc {
-	return produce(doc, (draft) => {
-		for (const mutation of batch) {
-			if (mutation.kind !== "updateColumn") {
-				throw new Error(`legacy receiver cannot dispatch ${mutation.kind}`);
-			}
-			const config = draft.modules[mutation.moduleUuid]?.caseListConfig;
-			const index = config?.columns.findIndex(
-				(column) => column.uuid === mutation.uuid,
-			);
-			if (!config || index === undefined || index < 0) continue;
-			// Sequence lives in the config's two ordering arrays, so replacing a
-			// column's BODY leaves its place alone with nothing to preserve.
-			config.columns[index] = { ...mutation.column, uuid: mutation.uuid };
-		}
-	});
-}
-
-function backfilled(doc: BlueprintDoc): BlueprintDoc {
-	return structuredClone(doc);
+function canonicalFixture(doc: BlueprintDoc): BlueprintDoc {
+	return doc;
 }
 
 function byId(doc: BlueprintDoc, id: string): Field {
@@ -103,9 +76,9 @@ function fieldDisplayIds(doc: BlueprintDoc, formUuid: Uuid): string[] {
 	return orderedFieldUuids(doc, formUuid).map((u) => doc.fields[u]?.id ?? "");
 }
 
-/** A two-field survey form (q1, q2) — backfilled so every entity is keyed. */
+/** A three-field survey form whose fixture entities are all keyed. */
 function twoFieldForm(): { doc: BlueprintDoc; formUuid: Uuid } {
-	const doc = backfilled(
+	const doc = canonicalFixture(
 		buildDoc({
 			modules: [
 				{
@@ -115,9 +88,9 @@ function twoFieldForm(): { doc: BlueprintDoc; formUuid: Uuid } {
 							name: "F",
 							type: "survey",
 							fields: [
-								f({ kind: "text", id: "q1", label: "Q1" }),
-								f({ kind: "text", id: "q2", label: "Q2" }),
-								f({ kind: "text", id: "q3", label: "Q3" }),
+								f({ kind: "text", id: "q1", label: proseText("Q1") }),
+								f({ kind: "text", id: "q2", label: proseText("Q2") }),
+								f({ kind: "text", id: "q3", label: proseText("Q3") }),
 							],
 						},
 					],
@@ -133,7 +106,7 @@ function twoFieldForm(): { doc: BlueprintDoc; formUuid: Uuid } {
 
 describe("concurrent disjoint reorders converge", () => {
 	it("two members reordering different forms' fields both land", () => {
-		const doc = backfilled(
+		const doc = canonicalFixture(
 			buildDoc({
 				modules: [
 					{
@@ -143,16 +116,16 @@ describe("concurrent disjoint reorders converge", () => {
 								name: "FA",
 								type: "survey",
 								fields: [
-									f({ kind: "text", id: "a1", label: "A1" }),
-									f({ kind: "text", id: "a2", label: "A2" }),
+									f({ kind: "text", id: "a1", label: proseText("A1") }),
+									f({ kind: "text", id: "a2", label: proseText("A2") }),
 								],
 							},
 							{
 								name: "FB",
 								type: "survey",
 								fields: [
-									f({ kind: "text", id: "b1", label: "B1" }),
-									f({ kind: "text", id: "b2", label: "B2" }),
+									f({ kind: "text", id: "b1", label: proseText("B1") }),
+									f({ kind: "text", id: "b2", label: proseText("B2") }),
 								],
 							},
 						],
@@ -217,14 +190,14 @@ describe("granular catalog merges", () => {
 			{
 				kind: "addCaseProperty",
 				caseType: "patient",
-				property: { name: "age", label: "Age" },
+				property: { name: "age", label: proseText("Age") },
 			},
 		];
 		const batchB: Mutation[] = [
 			{
 				kind: "addCaseProperty",
 				caseType: "patient",
-				property: { name: "village", label: "Village" },
+				property: { name: "village", label: proseText("Village") },
 			},
 		];
 		const merged = apply(doc, batchA, batchB);
@@ -239,48 +212,6 @@ describe("granular catalog merges", () => {
 			?.properties.map((p) => p.name)
 			.sort();
 		expect(reverseNames).toEqual(["age", "village"]);
-	});
-
-	it("a field on a concurrently-retired type is 409'd via CASE_PROPERTY_ON_UNKNOWN_TYPE", () => {
-		// `prev` has the type declared with a writer; a peer retired it. Re-apply
-		// the writer-add batch on the retired `freshDoc` → the field points at an
-		// absent type → the gate rejects.
-		const freshDoc = buildDoc({
-			caseTypes: null,
-			modules: [
-				{
-					name: "Patients",
-					caseType: "patient",
-					forms: [{ name: "F", type: "survey", fields: [] }],
-				},
-			],
-		});
-		const formUuid = freshDoc.formOrder[freshDoc.moduleOrder[0]][0];
-		const batch: Mutation[] = [
-			{
-				kind: "addField",
-				parentUuid: formUuid,
-				field: f({
-					kind: "text",
-					id: "age",
-					label: "Age",
-					case_property_on: "patient",
-				}) as unknown as Field,
-			},
-		];
-		const verdict = mutationCommitVerdict(
-			freshDoc,
-			batch,
-			LOOKUP_CONTEXT_UNAVAILABLE,
-		);
-		expect(verdict.ok).toBe(false);
-		if (!verdict.ok) {
-			expect(
-				verdict.introduced.some(
-					(e) => e.code === "CASE_PROPERTY_ON_UNKNOWN_TYPE",
-				),
-			).toBe(true);
-		}
 	});
 
 	it("the diff emits setCaseTypeMeta with ONLY the changed ancestry slot", () => {
@@ -350,14 +281,14 @@ describe("disjoint collection edits merge", () => {
 		colA: Uuid;
 		colB: Uuid;
 	} {
-		const doc = backfilled(
+		const doc = canonicalFixture(
 			buildDoc({
 				caseTypes: [
 					{
 						name: "patient",
 						properties: [
-							{ name: "case_name", label: "Name" },
-							{ name: "age", label: "Age" },
+							{ name: "case_name", label: proseText("Name") },
+							{ name: "age", label: proseText("Age") },
 						],
 					},
 				],
@@ -377,14 +308,17 @@ describe("disjoint collection edits merge", () => {
 									f({
 										kind: "text",
 										id: "case_name",
-										label: "Name",
-										case_property_on: "patient",
+										label: proseText("Name"),
+										caseWrite: {
+											caseType: "patient",
+											property: "case_name",
+										},
 									}),
 									f({
 										kind: "int",
 										id: "age",
-										label: "Age",
-										case_property_on: "patient",
+										label: proseText("Age"),
+										caseWrite: { caseType: "patient", property: "age" },
 									}),
 								],
 							},
@@ -406,7 +340,6 @@ describe("disjoint collection edits merge", () => {
 				moduleUuid,
 				uuid: colA,
 				column: {
-					uuid: colA,
 					kind: "plain",
 					field: "case_name",
 					header: "Patient name",
@@ -418,7 +351,7 @@ describe("disjoint collection edits merge", () => {
 				kind: "updateColumn",
 				moduleUuid,
 				uuid: colB,
-				column: { uuid: colB, kind: "plain", field: "age", header: "Years" },
+				column: { kind: "plain", field: "age", header: "Years" },
 			},
 		];
 		const merged = apply(doc, batchA, batchB);
@@ -464,7 +397,7 @@ describe("disjoint collection edits merge", () => {
 		expect(formatBatch).toContainEqual(
 			expect.objectContaining({
 				kind: "updateColumn",
-				preserveVisibility: true,
+				column: expect.objectContaining({ header: "Patient name" }),
 			}),
 		);
 
@@ -559,7 +492,7 @@ describe("disjoint collection edits merge", () => {
 		expect(formatBatch).toContainEqual(
 			expect.objectContaining({
 				kind: "updateColumn",
-				preserveVisibility: true,
+				column: expect.objectContaining({ header: "Patient name" }),
 			}),
 		);
 
@@ -598,7 +531,7 @@ describe("disjoint collection edits merge", () => {
 		expect(formatBatch).toEqual([
 			expect.objectContaining({
 				kind: "updateColumn",
-				preserveSort: true,
+				column: expect.objectContaining({ header: "Peer patient name" }),
 			}),
 		]);
 
@@ -612,80 +545,6 @@ describe("disjoint collection edits merge", () => {
 			expect(column?.header).toBe("Peer patient name");
 			expect(column?.sort).toEqual({ direction: "desc", priority: 0 });
 		}
-	});
-
-	it("unmarked updateColumn events retain legacy visibility semantics", () => {
-		const { doc, moduleUuid, colA } = moduleWithTwoColumns();
-		const current = doc.modules[moduleUuid].caseListConfig?.columns.find(
-			(candidate) => candidate.uuid === colA,
-		);
-		if (!current) throw new Error("fixture column missing");
-
-		const hidden = apply(doc, [
-			{
-				kind: "updateColumn",
-				moduleUuid,
-				uuid: colA,
-				column: { ...current, visibleInList: false },
-			},
-		]);
-		expect(
-			hidden.modules[moduleUuid].caseListConfig?.columns.find(
-				(candidate) => candidate.uuid === colA,
-			)?.visibleInList,
-		).toBe(false);
-
-		const { visibleInList: _visibility, ...shownColumn } = current;
-		const shown = apply(hidden, [
-			{
-				kind: "updateColumn",
-				moduleUuid,
-				uuid: colA,
-				column: shownColumn,
-			},
-		]);
-		expect(
-			shown.modules[moduleUuid].caseListConfig?.columns.find(
-				(candidate) => candidate.uuid === colA,
-			)?.visibleInList,
-		).toBeUndefined();
-	});
-
-	it("new visibility patches remain effective on a pre-deploy receiver", () => {
-		const { doc, moduleUuid, colA } = moduleWithTwoColumns();
-		const hiddenDoc = produce(doc, (draft) => {
-			const column = draft.modules[moduleUuid].caseListConfig?.columns.find(
-				(candidate) => candidate.uuid === colA,
-			);
-			if (column) column.visibleInList = false;
-		});
-		const hideBatch = diffDocsToMutations(doc, hiddenDoc);
-		expect(
-			hideBatch.every((mutation) => mutation.kind === "updateColumn"),
-		).toBe(true);
-		const legacyHidden = applyWithLegacyColumnReducer(doc, hideBatch);
-		expect(
-			legacyHidden.modules[moduleUuid].caseListConfig?.columns.find(
-				(candidate) => candidate.uuid === colA,
-			)?.visibleInList,
-		).toBe(false);
-
-		const shownDoc = produce(hiddenDoc, (draft) => {
-			const column = draft.modules[moduleUuid].caseListConfig?.columns.find(
-				(candidate) => candidate.uuid === colA,
-			);
-			if (column) delete column.visibleInList;
-		});
-		const showBatch = diffDocsToMutations(hiddenDoc, shownDoc);
-		expect(
-			showBatch.every((mutation) => mutation.kind === "updateColumn"),
-		).toBe(true);
-		const legacyShown = applyWithLegacyColumnReducer(legacyHidden, showBatch);
-		expect(
-			legacyShown.modules[moduleUuid].caseListConfig?.columns.find(
-				(candidate) => candidate.uuid === colA,
-			)?.visibleInList,
-		).toBeUndefined();
 	});
 
 	it("Results and Details reorders commute and survive a stale content edit", () => {
@@ -721,7 +580,7 @@ describe("disjoint collection edits merge", () => {
 				// Captured before either reorder. Sequence lives in the config's
 				// ordering arrays rather than on the column, so a stale BODY has
 				// nothing to say about where either surface shows it.
-				column: legacyCompatibleColumnSnapshot({
+				column: columnContentSnapshot({
 					...original,
 					header: "Patient",
 				}),
@@ -775,14 +634,14 @@ describe("disjoint collection edits merge", () => {
 
 	it("two search-order gestures write one moved field each and commute", () => {
 		const inputA = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000321"),
+			testUuid("00000000-0000-4000-8000-000000000321"),
 			"case_name",
 			"Patient name",
 			"text",
 			"case_name",
 		);
 		const inputB = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000322"),
+			testUuid("00000000-0000-4000-8000-000000000322"),
 			"external_id",
 			"External ID",
 			"text",
@@ -790,14 +649,14 @@ describe("disjoint collection edits merge", () => {
 		);
 		const config = caseListConfig([{ field: "case_name", header: "Name" }]);
 		config.searchInputs = [inputA, inputB];
-		const doc = backfilled(
+		const doc = canonicalFixture(
 			buildDoc({
 				caseTypes: [
 					{
 						name: "patient",
 						properties: [
-							{ name: "case_name", label: "Name" },
-							{ name: "external_id", label: "External ID" },
+							{ name: "case_name", label: proseText("Name") },
+							{ name: "external_id", label: proseText("External ID") },
 						],
 					},
 				],
@@ -860,7 +719,7 @@ describe("disjoint collection edits merge", () => {
 	});
 
 	it("two members editing different options of one field merge", () => {
-		const doc = backfilled(
+		const doc = canonicalFixture(
 			buildDoc({
 				modules: [
 					{
@@ -873,19 +732,19 @@ describe("disjoint collection edits merge", () => {
 									f({
 										kind: "single_select",
 										id: "color",
-										label: "Color",
+										label: proseText("Color"),
 										optionsSource: {
 											kind: "inline",
 											options: [
 												{
-													uuid: asUuid("5021f0cd-9ae1-435f-a116-2875067801d4"),
+													uuid: testUuid("color-red"),
 													value: "r",
-													label: "Red",
+													label: proseText("Red"),
 												},
 												{
-													uuid: asUuid("e0e52f9c-f18e-4057-ae77-c35421f9cd52"),
+													uuid: testUuid("color-green"),
 													value: "g",
-													label: "Green",
+													label: proseText("Green"),
 												},
 											],
 										},
@@ -902,7 +761,7 @@ describe("disjoint collection edits merge", () => {
 			(field.kind !== "single_select" && field.kind !== "multi_select") ||
 			field.optionsSource.kind !== "inline"
 		) {
-			throw new Error("expected inline select");
+			throw new Error("expected inline select field");
 		}
 		const optR = field.optionsSource.options[0].uuid;
 		const optG = field.optionsSource.options[1].uuid;
@@ -911,7 +770,7 @@ describe("disjoint collection edits merge", () => {
 				kind: "updateOption",
 				fieldUuid: field.uuid,
 				uuid: optR,
-				option: { uuid: optR, value: "r", label: "Crimson" },
+				option: { uuid: optR, value: "r", label: proseText("Crimson") },
 			},
 		];
 		const batchB: Mutation[] = [
@@ -919,7 +778,7 @@ describe("disjoint collection edits merge", () => {
 				kind: "updateOption",
 				fieldUuid: field.uuid,
 				uuid: optG,
-				option: { uuid: optG, value: "g", label: "Emerald" },
+				option: { uuid: optG, value: "g", label: proseText("Emerald") },
 			},
 		];
 		const merged = apply(doc, batchA, batchB);
@@ -929,16 +788,21 @@ describe("disjoint collection edits merge", () => {
 				mergedField.kind !== "multi_select") ||
 			mergedField.optionsSource.kind !== "inline"
 		) {
-			throw new Error("expected merged inline select");
+			throw new Error("expected inline select field");
 		}
 		const opts = mergedField.optionsSource.options;
 		const labelByUuid = new Map(opts.map((o) => [o.uuid, o.label]));
-		expect(labelByUuid.get(optR)).toBe("Crimson");
-		expect(labelByUuid.get(optG)).toBe("Emerald");
+		const redLabel = labelByUuid.get(optR);
+		const greenLabel = labelByUuid.get(optG);
+		if (!redLabel || !greenLabel) {
+			throw new Error("expected both concurrently updated options");
+		}
+		expect(proseTemplateText(redLabel)).toBe("Crimson");
+		expect(proseTemplateText(greenLabel)).toBe("Emerald");
 	});
 
 	it("removeOption below two options is gate-rejected (SELECT_TOO_FEW_OPTIONS)", () => {
-		const doc = backfilled(
+		const doc = canonicalFixture(
 			buildDoc({
 				modules: [
 					{
@@ -951,19 +815,19 @@ describe("disjoint collection edits merge", () => {
 									f({
 										kind: "single_select",
 										id: "color",
-										label: "Color",
+										label: proseText("Color"),
 										optionsSource: {
 											kind: "inline",
 											options: [
 												{
-													uuid: asUuid("750675b5-1eca-40f5-a64a-62f547182ad3"),
+													uuid: testUuid("color-red"),
 													value: "r",
-													label: "Red",
+													label: proseText("Red"),
 												},
 												{
-													uuid: asUuid("762250b7-92b5-455a-a151-e6eeb11931f4"),
+													uuid: testUuid("color-green"),
 													value: "g",
-													label: "Green",
+													label: proseText("Green"),
 												},
 											],
 										},
@@ -980,7 +844,7 @@ describe("disjoint collection edits merge", () => {
 			(field.kind !== "single_select" && field.kind !== "multi_select") ||
 			field.optionsSource.kind !== "inline"
 		) {
-			throw new Error("expected inline select");
+			throw new Error("expected inline select field");
 		}
 		const batch: Mutation[] = [
 			{
@@ -997,7 +861,7 @@ describe("disjoint collection edits merge", () => {
 		expect(verdict.ok).toBe(false);
 		if (!verdict.ok) {
 			expect(
-				verdict.introduced.some((e) => e.code === "SELECT_TOO_FEW_OPTIONS"),
+				verdict.findings.some((e) => e.code === "SELECT_TOO_FEW_OPTIONS"),
 			).toBe(true);
 		}
 	});
@@ -1009,12 +873,12 @@ describe("setCaseListMeta on a peer-removed config", () => {
 	/** A case-list module whose config carries a filter — the slot a
 	 *  concurrent `setCaseListMeta` edits. */
 	function moduleWithFilter(): { doc: BlueprintDoc; moduleUuid: Uuid } {
-		const doc = backfilled(
+		const doc = canonicalFixture(
 			buildDoc({
 				caseTypes: [
 					{
 						name: "patient",
-						properties: [{ name: "case_name", label: "Name" }],
+						properties: [{ name: "case_name", label: proseText("Name") }],
 					},
 				],
 				modules: [
@@ -1040,7 +904,7 @@ describe("setCaseListMeta on a peer-removed config", () => {
 			{
 				kind: "updateModule",
 				uuid: moduleUuid,
-				patch: { caseListConfig: null } as unknown as Partial<Module>,
+				patch: { caseListConfig: null },
 			},
 		]);
 		expect(aCommitted.modules[moduleUuid].caseListConfig).toBeUndefined();
@@ -1057,7 +921,7 @@ describe("setCaseListMeta on a peer-removed config", () => {
 		// On the guarded re-apply against A's committed doc, B's edit targets a
 		// config that no longer exists → a conflict (→ BlueprintCommitRejectedError
 		// → 409 reload), NOT a silent no-op that resurrects the case list.
-		expect(batchTargetsMissing(aCommitted, bBatch)).toBe(true);
+		expect(mutationTargetsInvalid(aCommitted, bBatch)).toBe(true);
 	});
 
 	it("reducer does not resurrect the config even if the guard is bypassed", () => {
@@ -1066,7 +930,7 @@ describe("setCaseListMeta on a peer-removed config", () => {
 			{
 				kind: "updateModule",
 				uuid: moduleUuid,
-				patch: { caseListConfig: null } as unknown as Partial<Module>,
+				patch: { caseListConfig: null },
 			},
 		]);
 		// Apply B's setCaseListMeta directly (bypassing the guard): the reducer
@@ -1091,7 +955,7 @@ describe("setCaseListMeta on a peer-removed config", () => {
 				patch: { filter: { kind: "match-none" } },
 			},
 		];
-		expect(batchTargetsMissing(doc, batch)).toBe(false);
+		expect(mutationTargetsInvalid(doc, batch)).toBe(false);
 		const merged = apply(doc, batch);
 		expect(merged.modules[moduleUuid].caseListConfig?.filter).toEqual({
 			kind: "match-none",
@@ -1107,14 +971,14 @@ describe("setCaseListMeta on a peer-removed config", () => {
 			{
 				kind: "updateModule",
 				uuid: moduleUuid,
-				patch: { caseListConfig: null } as unknown as Partial<Module>,
+				patch: { caseListConfig: null },
 			},
 		]);
 		const rebirth: Mutation[] = [
 			{
 				kind: "updateModule",
 				uuid: moduleUuid,
-				patch: { caseListConfig: emptyCaseListConfig() },
+				patch: {},
 				ensureCaseListConfig: true,
 			},
 			{
@@ -1131,7 +995,7 @@ describe("setCaseListMeta on a peer-removed config", () => {
 				patch: { filter: { kind: "match-all" } },
 			},
 		];
-		expect(batchTargetsMissing(cleared, rebirth)).toBe(false);
+		expect(mutationTargetsInvalid(cleared, rebirth)).toBe(false);
 	});
 });
 
@@ -1139,7 +1003,7 @@ describe("setCaseListMeta on a peer-removed config", () => {
 
 describe("diff — case-list presence transition", () => {
 	it("emits an idempotent ensure for an empty absent→present transition", () => {
-		const prev = backfilled(
+		const prev = canonicalFixture(
 			buildDoc({
 				modules: [{ name: "M", caseType: "patient" }],
 			}),
@@ -1152,7 +1016,7 @@ describe("diff — case-list presence transition", () => {
 		expect(diff).toContainEqual({
 			kind: "updateModule",
 			uuid: moduleUuid,
-			patch: { caseListConfig: emptyCaseListConfig() },
+			patch: {},
 			ensureCaseListConfig: true,
 		});
 		expect(apply(prev, diff).modules[moduleUuid].caseListConfig).toEqual(
@@ -1161,14 +1025,14 @@ describe("diff — case-list presence transition", () => {
 	});
 
 	it("replays a populated birth over a peer config without losing peer items", () => {
-		const prev = backfilled(
+		const prev = canonicalFixture(
 			buildDoc({
 				modules: [{ name: "M", caseType: "patient" }],
 			}),
 		);
 		const moduleUuid = prev.moduleOrder[0];
-		const localColumnUuid = asUuid("00000000-0000-4000-8000-000000000061");
-		const peerColumnUuid = asUuid("00000000-0000-4000-8000-000000000062");
+		const localColumnUuid = testUuid("00000000-0000-4000-8000-000000000061");
+		const peerColumnUuid = testUuid("00000000-0000-4000-8000-000000000062");
 		const next = produce(prev, (draft) => {
 			draft.modules[moduleUuid].caseListConfig = {
 				columns: [
@@ -1189,7 +1053,7 @@ describe("diff — case-list presence transition", () => {
 		expect(localBatch).toContainEqual({
 			kind: "updateModule",
 			uuid: moduleUuid,
-			patch: { caseListConfig: emptyCaseListConfig() },
+			patch: {},
 			ensureCaseListConfig: true,
 		});
 
@@ -1207,7 +1071,7 @@ describe("diff — case-list presence transition", () => {
 				afterInDetail: null,
 			},
 		]);
-		expect(batchTargetsMissing(peerFresh, localBatch)).toBe(false);
+		expect(mutationTargetsInvalid(peerFresh, localBatch)).toBe(false);
 		const merged = apply(peerFresh, localBatch);
 		expect(
 			merged.modules[moduleUuid].caseListConfig?.columns
@@ -1220,16 +1084,16 @@ describe("diff — case-list presence transition", () => {
 	});
 
 	it("keeps a case-type flip granular so a peer search input survives", () => {
-		const prev = backfilled(
+		const prev = canonicalFixture(
 			buildDoc({
 				caseTypes: [
 					{
 						name: "patient",
-						properties: [{ name: "case_name", label: "Name" }],
+						properties: [{ name: "case_name", label: proseText("Name") }],
 					},
 					{
 						name: "visit",
-						properties: [{ name: "case_name", label: "Name" }],
+						properties: [{ name: "case_name", label: proseText("Name") }],
 					},
 				],
 				modules: [
@@ -1244,8 +1108,8 @@ describe("diff — case-list presence transition", () => {
 			}),
 		);
 		const moduleUuid = prev.moduleOrder[0];
-		const localColumnUuid = asUuid("00000000-0000-4000-8000-000000000063");
-		const peerInputUuid = asUuid("00000000-0000-4000-8000-000000000064");
+		const localColumnUuid = testUuid("00000000-0000-4000-8000-000000000063");
+		const peerInputUuid = testUuid("00000000-0000-4000-8000-000000000064");
 		const next = produce(prev, (draft) => {
 			draft.modules[moduleUuid].caseType = "visit";
 			draft.modules[moduleUuid].caseListConfig?.columns.push({
@@ -1284,7 +1148,7 @@ describe("diff — case-list presence transition", () => {
 				},
 			},
 		]);
-		expect(batchTargetsMissing(peerFresh, localBatch)).toBe(false);
+		expect(mutationTargetsInvalid(peerFresh, localBatch)).toBe(false);
 		const merged = apply(peerFresh, localBatch);
 		expect(merged.modules[moduleUuid].caseType).toBe("visit");
 		expect(
@@ -1302,7 +1166,7 @@ describe("diff — case-list presence transition", () => {
 
 // ── Declaration chokepoint ─────────────────────────────────────────────
 
-describe("every case_property_on surface declares the type", () => {
+describe("every caseWrite surface declares the type", () => {
 	const baseDoc = () =>
 		buildDoc({
 			caseTypes: null,
@@ -1320,8 +1184,8 @@ describe("every case_property_on surface declares the type", () => {
 		const writer = f({
 			kind: "text",
 			id: "age",
-			label: "Age",
-			case_property_on: "patient",
+			label: proseText("Age"),
+			caseWrite: { caseType: "patient", property: "age" },
 		}) as unknown as Field;
 		const muts = declareCaseTypeForField(doc, writer);
 		expect(muts).toEqual([{ kind: "declareCaseType", caseType: "patient" }]);
@@ -1330,7 +1194,11 @@ describe("every case_property_on surface declares the type", () => {
 			d.caseTypes = [{ name: "patient", properties: [] }];
 		});
 		expect(declareCaseTypeForField(declared, writer)).toEqual([]);
-		const noCase = f({ kind: "text", id: "note", label: "Note" }) as Field;
+		const noCase = f({
+			kind: "text",
+			id: "note",
+			label: proseText("Note"),
+		}) as Field;
 		expect(declareCaseTypeForField(doc, noCase)).toEqual([]);
 	});
 
@@ -1344,8 +1212,8 @@ describe("every case_property_on surface declares the type", () => {
 				{
 					kind: "text",
 					id: "age",
-					label: "Age",
-					case_property_on: "patient",
+					label: proseText("Age"),
+					caseWrite: { caseType: "patient", property: "age" },
 				},
 			] as never,
 		});
@@ -1364,14 +1232,14 @@ describe("every case_property_on surface declares the type", () => {
 		// A viewer whose case type was dropped from the catalog while the module
 		// kept its `caseType` (a data-model edit, or a retire-vs-add race). Adding
 		// a registration form births a `case_name` writer on `patient`; without a
-		// prepended declare that trips CASE_PROPERTY_ON_UNKNOWN_TYPE and the form
-		// is silently not created.
+		// prepended declaration that makes both the viewer column and born field
+		// resolvable; without it the absolute gate rejects the whole candidate.
 		const doc = produce(
 			buildDoc({
 				caseTypes: [
 					{
 						name: "patient",
-						properties: [{ name: "case_name", label: "Name" }],
+						properties: [{ name: "case_name", label: proseText("Name") }],
 					},
 				],
 				modules: [
@@ -1400,8 +1268,7 @@ describe("every case_property_on surface declares the type", () => {
 		const writerIdx = scaffold.mutations.findIndex(
 			(m) =>
 				m.kind === "addField" &&
-				(m.field as { case_property_on?: string }).case_property_on ===
-					"patient",
+				fieldCaseWrite(m.field)?.caseType === "patient",
 		);
 		expect(declareIdx).toBeGreaterThanOrEqual(0);
 		expect(writerIdx).toBeGreaterThanOrEqual(0);
@@ -1409,7 +1276,7 @@ describe("every case_property_on surface declares the type", () => {
 		expect(declareIdx).toBeLessThan(writerIdx);
 
 		// Stripping the declare from the SAME batch reproduces the bug: the
-		// case_name writer targets an absent type → gate-rejected.
+		// case_name writer and Name column target an absent type → gate-rejected.
 		const withoutDeclare = scaffold.mutations.filter(
 			(m) => m.kind !== "declareCaseType",
 		);
@@ -1421,9 +1288,10 @@ describe("every case_property_on surface declares the type", () => {
 		expect(rejected.ok).toBe(false);
 		if (!rejected.ok) {
 			expect(
-				rejected.introduced.some(
-					(e) => e.code === "CASE_PROPERTY_ON_UNKNOWN_TYPE",
+				rejected.findings.some(
+					(e) => e.code === "CASE_LIST_COLUMN_UNKNOWN_FIELD",
 				),
+				JSON.stringify(rejected.findings),
 			).toBe(true);
 		}
 
@@ -1440,10 +1308,13 @@ describe("every case_property_on surface declares the type", () => {
 
 describe("diff round-trip — granular edits", () => {
 	it("replaying a catalog + column + option diff reproduces the display state", () => {
-		const prev = backfilled(
+		const prev = canonicalFixture(
 			buildDoc({
 				caseTypes: [
-					{ name: "patient", properties: [{ name: "age", label: "Age" }] },
+					{
+						name: "patient",
+						properties: [{ name: "age", label: proseText("Age") }],
+					},
 				],
 				modules: [
 					{
@@ -1458,22 +1329,11 @@ describe("diff round-trip — granular edits", () => {
 									f({
 										kind: "single_select",
 										id: "color",
-										label: "Color",
-										optionsSource: {
-											kind: "inline",
-											options: [
-												{
-													uuid: asUuid("66ca5f25-4c33-4bd0-af33-563e06f87d6b"),
-													value: "r",
-													label: "Red",
-												},
-												{
-													uuid: asUuid("cff2b4bd-a39f-4d9b-a6b7-5595d4537477"),
-													value: "g",
-													label: "Green",
-												},
-											],
-										},
+										label: proseText("Color"),
+										options: [
+											{ value: "r", label: "Red" },
+											{ value: "g", label: "Green" },
+										],
 									}),
 								],
 							},
@@ -1487,7 +1347,7 @@ describe("diff round-trip — granular edits", () => {
 			// Catalog: add a property + set meta.
 			const ct = draft.caseTypes?.find((c) => c.name === "patient");
 			if (ct) {
-				ct.properties.push({ name: "village", label: "Village" });
+				ct.properties.push({ name: "village", label: proseText("Village") });
 				ct.parent_type = "household";
 			}
 			// Column: edit the header.
@@ -1496,11 +1356,10 @@ describe("diff round-trip — granular edits", () => {
 			// Option: edit a label.
 			const color = Object.values(draft.fields).find((fl) => fl.id === "color");
 			if (
-				color &&
-				(color.kind === "single_select" || color.kind === "multi_select") &&
+				color?.kind === "single_select" &&
 				color.optionsSource.kind === "inline"
 			) {
-				color.optionsSource.options[1].label = "Emerald";
+				color.optionsSource.options[1].label = proseText("Emerald");
 			}
 		});
 		const diff = diffDocsToMutations(prev, next);
@@ -1509,7 +1368,6 @@ describe("diff round-trip — granular edits", () => {
 		expect(diff.some((m) => m.kind === "setCaseTypeMeta")).toBe(true);
 		expect(diff.some((m) => m.kind === "updateColumn")).toBe(true);
 		expect(diff.some((m) => m.kind === "updateOption")).toBe(true);
-		expect(diff.some((m) => m.kind === "setCaseTypes")).toBe(false);
 		const replayed = apply(prev, diff);
 		// Catalog + config + options reproduced.
 		expect(
@@ -1524,19 +1382,17 @@ describe("diff round-trip — granular edits", () => {
 		expect(replayed.modules[moduleUuid].caseListConfig?.columns[0].header).toBe(
 			"Age in years",
 		);
-		const replayedColor = Object.values(replayed.fields).find(
+		const color = Object.values(replayed.fields).find(
 			(field) => field.id === "color",
 		);
 		if (
-			!replayedColor ||
-			(replayedColor.kind !== "single_select" &&
-				replayedColor.kind !== "multi_select") ||
-			replayedColor.optionsSource.kind !== "inline"
+			color?.kind !== "single_select" ||
+			color.optionsSource.kind !== "inline"
 		) {
-			throw new Error("expected replayed inline select");
+			throw new Error("missing inline color options");
 		}
-		const opts = replayedColor.optionsSource.options.map(
-			(option) => option.label,
+		const opts = color.optionsSource.options.map((option) =>
+			proseTemplateText(option.label),
 		);
 		expect(opts).toContain("Emerald");
 	});
@@ -1548,13 +1404,13 @@ describe("case-search marker merges", () => {
 		moduleUuid: Uuid;
 		inputUuid: Uuid;
 	} {
-		const inputUuid = asUuid("00000000-0000-4000-8000-000000000051");
+		const inputUuid = testUuid("00000000-0000-4000-8000-000000000051");
 		const doc = buildDoc({
 			appName: "Search merge",
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "case_name", label: "Name" }],
+					properties: [{ name: "case_name", label: proseText("Name") }],
 				},
 			],
 			modules: [
@@ -1588,12 +1444,13 @@ describe("case-search marker merges", () => {
 		const markerless = produce(doc, (draft) => {
 			delete draft.modules[moduleUuid].caseSearchConfig;
 		});
-		const peerInputUuid = asUuid("00000000-0000-4000-8000-000000000052");
+		const peerInputUuid = testUuid("00000000-0000-4000-8000-000000000052");
 		const peerBatch: Mutation[] = [
 			{
 				kind: "updateModule",
 				uuid: moduleUuid,
-				patch: { caseSearchConfig: { searchScreenTitle: "Find a patient" } },
+				patch: {},
+				caseSearchConfigPatch: { searchScreenTitle: "Find a patient" },
 			},
 			{
 				kind: "addSearchInput",
@@ -1668,13 +1525,13 @@ describe("case-search marker merges", () => {
 		);
 		expect(clearBatch).toContainEqual(
 			expect.objectContaining({
-				patch: { caseSearchConfig: null },
+				patch: {},
 				caseSearchConfigPatch: { excludedOwnerIds: null },
 			}),
 		);
 		expect(clearBatch).toContainEqual(
 			expect.objectContaining({
-				patch: { caseSearchConfig: null },
+				patch: {},
 				caseSearchConfigOperation: "remove-if-no-authored-settings",
 			}),
 		);
@@ -1730,7 +1587,7 @@ describe("case-search marker merges", () => {
 		expect(reconciledBatch).toContainEqual(
 			expect.objectContaining({
 				kind: "updateModule",
-				patch: { caseSearchConfig: null },
+				patch: {},
 				caseSearchConfigPatch: { excludedOwnerIds: null },
 			}),
 		);
@@ -1920,11 +1777,12 @@ describe("case-search marker merges", () => {
 			};
 		});
 		const diff = diffDocsToMutations(markerless, ownerOnly);
+		const ownerConfig = ownerOnly.modules[moduleUuid].caseSearchConfig;
+		if (ownerConfig === undefined || !("searchActionEnabled" in ownerConfig)) {
+			throw new Error("expected owner-only Search config");
+		}
 		expect(diff).toContainEqual(
-			setOwnerOnlyCaseSearchMutation(
-				moduleUuid,
-				ownerOnly.modules[moduleUuid].caseSearchConfig ?? {},
-			),
+			setOwnerOnlyCaseSearchMutation(moduleUuid, ownerConfig),
 		);
 		expect(
 			diff.some(
@@ -1982,7 +1840,12 @@ describe("case-search marker merges", () => {
 		});
 		const locallyEnabled = produce(ownerOnly, (draft) => {
 			const config = draft.modules[moduleUuid].caseSearchConfig;
-			if (config !== undefined) delete config.searchActionEnabled;
+			if (config === undefined || !("searchActionEnabled" in config)) {
+				throw new Error("missing owner-only Search config");
+			}
+			draft.modules[moduleUuid].caseSearchConfig = {
+				excludedOwnerIds: config.excludedOwnerIds,
+			};
 		});
 		const localBatch = diffDocsToMutations(ownerOnly, locallyEnabled);
 		expect(localBatch).toEqual([
@@ -2055,7 +1918,9 @@ describe("case-search marker merges", () => {
 
 		const peerEdited = produce(base, (draft) => {
 			const config = draft.modules[moduleUuid].caseSearchConfig;
-			if (config === undefined) throw new Error("missing Search config");
+			if (config === undefined || "searchActionEnabled" in config) {
+				throw new Error("missing ordinary Search config");
+			}
 			config.searchButtonLabel = "Peer search";
 			config.excludedOwnerIds = {
 				kind: "term",
@@ -2075,12 +1940,13 @@ describe("case-search marker merges", () => {
 
 	it("a stale disable preserves peer settings and their newly-added input", () => {
 		const { doc, moduleUuid, inputUuid } = searchDoc();
-		const peerInputUuid = asUuid("00000000-0000-4000-8000-000000000053");
+		const peerInputUuid = testUuid("00000000-0000-4000-8000-000000000053");
 		const peerBatch: Mutation[] = [
 			{
 				kind: "updateModule",
 				uuid: moduleUuid,
-				patch: { caseSearchConfig: { searchButtonLabel: "Find" } },
+				patch: {},
+				caseSearchConfigPatch: { searchButtonLabel: "Find" },
 			},
 			{
 				kind: "addSearchInput",
@@ -2157,390 +2023,51 @@ describe("case-search marker merges", () => {
 	});
 });
 
-describe("Search-input UUID rename merges", () => {
-	it("leaves an imported form display-condition reference on the same identity", () => {
-		const inputUuid = asUuid("00000000-0000-4000-8000-000000000066");
+describe("Search-input identity merges", () => {
+	it("renaming a search input preserves every UUID-backed reference", () => {
+		const inputUuid = testUuid("00000000-0000-4000-8000-000000000061");
+		const calculatedUuid = testUuid("00000000-0000-4000-8000-000000000064");
 		const config = caseListConfig([{ field: "case_name", header: "Name" }]);
 		config.searchInputs = [
-			simpleSearchInputDef(inputUuid, "old_name", "Name", "text", "case_name"),
+			simpleSearchInputDef(
+				inputUuid,
+				"old_name",
+				"Original",
+				"text",
+				"case_name",
+			),
 		];
+		config.columns.push(
+			calculatedColumn(calculatedUuid, "Copied answer", term(input(inputUuid))),
+		);
+		config.listColumnOrder.push(calculatedUuid);
+		config.detailColumnOrder.push(calculatedUuid);
 		const doc = buildDoc({
-			modules: [
-				{
-					name: "Patients",
-					caseListConfig: config,
-					forms: [
-						{
-							name: "Survey",
-							type: "survey",
-							displayCondition: eq(input(inputUuid), literal("Ada")),
-						},
-					],
-				},
-			],
+			modules: [{ name: "Patients", caseListConfig: config }],
 		});
 		const moduleUuid = doc.moduleOrder[0];
 		const current = doc.modules[moduleUuid].caseListConfig?.searchInputs[0];
 		if (current === undefined) throw new Error("missing target input");
+
 		const renamed = apply(doc, [
 			searchInputUpdateMutation(moduleUuid, current, {
 				...current,
 				name: "new_name",
 			}),
 		]);
-		const formUuid = renamed.formOrder[moduleUuid][0];
-		const condition = renamed.forms[formUuid]?.displayCondition;
-		expect(
-			condition && predicateReferencesSearchInput(condition, inputUuid),
-		).toBe(true);
-	});
-
-	function renameDoc(): {
-		doc: BlueprintDoc;
-		moduleUuid: Uuid;
-		inputUuid: Uuid;
-	} {
-		const inputUuid = asUuid("00000000-0000-4000-8000-000000000061");
-		const siblingUuid = asUuid("00000000-0000-4000-8000-000000000062");
-		const advancedSiblingUuid = asUuid("00000000-0000-4000-8000-000000000063");
-		const calculatedUuid = asUuid("00000000-0000-4000-8000-000000000064");
-		const config = caseListConfig([{ field: "case_name", header: "Name" }]);
-		config.columns.push(
-			calculatedColumn(calculatedUuid, "Copied answer", term(input(inputUuid))),
+		const renamedConfig = renamed.modules[moduleUuid].caseListConfig;
+		expect(renamedConfig?.searchInputs[0]).toEqual(
+			expect.objectContaining({ uuid: inputUuid, name: "new_name" }),
 		);
-		config.searchInputs = [
-			{
-				uuid: inputUuid,
-				kind: "advanced",
-				name: "old_name",
-				label: "Original",
-				type: "text",
-				predicate: eq(input(inputUuid), literal("self")),
-			},
-			{
-				...simpleSearchInputDef(
-					siblingUuid,
-					"other_name",
-					"Other name",
-					"text",
-					"case_name",
-				),
-				default: term(input(inputUuid)),
-			},
-			{
-				uuid: advancedSiblingUuid,
-				kind: "advanced",
-				name: "advanced_other",
-				label: "Advanced other",
-				type: "text",
-				predicate: eq(input(inputUuid), literal("sibling")),
-			},
-		];
-		config.filter = eq(input(inputUuid), literal("filter"));
-		const doc = buildDoc({
-			caseTypes: [
-				{
-					name: "patient",
-					properties: [{ name: "case_name", label: "Name" }],
-				},
-			],
-			modules: [
-				{
-					name: "Patients",
-					caseType: "patient",
-					caseListOnly: true,
-					caseListConfig: config,
-					caseSearchConfig: {
-						searchButtonDisplayCondition: eq(
-							input(inputUuid),
-							literal("button"),
-						),
-						excludedOwnerIds: term(input(inputUuid)),
-					},
-				},
-			],
-		});
-		return { doc, moduleUuid: doc.moduleOrder[0], inputUuid };
-	}
-
-	function expectEveryReferencePreserved(
-		doc: BlueprintDoc,
-		moduleUuid: Uuid,
-		desiredName: string,
-	): void {
-		const mod = doc.modules[moduleUuid];
-		const config = mod.caseListConfig;
-		if (config === undefined) throw new Error("missing Search config fixture");
-		const calculated = config.columns.find(
-			(column) => column.kind === "calculated",
+		const calculated = renamedConfig?.columns.find(
+			(column) => column.uuid === calculatedUuid,
 		);
-		const target = config.searchInputs[0];
-		const sibling = config.searchInputs[1];
-		const advancedSibling = config.searchInputs[2];
-		if (
-			calculated?.kind !== "calculated" ||
-			target?.kind !== "advanced" ||
-			sibling === undefined ||
-			advancedSibling?.kind !== "advanced" ||
-			config.filter === undefined ||
-			mod.caseSearchConfig?.searchButtonDisplayCondition === undefined ||
-			mod.caseSearchConfig.excludedOwnerIds === undefined
-		) {
-			throw new Error("incomplete Search rename fixture");
-		}
-
-		expect(target.name).toBe(desiredName);
-		expect(
-			expressionReferencesSearchInput(calculated.expression, target.uuid),
-		).toBe(true);
-		expect(predicateReferencesSearchInput(config.filter, target.uuid)).toBe(
-			true,
+		expect(calculated).toEqual(
+			expect.objectContaining({
+				kind: "calculated",
+				expression: term(input(inputUuid)),
+			}),
 		);
-		expect(predicateReferencesSearchInput(target.predicate, target.uuid)).toBe(
-			true,
-		);
-		expect(
-			sibling.default !== undefined &&
-				expressionReferencesSearchInput(sibling.default, target.uuid),
-		).toBe(true);
-		expect(
-			predicateReferencesSearchInput(advancedSibling.predicate, target.uuid),
-		).toBe(true);
-		expect(
-			predicateReferencesSearchInput(
-				mod.caseSearchConfig.searchButtonDisplayCondition,
-				target.uuid,
-			),
-		).toBe(true);
-		expect(
-			expressionReferencesSearchInput(
-				mod.caseSearchConfig.excludedOwnerIds,
-				target.uuid,
-			),
-		).toBe(true);
-	}
-
-	function withReusedOldName(
-		doc: BlueprintDoc,
-		moduleUuid: Uuid,
-	): BlueprintDoc {
-		return produce(doc, (draft) => {
-			const mod = draft.modules[moduleUuid];
-			const config = mod.caseListConfig;
-			if (config === undefined)
-				throw new Error("missing Search config fixture");
-			const reusedUuid = asUuid("00000000-0000-4000-8000-000000000065");
-			config.searchInputs.push(
-				simpleSearchInputDef(
-					reusedUuid,
-					"old_name",
-					"Reused old name",
-					"text",
-					"case_name",
-				),
-			);
-			const sibling = config.searchInputs[1];
-			if (sibling === undefined) throw new Error("missing sibling input");
-			sibling.default = term(input(reusedUuid));
-			config.filter = eq(input(reusedUuid), literal("peer-filter"));
-			mod.caseSearchConfig ??= {};
-			mod.caseSearchConfig.excludedOwnerIds = term(input(reusedUuid));
-		});
-	}
-
-	function expectReusedNameOwnership(
-		doc: BlueprintDoc,
-		moduleUuid: Uuid,
-		targetName: string,
-	): void {
-		const mod = doc.modules[moduleUuid];
-		const config = mod.caseListConfig;
-		if (
-			config === undefined ||
-			config.filter === undefined ||
-			mod.caseSearchConfig?.excludedOwnerIds === undefined
-		) {
-			throw new Error("missing reused-name fixture");
-		}
-		const target = config.searchInputs[0];
-		const sibling = config.searchInputs[1];
-		const reused = config.searchInputs.find(
-			(candidate) => candidate.name === "old_name",
-		);
-		const calculated = config.columns.find(
-			(column) => column.kind === "calculated",
-		);
-		if (
-			target?.kind !== "advanced" ||
-			sibling?.default === undefined ||
-			reused === undefined ||
-			calculated?.kind !== "calculated"
-		) {
-			throw new Error("incomplete reused-name fixture");
-		}
-		expect(target.name).toBe(targetName);
-		expect(predicateReferencesSearchInput(target.predicate, target.uuid)).toBe(
-			true,
-		);
-		expect(
-			expressionReferencesSearchInput(calculated.expression, target.uuid),
-		).toBe(true);
-		expect(predicateReferencesSearchInput(config.filter, reused.uuid)).toBe(
-			true,
-		);
-		expect(expressionReferencesSearchInput(sibling.default, reused.uuid)).toBe(
-			true,
-		);
-		expect(
-			expressionReferencesSearchInput(
-				mod.caseSearchConfig.excludedOwnerIds,
-				reused.uuid,
-			),
-		).toBe(true);
-		expect(reused.label).toBe("Reused old name");
-	}
-
-	it("preserves every registered module reference while renaming the projection", () => {
-		const { doc, moduleUuid, inputUuid } = renameDoc();
-		const current = doc.modules[moduleUuid].caseListConfig?.searchInputs[0];
-		if (current === undefined) throw new Error("missing target input");
-		const rename = searchInputUpdateMutation(moduleUuid, current, {
-			...current,
-			name: "new_name",
-			label: "Renamed",
-		});
-		const renamed = apply(doc, [rename]);
-		expect(
-			renamed.modules[moduleUuid].caseListConfig?.searchInputs.find(
-				(candidate) => candidate.uuid === inputUuid,
-			)?.label,
-		).toBe("Renamed");
-		expectEveryReferencePreserved(renamed, moduleUuid, "new_name");
-	});
-
-	it("rebases a stale rename over a peer rename of the same row", () => {
-		const { doc, moduleUuid } = renameDoc();
-		const original = doc.modules[moduleUuid].caseListConfig?.searchInputs[0];
-		if (original === undefined) throw new Error("missing target input");
-		const peerRename = searchInputUpdateMutation(moduleUuid, original, {
-			...original,
-			name: "peer_name",
-			label: "Peer rename",
-		});
-		const staleLocalRename = searchInputUpdateMutation(moduleUuid, original, {
-			...original,
-			name: "local_name",
-			label: "Local rename",
-		});
-		const rebased = apply(doc, [peerRename], [staleLocalRename]);
-		expectEveryReferencePreserved(rebased, moduleUuid, "local_name");
-	});
-
-	it("does not steal refs when a peer reuses the target's freed old name", () => {
-		const { doc, moduleUuid } = renameDoc();
-		const original = doc.modules[moduleUuid].caseListConfig?.searchInputs[0];
-		if (original === undefined) throw new Error("missing target input");
-		const peerRename = searchInputUpdateMutation(moduleUuid, original, {
-			...original,
-			name: "peer_name",
-		});
-		const staleLocalRename = searchInputUpdateMutation(moduleUuid, original, {
-			...original,
-			name: "local_name",
-		});
-
-		const peerFirst = withReusedOldName(apply(doc, [peerRename]), moduleUuid);
-		const staleReplayed = apply(peerFirst, [staleLocalRename]);
-		expectReusedNameOwnership(staleReplayed, moduleUuid, "local_name");
-
-		// Reverse the two same-row rename events while adding/referencing the
-		// newly-free A only after the final rename. Same-row names are last-writer-
-		// wins, but the new A identity and its refs remain intact in either valid
-		// event ordering.
-		const localFirst = apply(doc, [staleLocalRename], [peerRename]);
-		const peerLastWithReuse = withReusedOldName(localFirst, moduleUuid);
-		expectReusedNameOwnership(peerLastWithReuse, moduleUuid, "peer_name");
-	});
-
-	it("the commit gate atomically rejects a stale rename into a peer-owned desired name", () => {
-		const { doc, moduleUuid, inputUuid } = renameDoc();
-		const original = doc.modules[moduleUuid].caseListConfig?.searchInputs[0];
-		if (original === undefined) throw new Error("missing target input");
-		const staleRename = searchInputUpdateMutation(moduleUuid, original, {
-			...original,
-			name: "new_name",
-		});
-		const current = produce(doc, (draft) => {
-			draft.modules[moduleUuid].caseListConfig?.searchInputs.push(
-				simpleSearchInputDef(
-					asUuid("00000000-0000-4000-8000-000000000066"),
-					"new_name",
-					"Peer-owned desired name",
-					"text",
-					"case_name",
-				),
-			);
-		});
-		expect(
-			current.modules[moduleUuid].caseListConfig?.searchInputs.find(
-				(candidate) => candidate.uuid === inputUuid,
-			)?.name,
-		).toBe("old_name");
-		expect(
-			current.modules[moduleUuid].caseListConfig?.searchInputs.filter(
-				(candidate) => candidate.name === "new_name",
-			),
-		).toHaveLength(1);
-		expect(
-			predicateReferencesSearchInput(
-				current.modules[moduleUuid].caseListConfig?.filter ?? {
-					kind: "match-none",
-				},
-				inputUuid,
-			),
-		).toBe(true);
-
-		const verdict = mutationCommitVerdict(
-			current,
-			[staleRename],
-			LOOKUP_CONTEXT_UNAVAILABLE,
-		);
-		expect(verdict.ok).toBe(false);
-		if (verdict.ok) throw new Error("expected duplicate-name rejection");
-		expect(
-			verdict.introduced.some(
-				(finding) => finding.code === "CASE_LIST_DUPLICATE_SEARCH_INPUT_NAME",
-			),
-		).toBe(true);
-		// The gate exposes the rejected candidate for diagnostics: it contains the
-		// duplicate while UUID refs stay fixed, and the current document remains byte-for-
-		// byte untouched because callers discard this candidate atomically.
-		expect(
-			verdict.nextDoc.modules[moduleUuid].caseListConfig?.searchInputs.filter(
-				(candidate) => candidate.name === "new_name",
-			),
-		).toHaveLength(2);
-		expect(
-			predicateReferencesSearchInput(
-				verdict.nextDoc.modules[moduleUuid].caseListConfig?.filter ?? {
-					kind: "match-none",
-				},
-				inputUuid,
-			),
-		).toBe(true);
-		expect(
-			current.modules[moduleUuid].caseListConfig?.searchInputs.find(
-				(candidate) => candidate.uuid === inputUuid,
-			)?.name,
-		).toBe("old_name");
-		expect(
-			predicateReferencesSearchInput(
-				current.modules[moduleUuid].caseListConfig?.filter ?? {
-					kind: "match-none",
-				},
-				inputUuid,
-			),
-		).toBe(true);
 	});
 });
 
@@ -2548,8 +2075,8 @@ describe("diff — evacuation into a same-diff-added container", () => {
 	it("hoists the added destination before the evacuation so the batch replays in order", () => {
 		// One accumulated save (in-flight PUT / retry backoff) carrying three
 		// gestures: create group G, drag X out of group H into G, delete H.
-		const G = asUuid("44444444-4444-4444-4444-444444444444");
-		const prev = backfilled(
+		const G = testUuid("44444444-4444-4444-4444-444444444444");
+		const prev = canonicalFixture(
 			buildDoc({
 				modules: [
 					{
@@ -2562,8 +2089,10 @@ describe("diff — evacuation into a same-diff-added container", () => {
 									f({
 										kind: "group",
 										id: "h",
-										label: "H",
-										children: [f({ kind: "text", id: "x", label: "X" })],
+										label: proseText("H"),
+										children: [
+											f({ kind: "text", id: "x", label: proseText("X") }),
+										],
 									}),
 								],
 							},
@@ -2583,7 +2112,7 @@ describe("diff — evacuation into a same-diff-added container", () => {
 					uuid: G,
 					id: "g",
 					kind: "group",
-					label: "G",
+					label: proseText("G"),
 				} as Field,
 			},
 			{ kind: "moveField", uuid: xUuid, toParentUuid: G, after: null },
@@ -2595,7 +2124,7 @@ describe("diff — evacuation into a same-diff-added container", () => {
 		// creates G: the server-side guard walks the batch in order, and a
 		// move into a not-yet-existing container reads as a phantom conflict
 		// (409 → the reload silently drops the user's create+move+delete).
-		expect(batchTargetsMissing(prev, diff)).toBe(false);
+		expect(mutationTargetsInvalid(prev, diff)).toBe(false);
 		// The add of G comes before the move of X, which precedes H's remove
 		// (the evacuation contract) — assert the actual order.
 		const addG = diff.findIndex(
@@ -2620,9 +2149,9 @@ describe("diff — evacuation into a same-diff-added container", () => {
 
 describe("user-data value multiplayer convergence", () => {
 	it("merges peers editing different role values in either commit order", () => {
-		const propertyA = asUuid("property-a");
-		const propertyB = asUuid("property-b");
-		const roleUuid = asUuid("role");
+		const propertyA = testUuid("property-a");
+		const propertyB = testUuid("property-b");
+		const roleUuid = testUuid("role");
 		const base: BlueprintDoc = {
 			...buildDoc(),
 			userProperties: {
@@ -2658,8 +2187,12 @@ describe("user-data value multiplayer convergence", () => {
 		const leftBatch = diffDocsToMutations(base, left);
 		const rightBatch = diffDocsToMutations(base, right);
 
-		expect(batchTargetsMissing(apply(base, leftBatch), rightBatch)).toBe(false);
-		expect(batchTargetsMissing(apply(base, rightBatch), leftBatch)).toBe(false);
+		expect(mutationTargetsInvalid(apply(base, leftBatch), rightBatch)).toBe(
+			false,
+		);
+		expect(mutationTargetsInvalid(apply(base, rightBatch), leftBatch)).toBe(
+			false,
+		);
 		const leftThenRight = apply(base, leftBatch, rightBatch);
 		const rightThenLeft = apply(base, rightBatch, leftBatch);
 		expect(leftThenRight.userTypes?.[roleUuid]?.values).toEqual({

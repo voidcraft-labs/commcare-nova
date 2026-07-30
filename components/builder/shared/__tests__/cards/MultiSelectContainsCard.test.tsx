@@ -7,12 +7,13 @@ import {
 	screen,
 	waitFor,
 } from "@testing-library/react";
-import { useState } from "react";
+import { type ComponentProps, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	activateWithEnter,
 	settleBaseUiTransitions,
 } from "@/__tests__/helpers/baseUiInteractions";
+import { BlueprintDocProvider } from "@/lib/doc/provider";
 import type { CaseType } from "@/lib/domain";
 import {
 	literal,
@@ -20,24 +21,39 @@ import {
 	type Predicate,
 	prop,
 } from "@/lib/domain/predicate";
-import { PredicateCardEditor } from "../../PredicateCardEditor";
+import { proseText } from "@/lib/domain/prose";
+import { PredicateCardEditor as ProductionPredicateCardEditor } from "../../PredicateCardEditor";
+
+// The card spells each option's authored label against the document; every
+// production mount sits inside the builder's provider.
+function PredicateCardEditor(
+	props: ComponentProps<typeof ProductionPredicateCardEditor>,
+) {
+	return (
+		<BlueprintDocProvider appId="test-app">
+			<ProductionPredicateCardEditor {...props} />
+		</BlueprintDocProvider>
+	);
+}
 
 const OPTIONS = [
-	{ value: "a", label: "Alpha" },
-	{ value: "b", label: "Beta" },
-	{ value: "c", label: "Gamma" },
-	{ value: "d", label: "Delta" },
+	{ value: "a", label: proseText("Alpha") },
+	{ value: "b", label: proseText("Beta") },
+	{ value: "c", label: proseText("Gamma") },
+	{ value: "d", label: proseText("Delta") },
 ] as const;
 
-function caseType(
-	options: readonly { value: string; label: string }[] = OPTIONS,
-): CaseType {
+type CaseOption = NonNullable<
+	CaseType["properties"][number]["options"]
+>[number];
+
+function caseType(options: readonly CaseOption[] = OPTIONS): CaseType {
 	return {
 		name: "patient",
 		properties: [
 			{
 				name: "tags",
-				label: "Tags",
+				label: proseText("Tags"),
 				data_type: "multi_select",
 				options: [...options],
 			},
@@ -95,8 +111,8 @@ describe("MultiSelectContainsCard", () => {
 			<Controlled
 				initial={seed("vip", "new")}
 				patient={caseType([
-					{ value: "vip", label: "Priority client" },
-					{ value: "new", label: "New client" },
+					{ value: "vip", label: proseText("Priority client") },
+					{ value: "new", label: proseText("New client") },
 				])}
 			/>,
 		);
@@ -112,9 +128,9 @@ describe("MultiSelectContainsCard", () => {
 			<Controlled
 				initial={seed("open_a", "closed")}
 				patient={caseType([
-					{ value: "open_a", label: "Open" },
-					{ value: "open_b", label: "Open" },
-					{ value: "closed", label: "Closed" },
+					{ value: "open_a", label: proseText("Open") },
+					{ value: "open_b", label: proseText("Open") },
+					{ value: "closed", label: proseText("Closed") },
 				])}
 			/>,
 		);

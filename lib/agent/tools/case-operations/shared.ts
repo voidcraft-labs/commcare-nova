@@ -13,8 +13,6 @@ import {
 	CASE_OPERATION_PROPERTY_FORMAT_MESSAGE,
 	CASE_OPERATION_PROPERTY_REGEX,
 	type CaseOperation,
-	type CaseOperationLink,
-	type CaseOperationWrite,
 	caseOperationSchema,
 	orderedCaseOperations,
 	RESERVED_CASE_OPERATION_TYPES,
@@ -80,7 +78,7 @@ const newTargetInputSchema = z
 		idFrom: uuidSchema
 			.optional()
 			.describe(
-				"Optional field uuid whose answer deterministically keys the case",
+				"Optional field UUID whose answer deterministically keys the case",
 			),
 	})
 	.strict();
@@ -88,7 +86,7 @@ const newTargetInputSchema = z
 const operationTargetInputSchema = z
 	.object({
 		kind: z.literal("op"),
-		opUuid: uuidSchema.describe("Uuid of an earlier create operation"),
+		opUuid: uuidSchema.describe("UUID of an earlier create operation"),
 	})
 	.strict();
 
@@ -157,7 +155,7 @@ const createOperationInputSchema = z
 			.object({ repeat: uuidSchema })
 			.strict()
 			.optional()
-			.describe("Repeat field uuid; omit to run once per submission"),
+			.describe("Repeat field UUID; omit to run once per submission"),
 		name: valueExpressionSchema,
 		owner: valueExpressionSchema.optional(),
 		writes: z.array(writeInputSchema).optional(),
@@ -180,7 +178,7 @@ const updateOperationInputSchema = z
 			.object({ repeat: uuidSchema })
 			.strict()
 			.optional()
-			.describe("Repeat field uuid; omit to run once per submission"),
+			.describe("Repeat field UUID; omit to run once per submission"),
 		owner: valueExpressionSchema.optional(),
 		rename: valueExpressionSchema.optional(),
 		retype: caseTypeInputSchema.optional(),
@@ -204,7 +202,7 @@ const closeOperationInputSchema = z
 			.object({ repeat: uuidSchema })
 			.strict()
 			.optional()
-			.describe("Repeat field uuid; omit to run once per submission"),
+			.describe("Repeat field UUID; omit to run once per submission"),
 		writes: z.array(writeInputSchema).optional(),
 	})
 	.strict()
@@ -238,37 +236,41 @@ export function operationByUuid(
 export function resolveCaseOperationInput(
 	input: CaseOperationInput,
 	uuid: Uuid,
-): CaseOperation {
+): z.output<typeof caseOperationSchema> {
 	const common = {
 		uuid,
 		id: input.id,
-		action: input.action,
 		caseType: input.caseType,
-		target: input.target as CaseOperation["target"],
 		...(input.condition !== undefined && { condition: input.condition }),
 		...(input.forEach !== undefined && { forEach: input.forEach }),
-		writes: input.writes as CaseOperationWrite[] | undefined,
+		...(input.writes !== undefined && { writes: input.writes }),
 	};
 	switch (input.action) {
 		case "create":
 			return caseOperationSchema.parse({
 				...common,
 				action: "create",
+				target: input.target,
 				name: input.name,
 				...(input.owner !== undefined && { owner: input.owner }),
-				links: input.links as CaseOperationLink[] | undefined,
+				...(input.links !== undefined && { links: input.links }),
 			});
 		case "update":
 			return caseOperationSchema.parse({
 				...common,
 				action: "update",
+				target: input.target,
 				...(input.owner !== undefined && { owner: input.owner }),
 				...(input.rename !== undefined && { rename: input.rename }),
 				...(input.retype !== undefined && { retype: input.retype }),
-				links: input.links as CaseOperationLink[] | undefined,
+				...(input.links !== undefined && { links: input.links }),
 			});
 		case "close":
-			return caseOperationSchema.parse({ ...common, action: "close" });
+			return caseOperationSchema.parse({
+				...common,
+				action: "close",
+				target: input.target,
+			});
 	}
 }
 

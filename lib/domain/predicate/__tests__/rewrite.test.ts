@@ -8,8 +8,9 @@
  * Walks without an explicit destination hint are left alone: the AST
  * doesn't encode where they land, so a rewrite can't be proven safe.
  */
+
 import { describe, expect, it } from "vitest";
-import { asUuid } from "@/lib/domain";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	ancestorPath,
 	and,
@@ -127,11 +128,7 @@ describe("renameCasePropertyInPredicate", () => {
 			5,
 			"kilometers",
 		);
-		const text = match(
-			prop("patient", "age"),
-			input(asUuid("f38dea69-87fd-4b8c-8190-516b176c3b33")),
-			"fuzzy",
-		);
+		const text = match(prop("patient", "age"), input(testUuid("q")), "fuzzy");
 		const multi = multiSelectAny(prop("patient", "age"), literal("a"));
 		expect(renameCasePropertyInPredicate(geo, RENAME)).toBe(1);
 		expect(renameCasePropertyInPredicate(text, RENAME)).toBe(1);
@@ -175,19 +172,13 @@ describe("renameCasePropertyInPredicate", () => {
 
 	it("never touches input/session/literal terms", () => {
 		const predicate = and(
-			eq(
-				term(input(asUuid("a7941b43-b7aa-4dc2-87a5-414b0a0b507d"))),
-				literal("age"),
-			),
+			eq(term(input(testUuid("age"))), literal("age")),
 			eq(term(sessionUser("age")), literal("18")),
 		);
 		expect(renameCasePropertyInPredicate(predicate, RENAME)).toBe(0);
 		expect(predicate).toEqual(
 			and(
-				eq(
-					term(input(asUuid("a7941b43-b7aa-4dc2-87a5-414b0a0b507d"))),
-					literal("age"),
-				),
+				eq(term(input(testUuid("age"))), literal("age")),
 				eq(term(sessionUser("age")), literal("18")),
 			),
 		);

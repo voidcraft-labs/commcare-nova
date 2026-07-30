@@ -17,7 +17,7 @@ import {
 	useUserProperties,
 	useUserTypes,
 } from "@/lib/doc/hooks/useUserCollections";
-import type { Uuid } from "@/lib/doc/types";
+import { asUuid } from "@/lib/doc/types";
 import { ownRecordValue, type UserType } from "@/lib/domain";
 import { useCanEdit } from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
@@ -127,16 +127,12 @@ function RoleRow({
 
 	const write = (patch: Parameters<typeof mutations.updateUserType>[1]) => {
 		if (!sessionApi.getState().canEdit) return;
-		mutations.updateUserType(role.uuid as Uuid, patch);
+		mutations.updateUserType(role.uuid, patch);
 	};
 
 	const setValue = (propertyUuid: string, value: string | undefined) => {
 		if (!sessionApi.getState().canEdit) return;
-		mutations.updateUserTypeValue(
-			role.uuid as Uuid,
-			propertyUuid as Uuid,
-			value,
-		);
+		mutations.updateUserTypeValue(role.uuid, asUuid(propertyUuid), value);
 	};
 
 	return (
@@ -177,7 +173,7 @@ function RoleRow({
 									messages: ["You no longer have edit access."],
 								};
 							}
-							return mutations.inline.updateUserType(role.uuid as Uuid, {
+							return mutations.inline.updateUserType(role.uuid, {
 								name,
 							});
 						}}
@@ -261,9 +257,7 @@ function RoleRow({
 									className="h-11"
 									onClick={() => {
 										if (!sessionApi.getState().canEdit) return;
-										const outcome = mutations.inline.removeUserType(
-											role.uuid as Uuid,
-										);
+										const outcome = mutations.inline.removeUserType(role.uuid);
 										if (!outcome.ok) setRefusal(outcome.messages[0]);
 										else returnFocusRef.current?.focus();
 									}}

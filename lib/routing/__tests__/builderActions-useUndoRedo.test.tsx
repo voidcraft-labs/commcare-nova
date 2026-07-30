@@ -10,6 +10,7 @@
 import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	ScrollRegistryProvider,
 	useRegisterScrollCallback,
@@ -17,7 +18,7 @@ import {
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
-import { asUuid } from "@/lib/doc/types";
+import { proseText } from "@/lib/domain/prose";
 
 /* Mock the client path hook — segments control the current location. */
 const mockSegments = { current: [] as string[] };
@@ -50,6 +51,7 @@ const scrollToField = vi.fn();
 const flashUndoHighlight = vi.fn();
 const setFocusHint = vi.fn();
 const activeFieldIdRef = { current: undefined as string | undefined };
+const SELECTED_UUID = testUuid("q-a-0000-0000-0000-000000000000");
 
 vi.mock("@/components/builder/contexts/EditGuardContext", () => ({
 	useConsultEditGuard: () => () => true,
@@ -95,13 +97,13 @@ function makeStore() {
 									uuid: "q-a-0000-0000-0000-000000000000",
 									kind: "text",
 									id: "a",
-									label: "A",
+									label: proseText("A"),
 								}),
 								f({
 									uuid: "q-b-0000-0000-0000-000000000000",
 									kind: "text",
 									id: "b",
-									label: "B",
+									label: proseText("B"),
 								}),
 							],
 						},
@@ -175,7 +177,7 @@ describe("useUndoRedo", () => {
 	it("undo reverses the last mutation; redo reapplies it", () => {
 		const store = makeStore();
 
-		const qaUuid = asUuid("q-a-0000-0000-0000-000000000000");
+		const qaUuid = testUuid("q-a-0000-0000-0000-000000000000");
 		act(() => {
 			store.getState().applyMany([{ kind: "removeField", uuid: qaUuid }]);
 		});
@@ -199,7 +201,7 @@ describe("useUndoRedo", () => {
 			store.getState().applyMany([
 				{
 					kind: "removeField",
-					uuid: asUuid("q-a-0000-0000-0000-000000000000"),
+					uuid: testUuid("q-a-0000-0000-0000-000000000000"),
 				},
 			]);
 		});
@@ -221,17 +223,14 @@ describe("useUndoRedo", () => {
 			store.getState().applyMany([
 				{
 					kind: "updateField",
-					uuid: asUuid("q-a-0000-0000-0000-000000000000"),
+					uuid: testUuid("q-a-0000-0000-0000-000000000000"),
 					targetKind: "text",
-					patch: { label: "Renamed" },
+					patch: { label: proseText("Renamed") },
 				},
 			]);
 		});
 
-		const state = store.getState();
-		const moduleUuid = state.moduleOrder[0];
-		const formUuid = state.formOrder[moduleUuid][0];
-		mockSegments.current = [formUuid, "q-a-0000-0000-0000-000000000000"];
+		mockSegments.current = [SELECTED_UUID];
 
 		const qsSpy = vi.spyOn(document, "querySelector").mockReturnValue(null);
 		const { result } = renderHook(() => useUndoRedo(), {
@@ -254,17 +253,14 @@ describe("useUndoRedo", () => {
 			store.getState().applyMany([
 				{
 					kind: "updateField",
-					uuid: asUuid("q-a-0000-0000-0000-000000000000"),
+					uuid: testUuid("q-a-0000-0000-0000-000000000000"),
 					targetKind: "text",
-					patch: { label: "Renamed" },
+					patch: { label: proseText("Renamed") },
 				},
 			]);
 		});
 
-		const state = store.getState();
-		const moduleUuid = state.moduleOrder[0];
-		const formUuid = state.formOrder[moduleUuid][0];
-		mockSegments.current = [formUuid, "q-a-0000-0000-0000-000000000000"];
+		mockSegments.current = [SELECTED_UUID];
 
 		const fakeEl = document.createElement("div") as HTMLElement;
 		findFieldElement.mockReturnValue(fakeEl);
@@ -274,15 +270,12 @@ describe("useUndoRedo", () => {
 		});
 		act(() => result.current.undo());
 
-		expect(findFieldElement).toHaveBeenCalledWith(
-			"q-a-0000-0000-0000-000000000000",
-			undefined,
-		);
+		expect(findFieldElement).toHaveBeenCalledWith(SELECTED_UUID, undefined);
 		// The scroll targets the canvas field ROW (no override) — the rail
 		// property is in a different scroll container. The flash still lands
 		// on the resolved rail element.
 		expect(scrollToField).toHaveBeenCalledWith(
-			"q-a-0000-0000-0000-000000000000",
+			SELECTED_UUID,
 			undefined,
 			"instant",
 			undefined,
@@ -297,17 +290,14 @@ describe("useUndoRedo", () => {
 			store.getState().applyMany([
 				{
 					kind: "updateField",
-					uuid: asUuid("q-a-0000-0000-0000-000000000000"),
+					uuid: testUuid("q-a-0000-0000-0000-000000000000"),
 					targetKind: "text",
-					patch: { label: "Renamed" },
+					patch: { label: proseText("Renamed") },
 				},
 			]);
 		});
 
-		const state = store.getState();
-		const moduleUuid = state.moduleOrder[0];
-		const formUuid = state.formOrder[moduleUuid][0];
-		mockSegments.current = [formUuid, "q-a-0000-0000-0000-000000000000"];
+		mockSegments.current = [SELECTED_UUID];
 
 		activeFieldIdRef.current = "label";
 		const fakeEl = document.createElement("div") as HTMLElement;

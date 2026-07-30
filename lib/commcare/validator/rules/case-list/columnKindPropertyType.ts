@@ -24,7 +24,6 @@ import {
 	type BlueprintDoc,
 	type CasePropertyDataType,
 	type Column,
-	caseListColumnHasRuntimeRole,
 	columnKindAcceptsPropertyType,
 	columnKindPropertyRequirement,
 	type Module,
@@ -56,7 +55,6 @@ export function columnKindPropertyType(
 	const errors: ValidationError[] = [];
 	for (let index = 0; index < config.columns.length; index++) {
 		const col = config.columns[index];
-		if (!caseListColumnHasRuntimeRole(col)) continue;
 		if (col.kind === "calculated") continue;
 		const requirement = columnKindPropertyRequirement(col.kind);
 		if (requirement === null) continue; // universal kinds accept everything

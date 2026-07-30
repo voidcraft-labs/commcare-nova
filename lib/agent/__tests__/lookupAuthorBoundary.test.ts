@@ -363,11 +363,26 @@ describe("lookup author identity boundary", () => {
 		});
 
 		it(`${toolCase.name} keeps chat wire compact while validating canonical input`, async () => {
+			const full = JSON.stringify(
+				z.toJSONSchema(toolCase.schema, { target: "draft-7", io: "input" }),
+			);
 			const wire = wireToolSchema(toolCase.schema);
 			const json = JSON.stringify(await wire.jsonSchema);
-			expect(json).toContain("Shape reference");
-			expect(json).not.toContain('"kind":"table-column"');
-			expect(json).not.toContain('"kind":"table-lookup"');
+
+			/* The chat wire is a projection, not a second contract. It drops the
+			 * per-leaf scalar teaching the prompt already carries — so it is
+			 * materially smaller — while keeping what the PROVIDER needs to
+			 * reject a malformed call before it ever reaches Nova: the complete
+			 * discriminator vocabulary and the exact identity patterns. */
+			expect(json.length).toBeLessThan(full.length);
+			expect(json).toContain("table-column");
+			expect(json).toContain("table-lookup");
+			expect(json).toContain(
+				"^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+			);
+
+			/* Compaction never widens what is accepted: the untouched Zod schema
+			 * is still the validator on both sides. */
 			expect((await wire.validate?.(toolCase.canonicalInput))?.success).toBe(
 				true,
 			);

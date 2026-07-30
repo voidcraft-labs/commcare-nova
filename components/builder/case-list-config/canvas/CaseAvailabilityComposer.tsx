@@ -29,6 +29,7 @@ import {
 } from "@/components/shadcn/alert-dialog";
 import { Button } from "@/components/shadcn/button";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
+import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import type {
 	CaseListConfig,
 	CaseSearchConfig,
@@ -239,7 +240,9 @@ export function CaseAvailabilityComposer({
 							currentCaseType={currentCaseType}
 							knownInputs={inputDecls}
 							userProperties={userProperties}
-							evaluationTarget={caseSearchEnabled ? "case-search" : "on-device"}
+							evaluationTarget={
+								caseSearchEnabled ? "on-device-and-case-search" : "on-device"
+							}
 							focusRequest={
 								dependencyReview?.kind === "cases-available"
 									? dependencyReview
@@ -362,10 +365,12 @@ function ReadOnlyCondition({
 	readonly currentCaseType: string;
 	readonly knownInputs: readonly EditorSearchInputDecl[];
 }) {
+	const projectProse = useProseProjection();
 	const summary = summarizeFilter(value, {
 		caseTypes,
 		currentCaseType,
 		knownInputs,
+		projectProse,
 	});
 	return (
 		<div className="rounded-xl border border-white/[0.07] bg-nova-deep/30 px-4 py-3">

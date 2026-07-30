@@ -26,7 +26,6 @@ import tablerCalendarPlus from "@iconify-icons/tabler/calendar-plus";
 import tablerCalendarStats from "@iconify-icons/tabler/calendar-stats";
 import tablerClock from "@iconify-icons/tabler/clock";
 import tablerCopy from "@iconify-icons/tabler/copy";
-import tablerForklift from "@iconify-icons/tabler/forklift";
 import tablerGitMerge from "@iconify-icons/tabler/git-merge";
 import tablerHash from "@iconify-icons/tabler/hash";
 import tablerLink from "@iconify-icons/tabler/link";
@@ -35,15 +34,8 @@ import tablerSwitch from "@iconify-icons/tabler/switch";
 import tablerUser from "@iconify-icons/tabler/user";
 import tablerUserOff from "@iconify-icons/tabler/user-off";
 import tablerVariable from "@iconify-icons/tabler/variable";
-import { type ComponentType, createElement } from "react";
-import type {
-	CaseProperty,
-	CaseType,
-	LookupColumnId,
-	LookupTableId,
-	UserProperty,
-	Uuid,
-} from "@/lib/domain";
+import type { ComponentType } from "react";
+import type { CaseProperty, CaseType, UserProperty, Uuid } from "@/lib/domain";
 import {
 	isDateTyped,
 	NUMERIC_DATA_TYPES,
@@ -55,7 +47,7 @@ import type {
 	SlotConstraint,
 	ValueExpression,
 } from "@/lib/domain/predicate";
-import { and } from "@/lib/domain/predicate";
+import { typesCompatible } from "@/lib/domain/predicate";
 import { ArithCard, arithDefault } from "./cards/expression/ArithCard";
 import { CoalesceCard, coalesceDefault } from "./cards/expression/CoalesceCard";
 import { ConcatCard, concatDefault } from "./cards/expression/ConcatCard";
@@ -90,11 +82,11 @@ import {
 	unownedDefault,
 } from "./cards/expression/OwnerValueCards";
 import { SwitchCard, switchDefault } from "./cards/expression/SwitchCard";
-import { TermCard, termDefault } from "./cards/expression/TermCard";
 import {
-	UnwrapListCard,
-	unwrapListDefault,
-} from "./cards/expression/UnwrapListCard";
+	TableLookupCard,
+	tableLookupDefault,
+} from "./cards/expression/TableLookupCard";
+import { TermCard, termDefault } from "./cards/expression/TermCard";
 import type { EditorFormFieldDecl } from "./formFieldPresentation";
 import type {
 	EditorLookupTableDecl,
@@ -118,15 +110,15 @@ export interface ExpressionEditContext {
 	/** Form answers this slot may read, already narrowed to the ones its
 	 *  surface admits. Absent means the slot reads no form answers. */
 	readonly formFields?: readonly EditorFormFieldDecl[];
-	/** Rows-free lookup definitions available to identity-backed lookup ASTs. */
 	readonly lookupTables?: readonly EditorLookupTableDecl[];
-	/** Present only while a predicate runs against one lookup-table row. */
 	readonly tableScope?: EditorLookupTableScope;
 	/** Present only inside a case operation, where the submission's own
 	 *  vocabulary — the acting user, no owner, and the case an earlier
 	 *  create made — is available. `creates` lists the operations already
 	 *  in scope, in execution order. */
 	readonly operationScope?: OperationValueScope;
+	/** Present only for the owner facet of a case operation. */
+	readonly ownerValues?: boolean;
 }
 
 /** The submission-local vocabulary a case-operation expression may use. */
@@ -156,12 +148,6 @@ export interface OperationValueScope {
  */
 export interface ExpressionCardSchema<K extends ValueExpression["kind"]> {
 	readonly kind: K;
-	/** Whether people can create this kind in Nova. `roundTripOnly`
-	 *  kinds never appear as a replacement target but remain readable when
-	 *  imported. This is intentionally separate from
-	 *  `applicable`: applicability answers whether a result type fits a
-	 *  slot, while authorability is a product-level vocabulary boundary. */
-	readonly authoring: "authorable" | "roundTripOnly";
 	readonly label: string;
 	readonly icon: IconifyIcon;
 	readonly description: string;
@@ -308,35 +294,6 @@ function applicableAlways(): boolean {
 	return true;
 }
 
-const PLACEHOLDER_LOOKUP_TABLE_ID =
-	"00000000-0000-7000-8000-000000000000" as LookupTableId;
-const PLACEHOLDER_LOOKUP_COLUMN_ID =
-	"00000000-0000-7000-8000-000000000001" as LookupColumnId;
-
-function savedTableLookupDefault(): Extract<
-	ValueExpression,
-	{ kind: "table-lookup" }
-> {
-	return {
-		kind: "table-lookup",
-		tableId: PLACEHOLDER_LOOKUP_TABLE_ID,
-		resultColumnId: PLACEHOLDER_LOOKUP_COLUMN_ID,
-		where: and(),
-	};
-}
-
-function SavedTableLookupCard() {
-	return createElement(
-		"div",
-		{
-			className:
-				"rounded-lg border border-nova-border px-3 py-2 text-sm text-nova-text-muted",
-			role: "note",
-		},
-		"This saved value cannot be edited yet.",
-	);
-}
-
 // ── Registry ────────────────────────────────────────────────────────────
 
 /**
@@ -352,7 +309,6 @@ export const expressionCardSchemas: {
 	// ── Term lift (universal value carrier) ─────────────────────────
 	term: {
 		kind: "term",
-		authoring: "authorable",
 		label: "Value",
 		icon: tablerVariable,
 		description: "Enter a value or use information already in the app",
@@ -362,7 +318,6 @@ export const expressionCardSchemas: {
 	},
 	"id-of": {
 		kind: "id-of",
-		authoring: "roundTripOnly",
 		label: "Created case ID",
 		icon: tablerLink,
 		description: "Use the case created by an earlier operation",
@@ -372,7 +327,6 @@ export const expressionCardSchemas: {
 	},
 	"acting-user": {
 		kind: "acting-user",
-		authoring: "roundTripOnly",
 		label: "Person using the app",
 		icon: tablerUser,
 		description: "Assign the case to the person using the app",
@@ -382,7 +336,6 @@ export const expressionCardSchemas: {
 	},
 	unowned: {
 		kind: "unowned",
-		authoring: "roundTripOnly",
 		label: "No owner",
 		icon: tablerUserOff,
 		description: "Leave the case without an owner",
@@ -394,7 +347,6 @@ export const expressionCardSchemas: {
 	// ── Date / time constants ────────────────────────────────────────
 	today: {
 		kind: "today",
-		authoring: "authorable",
 		label: "Today's date",
 		icon: tablerCalendarEvent,
 		description: "Use the date when the app runs",
@@ -404,7 +356,6 @@ export const expressionCardSchemas: {
 	},
 	now: {
 		kind: "now",
-		authoring: "authorable",
 		label: "Current date and time",
 		icon: tablerClock,
 		description: "Use the date and time when the app runs",
@@ -416,7 +367,6 @@ export const expressionCardSchemas: {
 	// ── Date arithmetic / coercion ───────────────────────────────────
 	"date-add": {
 		kind: "date-add",
-		authoring: "authorable",
 		label: "Adjust a date",
 		icon: tablerCalendarPlus,
 		description: "Move a date or time forward or backward",
@@ -431,7 +381,6 @@ export const expressionCardSchemas: {
 	},
 	"date-coerce": {
 		kind: "date-coerce",
-		authoring: "authorable",
 		label: "Read as a date",
 		icon: tablerCalendarStats,
 		description: "Treat a text value as a date",
@@ -443,7 +392,6 @@ export const expressionCardSchemas: {
 	},
 	"datetime-coerce": {
 		kind: "datetime-coerce",
-		authoring: "authorable",
 		label: "Read as a date and time",
 		icon: tablerCalendarStats,
 		description: "Treat a text value as a date and time",
@@ -455,7 +403,6 @@ export const expressionCardSchemas: {
 	// ── Numeric ──────────────────────────────────────────────────────
 	double: {
 		kind: "double",
-		authoring: "authorable",
 		label: "Read as a number",
 		icon: tablerHash,
 		description: "Treat a value as a number",
@@ -465,7 +412,6 @@ export const expressionCardSchemas: {
 	},
 	arith: {
 		kind: "arith",
-		authoring: "authorable",
 		label: "Math",
 		icon: tablerCalculator,
 		description: "Add, subtract, multiply, or divide two values",
@@ -477,7 +423,6 @@ export const expressionCardSchemas: {
 	// ── Text ─────────────────────────────────────────────────────────
 	concat: {
 		kind: "concat",
-		authoring: "authorable",
 		label: "Combine text",
 		icon: tablerAbc,
 		description: "Join several pieces of text into one",
@@ -489,7 +434,6 @@ export const expressionCardSchemas: {
 	// ── Conditional / dispatch ───────────────────────────────────────
 	coalesce: {
 		kind: "coalesce",
-		authoring: "authorable",
 		label: "First available value",
 		icon: tablerCopy,
 		description: "The first value in the list that isn't blank",
@@ -499,7 +443,6 @@ export const expressionCardSchemas: {
 	},
 	if: {
 		kind: "if",
-		authoring: "authorable",
 		label: "Choose by condition",
 		icon: tablerGitMerge,
 		description: "One value when a condition holds, another when it doesn't",
@@ -509,7 +452,6 @@ export const expressionCardSchemas: {
 	},
 	switch: {
 		kind: "switch",
-		authoring: "authorable",
 		label: "Choose by matching",
 		icon: tablerSwitch,
 		description: "Use a different value for each match",
@@ -521,7 +463,6 @@ export const expressionCardSchemas: {
 	// ── Aggregation ──────────────────────────────────────────────────
 	count: {
 		kind: "count",
-		authoring: "authorable",
 		label: "Count related cases",
 		icon: tablerListSearch,
 		description: "How many connected cases match a condition",
@@ -540,42 +481,30 @@ export const expressionCardSchemas: {
 		},
 	},
 
-	// ── Readable canonical value; authored through SA/MCP for now ────
+	// ── Project data lookup ──────────────────────────────────────────
 	"table-lookup": {
 		kind: "table-lookup",
-		authoring: "roundTripOnly",
-		label: "Saved table lookup",
+		label: "Look up a table value",
 		icon: tablerListSearch,
-		description: "A table lookup preserved by this editor",
-		component: SavedTableLookupCard,
-		defaultValue: savedTableLookupDefault,
-		applicable: () => false,
-	},
-
-	// ── Sequence (round-trip-only) ───────────────────────────────────
-	"unwrap-list": {
-		kind: "unwrap-list",
-		authoring: "roundTripOnly",
-		label: "Saved selections",
-		icon: tablerForklift,
-		description: "Read several saved selections from one value",
-		component: UnwrapListCard,
-		defaultValue: unwrapListDefault,
-		// Sequence-typed; never compatible with a scalar expectedType. The
-		// kind exists in the registry only for round-trip preservation —
-		// authors don't pick `unwrap-list` from the menu (no scalar slot
-		// consumes a sequence), but a saved AST that carries one MUST
-		// round-trip through the editor.
-		applicable: (_ctx, expectedType) => {
-			if (expectedType === undefined) return false;
-			return expectedType === "_sequence";
+		description: "Use a column from the first matching Project data row",
+		component: TableLookupCard,
+		defaultValue: tableLookupDefault,
+		applicable: (ctx, expectedType) => {
+			if (ctx.tableScope !== undefined) return false;
+			return (ctx.lookupTables ?? []).some((table) =>
+				table.columns.some(
+					(column) =>
+						expectedType === undefined ||
+						expectedType === "_any" ||
+						typesCompatible(column.dataType, expectedType),
+				),
+			);
 		},
 	},
 
 	// ── Date formatting ──────────────────────────────────────────────
 	"format-date": {
 		kind: "format-date",
-		authoring: "authorable",
 		label: "Write a date as text",
 		icon: tablerArrowsShuffle,
 		description: "Write a date as text in a format you choose",
@@ -604,25 +533,27 @@ export const expressionCardSchemaList: readonly ExpressionCardSchema<
 	ValueExpression["kind"]
 >[];
 
-/**
- * Product-level authoring boundary for kind-replacement menus. Keep the
- * current `roundTripOnly` kind visible as a recovery source, but call
- * sites must exclude it from all new-target lists.
- *
- * Three kinds are authorable only inside a case operation, because
- * outside one the type checker refuses them outright: `acting-user` and
- * `unowned` need `caseOperationValues`, and `id-of` needs the producing
- * create to already be in scope. Their entries stay `roundTripOnly` —
- * that is the boundary for every OTHER surface — and this scope check is
- * what opens them where they mean something.
- */
+/** Contextual vocabulary boundary for the three submission-local leaves and
+ * table lookup. Every other registered kind is authorable everywhere its type
+ * and execution target admit it. */
 export function isAuthorableExpressionKind(
 	kind: ValueExpression["kind"],
-	ctx?: Pick<ExpressionEditContext, "operationScope">,
+	ctx?: Pick<
+		ExpressionEditContext,
+		"operationScope" | "ownerValues" | "lookupTables" | "tableScope"
+	>,
 ): boolean {
-	if (expressionCardSchemas[kind].authoring === "authorable") return true;
-	const scope = ctx?.operationScope;
-	if (scope === undefined) return false;
-	if (kind === "acting-user" || kind === "unowned") return true;
-	return kind === "id-of" && scope.creates.length > 0;
+	if (kind === "id-of") {
+		return (ctx?.operationScope?.creates.length ?? 0) > 0;
+	}
+	if (kind === "acting-user" || kind === "unowned") {
+		return ctx?.ownerValues === true;
+	}
+	if (kind === "table-lookup") {
+		return (
+			ctx?.tableScope === undefined &&
+			(ctx?.lookupTables ?? []).some((table) => table.columns.length > 0)
+		);
+	}
+	return true;
 }

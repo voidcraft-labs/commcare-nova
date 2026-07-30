@@ -44,7 +44,7 @@
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { SHARED_TOOL_MANIFEST } from "@/lib/agent/sharedToolManifest";
+import { SHARED_TOOL_REGISTRY } from "@/lib/agent/sharedToolRegistry";
 import { registerSharedTool } from "./adapters/sharedToolAdapter";
 import { registerCompileApp } from "./tools/compileApp";
 import { registerCreateApp } from "./tools/createApp";
@@ -92,7 +92,7 @@ export function registerNovaTools(server: McpServer, ctx: ToolContext): void {
 
 	/* Shared SA tools — one manifest, one adapter, one source of truth
 	 * with the chat-side `solutionsArchitect` factory. */
-	for (const { mcpName, tool, requires } of SHARED_TOOL_MANIFEST) {
+	for (const { mcpName, tool, requires } of SHARED_TOOL_REGISTRY) {
 		registerSharedTool(server, mcpName, tool, ctx, requires);
 	}
 }

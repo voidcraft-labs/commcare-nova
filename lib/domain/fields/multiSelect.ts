@@ -14,18 +14,19 @@
 import tablerSquareCheck from "@iconify-icons/tabler/square-check";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
-import { selectOptionsSourceSchema } from "../lookupCarriers";
 import {
 	inputFieldBaseSchema,
 	mediaSchema,
+	proseTemplateSchema,
 	xpathExpressionSchema,
 } from "./base";
+import { selectOptionsSourceSchema } from "./selectOptionsSource";
 
 export const multiSelectFieldSchema = inputFieldBaseSchema.extend({
 	kind: z.literal("multi_select"),
 	optionsSource: selectOptionsSourceSchema,
 	validate: xpathExpressionSchema.optional(),
-	validate_msg: z.string().optional(),
+	validate_msg: proseTemplateSchema.optional(),
 	validate_msg_media: mediaSchema.optional(),
 	default_value: xpathExpressionSchema.optional(),
 });

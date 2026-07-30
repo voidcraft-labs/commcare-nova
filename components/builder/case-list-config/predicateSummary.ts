@@ -11,13 +11,8 @@
 // value", "a related case exists") rather than leaking AST jargon.
 // The summary is display-only — nothing parses it back.
 
-import {
-	authorableCaseProperties,
-	type CaseProperty,
-	type CaseType,
-	canonicalCasePropertyName,
-	type UserProperty,
-} from "@/lib/domain";
+import type { ProseProjector } from "@/lib/doc/hooks/useProseProjection";
+import type { CaseProperty, CaseType, UserProperty } from "@/lib/domain";
 import type {
 	Literal,
 	Predicate,
@@ -47,6 +42,12 @@ export interface PredicateSummaryContext {
 		UserProperty,
 		"uuid" | "slug" | "label"
 	>[];
+	/** Spells a property or option label's references against the owning
+	 *  document. Required even for a caller whose predicate resolves no
+	 *  property: a summary that reached a label without one would print repair
+	 *  text over a healthy reference, and the reader could not tell that from
+	 *  real damage. */
+	readonly projectProse: ProseProjector;
 }
 
 /**
@@ -57,7 +58,7 @@ export interface PredicateSummaryContext {
  */
 export function summarizeFilter(
 	predicate: Predicate | undefined,
-	context: PredicateSummaryContext = {},
+	context: PredicateSummaryContext,
 ): string | undefined {
 	if (predicate === undefined) return undefined;
 	if (predicate.kind === "match-all") return undefined;
@@ -129,8 +130,6 @@ function summarizePredicate(
 			if (upper !== undefined) return `${subject} is at most ${upper}`;
 			return subject;
 		}
-		case "is-null":
-			return `${operand(p.left, context)} isn’t set`;
 		case "is-blank":
 			return `${operand(p.left, context)} is blank`;
 		case "match": {
@@ -236,8 +235,6 @@ function summarizeNegatedPredicate(
 			if (upper !== undefined) return `${subject} is more than ${upper}`;
 			return `${subject} doesn't match the range`;
 		}
-		case "is-null":
-			return `${operand(p.left, context)} is set`;
 		case "is-blank":
 			return `${operand(p.left, context)} isn't blank`;
 		case "match":
@@ -456,6 +453,7 @@ function choiceLiteralText(
 ): string {
 	const resolved = resolvePropertyRef(propertyRef, context);
 	const property = resolved?.property;
+	const projectProse = context.projectProse;
 	if (
 		property === undefined ||
 		(property.data_type !== "single_select" &&
@@ -468,18 +466,20 @@ function choiceLiteralText(
 	const option = property.options?.find(
 		(candidate) => candidate.value === literal.value,
 	);
-	if (option === undefined || option.label === "") {
+	const optionLabel = option === undefined ? "" : projectProse(option.label);
+	if (option === undefined || optionLabel === "") {
 		return literalText(literal.value);
 	}
 
 	const duplicateLabel =
 		property.options?.some(
 			(candidate) =>
-				candidate.value !== option.value && candidate.label === option.label,
+				candidate.value !== option.value &&
+				projectProse(candidate.label) === optionLabel,
 		) ?? false;
 	return duplicateLabel
-		? `${option.label} (saved as ${option.value})`
-		: option.label;
+		? `${optionLabel} (saved as ${option.value})`
+		: optionLabel;
 }
 
 interface ResolvedPropertyRef {
@@ -500,17 +500,12 @@ function resolvePropertyRef(
 					propertyRef.caseType,
 					caseTypes,
 				);
-	const rawProperties = caseTypes.find(
+	const properties = caseTypes.find(
 		(caseType) => caseType.name === destination,
 	)?.properties;
-	if (rawProperties === undefined) return undefined;
-	// Summaries speak the same one-concept Nova vocabulary as every picker.
-	// Project aliases before resolving so CCHQ's legacy `name` / `case_name`
-	// pair cannot reappear as duplicate choices or fake disambiguation.
-	const properties = authorableCaseProperties(rawProperties);
-	const canonicalProperty = canonicalCasePropertyName(propertyRef.property);
+	if (properties === undefined) return undefined;
 	const property = properties.find(
-		(candidate) => candidate.name === canonicalProperty,
+		(candidate) => candidate.name === propertyRef.property,
 	);
 	return property === undefined ? undefined : { property, properties };
 }
@@ -527,10 +522,12 @@ function propertySentenceLabel(
 	const label = propertyDisplayLabelForName(
 		propertyRef.property,
 		resolved.properties,
+		context.projectProse,
 	);
 	const disambiguator = friendlyPropertyDisambiguator(
 		resolved.property,
 		resolved.properties,
+		context.projectProse,
 	);
 	return disambiguator === undefined ? label : `${label} (${disambiguator})`;
 }

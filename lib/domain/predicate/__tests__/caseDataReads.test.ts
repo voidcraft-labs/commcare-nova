@@ -1,9 +1,9 @@
-import { asUuid } from "@/lib/domain";
 // The shared "does this AST need a case row?" guards behind every
 // globally-resolved slot: the assigned-case exclusion, a search
 // input's starting value, and the search-button display condition.
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	and,
 	concat,
@@ -60,7 +60,7 @@ describe("expressionReadsCaseData", () => {
 				concat(
 					term(sessionContext("userid")),
 					term(literal(" ")),
-					term(input(asUuid("4383fe29-27a8-4295-8b89-5b7187fd9f08"))),
+					term(input(testUuid("owner_ids"))),
 				),
 			),
 		).toBe(false);
@@ -79,7 +79,7 @@ describe("predicateReadsCaseData", () => {
 	it("detects the PropertyRef slots on match / within-distance", () => {
 		expect(
 			predicateReadsCaseData(
-				match(prop("patient", "name"), term(literal("amy")), "fuzzy"),
+				match(prop("patient", "case_name"), term(literal("amy")), "fuzzy"),
 			),
 		).toBe(true);
 		expect(

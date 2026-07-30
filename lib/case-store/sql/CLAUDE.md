@@ -6,7 +6,7 @@ Lowers `Predicate` / `ValueExpression` / `RelationPath` AST nodes into Kysely ty
 
 Every `ValueExpression` operand slot routes through one shared helper that forks term vs expression. `expressionContextFor` lifts a predicate context into an expression context by attaching a `compilePredicate` callback — that callback is the cycle break letting the expression compiler's predicate-bearing arms (`if.cond`, `count.where`) recurse back without an import cycle. The per-data-type cast/read-operator tables live in one data-only module so extending the `data_type` enum surfaces a single `Record` exhaustivity error.
 
-The generic AST also carries the dormant case-operation leaves `field { uuid }`, `id-of { opUuid }`, `acting-user`, and `unowned`. SQL callers that genuinely evaluate an operation must supply `TermBindings.formFields`, `TermBindings.operationIds`, and a server-resolved `TermBindings.actingUserId` when referenced; each runtime identity is bound as data, never interpolated. `formFields` alone admits the real multi-select answer shape (`readonly string[]`); the term compiler serializes that array and casts it explicitly to JSONB, rather than letting node-postgres turn it into a Postgres text array. Other binding namespaces remain scalar. `unowned` resolves only to Nova's fixed CommCare `-` sentinel. Every existing case-list/search caller omits submission bindings and the compiler throws a missing-binding invariant if a contextual leaf escapes its admitted context. There is no fallback to UUID text or client-provided identity.
+The generic AST also carries contextual case-operation leaves: `field { uuid }`, `id-of { opUuid }`, `acting-user`, and `unowned`. SQL callers that genuinely evaluate an operation must supply `TermBindings.formFields`, `TermBindings.operationIds`, and a server-resolved `TermBindings.actingUserId` when referenced; each runtime identity is bound as data, never interpolated. `formFields` alone admits the real multi-select answer shape (`readonly string[]`); the term compiler serializes that array and casts it explicitly to JSONB, rather than letting node-postgres turn it into a Postgres text array. Other binding namespaces remain scalar. `unowned` resolves only to Nova's fixed CommCare `-` sentinel. Case-list/search callers omit submission bindings and the compiler throws a missing-binding invariant if a contextual leaf escapes its admitted context. There is no fallback to UUID text or client-provided identity.
 
 ## Relation walks
 
@@ -29,9 +29,9 @@ The stack emits ZERO raw SQL — no `sql\`...\`` templates, no `sql.raw`. Three 
 
 A new arm needing an off-surface Postgres feature follows the same shape: find the function-call form that returns the typed value directly; never reach for `sql.raw`.
 
-## Postgres-strict null semantics
+## Blank semantics
 
-`is-null` matches strict-absent only; `is-blank` widens to absent-or-empty; "present with JSON null" and "present with empty string" are distinct states. CCHQ's wire layer collapses all of these — the strict semantic is the AST's contract, and the harness round-trip pins the four cases.
+`is-blank` matches absent-or-empty, the one absence meaning Nova's Postgres runtime and every CommCare wire target can preserve identically.
 
 Typed temporal literals are the one intentional editor-draft exception: an optional date, time, or datetime control commits `""` while unset, and the live Results preview executes that AST immediately. `compileLiteral` must pass temporal strings through `nullif(value, '')` before the cast, so the unset draft becomes typed SQL `NULL` (and therefore no match) instead of a raw Postgres `22007` error. Non-empty malformed values still reach the cast and fail; this is not a general parse-error catch or a widening of valid temporal syntax.
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
-import { asUuid } from "@/lib/doc/types";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import {
 	actingUser,
@@ -11,7 +11,6 @@ import {
 	gt,
 	idOf,
 	input,
-	isNull,
 	literal,
 	match,
 	matchAll,
@@ -24,6 +23,7 @@ import {
 	tableLookup,
 	unowned,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import {
 	formDisplayCondition,
 	moduleDisplayCondition,
@@ -75,14 +75,14 @@ function validateFormFindings(
 		caseTypes: [
 			{
 				name: "household",
-				properties: [{ name: "name", label: "Name" }],
+				properties: [{ name: "name", label: proseText("Name") }],
 			},
 			{
 				name: "patient",
 				parent_type: "household",
 				properties: [
-					{ name: "status", label: "Status" },
-					{ name: "age", label: "Age", data_type: "int" },
+					{ name: "status", label: proseText("Status") },
+					{ name: "age", label: proseText("Age"), data_type: "int" },
 				],
 			},
 		],
@@ -99,14 +99,14 @@ const CASE_OPERATION_ONLY_CONDITIONS: readonly (readonly [
 	[
 		"form field",
 		eq(
-			formField(asUuid("11111111-1111-4111-8111-111111111111")),
+			formField(testUuid("11111111-1111-4111-8111-111111111111")),
 			literal("value"),
 		),
 	],
 	[
 		"operation id",
 		eq(
-			idOf(asUuid("22222222-2222-4222-8222-222222222222")),
+			idOf(testUuid("22222222-2222-4222-8222-222222222222")),
 			literal("case-id"),
 		),
 	],
@@ -126,12 +126,7 @@ describe("module display-condition validation", () => {
 
 	it("rejects Search answers and conditions that simplify to false", () => {
 		expect(
-			validateModule(
-				eq(
-					input(asUuid("556707de-6346-4bde-8e05-297ee5720141")),
-					literal("Ada"),
-				),
-			),
+			validateModule(eq(input(testUuid("name")), literal("Ada"))),
 		).toContain("DISPLAY_CONDITION_SEARCH_INPUT_UNAVAILABLE");
 		expect(validateModule(matchNone())).toContain(
 			"DISPLAY_CONDITION_ALWAYS_FALSE",
@@ -178,9 +173,6 @@ describe("form display-condition validation", () => {
 	});
 
 	it("rejects non-portable on-device operators", () => {
-		expect(validateForm(isNull(prop("patient", "status")))).toContain(
-			"DISPLAY_CONDITION_NOT_ON_DEVICE",
-		);
 		expect(
 			validateForm(match(prop("patient", "status"), literal("open"), "fuzzy")),
 		).toContain("DISPLAY_CONDITION_NOT_ON_DEVICE");

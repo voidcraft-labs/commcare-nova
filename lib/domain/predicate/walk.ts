@@ -42,7 +42,6 @@
  * (no I/O); the caller closes over its own accumulator.
  */
 
-import type { Uuid } from "../uuid";
 import type {
 	Predicate,
 	PropertyRef,
@@ -210,10 +209,10 @@ export function walkInputRefs(
 	});
 }
 
-/** Whether a predicate reads the named Search input anywhere in its AST. */
+/** Whether a predicate reads the identified Search input anywhere in its AST. */
 export function predicateReferencesSearchInput(
 	predicate: Predicate,
-	searchInputUuid: Uuid,
+	searchInputUuid: SearchInputRef["searchInputUuid"],
 ): boolean {
 	let found = false;
 	walkInputRefs(predicate, (ref) => {
@@ -225,7 +224,7 @@ export function predicateReferencesSearchInput(
 /** Expression-rooted counterpart to `predicateReferencesSearchInput`. */
 export function expressionReferencesSearchInput(
 	expression: ValueExpression,
-	searchInputUuid: Uuid,
+	searchInputUuid: SearchInputRef["searchInputUuid"],
 ): boolean {
 	let found = false;
 	walkExpressionTerms(expression, (term) => {
@@ -533,7 +532,6 @@ function walkPredicate(
 				visitor.visitTerm?.(predicate.values[i], [...path, "values", i]);
 			}
 			return;
-		case "is-null":
 		case "is-blank":
 			walkValueExpression(predicate.left, visitor, [...path, "left"]);
 			return;
@@ -622,7 +620,6 @@ function walkValueExpression(
 		case "date-coerce":
 		case "datetime-coerce":
 		case "double":
-		case "unwrap-list":
 			walkValueExpression(expr.value, visitor, [...path, "value"]);
 			return;
 		case "format-date":

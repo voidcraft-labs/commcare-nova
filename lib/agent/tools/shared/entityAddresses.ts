@@ -17,7 +17,7 @@ import {
 export const moduleAddressSchema = z
 	.object({
 		moduleUuid: uuidSchema.describe(
-			"Stable module uuid, from get_app, get_module, or search_blueprint.",
+			"Stable module UUID, from get_app, get_module, or search_blueprint.",
 		),
 	})
 	.strict();
@@ -25,7 +25,7 @@ export const moduleAddressSchema = z
 export const formAddressSchema = moduleAddressSchema
 	.extend({
 		formUuid: uuidSchema.describe(
-			"Stable form uuid, from get_app, get_module, get_form, or search_blueprint.",
+			"Stable form UUID, from get_app, get_module, get_form, or search_blueprint.",
 		),
 	})
 	.strict();
@@ -33,7 +33,7 @@ export const formAddressSchema = moduleAddressSchema
 export const fieldAddressSchema = formAddressSchema
 	.extend({
 		fieldUuid: uuidSchema.describe(
-			"Stable field uuid, from get_form, get_field, or search_blueprint.",
+			"Stable field UUID, from get_form, get_field, or search_blueprint.",
 		),
 	})
 	.strict();
@@ -81,14 +81,7 @@ export type FieldAddressResolution =
 	  }
 	| { readonly ok: false; readonly error: string };
 
-/**
- * Resolve one of the stable UUID addresses exposed by every SA/MCP read.
- *
- * Display positions, names, semantic field ids, lookup tags, and emitted wire
- * names are projections, never addresses. Keeping the membership checks here
- * also prevents a valid child UUID paired with the wrong parent from silently
- * mutating a different part of the app.
- */
+/** Resolve one stable UUID address and prove its parent membership. */
 export function resolveModuleAddress(
 	doc: BlueprintDoc,
 	address: ModuleAddress,
@@ -98,7 +91,7 @@ export function resolveModuleAddress(
 	if (module === undefined) {
 		return {
 			ok: false,
-			error: `No module with uuid "${address.moduleUuid}" is in this app. Read get_app, get_module, or search_blueprint for current module uuids.`,
+			error: `No module with UUID "${address.moduleUuid}" is in this app. Read get_app, get_module, or search_blueprint for current module UUIDs.`,
 		};
 	}
 	return { ok: true, moduleUuid, module };
@@ -116,7 +109,7 @@ export function resolveFormAddress(
 	if (form === undefined) {
 		return {
 			ok: false,
-			error: `No form with uuid "${address.formUuid}" is in this app. Read get_app, get_module, get_form, or search_blueprint for current form uuids.`,
+			error: `No form with UUID "${address.formUuid}" is in this app. Read get_app, get_module, get_form, or search_blueprint for current form UUIDs.`,
 		};
 	}
 	if (!orderedFormUuids(doc, module.moduleUuid).includes(formUuid)) {
@@ -125,11 +118,7 @@ export function resolveFormAddress(
 			error: `Form "${form.name}" (${formUuid}) is not in module "${module.module.name}" (${module.moduleUuid}).`,
 		};
 	}
-	return {
-		...module,
-		formUuid,
-		form,
-	};
+	return { ...module, formUuid, form };
 }
 
 export function resolveFieldAddress(
@@ -144,7 +133,7 @@ export function resolveFieldAddress(
 	if (field === undefined) {
 		return {
 			ok: false,
-			error: `No field with uuid "${address.fieldUuid}" is in this app. Read get_form, get_field, or search_blueprint for current field uuids.`,
+			error: `No field with UUID "${address.fieldUuid}" is in this app. Read get_form, get_field, or search_blueprint for current field UUIDs.`,
 		};
 	}
 	if (findContainingForm(doc, fieldUuid) !== form.formUuid) {
@@ -160,10 +149,5 @@ export function resolveFieldAddress(
 			error: `Field "${field.id}" (${fieldUuid}) is not reachable from its form.`,
 		};
 	}
-	return {
-		...form,
-		fieldUuid,
-		field,
-		path,
-	};
+	return { ...form, fieldUuid, field, path };
 }

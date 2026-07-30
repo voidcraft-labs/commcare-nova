@@ -27,11 +27,7 @@ import { Command, InvalidArgumentError } from "commander";
 import { closeCaseStoreDatabase } from "@/lib/case-store/postgres/connection";
 import { getAppDb } from "@/lib/db/pg";
 import type { RunSummaryDoc } from "@/lib/db/types";
-import {
-	decodeEventsLenient,
-	readEvents,
-	readRunSummary,
-} from "@/lib/log/reader";
+import { decodeEvents, readEvents, readRunSummary } from "@/lib/log/reader";
 import {
 	duration,
 	pct,
@@ -180,13 +176,7 @@ const runsTableOnly =
  */
 async function loadEvents(): Promise<Event[]> {
 	if (runFilter) {
-		const { events, skipped } = await readEvents(appId, runFilter);
-		if (skipped > 0) {
-			console.warn(
-				`Skipped ${skipped} unparseable event(s) (schema drift / forward-version payload).`,
-			);
-		}
-		return events;
+		return readEvents(appId, runFilter);
 	}
 	const db = await getAppDb();
 	const rows = await db
@@ -196,18 +186,7 @@ async function loadEvents(): Promise<Event[]> {
 		.orderBy("ts")
 		.orderBy("seq")
 		.execute();
-	// Drop-and-warn on any event that fails schema validation (forward-version
-	// payload / schema drift) instead of letting one bad row abort the whole
-	// scan — the failure that made this script crash on attachment-prep events.
-	const { events, skipped, sample } = decodeEventsLenient(
-		rows.map((row) => row.event),
-	);
-	if (skipped > 0) {
-		console.warn(
-			`Skipped ${skipped} unparseable event(s) (schema drift / forward-version payload). First: ${sample}`,
-		);
-	}
-	return events;
+	return decodeEvents(rows.map((row) => row.event));
 }
 
 /**
@@ -297,6 +276,10 @@ function printEventSummary(event: Event): void {
 		console.log(`${prefix}  [mutation:${event.actor}]${stage} ${mutationKind}`);
 		return;
 	}
+	if (event.kind === "archived-mutation") {
+		console.log(`${prefix}  [archived-mutation] historical audit payload`);
+		return;
+	}
 	console.log(
 		`${prefix}  [conversation] ${summarizeConversation(event.payload)}`,
 	);
@@ -313,6 +296,11 @@ function printEventVerbose(event: Event): void {
 		if (event.stage) console.log(`  │ stage:    ${event.stage}`);
 		console.log(`  │ mutation: ${event.mutation.kind}`);
 		console.log(`  │ payload:  ${JSON.stringify(event.mutation)}`);
+		console.log("  └─");
+		return;
+	}
+	if (event.kind === "archived-mutation") {
+		console.log(`  │ archived: ${JSON.stringify(event.archived)}`);
 		console.log("  └─");
 		return;
 	}
@@ -393,6 +381,9 @@ function printRunSummary(summary: RunSummaryDoc): void {
 function formatEventCounts(events: Event[]): string {
 	const counts = computeEventKindCounts(events);
 	const parts = [`${counts.total} events`, `mutations: ${counts.mutation}`];
+	if (counts.archivedMutation > 0) {
+		parts.push(`archived mutations: ${counts.archivedMutation}`);
+	}
 	for (const [type, count] of Object.entries(counts.conversation)) {
 		parts.push(`${type}: ${count}`);
 	}

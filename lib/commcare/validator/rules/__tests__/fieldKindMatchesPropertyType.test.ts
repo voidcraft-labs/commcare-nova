@@ -1,9 +1,101 @@
 import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import {
+	caseDataTypeForFieldKind,
+	type FieldKind,
+	fieldKinds,
+	WRITABLE_STANDARD_CASE_PROPERTIES,
+} from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import { runValidation } from "../../runner";
+import { fieldKindMatchesPropertyType } from "../fieldKindMatchesPropertyType";
 
 describe("fieldKindMatchesPropertyType", () => {
+	it("pins every implicit writable standard scalar to text for every value-writing field kind", () => {
+		const valueWritingKinds = fieldKinds.filter(
+			(kind) =>
+				caseDataTypeForFieldKind(kind) !== undefined || kind === "hidden",
+		);
+		for (const property of WRITABLE_STANDARD_CASE_PROPERTIES) {
+			for (const kind of valueWritingKinds) {
+				const doc = buildDoc({
+					appName: "Standard scalar writer",
+					modules: [
+						{
+							name: "Patients",
+							caseType: "patient",
+							forms: [
+								{
+									name: "Update",
+									type: "followup",
+									fields: [
+										f({
+											kind,
+											id: `${property}_${kind}`,
+											caseWrite: { caseType: "patient", property },
+										}),
+									],
+								},
+							],
+						},
+					],
+					caseTypes: [{ name: "patient", properties: [] }],
+				});
+				const mismatch = fieldKindMatchesPropertyType(doc).some(
+					(error) => error.code === "FIELD_KIND_PROPERTY_TYPE_MISMATCH",
+				);
+				const kindType = caseDataTypeForFieldKind(kind as FieldKind);
+				expect(mismatch, `${property} <- ${kind}`).toBe(
+					kindType !== undefined && kindType !== "text",
+				);
+			}
+		}
+	});
+
+	it("does not let an explicit standard-property declaration redefine the scalar column type", () => {
+		const doc = buildDoc({
+			appName: "Standard scalar declaration",
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					forms: [
+						{
+							name: "Update",
+							type: "followup",
+							fields: [
+								f({
+									kind: "int",
+									id: "external_code",
+									caseWrite: {
+										caseType: "patient",
+										property: "external_id",
+									},
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{
+							name: "external_id",
+							label: proseText("External ID"),
+							data_type: "int",
+						},
+					],
+				},
+			],
+		});
+		expect(
+			fieldKindMatchesPropertyType(doc).map((error) => error.code),
+		).toContain("FIELD_KIND_PROPERTY_TYPE_MISMATCH");
+	});
+
 	it("fires when an int field saves to a text-typed property", () => {
 		const doc = buildDoc({
 			appName: "Test",
@@ -22,14 +114,14 @@ describe("fieldKindMatchesPropertyType", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 								f({
 									kind: "int",
 									id: "label",
-									label: "Label",
-									case_property_on: "patient",
+									label: proseText("Label"),
+									caseWrite: { caseType: "patient", property: "label" },
 								}),
 							],
 						},
@@ -40,8 +132,8 @@ describe("fieldKindMatchesPropertyType", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name", data_type: "text" },
-						{ name: "label", label: "Label", data_type: "text" },
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+						{ name: "label", label: proseText("Label"), data_type: "text" },
 					],
 				},
 			],
@@ -71,8 +163,8 @@ describe("fieldKindMatchesPropertyType", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},
@@ -82,7 +174,9 @@ describe("fieldKindMatchesPropertyType", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "case_name", label: "Name", data_type: "text" }],
+					properties: [
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+					],
 				},
 			],
 		});
@@ -113,20 +207,20 @@ describe("fieldKindMatchesPropertyType", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 								f({
 									kind: "barcode",
 									id: "tag",
-									label: "Tag",
-									case_property_on: "patient",
+									label: proseText("Tag"),
+									caseWrite: { caseType: "patient", property: "tag" },
 								}),
 								f({
 									kind: "secret",
 									id: "pin",
-									label: "PIN",
-									case_property_on: "patient",
+									label: proseText("PIN"),
+									caseWrite: { caseType: "patient", property: "pin" },
 								}),
 							],
 						},
@@ -137,9 +231,9 @@ describe("fieldKindMatchesPropertyType", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name", data_type: "text" },
-						{ name: "tag", label: "Tag", data_type: "text" },
-						{ name: "pin", label: "PIN", data_type: "text" },
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+						{ name: "tag", label: proseText("Tag"), data_type: "text" },
+						{ name: "pin", label: proseText("PIN"), data_type: "text" },
 					],
 				},
 			],
@@ -171,16 +265,16 @@ describe("fieldKindMatchesPropertyType", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
-								// Hidden field with `case_property_on` — the rule must
+								// Hidden field with `caseWrite` — the rule must
 								// skip it regardless of the property's declared type.
 								f({
 									kind: "hidden",
 									id: "computed_age",
 									calculate: "1",
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "computed_age" },
 								}),
 							],
 						},
@@ -191,8 +285,8 @@ describe("fieldKindMatchesPropertyType", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name", data_type: "text" },
-						{ name: "computed_age", label: "Age", data_type: "int" },
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+						{ name: "computed_age", label: proseText("Age"), data_type: "int" },
 					],
 				},
 			],
@@ -228,14 +322,14 @@ describe("fieldKindMatchesPropertyType", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 								f({
 									kind: "int",
 									id: "untyped",
-									label: "Untyped",
-									case_property_on: "patient",
+									label: proseText("Untyped"),
+									caseWrite: { caseType: "patient", property: "untyped" },
 								}),
 							],
 						},
@@ -246,8 +340,8 @@ describe("fieldKindMatchesPropertyType", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name" },
-						{ name: "untyped", label: "Untyped" },
+						{ name: "case_name", label: proseText("Name") },
+						{ name: "untyped", label: proseText("Untyped") },
 					],
 				},
 			],
@@ -281,14 +375,14 @@ describe("fieldKindMatchesPropertyType", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 								f({
 									kind: "int",
 									id: "weight",
-									label: "Weight",
-									case_property_on: "patient",
+									label: proseText("Weight"),
+									caseWrite: { caseType: "patient", property: "weight" },
 								}),
 							],
 						},
@@ -299,8 +393,8 @@ describe("fieldKindMatchesPropertyType", () => {
 								f({
 									kind: "decimal",
 									id: "weight",
-									label: "Weight",
-									case_property_on: "patient",
+									label: proseText("Weight"),
+									caseWrite: { caseType: "patient", property: "weight" },
 								}),
 							],
 						},
@@ -311,8 +405,8 @@ describe("fieldKindMatchesPropertyType", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name", data_type: "text" },
-						{ name: "weight", label: "Weight" },
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+						{ name: "weight", label: proseText("Weight") },
 					],
 				},
 			],
@@ -343,19 +437,19 @@ describe("fieldKindMatchesPropertyType", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 								f({
 									kind: "group",
 									id: "demographics",
-									label: "Demographics",
+									label: proseText("Demographics"),
 									children: [
 										f({
 											kind: "int",
 											id: "label",
-											label: "Label",
-											case_property_on: "patient",
+											label: proseText("Label"),
+											caseWrite: { caseType: "patient", property: "label" },
 										}),
 									],
 								}),
@@ -368,8 +462,8 @@ describe("fieldKindMatchesPropertyType", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name", data_type: "text" },
-						{ name: "label", label: "Label", data_type: "text" },
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+						{ name: "label", label: proseText("Label"), data_type: "text" },
 					],
 				},
 			],
@@ -407,14 +501,14 @@ describe("tuple-key encoding is collision-free over arbitrary docs", () => {
 								f({
 									kind: "text",
 									id: "c",
-									label: "C",
-									case_property_on: "a::b",
+									label: proseText("C"),
+									caseWrite: { caseType: "a::b", property: "c" },
 								}),
 								f({
 									kind: "int",
 									id: "b::c",
-									label: "BC",
-									case_property_on: "a",
+									label: proseText("BC"),
+									caseWrite: { caseType: "a", property: "b::c" },
 								}),
 							],
 						},

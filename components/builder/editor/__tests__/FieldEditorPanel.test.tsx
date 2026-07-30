@@ -19,13 +19,14 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { asUuid } from "@/lib/doc/types";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	type Field,
 	fieldKinds,
 	type GroupField,
 	type TextField,
 } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import { fieldEditorSchemas } from "../fieldEditorSchemas";
 import { ALWAYS_REQUIRED_EXPRESSION } from "../fields/requiredState";
 import { sectionHasContent } from "../partitionEditorEntries";
@@ -33,14 +34,14 @@ import { sectionHasContent } from "../partitionEditorEntries";
 // Trivial fixtures — only the discriminant + identity keys are read by
 // the schema's visibility predicates. The schemas are kind-typed so the
 // `field` cast inside each test narrows safely.
-const FIELD_UUID = asUuid("q-panel-0000-0000-0000-000000000000");
+const FIELD_UUID = testUuid("q-panel-0000-0000-0000-000000000000");
 
 function textField(extras: Partial<TextField> = {}): TextField {
 	return {
 		kind: "text",
 		uuid: FIELD_UUID,
 		id: "name",
-		label: "Name",
+		label: proseText("Name"),
 		...extras,
 	};
 }
@@ -50,7 +51,7 @@ function groupField(extras: Partial<GroupField> = {}): GroupField {
 		kind: "group",
 		uuid: FIELD_UUID,
 		id: "household",
-		label: "Household",
+		label: proseText("Household"),
 		...extras,
 	};
 }
@@ -77,7 +78,7 @@ function panelSections<F extends Field>(
 
 describe("FieldEditorPanel section visibility", () => {
 	it("text field exposes Data + Logic + Appearance sections", () => {
-		// Every section card mounts: text has case_property_on (data), required
+		// Every section card mounts: text has caseWrite (data), required
 		// + relevant + validate (logic, all addable), and hint (ui, addable).
 		expect(panelSections(textField())).toEqual({
 			data: true,

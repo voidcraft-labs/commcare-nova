@@ -24,7 +24,9 @@
 import { useMemo } from "react";
 import { type FieldPath, fpath } from "@/lib/doc/fieldPath";
 import { useBlueprintDocShallow } from "@/lib/doc/hooks/useBlueprintDoc";
-import type { Field, Form, Module, Uuid } from "@/lib/domain";
+import type { Field, Form, Module, UserProperty, Uuid } from "@/lib/domain";
+import { projectProseTemplate } from "@/lib/domain/prose";
+import type { XPathPrintableDoc } from "@/lib/domain/xpath/print";
 import type { MatchIndices } from "@/lib/filterTree";
 
 /**
@@ -73,6 +75,12 @@ interface SearchEntityData {
 	modules: Record<Uuid, Module>;
 	forms: Record<Uuid, Form>;
 	fields: Record<Uuid, Field>;
+	/* The two families label projection needs beyond the maps above. A match
+	 * index is an offset into the label the row RENDERS, so the walk has to
+	 * spell a label exactly as `FieldRow` does or the highlight lands on the
+	 * wrong characters. */
+	fieldParent: Record<Uuid, Uuid>;
+	userProperties: Record<Uuid, UserProperty> | undefined;
 }
 
 /**
@@ -91,6 +99,8 @@ export const SEARCH_IDLE: SearchEntityData = {
 	modules: {} as Record<Uuid, Module>,
 	forms: {} as Record<Uuid, Form>,
 	fields: {} as Record<Uuid, Field>,
+	fieldParent: {} as Record<Uuid, Uuid>,
+	userProperties: undefined,
 };
 
 /**
@@ -101,19 +111,29 @@ export const SEARCH_IDLE: SearchEntityData = {
 export function useSearchFilter(query: string): SearchResult | null {
 	const isSearching = query.trim().length > 0;
 
-	const { moduleOrder, formOrder, fieldOrder, modules, forms, fields } =
-		useBlueprintDocShallow((s) =>
-			isSearching
-				? {
-						moduleOrder: s.moduleOrder,
-						formOrder: s.formOrder,
-						fieldOrder: s.fieldOrder,
-						modules: s.modules,
-						forms: s.forms,
-						fields: s.fields,
-					}
-				: SEARCH_IDLE,
-		);
+	const {
+		moduleOrder,
+		formOrder,
+		fieldOrder,
+		modules,
+		forms,
+		fields,
+		fieldParent,
+		userProperties,
+	} = useBlueprintDocShallow((s) =>
+		isSearching
+			? {
+					moduleOrder: s.moduleOrder,
+					formOrder: s.formOrder,
+					fieldOrder: s.fieldOrder,
+					modules: s.modules,
+					forms: s.forms,
+					fields: s.fields,
+					fieldParent: s.fieldParent,
+					userProperties: s.userProperties,
+				}
+			: SEARCH_IDLE,
+	);
 
 	return useMemo(() => {
 		const q = query.trim().toLowerCase();
@@ -124,12 +144,18 @@ export function useSearchFilter(query: string): SearchResult | null {
 		const visibleModuleIndices = new Set<number>();
 		const visibleFormIds = new Set<string>();
 		const visibleFieldUuids = new Set<string>();
+		const printDoc: XPathPrintableDoc = {
+			fields,
+			forms,
+			fieldOrder,
+			fieldParent,
+			userProperties,
+		};
 
-		// DISPLAY order (`sort-by-(order, uuid)`), so `mIdx` / `fIdx` — the keys
-		// the row components (`AppTree` / `ModuleCard` / `FormCard`, which render
-		// from the sorted `useModuleIds` / `useFormIds`) look up as `m${idx}` /
-		// `f${mIdx}_${fIdx}` and `visibleModuleIndices` — align with the rendered
-		// positions, not the `moduleOrder` array order.
+		// Membership-array order, so `mIdx` / `fIdx` — the keys the row components
+		// (`AppTree` / `ModuleCard` / `FormCard`) look up as `m${idx}` /
+		// `f${mIdx}_${fIdx}` and `visibleModuleIndices` — align with rendered
+		// positions.
 		const sortedModules = [...moduleOrder];
 		for (let mIdx = 0; mIdx < sortedModules.length; mIdx++) {
 			const moduleId = sortedModules[mIdx];
@@ -166,7 +192,9 @@ export function useSearchFilter(query: string): SearchResult | null {
 						// `group` (empty/absent label = transparent group), so the
 						// `in` narrowing isn't enough — coerce `undefined` to "".
 						const fieldLabel =
-							"label" in field && field.label ? field.label : "";
+							"label" in field && field.label
+								? projectProseTemplate(field.label, printDoc).text
+								: "";
 						const labelIndices = findMatchIndices(fieldLabel, q);
 						const idIndices = findMatchIndices(field.id, q);
 
@@ -206,5 +234,15 @@ export function useSearchFilter(query: string): SearchResult | null {
 			visibleFormIds,
 			visibleFieldUuids,
 		};
-	}, [query, moduleOrder, formOrder, fieldOrder, modules, forms, fields]);
+	}, [
+		query,
+		moduleOrder,
+		formOrder,
+		fieldOrder,
+		modules,
+		forms,
+		fields,
+		fieldParent,
+		userProperties,
+	]);
 }

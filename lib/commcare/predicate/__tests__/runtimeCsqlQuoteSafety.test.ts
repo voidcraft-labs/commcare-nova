@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import {
 	advancedSearchInputDef,
-	asUuid,
 	type CaseListConfig,
 	simpleSearchInputDef,
 } from "@/lib/domain";
@@ -23,62 +23,77 @@ import {
 	whenInput,
 } from "@/lib/domain/predicate";
 import { composeXPathQueryPredicate } from "../../suite/case-search/xpathQuery";
-import { collectRuntimeCsqlStringInputUuids } from "../runtimeCsqlQuoteSafety";
+import { collectRuntimeCsqlStringInputNames as collectRuntimeCsqlStringInputNamesRaw } from "../runtimeCsqlQuoteSafety";
 
 const u = (tail: number) =>
-	asUuid(`00000000-0000-0000-0000-${String(tail).padStart(12, "0")}`);
+	testUuid(`00000000-0000-0000-0000-${String(tail).padStart(12, "0")}`);
 
-describe("collectRuntimeCsqlStringInputUuids", () => {
+const TEST_INPUTS = [
+	"direct",
+	"date_text",
+	"trigger",
+	"number",
+	"control",
+	"branch_value",
+	"visit_name",
+].map((name) => ({
+	uuid: testUuid(name),
+	name,
+	data_type: "text" as const,
+}));
+TEST_INPUTS.push(
+	{ uuid: u(1), name: "client_query", data_type: "text" },
+	{ uuid: u(2), name: "advanced_owner", data_type: "text" },
+	{ uuid: u(3), name: "sibling", data_type: "text" },
+	{ uuid: u(4), name: "query", data_type: "text" },
+	{ uuid: u(5), name: "filter_value", data_type: "text" },
+);
+
+function collectRuntimeCsqlStringInputNames(
+	predicate: Parameters<typeof collectRuntimeCsqlStringInputNamesRaw>[0],
+) {
+	return collectRuntimeCsqlStringInputNamesRaw(predicate, TEST_INPUTS);
+}
+
+describe("collectRuntimeCsqlStringInputNames", () => {
 	it("collects direct and native-function input values", () => {
 		expect(
-			collectRuntimeCsqlStringInputUuids(
-				eq(
-					prop("patient", "name"),
-					input(asUuid("86682ef3-89ba-4086-8cb9-8ba1fd44c162")),
-				),
+			collectRuntimeCsqlStringInputNames(
+				eq(prop("patient", "case_name"), input(testUuid("direct"))),
 			),
-		).toEqual(new Set([asUuid("86682ef3-89ba-4086-8cb9-8ba1fd44c162")]));
+		).toEqual(new Set(["direct"]));
 		expect(
-			collectRuntimeCsqlStringInputUuids(
+			collectRuntimeCsqlStringInputNames(
 				eq(
 					prop("patient", "dob"),
-					dateCoerce(
-						term(input(asUuid("2d1ddc69-ad97-4c0c-8b01-2aab2fb10d10"))),
-					),
+					dateCoerce(term(input(testUuid("date_text")))),
 				),
 			),
-		).toEqual(new Set([asUuid("2d1ddc69-ad97-4c0c-8b01-2aab2fb10d10")]));
+		).toEqual(new Set(["date_text"]));
 	});
 
 	it("skips trigger-only and normalized on-device control values", () => {
 		const triggerOnly = whenInput(
-			input(asUuid("86f97337-47b3-480b-8fee-c5a918041203")),
+			input(testUuid("trigger")),
 			eq(prop("patient", "status"), literal("active")),
 		);
 		const numericOutput = eq(
 			prop("patient", "score"),
-			arith(
-				"+",
-				term(input(asUuid("6ad32d13-f097-40c6-833a-8c124c7ef785"))),
-				term(literal(1)),
-			),
+			arith("+", term(input(testUuid("number"))), term(literal(1))),
 		);
 		const conditionalControl = eq(
 			prop("patient", "label"),
 			ifExpr(
-				eq(
-					input(asUuid("3a385156-ab07-4067-80ae-19e880d4bc6b")),
-					literal("yes"),
-				),
+				eq(input(testUuid("control")), literal("yes")),
 				term(literal("accepted")),
 				term(literal("rejected")),
 			),
 		);
-		expect(collectRuntimeCsqlStringInputUuids(triggerOnly)).toEqual(new Set());
-		expect(collectRuntimeCsqlStringInputUuids(numericOutput)).toEqual(
+		expect(collectRuntimeCsqlStringInputNames(triggerOnly)).toEqual(new Set());
+		expect(collectRuntimeCsqlStringInputNames(numericOutput)).toEqual(
 			new Set(),
 		);
-		expect(collectRuntimeCsqlStringInputUuids(conditionalControl)).toEqual(
+		expect(collectRuntimeCsqlStringInputNames(conditionalControl)).toEqual(
 			new Set(),
 		);
 	});
@@ -88,12 +103,12 @@ describe("collectRuntimeCsqlStringInputUuids", () => {
 			prop("patient", "label"),
 			ifExpr(
 				matchAll(),
-				term(input(asUuid("e4c52089-caba-4cff-858c-7297acba8409"))),
+				term(input(testUuid("branch_value"))),
 				term(literal("fallback")),
 			),
 		);
-		expect(collectRuntimeCsqlStringInputUuids(predicate)).toEqual(
-			new Set([asUuid("e4c52089-caba-4cff-858c-7297acba8409")]),
+		expect(collectRuntimeCsqlStringInputNames(predicate)).toEqual(
+			new Set(["branch_value"]),
 		);
 	});
 
@@ -103,16 +118,13 @@ describe("collectRuntimeCsqlStringInputUuids", () => {
 			count(
 				subcasePath("visit"),
 				whenInput(
-					input(asUuid("e91f1dd4-be63-443c-8799-4606aaedfdcd")),
-					eq(
-						prop("visit", "name"),
-						input(asUuid("e91f1dd4-be63-443c-8799-4606aaedfdcd")),
-					),
+					input(testUuid("visit_name")),
+					eq(prop("visit", "case_name"), input(testUuid("visit_name"))),
 				),
 			),
 		);
-		expect(collectRuntimeCsqlStringInputUuids(predicate)).toEqual(
-			new Set([asUuid("e91f1dd4-be63-443c-8799-4606aaedfdcd")]),
+		expect(collectRuntimeCsqlStringInputNames(predicate)).toEqual(
+			new Set(["visit_name"]),
 		);
 	});
 
@@ -136,18 +148,23 @@ describe("collectRuntimeCsqlStringInputUuids", () => {
 				),
 				// This prompt is consumed by the sibling advanced predicate.
 				advancedSearchInputDef(u(3), "sibling", "Region", "text", matchAll()),
+				// The app-wide Results filter owns this independent prompt.
+				advancedSearchInputDef(
+					u(5),
+					"filter_value",
+					"Filter",
+					"text",
+					matchAll(),
+				),
 			],
 			filter: whenInput(
-				input(asUuid("4dc45fed-572f-4487-8df7-3e6c57d78d21")),
-				eq(
-					prop("patient", "status"),
-					input(asUuid("4dc45fed-572f-4487-8df7-3e6c57d78d21")),
-				),
+				input(u(5)),
+				eq(prop("patient", "status"), input(u(5))),
 			),
 		});
 		const predicate = composeXPathQueryPredicate(config, "patient");
-		expect(collectRuntimeCsqlStringInputUuids(predicate)).toEqual(
-			new Set([u(1), u(3), asUuid("4dc45fed-572f-4487-8df7-3e6c57d78d21")]),
+		expect(collectRuntimeCsqlStringInputNames(predicate)).toEqual(
+			new Set(["client_query", "sibling", "filter_value"]),
 		);
 	});
 
@@ -161,12 +178,12 @@ describe("collectRuntimeCsqlStringInputUuids", () => {
 					"query",
 					"Query",
 					"text",
-					whenInput(input(u(4)), eq(prop("patient", "name"), input(u(4)))),
+					whenInput(input(u(4)), eq(prop("patient", "case_name"), input(u(4)))),
 				),
 			],
 		});
 		expect(
-			collectRuntimeCsqlStringInputUuids(
+			collectRuntimeCsqlStringInputNames(
 				composeXPathQueryPredicate(config, "patient"),
 			),
 		).toEqual(new Set());

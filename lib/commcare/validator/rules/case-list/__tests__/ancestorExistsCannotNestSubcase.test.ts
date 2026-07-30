@@ -1,3 +1,4 @@
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
  * Tests for `ancestorExistsCannotNestSubcase`. CCHQ's CSQL evaluator
@@ -23,7 +24,6 @@ import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import {
 	advancedSearchInputDef,
-	asUuid,
 	plainColumn,
 	simpleSearchInputDef,
 } from "@/lib/domain";
@@ -56,7 +56,7 @@ const standardForm = {
 			kind: "text" as const,
 			id: "case_name",
 			label: "Name",
-			case_property_on: "patient",
+			caseWrite: { caseType: "patient", property: "case_name" },
 		}),
 	],
 };
@@ -98,9 +98,9 @@ describe("ancestorExistsCannotNestSubcase", () => {
 					caseType: "patient",
 					caseSearchConfig: {},
 					caseListConfig: {
-						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("c-1")],
-						detailColumnOrder: [asUuid("c-1")],
+						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [testUuid("c-1")],
+						detailColumnOrder: [testUuid("c-1")],
 						filter: exists(
 							ancestorPath(relationStep("parent")),
 							exists(subcasePath("child", "child")),
@@ -137,9 +137,9 @@ describe("ancestorExistsCannotNestSubcase", () => {
 					caseType: "patient",
 					caseSearchConfig: {},
 					caseListConfig: {
-						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("c-1")],
-						detailColumnOrder: [asUuid("c-1")],
+						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [testUuid("c-1")],
+						detailColumnOrder: [testUuid("c-1")],
 						filter: exists(
 							ancestorPath(relationStep("parent")),
 							missing(subcasePath("child", "child")),
@@ -173,9 +173,9 @@ describe("ancestorExistsCannotNestSubcase", () => {
 					caseType: "patient",
 					caseSearchConfig: {},
 					caseListConfig: {
-						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("c-1")],
-						detailColumnOrder: [asUuid("c-1")],
+						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [testUuid("c-1")],
+						detailColumnOrder: [testUuid("c-1")],
 						filter: exists(
 							ancestorPath(relationStep("parent")),
 							and(
@@ -208,9 +208,9 @@ describe("ancestorExistsCannotNestSubcase", () => {
 					caseType: "patient",
 					caseSearchConfig: {},
 					caseListConfig: {
-						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("c-1")],
-						detailColumnOrder: [asUuid("c-1")],
+						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [testUuid("c-1")],
+						detailColumnOrder: [testUuid("c-1")],
 						filter: exists(
 							ancestorPath(relationStep("parent")),
 							eq(
@@ -243,9 +243,9 @@ describe("ancestorExistsCannotNestSubcase", () => {
 					caseType: "patient",
 					caseSearchConfig: {},
 					caseListConfig: {
-						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("c-1")],
-						detailColumnOrder: [asUuid("c-1")],
+						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [testUuid("c-1")],
+						detailColumnOrder: [testUuid("c-1")],
 						filter: exists(
 							ancestorPath(relationStep("parent")),
 							eq(
@@ -275,9 +275,9 @@ describe("ancestorExistsCannotNestSubcase", () => {
 					caseType: "patient",
 					caseSearchConfig: {},
 					caseListConfig: {
-						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("c-1")],
-						detailColumnOrder: [asUuid("c-1")],
+						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [testUuid("c-1")],
+						detailColumnOrder: [testUuid("c-1")],
 						filter: exists(
 							anyRelationPath("parent", "household"),
 							exists(subcasePath("parent", "patient")),
@@ -306,9 +306,9 @@ describe("ancestorExistsCannotNestSubcase", () => {
 					caseType: "patient",
 					caseSearchConfig: {},
 					caseListConfig: {
-						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("c-1")],
-						detailColumnOrder: [asUuid("c-1")],
+						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [testUuid("c-1")],
+						detailColumnOrder: [testUuid("c-1")],
 						filter: exists(
 							anyRelationPath("parent", "child"),
 							exists(subcasePath("guardian_link", "household")),
@@ -338,9 +338,9 @@ describe("ancestorExistsCannotNestSubcase", () => {
 					caseType: "patient",
 					caseSearchConfig: {},
 					caseListConfig: {
-						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("c-1")],
-						detailColumnOrder: [asUuid("c-1")],
+						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [testUuid("c-1")],
+						detailColumnOrder: [testUuid("c-1")],
 						filter: exists(
 							ancestorPath(relationStep("parent")),
 							gt(count(subcasePath("child", "child")), literal(0)),
@@ -373,9 +373,9 @@ describe("ancestorExistsCannotNestSubcase", () => {
 					caseType: "patient",
 					caseSearchConfig: {},
 					caseListConfig: {
-						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("c-1")],
-						detailColumnOrder: [asUuid("c-1")],
+						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [testUuid("c-1")],
+						detailColumnOrder: [testUuid("c-1")],
 						filter: exists(
 							ancestorPath(relationStep("parent")),
 							exists(
@@ -406,9 +406,9 @@ describe("ancestorExistsCannotNestSubcase", () => {
 					caseType: "patient",
 					caseSearchConfig: {},
 					caseListConfig: {
-						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("c-1")],
-						detailColumnOrder: [asUuid("c-1")],
+						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [testUuid("c-1")],
+						detailColumnOrder: [testUuid("c-1")],
 						filter: exists(subcasePath("child", "child")),
 						searchInputs: [],
 					},
@@ -436,9 +436,9 @@ describe("ancestorExistsCannotNestSubcase", () => {
 					caseType: "patient",
 					caseSearchConfig: {},
 					caseListConfig: {
-						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("c-1")],
-						detailColumnOrder: [asUuid("c-1")],
+						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [testUuid("c-1")],
+						detailColumnOrder: [testUuid("c-1")],
 						filter: and(
 							exists(ancestorPath(relationStep("parent"))),
 							exists(subcasePath("child", "child")),
@@ -470,9 +470,9 @@ describe("ancestorExistsCannotNestSubcase", () => {
 					caseType: "patient",
 					caseSearchConfig: {},
 					caseListConfig: {
-						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("c-1")],
-						detailColumnOrder: [asUuid("c-1")],
+						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [testUuid("c-1")],
+						detailColumnOrder: [testUuid("c-1")],
 						filter: exists(
 							ancestorPath(relationStep("parent")),
 							exists(ancestorPath(relationStep("host", "household"))),
@@ -500,12 +500,12 @@ describe("ancestorExistsCannotNestSubcase", () => {
 					caseType: "patient",
 					caseSearchConfig: {},
 					caseListConfig: {
-						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("c-1")],
-						detailColumnOrder: [asUuid("c-1")],
+						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [testUuid("c-1")],
+						detailColumnOrder: [testUuid("c-1")],
 						searchInputs: [
 							advancedSearchInputDef(
-								asUuid("si-adv"),
+								testUuid("si-adv"),
 								"adv",
 								"Adv",
 								"text",
@@ -539,12 +539,12 @@ describe("ancestorExistsCannotNestSubcase", () => {
 					caseType: "patient",
 					caseSearchConfig: {},
 					caseListConfig: {
-						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("c-1")],
-						detailColumnOrder: [asUuid("c-1")],
+						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [testUuid("c-1")],
+						detailColumnOrder: [testUuid("c-1")],
 						searchInputs: [
 							simpleSearchInputDef(
-								asUuid("si-simple"),
+								testUuid("si-simple"),
 								"name",
 								"Name",
 								"text",
@@ -575,9 +575,9 @@ describe("ancestorExistsCannotNestSubcase", () => {
 					caseType: "patient",
 					caseSearchConfig: {},
 					caseListConfig: {
-						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("c-1")],
-						detailColumnOrder: [asUuid("c-1")],
+						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [testUuid("c-1")],
+						detailColumnOrder: [testUuid("c-1")],
 						filter: multiSelectAll(
 							prop("patient", "tags", subcasePath("child", "child")),
 							literal("a"),
@@ -605,9 +605,9 @@ describe("ancestorExistsCannotNestSubcase", () => {
 					caseType: "patient",
 					caseSearchConfig: {},
 					caseListConfig: {
-						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("c-1")],
-						detailColumnOrder: [asUuid("c-1")],
+						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [testUuid("c-1")],
+						detailColumnOrder: [testUuid("c-1")],
 						filter: matchAll(),
 						searchInputs: [],
 					},
@@ -633,9 +633,9 @@ describe("ancestorExistsCannotNestSubcase", () => {
 					caseType: "patient",
 					caseSearchConfig: {},
 					caseListConfig: {
-						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("c-1")],
-						detailColumnOrder: [asUuid("c-1")],
+						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [testUuid("c-1")],
+						detailColumnOrder: [testUuid("c-1")],
 						searchInputs: [],
 					},
 					forms: [standardForm],
@@ -663,9 +663,9 @@ describe("ancestorExistsCannotNestSubcase", () => {
 					caseType: "patient",
 					caseSearchConfig: {},
 					caseListConfig: {
-						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("c-1")],
-						detailColumnOrder: [asUuid("c-1")],
+						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [testUuid("c-1")],
+						detailColumnOrder: [testUuid("c-1")],
 						filter: missing(
 							ancestorPath(relationStep("parent")),
 							exists(subcasePath("child", "child")),
@@ -691,9 +691,9 @@ describe("ancestorExistsCannotNestSubcase", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("c-1")],
-						detailColumnOrder: [asUuid("c-1")],
+						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [testUuid("c-1")],
+						detailColumnOrder: [testUuid("c-1")],
 						filter: exists(
 							ancestorPath(relationStep("parent")),
 							exists(subcasePath("child", "child")),

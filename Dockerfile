@@ -96,7 +96,7 @@ RUN npm run build
 # resolve a module that isn't installed.
 RUN npx esbuild scripts/migrate.ts \
       --bundle --platform=node --target=node24 --format=cjs \
-      --tsconfig=tsconfig.json --external:pg-native \
+      --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
       --outfile=migrate.cjs
 
 # Bundle the deployment/maintenance jobs into the same immutable image.
@@ -106,6 +106,10 @@ RUN npx esbuild scripts/cleanup-form-attachments.ts \
       --bundle --platform=node --target=node24 --format=cjs \
       --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
       --outfile=capture-cleanup.cjs && \
+    npx esbuild scripts/audit-canonical-identity-foundation.ts \
+      --bundle --platform=node --target=node24 --format=cjs \
+      --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
+      --outfile=canonical-identity-audit.cjs && \
     npx esbuild scripts/infra/apply-media-bucket-policy.ts \
       --bundle --platform=node --target=node24 --format=cjs \
       --conditions=react-server --tsconfig=tsconfig.json \
@@ -159,6 +163,7 @@ COPY --from=deps --chown=nextjs:nodejs /app/node_modules/@img ./node_modules/@im
 # files — the migration modules are bundled into `migrate.cjs`.
 COPY --from=builder --chown=nextjs:nodejs /app/migrate.cjs ./migrate.cjs
 COPY --from=builder --chown=nextjs:nodejs /app/capture-cleanup.cjs ./capture-cleanup.cjs
+COPY --from=builder --chown=nextjs:nodejs /app/canonical-identity-audit.cjs ./canonical-identity-audit.cjs
 COPY --from=builder --chown=nextjs:nodejs /app/media-bucket-policy.cjs ./media-bucket-policy.cjs
 
 USER nextjs

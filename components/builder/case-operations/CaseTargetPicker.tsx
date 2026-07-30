@@ -10,9 +10,9 @@
 // where such a change exists before this one. Anything it cannot offer
 // is disabled with the reason, never hidden.
 //
-// The runtime-expression arm deliberately commits a placeholder and
-// hands off: an expression needs the full canvas, which is exactly
-// where the detail screen edits it.
+// A runtime expression is preserved and editable when one already exists.
+// A parent may also open a local expression draft. The picker never invents
+// or commits an empty persisted expression itself.
 
 "use client";
 
@@ -30,7 +30,6 @@ import {
 } from "@/components/shadcn/dropdown-menu";
 import type { Uuid } from "@/lib/doc/types";
 import type { CaseTarget } from "@/lib/domain";
-import { literal, term } from "@/lib/domain/predicate";
 
 export interface TargetChoiceContext {
 	/** Earlier creates whose case this target may name, in execution order. */
@@ -121,6 +120,7 @@ export function CaseTargetPicker({
 	context,
 	ariaLabel,
 	choiceVerdict,
+	onRequestExpression,
 	disabled = false,
 	onChange,
 }: {
@@ -131,6 +131,8 @@ export function CaseTargetPicker({
 	readonly choiceVerdict?: (
 		candidate: CaseTarget | null,
 	) => TargetChoiceVerdict;
+	/** Opens an incomplete calculation in parent-owned local draft state. */
+	readonly onRequestExpression?: () => void;
 	/** Explicit read-only/viewer state for the trigger. */
 	readonly disabled?: boolean;
 	readonly onChange: (next: CaseTarget | null) => void;
@@ -155,16 +157,14 @@ export function CaseTargetPicker({
 		: (selfReason(sessionTarget, context) ??
 			context.sessionUnavailableReason ??
 			rejectedReason(sessionTarget, effectiveVerdict));
-	const expressionTarget =
-		value?.kind === "expression"
-			? value
-			: ({
-					kind: "expression",
-					expr: term(literal("")),
-				} as const);
+	const expressionTarget = value?.kind === "expression" ? value : undefined;
 	const expressionReason = context.newOnly
 		? undefined
-		: rejectedReason(expressionTarget, effectiveVerdict);
+		: expressionTarget !== undefined
+			? rejectedReason(expressionTarget, effectiveVerdict)
+			: onRequestExpression === undefined
+				? "This screen cannot start a case-id calculation"
+				: undefined;
 
 	return (
 		<DropdownMenu>
@@ -263,7 +263,13 @@ export function CaseTargetPicker({
 										"Work the case id out from the answers \u2014 edit it on this screen"
 									}
 									disabled={expressionReason !== undefined}
-									onClick={() => onChange(expressionTarget)}
+									onClick={() => {
+										if (expressionTarget !== undefined) {
+											onChange(expressionTarget);
+										} else {
+											onRequestExpression?.();
+										}
+									}}
 								/>
 							</>
 						)}

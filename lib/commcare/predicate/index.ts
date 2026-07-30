@@ -58,7 +58,7 @@ export {
 	walkCsqlOnDeviceNodes,
 } from "./csqlRuntimeWalk";
 export {
-	collectRuntimeGeopointInputUuids,
+	collectRuntimeGeopointInputNames,
 	isValidStaticGeopointCenter,
 } from "./geopoint";
 export {
@@ -66,6 +66,6 @@ export {
 	collectPredicateInstances,
 	instanceSourceFor,
 } from "./instances";
-export { collectRuntimeCsqlStringInputUuids } from "./runtimeCsqlQuoteSafety";
+export { collectRuntimeCsqlStringInputNames } from "./runtimeCsqlQuoteSafety";
 export type { WireDialect } from "./stringQuoting";
 export { formatNumeric, quoteIdentifier, quoteLiteral } from "./stringQuoting";

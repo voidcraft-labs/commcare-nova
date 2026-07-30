@@ -407,6 +407,35 @@ export async function getLookupDefinitions(
 		);
 }
 
+/** Every rows-free table definition in one Project generation.
+ *
+ * The table-id discovery and definition projection share one repeatable-read
+ * transaction. Builder authoring must not combine a manifest from generation N
+ * with columns from generation N+1: the exact returned snapshot feeds both the
+ * editor vocabulary and the client commit gate.
+ */
+export async function getAllLookupDefinitions(
+	scope: LookupScope,
+): Promise<LookupDefinitionsSnapshot> {
+	assertScope(scope);
+	const db = await getAppDb();
+	return db
+		.transaction()
+		.setIsolationLevel("repeatable read")
+		.setAccessMode("read only")
+		.execute(async (tx) => {
+			const tableRows = await tx
+				.selectFrom("lookup_tables")
+				.select("id")
+				.where("project_id", "=", scope.projectId)
+				.execute();
+			const tableIds = tableRows.map((row) =>
+				lookupTableIdSchema.parse(row.id),
+			);
+			return readLookupDefinitionsInTransaction(tx, scope.projectId, tableIds);
+		});
+}
+
 /**
  * Exact requested definitions plus complete ordered rows from one read-only
  * repeatable-read snapshot. The compile boundary is the intended caller: it

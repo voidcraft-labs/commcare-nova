@@ -70,6 +70,7 @@ import type {
 	SwitchCase,
 	ValueExpression,
 } from "@/lib/domain/predicate/types";
+import { proseText } from "@/lib/domain/prose";
 import {
 	STANDARD_CASE_LIST_PROPERTY_DATA_TYPES,
 	standardCasePropertyDisplayLabel,
@@ -174,18 +175,6 @@ export function compileExpression(
 			return compileSwitch(expr.on, expr.cases, expr.fallback, ctx);
 		case "count":
 			return compileCount(expr.via, expr.where, ctx);
-		case "unwrap-list":
-			throw new Error(
-				typeCheckerBypassMessage({
-					where: "compileExpression",
-					summary:
-						"`unwrap-list` reached the SQL compiler, but no Postgres-side AST consumer accepts a sequence value",
-					expected:
-						"the type checker rejects `unwrap-list` outside the CSQL wire emitter (the AST resolves it to the `_sequence` sentinel and every Predicate / Expression arm requires a non-sequence operand)",
-					received: "an `unwrap-list` expression as a value-bearing operand",
-					hint: "the CSQL wire emitter is the only consumer of `unwrap-list` (via the `selected-any(prop, unwrap-list(...))` pattern). SQL-side authoring surfaces must reject sequence-typed expressions before they reach `compileExpression`.",
-				}),
-			);
 		case "format-date":
 			return compileFormatDate(expr.date, expr.pattern, ctx);
 		case "table-lookup":
@@ -214,7 +203,6 @@ export function compileExpression(
 						"if",
 						"switch",
 						"count",
-						"unwrap-list",
 						"format-date",
 						"table-lookup",
 					],
@@ -417,7 +405,7 @@ function caseTypesForTemporalTypeChecking(
 			.filter(([name]) => !declared.has(name))
 			.map(([name, data_type]) => ({
 				name,
-				label: standardCasePropertyDisplayLabel(name),
+				label: proseText(standardCasePropertyDisplayLabel(name)),
 				data_type,
 			}));
 		return standardProperties.length === 0

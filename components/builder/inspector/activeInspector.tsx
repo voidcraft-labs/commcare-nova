@@ -33,6 +33,7 @@ import { FieldInspectorBody } from "@/components/builder/editor/FieldInspectorBo
 import { PeerBadge } from "@/components/builder/PeerBadge";
 import { useProjectDataInspector } from "@/components/builder/project-data/projectDataInspector";
 import { useCaseOperation } from "@/lib/doc/hooks/useCaseOperationFacts";
+import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import type { Uuid } from "@/lib/doc/types";
 import type { CaseOperation } from "@/lib/domain";
 import { fieldRegistry } from "@/lib/domain";
@@ -58,12 +59,16 @@ export function useActiveInspector(): ActiveInspector | null {
 	const projectData = useProjectDataInspector();
 	const operation = useSelectedCaseOperation();
 	const navigate = useNavigate();
+	const projectProse = useProseProjection();
 
 	if (field) {
 		// Title = the field's prompt, falling back to its id (the `hidden` kind
 		// carries no label). The header truncates, so a long markdown label shows
 		// raw rather than rendered — short labels are the norm.
-		const label = "label" in field ? field.label?.trim() : undefined;
+		const label =
+			"label" in field && field.label
+				? projectProse(field.label).trim()
+				: undefined;
 		return {
 			kicker: fieldRegistry[field.kind].label,
 			title: label || field.id,
@@ -186,16 +191,10 @@ function useSelectedCaseOperation():
 	| (SelectedCaseOperationTarget & { readonly title: string })
 	| null {
 	const target = useSelectedCaseOperationTarget();
-	const context = useOperationSentenceContext(
-		target?.formUuid ?? EMPTY_FORM_UUID,
-	);
+	const context = useOperationSentenceContext(target?.formUuid);
 	if (target === null) return null;
 	return {
 		...target,
 		title: operationSentence(target.operation, context).lead,
 	};
 }
-
-/** A form uuid that resolves to nothing, for the hook-order-preserving
- *  call the sentence context makes while no change is selected. */
-const EMPTY_FORM_UUID = "" as Uuid;

@@ -86,38 +86,6 @@ export function rewriteXPathRefs(
 	return applyEdits(expr, edits);
 }
 
-/**
- * Rewrite hashtag references in an XPath expression.
- *
- * Uses the Lezer parser to find HashtagRef nodes whose full text equals
- * `prefix + oldName` (e.g. '#case/' + 'age') and surgically replaces each
- * with `prefix + newName`.
- *
- * @param expr       The XPath expression to rewrite
- * @param prefix     The hashtag prefix to match (e.g. '#case/', '#form/')
- * @param oldName    The old name after the prefix
- * @param newName    The new name to replace it with
- */
-export function rewriteHashtagRefs(
-	expr: string,
-	prefix: string,
-	oldName: string,
-	newName: string,
-): string {
-	if (!expr) return expr;
-
-	const tree = parser.parse(expr);
-	const edits: SourceEdit[] = [];
-	walkForHashtags(
-		tree.topNode,
-		expr,
-		prefix + oldName,
-		prefix + newName,
-		edits,
-	);
-	return applyEdits(expr, edits);
-}
-
 // ── Tree walkers ──────────────────────────────────────────────────────
 
 /**
@@ -153,37 +121,6 @@ function walkForPaths(
 	let child = node.firstChild;
 	while (child) {
 		walkForPaths(child, source, targetSegments, newId, edits);
-		child = child.nextSibling;
-	}
-}
-
-/**
- * Walk the CST for hashtag refs whose full text equals `oldRef` and record
- * an edit replacing the whole ref with `newRef`. Full-text matching keeps
- * the rewrite path-exact: `#form/group/old` never matches `#form/old` or a
- * cousin's `#form/other/old`. Used by `rewriteHashtagRefs` (case-property
- * refs, whose segments name PROPERTIES — properties have no descendants,
- * so full-text is the whole contract there). Form-path refs go through
- * `walkForFormHashtagPrefix` instead.
- */
-function walkForHashtags(
-	node: SyntaxNode,
-	source: string,
-	oldRef: string,
-	newRef: string,
-	edits: SourceEdit[],
-): void {
-	if (node.type === T.HashtagRef) {
-		const text = source.slice(node.from, node.to);
-		if (text === oldRef) {
-			edits.push({ from: node.from, to: node.to, text: newRef });
-		}
-		return;
-	}
-
-	let child = node.firstChild;
-	while (child) {
-		walkForHashtags(child, source, oldRef, newRef, edits);
 		child = child.nextSibling;
 	}
 }

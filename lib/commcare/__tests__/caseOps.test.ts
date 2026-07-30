@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { buildFormActions } from "@/lib/commcare/formActions";
 import { validateXForm } from "@/lib/commcare/validator/xformOracle";
@@ -6,19 +7,18 @@ import { buildXForm } from "@/lib/commcare/xform";
 import { addCaseBlocks } from "@/lib/commcare/xform/caseBlocks";
 import {
 	authoredCaseIdCalculation,
-	caseOperationTextValueCalculation,
-	caseOperationTextValueGuard,
+	caseScalarTextValueCalculation,
+	caseScalarTextValueGuard,
 } from "@/lib/commcare/xform/caseOps";
 import { addMetaBlock } from "@/lib/commcare/xform/metaBlock";
-import { asUuid } from "@/lib/doc/types";
 import {
 	authoredCaseIdPrefix,
 	type CaseOperation,
 	deriveAuthoredCaseId,
 	type Form,
 	MAX_AUTHORED_CASE_KEY_LENGTH,
-	MAX_CASE_OPERATION_TEXT_LENGTH,
-	prepareCaseOperationTextValue,
+	MAX_CASE_SCALAR_TEXT_LENGTH,
+	prepareCaseScalarTextValue,
 } from "@/lib/domain";
 import {
 	actingUser,
@@ -32,20 +32,21 @@ import {
 	term,
 	unowned,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { evaluate } from "@/lib/preview/xpath/evaluator";
 
 const XMLNS = "http://openrosa.org/formdesigner/nova-case-operations-test";
-const NAME = asUuid("11111111-1111-4111-8111-111111111111");
-const REPEAT = asUuid("22222222-2222-4222-8222-222222222222");
-const ITEM_ID = asUuid("33333333-3333-4333-8333-333333333333");
-const CREATE = asUuid("44444444-4444-4444-8444-444444444444");
-const UPDATE = asUuid("55555555-5555-4555-8555-555555555555");
-const FORM = asUuid("66666666-6666-4666-8666-666666666666");
+const NAME = testUuid("11111111-1111-4111-8111-111111111111");
+const REPEAT = testUuid("22222222-2222-4222-8222-222222222222");
+const ITEM_ID = testUuid("33333333-3333-4333-8333-333333333333");
+const CREATE = testUuid("44444444-4444-4444-8444-444444444444");
+const UPDATE = testUuid("55555555-5555-4555-8555-555555555555");
+const FORM = testUuid("66666666-6666-4666-8666-666666666666");
 
 function emit(
 	operations: readonly CaseOperation[],
 	fields: Parameters<typeof f>[0][] = [
-		f({ uuid: NAME, kind: "text", id: "name", label: "Name" }),
+		f({ uuid: NAME, kind: "text", id: "name", label: proseText("Name") }),
 	],
 ): string {
 	const doc = buildDoc({
@@ -53,8 +54,8 @@ function emit(
 			{
 				name: "patient",
 				properties: [
-					{ name: "nickname", label: "Nickname" },
-					{ name: "source_id", label: "Source ID" },
+					{ name: "nickname", label: proseText("Nickname") },
+					{ name: "source_id", label: proseText("Source ID") },
 				],
 			},
 			{ name: "visit", properties: [] },
@@ -90,9 +91,11 @@ function createOperation(patch: Partial<CaseOperation> = {}): CaseOperation {
 
 describe("case-operation XForm emission", () => {
 	it("pins name/owner normalization and bounds across domain and XPath", () => {
-		const calculation = caseOperationTextValueCalculation("/data/name");
-		expect(calculation).toBe("replace(/data/name, '^\\s+|\\s+$', '')");
-		const guard = caseOperationTextValueGuard(calculation);
+		const calculation = caseScalarTextValueCalculation("/data/name");
+		expect(calculation).toBe(
+			"replace(/data/name, '^[\\x00-\\x20]+|[\\x00-\\x20]+$', '')",
+		);
+		const guard = caseScalarTextValueGuard(calculation, "reject");
 		expect(guard).toBe(
 			`string-length(${calculation}) > 0 and string-length(${calculation}) <= 255`,
 		);
@@ -115,19 +118,19 @@ describe("case-operation XForm emission", () => {
 
 		for (const value of [
 			"\t Alice  Smith \r\n",
-			`  ${"x".repeat(MAX_CASE_OPERATION_TEXT_LENGTH)}  `,
+			`  ${"x".repeat(MAX_CASE_SCALAR_TEXT_LENGTH)}  `,
 			"\u00a0name\u00a0",
 		]) {
-			const prepared = prepareCaseOperationTextValue(value);
+			const prepared = prepareCaseScalarTextValue(value, "reject");
 			expect(prepared.ok).toBe(true);
 			expect(evaluateText(value)).toBe(prepared.value);
 			expect(evaluateGuard(value)).toBe(true);
 		}
 		for (const value of [
 			" \t\n\v\f\r ",
-			"x".repeat(MAX_CASE_OPERATION_TEXT_LENGTH + 1),
+			"x".repeat(MAX_CASE_SCALAR_TEXT_LENGTH + 1),
 		]) {
-			const prepared = prepareCaseOperationTextValue(value);
+			const prepared = prepareCaseScalarTextValue(value, "reject");
 			expect(prepared.ok).toBe(false);
 			expect(evaluateText(value)).toBe(prepared.value);
 			expect(evaluateGuard(value)).toBe(false);
@@ -278,16 +281,52 @@ describe("case-operation XForm emission", () => {
 		expect(validateXForm(xml, "Edit", "Patients")).toEqual([]);
 	});
 
+	it("routes generic external_id writes through the normalized scalar update guard", () => {
+		const xml = emit([
+			{
+				uuid: UPDATE,
+				id: "set_external_id",
+				action: "update",
+				caseType: "patient",
+				target: { kind: "session" },
+				writes: [
+					{
+						property: "external_id",
+						value: term(formField(NAME)),
+					},
+				],
+			},
+		]);
+		const guardId = `__nova_guard_${UPDATE.replaceAll("-", "_")}_text`;
+
+		expect(xml).toContain("<update><external_id/></update>");
+		expect(xml).toContain(
+			'nodeset="/data/__nova_operations/set_external_id/case/update/external_id" calculate="replace(/data/name, &apos;^[\\x00-\\x20]+|[\\x00-\\x20]+$&apos;, &apos;&apos;)"',
+		);
+		expect(xml).toContain(
+			`nodeset="/data/__nova_operations/${guardId}/case/@case_id" calculate="if((string-length(/data/__nova_operations/set_external_id/case/update/external_id) &lt;= 255), /data/__nova_operations/set_external_id/case/@case_id, &apos;&apos;)"`,
+		);
+		expect(xml).not.toContain(
+			"string-length(/data/__nova_operations/set_external_id/case/update/external_id) &gt; 0",
+		);
+		expect(validateXForm(xml, "Edit", "Patients")).toEqual([]);
+	});
+
 	it("splices repeated operations into the iteration and correlates ids relatively", () => {
 		const fields = [
 			f({
 				uuid: REPEAT,
 				kind: "repeat",
 				id: "items",
-				label: "Items",
+				label: proseText("Items"),
 				repeat_mode: "user_controlled",
 				children: [
-					f({ uuid: ITEM_ID, kind: "text", id: "item_id", label: "ID" }),
+					f({
+						uuid: ITEM_ID,
+						kind: "text",
+						id: "item_id",
+						label: proseText("ID"),
+					}),
 				],
 			}),
 		];
@@ -332,13 +371,18 @@ describe("case-operation XForm emission", () => {
 				uuid: REPEAT,
 				kind: "repeat",
 				id: "items",
-				label: "Items",
+				label: proseText("Items"),
 				repeat_mode: "query_bound",
 				data_source: {
 					ids_query: "instance('casedb')/casedb/case/@case_id",
 				},
 				children: [
-					f({ uuid: ITEM_ID, kind: "text", id: "item_id", label: "ID" }),
+					f({
+						uuid: ITEM_ID,
+						kind: "text",
+						id: "item_id",
+						label: proseText("ID"),
+					}),
 				],
 			}),
 		];
@@ -367,10 +411,15 @@ describe("case-operation XForm emission", () => {
 				uuid: REPEAT,
 				kind: "repeat",
 				id: "items",
-				label: "Items",
+				label: proseText("Items"),
 				repeat_mode: "user_controlled",
 				children: [
-					f({ uuid: ITEM_ID, kind: "text", id: "item_id", label: "ID" }),
+					f({
+						uuid: ITEM_ID,
+						kind: "text",
+						id: "item_id",
+						label: proseText("ID"),
+					}),
 				],
 			}),
 		];
@@ -407,10 +456,15 @@ describe("case-operation XForm emission", () => {
 				uuid: REPEAT,
 				kind: "repeat",
 				id: "items",
-				label: "Items",
+				label: proseText("Items"),
 				repeat_mode: "user_controlled",
 				children: [
-					f({ uuid: ITEM_ID, kind: "text", id: "item_id", label: "ID" }),
+					f({
+						uuid: ITEM_ID,
+						kind: "text",
+						id: "item_id",
+						label: proseText("ID"),
+					}),
 				],
 			}),
 		];
@@ -443,7 +497,7 @@ describe("case-operation XForm emission", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "nickname", label: "Nickname" }],
+					properties: [{ name: "nickname", label: proseText("Nickname") }],
 				},
 				{ name: "visit", properties: [] },
 			],
@@ -460,8 +514,11 @@ describe("case-operation XForm emission", () => {
 									uuid: NAME,
 									kind: "text",
 									id: "nickname",
-									label: "Nickname",
-									case_property_on: "patient",
+									label: proseText("Nickname"),
+									caseWrite: {
+										caseType: "patient",
+										property: "nickname",
+									},
 								}),
 							],
 						},
@@ -663,13 +720,13 @@ describe("case-operation XForm emission", () => {
 			'nodeset="/data/__nova_operations/revise_patient/case/@case_id" calculate="instance(&apos;casedb&apos;)/casedb/case[@case_id=(&apos;runtime-patient-id&apos;) and @case_type=&apos;patient&apos;]/@case_id"',
 		);
 		expect(xml).toContain(
-			'nodeset="/data/__nova_operations/revise_patient/case/update/case_name" calculate="replace(&apos;Renamed&apos;, &apos;^\\s+|\\s+$&apos;, &apos;&apos;)"',
+			'nodeset="/data/__nova_operations/revise_patient/case/update/case_name" calculate="replace(&apos;Renamed&apos;, &apos;^[\\x00-\\x20]+|[\\x00-\\x20]+$&apos;, &apos;&apos;)"',
 		);
 		expect(xml).toContain(
 			'nodeset="/data/__nova_operations/revise_patient/case/update/case_type" calculate="&apos;visit&apos;"',
 		);
 		expect(xml).toContain(
-			'nodeset="/data/__nova_operations/revise_patient/case/update/owner_id" calculate="replace(&apos;owner-2&apos;, &apos;^\\s+|\\s+$&apos;, &apos;&apos;)"',
+			'nodeset="/data/__nova_operations/revise_patient/case/update/owner_id" calculate="replace(&apos;owner-2&apos;, &apos;^[\\x00-\\x20]+|[\\x00-\\x20]+$&apos;, &apos;&apos;)"',
 		);
 		const textGuardId = `__nova_guard_${UPDATE.replaceAll("-", "_")}_text`;
 		expect(xml).toContain(
@@ -746,10 +803,10 @@ describe("case-operation XForm emission", () => {
 		]);
 
 		expect(xml).toContain(
-			'nodeset="/data/__nova_operations/assign_user/case/update/owner_id" calculate="replace(/data/meta/userID, &apos;^\\s+|\\s+$&apos;, &apos;&apos;)"',
+			'nodeset="/data/__nova_operations/assign_user/case/update/owner_id" calculate="replace(/data/meta/userID, &apos;^[\\x00-\\x20]+|[\\x00-\\x20]+$&apos;, &apos;&apos;)"',
 		);
 		expect(xml).toContain(
-			'nodeset="/data/__nova_operations/remove_owner/case/update/owner_id" calculate="replace(&apos;-&apos;, &apos;^\\s+|\\s+$&apos;, &apos;&apos;)"',
+			'nodeset="/data/__nova_operations/remove_owner/case/update/owner_id" calculate="replace(&apos;-&apos;, &apos;^[\\x00-\\x20]+|[\\x00-\\x20]+$&apos;, &apos;&apos;)"',
 		);
 		expect(validateXForm(xml, "Edit", "Patients")).toEqual([]);
 	});

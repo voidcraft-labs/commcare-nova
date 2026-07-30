@@ -6,13 +6,14 @@
 // than the shape of Zod's own combinator output.
 
 import { describe, expect, it } from "vitest";
-import { asUuid, formSchema, isCaseFirstModule } from "@/lib/domain";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { formSchema, isCaseFirstModule } from "@/lib/domain";
 import { eq, literal, sessionUser } from "@/lib/domain/predicate";
 import { opaqueXPathExpression } from "../xpath";
 
 describe("formSchema — formLinks", () => {
 	const baseForm = {
-		uuid: asUuid("frm-1"),
+		uuid: testUuid("frm-1"),
 		id: "intake",
 		name: "Intake",
 		type: "survey" as const,
@@ -20,8 +21,8 @@ describe("formSchema — formLinks", () => {
 
 	const linkTarget = {
 		type: "form" as const,
-		moduleUuid: asUuid("mod-1"),
-		formUuid: asUuid("frm-2"),
+		moduleUuid: testUuid("mod-1"),
+		formUuid: testUuid("frm-2"),
 	};
 
 	it("accepts an empty condition expression — emitters read it as unconditional", () => {
@@ -61,7 +62,7 @@ describe("formSchema — formLinks", () => {
 
 describe("formSchema — displayCondition", () => {
 	const baseForm = {
-		uuid: asUuid("frm-display"),
+		uuid: testUuid("frm-display"),
 		id: "intake",
 		name: "Intake",
 		type: "survey" as const,
@@ -79,7 +80,7 @@ describe("formSchema — displayCondition", () => {
 		expect(
 			formSchema.safeParse({
 				...baseForm,
-				displayCondition: "#case/status = 'open'",
+				displayCondition: "#patient/status = 'open'",
 			}).success,
 		).toBe(false);
 	});

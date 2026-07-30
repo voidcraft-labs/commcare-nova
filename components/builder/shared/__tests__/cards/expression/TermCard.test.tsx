@@ -1,18 +1,24 @@
 // @vitest-environment happy-dom
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { useState } from "react";
+import {
+	fireEvent,
+	render as rtlRender,
+	screen,
+	waitFor,
+} from "@testing-library/react";
+import { type ReactElement, type ReactNode, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import {
 	focusElement,
 	settleBaseUiTransitions,
 } from "@/__tests__/helpers/baseUiInteractions";
-import {
-	asUuid,
-	type CaseType,
-	type LookupColumnId,
-	type LookupTableId,
-	type UserProperty,
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { BlueprintDocProvider } from "@/lib/doc/provider";
+import type {
+	CaseType,
+	LookupColumnId,
+	LookupTableId,
+	UserProperty,
 } from "@/lib/domain";
 import {
 	ancestorPath,
@@ -29,7 +35,21 @@ import {
 	timeLiteral,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { ExpressionCardEditor } from "../../../ExpressionCardEditor";
+
+// The surfaces here spell authored prose against the document; every production
+// mount sits inside the builder's provider. Wrapping at `render` reproduces it
+// and carries through each `rerender`.
+function DocumentProvider({ children }: { readonly children: ReactNode }) {
+	return (
+		<BlueprintDocProvider appId="test-app">{children}</BlueprintDocProvider>
+	);
+}
+
+function render(ui: ReactElement) {
+	return rtlRender(ui, { wrapper: DocumentProvider });
+}
 
 const PATIENT: CaseType = {
 	name: "patient",
@@ -38,30 +58,46 @@ const PATIENT: CaseType = {
 
 const HOUSEHOLD: CaseType = {
 	name: "household",
-	properties: [{ name: "region", label: "Region", data_type: "text" }],
+	properties: [
+		{ name: "region", label: proseText("Region"), data_type: "text" },
+	],
 };
 
 const PATIENT_WITH_INFORMATION: CaseType = {
 	name: "patient",
 	parent_type: "household",
 	properties: [
-		{ name: "case_name", label: "Case name", data_type: "text" },
-		{ name: "age", label: "Age", data_type: "int" },
+		{ name: "case_name", label: proseText("Case name"), data_type: "text" },
+		{ name: "age", label: proseText("Age"), data_type: "int" },
 	],
 };
 
 const TRANSITION_CASE_TYPES = [HOUSEHOLD, PATIENT_WITH_INFORMATION] as const;
 const LOOKUP_TABLE = "018f3e8a-7b2c-7def-8abc-1234567890ab" as LookupTableId;
 const LOOKUP_COLUMN = "018f3e8a-7b2c-7def-8abc-1234567890ac" as LookupColumnId;
-const LOOKUP_LABEL_COLUMN =
+const OTHER_LOOKUP_COLUMN =
 	"018f3e8a-7b2c-7def-8abc-1234567890ad" as LookupColumnId;
-const WORKER_PROPERTY_UUID = asUuid("worker-property-region");
+const LOOKUP_COLUMNS = [
+	{
+		id: LOOKUP_COLUMN,
+		wireName: "code",
+		label: "Code",
+		dataType: "text" as const,
+	},
+	{
+		id: OTHER_LOOKUP_COLUMN,
+		wireName: "district",
+		label: "District",
+		dataType: "text" as const,
+	},
+];
+const WORKER_PROPERTY_UUID = testUuid("worker-property-region");
 const WORKER_PROPERTY: UserProperty = {
 	uuid: WORKER_PROPERTY_UUID,
 	slug: "assigned_region",
 	label: "Assigned region",
 };
-const WORKER_CADRE_UUID = asUuid("worker-property-cadre");
+const WORKER_CADRE_UUID = testUuid("worker-property-cadre");
 const WORKER_CADRE: UserProperty = {
 	uuid: WORKER_CADRE_UUID,
 	slug: "cadre-code",
@@ -103,13 +139,13 @@ function renderStatefulTerm(value: ValueExpression) {
 				currentCaseType="patient"
 				knownInputs={[
 					{
-						uuid: asUuid("2214a815-64a0-4d91-85fa-1b3066ae65c9"),
+						uuid: testUuid("client_name"),
 						name: "client_name",
 						label: "Client name",
 						data_type: "text",
 					},
 					{
-						uuid: asUuid("be272c54-4980-4e32-8944-26c03cae7b07"),
+						uuid: testUuid("minimum_age"),
 						name: "minimum_age",
 						label: "Minimum age",
 						data_type: "int",
@@ -122,23 +158,9 @@ function renderStatefulTerm(value: ValueExpression) {
 	return onChange;
 }
 
-describe("TermCard data-table row scope", () => {
-	it("edits the active table's columns by their author labels", async () => {
+describe("TermCard table-row lookup authoring", () => {
+	it("renders the current column and authors another column by UUID", async () => {
 		const onChange = vi.fn();
-		const columns = [
-			{
-				id: LOOKUP_COLUMN,
-				wireName: "code",
-				label: "Region code",
-				dataType: "text" as const,
-			},
-			{
-				id: LOOKUP_LABEL_COLUMN,
-				wireName: "label",
-				label: "Region label",
-				dataType: "text" as const,
-			},
-		];
 
 		render(
 			<ExpressionCardEditor
@@ -146,23 +168,27 @@ describe("TermCard data-table row scope", () => {
 				onChange={onChange}
 				caseTypes={[PATIENT]}
 				currentCaseType="patient"
-				lookupTables={[{ id: LOOKUP_TABLE, name: "Regions", columns }]}
-				tableScope={{ tableId: LOOKUP_TABLE, columns }}
-				caseDataScope="table-row"
+				lookupTables={[
+					{ id: LOOKUP_TABLE, name: "Facilities", columns: LOOKUP_COLUMNS },
+				]}
+				tableScope={{ tableId: LOOKUP_TABLE, columns: LOOKUP_COLUMNS }}
 			/>,
 		);
 
-		const trigger = screen.getByRole("button", {
-			name: "Data table column: Region code",
+		expect(
+			screen.getByRole("button", {
+				name: "Value source: A table column",
+			}),
+		).toBeDefined();
+		const columnPicker = screen.getByRole("button", {
+			name: "Data table column: Code",
 		});
-		fireEvent.click(trigger);
-		fireEvent.click(
-			await screen.findByRole("menuitem", { name: /Region label/ }),
-		);
+		fireEvent.click(columnPicker);
+		fireEvent.click(await screen.findByRole("menuitem", { name: /District/ }));
 		await settleBaseUiTransitions();
 
-		expect(onChange).toHaveBeenLastCalledWith(
-			term(tableColumn(LOOKUP_TABLE, LOOKUP_LABEL_COLUMN)),
+		expect(onChange).toHaveBeenCalledWith(
+			term(tableColumn(LOOKUP_TABLE, OTHER_LOOKUP_COLUMN)),
 		);
 	});
 });
@@ -277,6 +303,31 @@ describe("TermCard number literal recovery", () => {
 });
 
 describe("TermCard source transitions", () => {
+	it("does not offer empty case information in an unconstrained slot", async () => {
+		const onChange = vi.fn();
+		render(
+			<ExpressionCardEditor
+				value={term(literal("saved"))}
+				onChange={onChange}
+				caseTypes={[PATIENT]}
+				currentCaseType="patient"
+			/>,
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: /^Value source:/ }));
+		const caseInformationLabel = await screen.findByText(
+			"Other case information",
+		);
+		const caseInformation = caseInformationLabel.closest(
+			'[role="menuitemradio"]',
+		);
+
+		expect(caseInformation?.getAttribute("aria-disabled")).toBe("true");
+		if (caseInformation !== null) fireEvent.click(caseInformation);
+		await settleBaseUiTransitions();
+		expect(onChange).not.toHaveBeenCalled();
+	});
+
 	it("exposes the current value source as a checked radio choice", async () => {
 		renderStatefulTerm(term(literal("saved")));
 
@@ -295,7 +346,7 @@ describe("TermCard source transitions", () => {
 	it("keeps a missing saved search answer readable when no search fields remain", async () => {
 		render(
 			<ExpressionCardEditor
-				value={term(input(asUuid("c533d6a4-0c9a-4151-8504-79192efbe69e")))}
+				value={term(input(testUuid("retired_status")))}
 				onChange={vi.fn()}
 				caseTypes={[PATIENT]}
 				currentCaseType="patient"
@@ -331,13 +382,13 @@ describe("TermCard source transitions", () => {
 		const onChange = vi.fn();
 		render(
 			<ExpressionCardEditor
-				value={term(input(asUuid("c533d6a4-0c9a-4151-8504-79192efbe69e")))}
+				value={term(input(testUuid("retired_status")))}
 				onChange={onChange}
 				caseTypes={[PATIENT]}
 				currentCaseType="patient"
 				knownInputs={[
 					{
-						uuid: asUuid("6c9c4fba-c968-4ff0-8491-bf0e10af4bc2"),
+						uuid: testUuid("active_status"),
 						name: "active_status",
 						label: "Active status",
 						data_type: "text",
@@ -365,7 +416,7 @@ describe("TermCard source transitions", () => {
 		);
 
 		expect(onChange).toHaveBeenCalledWith(
-			term(input(asUuid("6c9c4fba-c968-4ff0-8491-bf0e10af4bc2"))),
+			term(input(testUuid("active_status"))),
 		);
 	});
 
@@ -422,7 +473,7 @@ describe("TermCard source transitions", () => {
 	});
 
 	it("keeps the chosen search answer while trying another source", async () => {
-		const saved = term(input(asUuid("2214a815-64a0-4d91-85fa-1b3066ae65c9")));
+		const saved = term(input(testUuid("client_name")));
 		const onChange = renderStatefulTerm(saved);
 		expect(
 			screen.getByRole("button", { name: "Search answer: Client name" }),

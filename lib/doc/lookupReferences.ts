@@ -4,8 +4,8 @@
  * Lookup rows live outside `BlueprintDoc`, while domain carriers store stable
  * lookup table/column identities in the doc. This module is the
  * client-safe seam between those structural carriers, validation, and the
- * normalized reference-edge writer. The production registry fixes the complete
- * set of lookup-bearing slots used by validation, reference edges, and export.
+ * normalized reference-edge writer. The frozen production registry covers
+ * every schema-owned lookup carrier.
  *
  * Extractors are explicit immutable values. Tests may inject a synthetic
  * registry; production validation imports the frozen registry below. There is no
@@ -13,7 +13,16 @@
  * long-lived server instances cannot change what a document means.
  */
 
-import type { BlueprintDoc, Field, Form, Module, Uuid } from "@/lib/domain";
+import {
+	asUuid,
+	type BlueprintDoc,
+	type Field,
+	type Form,
+	isOwnerOnlyCaseSearchConfig,
+	type Module,
+	searchInputDefault,
+	type Uuid,
+} from "@/lib/domain";
 import type { LookupOptionsSource } from "@/lib/domain/lookupCarriers";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import type { Predicate, ValueExpression } from "@/lib/domain/predicate";
@@ -250,7 +259,7 @@ function parentByField(doc: BlueprintDoc): ReadonlyMap<Uuid, Uuid> {
 	const parents = new Map<Uuid, Uuid>();
 	for (const parentUuid of Object.keys(doc.fieldOrder).sort()) {
 		for (const childUuid of doc.fieldOrder[parentUuid] ?? []) {
-			if (!parents.has(childUuid)) parents.set(childUuid, parentUuid as Uuid);
+			if (!parents.has(childUuid)) parents.set(childUuid, asUuid(parentUuid));
 		}
 	}
 	return parents;
@@ -436,15 +445,16 @@ function extractSearchInputDefaults(
 	doc: BlueprintDoc,
 ): ExtractedLookupReference[] {
 	return sortedModules(doc).flatMap((module) =>
-		(module.caseListConfig?.searchInputs ?? []).flatMap((input) =>
-			input.default === undefined
+		(module.caseListConfig?.searchInputs ?? []).flatMap((input) => {
+			const defaultValue = searchInputDefault(input);
+			return defaultValue === undefined
 				? []
 				: extractAstLookupReferences({
 						carrierUuid: input.uuid,
-						ast: input.default,
+						ast: defaultValue,
 						location: moduleLocation(module),
-					}),
-		),
+					});
+		}),
 	);
 }
 
@@ -468,7 +478,11 @@ function extractSearchButtonDisplayConditions(
 	doc: BlueprintDoc,
 ): ExtractedLookupReference[] {
 	return sortedModules(doc).flatMap((module) => {
-		const condition = module.caseSearchConfig?.searchButtonDisplayCondition;
+		const condition =
+			module.caseSearchConfig === undefined ||
+			isOwnerOnlyCaseSearchConfig(module.caseSearchConfig)
+				? undefined
+				: module.caseSearchConfig.searchButtonDisplayCondition;
 		return condition === undefined
 			? []
 			: extractAstLookupReferences({

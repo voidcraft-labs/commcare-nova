@@ -23,20 +23,21 @@
  * Connect emission — a fraction of generated docs are Connect apps
  * (`connectType` "learn" / "deliver"), each form carrying a valid `connect`
  * block so the emitter's `buildConnectBlocks` path is exercised. The Connect
- * sub-config ids are minted globally-unique inline (the `runValidation`
+ * sub-config wire ids are minted globally-unique inline (the `runValidation`
  * guardrail does NOT run the validate-time autofill, so an id-less block would
  * trip the connect-id rules); the deliver `entity_id` / `entity_name` slots
  * are left unset on purpose so the wire-emit defaults in `builder.ts` run.
  */
 
 import * as fc from "fast-check";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import {
-	asUuid,
 	type BlueprintDoc,
 	type CaseType,
 	type ConnectConfig,
 	type ConnectType,
+	connectConfigSchema,
 	type Field,
 	type Form,
 	type Media,
@@ -46,7 +47,8 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { walkAssetRefs } from "@/lib/domain/mediaRefs";
-import { type AssetId, asAssetId } from "@/lib/domain/multimedia";
+import { asMediaAssetId, type MediaAssetId } from "@/lib/domain/multimedia";
+import { proseText } from "@/lib/domain/prose";
 
 // ── Stable id minting ──────────────────────────────────────────────
 
@@ -59,7 +61,12 @@ export class IdMinter {
 	private n = 0;
 	uuid(prefix: string): Uuid {
 		this.n += 1;
-		return asUuid(`${prefix}-${this.n.toString(36)}`);
+		return testUuid(`${prefix}-${this.n.toString(36)}`);
+	}
+
+	wireId(prefix: string): string {
+		this.n += 1;
+		return `${prefix}_${this.n.toString(36)}`;
 	}
 }
 
@@ -245,8 +252,9 @@ export function buildField(
 		const options = spec.options.map((opt, idx) => {
 			const optMedia = buildMediaSlot(ctx.minter, spec.optionMedia?.[idx]);
 			return {
-				...opt,
 				uuid: ctx.minter.uuid("opt"),
+				value: opt.value,
+				label: proseText(opt.label),
 				...(optMedia ? { media: optMedia } : {}),
 			};
 		});
@@ -254,7 +262,7 @@ export function buildField(
 			uuid,
 			kind,
 			id,
-			label: spec.label,
+			label: proseText(spec.label),
 			optionsSource: { kind: "inline", options },
 			// Selects are validatable kinds; a type-matched `'a'` default exercises
 			// the setvalue path for the select shape too.
@@ -284,7 +292,7 @@ export function buildField(
 			uuid,
 			kind: "group",
 			id,
-			label: spec.label,
+			label: proseText(spec.label),
 		} as Field;
 		ctx.fieldOrder[uuid] = [];
 		spec.children.forEach((childSpec, i) => {
@@ -294,7 +302,12 @@ export function buildField(
 	}
 
 	if (spec.kind === "repeat") {
-		const base = { uuid, kind: "repeat" as const, id, label: spec.label };
+		const base = {
+			uuid,
+			kind: "repeat" as const,
+			id,
+			label: proseText(spec.label),
+		};
 		let field: Field;
 		if (spec.mode === "user_controlled") {
 			field = { ...base, repeat_mode: "user_controlled" } as Field;
@@ -356,18 +369,21 @@ export function buildField(
 		uuid,
 		kind: spec.kind,
 		id,
-		label: spec.label,
+		label: proseText(spec.label),
 		...(spec.relevant
 			? { relevant: opaqueXPathExpression(spec.relevant) }
 			: {}),
 		...(spec.required
 			? { required: opaqueXPathExpression(spec.required) }
 			: {}),
-		...(spec.hint ? { hint: spec.hint } : {}),
+		...(spec.hint ? { hint: proseText(spec.hint) } : {}),
 		...(validatable && spec.validate
 			? {
 					validate: opaqueXPathExpression(spec.validate),
-					validate_msg: spec.validateMsg,
+					validate_msg:
+						spec.validateMsg === undefined
+							? undefined
+							: proseText(spec.validateMsg),
 				}
 			: {}),
 		// `default_value` is type-matched per kind (DEFAULT_VALUE_BY_KIND); a
@@ -407,7 +423,7 @@ function injectSubcaseRepeat(
 		uuid: repeatUuid,
 		kind: "repeat" as const,
 		id: "children",
-		label: "Children",
+		label: proseText("Children"),
 	};
 	let repeatField: Field;
 	if (spec.mode === "user_controlled") {
@@ -433,7 +449,7 @@ function injectSubcaseRepeat(
 	ctx.fieldOrder[repeatUuid] = [];
 
 	// The single child field carries the new case_name source for the
-	// derived child-case bucket. `case_property_on` matches the
+	// derived child-case bucket. `caseWrite.caseType` matches the
 	// childCaseType so deriveCaseConfig groups this field into a
 	// (childCaseType, repeatUuid) bucket — distinct from any other
 	// child-case bucket the doc carries.
@@ -443,8 +459,8 @@ function injectSubcaseRepeat(
 		uuid: childFieldUuid,
 		kind: "text",
 		id: "case_name",
-		label: "Child name",
-		case_property_on: spec.childCaseType,
+		label: proseText("Child name"),
+		caseWrite: { caseType: spec.childCaseType, property: "case_name" },
 	} as Field;
 }
 
@@ -458,7 +474,7 @@ function injectSubcaseRepeat(
  */
 /**
  * Optional media populations the lowering attaches to a field. Each `1` slot
- * means "emit a fresh `AssetId` here"; the lowering mints the id at build
+ * means "emit a fresh `MediaAssetId` here"; the lowering mints the id at build
  * time via the shared `IdMinter`, so every asset id is globally unique and
  * conforms to `uuidSchema`. Slots default to no media — leaving the doc
  * media-free is the common shape.
@@ -592,12 +608,16 @@ function buildMediaSlot(
 	kinds: ReadonlyArray<"image" | "audio" | "video"> | undefined,
 ): Media | undefined {
 	if (!kinds || kinds.length === 0) return undefined;
-	const slot: { image?: AssetId; audio?: AssetId; video?: AssetId } = {};
+	const slot: {
+		image?: MediaAssetId;
+		audio?: MediaAssetId;
+		video?: MediaAssetId;
+	} = {};
 	for (const kind of kinds) {
-		// AssetId is a branded plain-string (`assetIdSchema = z.string().min(1)`);
+		// MediaAssetId is a branded plain-string (`mediaAssetIdSchema = z.string().min(1)`);
 		// the minter emits ids of shape `<prefix>-<base36>` which satisfies the
-		// non-empty constraint and brands cleanly via `asAssetId`.
-		slot[kind] = asAssetId(minter.uuid(`media${kind[0]}`));
+		// non-empty constraint and brands cleanly via `asMediaAssetId`.
+		slot[kind] = asMediaAssetId(minter.uuid(`media${kind[0]}`));
 	}
 	return slot;
 }
@@ -737,10 +757,8 @@ export function fieldSpecArb(depth: number): fc.Arbitrary<FieldGenSpec> {
  *
  * A Connect app's `connectType` ("learn" / "deliver") picks which sub-config
  * kinds are LIVE — the emitter (`buildConnectSlugMap`) only ships blocks
- * matching the mode, and the validator's `CONNECT_MISSING_LEARN` /
- * `CONNECT_MISSING_DELIVER` rules require ≥1 live sub-config on a block that
- * is PRESENT. So each participating form carries one of the legal shapes for
- * its mode:
+ * matching the mode. Each participating form carries one of the legal shapes
+ * for its mode:
  *   - learn  → learn_module, assessment, or both;
  *   - deliver→ deliver_unit, task, or both.
  * Both kinds are independent (the "sub-configs are independent" contract), so
@@ -787,12 +805,9 @@ const deliverFormArb: fc.Arbitrary<ConnectFormSpec> = subConfigPairArb.map(
 
 /**
  * Build a per-form `ConnectConfig` from a selection, minting each present
- * sub-config a globally-unique id via the shared minter. The minter emits
- * `<prefix>-<base36>`; a hyphen is NOT a legal XML element-name char
- * (`XML_ELEMENT_NAME_REGEX`), and Connect ids become element names, so the
- * raw uuid is unusable here — we re-shape it with an underscore separator
- * (`cm_<n>`) which is legal and stays globally unique (the counter is shared
- * with the field/form/module minting, so no two ids ever collide app-wide).
+ * sub-config a globally-unique mutable wire id via the shared minter.
+ * Connect ids are emitted XML element names, not Nova authoring identity, so
+ * they deliberately use the legal `cm_<n>` spelling rather than UUIDs.
  *
  * `entity_id` / `entity_name` are left unset on the deliver_unit on purpose:
  * that's the state the wire-emit default path in `builder.ts` fills, so
@@ -802,49 +817,53 @@ function buildConnectConfig(
 	minter: IdMinter,
 	spec: ConnectFormSpec,
 ): ConnectConfig {
-	// Re-shape a minted uuid into a legal XML element name: the minter joins
-	// prefix + counter with a hyphen, but a Connect id must match
-	// `XML_ELEMENT_NAME_REGEX` (no hyphens). Swap to an underscore; the counter
-	// keeps it globally unique.
-	const connectId = (prefix: string): string =>
-		minter.uuid(prefix).replace("-", "_");
+	const connectId = (prefix: string): string => minter.wireId(prefix);
 
-	const config: ConnectConfig = {};
 	if (spec.connectType === "learn") {
-		if (spec.learnModule) {
-			config.learn_module = {
-				id: connectId("cm"),
-				name: "Learn module",
-				description: "Learn module description",
-				time_estimate: 30,
-			};
-		}
-		if (spec.assessment) {
-			config.assessment = {
-				id: connectId("ca"),
-				// A quoted literal: a valid XPath the bind emitter renders as
-				// `calculate="'100'"` (a bare `100` would also parse, but a quoted
-				// value mirrors how the SA pins a fixed score).
-				user_score: opaqueXPathExpression("'100'"),
-			};
-		}
-		return config;
+		return connectConfigSchema.parse({
+			...(spec.learnModule
+				? {
+						learn_module: {
+							id: connectId("cm"),
+							name: "Learn module",
+							description: "Learn module description",
+							time_estimate: 30,
+						},
+					}
+				: {}),
+			...(spec.assessment
+				? {
+						assessment: {
+							id: connectId("ca"),
+							// A quoted literal: a valid XPath the bind emitter renders as
+							// `calculate="'100'"` (a bare `100` would also parse, but a quoted
+							// value mirrors how the SA pins a fixed score).
+							user_score: opaqueXPathExpression("'100'"),
+						},
+					}
+				: {}),
+		});
 	}
-	if (spec.deliverUnit) {
-		config.deliver_unit = {
-			id: connectId("cd"),
-			name: "Deliver unit",
-			// entity_id / entity_name omitted → wire-emit defaults run.
-		};
-	}
-	if (spec.task) {
-		config.task = {
-			id: connectId("ct"),
-			name: "Delivery task",
-			description: "Delivery task description",
-		};
-	}
-	return config;
+	return connectConfigSchema.parse({
+		...(spec.deliverUnit
+			? {
+					deliver_unit: {
+						id: connectId("cd"),
+						name: "Deliver unit",
+						// entity_id / entity_name omitted → wire-emit defaults run.
+					},
+				}
+			: {}),
+		...(spec.task
+			? {
+					task: {
+						id: connectId("ct"),
+						name: "Delivery task",
+						description: "Delivery task description",
+					},
+				}
+			: {}),
+	});
 }
 
 // ── Form + module + doc assembly ───────────────────────────────────
@@ -878,9 +897,9 @@ export const FORM_TYPES = [
  * including the `query_bound` `/item` segment + the nest=false branch
  * where the `<case>` element splices DIRECTLY into the repeat with no
  * `<subcase_N>` wrapper. The fuzzer asserts validation is clean
- * (`PRIMARY_CASE_FIELD_IN_REPEAT` / `CHILD_CASE_NO_NAME_FIELD` both
- * pass — the injected child case bucket has its `case_name` source,
- * and no primary-case fields land inside the injected repeat).
+ * (the canonical inventory passes: the injected child-create bucket has its
+ * one `case_name` source, and no primary-case writers land inside the injected
+ * repeat).
  *
  * The injected child case type joins `caseTypes`. The field id
  * `case_name` is OFF the sibling pool, so it can't collide with any
@@ -1032,10 +1051,11 @@ const docGenSpecArb: fc.Arbitrary<DocGenSpec> = fc
  *
  * Case-bearing forms (registration/followup/close) get a guaranteed
  * `case_name` text field saving to the module's case type, plus every leaf
- * field wired to save a property on that type — this satisfies the
- * registration case-name requirement and gives the case list a real property
- * to show. Survey forms carry no case actions. The module always declares a
- * single `case_name` case-list column, satisfying MISSING_CASE_LIST_COLUMNS.
+ * form gets one explicit `saved_prop` writer. This satisfies the registration
+ * case-name requirement and exercises case updates without coupling random
+ * field ids to case destinations. Survey forms carry no case actions. The
+ * module always declares a single `case_name` case-list column, satisfying
+ * MISSING_CASE_LIST_COLUMNS.
  */
 function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 	const minter = new IdMinter();
@@ -1050,7 +1070,7 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 	// caseTypes regardless of whether any module's primary case_type
 	// matches. The subcase injection at the form level is what brings
 	// them into the doc, not the module declaration.
-	const injectedChildCaseTypes = new Set<string>();
+	const injectedChildCaseTypes = new Map<string, string>();
 
 	spec.modules.forEach((modSpec, mIdx) => {
 		const moduleUuid = minter.uuid("mod");
@@ -1059,13 +1079,13 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 		caseTypeNames.add(modSpec.caseType);
 
 		// Menu-tile media on the module's home tile. Each slot is independent;
-		// the lowering mints an `AssetId` per requested slot via the shared
+		// the lowering mints an `MediaAssetId` per requested slot via the shared
 		// minter so every id is globally unique.
 		const moduleIcon = modSpec.hasIcon
-			? asAssetId(minter.uuid("modicon"))
+			? asMediaAssetId(minter.uuid("modicon"))
 			: undefined;
 		const moduleAudio = modSpec.hasAudioLabel
-			? asAssetId(minter.uuid("modaud"))
+			? asMediaAssetId(minter.uuid("modaud"))
 			: undefined;
 
 		modules[moduleUuid] = {
@@ -1089,10 +1109,10 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 			fieldOrder[formUuid] = [];
 
 			const formIcon = formSpec.hasIcon
-				? asAssetId(minter.uuid("frmicon"))
+				? asMediaAssetId(minter.uuid("frmicon"))
 				: undefined;
 			const formAudio = formSpec.hasAudioLabel
-				? asAssetId(minter.uuid("frmaud"))
+				? asMediaAssetId(minter.uuid("frmaud"))
 				: undefined;
 
 			forms[formUuid] = {
@@ -1114,10 +1134,9 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 
 			const ctx: FieldBuildCtx = { minter, fields, fieldOrder };
 
-			// Case-bearing forms need a case_name field (NO_CASE_NAME_FIELD).
-			// Inject it (plus a saved property, for realistic case data) first so
-			// every case-bearing form is valid regardless of what random fields
-			// follow.
+			// Each case-create bucket needs exactly one case_name writer. Inject
+			// it (plus a saved property, for realistic case data) first so every
+			// case-bearing form is valid regardless of what random fields follow.
 			if (formSpec.type !== "survey") {
 				const caseNameUuid = minter.uuid("fld");
 				fieldOrder[formUuid].push(caseNameUuid);
@@ -1125,8 +1144,8 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 					uuid: caseNameUuid,
 					kind: "text",
 					id: "case_name",
-					label: "Case name",
-					case_property_on: modSpec.caseType,
+					label: proseText("Case name"),
+					caseWrite: { caseType: modSpec.caseType, property: "case_name" },
 				} as Field;
 
 				const propUuid = minter.uuid("fld");
@@ -1137,8 +1156,8 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 					// A fixed reserved id OUTSIDE `SIBLING_ID_POOL` so it never
 					// collides with a pool-assigned random root sibling.
 					id: "saved_prop",
-					label: "A saved property",
-					case_property_on: modSpec.caseType,
+					label: proseText("A saved property"),
+					caseWrite: { caseType: modSpec.caseType, property: "saved_prop" },
 				} as Field;
 			}
 
@@ -1147,16 +1166,10 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 			// index, producing the same-id cousin pairs the emitter's path +
 			// itext arithmetic must disambiguate.
 			//
-			// NOTE — case-block injection coverage. We deliberately do NOT wire
-			// random fields to `case_property_on` here. Nova derives case-property
-			// WRITERS from `field.id` matching a case-property name (a field's id
-			// IS the case-property name it saves to), so wiring a pool-id root
-			// field (say `c`) retroactively makes EVERY
-			// same-id cousin a derived writer of property `c` — including media-kind
-			// cousins inside a group/repeat, which then trip `MEDIA_CASE_PROPERTY`.
-			// Cousin id-sharing (the load-bearing gap closure) and id-as-property
-			// are fundamentally in tension; random wiring can't be made safe without
-			// renaming fields off the pool, which would defeat the cousin coverage.
+			// NOTE — case-block injection coverage. Random fields deliberately have
+			// no `caseWrite`: the generator includes capture and structural kinds,
+			// and assigning arbitrary case destinations would create inadmissible
+			// or duplicate writers unrelated to the path/identity fuzz coverage.
 			// The always-injected `case_name` + `saved_prop` already drive
 			// `<case><create>` + `<case><update>` injection on EVERY case-bearing
 			// form, and the `compileCcz` fuzz property exercises the post-injection
@@ -1174,8 +1187,12 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 			// pool — and it's the SOLE child of the injected repeat, so
 			// siblings can't collide either.
 			if (formSpec.type === "registration" && formSpec.subcase) {
-				injectedChildCaseTypes.add(formSpec.subcase.childCaseType);
-				injectSubcaseRepeat(ctx, formUuid, formSpec.subcase);
+				const childCaseType = `${formSpec.subcase.childCaseType}_${mIdx}`;
+				injectedChildCaseTypes.set(childCaseType, modSpec.caseType);
+				injectSubcaseRepeat(ctx, formUuid, {
+					...formSpec.subcase,
+					childCaseType,
+				});
 			}
 		});
 	});
@@ -1186,7 +1203,7 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 	// case-list-only viewer module, exactly the shape the SA lands for a
 	// child type with no follow-up workflow. Keeps the generated doc
 	// validator-clean without changing what the emitters are exercised on.
-	for (const childType of injectedChildCaseTypes) {
+	for (const childType of injectedChildCaseTypes.keys()) {
 		if (caseTypeNames.has(childType)) continue;
 		const viewerUuid = minter.uuid("mod");
 		moduleOrder.push(viewerUuid);
@@ -1206,16 +1223,19 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 
 	const allCaseTypeNames = new Set([
 		...caseTypeNames,
-		...injectedChildCaseTypes,
+		...injectedChildCaseTypes.keys(),
 	]);
 	const caseTypes: CaseType[] = [...allCaseTypeNames].map((name) => ({
 		name,
-		properties: [{ name: "case_name", label: "Name" }],
+		properties: [{ name: "case_name", label: proseText("Name") }],
+		...(injectedChildCaseTypes.has(name)
+			? { parent_type: injectedChildCaseTypes.get(name) }
+			: {}),
 	}));
 
 	// App-level logo (web-apps banner). Single optional slot; minted late so
 	// it doesn't collide with field-mint id sequencing.
-	const logo = spec.hasLogo ? asAssetId(minter.uuid("logo")) : undefined;
+	const logo = spec.hasLogo ? asMediaAssetId(minter.uuid("logo")) : undefined;
 
 	return {
 		appId: "fuzz-app",
@@ -1268,7 +1288,7 @@ const SLOT_EXTENSION_BY_KIND: Record<
  * have to import + assemble the full storage shape.
  */
 export interface FuzzMediaAsset {
-	readonly assetId: AssetId;
+	readonly assetId: MediaAssetId;
 	readonly wirePath: string;
 	readonly kind: "image" | "audio" | "video";
 	readonly mimeType: string;
@@ -1304,7 +1324,7 @@ export function hasFormItextMedia(doc: BlueprintDoc): boolean {
 }
 
 /**
- * Build a deterministic manifest covering every `AssetId` the doc
+ * Build a deterministic manifest covering every `MediaAssetId` the doc
  * references. Walks via `walkAssetRefs` (the same single-source-of-truth
  * walker the validator + manifest loader consume) so the fuzz manifest
  * matches the emitter's actual reference set 1:1.
@@ -1319,15 +1339,15 @@ export function hasFormItextMedia(doc: BlueprintDoc): boolean {
  *     extensions sensible).
  *
  * Same-asset-id collisions across slots use the FIRST seen slot's kind —
- * one `AssetId` produces exactly one wire-path entry, which is the
+ * one `MediaAssetId` produces exactly one wire-path entry, which is the
  * shape the dedup bundler relies on.
  */
 export function fuzzManifestFromDoc(
 	doc: BlueprintDoc,
-): Map<AssetId, FuzzMediaAsset> {
-	const manifest = new Map<AssetId, FuzzMediaAsset>();
+): Map<MediaAssetId, FuzzMediaAsset> {
+	const manifest = new Map<MediaAssetId, FuzzMediaAsset>();
 	for (const ref of walkAssetRefs(doc)) {
-		const branded = asAssetId(ref.assetId);
+		const branded = asMediaAssetId(ref.assetId);
 		if (manifest.has(branded)) continue;
 		const { extension, mimeType } = SLOT_EXTENSION_BY_KIND[ref.slotKind];
 		// Deterministic 64-hex content hash derived from the asset id — same id

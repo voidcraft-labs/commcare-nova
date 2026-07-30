@@ -1,6 +1,6 @@
 import type { z } from "zod";
 import { planCaseOperationUpdate } from "@/lib/doc/caseOperationMutations";
-import { asUuid, type BlueprintDoc, uuidSchema } from "@/lib/domain";
+import { asUuid, type BlueprintDoc, type Uuid, uuidSchema } from "@/lib/domain";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import {
 	guardedMutate,
@@ -18,7 +18,7 @@ import {
 } from "./shared";
 
 export const updateCaseOperationInputSchema = operationAddressSchema.extend({
-	operationUuid: uuidSchema.describe("Stable uuid of the operation to update"),
+	operationUuid: uuidSchema.describe("Stable UUID of the operation to update"),
 	operation: caseOperationInputSchema.describe(
 		"Complete desired operation. Omitted optional facets are cleared; unchanged slots emit no mutation.",
 	),
@@ -29,7 +29,7 @@ export type UpdateCaseOperationInput = z.infer<
 >;
 
 export interface UpdateCaseOperationSuccess extends MutationSuccess {
-	readonly operationUuid: string;
+	readonly operationUuid: Uuid;
 	readonly operationId: string;
 }
 
@@ -39,7 +39,7 @@ export type UpdateCaseOperationResult =
 
 export const updateCaseOperationTool = {
 	description:
-		"Update one case operation by stable uuid. Supply its complete desired shape; Nova emits only the identity-keyed slots that actually changed, so unrelated concurrent edits compose.",
+		"Update one case operation by stable UUID. Supply its complete desired shape; Nova emits only the identity-keyed slots that actually changed, so unrelated concurrent edits compose.",
 	inputSchema: updateCaseOperationInputSchema,
 	async execute(
 		input: UpdateCaseOperationInput,
@@ -67,7 +67,7 @@ export const updateCaseOperationTool = {
 					mutations: [],
 					newDoc: doc,
 					result: {
-						error: `Case operation uuid "${input.operationUuid}" not found in form "${doc.forms[address.formUuid]?.name ?? input.formUuid}".`,
+						error: `Case operation UUID "${input.operationUuid}" not found in form "${doc.forms[address.formUuid]?.name ?? input.formUuid}".`,
 					},
 				};
 			}
@@ -116,7 +116,7 @@ export const updateCaseOperationTool = {
 			}
 			return {
 				kind: "mutate",
-				mutations,
+				mutations: commit.mutations,
 				newDoc: commit.newDoc,
 				result: {
 					message:

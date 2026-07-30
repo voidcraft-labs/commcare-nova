@@ -12,6 +12,7 @@
 
 import AdmZip from "adm-zip";
 import { describe, expect, it } from "vitest";
+import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
@@ -19,13 +20,9 @@ import type {
 	AssetManifest,
 	ResolvedMediaAsset,
 } from "@/lib/commcare/multimedia/assetWirePath";
-import {
-	asUuid,
-	columnSchema,
-	imageMapColumn,
-	imageMapEntry,
-} from "@/lib/domain";
-import { asAssetId } from "@/lib/domain/multimedia";
+import { columnSchema, imageMapColumn, imageMapEntry } from "@/lib/domain";
+import type { MediaAssetId } from "@/lib/domain/multimedia";
+import { proseText } from "@/lib/domain/prose";
 
 const HASH_ACTIVE = "a".repeat(64);
 const HASH_CLOSED = "c".repeat(64);
@@ -34,18 +31,21 @@ function manifest(): AssetManifest {
 	const entry = (
 		id: string,
 		hash: string,
-	): [ReturnType<typeof asAssetId>, ResolvedMediaAsset] => [
-		asAssetId(id),
-		{
-			assetId: asAssetId(id),
-			wirePath: `commcare/${hash}.png`,
-			kind: "image",
-			mimeType: "image/png",
-			contentHash: hash,
-			extension: ".png",
-			bytes: Buffer.from(`${id}-png`),
-		},
-	];
+	): [MediaAssetId, ResolvedMediaAsset] => {
+		const assetId = testMediaAssetId(id);
+		return [
+			assetId,
+			{
+				assetId,
+				wirePath: `commcare/${hash}.png`,
+				kind: "image",
+				mimeType: "image/png",
+				contentHash: hash,
+				extension: ".png",
+				bytes: Buffer.from(`${id}-png`),
+			},
+		];
+	};
 	return new Map([
 		entry("asset-active", HASH_ACTIVE),
 		entry("asset-closed", HASH_CLOSED),
@@ -56,7 +56,10 @@ function imageMapDoc() {
 	return buildDoc({
 		appName: "Status icons",
 		caseTypes: [
-			{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+			{
+				name: "patient",
+				properties: [{ name: "case_name", label: proseText("Name") }],
+			},
 		],
 		modules: [
 			{
@@ -64,9 +67,9 @@ function imageMapDoc() {
 				caseType: "patient",
 				caseListConfig: {
 					columns: [
-						imageMapColumn(asUuid("col-status"), "care_status", "Status", [
-							imageMapEntry("active", "asset-active"),
-							imageMapEntry("closed", "asset-closed"),
+						imageMapColumn(testUuid("col-status"), "care_status", "Status", [
+							imageMapEntry("active", testMediaAssetId("asset-active")),
+							imageMapEntry("closed", testMediaAssetId("asset-closed")),
 						]),
 					],
 					searchInputs: [],
@@ -79,8 +82,8 @@ function imageMapDoc() {
 							{
 								kind: "text",
 								id: "case_name",
-								label: "Name",
-								case_property_on: "patient",
+								label: proseText("Name"),
+								caseWrite: { caseType: "patient", property: "case_name" },
 							},
 						],
 					},
@@ -92,15 +95,15 @@ function imageMapDoc() {
 
 describe("image-map column schema", () => {
 	it("round-trips through columnSchema", () => {
-		const col = imageMapColumn(asUuid("c1"), "care_status", "Status", [
-			imageMapEntry("active", "asset-1"),
+		const col = imageMapColumn(testUuid("c1"), "care_status", "Status", [
+			imageMapEntry("active", testMediaAssetId("asset-1")),
 		]);
 		expect(columnSchema.parse(col)).toEqual(col);
 	});
 
 	it("rejects duplicate mapping values", () => {
 		const dup = {
-			uuid: asUuid("c1"),
+			uuid: testUuid("c1"),
 			kind: "image-map",
 			field: "care_status",
 			header: "Status",

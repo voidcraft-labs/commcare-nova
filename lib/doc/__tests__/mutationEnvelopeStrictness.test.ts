@@ -1,245 +1,147 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { z } from "zod";
-import {
-	asUuid,
-	canonicalMutationSchema,
-	mutationSchema,
-} from "@/lib/doc/types";
-import { emptyCaseListConfig } from "@/lib/domain";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { mutationSchema } from "@/lib/doc/types";
+import { proseText } from "@/lib/domain/prose";
 
-const MODULE = asUuid("11111111-1111-4111-8111-111111111111");
-const FORM = asUuid("22222222-2222-4222-8222-222222222222");
-const OPERATION = asUuid("33333333-3333-4333-8333-333333333333");
-const OTHER_OPERATION = asUuid("44444444-4444-4444-8444-444444444444");
-const FIELD = asUuid("33333333-3333-4333-8333-333333333333");
-const OPTION_A = asUuid("44444444-4444-4444-8444-444444444444");
-const OPTION_B = asUuid("55555555-5555-4555-8555-555555555555");
-const TABLE = asUuid("66666666-6666-7666-8666-666666666666");
-const VALUE_COLUMN = asUuid("77777777-7777-7777-8777-777777777777");
-const LABEL_COLUMN = asUuid("88888888-8888-7888-8888-888888888888");
+const MODULE = testUuid("module");
+const FORM = testUuid("form");
+const FIELD = testUuid("field");
+const OPERATION = testUuid("operation");
+const OTHER_OPERATION = testUuid("other-operation");
+const OPTION_A = testUuid("option-a");
+const OPTION_B = testUuid("option-b");
+const TABLE = "019b0000-0000-7000-8000-000000000001";
+const VALUE_COLUMN = "019b0000-0000-7000-8000-000000000002";
+const LABEL_COLUMN = "019b0000-0000-7000-8000-000000000003";
 
-const rollingUnion = z.discriminatedUnion("kind", mutationSchema.options);
-const canonicalUnion = z.discriminatedUnion(
-	"kind",
-	canonicalMutationSchema.options,
-);
+const directUnion = z.discriminatedUnion("kind", mutationSchema.options);
 
-type MutationSchemaWithOptions =
-	| typeof mutationSchema
-	| typeof canonicalMutationSchema;
-
-function mutationArm(
-	schema: MutationSchemaWithOptions,
-	kind: string,
-): z.ZodType {
-	const arm = schema.options.find(
+function mutationArm(kind: string): z.ZodType {
+	const arm = mutationSchema.options.find(
 		(option) =>
 			option instanceof z.ZodObject &&
 			option.shape.kind instanceof z.ZodLiteral &&
 			option.shape.kind.value === kind,
 	);
-	if (arm === undefined) {
-		throw new Error(`Fixture: mutation arm ${kind} was not found`);
-	}
+	if (arm === undefined) throw new Error(`missing mutation arm ${kind}`);
 	return arm;
 }
-
-const validModule = {
-	uuid: MODULE,
-	id: "patients",
-	name: "Patients",
-} as const;
-
-const validForm = {
-	uuid: FORM,
-	id: "intake",
-	name: "Intake",
-	type: "survey",
-} as const;
 
 const validTextField = {
 	uuid: FIELD,
 	id: "name",
 	kind: "text",
-	label: "Name",
+	label: proseText("Name"),
 } as const;
 
-const validSelectField = {
-	uuid: FIELD,
-	id: "status",
-	kind: "single_select",
-	label: "Status",
-	optionsSource: {
-		kind: "inline",
-		options: [
-			{ uuid: OPTION_A, value: "active", label: "Active" },
-			{ uuid: OPTION_B, value: "closed", label: "Closed" },
-		],
-	},
+const inlineSource = {
+	kind: "inline",
+	options: [
+		{ uuid: OPTION_A, value: "active", label: proseText("Active") },
+		{ uuid: OPTION_B, value: "closed", label: proseText("Closed") },
+	],
 } as const;
 
-const optionsSource = {
+const lookupSource = {
 	kind: "lookup",
 	tableId: TABLE,
 	valueColumnId: VALUE_COLUMN,
 	labelColumnId: LABEL_COLUMN,
 } as const;
 
-const unknownNestedPayloads = [
-	[
-		"addForm.form",
-		{
-			kind: "addForm",
-			moduleUuid: MODULE,
-			form: { ...validForm, unknownNestedKey: "must fail" },
-		},
-	],
-	[
-		"addModule.module",
-		{
-			kind: "addModule",
-			module: { ...validModule, unknownNestedKey: "must fail" },
-		},
-	],
-	[
-		"updateModule.patch.caseListConfig",
-		{
-			kind: "updateModule",
-			uuid: MODULE,
-			patch: {
-				caseListConfig: {
-					columns: [],
-					searchInputs: [],
-					unknownNestedKey: "must fail",
-				},
-			},
-		},
-	],
-	[
-		"addField.field",
-		{
-			kind: "addField",
-			parentUuid: FORM,
-			field: { ...validTextField, unknownNestedKey: "must fail" },
-		},
-	],
-] as const;
-
-describe("mutation envelope strictness", () => {
-	it("preserves each direct union's exact input and output types", () => {
+describe("final mutation envelope", () => {
+	it("preserves the direct union input and output types", () => {
 		expectTypeOf<z.input<typeof mutationSchema>>().toEqualTypeOf<
-			z.input<typeof rollingUnion>
+			z.input<typeof directUnion>
 		>();
 		expectTypeOf<z.output<typeof mutationSchema>>().toEqualTypeOf<
-			z.output<typeof rollingUnion>
-		>();
-		expectTypeOf<z.input<typeof canonicalMutationSchema>>().toEqualTypeOf<
-			z.input<typeof canonicalUnion>
-		>();
-		expectTypeOf<z.output<typeof canonicalMutationSchema>>().toEqualTypeOf<
-			z.output<typeof canonicalUnion>
+			z.output<typeof directUnion>
 		>();
 	});
-
-	it("pins the Zod 4 intersection behavior the envelope must not use", () => {
-		const direct = z.object({
-			nested: z.object({ known: z.string() }).strict(),
-		});
-		const payload = { nested: { known: "kept", unknown: "unsafe" } };
-
-		expect(direct.safeParse(payload).success).toBe(false);
-		expect(direct.and(z.unknown()).parse(payload)).toEqual(payload);
-		expect(
-			direct.and(z.unknown().transform(() => ({}))).parse(payload),
-		).toEqual({ nested: { known: "kept" } });
-	});
-
-	it.each(unknownNestedPayloads)(
-		"rejects unknown nested content in %s at every inspection and envelope surface",
-		(_name, payload) => {
-			const kind = payload.kind;
-			const surfaces: readonly [string, z.ZodType][] = [
-				["rolling direct arm", mutationArm(mutationSchema, kind)],
-				["rolling discriminated union", rollingUnion],
-				["rolling envelope", mutationSchema],
-				["canonical direct arm", mutationArm(canonicalMutationSchema, kind)],
-				["canonical discriminated union", canonicalUnion],
-				["canonical envelope", canonicalMutationSchema],
-			];
-
-			for (const [surface, schema] of surfaces) {
-				expect(schema.safeParse(payload).success, surface).toBe(false);
-			}
-		},
-	);
 
 	it.each([
 		{
-			kind: "addField",
-			parentUuid: FORM,
-			field: { ...validSelectField, optionsSource },
+			kind: "addModule",
+			module: {
+				uuid: MODULE,
+				id: "patients",
+				name: "Patients",
+				unknownNestedKey: "reject",
+			},
 		},
 		{
+			kind: "addField",
+			parentUuid: FORM,
+			field: { ...validTextField, unknownNestedKey: "reject" },
+		},
+	] as const)("rejects unknown nested content in $kind", (payload) => {
+		expect(mutationArm(payload.kind).safeParse(payload).success).toBe(false);
+		expect(mutationSchema.safeParse(payload).success).toBe(false);
+	});
+
+	it("stores select source only in the field or update patch", () => {
+		const add = {
+			kind: "addField",
+			parentUuid: FORM,
+			field: {
+				uuid: FIELD,
+				id: "status",
+				kind: "single_select",
+				label: proseText("Status"),
+				optionsSource: inlineSource,
+			},
+		} as const;
+		const update = {
 			kind: "updateField",
 			uuid: FIELD,
 			targetKind: "single_select",
-			patch: { optionsSource },
-		},
-	] as const)(
-		"round-trips legitimate nested $kind optionsSource intent",
-		(payload) => {
-			for (const schema of [mutationSchema, canonicalMutationSchema]) {
-				const wire = JSON.parse(JSON.stringify(payload));
-				expect(schema.parse(wire)).toEqual(payload);
-			}
-		},
-	);
+			patch: { optionsSource: lookupSource },
+		} as const;
+		expect(mutationSchema.parse(add)).toEqual(add);
+		expect(mutationSchema.parse(update)).toEqual(update);
+		expect(
+			mutationSchema.safeParse({ ...update, optionsSource: lookupSource })
+				.success,
+		).toBe(false);
+	});
 
-	it.each([
-		{ kind: "addModule", module: validModule },
-		{ kind: "addForm", moduleUuid: MODULE, form: validForm },
-		{
-			kind: "updateModule",
-			uuid: MODULE,
-			patch: { caseListConfig: emptyCaseListConfig() },
-		},
-		{ kind: "addField", parentUuid: FORM, field: validTextField },
-	] as const)(
-		"keeps ordinary valid $kind mutations byte-equivalent",
-		(payload) => {
-			const bytes = JSON.stringify(payload);
-			for (const [envelope, directUnion] of [
-				[mutationSchema, rollingUnion],
-				[canonicalMutationSchema, canonicalUnion],
-			] as const) {
-				expect(JSON.stringify(envelope.parse(JSON.parse(bytes)))).toBe(
-					JSON.stringify(directUnion.parse(JSON.parse(bytes))),
-				);
-			}
-		},
-	);
+	it("requires the final updateField patch instead of accepting a pre-horizon no-op", () => {
+		expect(
+			mutationSchema.safeParse({
+				kind: "updateField",
+				uuid: FIELD,
+				targetKind: "text",
+			}).success,
+		).toBe(false);
+	});
 
-	it.each([{ uuid: MODULE }, { kind: "unknownMutation", uuid: MODULE }])(
-		"rejects missing and unknown root discriminators",
-		(payload) => {
-			for (const schema of [
-				rollingUnion,
-				mutationSchema,
-				canonicalUnion,
-				canonicalMutationSchema,
-			]) {
-				expect(schema.safeParse(payload).success).toBe(false);
-			}
-		},
-	);
+	it("rejects a duplicate whole-operation body beside a granular patch", () => {
+		const result = mutationSchema.safeParse({
+			kind: "updateForm",
+			uuid: FORM,
+			patch: {},
+			caseOperationChange: {
+				operation: "add",
+				value: {
+					uuid: OPERATION,
+					id: "create_visit",
+					action: "create",
+					caseType: "visit",
+					target: { kind: "new" },
+				},
+			},
+			caseOperationPatch: {
+				operation: "move",
+				uuid: OPERATION,
+				after: null,
+			},
+		});
+		expect(result.success).toBe(false);
+	});
 
-	/* The structural omission in `caseOperationPatchSchemaFor` is what makes
-	 * identity replacement impossible; this pins the SENTENCE that refusal
-	 * carries. A caller who believes an update can move an operation's
-	 * identity has to be able to act on the message, and "Unrecognized key"
-	 * does not tell them what they got wrong. */
-	it("tells a case-operation update why it may not set the operation uuid", () => {
-		const payload = {
+	it("explains why a granular operation update may not replace identity", () => {
+		const result = mutationSchema.safeParse({
 			kind: "updateForm",
 			uuid: FORM,
 			patch: {},
@@ -248,85 +150,40 @@ describe("mutation envelope strictness", () => {
 				uuid: OPERATION,
 				patch: { uuid: OTHER_OPERATION, id: "renamed" },
 			},
-		};
-
-		for (const schema of [mutationSchema, canonicalMutationSchema]) {
-			const result = schema.safeParse(payload);
-			expect(result.success).toBe(false);
-			if (result.success) continue;
-			const issue = result.error.issues.find(
-				(candidate) =>
-					candidate.path.join(".") === "caseOperationPatch.patch.uuid",
-			);
-			expect(issue?.message).toContain("identity is fixed when it is created");
-			expect(issue?.message).toContain("leave that slot out");
-		}
+		});
+		expect(result.success).toBe(false);
+		if (result.success) return;
+		const issue = result.error.issues.find(
+			(candidate) =>
+				candidate.path.join(".") === "caseOperationPatch.patch.uuid",
+		);
+		expect(issue?.message).toContain("identity is fixed when it is created");
 	});
 
-	/* Clearing a connection's target is the one slot where a patch `null`
-	 * is an ASSIGNED value rather than a deletion — a link's `target` is
-	 * required and nullable, so the fallback carries a literal `null`
-	 * where a cleared optional slot would simply be absent. Treating the
-	 * two the same made this envelope reject itself, and the write 400'd
-	 * instead of unlinking. */
-	it("accepts an unlink, whose fallback carries a real null target", () => {
-		const payload = {
+	it("accepts final unlink and member-order payloads without fallbacks", () => {
+		const unlink = {
 			kind: "updateForm",
 			uuid: FORM,
 			patch: {},
-			caseOperationChange: {
-				operation: "update",
-				uuid: OPERATION,
-				value: {
-					uuid: OPERATION,
-					id: "update_visit",
-					action: "update",
-					caseType: "visit",
-					target: { kind: "session" },
-					links: [
-						{
-							identifier: "parent",
-							targetType: "patient",
-							relationship: "child",
-							target: null,
-						},
-					],
-				},
-			},
 			caseOperationPatch: {
 				operation: "update-link",
 				uuid: OPERATION,
 				identifier: "parent",
 				patch: { target: null },
 			},
-		};
-
-		for (const schema of [mutationSchema, canonicalMutationSchema]) {
-			const result = schema.safeParse(payload);
-			expect(
-				result.success,
-				result.success
-					? ""
-					: JSON.stringify(result.error.issues.map((i) => i.message)),
-			).toBe(true);
-		}
-	});
-
-	it("does not reintroduce raw unknown content into parsed output", () => {
-		const payload = {
-			kind: "setAppName",
-			name: "Patients",
-			futureExtension: { enabled: true },
-		};
-		const expected = { kind: "setAppName", name: "Patients" };
-
-		for (const schema of [
-			rollingUnion,
-			mutationSchema,
-			canonicalUnion,
-			canonicalMutationSchema,
-		]) {
-			expect(schema.parse(payload)).toEqual(expected);
-		}
+		} as const;
+		const move = {
+			kind: "updateForm",
+			uuid: FORM,
+			patch: {},
+			caseOperationPatch: {
+				operation: "move-write",
+				uuid: OPERATION,
+				property: "visited_on",
+				after: null,
+			},
+		} as const;
+		expect(mutationSchema.parse(unlink)).toEqual(unlink);
+		expect(mutationSchema.parse(move)).toEqual(move);
 	});
 });

@@ -1,14 +1,15 @@
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { applyMutation } from "@/lib/doc/mutations";
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
-import { asUuid } from "@/lib/doc/types";
+
 import type { Field, Form, Module } from "@/lib/domain";
 import { emptyCaseListConfig } from "@/lib/domain";
 
-const M = (s: string) => asUuid(`mod${s}-0000-0000-0000-000000000000`);
-const F = (s: string) => asUuid(`frm${s}-0000-0000-0000-000000000000`);
-const Q = (s: string) => asUuid(`qst${s}-0000-0000-0000-000000000000`);
+const M = (s: string) => testUuid(`mod${s}-0000-0000-0000-000000000000`);
+const F = (s: string) => testUuid(`frm${s}-0000-0000-0000-000000000000`);
+const Q = (s: string) => testUuid(`qst${s}-0000-0000-0000-000000000000`);
 
 function module_(uuid: Uuid, name: string): Module {
 	return { uuid, name } as Module;
@@ -127,7 +128,7 @@ describe("moveModule", () => {
 		expect(next.moduleOrder).toEqual([M("B"), M("C"), M("A")]);
 	});
 
-	it("appends when the anchor is gone", () => {
+	it("leaves the sequence unchanged when an unguarded anchor is gone", () => {
 		const start: BlueprintDoc = {
 			...emptyDoc(),
 			modules: {
@@ -138,11 +139,11 @@ describe("moveModule", () => {
 			formOrder: { [M("A")]: [], [M("B")]: [] },
 		};
 		const next = produce(start, (d) => {
-			// A peer removed the anchor before this move replayed. Appending keeps
-			// the reducer total, so historical replay never fails.
+			// Live admission rejects this. The reducer remains total for replay,
+			// but cannot translate the requested placement into append.
 			applyMutation(d, { kind: "moveModule", uuid: M("A"), after: M("gone") });
 		});
-		expect(next.moduleOrder).toEqual([M("B"), M("A")]);
+		expect(next.moduleOrder).toEqual([M("A"), M("B")]);
 	});
 
 	it("is a no-op when the module isn't in moduleOrder", () => {
@@ -228,7 +229,7 @@ describe("updateModule.ensureCaseListConfig", () => {
 			applyMutation(d, {
 				kind: "updateModule",
 				uuid: M("A"),
-				patch: { caseListConfig: emptyCaseListConfig() },
+				patch: {},
 				ensureCaseListConfig: true,
 			});
 		});
@@ -262,7 +263,7 @@ describe("updateModule.ensureCaseListConfig", () => {
 			applyMutation(d, {
 				kind: "updateModule",
 				uuid: M("A"),
-				patch: { caseListConfig: emptyCaseListConfig() },
+				patch: {},
 				ensureCaseListConfig: true,
 			});
 		});

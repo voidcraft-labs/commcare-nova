@@ -9,6 +9,7 @@
 // is ever produced (every doc becomes a text part).
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import type { AttachmentCondenser } from "@/lib/agent/documentExtraction";
 import {
 	countDocumentsNeedingRead,
@@ -20,7 +21,7 @@ import {
 	loadAssetsByIds,
 	publishClaimedAssetExtract,
 } from "@/lib/db/mediaAssets";
-import { asAssetId, EXTRACTOR_VERSION } from "@/lib/domain/multimedia";
+import { EXTRACTOR_VERSION, type MediaAssetId } from "@/lib/domain/multimedia";
 import { readTextObject, writeTextObject } from "@/lib/storage/media";
 
 // mammoth pulls bluebird (a module-level promise the leak detector flags); the
@@ -98,7 +99,7 @@ function stubCondenser(text = "LAZY EXTRACT"): AttachmentCondenser {
 
 function asset(over: Partial<MediaAssetRecord> = {}): MediaAssetRecord {
 	return {
-		id: "doc-1",
+		id: testMediaAssetId("doc-1"),
 		owner: "user-1",
 		project_id: "project-1",
 		contentHash: "a".repeat(64),
@@ -129,7 +130,11 @@ function readyExtract(): MediaAssetRecord["extract"] {
 /** A user message carrying one attachment ref. */
 function userMsg(
 	id: string,
-	ref: { assetId: string; kind: MediaAssetRecord["kind"]; filename: string },
+	ref: {
+		assetId: MediaAssetId;
+		kind: MediaAssetRecord["kind"];
+		filename: string;
+	},
 ): NovaUIMessage {
 	return {
 		id,
@@ -179,13 +184,17 @@ beforeEach(() => {
 });
 
 describe("resolveAttachments", () => {
+	const DOC = testMediaAssetId("doc-1");
+	const IMAGE = testMediaAssetId("img-1");
+	const GHOST = testMediaAssetId("ghost");
+
 	it("appends a document's STORED extract as a text part (no model call)", async () => {
 		loadAssetsByIdsMock.mockResolvedValue([asset({ extract: readyExtract() })]);
 		readTextObjectMock.mockResolvedValue("STORED EXTRACT BODY");
 		const condenser = stubCondenser();
 
 		const [msg] = await resolveAttachments(
-			[userMsg("u1", { assetId: "doc-1", kind: "text", filename: "spec.md" })],
+			[userMsg("u1", { assetId: DOC, kind: "text", filename: "spec.md" })],
 			"user-1",
 			condenser,
 		);
@@ -203,7 +212,7 @@ describe("resolveAttachments", () => {
 		const condenser = stubCondenser("FRESH EXTRACT");
 
 		const [msg] = await resolveAttachments(
-			[userMsg("u1", { assetId: "doc-1", kind: "text", filename: "spec.md" })],
+			[userMsg("u1", { assetId: DOC, kind: "text", filename: "spec.md" })],
 			"user-1",
 			condenser,
 		);
@@ -214,7 +223,7 @@ describe("resolveAttachments", () => {
 		expect(writeTextObject).toHaveBeenCalledOnce();
 		expect(publishClaimedAssetExtract).toHaveBeenCalledWith(
 			expect.objectContaining({
-				assetId: "doc-1",
+				assetId: DOC,
 				extract: expect.objectContaining({ status: "ready" }),
 			}),
 			expect.anything(),
@@ -223,12 +232,16 @@ describe("resolveAttachments", () => {
 
 	it("appends an image as a data-URL file part for the vision pass", async () => {
 		loadAssetsByIdsMock.mockResolvedValue([
-			asset({ id: asAssetId("img-1"), kind: "image", mimeType: "image/png" }),
+			asset({
+				id: IMAGE,
+				kind: "image",
+				mimeType: "image/png",
+			}),
 		]);
 		const [msg] = await resolveAttachments(
 			[
 				userMsg("u1", {
-					assetId: "img-1",
+					assetId: IMAGE,
 					kind: "image",
 					filename: "diagram.png",
 				}),
@@ -253,7 +266,7 @@ describe("resolveAttachments", () => {
 		loadAssetsByIdsMock.mockResolvedValue([asset({ extract: readyExtract() })]);
 		readTextObjectMock.mockResolvedValue("EXTRACT");
 		const [msg] = await resolveAttachments(
-			[userMsg("u1", { assetId: "doc-1", kind: "text", filename: "spec.md" })],
+			[userMsg("u1", { assetId: DOC, kind: "text", filename: "spec.md" })],
 			"user-1",
 			stubCondenser(),
 		);
@@ -264,7 +277,7 @@ describe("resolveAttachments", () => {
 	it("placeholders a missing/foreign asset rather than dropping it", async () => {
 		loadAssetsByIdsMock.mockResolvedValue([]); // id not owned / not found
 		const [msg] = await resolveAttachments(
-			[userMsg("u1", { assetId: "ghost", kind: "text", filename: "gone.md" })],
+			[userMsg("u1", { assetId: GHOST, kind: "text", filename: "gone.md" })],
 			"user-1",
 			stubCondenser(),
 		);
@@ -284,7 +297,7 @@ describe("resolveAttachments", () => {
 		const condenser = stubCondenser();
 
 		const [msg] = await resolveAttachments(
-			[userMsg("u1", { assetId: "doc-1", kind: "text", filename: "spec.md" })],
+			[userMsg("u1", { assetId: DOC, kind: "text", filename: "spec.md" })],
 			"user-1",
 			condenser,
 		);
@@ -305,7 +318,7 @@ describe("resolveAttachments", () => {
 		loadAssetsByIdsMock.mockResolvedValue([asset({ extract: readyExtract() })]);
 		readTextObjectMock.mockResolvedValue("SHARED EXTRACT");
 		const ref = {
-			assetId: "doc-1",
+			assetId: DOC,
 			kind: "text" as const,
 			filename: "spec.md",
 		};
@@ -324,7 +337,7 @@ describe("resolveAttachments", () => {
 		}
 		// One batch load (unique ids) + one extract read (deduped by assetId).
 		expect(loadAssetsByIds).toHaveBeenCalledOnce();
-		expect(loadAssetsByIds).toHaveBeenCalledWith(["doc-1"], "user-1");
+		expect(loadAssetsByIds).toHaveBeenCalledWith([DOC], "user-1");
 		expect(readTextObject).toHaveBeenCalledOnce();
 	});
 
@@ -334,7 +347,7 @@ describe("resolveAttachments", () => {
 		// the never-drop invariant.
 		loadAssetsByIdsMock.mockRejectedValue(new Error("postgres down"));
 		const resolved = await resolveAttachments(
-			[userMsg("u1", { assetId: "doc-1", kind: "text", filename: "spec.md" })],
+			[userMsg("u1", { assetId: DOC, kind: "text", filename: "spec.md" })],
 			"user-1",
 			stubCondenser(),
 		);
@@ -366,7 +379,7 @@ describe("resolveAttachments", () => {
  * make the status flash. Pure function; no storage/db. */
 describe("countDocumentsNeedingRead", () => {
 	const ref = (over: Partial<AttachmentRef>): AttachmentRef => ({
-		assetId: "a",
+		assetId: testMediaAssetId("a"),
 		kind: "text",
 		filename: "spec.md",
 		mimeType: "text/markdown",
@@ -403,10 +416,14 @@ describe("countDocumentsNeedingRead", () => {
 		expect(
 			countDocumentsNeedingRead([
 				userMsgWith(
-					ref({ assetId: "read", title: "Done" }),
-					ref({ assetId: "unread1" }),
-					ref({ assetId: "unread2" }),
-					ref({ assetId: "img", kind: "image", filename: "d.png" }),
+					ref({ assetId: testMediaAssetId("read"), title: "Done" }),
+					ref({ assetId: testMediaAssetId("unread1") }),
+					ref({ assetId: testMediaAssetId("unread2") }),
+					ref({
+						assetId: testMediaAssetId("img"),
+						kind: "image",
+						filename: "d.png",
+					}),
 				),
 			]),
 		).toBe(2);
@@ -424,7 +441,7 @@ describe("countDocumentsNeedingRead", () => {
 	it("ignores attachments on anything but the LAST message", () => {
 		// A prior turn's unread doc must not re-trigger the status on a later turn —
 		// the status is for the new turn's docs only.
-		const prior = userMsgWith(ref({ assetId: "old" }));
+		const prior = userMsgWith(ref({ assetId: testMediaAssetId("old") }));
 		const latest = {
 			id: "u2",
 			role: "user",

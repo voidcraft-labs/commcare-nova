@@ -15,12 +15,20 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { applyOverWire } from "@/lib/doc/__tests__/wireRoundTrip";
-import { asUuid } from "@/lib/domain";
+import { getFormTool } from "../../getForm";
 import { getModuleTool } from "../../getModule";
 import { setAppLogoTool } from "../setAppLogo";
-import { setMenuMediaTool } from "../setMenuMedia";
 import {
+	type SetMenuMediaInput,
+	setMenuMediaInputSchema,
+	setMenuMediaTool,
+} from "../setMenuMedia";
+import {
+	ASSET_AUDIO,
+	ASSET_ICON,
+	ASSET_LOGO,
 	errorOf,
 	FORM_A,
 	MOD_A,
@@ -30,12 +38,33 @@ import {
 	seedTestAsset,
 } from "./fixtures";
 
+const ASSET_PENDING = testMediaAssetId("asset-pending");
+const ASSET_NOPE = testMediaAssetId("asset-nope");
+const UNKNOWN_MODULE = testUuid("88888888-8888-4888-8888-888888888888");
+const UNKNOWN_FORM = testUuid("99999999-9999-4999-8999-999999999999");
+
+type ModuleMenuItem = Extract<
+	SetMenuMediaInput["items"][number],
+	{ target: "module" }
+>;
+type FormMenuItem = Extract<
+	SetMenuMediaInput["items"][number],
+	{ target: "form" }
+>;
+
 vi.mock("@/lib/db/apps", () => ({
 	completeApp: vi.fn(() => Promise.resolve()),
-	loadAppProjectId: vi.fn(() => Promise.resolve("project-1")),
+	loadAppProjectId: vi.fn(() =>
+		Promise.resolve({ kind: "found", projectId: "project-1" }),
+	),
 }));
 vi.mock("@/lib/db/applyBlueprintChange", () => ({
-	applyBlueprintChange: vi.fn(() => Promise.resolve({ seq: 0 })),
+	applyBlueprintChange: vi.fn(async (args) => {
+		const { commitApplyBlueprintChangeTestBatch } = await import(
+			"@/lib/db/__tests__/applyBlueprintChangeTestWriter"
+		);
+		return commitApplyBlueprintChangeTestBatch(args);
+	}),
 }));
 // The db-constructing module stubbed at the import boundary; the
 // attach verdict's asset reads resolve against the fixtures' in-memory
@@ -49,44 +78,53 @@ beforeEach(() => {
 	resetTestAssets();
 });
 
-/** A module-tile item with the fixture's module 0 as the target. */
-const moduleItem = (icon: string | null, audioLabel: string | null) =>
-	({ target: "module", moduleUuid: MOD_A, icon, audioLabel }) as const;
+/** A module-tile item with the fixture module as the target. */
+const moduleItem = (
+	icon: ModuleMenuItem["icon"],
+	audioLabel: ModuleMenuItem["audioLabel"],
+): ModuleMenuItem => ({
+	target: "module",
+	moduleUuid: MOD_A,
+	icon,
+	audioLabel,
+});
 
-/** A form-tile item with the fixture's m0-f0 as the target. */
-const formItem = (icon: string | null, audioLabel: string | null) =>
-	({
-		target: "form",
-		moduleUuid: MOD_A,
-		formUuid: FORM_A,
-		icon,
-		audioLabel,
-	}) as const;
+/** A form-tile item with the fixture form as the target. */
+const formItem = (
+	icon: FormMenuItem["icon"],
+	audioLabel: FormMenuItem["audioLabel"],
+): FormMenuItem => ({
+	target: "form",
+	moduleUuid: MOD_A,
+	formUuid: FORM_A,
+	icon,
+	audioLabel,
+});
 
 describe("setMenuMedia", () => {
 	it("sets icon + audio label on a module tile", async () => {
 		const { doc, ctx } = makeMediaFixture();
 		const result = await setMenuMediaTool.execute(
-			{ items: [moduleItem("asset-icon", "asset-audio")] },
+			{ items: [moduleItem(ASSET_ICON, ASSET_AUDIO)] },
 			ctx,
 			doc,
 		);
 		expect(result.kind).toBe("mutate");
 		const mod = result.newDoc.modules[MOD_A];
-		expect(mod?.icon).toBe("asset-icon");
-		expect(mod?.audioLabel).toBe("asset-audio");
+		expect(mod?.icon).toBe(ASSET_ICON);
+		expect(mod?.audioLabel).toBe(ASSET_AUDIO);
 	});
 
 	it("sets icon + audio label on a form tile", async () => {
 		const { doc, ctx } = makeMediaFixture();
 		const result = await setMenuMediaTool.execute(
-			{ items: [formItem("asset-icon", "asset-audio")] },
+			{ items: [formItem(ASSET_ICON, ASSET_AUDIO)] },
 			ctx,
 			doc,
 		);
 		const form = result.newDoc.forms[FORM_A];
-		expect(form?.icon).toBe("asset-icon");
-		expect(form?.audioLabel).toBe("asset-audio");
+		expect(form?.icon).toBe(ASSET_ICON);
+		expect(form?.audioLabel).toBe(ASSET_AUDIO);
 	});
 
 	it("sets a module tile and a form tile in one batch", async () => {
@@ -108,18 +146,18 @@ describe("setMenuMedia", () => {
 	it("clears a slot when handed null", async () => {
 		const { doc: baseDoc, ctx } = makeMediaFixture();
 		const seeded = await setMenuMediaTool.execute(
-			{ items: [moduleItem("asset-icon", "asset-audio")] },
+			{ items: [moduleItem(ASSET_ICON, ASSET_AUDIO)] },
 			ctx,
 			baseDoc,
 		);
 		const cleared = await setMenuMediaTool.execute(
-			{ items: [moduleItem(null, "asset-audio")] },
+			{ items: [moduleItem(null, ASSET_AUDIO)] },
 			ctx,
 			seeded.newDoc,
 		);
 		const mod = cleared.newDoc.modules[MOD_A];
 		expect(mod?.icon).toBeUndefined();
-		expect(mod?.audioLabel).toBe("asset-audio");
+		expect(mod?.audioLabel).toBe(ASSET_AUDIO);
 	});
 
 	it("clears tiles AFTER a JSON wire round-trip (blocker guard)", async () => {
@@ -127,15 +165,15 @@ describe("setMenuMedia", () => {
 		const seeded = await setMenuMediaTool.execute(
 			{
 				items: [
-					moduleItem("asset-icon", "asset-audio"),
-					formItem("asset-icon", "asset-audio"),
+					moduleItem(ASSET_ICON, ASSET_AUDIO),
+					formItem(ASSET_ICON, ASSET_AUDIO),
 				],
 			},
 			ctx,
 			baseDoc,
 		);
 		const clear = await setMenuMediaTool.execute(
-			{ items: [moduleItem(null, "asset-audio"), formItem(null, null)] },
+			{ items: [moduleItem(null, ASSET_AUDIO), formItem(null, null)] },
 			ctx,
 			seeded.newDoc,
 		);
@@ -146,7 +184,7 @@ describe("setMenuMedia", () => {
 		// the wire.
 		const overWire = applyOverWire(seeded.newDoc, clear.mutations);
 		expect(overWire.modules[MOD_A]?.icon).toBeUndefined();
-		expect(overWire.modules[MOD_A]?.audioLabel).toBe("asset-audio");
+		expect(overWire.modules[MOD_A]?.audioLabel).toBe(ASSET_AUDIO);
 		expect(overWire.forms[FORM_A]?.icon).toBeUndefined();
 		expect(overWire.forms[FORM_A]?.audioLabel).toBeUndefined();
 	});
@@ -159,7 +197,7 @@ describe("setMenuMedia", () => {
 					moduleItem("household", null),
 					{
 						target: "module",
-						moduleUuid: asUuid("ffffffff-ffff-4fff-8fff-ffffffffffff"),
+						moduleUuid: UNKNOWN_MODULE,
 						icon: "patient",
 						audioLabel: null,
 					},
@@ -172,7 +210,7 @@ describe("setMenuMedia", () => {
 		expect(result.newDoc.modules[MOD_A]?.icon).toBeUndefined();
 		const error = errorOf(result);
 		expect(error).toContain("items[1]");
-		expect(error).toContain("No module with uuid");
+		expect(error).toContain(UNKNOWN_MODULE);
 	});
 
 	it("returns an Elm-style error when a form target is out of range", async () => {
@@ -183,8 +221,8 @@ describe("setMenuMedia", () => {
 					{
 						target: "form",
 						moduleUuid: MOD_A,
-						formUuid: asUuid("ffffffff-ffff-4fff-8fff-ffffffffffff"),
-						icon: "asset-icon",
+						formUuid: UNKNOWN_FORM,
+						icon: ASSET_ICON,
 						audioLabel: null,
 					},
 				],
@@ -193,14 +231,14 @@ describe("setMenuMedia", () => {
 			doc,
 		);
 		expect(result.mutations).toEqual([]);
-		expect(errorOf(result)).toContain("No form with uuid");
+		expect(errorOf(result)).toContain(UNKNOWN_FORM);
 	});
 
 	it("emits the same mutation batch through chat + MCP contexts", async () => {
 		const { doc, ctx: chatCtx } = makeMediaFixture();
 		const { ctx: mcpCtx } = makeMediaMcpFixture();
 		const input = {
-			items: [moduleItem("asset-icon", null), formItem("register", null)],
+			items: [moduleItem(ASSET_ICON, null), formItem("register", null)],
 		};
 		const r1 = await setMenuMediaTool.execute(input, chatCtx, doc);
 		const r2 = await setMenuMediaTool.execute(input, mcpCtx, doc);
@@ -211,20 +249,16 @@ describe("setMenuMedia", () => {
 describe("setAppLogo", () => {
 	it("sets the app logo", async () => {
 		const { doc, ctx } = makeMediaFixture();
-		const result = await setAppLogoTool.execute(
-			{ logo: "asset-logo" },
-			ctx,
-			doc,
-		);
+		const result = await setAppLogoTool.execute({ logo: ASSET_LOGO }, ctx, doc);
 		expect(result.kind).toBe("mutate");
-		expect(result.newDoc.logo).toBe("asset-logo");
-		expect(result.result).toContain("asset-logo");
+		expect(result.newDoc.logo).toBe(ASSET_LOGO);
+		expect(result.result).toContain(ASSET_LOGO);
 	});
 
 	it("clears the app logo when handed null", async () => {
 		const { doc: baseDoc, ctx } = makeMediaFixture();
 		const seeded = await setAppLogoTool.execute(
-			{ logo: "asset-logo" },
+			{ logo: ASSET_LOGO },
 			ctx,
 			baseDoc,
 		);
@@ -240,7 +274,7 @@ describe("setAppLogo", () => {
 	it("clears the logo AFTER a JSON wire round-trip (blocker guard)", async () => {
 		const { doc: baseDoc, ctx } = makeMediaFixture();
 		const seeded = await setAppLogoTool.execute(
-			{ logo: "asset-logo" },
+			{ logo: ASSET_LOGO },
 			ctx,
 			baseDoc,
 		);
@@ -256,16 +290,8 @@ describe("setAppLogo", () => {
 	it("emits the same mutation batch through chat + MCP contexts", async () => {
 		const { doc, ctx: chatCtx } = makeMediaFixture();
 		const { ctx: mcpCtx } = makeMediaMcpFixture();
-		const r1 = await setAppLogoTool.execute(
-			{ logo: "asset-logo" },
-			chatCtx,
-			doc,
-		);
-		const r2 = await setAppLogoTool.execute(
-			{ logo: "asset-logo" },
-			mcpCtx,
-			doc,
-		);
+		const r1 = await setAppLogoTool.execute({ logo: ASSET_LOGO }, chatCtx, doc);
+		const r2 = await setAppLogoTool.execute({ logo: ASSET_LOGO }, mcpCtx, doc);
 		expect(r1.mutations).toEqual(r2.mutations);
 	});
 });
@@ -298,57 +324,55 @@ describe("menu-media built-in icons", () => {
 	it("sets a built-in icon alongside an uploaded audio label (audio still verified)", async () => {
 		const { doc, ctx } = makeMediaFixture();
 		const result = await setMenuMediaTool.execute(
-			{ items: [moduleItem("patient", "asset-audio")] },
+			{ items: [moduleItem("patient", ASSET_AUDIO)] },
 			ctx,
 			doc,
 		);
 		const mod = result.newDoc.modules[MOD_A];
 		expect(mod?.icon).toBe("nova-icon:patient");
-		expect(mod?.audioLabel).toBe("asset-audio");
+		expect(mod?.audioLabel).toBe(ASSET_AUDIO);
 	});
 
 	it("still accepts an uploaded asset id for the icon (slug-vs-id disambiguation)", async () => {
 		const { doc, ctx } = makeMediaFixture();
-		// "asset-icon" is a seeded image asset, not a catalog slug → the upload
+		// ASSET_ICON is a seeded image asset, not a catalog slug → the upload
 		// path: stored verbatim, verified against the library.
 		const result = await setMenuMediaTool.execute(
-			{ items: [moduleItem("asset-icon", null)] },
+			{ items: [moduleItem(ASSET_ICON, null)] },
 			ctx,
 			doc,
 		);
-		expect(result.newDoc.modules[MOD_A]?.icon).toBe("asset-icon");
+		expect(result.newDoc.modules[MOD_A]?.icon).toBe(ASSET_ICON);
 	});
 
-	it("round-trips a STORED built-in ref echoed back (single-slot preserve)", async () => {
-		const { doc: baseDoc, ctx } = makeMediaFixture();
-		const seeded = await setMenuMediaTool.execute(
-			{ items: [moduleItem("household", null)] },
-			ctx,
-			baseDoc,
-		);
-		// The SA preserves the icon while setting the audio label by passing
-		// back the STORED value it read via getModule — the prefixed ref, not
-		// the bare slug. It must resolve without a library expectation ("nova-
-		// icon:household" has no `media_assets` row) and store unchanged.
-		const preserved = await setMenuMediaTool.execute(
-			{ items: [moduleItem("nova-icon:household", "asset-audio")] },
-			ctx,
-			seeded.newDoc,
-		);
-		const mod = preserved.newDoc.modules[MOD_A];
-		expect(mod?.icon).toBe("nova-icon:household");
-		expect(mod?.audioLabel).toBe("asset-audio");
+	it("rejects the stored built-in ref at the tool boundary", () => {
+		expect(
+			setMenuMediaInputSchema.safeParse({
+				items: [
+					{
+						target: "module",
+						moduleUuid: MOD_A,
+						icon: "nova-icon:household",
+						audioLabel: ASSET_AUDIO,
+					},
+				],
+			}).success,
+		).toBe(false);
 	});
 
-	it("fails closed on a STALE built-in ref (slug gone from the catalog)", async () => {
-		const { doc, ctx } = makeMediaFixture();
-		const result = await setMenuMediaTool.execute(
-			{ items: [moduleItem("nova-icon:not-a-real-slug", null)] },
-			ctx,
-			doc,
-		);
-		expect(result.mutations).toEqual([]);
-		expect(errorOf(result)).toContain("library");
+	it("rejects stale and merely prefixed built-in refs", () => {
+		expect(
+			setMenuMediaInputSchema.safeParse({
+				items: [
+					{
+						target: "module",
+						moduleUuid: MOD_A,
+						icon: "nova-icon:not-a-real-slug",
+						audioLabel: null,
+					},
+				],
+			}).success,
+		).toBe(false);
 	});
 });
 
@@ -358,7 +382,7 @@ describe("getModule menu-media projection (the read side of the single-slot cont
 		const seeded = await setMenuMediaTool.execute(
 			{
 				items: [
-					moduleItem("household", "asset-audio"),
+					moduleItem("household", ASSET_AUDIO),
 					formItem("register", null),
 				],
 			},
@@ -371,10 +395,26 @@ describe("getModule menu-media projection (the read side of the single-slot cont
 			seeded.newDoc,
 		);
 		if ("error" in read.data) throw new Error(read.data.error);
-		expect(read.data.icon).toBe("nova-icon:household");
-		expect(read.data.audio_label).toBe("asset-audio");
-		expect(read.data.forms[0]?.icon).toBe("nova-icon:register");
+		expect(read.data.icon).toBe("household");
+		expect(read.data.audio_label).toBe(ASSET_AUDIO);
+		expect(read.data.forms[0]?.icon).toBe("register");
 		expect(read.data.forms[0]?.audio_label).toBeNull();
+	});
+
+	it("projects a form built-in to its accepted slug on the full-form read", async () => {
+		const { doc: baseDoc, ctx } = makeMediaFixture();
+		const seeded = await setMenuMediaTool.execute(
+			{ items: [formItem("register", null)] },
+			ctx,
+			baseDoc,
+		);
+		const read = await getFormTool.execute(
+			{ moduleUuid: MOD_A, formUuid: FORM_A },
+			ctx,
+			seeded.newDoc,
+		);
+		if ("error" in read.data) throw new Error(read.data.error);
+		expect(read.data.form.icon).toBe("register");
 	});
 });
 
@@ -383,7 +423,7 @@ describe("menu-media attach verdict", () => {
 		const { doc, ctx } = makeMediaFixture();
 		// An IMAGE asset placed in the audio-label slot.
 		const result = await setMenuMediaTool.execute(
-			{ items: [moduleItem("asset-icon", "asset-icon")] },
+			{ items: [moduleItem(ASSET_ICON, ASSET_ICON)] },
 			ctx,
 			doc,
 		);
@@ -394,11 +434,11 @@ describe("menu-media attach verdict", () => {
 	});
 
 	it("a verdict failure on one item writes nothing for the whole batch", async () => {
-		seedTestAsset("asset-pending", "image", { status: "pending" });
+		seedTestAsset(ASSET_PENDING, "image", { status: "pending" });
 		const { doc, ctx } = makeMediaFixture();
 		const result = await setMenuMediaTool.execute(
 			{
-				items: [moduleItem("household", null), formItem("asset-pending", null)],
+				items: [moduleItem("household", null), formItem(ASSET_PENDING, null)],
 			},
 			ctx,
 			doc,
@@ -411,7 +451,7 @@ describe("menu-media attach verdict", () => {
 	it("setAppLogo refuses an asset id that isn't in the library, and a null clear still passes", async () => {
 		const { doc, ctx } = makeMediaFixture();
 		const missing = await setAppLogoTool.execute(
-			{ logo: "asset-nope" },
+			{ logo: ASSET_NOPE },
 			ctx,
 			doc,
 		);

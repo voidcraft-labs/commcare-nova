@@ -26,13 +26,13 @@
 //   - **Construction builders** (`./builders`) — typed helpers
 //     covering every AST arm (`eq` / `neq` / `gt` / `lt` / `gte` /
 //     `lte` / `and` / `or` / `not` / `match` / `multiSelectAny` /
-//     `multiSelectAll` / `within` / `between` / `isIn` / `isNull` /
+//     `multiSelectAll` / `within` / `between` / `isIn` /
 //     `isBlank` / `exists` / `missing` / `whenInput` / `matchAll` /
 //     `matchNone` / `term` / `today` / `now` / `idOf` / `actingUser` /
 //     `unowned` / `dateAdd` /
 //     `dateCoerce` / `datetimeCoerce` / `double` / `arith` / `concat`
 //     / `coalesce` / `ifExpr` / `switchExpr` / `switchCase` / `count`
-//     / `unwrapList` / `formatDate` / `prop` / `formField` / `input` / `sessionUser`
+//     / `formatDate` / `prop` / `formField` / `input` / `sessionUser`
 //     / `sessionContext` / `literal` / `dateLiteral` /
 //     `datetimeLiteral` / `timeLiteral` / `relationStep` / `selfPath`
 //     / `ancestorPath` / `subcasePath` / `anyRelationPath`). Builders
@@ -47,7 +47,7 @@
 //     `CheckError[]` keyed by `CheckPath`. `checkRelationPath` walks
 //     the relation graph and `checkInDestinationScope` enforces the
 //     destination-scope contract on `where`-clause property reads.
-//     `ResolvedType` / `ANY_TYPE` / `SEQUENCE_TYPE` / `ORDERED_TYPES`
+//     `ResolvedType` / `ANY_TYPE` / `ORDERED_TYPES`
 //     are the type-system primitives the checker drives.
 //   - **JSON Schema generator** (`./jsonSchema`) — produces a
 //     `CaseTypeJsonSchema` document from a `CaseType` that the case-

@@ -1,7 +1,10 @@
 import type { z } from "zod";
 import { replaceFieldOptionsSourceMutation } from "@/lib/doc/lookupOptionsSourceMutations";
-import { type BlueprintDoc, selectOptionsSourceSchema } from "@/lib/domain";
+import type { BlueprintDoc, Uuid } from "@/lib/domain";
+import { findAuthoredBlueprintIdentity } from "@/lib/domain";
+import { prepareToolOptionsSource } from "../contentProcessing";
 import type { ToolExecutionContext } from "../toolExecutionContext";
+import { projectedOptionsSourceSchema } from "../toolSchemaGenerator";
 import {
 	guardedMutate,
 	type MutatingToolResult,
@@ -15,8 +18,8 @@ import type { MutationSuccess } from "./shared/toolCallSummary";
 
 export const setFieldOptionsSourceInputSchema = fieldAddressSchema
 	.extend({
-		source: selectOptionsSourceSchema.describe(
-			"The complete replacement choice source. Use kind inline with at least two UUID-identified options, or kind lookup with the table and its value/label columns. Replacing one kind discards the previous source.",
+		source: projectedOptionsSourceSchema.describe(
+			"The complete replacement choice source. Use kind inline with at least two options, or kind lookup with the table and its value/label columns. Replacing one kind discards the previous source.",
 		),
 	})
 	.strict();
@@ -57,10 +60,42 @@ export const setFieldOptionsSourceTool = {
 				};
 			}
 
+			// The one `optionUuid` -> `uuid` bridge, run before the identity
+			// guard so admission sees the stored shape it will persist.
+			const source = prepareToolOptionsSource(input.source);
+			// A replacement may keep identities this field already owns, but may
+			// not capture another authored object's UUID or repeat one inside the
+			// source — the same rule `editField` applies to the same slot.
+			if (source.kind === "inline") {
+				const ownOptionUuids = new Set<Uuid>(
+					field.optionsSource.kind === "inline"
+						? field.optionsSource.options.map((option) => option.uuid)
+						: [],
+				);
+				const seen = new Set<Uuid>();
+				for (const option of source.options) {
+					const existing = findAuthoredBlueprintIdentity(doc, option.uuid);
+					if (
+						seen.has(option.uuid) ||
+						(existing !== undefined && !ownOptionUuids.has(option.uuid))
+					) {
+						return {
+							kind: "mutate",
+							mutations: [],
+							newDoc: doc,
+							result: {
+								error: `Option UUID ${option.uuid} is duplicated in this call or already belongs to another authored object.`,
+							},
+						};
+					}
+					seen.add(option.uuid);
+				}
+			}
+
 			const mutation = replaceFieldOptionsSourceMutation(
 				field.uuid,
 				field.kind,
-				input.source,
+				source,
 			);
 			const commit = await guardedMutate(ctx, doc, [mutation], "field:options");
 			if (!commit.ok) {
@@ -73,13 +108,16 @@ export const setFieldOptionsSourceTool = {
 			}
 			return {
 				kind: "mutate",
-				mutations: [mutation],
+				// The admitted batch that actually committed, never the locally
+				// built array — those are the same values only until admission
+				// has anything to say about them.
+				mutations: commit.mutations,
 				newDoc: commit.newDoc,
 				result: {
 					message:
-						input.source.kind === "inline"
-							? `Set "${field.id}" to ${input.source.options.length} inline choices.`
-							: `Set "${field.id}" to Project data table ${input.source.tableId}.`,
+						source.kind === "inline"
+							? `Set "${field.id}" to ${source.options.length} inline choices.`
+							: `Set "${field.id}" to Project data table ${source.tableId}.`,
 					summary: { subject: field.id },
 				},
 			};

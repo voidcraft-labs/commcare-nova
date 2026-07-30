@@ -57,10 +57,12 @@ function slotsFrom(value: Extract<Column, { kind: "phone" }>): {
 	sort?: typeof value.sort;
 	visibleInList?: typeof value.visibleInList;
 	visibleInDetail?: typeof value.visibleInDetail;
+	tile?: typeof value.tile;
 } {
 	return {
 		sort: value.sort,
 		visibleInList: value.visibleInList,
 		visibleInDetail: value.visibleInDetail,
+		tile: value.tile,
 	};
 }

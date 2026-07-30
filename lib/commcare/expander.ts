@@ -48,10 +48,10 @@ import {
 	CASE_LOADING_FORM_TYPES,
 	defaultPostSubmit,
 	type FormLink,
-	isXPathExpression,
 	printXPath,
 	type Uuid,
 	userPropertySlugsByUuid,
+	type XPathExpression,
 	xpathPrintContext,
 } from "@/lib/domain";
 import { buildConnectSlugMap } from "./connectSlugs";
@@ -66,11 +66,9 @@ import { buildXForm } from "./xform/builder";
  * module/form indices. The expander is the one place that has both
  * pieces of information (it's walking `doc.moduleOrder` / `doc.formOrder`
  * to generate the output), so index resolution happens here rather than
- * being duplicated downstream. Links whose target uuid can't be resolved
- * (dangling references) are dropped silently — the validator catches
- * dangling targets with a specific error code before this runs in
- * production, and dropping in emit is safer than emitting an HQ JSON
- * that fails upload.
+ * being duplicated downstream. A dangling target is an invariant violation
+ * and aborts projection; silently dropping authored navigation would turn a
+ * bad Blueprint into a different app.
  */
 function translateFormLinks(
 	doc: BlueprintDoc,
@@ -78,16 +76,10 @@ function translateFormLinks(
 	sortedModuleUuids: Uuid[],
 	sortedFormOrder: Record<string, Uuid[]>,
 ): HqFormLink[] {
-	// AST-stored conditions/datums project to text here — the HQ wire
-	// shape speaks strings, and identity leaves resolve to current names.
-	// Shape-driven and total: a legacy string (a doc read mid-migration)
-	// passes through verbatim.
+	// Canonical AST conditions/datums project to text only here, at the HQ
+	// wire boundary. Pre-cutover text is owned solely by the frozen migration.
 	const ctx = xpathPrintContext(doc);
-	const project = (value: unknown): string | undefined => {
-		if (typeof value === "string") return value;
-		if (isXPathExpression(value)) return printXPath(value, ctx);
-		return undefined;
-	};
+	const project = (value: XPathExpression): string => printXPath(value, ctx);
 	// The target's `moduleIndex` / `formIndex` are the SORTED menu positions —
 	// the same `orderedModule/FormUuids` sequences the suite's `<command>` ids
 	// (`m{i}-f{j}`) are emitted in — so a `form_links` navigation target resolves
@@ -101,18 +93,29 @@ function translateFormLinks(
 		// absence so this view agrees with the session emitter's truthy
 		// check (no commit boundary stores an empty expression; a
 		// degenerate doc could).
-		const condition = project(link.condition) || undefined;
+		const condition =
+			link.condition === undefined
+				? undefined
+				: project(link.condition) || undefined;
 		const datums = link.datums?.map((datum) => ({
 			name: datum.name,
-			xpath: project(datum.xpath) ?? "",
+			xpath: project(datum.xpath),
 		}));
 		const moduleIndex = sortedModuleUuids.indexOf(target.moduleUuid);
-		if (moduleIndex < 0) continue;
+		if (moduleIndex < 0) {
+			throw new Error(
+				`Cannot emit form link: target module ${target.moduleUuid} is missing`,
+			);
+		}
 		if (target.type === "form") {
 			const formIndex = (sortedFormOrder[target.moduleUuid] ?? []).indexOf(
 				target.formUuid,
 			);
-			if (formIndex < 0) continue;
+			if (formIndex < 0) {
+				throw new Error(
+					`Cannot emit form link: target form ${target.formUuid} is missing from module ${target.moduleUuid}`,
+				);
+			}
 			out.push({
 				...(condition !== undefined && { condition }),
 				target: { type: "form", moduleIndex, formIndex },
@@ -171,12 +174,10 @@ export function expandDoc(
 	// expander uses this to activate `parent_select` on the child
 	// module so CommCare prompts for a parent case before creating the
 	// child. Case list columns never affect this — they're presentation.
-	// The canonical module + per-module form sequences are DISPLAY order
-	// (`sort-by-(order, uuid)`), NOT `moduleOrder`/`formOrder` array position —
-	// a reorder leaves the arrays untouched. Every index this expander assigns
-	// (`mIdx`, the menu/command order, the form-link target `m{i}-f{j}`) is into
-	// these sorted sequences; the compiler walks the SAME sorted order in
-	// lockstep, so the indices agree.
+	// `moduleOrder` and each `formOrder` array are the canonical display
+	// sequences. Every index this expander assigns (`mIdx`, menu/command order,
+	// form-link target `m{i}-f{j}`) addresses those arrays; the compiler walks
+	// the same sequences in lockstep.
 	const sortedModuleUuids = orderedModuleUuids(doc);
 	const sortedFormOrder: Record<string, Uuid[]> = {};
 	for (const moduleUuid of sortedModuleUuids) {

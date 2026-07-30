@@ -1,29 +1,19 @@
 /**
- * Where a select's choices come from: typed in here, or a column of a Project
- * data table.
+ * The one source editor for select choices.
  *
- * **The switch is asymmetric, and the asymmetry is the feature's correctness.**
- * `optionsSource` precedence is presence-based at every consumer, so:
- *
- *   - choosing a table SETS the source and leaves the typed-in options exactly
- *     where they are, so switching back restores the author's prior choices;
- *   - choosing typed-in options CLEARS the source. Anything less and the
- *     retained table keeps winning while the editor claims otherwise.
- *
- * `lib/doc/lookupOptionsSourceMutations.ts` records why the clear is spelled
- * `null` rather than `undefined`.
- *
- * A row filter mounts the shared predicate editor in its explicit table-row
- * scope. The active definition supplies only this table's columns; the form
- * projection supplies only earlier answers in root/current/enclosing repeat
- * scope. The commit gate derives the same admission from the same canonical
- * form walk and rechecks it against the exact lookup revision.
+ * A select persists exactly one required `optionsSource` arm. Inline choices
+ * and Project-table choices are never parallel, nullable, dormant, or used as
+ * fallbacks for one another. Switching arms is therefore staged locally and
+ * replaces the complete source only when the author confirms a valid target;
+ * Cancel leaves the committed source byte-for-byte untouched.
  */
 "use client";
 
 import { Icon } from "@iconify/react/offline";
 import tablerFilter from "@iconify-icons/tabler/filter";
-import { useCallback, useEffect, useId, useMemo, useState } from "react";
+import { useCallback, useId, useMemo, useState } from "react";
+import { useBuilderLookupCatalog } from "@/components/builder/lookup/BuilderLookupCatalogProvider";
+import { RejectionInline } from "@/components/builder/RejectionNotice";
 import { firstComparisonDefault } from "@/components/builder/shared/cards/comparisonSeed";
 import type { EditorFormFieldDecl } from "@/components/builder/shared/formFieldPresentation";
 import { PredicateWorkbench } from "@/components/builder/shared/PredicateWorkbench";
@@ -37,189 +27,224 @@ import {
 	SelectValue,
 } from "@/components/shadcn/select";
 import { lookupFilterEligibleFormFields } from "@/lib/doc/formFieldEntries";
-import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useFormFieldEntries } from "@/lib/doc/hooks/useFormFieldEntries";
 import { useUserProperties } from "@/lib/doc/hooks/useUserCollections";
-import type { Field, FieldPatchFor } from "@/lib/domain";
+import {
+	asUuid,
+	DEFAULT_SELECT_OPTIONS,
+	type InlineOptionsSource,
+	type LookupColumnId,
+	type LookupOptionsSource,
+	type LookupTableId,
+	type MultiSelectField,
+	type SelectOptionsSource,
+	type SingleSelectField,
+} from "@/lib/domain";
 import type { FieldEditorComponentProps } from "@/lib/domain/kinds";
-import type { LookupOptionsSource } from "@/lib/domain/lookupCarriers";
-import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import type { Predicate } from "@/lib/domain/predicate";
-import { useNavigate, useSelectedFormContext } from "@/lib/routing/hooks";
+import { useSelectedFormContext } from "@/lib/routing/hooks";
 import { useCanEdit } from "@/lib/session/hooks";
-import { useProjectLookupDefinitions } from "./useProjectLookupDefinitions";
+import { OptionsEditorWidget } from "./OptionsEditor";
 
-/** The value the "typed in here" choice carries in the mode select. */
 const INLINE = "inline";
 
+interface LookupSourceDraft {
+	readonly kind: "lookup";
+	readonly tableId: LookupTableId;
+	readonly valueColumnId?: LookupColumnId;
+	readonly labelColumnId?: LookupColumnId;
+	readonly filter?: Predicate;
+}
+
+type SourceDraft = InlineOptionsSource | LookupSourceDraft;
+
+function freshInlineSource(): InlineOptionsSource {
+	return {
+		kind: "inline",
+		options: DEFAULT_SELECT_OPTIONS.map((option) => ({
+			...option,
+			uuid: asUuid(crypto.randomUUID()),
+		})),
+	};
+}
+
+function withoutFilter(
+	source: LookupSourceDraft | LookupOptionsSource,
+): Omit<typeof source, "filter"> {
+	const { filter: _filter, ...identity } = source;
+	return identity;
+}
+
 /**
- * Generic over the field kind for the same reason `OptionsEditor` is: the
- * registry types each kind's schema against that exact kind, so a component
- * pinned to the union is not assignable to either. Only the two select kinds
- * declare `optionsSource`, which is what makes the indexed access safe.
+ * Generic across only the two select kinds. Both declare the same canonical
+ * source union; a non-select field cannot type-check at this boundary.
  */
-export function OptionsSourceEditor<F extends Field>({
-	field,
-}: FieldEditorComponentProps<F, "optionsSource" & keyof F>) {
+export function OptionsSourceEditor<
+	F extends SingleSelectField | MultiSelectField,
+>({ field, value, onChange }: FieldEditorComponentProps<F, "optionsSource">) {
 	const modeId = useId();
-	const valueId = useId();
-	const labelColumnId = useId();
+	const valueColumnSelectId = useId();
+	const labelColumnSelectId = useId();
 	const canEdit = useCanEdit();
-	const navigate = useNavigate();
+	const catalog = useBuilderLookupCatalog();
 	const formContext = useSelectedFormContext();
 	const formUuid = formContext?.form.uuid;
-	const fieldEntries = useFormFieldEntries(formUuid ?? field.uuid);
+	const entries = useFormFieldEntries(formUuid ?? field.uuid);
 	const caseTypes = useCaseTypes();
 	const userProperties = useUserProperties();
-	const source =
-		"optionsSource" in field
-			? (field.optionsSource as LookupOptionsSource | undefined)
-			: undefined;
-	/* The table being CONSIDERED, held until its columns arrive.
-	 *
-	 * Binding needs a value and a label column, and columns are a separate read
-	 * from the table list. Choosing a table therefore cannot commit in the same
-	 * tick: the pick records an intent here, the hook fetches that table, and
-	 * the effect below commits once there is something to bind to. Committing
-	 * immediately with whatever columns happened to be loaded is what made the
-	 * picker a silent no-op — nothing was loaded, so nothing ever committed. */
-	const [considering, setConsidering] = useState<LookupTableId | null>(null);
-	const tables = useProjectLookupDefinitions(considering ?? source?.tableId);
-	const {
-		inline: { updateField },
-	} = useBlueprintMutations(tables.lookupContext);
-	const [commitFailure, setCommitFailure] = useState<readonly string[]>([]);
+	const source = value as SelectOptionsSource;
+	const [draft, setDraft] = useState<SourceDraft | null>(null);
+	const [rejection, setRejection] = useState<string | null>(null);
+
+	const tables = catalog.kind === "ready" ? catalog.tables : [];
+	const tablesById =
+		catalog.kind === "ready"
+			? catalog.byId
+			: new Map<LookupTableId, (typeof tables)[number]>();
+	const active = draft ?? source;
+	const activeLookup = active.kind === "lookup" ? active : undefined;
 	const table =
-		source === undefined ? undefined : tables.byId.get(source.tableId);
+		activeLookup === undefined
+			? undefined
+			: tablesById.get(activeLookup.tableId);
+	const tableScope =
+		table === undefined
+			? undefined
+			: { tableId: table.id, columns: table.columns };
 	const formFields = useMemo<readonly EditorFormFieldDecl[]>(
 		() =>
 			formUuid === undefined
 				? []
-				: lookupFilterEligibleFormFields(fieldEntries, field.uuid).map(
-						(entry) => ({
-							uuid: entry.uuid,
-							id: entry.id,
-							label: entry.label,
-							dataType: entry.dataType,
-						}),
-					),
-		[field.uuid, fieldEntries, formUuid],
-	);
-	const tableVocabulary = useMemo(
-		() =>
-			table === undefined
-				? []
-				: [
-						{
-							id: table.id,
-							name: table.name,
-							columns: table.columns,
-						},
-					],
-		[table],
-	);
-	const tableScope = useMemo(
-		() =>
-			table === undefined
-				? undefined
-				: { tableId: table.id, columns: table.columns },
-		[table],
+				: lookupFilterEligibleFormFields(entries, field.uuid).map((entry) => ({
+						uuid: entry.uuid,
+						id: entry.id,
+						label: entry.label,
+						dataType: entry.dataType,
+					})),
+		[entries, field.uuid, formUuid],
 	);
 
 	const commit = useCallback(
-		(next: LookupOptionsSource | undefined) => {
-			/* `undefined` is the builder's in-memory spelling for "remove this
-			 * slot". The doc-diff persistence path turns it into the durable
-			 * `null` — `lib/doc/lookupOptionsSourceMutations.ts` records why that
-			 * distinction is load-bearing rather than cosmetic.
-			 *
-			 * This editor dispatches directly because it owns the exact focused
-			 * lookup-definition snapshot the valid-by-construction gate needs.
-			 * The generic registry callback has no external-resource context. */
-			const outcome = updateField(field.uuid, field.kind, {
-				optionsSource: next,
-			} as unknown as FieldPatchFor<F["kind"]>);
-			setCommitFailure(outcome.ok ? [] : [...new Set(outcome.messages)]);
+		(next: SelectOptionsSource) => {
+			const outcome = onChange(next);
+			setRejection(outcome.ok ? null : (outcome.messages[0] ?? null));
+			if (outcome.ok) setDraft(null);
 			return outcome;
 		},
-		[updateField, field.uuid, field.kind],
+		[onChange],
 	);
 
-	const consideredColumns = considering
-		? (tables.byId.get(considering)?.columns ?? [])
-		: [];
-	const consideredName = considering
-		? tables.byId.get(considering)?.name
-		: undefined;
-	const changeFilter = useCallback(
-		(next: Predicate | undefined) => {
-			if (source === undefined) return;
-			const { filter: _previous, ...identity } = source;
-			commit(next === undefined ? identity : { ...identity, filter: next });
-		},
-		[commit, source],
-	);
-	// biome-ignore lint/correctness/useExhaustiveDependencies: the focused column identity and context-bound `commit` are the complete inputs; re-running on `tables` identity alone would re-commit.
-	useEffect(() => {
-		if (considering === null) return;
-		const first = consideredColumns[0];
-		if (first === undefined) return;
-		/* Seeded whole, never half-configured: a source without both columns is
-		 * not a thing the wire can emit, so the first column stands in for both
-		 * until the author says otherwise. */
+	const selectedSource = active.kind === "inline" ? INLINE : active.tableId;
+
+	const beginSource = (next: string | null): void => {
+		if (next === null) return;
+		setRejection(null);
+		if (next === INLINE) {
+			if (source.kind === "inline") {
+				setDraft(null);
+				return;
+			}
+			setDraft(freshInlineSource());
+			return;
+		}
+		const selectedTable = tables.find((candidate) => candidate.id === next);
+		if (selectedTable === undefined) {
+			setRejection(
+				"That Project data table is no longer available. Choose another table.",
+			);
+			return;
+		}
+		const tableId = selectedTable.id;
+		if (source.kind === "lookup" && source.tableId === tableId) {
+			setDraft(null);
+			return;
+		}
+		/* Columns intentionally start unchosen. Silently binding both roles to
+		 * the first column makes a complete-looking source without the author
+		 * ever saying which value is stored or shown. */
+		setDraft({ kind: "lookup", tableId });
+	};
+
+	const writeLookup = (next: LookupSourceDraft | LookupOptionsSource): void => {
+		if (draft?.kind === "lookup") {
+			setDraft(next);
+			setRejection(null);
+			return;
+		}
+		if (next.valueColumnId === undefined || next.labelColumnId === undefined) {
+			setRejection(
+				"Choose both the saved-value column and the display column.",
+			);
+			return;
+		}
 		commit({
 			kind: "lookup",
-			tableId: considering,
-			valueColumnId: first.id,
-			labelColumnId: first.id,
+			tableId: next.tableId,
+			valueColumnId: next.valueColumnId,
+			labelColumnId: next.labelColumnId,
+			...(next.filter === undefined ? {} : { filter: next.filter }),
 		});
-		setConsidering(null);
-	}, [considering, consideredColumns[0]?.id, commit]);
+	};
+
+	const changeFilter = (next: Predicate | undefined): void => {
+		if (activeLookup === undefined) return;
+		const identity = withoutFilter(activeLookup);
+		writeLookup(next === undefined ? identity : { ...identity, filter: next });
+	};
+
+	const completeLookupDraft = useMemo<LookupOptionsSource | undefined>(() => {
+		if (
+			draft?.kind !== "lookup" ||
+			table === undefined ||
+			draft.valueColumnId === undefined ||
+			draft.labelColumnId === undefined ||
+			!table.columns.some((column) => column.id === draft.valueColumnId) ||
+			!table.columns.some((column) => column.id === draft.labelColumnId)
+		) {
+			return undefined;
+		}
+		return {
+			kind: "lookup",
+			tableId: draft.tableId,
+			valueColumnId: draft.valueColumnId,
+			labelColumnId: draft.labelColumnId,
+			...(draft.filter === undefined ? {} : { filter: draft.filter }),
+		};
+	}, [draft, table]);
 
 	return (
-		<div className="space-y-3">
+		<div className="space-y-3" data-field-id="options-source">
 			<div>
 				<Label htmlFor={modeId} className="text-[13px]">
 					Where the choices come from
 				</Label>
 				<Select
-					value={
-						considering ?? (source === undefined ? INLINE : source.tableId)
-					}
+					value={selectedSource}
 					disabled={!canEdit}
-					onValueChange={(next) => {
-						if (next === INLINE) {
-							setConsidering(null);
-							commit(undefined);
-							return;
-						}
-						setCommitFailure([]);
-						setConsidering(next as LookupTableId);
-					}}
+					onValueChange={beginSource}
 				>
 					<SelectTrigger id={modeId} wrapValue className="mt-1 min-h-11 w-full">
-						{/* Base UI cannot resolve a closed popup's dynamic item label on
-						 *  first paint. Format its controlled value explicitly so neither
-						 *  the inline sentinel nor a table UUID becomes visible. */}
 						<SelectValue>
 							{(selected) => {
-								if (selected === INLINE) return "The options typed in here";
-								const selectedTable = tables.byId.get(
-									selected as LookupTableId,
+								if (selected === INLINE) return "Options in this question";
+								const selectedTable = tables.find(
+									(candidate) => candidate.id === selected,
 								);
 								if (selectedTable !== undefined) return selectedTable.name;
-								if (tables.loadingList) return "Loading data table…";
-								if (tables.listFailure !== null) {
-									return "Data tables didn’t load";
+								if (catalog.kind === "loading") {
+									return "Loading Project data tables…";
 								}
-								return "A table that is no longer here";
+								if (catalog.kind === "error") {
+									return "Project data tables didn’t load";
+								}
+								return "A data table that is no longer available";
 							}}
 						</SelectValue>
 					</SelectTrigger>
 					<SelectContent>
-						<SelectItem value={INLINE}>The options typed in here</SelectItem>
-						{tables.definitions.map((candidate) => (
+						<SelectItem value={INLINE}>Options in this question</SelectItem>
+						{tables.map((candidate) => (
 							<SelectItem key={candidate.id} value={candidate.id} wrap>
 								{candidate.name}
 							</SelectItem>
@@ -228,75 +253,114 @@ export function OptionsSourceEditor<F extends Field>({
 				</Select>
 			</div>
 
-			{tables.listFailure !== null || tables.focusedFailure !== null ? (
+			{catalog.kind === "loading" ? (
+				<p
+					role="status"
+					className="text-[12px] leading-snug text-nova-text-muted"
+				>
+					Loading this Project’s data-table definitions…
+				</p>
+			) : catalog.kind === "error" ? (
 				<div
 					role="alert"
 					className="rounded-lg border border-nova-rose/30 bg-nova-rose/[0.06] p-3"
 				>
 					<p className="text-[13px] leading-relaxed text-nova-text-secondary">
-						{tables.focusedFailure ?? tables.listFailure}
+						{catalog.message}
 					</p>
 					<Button
 						type="button"
 						variant="outline"
 						className="mt-2 min-h-11"
-						onClick={() =>
-							void (tables.focusedFailure !== null
-								? tables.retryFocused()
-								: tables.retryList())
-						}
+						onClick={() => void catalog.retry()}
 					>
 						Try again
 					</Button>
 				</div>
-			) : considering !== null ||
-				tables.loadingList ||
-				tables.loadingFocused ? (
-				<p
-					role="status"
-					className="text-[12px] leading-snug text-nova-text-muted"
-				>
-					{considering === null
-						? "Loading this project’s data tables…"
-						: `Loading “${consideredName ?? "that table"}”…`}
-				</p>
-			) : source === undefined ? (
-				<p className="text-[12px] leading-snug text-nova-text-muted">
-					{tables.definitions.length === 0
-						? "This project has no data tables yet. Create one to offer the same list in more than one place."
-						: "Pick a data table to offer the same list here and in every other app in this project."}
-				</p>
+			) : null}
+
+			{active.kind === "inline" ? (
+				<>
+					<OptionsEditorWidget
+						key={draft?.kind === "inline" ? "draft-inline" : "current-inline"}
+						options={active.options}
+						slotKeyBase={field.uuid}
+						onSave={(options) => {
+							const next: InlineOptionsSource = { kind: "inline", options };
+							if (draft?.kind === "inline") {
+								setDraft(next);
+								setRejection(null);
+								return { ok: true };
+							}
+							return commit(next);
+						}}
+					/>
+					{draft?.kind === "inline" ? (
+						<div className="flex justify-end gap-2">
+							<Button
+								type="button"
+								variant="ghost"
+								onClick={() => {
+									setDraft(null);
+									setRejection(null);
+								}}
+							>
+								Cancel
+							</Button>
+							<Button
+								type="button"
+								disabled={!canEdit || draft.options.length < 2}
+								onClick={() => commit(draft)}
+							>
+								Use these options
+							</Button>
+						</div>
+					) : null}
+				</>
 			) : table === undefined ? (
-				/* The doc references a table this session cannot see — deleted, or
-				 * in another project after a move. Say so plainly rather than
-				 * rendering empty column pickers that look broken. */
-				<p role="alert" className="text-[13px] leading-relaxed text-nova-rose">
-					This question points at a data table that isn’t in this project
-					anymore. Choose another table, or go back to the options typed in
-					here.
-				</p>
+				catalog.kind === "ready" ? (
+					<p
+						role="alert"
+						className="text-[13px] leading-relaxed text-nova-rose"
+					>
+						This question points at a data table that isn’t in this Project
+						anymore. Choose another table or author new inline options.
+					</p>
+				) : null
 			) : (
 				<>
 					<div>
-						<Label htmlFor={valueId} className="text-[13px]">
+						<Label htmlFor={valueColumnSelectId} className="text-[13px]">
 							Value that gets saved
 						</Label>
 						<Select
-							value={source.valueColumnId}
+							value={active.valueColumnId ?? null}
 							disabled={!canEdit}
-							onValueChange={(next) =>
-								commit({ ...source, valueColumnId: next as LookupColumnId })
-							}
+							onValueChange={(next) => {
+								const column = table.columns.find(
+									(candidate) => candidate.id === next,
+								);
+								if (column === undefined) {
+									setRejection(
+										"That column is no longer available. Choose another column.",
+									);
+									return;
+								}
+								writeLookup({
+									...active,
+									valueColumnId: column.id,
+								});
+							}}
 						>
 							<SelectTrigger
-								id={valueId}
+								id={valueColumnSelectId}
 								wrapValue
 								className="mt-1 min-h-11 w-full"
 							>
-								<SelectValue>
+								<SelectValue placeholder="Choose a column">
 									{(selected) =>
 										table.columns.find((column) => column.id === selected)
-											?.label ?? "A column that is no longer here"
+											?.label ?? "A column that is no longer available"
 									}
 								</SelectValue>
 							</SelectTrigger>
@@ -309,26 +373,39 @@ export function OptionsSourceEditor<F extends Field>({
 							</SelectContent>
 						</Select>
 					</div>
+
 					<div>
-						<Label htmlFor={labelColumnId} className="text-[13px]">
+						<Label htmlFor={labelColumnSelectId} className="text-[13px]">
 							Value people see
 						</Label>
 						<Select
-							value={source.labelColumnId}
+							value={active.labelColumnId ?? null}
 							disabled={!canEdit}
-							onValueChange={(next) =>
-								commit({ ...source, labelColumnId: next as LookupColumnId })
-							}
+							onValueChange={(next) => {
+								const column = table.columns.find(
+									(candidate) => candidate.id === next,
+								);
+								if (column === undefined) {
+									setRejection(
+										"That column is no longer available. Choose another column.",
+									);
+									return;
+								}
+								writeLookup({
+									...active,
+									labelColumnId: column.id,
+								});
+							}}
 						>
 							<SelectTrigger
-								id={labelColumnId}
+								id={labelColumnSelectId}
 								wrapValue
 								className="mt-1 min-h-11 w-full"
 							>
-								<SelectValue>
+								<SelectValue placeholder="Choose a column">
 									{(selected) =>
 										table.columns.find((column) => column.id === selected)
-											?.label ?? "A column that is no longer here"
+											?.label ?? "A column that is no longer available"
 									}
 								</SelectValue>
 							</SelectTrigger>
@@ -353,14 +430,21 @@ export function OptionsSourceEditor<F extends Field>({
 							/>
 							Rows people can choose
 						</p>
-						{source.filter === undefined ? (
+						{active.filter === undefined ? (
 							<>
 								<p className="text-[13px] leading-relaxed text-nova-text-secondary">
 									Every row of “{table.name}” is offered. Add a rule to match
 									this table’s columns against an earlier answer, fixed value,
 									or current-user information.
 								</p>
-								{canEdit ? (
+								{table.columns.length === 0 ? (
+									<p
+										role="status"
+										className="text-[12px] leading-snug text-nova-text-muted"
+									>
+										Add a column to this table before authoring a row rule.
+									</p>
+								) : canEdit ? (
 									<Button
 										type="button"
 										variant="outline"
@@ -374,7 +458,7 @@ export function OptionsSourceEditor<F extends Field>({
 													knownInputs: [],
 													userProperties,
 													formFields,
-													lookupTables: tableVocabulary,
+													lookupTables: tables,
 													tableScope,
 													caseDataScope: "table-row",
 												}),
@@ -388,13 +472,12 @@ export function OptionsSourceEditor<F extends Field>({
 						) : (
 							<>
 								<p className="text-[13px] leading-relaxed text-nova-text-secondary">
-									Only rows matching this rule are offered. An earlier answer
-									can filter later questions; answers from later, child, or
-									sibling repeat questions are unavailable.
+									Only matching rows are offered. Later answers and answers from
+									child or sibling repeats are unavailable here.
 								</p>
 								<fieldset disabled={!canEdit} className="contents">
 									<PredicateWorkbench
-										value={source.filter}
+										value={active.filter}
 										onChange={changeFilter}
 										onRemoveRoot={() => changeFilter(undefined)}
 										removeRootLabel="Offer every row"
@@ -404,7 +487,7 @@ export function OptionsSourceEditor<F extends Field>({
 										knownInputs={[]}
 										userProperties={userProperties}
 										formFields={formFields}
-										lookupTables={tableVocabulary}
+										lookupTables={tables}
 										tableScope={tableScope}
 										caseDataScope="table-row"
 										evaluationTarget="on-device"
@@ -414,34 +497,35 @@ export function OptionsSourceEditor<F extends Field>({
 						)}
 					</div>
 
-					<Button
-						type="button"
-						variant="ghost"
-						className="min-h-11 text-[13px] text-nova-violet-bright"
-						onClick={() => navigate.openProjectData(table.id)}
-					>
-						Open “{table.name}”
-					</Button>
+					{draft?.kind === "lookup" ? (
+						<div className="flex justify-end gap-2">
+							<Button
+								type="button"
+								variant="ghost"
+								onClick={() => {
+									setDraft(null);
+									setRejection(null);
+								}}
+							>
+								Cancel
+							</Button>
+							<Button
+								type="button"
+								disabled={!canEdit || completeLookupDraft === undefined}
+								onClick={() => {
+									if (completeLookupDraft !== undefined) {
+										commit(completeLookupDraft);
+									}
+								}}
+							>
+								Use this table
+							</Button>
+						</div>
+					) : null}
 				</>
 			)}
 
-			{commitFailure.length > 0 && (
-				<div
-					role="alert"
-					className="space-y-1 text-[13px] leading-relaxed text-nova-rose"
-				>
-					{commitFailure.map((message) => (
-						<p key={message}>{message}</p>
-					))}
-				</div>
-			)}
-
-			{source !== undefined && (
-				<p className="text-[12px] leading-snug text-nova-text-muted">
-					The options typed into this question are kept. Switch back to them any
-					time.
-				</p>
-			)}
+			<RejectionInline message={rejection} />
 		</div>
 	);
 }

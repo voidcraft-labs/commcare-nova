@@ -44,6 +44,7 @@ import {
 	tableLookup,
 	term,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { buildUrl } from "@/lib/routing/location";
 
 /**
@@ -118,7 +119,7 @@ export const CASE_CHANGES_ROUTINE = ROUTINE_WRITES.map((write, index) => ({
 
 /**
  * What the journey reads off every handle and the detail's position: the four
- * dependent changes, the fifteen routine ones, and the dormant lookup carrier
+ * dependent changes, the fifteen routine ones, and the table-lookup change
  * the smoke seed always installs last.
  */
 export const CASE_CHANGES_SEQUENCE_LENGTH = CASE_CHANGES_ROUTINE.length + 5;
@@ -131,6 +132,12 @@ export const CASE_CHANGES_SEED = {
 	formUuid: asUuid("1b2c3d4e-5f6a-4b7c-8d9e-0f1a2b3c4d5e"),
 	fieldUuid: asUuid("2c3d4e5f-6a7b-4c8d-9e0f-1a2b3c4d5e6f"),
 	linkTargetFieldUuid: asUuid("3c4d5e6f-7a8b-4d9e-8f0a-1b2c3d4e5f6a"),
+	identityProjection: {
+		formUuid: asUuid("4c5d6e7f-8a9b-4e0f-901a-2b3c4d5e6f7a"),
+		firstNameUuid: asUuid("5d6e7f8a-9b0c-4f1a-812b-3c4d5e6f7a8b"),
+		noteUuid: asUuid("6e7f8a9b-0c1d-402b-923c-4d5e6f7a8b9c"),
+		formName: "Identity-safe close",
+	},
 	caseType: "patient",
 	archivedCaseType: "archived_referral",
 	archivedModuleName: "Archived referrals",
@@ -146,14 +153,14 @@ export const CASE_CHANGES_SEED = {
 		create: asUuid("3d4e5f6a-7b8c-4d9e-8f0a-1b2c3d4e5f6a"),
 		note: asUuid("4e5f6a7b-8c9d-4e0f-9a1b-2c3d4e5f6a7b"),
 		file: asUuid("5f6a7b8c-9d0e-4f1a-8b2c-3d4e5f6a7b8c"),
-		dormant: asUuid("6a7b8c9d-0e1f-402a-8c3d-4e5f6a7b8c9d"),
+		tableLookup: asUuid("6a7b8c9d-0e1f-402a-8c3d-4e5f6a7b8c9d"),
 		retype: asUuid("7b8c9d0e-1f2a-413b-9d4e-5f6a7b8c9d0e"),
 	},
 	ids: {
 		create: "create_referral",
 		note: "note_visit",
 		file: "file_referral",
-		dormant: "lookup_patient",
+		tableLookup: "lookup_patient",
 		retype: "archive_referral",
 	},
 } as const;
@@ -177,7 +184,7 @@ export function buildCaseChangesBlueprint(
 				properties: [
 					{
 						name: "last_note",
-						label: "Last note",
+						label: proseText("Last note"),
 						data_type: "text",
 					},
 					// A write names a declared property or the app is invalid
@@ -200,7 +207,7 @@ export function buildCaseChangesBlueprint(
 				properties: [
 					{
 						name: "source_note",
-						label: "Source note",
+						label: proseText("Source note"),
 						data_type: "text",
 					},
 				],
@@ -249,13 +256,32 @@ export function buildCaseChangesBlueprint(
 								uuid: CASE_CHANGES_SEED.fieldUuid,
 								kind: "text",
 								id: "visit_note",
-								label: "Visit note",
+								label: proseText("Visit note"),
 							}),
 							f({
 								uuid: CASE_CHANGES_SEED.linkTargetFieldUuid,
 								kind: "text",
 								id: "related_case_id",
-								label: "Related patient case id",
+								label: proseText("Related patient case id"),
+							}),
+						],
+					},
+					{
+						uuid: CASE_CHANGES_SEED.identityProjection.formUuid,
+						name: CASE_CHANGES_SEED.identityProjection.formName,
+						type: "close",
+						fields: [
+							f({
+								uuid: CASE_CHANGES_SEED.identityProjection.firstNameUuid,
+								kind: "text",
+								id: "first_name",
+								label: proseText("First name"),
+							}),
+							f({
+								uuid: CASE_CHANGES_SEED.identityProjection.noteUuid,
+								kind: "text",
+								id: "note",
+								label: proseText("Note"),
 							}),
 						],
 					},
@@ -379,7 +405,7 @@ function caseOperations(
 				},
 			],
 		},
-		// The sequence between the dependent head and the dormant tail. They
+		// The sequence between the dependent head and the table-lookup tail. They
 		// carry the list to twenty without adding a second thing that can
 		// refuse a move, so the refusal the journey drives stays the only one.
 		...CASE_CHANGES_ROUTINE.map((routine) => ({
@@ -396,8 +422,8 @@ function caseOperations(
 			? []
 			: [
 					{
-						uuid: CASE_CHANGES_SEED.operations.dormant,
-						id: CASE_CHANGES_SEED.ids.dormant,
+						uuid: CASE_CHANGES_SEED.operations.tableLookup,
+						id: CASE_CHANGES_SEED.ids.tableLookup,
 						action: "update" as const,
 						caseType: "patient",
 						target: { kind: "session" as const },
@@ -423,5 +449,18 @@ export function caseChangesRoute(appId: string): string {
 		kind: "form-operations",
 		moduleUuid: CASE_CHANGES_SEED.moduleUuid,
 		formUuid: CASE_CHANGES_SEED.formUuid,
+	});
+}
+
+/** Form screen used to prove that friendly projections survive identity edits. */
+export function identityProjectionRoute(
+	appId: string,
+	selectedUuid?: (typeof CASE_CHANGES_SEED.identityProjection)["firstNameUuid"],
+): string {
+	return buildUrl(`/build/${appId}`, {
+		kind: "form",
+		moduleUuid: CASE_CHANGES_SEED.moduleUuid,
+		formUuid: CASE_CHANGES_SEED.identityProjection.formUuid,
+		...(selectedUuid !== undefined && { selectedUuid }),
 	});
 }

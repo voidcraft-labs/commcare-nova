@@ -2,15 +2,31 @@
 
 import {
 	fireEvent,
-	render,
+	render as rtlRender,
 	screen,
 	waitFor,
 	within,
 } from "@testing-library/react";
+import type { ReactElement, ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
+import { BlueprintDocProvider } from "@/lib/doc/provider";
 import type { CaseType } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import { PredicateEditProvider } from "../editorContext";
 import { PropertyPicker } from "../primitives/PropertyPicker";
+
+// The surfaces here spell authored prose against the document; every production
+// mount sits inside the builder's provider. Wrapping at `render` reproduces it
+// and carries through each `rerender`.
+function DocumentProvider({ children }: { readonly children: ReactNode }) {
+	return (
+		<BlueprintDocProvider appId="test-app">{children}</BlueprintDocProvider>
+	);
+}
+
+function render(ui: ReactElement) {
+	return rtlRender(ui, { wrapper: DocumentProvider });
+}
 
 const LONG_PROPERTY_LABEL =
 	"Preferred follow up location from the most recent household assessment";
@@ -18,12 +34,20 @@ const LONG_PROPERTY_LABEL =
 const PATIENT: CaseType = {
 	name: "patient",
 	properties: [
-		{ name: "patient_dob", label: "Date of birth", data_type: "date" },
-		{ name: "home_phone", label: "Telephone", data_type: "text" },
-		{ name: "enrollment_status", label: "Status", data_type: "text" },
+		{
+			name: "patient_dob",
+			label: proseText("Date of birth"),
+			data_type: "date",
+		},
+		{ name: "home_phone", label: proseText("Telephone"), data_type: "text" },
+		{
+			name: "enrollment_status",
+			label: proseText("Status"),
+			data_type: "text",
+		},
 		{
 			name: "preferred_follow_up_location",
-			label: LONG_PROPERTY_LABEL,
+			label: proseText(LONG_PROPERTY_LABEL),
 			data_type: "text",
 		},
 	],

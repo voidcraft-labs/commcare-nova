@@ -1,11 +1,11 @@
 /**
- * Structural inventory of lookup-carrier authoring slots.
+ * Schema-derived inventory of lookup-carrier authoring slots.
  *
- * Lookup references have a complete local-CCZ wire spelling. HQ import/upload
- * still needs separately provisioned lookup resources, so those export modes
- * refuse every authored carrier (`LOOKUP_CARRIER_EXPORT_NOT_ACTIVE`). This
- * module is the exhaustive inventory that refusal reads: a slot missed here
- * could reach an HQ target without its resource.
+ * Lookup references run in the preview but have no wire spelling yet, so the
+ * export boundary refuses any document that carries one
+ * (`LOOKUP_CARRIER_EXPORT_NOT_ACTIVE`). This module is what that refusal reads:
+ * every slot returned here becomes one finding, so a slot missed here is a
+ * reference that reaches the wire.
  *
  * The walk covers detached entities as well as reachable ones — an unparented
  * field still persists, and export must not depend on tree reachability.
@@ -14,9 +14,8 @@
  * the table/column leaf, so two carriers naming the same ids are still distinct
  * when they evaluate differently — changing a `table-column` term's comparison
  * operator or peer literal changes the lookup's meaning while both stable ids
- * stay put. Inline select options sit deliberately outside an `optionsSource`
- * fingerprint: they are retained author data, and editing only those values
- * leaves the lookup carrier itself untouched.
+ * stay put. A select-source fingerprint covers the canonical
+ * `optionsSource` value itself.
  */
 
 import type {
@@ -26,6 +25,11 @@ import type {
 	Form,
 	Module,
 	Uuid,
+} from "@/lib/domain";
+import {
+	asUuid,
+	isOwnerOnlyCaseSearchConfig,
+	searchInputDefault,
 } from "@/lib/domain";
 import type { Predicate, ValueExpression } from "@/lib/domain/predicate/types";
 import {
@@ -173,7 +177,7 @@ function parentByField(doc: BlueprintDoc): ReadonlyMap<Uuid, Uuid> {
 	for (const parentUuid of Object.keys(doc.fieldOrder).sort()) {
 		for (const fieldUuid of doc.fieldOrder[parentUuid] ?? []) {
 			if (!parents.has(fieldUuid)) {
-				parents.set(fieldUuid, parentUuid as Uuid);
+				parents.set(fieldUuid, asUuid(parentUuid));
 			}
 		}
 	}
@@ -421,7 +425,7 @@ export function collectLookupCarriers(
 				ownerUuid: input.uuid,
 				ownerKind: "search-input",
 				slot: "search_input_default",
-				expression: input.default,
+				expression: searchInputDefault(input),
 				location: {
 					...moduleLocation,
 					field: "caseListConfig.searchInputs.default",
@@ -445,7 +449,11 @@ export function collectLookupCarriers(
 			ownerUuid: moduleUuid,
 			ownerKind: "module",
 			slot: "search_button_display_condition",
-			predicate: module.caseSearchConfig?.searchButtonDisplayCondition,
+			predicate:
+				module.caseSearchConfig === undefined ||
+				isOwnerOnlyCaseSearchConfig(module.caseSearchConfig)
+					? undefined
+					: module.caseSearchConfig.searchButtonDisplayCondition,
 			location: {
 				...moduleLocation,
 				field: "caseSearchConfig.searchButtonDisplayCondition",

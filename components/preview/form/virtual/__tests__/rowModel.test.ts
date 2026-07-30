@@ -18,16 +18,17 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { asUuid, type Uuid } from "@/lib/doc/types";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import type { Uuid } from "@/lib/doc/types";
 import type { Field } from "@/lib/domain";
 import { buildFormRows, type CollapseState, type RowSource } from "../rowModel";
 
 // ── Fixture helpers ────────────────────────────────────────────────────
 
-const F = asUuid("form-0000-0000-0000-000000000000");
-const G = (n: number) => asUuid(`grp${n}-0000-0000-0000-000000000000`);
-const Q = (n: number) => asUuid(`qst${n}-0000-0000-0000-000000000000`);
-const R = (n: number) => asUuid(`rep${n}-0000-0000-0000-000000000000`);
+const F = testUuid("form-0000-0000-0000-000000000000");
+const G = (n: number) => testUuid(`grp${n}-0000-0000-0000-000000000000`);
+const Q = (n: number) => testUuid(`qst${n}-0000-0000-0000-000000000000`);
+const R = (n: number) => testUuid(`rep${n}-0000-0000-0000-000000000000`);
 
 function text(uuid: Uuid, id: string): Field {
 	return { uuid, id, kind: "text", label: id } as unknown as Field;

@@ -9,10 +9,11 @@
 import { renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { useSearchBlueprint } from "@/lib/doc/hooks/useSearchBlueprint";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
 import type { BlueprintDoc } from "@/lib/doc/types";
-import { asUuid } from "@/lib/doc/types";
+import { proseText } from "@/lib/domain/prose";
 
 describe("useSearchBlueprint", () => {
 	it("returns an empty array for an empty doc", () => {
@@ -27,10 +28,10 @@ describe("useSearchBlueprint", () => {
 	});
 
 	it("finds a field by label text", () => {
-		const MOD = asUuid("module-1-uuid");
-		const FORM = asUuid("form-1-uuid");
-		const Q_NAME = asUuid("q-name-0000-0000-0000-000000000000");
-		const Q_AGE = asUuid("q-age-0000-0000-0000-000000000000");
+		const MOD = testUuid("module-1-uuid");
+		const FORM = testUuid("form-1-uuid");
+		const Q_NAME = testUuid("q-name-0000-0000-0000-000000000000");
+		const Q_AGE = testUuid("q-age-0000-0000-0000-000000000000");
 
 		const bp: BlueprintDoc = {
 			appId: "s",
@@ -53,13 +54,13 @@ describe("useSearchBlueprint", () => {
 					uuid: Q_NAME,
 					id: "patient_name",
 					kind: "text",
-					label: "Patient Full Name",
+					label: proseText("Patient Full Name"),
 				} as BlueprintDoc["fields"][typeof Q_NAME],
 				[Q_AGE]: {
 					uuid: Q_AGE,
 					id: "age",
 					kind: "int",
-					label: "Age in Years",
+					label: proseText("Age in Years"),
 				} as BlueprintDoc["fields"][typeof Q_AGE],
 			},
 			moduleOrder: [MOD],

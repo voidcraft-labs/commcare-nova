@@ -18,7 +18,8 @@
 
 import { type Kysely, sql } from "kysely";
 import { beforeEach, describe, expect, it } from "vitest";
-import { asUuid, type CaseOperation, type CaseType } from "@/lib/domain";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import type { CaseOperation, CaseType } from "@/lib/domain";
 import {
 	actingUser,
 	eq,
@@ -28,6 +29,7 @@ import {
 	term,
 	unowned,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { buildSimpleBlueprint } from "../../__tests__/fixtures/simpleBlueprint";
 import {
 	CaptureSubmissionRejectedError,
@@ -59,6 +61,13 @@ const dbHandle = setupPerTestDatabase({
 
 beforeEach(async () => {
 	await runCaseStoreMigrations(dbHandle.db);
+	await sql`
+		INSERT INTO apps (id, owner, project_id, app_name, app_name_lower)
+		VALUES
+			(${APP_ID}, ${ACTOR}, ${PROJECT_A}, 'Envelope app', 'envelope app'),
+			(${FOREIGN_APP_ID}, 'worker-2', ${PROJECT_B},
+			 'Foreign envelope app', 'foreign envelope app')
+	`.execute(dbHandle.db);
 });
 
 // `test-app` + the fixed form/operation uuids below reproduce the
@@ -66,32 +75,33 @@ beforeEach(async () => {
 // id can be asserted against the same literal UUIDv5 vector the XForm
 // calculate implements.
 const APP_ID = "test-app";
+const FOREIGN_APP_ID = "test-app-foreign";
 const PROJECT_A = "project-a";
 const PROJECT_B = "project-b";
 const ACTOR = "worker-1";
-const FORM_UUID = asUuid("66666666-6666-4666-8666-666666666666");
-const VECTOR_OP_UUID = asUuid("44444444-4444-4444-8444-444444444444");
+const FORM_UUID = testUuid("66666666-6666-4666-8666-666666666666");
+const VECTOR_OP_UUID = testUuid("44444444-4444-4444-8444-444444444444");
 const PINNED_VECTOR_PREFIX =
 	"nova-case-v1:9ac52723-445f-54a7-8c1b-7e90c985637b:";
 
-const OP_A = asUuid("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
-const OP_B = asUuid("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
-const OP_C = asUuid("cccccccc-cccc-4ccc-8ccc-cccccccccccc");
-const REPEAT_UUID = asUuid("99999999-9999-4999-8999-999999999999");
-const KEY_FIELD = asUuid("11111111-1111-4111-8111-111111111111");
-const FLAG_FIELD = asUuid("22222222-2222-4222-8222-222222222222");
-const MEDS_FIELD = asUuid("33333333-3333-4333-8333-333333333333");
+const OP_A = testUuid("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+const OP_B = testUuid("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
+const OP_C = testUuid("cccccccc-cccc-4ccc-8ccc-cccccccccccc");
+const REPEAT_UUID = testUuid("99999999-9999-4999-8999-999999999999");
+const KEY_FIELD = testUuid("11111111-1111-4111-8111-111111111111");
+const FLAG_FIELD = testUuid("22222222-2222-4222-8222-222222222222");
+const MEDS_FIELD = testUuid("33333333-3333-4333-8333-333333333333");
 
 const SESSION_CASE_ID = "00000000-0000-7000-8000-00000000aaaa";
 
 const PATIENT: CaseType = {
 	name: "patient",
 	properties: [
-		{ name: "notes", label: "Notes", data_type: "text" },
-		{ name: "copy", label: "Copy", data_type: "text" },
-		{ name: "age", label: "Age", data_type: "int" },
-		{ name: "prior_age", label: "Prior age", data_type: "int" },
-		{ name: "meds", label: "Meds", data_type: "multi_select" },
+		{ name: "notes", label: proseText("Notes"), data_type: "text" },
+		{ name: "copy", label: proseText("Copy"), data_type: "text" },
+		{ name: "age", label: proseText("Age"), data_type: "int" },
+		{ name: "prior_age", label: proseText("Prior age"), data_type: "int" },
+		{ name: "meds", label: proseText("Meds"), data_type: "multi_select" },
 	],
 };
 // A superset of `patient` — every shared property keeps its exact
@@ -101,18 +111,20 @@ const PATIENT_V2: CaseType = {
 	name: "patient_v2",
 	properties: [
 		...PATIENT.properties,
-		{ name: "severity", label: "Severity", data_type: "text" },
+		{ name: "severity", label: proseText("Severity"), data_type: "text" },
 	],
 };
 const VISIT: CaseType = {
 	name: "visit",
-	properties: [{ name: "outcome", label: "Outcome", data_type: "text" }],
+	properties: [
+		{ name: "outcome", label: proseText("Outcome"), data_type: "text" },
+	],
 };
 // Declares only `notes` — a patient row carrying `age` cannot retype
 // here without parking, so the wirePortable runtime check rejects it.
 const NARROW: CaseType = {
 	name: "narrow",
-	properties: [{ name: "notes", label: "Notes", data_type: "text" }],
+	properties: [{ name: "notes", label: proseText("Notes"), data_type: "text" }],
 };
 
 const ALL_TYPES = [PATIENT, PATIENT_V2, VISIT, NARROW];
@@ -165,10 +177,13 @@ function submit(
 	});
 }
 
-async function seedSchemas(store: PostgresCaseStore): Promise<void> {
+async function seedSchemas(
+	store: PostgresCaseStore,
+	appId = APP_ID,
+): Promise<void> {
 	for (const caseType of ALL_TYPES) {
 		await store.applySchemaChange({
-			appId: APP_ID,
+			appId,
 			caseType: caseType.name,
 			caseTypeSchemas: SCHEMAS,
 		});
@@ -237,7 +252,7 @@ function rootProgram(
 				iterations: [
 					{
 						formFields: new Map(
-							(opts?.formFields ?? []).map(([k, v]) => [asUuid(k), v]),
+							(opts?.formFields ?? []).map(([k, v]) => [testUuid(k), v]),
 						),
 					},
 				],
@@ -415,7 +430,13 @@ describe("authored create identity", () => {
 								caseType: "visit",
 								target: { kind: "new", idFrom: KEY_FIELD },
 								name: term(literal(name)),
-								writes: [{ property: "outcome", value: term(literal(notes)) }],
+								writes: [
+									{ property: "outcome", value: term(literal(notes)) },
+									{
+										property: "external_id",
+										value: term(literal(`external-${name}`)),
+									},
+								],
 							}),
 						),
 					],
@@ -432,7 +453,9 @@ describe("authored create identity", () => {
 		expect(visits).toHaveLength(1);
 		expect(visits[0]?.case_id).toBe(`${PINNED_VECTOR_PREFIX}repeat-key`);
 		expect(visits[0]?.case_name).toBe("Second");
+		expect(visits[0]?.external_id).toBe("external-Second");
 		expect(visits[0]?.properties).toMatchObject({ outcome: "finished" });
+		expect(visits[0]?.properties).not.toHaveProperty("external_id");
 	});
 
 	it("carries a non-UUID authored id through update, link, and close", async () => {
@@ -705,6 +728,34 @@ describe("pre-submission snapshot", () => {
 // ---------------------------------------------------------------
 
 describe("blank writes", () => {
+	it("an explicit blank external_id write stores an empty scalar, never a JSONB removal", async () => {
+		const store = makeStore();
+		await seedSchemas(store);
+		await seedSessionPatient(store);
+
+		await submit(store, {
+			appId: APP_ID,
+			ordinary: { kind: "none" },
+			operations: rootProgram([
+				envOp(
+					operation({
+						uuid: OP_A,
+						action: "update",
+						caseType: "patient",
+						target: { kind: "session" },
+						writes: [
+							{ property: "external_id", value: term(literal(" \t\r\n ")) },
+						],
+					}),
+				),
+			]),
+		});
+
+		const row = await patientRow(store, SESSION_CASE_ID);
+		expect(row?.external_id).toBe("");
+		expect(row?.properties).not.toHaveProperty("external_id");
+	});
+
 	it("a blank-evaluated typed write clears the stored key instead of failing", async () => {
 		const store = makeStore();
 		await seedSchemas(store);
@@ -958,9 +1009,9 @@ describe("conditions", () => {
 describe("expression target reauthorization", () => {
 	it("a foreign-Project id collapses to not-found", async () => {
 		const storeB = makeStore(PROJECT_B, "worker-2");
-		await seedSchemas(storeB);
+		await seedSchemas(storeB, FOREIGN_APP_ID);
 		const foreign = await storeB.insert({
-			appId: APP_ID,
+			appId: FOREIGN_APP_ID,
 			row: {
 				case_type: "patient",
 				case_name: "Foreign",
@@ -970,6 +1021,7 @@ describe("expression target reauthorization", () => {
 		});
 
 		const storeA = makeStore();
+		await seedSchemas(storeA);
 		const err = await rejection(
 			submit(storeA, {
 				appId: APP_ID,
@@ -1517,6 +1569,41 @@ describe("text facets", () => {
 			"Alice   B.",
 		);
 	});
+
+	it("rejects an over-255-unit external_id before any effect", async () => {
+		const store = makeStore();
+		await seedSchemas(store);
+		await seedSessionPatient(store);
+
+		const err = await rejection(
+			submit(store, {
+				appId: APP_ID,
+				ordinary: { kind: "none" },
+				operations: rootProgram([
+					envOp(
+						operation({
+							uuid: OP_A,
+							action: "update",
+							caseType: "patient",
+							target: { kind: "session" },
+							writes: [
+								{
+									property: "external_id",
+									value: term(literal("x".repeat(256))),
+								},
+							],
+						}),
+					),
+				]),
+			}),
+		);
+		expect(err.rejection).toMatchObject({
+			kind: "text-value",
+			facet: "external_id",
+			reason: "too-long",
+		});
+		expect((await patientRow(store, SESSION_CASE_ID))?.external_id).toBeNull();
+	});
 });
 
 // ---------------------------------------------------------------
@@ -1647,7 +1734,13 @@ describe("retype", () => {
 						target: { kind: "session" },
 						retype: "patient_v2",
 						rename: term(literal("Alice v2")),
-						writes: [{ property: "severity", value: term(literal("high")) }],
+						writes: [
+							{ property: "severity", value: term(literal("high")) },
+							{
+								property: "external_id",
+								value: term(literal("  PATIENT-2  ")),
+							},
+						],
 					}),
 				),
 			]),
@@ -1657,10 +1750,12 @@ describe("retype", () => {
 		expect(rows).toHaveLength(1);
 		expect(rows[0]?.case_id).toBe(SESSION_CASE_ID);
 		expect(rows[0]?.case_name).toBe("Alice v2");
+		expect(rows[0]?.external_id).toBe("PATIENT-2");
 		expect(rows[0]?.properties).toMatchObject({
 			notes: "kept",
 			severity: "high",
 		});
+		expect(rows[0]?.properties).not.toHaveProperty("external_id");
 	});
 
 	it("rejects a retype whose retained document the destination schema cannot hold", async () => {
@@ -2199,14 +2294,7 @@ describe("durable text-only submission receipt", () => {
 async function seedPreparedCapture() {
 	const attachmentId = "55555555-5555-4555-8555-555555555555";
 	const entryKey = "77777777-7777-4777-8777-777777777777";
-	const fieldUuid = "88888888-8888-4888-8888-888888888888";
-	await sql`
-		INSERT INTO apps (
-			id, owner, project_id, app_name, app_name_lower
-		) VALUES (
-			${APP_ID}, ${ACTOR}, ${PROJECT_A}, 'Capture app', 'capture app'
-		)
-	`.execute(dbHandle.db);
+	const fieldUuid = testUuid("88888888-8888-4888-8888-888888888888");
 	await sql`
 		INSERT INTO form_attachments (
 			attachment_id,

@@ -172,6 +172,7 @@ export function useCaseOperations(formUuid: Uuid): CaseOperationsView {
 			caseOperationAddVerdict(doc, formUuid, operation, index),
 		[doc, formUuid],
 	);
+
 	const writeValueType = useCallback(
 		(operationUuid: Uuid, caseType: string, property: string) =>
 			caseOperationWriteValueType(

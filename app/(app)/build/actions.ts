@@ -14,31 +14,28 @@ import { getSession } from "@/lib/auth-utils";
 import { AppAccessError, resolveProjectAccess } from "@/lib/db/appAccess";
 import { createApp } from "@/lib/db/apps";
 import { CommitReauthError } from "@/lib/db/commitGuard";
-import { BLANK_APP_NAME, blankAppMutations } from "@/lib/doc/scaffolds";
 import { log } from "@/lib/logger";
 
-/** Result of `createBlankApp`. Carries the new app's id so the client can navigate to it. */
-export type CreateBlankAppResult =
+/** Result of `createStarterApp`. Carries the new app's id so the client can navigate to it. */
+export type CreateStarterAppResult =
 	| { success: true; appId: string }
 	| { success: false; error: string };
 
 /**
- * Create the blank app — the starting point for a user who'd rather build
- * by hand than describe the app to the SA.
+ * Create the canonical starter — the starting point for a user who'd rather
+ * build from scratch than describe the app to the SA.
  *
- * "Blank" is `BLANK_APP_NAME` plus `blankAppMutations`, not an app with
- * nothing in it: a nameless, moduleless app is a legal at-rest state (it's
- * what the chat build and MCP `create_app` mint) but it is NOT export-ready,
- * and there is no SA run here to finish it. `createApp` enforces that —
- * a template whose app couldn't be exported throws. See `lib/doc/scaffolds.ts`
- * for why one bare survey module is the smallest thing that clears the bar.
+ * `createApp` supplies the universal canonical starter: a real `Untitled` name
+ * plus one survey module, survey form, and text question. Chat, builder, and MCP
+ * creation all enter through that same genesis owner; no persisted pre-starter
+ * app exists.
  *
  * Born `complete` with no run behind it, so nothing to charge, reserve or
  * finalize — the credit ledger only meters generation.
  */
-export async function createBlankApp(
+export async function createStarterApp(
 	expectedProjectId: string,
-): Promise<CreateBlankAppResult> {
+): Promise<CreateStarterAppResult> {
 	try {
 		const session = await getSession();
 		if (!session) {
@@ -70,16 +67,15 @@ export async function createBlankApp(
 
 		let appId: string;
 		try {
-			appId = await createApp(
+			const receipt = await createApp(
 				session.user.id,
 				expectedProjectId,
 				crypto.randomUUID(),
 				{
-					appName: BLANK_APP_NAME,
 					status: "complete",
-					seedMutations: blankAppMutations,
 				},
 			);
+			appId = receipt.appId;
 		} catch (err) {
 			if (err instanceof CommitReauthError) {
 				return {
@@ -93,7 +89,7 @@ export async function createBlankApp(
 		revalidatePath("/");
 		return { success: true, appId };
 	} catch (err) {
-		log.error("[build/create-blank-app] error", err);
+		log.error("[build/create-starter-app] error", err);
 		return {
 			success: false,
 			error: "Could not create the app. Please try again.",

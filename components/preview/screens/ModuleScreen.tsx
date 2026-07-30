@@ -20,7 +20,7 @@ import {
 	useIsCaseFirstModule,
 	useOrderedForms,
 } from "@/lib/doc/hooks/useModuleIds";
-import type { Uuid } from "@/lib/doc/types";
+import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import { formTypeIcons } from "@/lib/domain/formTypeIcons";
 import { formDisplayVisibility } from "@/lib/preview/engine/displayConditionEvaluation";
 import { previewSessionValues } from "@/lib/preview/engine/identity";
@@ -43,6 +43,7 @@ interface ModuleScreenProps {
 export function ModuleScreen({ screen: _screen }: ModuleScreenProps) {
 	const loc = useLocation();
 	const navigate = useNavigate();
+	const projectProse = useProseProjection();
 	const { inline } = useBlueprintMutations();
 	const isReady = useBuilderIsReady();
 	const mode = useEditMode();
@@ -57,7 +58,7 @@ export function ModuleScreen({ screen: _screen }: ModuleScreenProps) {
 	const moduleUuid = loc.kind === "module" ? loc.moduleUuid : undefined;
 
 	const mod = useModuleEntity(moduleUuid);
-	const forms = useOrderedForms((moduleUuid ?? "") as Uuid);
+	const forms = useOrderedForms(moduleUuid);
 	const lookup = usePreviewLookupStatus();
 	/* Whoever Preview is running as — the member, or the persona they
 	 * picked. One identity across every preview surface. */
@@ -92,9 +93,9 @@ export function ModuleScreen({ screen: _screen }: ModuleScreenProps) {
 				.map((form) => ({
 					key: form.uuid,
 					name: form.name,
-					summary: summarizeFilter(form.displayCondition, {}),
+					summary: summarizeFilter(form.displayCondition, { projectProse }),
 				})),
-		[forms, formVisibility],
+		[forms, formVisibility, projectProse],
 	);
 
 	/* The home screen already routes both redirecting shapes; this covers landing

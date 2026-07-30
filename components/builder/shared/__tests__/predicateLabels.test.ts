@@ -15,7 +15,7 @@ describe("predicate authoring labels", () => {
 	it("reuses Search's outcome labels for forgiving matches", () => {
 		expect(
 			currentVerbLabel(
-				match(prop("patient", "name"), term(literal("Ann")), "fuzzy"),
+				match(prop("patient", "case_name"), term(literal("Ann")), "fuzzy"),
 			),
 		).toBe("Similar spelling");
 		expect(

@@ -18,7 +18,8 @@
 //      schema).
 
 import { describe, expect, it } from "vitest";
-import { asUuid, type CaseType } from "@/lib/domain";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import type { CaseType } from "@/lib/domain";
 import {
 	ancestorPath,
 	checkPredicate,
@@ -29,8 +30,8 @@ import {
 	subcasePath,
 	walkTerms,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import {
-	isAuthorablePredicateKind,
 	type PredicateEditContext,
 	predicateCardSchemas,
 } from "../editorSchemas";
@@ -46,40 +47,36 @@ import {
 const PATIENT: CaseType = {
 	name: "patient",
 	properties: [
-		{ name: "name", label: "Name", data_type: "text" },
-		{ name: "age", label: "Age", data_type: "int" },
-		{ name: "weight", label: "Weight", data_type: "decimal" },
-		{ name: "dob", label: "Date of birth", data_type: "date" },
-		{ name: "last_seen", label: "Last seen", data_type: "datetime" },
-		{ name: "wakeup", label: "Wakeup time", data_type: "time" },
+		{ name: "case_name", label: proseText("Case name"), data_type: "text" },
+		{ name: "age", label: proseText("Age"), data_type: "int" },
+		{ name: "weight", label: proseText("Weight"), data_type: "decimal" },
+		{ name: "dob", label: proseText("Date of birth"), data_type: "date" },
+		{ name: "last_seen", label: proseText("Last seen"), data_type: "datetime" },
+		{ name: "wakeup", label: proseText("Wakeup time"), data_type: "time" },
 		{
 			name: "status",
-			label: "Status",
+			label: proseText("Status"),
 			data_type: "single_select",
 			options: [
-				{ value: "active", label: "Active" },
-				{ value: "inactive", label: "Inactive" },
+				{ value: "active", label: proseText("Active") },
+				{ value: "inactive", label: proseText("Inactive") },
 			],
 		},
 		{
 			name: "tags",
-			label: "Tags",
+			label: proseText("Tags"),
 			data_type: "multi_select",
 			options: [
-				{ value: "vip", label: "VIP" },
-				{ value: "new", label: "New" },
+				{ value: "vip", label: proseText("VIP") },
+				{ value: "new", label: proseText("New") },
 			],
 		},
-		{ name: "location", label: "Home", data_type: "geopoint" },
+		{ name: "location", label: proseText("Home"), data_type: "geopoint" },
 	],
 };
 
 const KNOWN_INPUTS: readonly SearchInputDecl[] = [
-	{
-		uuid: asUuid("b3dba847-fcda-4409-84cb-64e94fca14cc"),
-		name: "name_search",
-		data_type: "text",
-	},
+	{ uuid: testUuid("name-search"), name: "name_search", data_type: "text" },
 ];
 
 const ctx: PredicateEditContext = {
@@ -101,7 +98,6 @@ describe("predicateCardSchemas — registry exhaustivity", () => {
 		) as Predicate["kind"][]) {
 			const entry = predicateCardSchemas[kind];
 			expect(entry.kind).toBe(kind);
-			expect(["authorable", "roundTripOnly"]).toContain(entry.authoring);
 			expect(entry.label).toBeTruthy();
 			expect(entry.icon).toBeTruthy();
 			expect(typeof entry.component).toBe("function");
@@ -109,13 +105,38 @@ describe("predicateCardSchemas — registry exhaustivity", () => {
 			expect(typeof entry.applicable).toBe("function");
 		}
 	});
-});
 
-describe("predicateCardSchemas — authoring boundary", () => {
-	it("keeps strict absence editable for round-trip recovery but never authorable", () => {
-		expect(predicateCardSchemas["is-null"].authoring).toBe("roundTripOnly");
-		expect(isAuthorablePredicateKind("is-null")).toBe(false);
-		expect(isAuthorablePredicateKind("is-blank")).toBe(true);
+	it("contains exactly the stored Predicate vocabulary", () => {
+		expect(Object.keys(predicateCardSchemas).sort()).toEqual(
+			[
+				"and",
+				"between",
+				"eq",
+				"exists",
+				"gt",
+				"gte",
+				"in",
+				"is-blank",
+				"lt",
+				"lte",
+				"match",
+				"match-all",
+				"match-none",
+				"missing",
+				"multi-select-contains",
+				"neq",
+				"not",
+				"or",
+				"when-input-present",
+				"within-distance",
+			].sort(),
+		);
+		expect(
+			predicateSchema.safeParse({
+				kind: "is-null",
+				left: { kind: "term", term: { kind: "literal", value: null } },
+			}).success,
+		).toBe(false);
 	});
 });
 
@@ -140,7 +161,7 @@ describe("predicateCardSchemas — defaultValue parses through the schema", () =
 		});
 	}
 
-	it("never seeds CCHQ's legacy property alias from an alias-first catalog", () => {
+	it("seeds only admitted canonical property names", () => {
 		for (const kind of Object.keys(
 			predicateCardSchemas,
 		) as Predicate["kind"][]) {
@@ -149,6 +170,11 @@ describe("predicateCardSchemas — defaultValue parses through the schema", () =
 				if (term.kind === "prop") refs.push(term.property);
 			});
 			expect(refs, `${kind} property refs`).not.toContain("name");
+			for (const property of refs) {
+				expect(
+					PATIENT.properties.some((entry) => entry.name === property),
+				).toBe(true);
+			}
 		}
 	});
 });
@@ -183,7 +209,11 @@ describe("predicateCardSchemas — applicable predicates", () => {
 				{
 					name: "geo",
 					properties: [
-						{ name: "location", label: "Location", data_type: "geopoint" },
+						{
+							name: "location",
+							label: proseText("Location"),
+							data_type: "geopoint",
+						},
 					],
 				},
 			],
@@ -205,7 +235,13 @@ describe("predicateCardSchemas — applicable predicates", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "name", label: "Name", data_type: "text" }],
+					properties: [
+						{
+							name: "case_name",
+							label: proseText("Case name"),
+							data_type: "text",
+						},
+					],
 				},
 			],
 		};

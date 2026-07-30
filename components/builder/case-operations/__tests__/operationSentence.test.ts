@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { asUuid } from "@/lib/doc/types";
+import { testUuid } from "@/__tests__/helpers/uuid";
+
 import type { CaseOperation } from "@/lib/domain";
 import { idOf, literal, term } from "@/lib/domain/predicate";
 import {
@@ -8,9 +9,9 @@ import {
 	operationSentenceText,
 } from "../operationSentence";
 
-const CREATE = asUuid("11111111-1111-4111-8111-111111111111");
-const REPEAT = asUuid("22222222-2222-4222-8222-222222222222");
-const FIELD = asUuid("33333333-3333-4333-8333-333333333333");
+const CREATE = testUuid("11111111-1111-4111-8111-111111111111");
+const REPEAT = testUuid("22222222-2222-4222-8222-222222222222");
+const FIELD = testUuid("33333333-3333-4333-8333-333333333333");
 
 const names: Record<string, string> = {
 	[CREATE]: "Create client",
@@ -33,7 +34,7 @@ const blind: OperationSentenceContext = {
 
 function op(patch: Partial<CaseOperation> = {}): CaseOperation {
 	return {
-		uuid: asUuid("44444444-4444-4444-8444-444444444444"),
+		uuid: testUuid("44444444-4444-4444-8444-444444444444"),
 		id: "do_thing",
 		action: "create",
 		caseType: "referral",

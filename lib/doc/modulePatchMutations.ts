@@ -1,66 +1,59 @@
 /** Shared generic module-patch planner for builder and SA/MCP surfaces. */
 
 import { updateModuleMutation } from "@/lib/doc/addModuleMutation";
-import {
-	caseSearchConfigPatchMutations,
-	clearCaseSearchConfigSettingsMutations,
-} from "@/lib/doc/caseSearchConfigPatchMutations";
+import { diffModuleConfigMutations } from "@/lib/doc/diffDocsToMutations";
 import type { Mutation } from "@/lib/doc/types";
 import type { Module } from "@/lib/domain";
 
-type ModulePatch = Extract<Mutation, { kind: "updateModule" }>["patch"];
+export type ModuleAuthoringPatch = Omit<
+	Partial<Omit<Module, "uuid">>,
+	"id" | "icon" | "audioLabel" | "caseListConfig" | "caseSearchConfig"
+> & {
+	caseListConfig?: Module["caseListConfig"] | null;
+	caseSearchConfig?: Module["caseSearchConfig"] | null;
+};
 
 /**
- * Split a generic module edit into one old-compatible metadata/config patch
- * plus fresh-state per-slot Search mutations. `caseListConfig` sanitization is
- * delegated to `updateModuleMutation`; Search settings never ride that whole
- * bag on current receivers.
+ * Split a generic module edit into its metadata patch plus a direct Search
+ * teardown operation. Whole Search snapshots are not part of the final module
+ * patch schema; setting edits use the dedicated per-setting planners.
  */
 export function modulePatchMutations(
 	mod: Module,
-	patch: ModulePatch,
-	options: { readonly nullCaseSearchConfig?: "replace" | "settings" } = {},
+	patch: ModuleAuthoringPatch,
+	_options: { readonly nullCaseSearchConfig?: "replace" | "settings" } = {},
 ): Mutation[] {
-	if (!Object.hasOwn(patch, "caseSearchConfig")) {
-		return [updateModuleMutation(mod.uuid, patch)];
+	const {
+		name,
+		caseListConfig: _caseListConfig,
+		caseSearchConfig: _caseSearchConfig,
+		...metadata
+	} = patch;
+	const mutations: Mutation[] = [];
+	if (name !== undefined && name !== mod.name) {
+		mutations.push({ kind: "renameModule", uuid: mod.uuid, newId: name });
 	}
-	const { caseSearchConfig, ...other } = patch;
-	// Present-but-`undefined` means OMITTED, never a clear — the clear
-	// sentinel is `null` ("omission keeps, null clears"), JSON cannot even
-	// carry `undefined`, and forwarding the key would make the reducer's
-	// key-by-key apply delete the whole Search config in memory without the
-	// clear ever round-tripping. Stripping the key keeps a spread-built
-	// caller's `caseSearchConfig: maybeConfig` no-change intent a no-op.
-	if (caseSearchConfig === undefined) {
-		return Object.keys(other).length > 0
-			? [updateModuleMutation(mod.uuid, other)]
-			: [];
+	const finalPatch: Extract<Mutation, { kind: "updateModule" }>["patch"] = {};
+	for (const [key, value] of Object.entries(metadata)) {
+		(finalPatch as Record<string, unknown>)[key] = value ?? null;
 	}
-	const mutations: Mutation[] =
-		Object.keys(other).length > 0
-			? [updateModuleMutation(mod.uuid, other)]
-			: [];
-	if (caseSearchConfig === null) {
-		if (options.nullCaseSearchConfig === "settings") {
-			mutations.push(
-				...clearCaseSearchConfigSettingsMutations(
-					mod.uuid,
-					mod.caseSearchConfig,
-				),
-			);
-		} else {
-			mutations.push(
-				updateModuleMutation(mod.uuid, { caseSearchConfig: null }),
-			);
+	if (Object.keys(finalPatch).length > 0) {
+		mutations.push(updateModuleMutation(mod.uuid, finalPatch));
+	}
+
+	const changesCaseList = Object.hasOwn(patch, "caseListConfig");
+	const changesCaseSearch = Object.hasOwn(patch, "caseSearchConfig");
+	if (changesCaseList || changesCaseSearch) {
+		const next = structuredClone(mod);
+		if (changesCaseList) {
+			if (patch.caseListConfig == null) delete next.caseListConfig;
+			else next.caseListConfig = structuredClone(patch.caseListConfig);
 		}
-		return mutations;
+		if (changesCaseSearch) {
+			if (patch.caseSearchConfig == null) delete next.caseSearchConfig;
+			else next.caseSearchConfig = structuredClone(patch.caseSearchConfig);
+		}
+		mutations.push(...diffModuleConfigMutations(mod, next));
 	}
-	mutations.push(
-		...caseSearchConfigPatchMutations(
-			mod.uuid,
-			mod.caseSearchConfig,
-			caseSearchConfig,
-		),
-	);
 	return mutations;
 }

@@ -32,7 +32,12 @@
  * predicate to check, no error.
  */
 
-import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	isOwnerOnlyCaseSearchConfig,
+	type Module,
+	type Uuid,
+} from "@/lib/domain";
 import { checkPredicate, predicateReadsCaseData } from "@/lib/domain/predicate";
 import { type ValidationError, validationError } from "../../errors";
 import {
@@ -47,7 +52,11 @@ export function searchButtonDisplayConditionTypeCheck(
 	doc: BlueprintDoc,
 	lookupTables?: LookupTypeIndex,
 ): ValidationError[] {
-	const condition = mod.caseSearchConfig?.searchButtonDisplayCondition;
+	const condition =
+		mod.caseSearchConfig === undefined ||
+		isOwnerOnlyCaseSearchConfig(mod.caseSearchConfig)
+			? undefined
+			: mod.caseSearchConfig.searchButtonDisplayCondition;
 	if (!condition) return [];
 
 	if (predicateReadsCaseData(condition)) {

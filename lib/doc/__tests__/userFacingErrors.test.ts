@@ -11,13 +11,14 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	type ValidationError,
 	type ValidationErrorCode,
 	validationError,
 } from "@/lib/commcare/validator/errors";
 import { VALIDITY_CLASS_BY_CODE } from "@/lib/commcare/validator/gate";
-import { asUuid } from "@/lib/doc/types";
+
 import {
 	USER_MESSAGE_CODES,
 	userFacingError,
@@ -32,11 +33,11 @@ function richFinding(code: ValidationErrorCode): ValidationError {
 		"form",
 		"verbose internal message — not under test",
 		{
-			moduleUuid: asUuid("11111111-1111-4111-8111-111111111111"),
+			moduleUuid: testUuid("11111111-1111-4111-8111-111111111111"),
 			moduleName: "Clients",
-			formUuid: asUuid("22222222-2222-4222-8222-222222222222"),
+			formUuid: testUuid("22222222-2222-4222-8222-222222222222"),
 			formName: "Register Client",
-			fieldUuid: asUuid("33333333-3333-4333-8333-333333333333"),
+			fieldUuid: testUuid("33333333-3333-4333-8333-333333333333"),
 			fieldId: "client_age",
 			field: "calculate",
 		},
@@ -113,7 +114,6 @@ describe("userFacingError — voice", () => {
 		// Raw schema/slot keys — wire-internal, never the user's vocabulary.
 		// (A `#…` hashtag is NOT banned: it's the reference syntax users
 		// type in formula fields, so echoing their own token is helpful.)
-		"case_property_on",
 		"case_preload",
 	];
 
@@ -192,7 +192,7 @@ describe("userFacingError — case-list expression repairs", () => {
 			"module",
 			"internal implementation detail",
 			{
-				moduleUuid: asUuid("11111111-1111-4111-8111-111111111111"),
+				moduleUuid: testUuid("11111111-1111-4111-8111-111111111111"),
 				moduleName: "Clients",
 			},
 			{

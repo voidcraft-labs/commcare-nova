@@ -14,9 +14,9 @@
  *   Carries an internal reason code (`"not_found"` vs `"not_owner"`)
  *   for the audit log; the wire collapses both to `"not_found"` (see
  *   IDOR hardening below).
- * - `McpInvalidInputError` (declared below) — argument validation a
- *   raw-shape Zod schema can't express (e.g. conditional-required
- *   fields). The thrown `message` rides through to the wire `text`
+ * - `McpInvalidInputError` (declared below) — a handler-level argument
+ *   contract that a particular tool has not encoded in its registered
+ *   schema. The thrown `message` rides through to the wire `text`
  *   verbatim so the client sees the precise failure reason.
  * - `McpScopeError` (from `./scopes`) — per-tool scope gate rejection
  *   (`nova.hq.read` / `nova.hq.write`). Carries the missing scope so
@@ -44,25 +44,25 @@ import {
 	AppProjectChangedError,
 	BlueprintCommitRejectedError,
 	CommitReauthError,
+	MutationBatchIdCollisionError,
 } from "@/lib/db/commitGuard";
 import { log } from "@/lib/logger";
 import { McpAccessError } from "./ownership";
 import { McpScopeError } from "./scopes";
 
 /**
- * Thrown when an MCP tool's input arguments fail a contract check the
- * Zod input schema cannot express on its own — typically a
- * conditional-required field (e.g. `app_id` is required iff
- * `mode === "edit"`). Mirrors the `McpAccessError` shape so the error
+ * Thrown when an MCP tool's input arguments fail a handler-level contract
+ * that tool has not encoded in its registered Zod schema. Mirrors the
+ * `McpAccessError` shape so the error
  * serializer can short-circuit `classifyError` and surface a
  * deterministic `error_type: "invalid_input"` envelope rather than the
  * generic `"internal"` bucket a plain `Error` would land in.
  *
  * The thrown `message` is propagated to the wire `text` content so the
- * client can show a precise failure reason (e.g. "edit mode requires
- * app_id"). Conditional-required validation in raw-shape Zod is
- * awkward enough that the cleaner pattern is a typed throw at the top
- * of the handler — sibling tools follow the same model.
+ * client can show a precise failure reason. Shared SA/MCP tools register
+ * their exact refined Zod objects, so relational checks on those schemas
+ * run before their handlers; this class remains for hand-written MCP-only
+ * tools whose contract is intentionally handler-owned.
  */
 export class McpInvalidInputError extends Error {
 	constructor(message: string) {
@@ -103,9 +103,8 @@ export type UploadErrorType =
  *     at the envelope boundary so a probing client cannot enumerate
  *     existing app ids by watching the response. The ownership-failure
  *     audit trail lives in server-side logs via `log.warn`.
- *   - `"invalid_input"` — conditional-required argument validation that
- *     a raw-shape Zod schema can't express on its own (e.g. `app_id`
- *     required only in edit mode). Surfaces via `McpInvalidInputError`
+ *   - `"invalid_input"` — handler-owned argument validation not encoded in
+ *     a particular tool's registered schema. Surfaces via `McpInvalidInputError`
  *     and short-circuits the classifier the same way `McpAccessError`
  *     does.
  *   - `"scope_missing"` — the caller's access token lacks an OAuth
@@ -250,6 +249,38 @@ export function toMcpErrorResult(
 				{
 					type: "text",
 					text: JSON.stringify(payload("invalid_input", err.message)),
+				},
+			],
+		};
+	}
+
+	if (err instanceof MutationBatchIdCollisionError) {
+		/* A batch id is server-minted, so reusing one for different content is a
+		 * Nova protocol failure, never a client mistake. It must not read as
+		 * `invalid_input` (which says "fix your arguments") and must not read as a
+		 * reloadable conflict (which says "re-read and retry") — both would send a
+		 * client back around a loop it cannot win. `internal` is the honest
+		 * category, and `isError` matters most of all: without this branch the
+		 * collision fell through to a plain success envelope and told the caller
+		 * its edit had landed when nothing was written.
+		 *
+		 * Logged at `error`: unlike an invalid input, this one is our bug. The
+		 * stored payloads stay out of the message. */
+		log.error("[mcp] mutation batch id collision", {
+			userId: ctx?.userId ?? null,
+			appId: ctx?.appId ?? null,
+		});
+		return {
+			isError: true,
+			content: [
+				{
+					type: "text",
+					text: JSON.stringify(
+						payload(
+							"internal",
+							"This edit could not be saved: Nova reused a save id for different content. Nothing was written. This is a fault on our side, not something to correct in the request — repeating it will not help.",
+						),
+					),
 				},
 			],
 		};

@@ -331,17 +331,6 @@ describe("useCases query constraints", () => {
 		);
 	});
 
-	it("keeps a legacy action result neutral when constraint metadata is unavailable", async () => {
-		vi.mocked(loadCasesAction).mockResolvedValueOnce({ kind: "empty" });
-		const hook = renderHook(() =>
-			useCases({ appId: APP_ID, caseType: PATIENT.name }),
-		);
-
-		await waitFor(() => expect(hook.result.current.state.kind).toBe("empty"));
-		expect(hook.result.current.state).toEqual({ kind: "empty" });
-		expect(hook.result.current.queryConstraintSource).toBe("unknown");
-	});
-
 	it("forwards a bounded page and treats a page change as a request identity boundary", async () => {
 		let resolveNext:
 			| ((value: {
@@ -350,10 +339,12 @@ describe("useCases query constraints", () => {
 					totalCount: number;
 					pageOffset: number;
 					pageSize: number;
+					constraintSource: "unconstrained";
 			  }) => void)
 			| undefined;
 		vi.mocked(loadCasesAction)
 			.mockResolvedValueOnce({
+				constraintSource: "unconstrained",
 				kind: "rows",
 				rows: [],
 				totalCount: 75,
@@ -385,6 +376,7 @@ describe("useCases query constraints", () => {
 
 		await act(async () =>
 			resolveNext?.({
+				constraintSource: "unconstrained",
 				kind: "rows",
 				rows: [],
 				totalCount: 75,
@@ -394,6 +386,7 @@ describe("useCases query constraints", () => {
 		);
 		await waitFor(() =>
 			expect(hook.result.current.state).toMatchObject({
+				constraintSource: "unconstrained",
 				kind: "rows",
 				pageOffset: 50,
 			}),
@@ -781,7 +774,10 @@ describe("case-data invalidation", () => {
 			kind: "count",
 			count: 4,
 		});
-		vi.mocked(loadCasesAction).mockResolvedValue({ kind: "empty" });
+		vi.mocked(loadCasesAction).mockResolvedValue({
+			constraintSource: "unconstrained",
+			kind: "empty",
+		});
 		vi.mocked(loadCaseDataAction).mockResolvedValue({ kind: "missing" });
 
 		const countHook = renderHook(() =>
@@ -804,7 +800,10 @@ describe("case-data invalidation", () => {
 				kind: "count",
 				count: 4,
 			});
-			expect(casesHook.result.current.state).toEqual({ kind: "empty" });
+			expect(casesHook.result.current.state).toEqual({
+				constraintSource: "unconstrained",
+				kind: "empty",
+			});
 			expect(caseHook.result.current.state).toEqual({ kind: "missing" });
 		});
 		expect(loadCaseCountAction).toHaveBeenCalledTimes(1);

@@ -27,6 +27,7 @@ import {
 	tableColumn,
 	tableLookup,
 } from "@/lib/domain/predicate/builders";
+import { proseText } from "@/lib/domain/prose";
 import { compileExpression } from "../compileExpression";
 import type { LookupTableSchemas } from "../compileLookup";
 import {
@@ -52,7 +53,7 @@ const OTHER_COL = "01920000-0000-7000-8000-0000000000d1" as LookupColumnId;
 const PATIENT_SCHEMA: CaseType = {
 	name: "patient",
 	properties: [
-		{ name: "region_code", label: "Region code", data_type: "text" },
+		{ name: "region_code", label: proseText("Region code"), data_type: "text" },
 	],
 };
 

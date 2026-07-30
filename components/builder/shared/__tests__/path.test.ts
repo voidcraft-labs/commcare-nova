@@ -24,6 +24,7 @@ import {
 	term,
 	today,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import {
 	appendKind,
 	appendKindIndex,
@@ -45,9 +46,13 @@ const CASE_TYPES: CaseType[] = [
 	{
 		name: "patient",
 		properties: [
-			{ name: "score", label: "Score", data_type: "decimal" },
-			{ name: "dob", label: "Date of birth", data_type: "date" },
-			{ name: "last_seen", label: "Last seen", data_type: "datetime" },
+			{ name: "score", label: proseText("Score"), data_type: "decimal" },
+			{ name: "dob", label: proseText("Date of birth"), data_type: "date" },
+			{
+				name: "last_seen",
+				label: proseText("Last seen"),
+				data_type: "datetime",
+			},
 		],
 	},
 ];

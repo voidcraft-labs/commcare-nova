@@ -7,7 +7,12 @@
 // pure liveness columns, so a new decision path physically cannot read them
 // raw.
 
-import type { AppDoc, AppReservation, AppRunLock } from "./types";
+import {
+	type AppDoc,
+	type AppReservation,
+	type AppRunLock,
+	parsePersistedAppLifecycleStatus,
+} from "./types";
 
 /** The run-liveness slice of an `apps` row — the column list every
  *  liveness-deciding SELECT uses, so no site can under-select and hand
@@ -75,7 +80,7 @@ export function rowRunLock(row: LeaseRow): AppRunLock | undefined {
 /** The run-liveness slice `runLeaseState` reads, off a raw row. */
 export function leaseView(row: LeaseRow): Partial<AppDoc> {
 	return {
-		status: row.status as AppDoc["status"],
+		status: parsePersistedAppLifecycleStatus(row.status),
 		awaiting_input: row.awaiting_input,
 		updated_at: row.updated_at,
 		owner: row.owner,

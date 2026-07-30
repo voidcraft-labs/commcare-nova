@@ -9,7 +9,7 @@
  *
  * Three exit branches:
  *
- *   1. Module index out of range → `{ error }`, no mutations.
+ *   1. Module UUID address does not resolve → `{ error }`, no mutations.
  *   2. The supplied order doesn't permute the screen's visible uuids — length
  *      mismatch, duplicates, unknown uuids, or missing uuids → `{ error }`,
  *      no mutations.
@@ -26,14 +26,15 @@ import {
 	type MutatingToolResult,
 	toToolErrorResult,
 } from "../common";
+import {
+	moduleAddressSchema,
+	resolveModuleAddress,
+} from "../shared/entityAddresses";
 import type { ToolCallSummary } from "../shared/toolCallSummary";
-import { moduleNotFoundResult, uuidInputSchema } from "./shared";
+import { uuidInputSchema } from "./shared";
 
-export const reorderCaseListColumnsInputSchema = z
-	.object({
-		moduleUuid: uuidInputSchema.describe(
-			"Stable uuid of the module whose case list columns are reordered",
-		),
+export const reorderCaseListColumnsInputSchema = moduleAddressSchema
+	.extend({
 		surface: z
 			.enum(["results", "details"])
 			.describe("The screen whose visible fields should be rearranged"),
@@ -69,21 +70,19 @@ export const reorderCaseListColumnsTool = {
 		ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<ReorderCaseListColumnsResult>> {
-		const {
-			moduleUuid: rawModuleUuid,
-			surface,
-			columnUuids: rawColumnUuids,
-		} = input;
-		const moduleUuid = asUuid(rawModuleUuid);
+		const { surface, columnUuids: rawColumnUuids } = input;
 		const columnUuids = rawColumnUuids.map(asUuid);
 		try {
-			const mod = doc.modules[moduleUuid];
-			if (!mod)
-				return moduleNotFoundResult<ReorderCaseListColumnsSuccess>(
-					doc,
-					rawModuleUuid,
-					"reorder case list columns",
-				);
+			const address = resolveModuleAddress(doc, input);
+			if (!address.ok) {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					newDoc: doc,
+					result: { error: address.error },
+				};
+			}
+			const { moduleUuid, module: mod } = address;
 
 			const result = reorderColumnsMutation(
 				mod,
@@ -117,7 +116,7 @@ export const reorderCaseListColumnsTool = {
 
 			return {
 				kind: "mutate" as const,
-				mutations: result.mutations,
+				mutations: commit.mutations,
 				newDoc,
 				result: {
 					message: `Reordered ${columnUuids.length} field${columnUuids.length === 1 ? "" : "s"} on ${surface === "results" ? "Results" : "Details"} for module "${mod.name}".`,

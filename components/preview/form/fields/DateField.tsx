@@ -60,7 +60,7 @@ interface DateFieldProps {
  * `state.value` is the wire-and-storage shape end to end — `2026-01-15`,
  * `14:30:00.000Z`, `2026-01-15T14:30:00.000-05:00` (`lib/domain/temporalValues.ts`
  * owns all three). That is what preload writes into the instance and what
- * `#case/<prop>` reads back, so the widget renders and returns the same
+ * typed case-property reads return, so the widget renders and returns the same
  * spelling rather than a private one — which is also why the native
  * `<input type="datetime-local">` this replaces could not stay: it silently
  * blanks any value carrying a zone designator, so every preloaded datetime

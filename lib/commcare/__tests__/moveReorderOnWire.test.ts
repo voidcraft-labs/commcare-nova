@@ -9,12 +9,14 @@
 
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import type { HqApplication, HqFormLink } from "@/lib/commcare";
 import { expandDoc } from "@/lib/commcare/expander";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { BlueprintDoc, FormLink } from "@/lib/domain";
-import { asUuid, plainColumn } from "@/lib/domain";
+import { plainColumn } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 
 /** The first form's XForm attachment, as a string. */
 function firstFormXml(doc: BlueprintDoc): string {
@@ -39,32 +41,26 @@ function firstFormLinkTarget(app: HqApplication): HqFormLink["target"] {
 	throw new Error("no form_links emitted");
 }
 
-function hydrate(doc: BlueprintDoc): BlueprintDoc {
-	return structuredClone(doc);
-}
-
 describe("a move reflects on the wire", () => {
 	it("a same-parent moveField re-sequences the emitted XForm binds", () => {
-		const doc = hydrate(
-			buildDoc({
-				modules: [
-					{
-						name: "M",
-						forms: [
-							{
-								name: "F",
-								type: "survey",
-								fields: [
-									f({ kind: "text", id: "qa", label: "A" }),
-									f({ kind: "text", id: "qb", label: "B" }),
-									f({ kind: "text", id: "qc", label: "C" }),
-								],
-							},
-						],
-					},
-				],
-			}),
-		);
+		const doc = buildDoc({
+			modules: [
+				{
+					name: "M",
+					forms: [
+						{
+							name: "F",
+							type: "survey",
+							fields: [
+								f({ kind: "text", id: "qa", label: proseText("A") }),
+								f({ kind: "text", id: "qb", label: proseText("B") }),
+								f({ kind: "text", id: "qc", label: proseText("C") }),
+							],
+						},
+					],
+				},
+			],
+		});
 		const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
 		const [, , uc] = doc.fieldOrder[formUuid];
 		// Move qc to the FRONT.
@@ -86,56 +82,36 @@ describe("a move reflects on the wire", () => {
 	});
 
 	it("a moveOption re-sequences the emitted select items", () => {
-		const doc = hydrate(
-			buildDoc({
-				modules: [
-					{
-						name: "M",
-						forms: [
-							{
-								name: "F",
-								type: "survey",
-								fields: [
-									f({
-										kind: "single_select",
-										id: "color",
-										label: "Color",
-										optionsSource: {
-											kind: "inline",
-											options: [
-												{
-													uuid: asUuid("d985852c-a226-4325-a932-5ed1a05ee207"),
-													value: "red",
-													label: "Red",
-												},
-												{
-													uuid: asUuid("97ad7b16-2ef6-484d-a954-c7381c483025"),
-													value: "green",
-													label: "Green",
-												},
-												{
-													uuid: asUuid("a48372bb-2cf3-4a75-a8ae-c030b8b25d20"),
-													value: "blue",
-													label: "Blue",
-												},
-											],
-										},
-									}),
-								],
-							},
-						],
-					},
-				],
-			}),
-		);
+		const doc = buildDoc({
+			modules: [
+				{
+					name: "M",
+					forms: [
+						{
+							name: "F",
+							type: "survey",
+							fields: [
+								f({
+									kind: "single_select",
+									id: "color",
+									label: proseText("Color"),
+									options: [
+										{ value: "red", label: "Red" },
+										{ value: "green", label: "Green" },
+										{ value: "blue", label: "Blue" },
+									],
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
 		const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
 		const fieldUuid = doc.fieldOrder[formUuid][0];
 		const field = doc.fields[fieldUuid];
-		if (
-			(field.kind !== "single_select" && field.kind !== "multi_select") ||
-			field.optionsSource.kind !== "inline"
-		) {
-			throw new Error("expected inline select");
+		if (!("optionsSource" in field) || field.optionsSource.kind !== "inline") {
+			throw new Error("fixture must be an inline select");
 		}
 		const blueUuid = field.optionsSource.options[2].uuid;
 		// Move "blue" to the FRONT.
@@ -156,28 +132,26 @@ describe("a move reflects on the wire", () => {
 	});
 
 	it("a moveColumn re-sequences the emitted case-list detail columns", () => {
-		const c1 = asUuid("col-1");
-		const c2 = asUuid("col-2");
-		const doc = hydrate(
-			buildDoc({
-				modules: [
-					{
-						name: "Patients",
-						caseType: "patient",
-						caseListOnly: true,
-						caseListConfig: {
-							columns: [
-								plainColumn(c1, "case_name", "Name"),
-								plainColumn(c2, "age", "Age"),
-							],
-							listColumnOrder: [c1, c2],
-							detailColumnOrder: [c1, c2],
-							searchInputs: [],
-						},
+		const c1 = testUuid("col-1");
+		const c2 = testUuid("col-2");
+		const doc = buildDoc({
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					caseListOnly: true,
+					caseListConfig: {
+						columns: [
+							plainColumn(c1, "case_name", "Name"),
+							plainColumn(c2, "age", "Age"),
+						],
+						listColumnOrder: [c1, c2],
+						detailColumnOrder: [c1, c2],
+						searchInputs: [],
 					},
-				],
-			}),
-		);
+				},
+			],
+		});
 		const moduleUuid = doc.moduleOrder[0];
 		// Move "Age" (col-2) before "Name" (col-1) on Results.
 		const next = produce(doc, (d) => {
@@ -200,32 +174,30 @@ describe("a move reflects on the wire", () => {
 	});
 
 	it("a form_links target survives a module reorder (points at the display-moved menu)", () => {
-		const doc = hydrate(
-			buildDoc({
-				modules: [
-					{
-						name: "Intake",
-						forms: [
-							{
-								name: "Register",
-								type: "survey",
-								fields: [f({ kind: "text", id: "q1", label: "Q" })],
-							},
-						],
-					},
-					{
-						name: "Followup",
-						forms: [
-							{
-								name: "Visit",
-								type: "survey",
-								fields: [f({ kind: "text", id: "q2", label: "Q" })],
-							},
-						],
-					},
-				],
-			}),
-		);
+		const doc = buildDoc({
+			modules: [
+				{
+					name: "Intake",
+					forms: [
+						{
+							name: "Register",
+							type: "survey",
+							fields: [f({ kind: "text", id: "q1", label: proseText("Q") })],
+						},
+					],
+				},
+				{
+					name: "Followup",
+					forms: [
+						{
+							name: "Visit",
+							type: "survey",
+							fields: [f({ kind: "text", id: "q2", label: proseText("Q") })],
+						},
+					],
+				},
+			],
+		});
 		const [m1, m2] = doc.moduleOrder;
 		const f1 = doc.formOrder[m1][0]; // Register, in Intake
 		const f2 = doc.formOrder[m2][0]; // Visit, in Followup

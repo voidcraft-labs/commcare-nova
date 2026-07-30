@@ -20,6 +20,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { useBuilderLookupCatalog } from "@/components/builder/lookup/BuilderLookupCatalogProvider";
 import { Button } from "@/components/shadcn/button";
 import {
 	DropdownMenu,
@@ -33,7 +34,7 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/shadcn/dropdown-menu";
 import { caseSearchPredicateEditVerdict } from "@/lib/doc/hooks/predicateVerdicts";
-import { asUuid, type CaseType, type UserProperty } from "@/lib/domain";
+import type { CaseType, UserProperty } from "@/lib/domain";
 import {
 	checkPredicate,
 	exists,
@@ -58,10 +59,10 @@ import {
 } from "./editorContext";
 import {
 	type CaseDataScope,
+	type EvaluationTarget,
 	type PredicateEditContext,
 	predicateCardSchemas,
 	predicateUnavailableReason,
-	tableRowInScope,
 } from "./editorSchemas";
 import type { OperationValueScope } from "./expressionEditorSchemas";
 import type { EditorFormFieldDecl } from "./formFieldPresentation";
@@ -302,16 +303,12 @@ export function AddConditionMenu({
 						<Icon icon={comparisonSchema.icon} />
 						<span className="min-w-0">
 							<span className="block text-sm font-medium">
-								{tableRowInScope(ctx)
-									? "Compare a data-table column"
-									: "Compare case information"}
+								Compare case information
 							</span>
 							<span className="block text-[13px] text-nova-text-muted">
 								{comparisonApplicable
 									? "Choose what to compare, how it should match, and the value"
-									: tableRowInScope(ctx)
-										? "Add a column to this data table before comparing it"
-										: "Add case information before comparing it"}
+									: "Add case information before comparing it"}
 							</span>
 						</span>
 					</DropdownMenuItem>
@@ -359,16 +356,14 @@ export interface PredicateWorkbenchProps {
 	/** Form answers this rule may read — already narrowed by the owning
 	 *  surface to the ones its slot admits. */
 	readonly formFields?: readonly EditorFormFieldDecl[];
-	/** Rows-free Project data definitions for lookup identity/type resolution. */
 	readonly lookupTables?: readonly EditorLookupTableDecl[];
-	/** The one lookup row direct column terms may read. */
 	readonly tableScope?: EditorLookupTableScope;
 	/** Present only inside a case operation, where the submission's own
 	 *  vocabulary is available. */
 	readonly operationScope?: OperationValueScope;
 	/** Runtime that evaluates this rule. Search-backed rules consult the
 	 *  boundary verdict before offering a guaranteed-invalid value source. */
-	readonly evaluationTarget?: "on-device" | "case-search";
+	readonly evaluationTarget?: EvaluationTarget;
 	/** When the rule evaluates relative to a case row. `"global"` slots
 	 *  (the search-button display condition) resolve once, before any
 	 *  case is selected — verbs, seeds, and value sources drop every
@@ -411,6 +406,10 @@ export function PredicateWorkbench({
 	allowsNeverMatch = true,
 	focusRequest,
 }: PredicateWorkbenchProps) {
+	const lookupCatalog = useBuilderLookupCatalog();
+	const effectiveLookupTables =
+		lookupTables ??
+		(lookupCatalog.kind === "ready" ? lookupCatalog.tables : []);
 	const [requestedPath, setRequestedPath] = useState<EditorPath>(
 		() => focusRequest?.path ?? [],
 	);
@@ -444,7 +443,7 @@ export function PredicateWorkbench({
 				currentCaseType,
 				userProperties,
 				formFields,
-				lookupTables,
+				lookupTables: effectiveLookupTables,
 				tableScope,
 				operationScope,
 			}),
@@ -454,7 +453,7 @@ export function PredicateWorkbench({
 			knownInputs,
 			userProperties,
 			formFields,
-			lookupTables,
+			effectiveLookupTables,
 			tableScope,
 			operationScope,
 		],
@@ -479,7 +478,7 @@ export function PredicateWorkbench({
 			currentCaseType: focusedCaseType,
 			knownInputs,
 			formFields,
-			lookupTables,
+			lookupTables: effectiveLookupTables,
 			tableScope,
 			operationScope,
 			caseDataScope,
@@ -492,7 +491,7 @@ export function PredicateWorkbench({
 			focusedCaseType,
 			knownInputs,
 			formFields,
-			lookupTables,
+			effectiveLookupTables,
 			tableScope,
 			operationScope,
 			caseDataScope,
@@ -507,7 +506,7 @@ export function PredicateWorkbench({
 				family: "expression",
 				value: next,
 			});
-			const verdict = caseSearchPredicateEditVerdict(value, candidate);
+			const verdict = caseSearchPredicateEditVerdict(candidate);
 			return verdict.ok
 				? ({ admitted: true } as const)
 				: ({ admitted: false, reason: verdict.reason } as const);
@@ -654,7 +653,7 @@ export function PredicateWorkbench({
 			knownInputs={knownInputs}
 			userProperties={userProperties}
 			formFields={formFields}
-			lookupTables={lookupTables}
+			lookupTables={effectiveLookupTables}
 			tableScope={tableScope}
 			operationScope={operationScope}
 			caseDataScope={caseDataScope}
@@ -662,9 +661,7 @@ export function PredicateWorkbench({
 			evaluationTarget={evaluationTarget}
 			validityIndex={validityIndex}
 			admitExpressionChange={
-				evaluationTarget === "case-search"
-					? admitCaseSearchExpression
-					: undefined
+				evaluationTarget !== "on-device" ? admitCaseSearchExpression : undefined
 			}
 		>
 			<RuleFocusProvider activePath={activePath} open={enterRule}>
@@ -1009,14 +1006,11 @@ function FocusedStructureBody({
 							Search answer
 						</p>
 						<SearchInputMenu
-							value={value.input.searchInputUuid || undefined}
+							value={value.input.searchInputUuid}
 							onChange={(searchInputUuid) =>
 								onChange({
 									...value,
-									input: {
-										kind: "input",
-										searchInputUuid: asUuid(searchInputUuid),
-									},
+									input: { kind: "input", searchInputUuid },
 								})
 							}
 							invalid={false}

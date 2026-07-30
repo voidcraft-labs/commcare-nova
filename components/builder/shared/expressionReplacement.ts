@@ -9,7 +9,6 @@ import {
 	now,
 	type TypeContext,
 	today,
-	unwrapList,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
 
@@ -17,7 +16,6 @@ const UNARY_KINDS = new Set<ValueExpression["kind"]>([
 	"date-coerce",
 	"datetime-coerce",
 	"double",
-	"unwrap-list",
 ]);
 
 function buildUnary(
@@ -31,8 +29,6 @@ function buildUnary(
 			return datetimeCoerce(value);
 		case "double":
 			return double(value);
-		case "unwrap-list":
-			return unwrapList(value);
 		default:
 			return null;
 	}
@@ -51,10 +47,9 @@ function validCandidate(
  * the UI must explain the loss and wait for confirmation before using a fresh
  * target default.
  *
- * Date and datetime coercion are true structural twins and always retain the
- * same child, including a legacy-invalid imported child. Other unary carriers
- * look alike in JSON but accept different child types, so they preserve only
- * when the complete candidate passes the real expression checker.
+ * Unary carriers can look alike in JSON while accepting different child
+ * types, so preservation is allowed only when the complete candidate passes
+ * the real expression checker.
  */
 export function planPreservedExpressionReplacement(
 	currentValue: ValueExpression,
@@ -67,7 +62,6 @@ export function planPreservedExpressionReplacement(
 			case "date-coerce":
 			case "datetime-coerce":
 			case "double":
-			case "unwrap-list":
 				candidate = buildUnary(targetKind, currentValue);
 				break;
 			case "concat":
@@ -83,14 +77,6 @@ export function planPreservedExpressionReplacement(
 				candidate = null;
 		}
 		return candidate === null ? null : validCandidate(candidate, typeContext);
-	}
-
-	if (
-		(currentValue.kind === "date-coerce" ||
-			currentValue.kind === "datetime-coerce") &&
-		(targetKind === "date-coerce" || targetKind === "datetime-coerce")
-	) {
-		return buildUnary(targetKind, currentValue.value);
 	}
 
 	if (

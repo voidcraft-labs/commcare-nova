@@ -31,7 +31,7 @@ import {
 	MediaAssetStillReferencedError,
 } from "@/lib/db/mediaDeletion";
 import type { BlueprintDoc } from "@/lib/domain";
-import { asAssetId } from "@/lib/domain";
+import { mediaAssetIdSchema } from "@/lib/domain";
 import { extractObjectKeyForAsset } from "@/lib/domain/multimedia";
 import {
 	carriersForAsset,
@@ -44,12 +44,9 @@ import { requireToolProjectId } from "./shared";
 
 export const removeMediaAssetInputSchema = z
 	.object({
-		assetId: z
-			.string()
-			.min(1)
-			.describe(
-				"The id of the media asset to delete (from list_media_assets).",
-			),
+		assetId: mediaAssetIdSchema.describe(
+			"The id of the media asset to delete (from list_media_assets).",
+		),
 	})
 	.strict();
 
@@ -69,7 +66,7 @@ export const removeMediaAssetTool = {
 		ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
 	): Promise<ReadToolResult<RemoveMediaAssetResult>> {
-		const assetId = asAssetId(input.assetId);
+		const assetId = input.assetId;
 
 		const projectId = await requireToolProjectId(ctx.appId);
 
@@ -106,8 +103,8 @@ export const removeMediaAssetTool = {
 		// check above, so skip it here.
 		const otherAppReferences = await findAppReferencesToAsset(
 			projectId,
-			input.assetId,
-			await listReferencingAppIds(input.assetId),
+			assetId,
+			await listReferencingAppIds(assetId),
 			{ skipAppId: ctx.appId },
 		);
 		if (otherAppReferences.length > 0) {
@@ -124,7 +121,7 @@ export const removeMediaAssetTool = {
 		const chatRunHolder = ctx.chatRunHolder;
 		let deleted: boolean;
 		try {
-			deleted = await purgeAssetStorage(asset, {
+			deleted = await purgeAssetStorage({
 				alsoDeleteForAsset: (deletedAsset) => [
 					extractObjectKeyForAsset(deletedAsset),
 				],

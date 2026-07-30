@@ -1,4 +1,3 @@
-import { asUuid } from "@/lib/domain";
 // components/builder/case-list-config/__tests__/predicateSummary.test.ts
 //
 // Pins the human-language Cases available summary used in Results. The contract:
@@ -6,6 +5,7 @@ import { asUuid } from "@/lib/domain";
 // to nothing; exotic shapes degrade to honest generic phrases.
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import type { CaseType } from "@/lib/domain";
 import {
 	ancestorPath,
@@ -30,7 +30,14 @@ import {
 	today,
 	whenInput,
 } from "@/lib/domain/predicate";
+import { projectProseTemplate, proseText } from "@/lib/domain/prose";
 import { humanizeName, summarizeFilter } from "../predicateSummary";
+
+/** These fixtures label every choice with literal prose, so an empty document
+ *  resolves everything they reference (nothing). */
+const projectProse = (template: Parameters<typeof projectProseTemplate>[0]) =>
+	projectProseTemplate(template, { fields: {}, forms: {}, fieldOrder: {} })
+		.text;
 
 const status = () => term(prop("patient", "status"));
 
@@ -42,71 +49,94 @@ const statusIsntClosed: Predicate = {
 
 describe("summarizeFilter", () => {
 	it("returns undefined for an absent filter and for match-all (no narrowing)", () => {
-		expect(summarizeFilter(undefined)).toBeUndefined();
-		expect(summarizeFilter(matchAll())).toBeUndefined();
+		expect(summarizeFilter(undefined, { projectProse })).toBeUndefined();
+		expect(summarizeFilter(matchAll(), { projectProse })).toBeUndefined();
 	});
 
 	it("renders comparisons as subject-verb-object sentences", () => {
-		expect(summarizeFilter(statusIsntClosed)).toBe("status isn't closed");
+		expect(summarizeFilter(statusIsntClosed, { projectProse })).toBe(
+			"status isn't closed",
+		);
 		expect(
-			summarizeFilter({
-				kind: "eq",
-				left: status(),
-				right: term(literal("active")),
-			}),
+			summarizeFilter(
+				{
+					kind: "eq",
+					left: status(),
+					right: term(literal("active")),
+				},
+				{ projectProse },
+			),
 		).toBe("status is active");
 		expect(
-			summarizeFilter({
-				kind: "gt",
-				left: term(prop("patient", "age")),
-				right: term(literal(5)),
-			}),
+			summarizeFilter(
+				{
+					kind: "gt",
+					left: term(prop("patient", "age")),
+					right: term(literal(5)),
+				},
+				{ projectProse },
+			),
 		).toBe("age is more than 5");
 	});
 
 	it("spaces identifier separators so property names read as words", () => {
 		expect(
-			summarizeFilter({
-				kind: "eq",
-				left: term(prop("patient", "rash_onset_date")),
-				right: today(),
-			}),
+			summarizeFilter(
+				{
+					kind: "eq",
+					left: term(prop("patient", "rash_onset_date")),
+					right: today(),
+				},
+				{ projectProse },
+			),
 		).toBe("rash onset date is today");
 		expect(humanizeName("follow-up_date")).toBe("follow up date");
 	});
 
-	it("uses Nova's canonical labels for legacy property references", () => {
+	it("uses Nova's friendly labels for exact standard property references", () => {
 		expect(
-			summarizeFilter({
-				kind: "eq",
-				left: term(prop("patient", "name")),
-				right: term(literal("Alice")),
-			}),
+			summarizeFilter(
+				{
+					kind: "eq",
+					left: term(prop("patient", "case_name")),
+					right: term(literal("Alice")),
+				},
+				{ projectProse },
+			),
 		).toBe("case name is Alice");
 		expect(
-			summarizeFilter({
-				kind: "match",
-				property: prop("patient", "external-id"),
-				value: term(literal("ABC")),
-				mode: "fuzzy",
-			}),
+			summarizeFilter(
+				{
+					kind: "match",
+					property: prop("patient", "external_id"),
+					value: term(literal("ABC")),
+					mode: "fuzzy",
+				},
+				{ projectProse },
+			),
 		).toBe("external ID roughly matches ABC");
 		expect(
-			summarizeFilter({
-				kind: "multi-select-contains",
-				property: prop("patient", "name"),
-				values: [literal("Alice")],
-				quantifier: "any",
-			}),
+			summarizeFilter(
+				{
+					kind: "multi-select-contains",
+					property: prop("patient", "case_name"),
+					values: [literal("Alice")],
+					quantifier: "any",
+				},
+				{ projectProse },
+			),
 		).toBe("case name includes any of Alice");
 		expect(
-			summarizeFilter({
-				kind: "within-distance",
-				property: prop("patient", "date-opened"),
-				center: term(literal("0 0")),
-				distance: 5,
-				unit: "kilometers",
-			}),
+			summarizeFilter(
+				{
+					kind: "within-distance",
+					property: prop("patient", "date_opened"),
+					center: term(literal("0 0")),
+					distance: 5,
+					unit: "kilometers",
+				},
+				{ projectProse },
+			),
 		).toBe("date opened is within 5 kilometers of 0 0");
 	});
 
@@ -115,8 +145,11 @@ describe("summarizeFilter", () => {
 			{
 				name: "patient",
 				properties: [
-					{ name: "case_name", label: "case_name", data_type: "text" },
-					{ name: "name", label: "name", data_type: "text" },
+					{
+						name: "case_name",
+						label: proseText("case_name"),
+						data_type: "text",
+					},
 				],
 			},
 		];
@@ -127,7 +160,7 @@ describe("summarizeFilter", () => {
 					left: term(prop("patient", "case_name")),
 					right: term(literal("Patient name")),
 				},
-				{ caseTypes, currentCaseType: "patient" },
+				{ projectProse, caseTypes, currentCaseType: "patient" },
 			),
 		).toBe("Case name is Patient name");
 	});
@@ -137,18 +170,25 @@ describe("summarizeFilter", () => {
 			{
 				name: "household",
 				properties: [
-					{ name: "status", label: "Household status", data_type: "text" },
+					{
+						name: "status",
+						label: proseText("Household status"),
+						data_type: "text",
+					},
 				],
 			},
 			{
 				name: "patient",
 				parent_type: "household",
-				properties: [{ name: "dob", label: "Birth date", data_type: "date" }],
+				properties: [
+					{ name: "dob", label: proseText("Birth date"), data_type: "date" },
+				],
 			},
 		];
 		const context = {
 			caseTypes,
 			currentCaseType: "patient",
+			projectProse,
 		};
 		expect(
 			summarizeFilter(
@@ -180,26 +220,26 @@ describe("summarizeFilter", () => {
 				properties: [
 					{
 						name: "status",
-						label: "Client status",
+						label: proseText("Client status"),
 						data_type: "single_select",
 						options: [
-							{ value: "active_client", label: "Active" },
-							{ value: "follow_up", label: "Needs follow-up" },
+							{ value: "active_client", label: proseText("Active") },
+							{ value: "follow_up", label: proseText("Needs follow-up") },
 						],
 					},
 					{
 						name: "services",
-						label: "Services",
+						label: proseText("Services"),
 						data_type: "multi_select",
 						options: [
-							{ value: "maternal_care", label: "Maternal care" },
-							{ value: "nutrition", label: "Nutrition" },
+							{ value: "maternal_care", label: proseText("Maternal care") },
+							{ value: "nutrition", label: proseText("Nutrition") },
 						],
 					},
 				],
 			},
 		];
-		const context = { caseTypes, currentCaseType: "patient" };
+		const context = { caseTypes, currentCaseType: "patient", projectProse };
 
 		expect(
 			summarizeFilter(
@@ -237,18 +277,19 @@ describe("summarizeFilter", () => {
 					properties: [
 						{
 							name: "status",
-							label: "Client status",
+							label: proseText("Client status"),
 							data_type: "single_select" as const,
 							options: [
-								{ value: "open_a", label: "Open" },
-								{ value: "open_b", label: "Open" },
-								{ value: "closed", label: "Closed" },
+								{ value: "open_a", label: proseText("Open") },
+								{ value: "open_b", label: proseText("Open") },
+								{ value: "closed", label: proseText("Closed") },
 							],
 						},
 					],
 				},
 			] satisfies readonly CaseType[],
 			currentCaseType: "patient",
+			projectProse,
 		};
 
 		expect(
@@ -270,19 +311,23 @@ describe("summarizeFilter", () => {
 				properties: [
 					{
 						name: "status",
-						label: "Household status",
+						label: proseText("Household status"),
 						data_type: "single_select",
-						options: [{ value: "active_household", label: "Active" }],
+						options: [
+							{ value: "active_household", label: proseText("Active") },
+						],
 					},
 				],
 			},
 			{
 				name: "patient",
 				parent_type: "household",
-				properties: [{ name: "note", label: "Case note", data_type: "text" }],
+				properties: [
+					{ name: "note", label: proseText("Case note"), data_type: "text" },
+				],
 			},
 		];
-		const context = { caseTypes, currentCaseType: "patient" };
+		const context = { caseTypes, currentCaseType: "patient", projectProse };
 
 		expect(
 			summarizeFilter(
@@ -302,32 +347,23 @@ describe("summarizeFilter", () => {
 	});
 
 	it("leads with the search-answer condition instead of adding an afterthought", () => {
-		const searchInputUuid = asUuid("b3dba847-fcda-4409-84cb-64e94fca14cc");
 		expect(
-			summarizeFilter(whenInput(input(searchInputUuid), statusIsntClosed), {
-				knownInputs: [
-					{
-						uuid: searchInputUuid,
-						name: "name_search",
-						label: "Name search",
-						data_type: "text",
-					},
-				],
-			}),
-		).toBe("When Name search has an answer, status isn't closed");
+			summarizeFilter(
+				whenInput(input(testUuid("name_search")), statusIsntClosed),
+				{ projectProse },
+			),
+		).toBe("When Search field has an answer, status isn't closed");
 	});
 
 	it("uses the authored search-field label while preserving its identity", () => {
 		expect(
 			summarizeFilter(
-				whenInput(
-					input(asUuid("b3dba847-fcda-4409-84cb-64e94fca14cc")),
-					statusIsntClosed,
-				),
+				whenInput(input(testUuid("name_search")), statusIsntClosed),
 				{
+					projectProse,
 					knownInputs: [
 						{
-							uuid: asUuid("b3dba847-fcda-4409-84cb-64e94fca14cc"),
+							uuid: testUuid("name_search"),
 							name: "name_search",
 							label: "Client name",
 							data_type: "text",
@@ -340,32 +376,35 @@ describe("summarizeFilter", () => {
 
 	it("describes related-case filters as matching conditions", () => {
 		const via = ancestorPath(relationStep("parent"));
-		expect(summarizeFilter(exists(via, statusIsntClosed))).toBe(
-			"A related case matches status isn't closed",
-		);
-		expect(summarizeFilter(missing(via, statusIsntClosed))).toBe(
-			"No related case matches status isn't closed",
-		);
+		expect(
+			summarizeFilter(exists(via, statusIsntClosed), { projectProse }),
+		).toBe("A related case matches status isn't closed");
+		expect(
+			summarizeFilter(missing(via, statusIsntClosed), { projectProse }),
+		).toBe("No related case matches status isn't closed");
 	});
 
 	it("joins and/or clauses with words and overflows past two", () => {
-		expect(summarizeFilter(and(statusIsntClosed, statusIsntClosed))).toBe(
-			"status isn't closed and status isn't closed",
-		);
+		expect(
+			summarizeFilter(and(statusIsntClosed, statusIsntClosed), {
+				projectProse,
+			}),
+		).toBe("status isn't closed and status isn't closed");
 		expect(
 			summarizeFilter(
 				and(statusIsntClosed, statusIsntClosed, statusIsntClosed),
+				{ projectProse },
 			),
 		).toBe("status isn't closed and status isn't closed and 1 more");
-		expect(summarizeFilter(or(statusIsntClosed, statusIsntClosed))).toBe(
-			"status isn't closed or status isn't closed",
-		);
+		expect(
+			summarizeFilter(or(statusIsntClosed, statusIsntClosed), { projectProse }),
+		).toBe("status isn't closed or status isn't closed");
 	});
 
 	it("renders absence and membership tests in worker words", () => {
-		expect(summarizeFilter(isBlank(prop("patient", "phone")))).toBe(
-			"phone is blank",
-		);
+		expect(
+			summarizeFilter(isBlank(prop("patient", "phone")), { projectProse }),
+		).toBe("phone is blank");
 		expect(
 			summarizeFilter(
 				isIn(
@@ -373,6 +412,7 @@ describe("summarizeFilter", () => {
 					literal("active"),
 					literal("pending"),
 				),
+				{ projectProse },
 			),
 		).toBe("status is one of active, pending");
 		expect(
@@ -381,29 +421,28 @@ describe("summarizeFilter", () => {
 					lower: term(literal("a")),
 					upper: term(literal("b")),
 				}),
+				{ projectProse },
 			),
 		).toBe("status is between a and b");
 	});
 
 	it("describes top-level negation as the filtering outcome", () => {
-		expect(summarizeFilter(not(statusIsntClosed))).toBe(
+		expect(summarizeFilter(not(statusIsntClosed), { projectProse })).toBe(
 			"Exclude cases when status isn't closed",
 		);
 		expect(
-			summarizeFilter(not(exists(ancestorPath(relationStep("parent"))))),
+			summarizeFilter(not(exists(ancestorPath(relationStep("parent")))), {
+				projectProse,
+			}),
 		).toBe("Exclude cases when a related case exists");
 		expect(
 			summarizeFilter(
-				not(
-					whenInput(
-						input(asUuid("b3dba847-fcda-4409-84cb-64e94fca14cc")),
-						statusIsntClosed,
-					),
-				),
+				not(whenInput(input(testUuid("name_search")), statusIsntClosed)),
 				{
+					projectProse,
 					knownInputs: [
 						{
-							uuid: asUuid("b3dba847-fcda-4409-84cb-64e94fca14cc"),
+							uuid: testUuid("name_search"),
 							name: "name_search",
 							label: "Client name",
 							data_type: "text",
@@ -423,6 +462,7 @@ describe("summarizeFilter", () => {
 					eq(prop("patient", "status"), literal("active")),
 					not(eq(prop("patient", "region"), literal("blocked"))),
 				),
+				{ projectProse },
 			),
 		).toBe("status is active and region isn't blocked");
 		expect(
@@ -431,30 +471,34 @@ describe("summarizeFilter", () => {
 					ancestorPath(relationStep("parent")),
 					not(eq(prop("household", "status"), literal("closed"))),
 				),
+				{ projectProse },
 			),
 		).toBe("A related case matches status isn't closed");
 	});
 
 	it("renders sentinels honestly", () => {
-		expect(summarizeFilter(matchNone())).toBe("no cases");
-		expect(summarizeFilter({ kind: "not", clause: matchAll() })).toBe(
-			"Exclude every case",
-		);
-		expect(summarizeFilter({ kind: "not", clause: matchNone() })).toBe(
-			"No cases are excluded",
-		);
+		expect(summarizeFilter(matchNone(), { projectProse })).toBe("no cases");
+		expect(
+			summarizeFilter({ kind: "not", clause: matchAll() }, { projectProse }),
+		).toBe("Exclude every case");
+		expect(
+			summarizeFilter({ kind: "not", clause: matchNone() }, { projectProse }),
+		).toBe("No cases are excluded");
 	});
 
 	it("degrades computed operands to an honest generic", () => {
 		expect(
-			summarizeFilter({
-				kind: "eq",
-				left: status(),
-				right: {
-					kind: "concat",
-					parts: [term(literal("a")), term(literal("b"))],
+			summarizeFilter(
+				{
+					kind: "eq",
+					left: status(),
+					right: {
+						kind: "concat",
+						parts: [term(literal("a")), term(literal("b"))],
+					},
 				},
-			}),
+				{ projectProse },
+			),
 		).toBe("status is a calculated value");
 	});
 });

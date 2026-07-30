@@ -1,4 +1,6 @@
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { proseText } from "@/lib/domain/prose";
 /**
  * Tests for `searchInputTypeMatchesPropertyType`. The rule gates a
  * simple-arm search input's WIDGET kind against the destination
@@ -7,7 +9,7 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import { asUuid, plainColumn, simpleSearchInputDef } from "@/lib/domain";
+import { plainColumn, simpleSearchInputDef } from "@/lib/domain";
 import { runValidation } from "../../../runner";
 
 const CODE = "CASE_LIST_SEARCH_INPUT_TYPE_PROPERTY_TYPE_MISMATCH" as const;
@@ -21,12 +23,12 @@ describe("searchInputTypeMatchesPropertyType", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("c-1")],
-						detailColumnOrder: [asUuid("c-1")],
+						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [testUuid("c-1")],
+						detailColumnOrder: [testUuid("c-1")],
 						searchInputs: [
 							simpleSearchInputDef(
-								asUuid("si-1"),
+								testUuid("si-1"),
 								"name_q",
 								"Name",
 								"date",
@@ -42,8 +44,8 @@ describe("searchInputTypeMatchesPropertyType", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},
@@ -53,7 +55,9 @@ describe("searchInputTypeMatchesPropertyType", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "case_name", label: "Name", data_type: "text" }],
+					properties: [
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+					],
 				},
 			],
 		});
@@ -73,12 +77,12 @@ describe("searchInputTypeMatchesPropertyType", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("c-1")],
-						detailColumnOrder: [asUuid("c-1")],
+						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [testUuid("c-1")],
+						detailColumnOrder: [testUuid("c-1")],
 						searchInputs: [
 							simpleSearchInputDef(
-								asUuid("si-1"),
+								testUuid("si-1"),
 								"age_q",
 								"Age",
 								"barcode",
@@ -94,8 +98,8 @@ describe("searchInputTypeMatchesPropertyType", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},
@@ -106,8 +110,8 @@ describe("searchInputTypeMatchesPropertyType", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name", data_type: "text" },
-						{ name: "age", label: "Age", data_type: "int" },
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+						{ name: "age", label: proseText("Age"), data_type: "int" },
 					],
 				},
 			],
@@ -126,12 +130,12 @@ describe("searchInputTypeMatchesPropertyType", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("c-1")],
-						detailColumnOrder: [asUuid("c-1")],
+						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [testUuid("c-1")],
+						detailColumnOrder: [testUuid("c-1")],
 						searchInputs: [
 							simpleSearchInputDef(
-								asUuid("si-1"),
+								testUuid("si-1"),
 								"age_q",
 								"Age",
 								"text",
@@ -147,8 +151,8 @@ describe("searchInputTypeMatchesPropertyType", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},
@@ -159,8 +163,8 @@ describe("searchInputTypeMatchesPropertyType", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name", data_type: "text" },
-						{ name: "age", label: "Age", data_type: "int" },
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+						{ name: "age", label: proseText("Age"), data_type: "int" },
 					],
 				},
 			],
@@ -182,13 +186,13 @@ describe("searchInputTypeMatchesPropertyType", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("c-1")],
-						detailColumnOrder: [asUuid("c-1")],
+						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [testUuid("c-1")],
+						detailColumnOrder: [testUuid("c-1")],
 						searchInputs: [
 							{
 								kind: "advanced",
-								uuid: asUuid("si-1"),
+								uuid: testUuid("si-1"),
 								name: "adv",
 								label: "Advanced",
 								type: "date",
@@ -204,8 +208,8 @@ describe("searchInputTypeMatchesPropertyType", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},
@@ -215,7 +219,9 @@ describe("searchInputTypeMatchesPropertyType", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "case_name", label: "Name", data_type: "text" }],
+					properties: [
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+					],
 				},
 			],
 		});

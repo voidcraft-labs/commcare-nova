@@ -6,7 +6,7 @@
  * What this pins against a real `SELECT … FOR UPDATE` transaction:
  *
  *   - One transaction writes the entity-row DIFF, advances `mutation_seq`, and
- *     appends the `accepted_mutations` row (the delta + attribution) whose
+ *     appends the `app_changes` row (the delta + attribution) whose
  *     `UNIQUE (app_id, batch_id)` IS the idempotency latch. (NOTIFY delivery on
  *     the committed row is covered by the stream tests; here we assert the row.)
  *   - `mutation_seq` is a LITERAL `(fresh + 1)` read INSIDE the closure under the
@@ -15,9 +15,9 @@
  *   - A re-commit of the same `batchId` is idempotent — returns the prior
  *     seq/basis, writes NOTHING.
  *   - Per-commit reauth: a non-member / a role without `edit` is denied
- *     `CommitReauthError`; a null-`project_id` app defers to the owner (owner ok,
- *     non-owner denied, no auth read); a move away from the caller's expected
- *     Project rejects the distinct `AppProjectChangedError` terminal signal.
+ *     `CommitReauthError`; the creator receives no owner-only exception; a move
+ *     away from the caller's expected Project rejects the distinct
+ *     `AppProjectChangedError` terminal signal.
  *   - The batch re-applies onto the FRESH stored doc (a concurrent commit
  *     survives); a batch targeting a concurrently-removed entity or one the
  *     re-run verdict rejects is a `BlueprintCommitRejectedError`.
@@ -25,7 +25,7 @@
  *     FOR SHARE (present+ready commits; a concurrently-deleted asset rejects).
  *   - The per-commit EDIT-lease refresh fires only for the lock-holding run.
  *   - `appendSyntheticBatch` upholds the identical seq+stream coupling while
- *     persisting the deterministic repair mutations under migration kind.
+ *     persisting deterministic repair mutations as a blueprint migration.
  *
  * The in-transaction `auth_member` role read is mocked so each test controls
  * the actor's fresh role; the reauth LOGIC downstream is the real code under
@@ -35,11 +35,19 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
 import { MAX_RUN_MINUTES } from "@/lib/db/constants";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import type { Mutation } from "@/lib/doc/types";
-import type { BlueprintDoc } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	type MediaAssetId,
+	proseTemplateText,
+	type Uuid,
+} from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import { setupAppStateTestDb } from "./appStateTestDb";
 
 // The fresh role read is the only auth dependency in the guarded path. Mock it
@@ -49,18 +57,44 @@ const { projectRoleForInTransactionMock } = vi.hoisted(() => ({
 		vi.fn<(_tx: unknown, u: string, o: string) => Promise<string | null>>(),
 }));
 vi.mock("@/lib/db/projectMembership", () => ({
-	// Keep the legacy out-of-transaction helper present for any incidental
-	// module consumer; the guarded writer authorizes exclusively in-transaction.
+	// Keep the out-of-transaction helper present for any incidental module
+	// consumer; the guarded writer authorizes exclusively in-transaction.
 	projectRoleFor: vi.fn(),
 	projectRoleForInTransaction: projectRoleForInTransactionMock,
 }));
 
-const { appendSyntheticBatch, commitGuardedBatch, loadApp, UNTITLED_APP_NAME } =
-	await import("../apps");
+const {
+	appendSyntheticBatch,
+	commitGuardedBatch: commitGuardedBatchOpaque,
+	commitGuardedBatchInTransaction: commitGuardedBatchInTransactionOpaque,
+	loadApp,
+	UNTITLED_APP_NAME,
+} = await import("../apps");
+const commitGuardedBatch = (
+	args: Omit<Parameters<typeof commitGuardedBatchOpaque>[0], "mutations"> & {
+		mutations: unknown;
+	},
+) =>
+	commitGuardedBatchOpaque({
+		...args,
+		mutations: admitMutationBatch(args.mutations),
+	});
+const commitGuardedBatchInTransaction = (
+	tx: Parameters<typeof commitGuardedBatchInTransactionOpaque>[0],
+	args: Omit<
+		Parameters<typeof commitGuardedBatchInTransactionOpaque>[1],
+		"mutations"
+	> & { mutations: unknown },
+) =>
+	commitGuardedBatchInTransactionOpaque(tx, {
+		...args,
+		mutations: admitMutationBatch(args.mutations),
+	});
 const {
 	AppProjectChangedError,
 	CommitReauthError,
 	BlueprintCommitRejectedError,
+	MutationBatchIdCollisionError,
 	RunHolderLostError,
 } = await import("../commitGuard");
 const { decomposeBlueprint } = await import("../blueprintRows");
@@ -91,14 +125,20 @@ function minDoc(appName = "Test"): BlueprintDoc {
 							f({
 								kind: "text",
 								id: "case_name",
-								label: "Name",
-								case_property_on: "patient",
+								label: proseText("Name"),
+								caseWrite: {
+									caseType: "patient",
+									property: "case_name",
+								},
 							}),
 							f({
 								kind: "text",
 								id: "village",
-								label: "Village",
-								case_property_on: "patient",
+								label: proseText("Village"),
+								caseWrite: {
+									caseType: "patient",
+									property: "village",
+								},
 							}),
 						],
 					},
@@ -109,8 +149,8 @@ function minDoc(appName = "Test"): BlueprintDoc {
 			{
 				name: "patient",
 				properties: [
-					{ name: "case_name", label: "Name" },
-					{ name: "village", label: "Village" },
+					{ name: "case_name", label: proseText("Name") },
+					{ name: "village", label: proseText("Village") },
 				],
 			},
 		],
@@ -122,7 +162,7 @@ function minDoc(appName = "Test"): BlueprintDoc {
  *  rows exactly as `createApp` would, so the guarded writer reassembles it. */
 async function seedApp(
 	doc: BlueprintDoc,
-	opts: { projectId: string | null; owner?: string } = { projectId: PROJECT },
+	opts: { projectId: string; owner?: string } = { projectId: PROJECT },
 ): Promise<string> {
 	const appId = crypto.randomUUID();
 	const p = toPersistableDoc(doc);
@@ -184,8 +224,8 @@ async function seedApp(
 /** Seed a `ready` image asset in a Project. */
 async function seedReadyImage(
 	projectId: string,
-	assetId = crypto.randomUUID(),
-): Promise<string> {
+	assetId = testMediaAssetId(crypto.randomUUID()),
+): Promise<MediaAssetId> {
 	await h
 		.db()
 		.insertInto("media_assets")
@@ -210,7 +250,7 @@ async function seedReadyImage(
 	return assetId;
 }
 
-function villageUuid(doc: BlueprintDoc): string {
+function villageUuid(doc: BlueprintDoc): Uuid {
 	const field = Object.values(doc.fields).find((fl) => fl.id === "village");
 	if (!field) throw new Error("village field missing from fixture");
 	return field.uuid;
@@ -222,14 +262,14 @@ function renameVillageLabel(doc: BlueprintDoc, label: string): Mutation[] {
 			kind: "updateField",
 			uuid: villageUuid(doc),
 			targetKind: "text",
-			patch: { label },
-		} as Mutation,
+			patch: { label: proseText(label) },
+		},
 	];
 }
 
 function attachVillageLabelImage(
 	doc: BlueprintDoc,
-	assetId: string,
+	assetId: MediaAssetId,
 ): Mutation[] {
 	return [
 		{
@@ -237,7 +277,7 @@ function attachVillageLabelImage(
 			fieldUuid: villageUuid(doc),
 			slot: "label",
 			media: { image: assetId },
-		} as Mutation,
+		},
 	];
 }
 
@@ -246,7 +286,7 @@ async function readSeq(appId: string): Promise<number> {
 	const row = await h.readAppRow(appId);
 	return Number(row?.mutation_seq);
 }
-/** All `accepted_mutations` rows for an app, seq-ordered. */
+/** All `app_changes` rows for an app, seq-ordered. */
 async function readStream(appId: string): Promise<
 	Array<{
 		seq: number;
@@ -259,7 +299,7 @@ async function readStream(appId: string): Promise<
 > {
 	const rows = await h
 		.db()
-		.selectFrom("accepted_mutations")
+		.selectFrom("app_changes")
 		.select(["seq", "batch_id", "run_id", "actor_id", "kind", "mutations"])
 		.where("app_id", "=", appId)
 		.orderBy("seq")
@@ -295,6 +335,44 @@ beforeEach(() => {
 });
 
 describe("commitGuardedBatch (Postgres)", () => {
+	it("exercises the exact writer inside a caller-owned rollback transaction", async () => {
+		const doc = minDoc();
+		const appId = await seedApp(doc);
+		const batchId = crypto.randomUUID();
+		const rollback = new Error("intentional probe rollback");
+
+		await expect(
+			h
+				.db()
+				.transaction()
+				.execute(async (tx) => {
+					const result = await commitGuardedBatchInTransaction(tx, {
+						appId,
+						expectedProjectId: PROJECT,
+						batchId,
+						mutations: admitMutationBatch([
+							{ kind: "setAppName", name: "Rollback probe" },
+						]),
+						actorUserId: OWNER,
+						kind: "autosave",
+					});
+					expect(result).toMatchObject({ seq: 1, deduped: false });
+					expect(
+						await tx
+							.selectFrom("app_changes")
+							.select("batch_id")
+							.where("app_id", "=", appId)
+							.where("batch_id", "=", batchId)
+							.executeTakeFirst(),
+					).toEqual({ batch_id: batchId });
+					throw rollback;
+				}),
+		).rejects.toBe(rollback);
+
+		expect(await readSeq(appId)).toBe(0);
+		expect(await readStream(appId)).toEqual([]);
+	});
+
 	it("persists MCP run attribution without granting it chat-holder authority", async () => {
 		const doc = minDoc();
 		const appId = await seedApp(doc);
@@ -321,7 +399,12 @@ describe("commitGuardedBatch (Postgres)", () => {
 		const village = Object.values(result.committedDoc.fields).find(
 			(fl) => fl.id === "village",
 		);
-		expect(village && "label" in village && village.label).toBe("Home village");
+		expect(
+			village &&
+				"label" in village &&
+				village.label !== undefined &&
+				proseTemplateText(village.label),
+		).toBe("Home village");
 
 		// The app row advanced its counter.
 		expect(await readSeq(appId)).toBe(1);
@@ -380,7 +463,12 @@ describe("commitGuardedBatch (Postgres)", () => {
 		const village = Object.values(reloaded?.blueprint.fields ?? {}).find(
 			(fl) => fl.id === "village",
 		);
-		expect(village && "label" in village && village.label).toBe("Reassembled");
+		expect(
+			village &&
+				"label" in village &&
+				village.label !== undefined &&
+				proseTemplateText(village.label),
+		).toBe("Reassembled");
 		expect(reloaded?.mutation_seq).toBe(result.seq);
 	});
 
@@ -420,13 +508,13 @@ describe("commitGuardedBatch (Postgres)", () => {
 		expect(first.deduped).toBe(false);
 		expect(first.seq).toBe(1);
 
-		// A second commit of the SAME batchId — even with different mutations —
-		// replays the latch: same seq, deduped, no new write.
+		// A byte/identity-equivalent retry replays the latch: same seq, deduped,
+		// no new write.
 		const replay = await commitGuardedBatch({
 			appId,
 			expectedProjectId: PROJECT,
 			batchId,
-			mutations: renameVillageLabel(doc, "IGNORED — dedup replay"),
+			mutations: renameVillageLabel(doc, "Home village"),
 			actorUserId: OWNER,
 			kind: "autosave",
 		});
@@ -440,7 +528,124 @@ describe("commitGuardedBatch (Postgres)", () => {
 		const village = Object.values(replay.committedDoc.fields).find(
 			(fl) => fl.id === "village",
 		);
-		expect(village && "label" in village && village.label).toBe("Home village");
+		expect(
+			village &&
+				"label" in village &&
+				village.label !== undefined &&
+				proseTemplateText(village.label),
+		).toBe("Home village");
+	});
+
+	it("rejects a reused batchId whose admitted content differs", async () => {
+		const doc = minDoc();
+		const appId = await seedApp(doc);
+		const batchId = crypto.randomUUID();
+
+		await commitGuardedBatch({
+			appId,
+			expectedProjectId: PROJECT,
+			batchId,
+			mutations: renameVillageLabel(doc, "Home village"),
+			actorUserId: OWNER,
+			kind: "autosave",
+		});
+
+		await expect(
+			commitGuardedBatch({
+				appId,
+				expectedProjectId: PROJECT,
+				batchId,
+				mutations: renameVillageLabel(doc, "Different village"),
+				actorUserId: OWNER,
+				kind: "autosave",
+			}),
+		).rejects.toBeInstanceOf(MutationBatchIdCollisionError);
+		expect(await readSeq(appId)).toBe(1);
+		expect(await readStream(appId)).toHaveLength(1);
+	});
+
+	it.each([
+		{
+			label: "actor",
+			retry: { actorUserId: MEMBER, kind: "mcp" as const, runId: "run-1" },
+		},
+		{
+			label: "kind",
+			retry: {
+				actorUserId: OWNER,
+				kind: "autosave" as const,
+				runId: "run-1",
+			},
+		},
+		{
+			label: "run attribution",
+			retry: { actorUserId: OWNER, kind: "mcp" as const, runId: "run-2" },
+		},
+	])(
+		"rejects a reused batchId whose immutable $label differs",
+		async ({ retry }) => {
+			const doc = minDoc();
+			const appId = await seedApp(doc);
+			const batchId = crypto.randomUUID();
+			const mutations = renameVillageLabel(doc, "Home village");
+
+			await commitGuardedBatch({
+				appId,
+				expectedProjectId: PROJECT,
+				batchId,
+				runId: "run-1",
+				mutations,
+				actorUserId: OWNER,
+				kind: "mcp",
+			});
+
+			await expect(
+				commitGuardedBatch({
+					appId,
+					expectedProjectId: PROJECT,
+					batchId,
+					mutations,
+					...retry,
+				}),
+			).rejects.toBeInstanceOf(MutationBatchIdCollisionError);
+			expect(await readSeq(appId)).toBe(1);
+			expect(await readStream(appId)).toHaveLength(1);
+		},
+	);
+
+	it("treats key order, null prototypes, and acyclic sharing as one admitted retry", async () => {
+		const doc = minDoc();
+		const appId = await seedApp(doc);
+		const batchId = crypto.randomUUID();
+		const sharedLabel = proseText("Home village");
+		const first = () =>
+			Object.assign(Object.create(null), {
+				patch: Object.assign(Object.create(null), { label: sharedLabel }),
+				targetKind: "text",
+				uuid: villageUuid(doc),
+				kind: "updateField",
+			});
+
+		await commitGuardedBatch({
+			appId,
+			expectedProjectId: PROJECT,
+			batchId,
+			mutations: [first(), first()],
+			actorUserId: OWNER,
+			kind: "autosave",
+		});
+		const replay = await commitGuardedBatch({
+			appId,
+			expectedProjectId: PROJECT,
+			batchId,
+			mutations: [structuredClone(first()), structuredClone(first())],
+			actorUserId: OWNER,
+			kind: "autosave",
+		});
+
+		expect(replay.deduped).toBe(true);
+		expect(replay.seq).toBe(1);
+		expect(await readStream(appId)).toHaveLength(1);
 	});
 
 	it("refreshes the EDIT run_lock lease on a commit by the lock-holding run", async () => {
@@ -555,7 +760,12 @@ describe("commitGuardedBatch (Postgres)", () => {
 		const village = Object.values(reloaded?.blueprint.fields ?? {}).find(
 			(field) => field.id === "village",
 		);
-		expect(village && "label" in village && village.label).toBe("Village");
+		expect(
+			village &&
+				"label" in village &&
+				village.label !== undefined &&
+				proseTemplateText(village.label),
+		).toBe("Village");
 	});
 
 	it("rejects a stale edit batch without changing the live successor's doc, cursor, identity, marker, or lock", async () => {
@@ -604,7 +814,12 @@ describe("commitGuardedBatch (Postgres)", () => {
 		const village = Object.values(reloaded?.blueprint.fields ?? {}).find(
 			(field) => field.id === "village",
 		);
-		expect(village && "label" in village && village.label).toBe("Village");
+		expect(
+			village &&
+				"label" in village &&
+				village.label !== undefined &&
+				proseTemplateText(village.label),
+		).toBe("Village");
 	});
 
 	it("denies a non-member with a terminal CommitReauthError (nothing written)", async () => {
@@ -642,32 +857,26 @@ describe("commitGuardedBatch (Postgres)", () => {
 		).rejects.toBeInstanceOf(CommitReauthError);
 	});
 
-	it("null project_id: the owner commits, a non-owner is denied CommitReauthError (no auth read)", async () => {
+	it("requires Project membership even when the actor is the app creator", async () => {
 		const doc = minDoc();
-		const appId = await seedApp(doc, { projectId: null, owner: OWNER });
-
-		const ok = await commitGuardedBatch({
-			appId,
-			expectedProjectId: null,
-			batchId: crypto.randomUUID(),
-			mutations: renameVillageLabel(doc, "Home village"),
-			actorUserId: OWNER,
-			kind: "autosave",
-		});
-		expect(ok.seq).toBe(1);
-		expect(projectRoleForInTransactionMock).not.toHaveBeenCalled();
+		const appId = await seedApp(doc, { projectId: PROJECT, owner: OWNER });
+		projectRoleForInTransactionMock.mockResolvedValue(null);
 
 		await expect(
 			commitGuardedBatch({
 				appId,
-				expectedProjectId: null,
+				expectedProjectId: PROJECT,
 				batchId: crypto.randomUUID(),
-				mutations: renameVillageLabel(doc, "Peer edit"),
-				actorUserId: MEMBER,
+				mutations: renameVillageLabel(doc, "Creator edit"),
+				actorUserId: OWNER,
 				kind: "autosave",
 			}),
 		).rejects.toBeInstanceOf(CommitReauthError);
-		expect(projectRoleForInTransactionMock).not.toHaveBeenCalled();
+		expect(projectRoleForInTransactionMock).toHaveBeenCalledWith(
+			expect.anything(),
+			OWNER,
+			PROJECT,
+		);
 	});
 
 	it("denies when the fresh in-transaction membership read finds no role", async () => {
@@ -711,13 +920,27 @@ describe("commitGuardedBatch (Postgres)", () => {
 	it("rejects when the app moved away from the caller's expected Project", async () => {
 		const doc = minDoc();
 		const appId = await seedApp(doc, { projectId: PROJECT });
-		await h.withTransaction((tx) =>
-			tx
+		await h.withTransaction(async (tx) => {
+			await tx
+				.insertInto("app_changes")
+				.values({
+					app_id: appId,
+					seq: 1,
+					batch_id: `project-move:${appId}`,
+					run_id: null,
+					actor_id: MEMBER,
+					kind: "project-move",
+					mutations: "[]",
+					from_project_id: PROJECT,
+					to_project_id: "project-moved",
+				})
+				.execute();
+			await tx
 				.updateTable("apps")
-				.set({ project_id: "project-moved" })
+				.set({ project_id: "project-moved", mutation_seq: 1 })
 				.where("id", "=", appId)
-				.execute(),
-		);
+				.execute();
+		});
 
 		await expect(
 			commitGuardedBatch({
@@ -738,10 +961,10 @@ describe("commitGuardedBatch (Postgres)", () => {
 		const mutations: Mutation[] = [
 			{
 				kind: "updateField",
-				uuid: "deleted-by-a-peer",
+				uuid: testUuid("deleted-by-a-peer"),
 				targetKind: "text",
-				patch: { label: "New label" },
-			} as Mutation,
+				patch: { label: proseText("New label") },
+			},
 		];
 
 		const err = await commitGuardedBatch({
@@ -812,7 +1035,12 @@ describe("commitGuardedBatch (Postgres)", () => {
 		const village = Object.values(result.committedDoc.fields).find(
 			(fl) => fl.id === "village",
 		);
-		expect(village && "label" in village && village.label).toBe("Home village");
+		expect(
+			village &&
+				"label" in village &&
+				village.label !== undefined &&
+				proseTemplateText(village.label),
+		).toBe("Home village");
 	});
 
 	it("commits a media attach when the asset is present + ready inside the transaction", async () => {
@@ -827,7 +1055,6 @@ describe("commitGuardedBatch (Postgres)", () => {
 			mutations: attachVillageLabelImage(doc, assetId),
 			actorUserId: OWNER,
 			kind: "autosave",
-			mediaExpectations: [{ assetId, kind: "image", slot: "label media" }],
 		});
 
 		expect(result.seq).toBe(1);
@@ -841,18 +1068,18 @@ describe("commitGuardedBatch (Postgres)", () => {
 			await h
 				.db()
 				.selectFrom("media_asset_refs")
-				.select(["asset_id", "app_id"])
+				.select(["project_id", "asset_id", "app_id"])
 				.where("asset_id", "=", assetId)
 				.where("app_id", "=", appId)
 				.executeTakeFirst(),
-		).toEqual({ asset_id: assetId, app_id: appId });
+		).toEqual({ project_id: PROJECT, asset_id: assetId, app_id: appId });
 	});
 
 	it("rejects a media attach whose asset was concurrently deleted (in-txn re-check)", async () => {
 		const doc = minDoc();
 		const appId = await seedApp(doc, { projectId: PROJECT });
 		// The asset is GONE by the time the transaction reads the asset rows.
-		const missingAssetId = crypto.randomUUID();
+		const missingAssetId = testMediaAssetId(crypto.randomUUID());
 
 		await expect(
 			commitGuardedBatch({
@@ -862,9 +1089,6 @@ describe("commitGuardedBatch (Postgres)", () => {
 				mutations: attachVillageLabelImage(doc, missingAssetId),
 				actorUserId: OWNER,
 				kind: "autosave",
-				mediaExpectations: [
-					{ assetId: missingAssetId, kind: "image", slot: "label media" },
-				],
 			}),
 		).rejects.toBeInstanceOf(BlueprintCommitRejectedError);
 		expect(await readSeq(appId)).toBe(0);
@@ -890,14 +1114,14 @@ describe("commitGuardedBatch (Postgres)", () => {
 		const reloaded = await (await import("../apps")).loadApp(appId);
 		expect(reloaded?.blueprint.appName).toBe("Migrated");
 
-		// Migration streams trigger reload, but the durable history stores the real
+		// Blueprint migrations trigger reload, but durable history stores the real
 		// deterministic delta rather than an empty whole-document sentinel.
 		const stream = await readStream(appId);
 		expect(stream).toHaveLength(1);
 		expect(stream[0]).toMatchObject({
 			seq: 1,
 			mutations: [{ kind: "setAppName", name: "Migrated" }],
-			kind: "migration",
+			kind: "blueprint-migration",
 			actor_id: "system:test-migration",
 		});
 	});
@@ -920,139 +1144,5 @@ describe("commitGuardedBatch (Postgres)", () => {
 		expect(result).toEqual({ kind: "noop", seq: 0 });
 		expect(await readSeq(appId)).toBe(0);
 		expect(await readStream(appId)).toEqual([]);
-	});
-});
-
-describe("commitGuardedBatch — rename-expectation gate", () => {
-	it("rejects a fresh-proven rename the caller's migration did not cover, and admits a covered one", async () => {
-		const doc = minDoc();
-		const appId = await seedApp(doc, { projectId: null });
-		const village = Object.values(doc.fields).find((fl) => fl.id === "village");
-		if (!village) throw new Error("fixture is missing the village field");
-		const mutations: Mutation[] = [
-			{ kind: "renameField", uuid: village.uuid, newId: "hamlet" },
-		];
-
-		// The batch's fresh re-apply renames village→hamlet, but the caller
-		// claims NO pairs were case-store-migrated (the trailing-prior
-		// shape: the migration ran for a different pair, or not at all).
-		// Committing would strand row values with the rename evidence
-		// expired, so the in-transaction gate rejects and writes nothing.
-		await expect(
-			commitGuardedBatch({
-				appId,
-				expectedProjectId: null,
-				batchId: crypto.randomUUID(),
-				mutations,
-				actorUserId: OWNER,
-				kind: "autosave",
-				renameExpectations: [],
-			}),
-		).rejects.toBeInstanceOf(BlueprintCommitRejectedError);
-		expect(await readSeq(appId)).toBe(0);
-
-		// The same batch with its pair covered commits normally.
-		const result = await commitGuardedBatch({
-			appId,
-			expectedProjectId: null,
-			batchId: crypto.randomUUID(),
-			mutations,
-			actorUserId: OWNER,
-			kind: "autosave",
-			renameExpectations: [
-				{ caseType: "patient", from: "village", to: "hamlet" },
-			],
-		});
-		expect(result.seq).toBe(1);
-	});
-
-	it("rejects a pre-migrated diff rename when a peer's fresh writer keeps the old property", async () => {
-		/* M's diff/undo/collab batch prepared village→hamlet from a prior containing only the first
-		 * writer, then Phase A moved every saved `village` value. Before M's
-		 * blueprint commit, a peer added the second unchanged `village` writer.
-		 * Unlike interactive `renameField`, the diff encoding is an `updateField`
-		 * id patch targeting only M's original UUID, so the peer stays on `village`.
-		 * The fresh diff now suppresses the rename proof because `village` stays
-		 * live for that keeper. Accepting M would leave the final schema with both
-		 * properties while the keeper's values had already been moved to `hamlet`. */
-		const fresh = buildDoc({
-			appName: "Kept rename race",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					forms: [
-						{
-							name: "Original writer",
-							type: "registration",
-							fields: [
-								f({
-									kind: "text",
-									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
-								}),
-								f({
-									kind: "text",
-									id: "village",
-									label: "Moving village writer",
-									case_property_on: "patient",
-								}),
-							],
-						},
-						{
-							name: "Peer writer",
-							type: "followup",
-							fields: [
-								f({
-									kind: "text",
-									id: "village",
-									label: "Keeping village writer",
-									case_property_on: "patient",
-								}),
-							],
-						},
-					],
-				},
-			],
-			caseTypes: [
-				{
-					name: "patient",
-					properties: [
-						{ name: "case_name", label: "Name" },
-						{ name: "village", label: "Village" },
-					],
-				},
-			],
-		});
-		const appId = await seedApp(fresh, { projectId: null });
-		const movingWriter = Object.values(fresh.fields).find(
-			(field) => "label" in field && field.label === "Moving village writer",
-		);
-		if (!movingWriter) throw new Error("fixture is missing the moving writer");
-
-		await expect(
-			commitGuardedBatch({
-				appId,
-				expectedProjectId: null,
-				batchId: crypto.randomUUID(),
-				mutations: [
-					{
-						kind: "updateField",
-						uuid: movingWriter.uuid,
-						targetKind: "text",
-						patch: { id: "hamlet" },
-					} as Mutation,
-				],
-				actorUserId: OWNER,
-				kind: "autosave",
-				renameExpectations: [
-					{ caseType: "patient", from: "village", to: "hamlet" },
-				],
-			}),
-		).rejects.toThrow(
-			'Saved case data was prepared for a rename of "village" to "hamlet"',
-		);
-		expect(await readSeq(appId)).toBe(0);
 	});
 });

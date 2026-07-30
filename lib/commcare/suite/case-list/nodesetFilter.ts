@@ -108,7 +108,9 @@ export function emitNodesetFilter(
 		undefined,
 		relationContext,
 		undefined,
-		lookupNaming === undefined ? {} : { lookup: { naming: lookupNaming } },
+		lookupNaming === undefined
+			? {}
+			: { lookup: { naming: lookupNaming, instanceScope: "suite" } },
 	)}]`;
 }
 
@@ -196,7 +198,9 @@ export function emitNormalizedExcludedOwnerIdsExpression(
 		undefined,
 		relationContext,
 		undefined,
-		lookupNaming === undefined ? {} : { lookup: { naming: lookupNaming } },
+		lookupNaming === undefined
+			? {}
+			: { lookup: { naming: lookupNaming, instanceScope: "suite" } },
 	)})`;
 }
 

@@ -5,33 +5,43 @@
  * case-property leaf rename matches the long-standing rewriter rules.
  */
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolvableUserPropertySlug } from "@/lib/doc/expressionText";
 import {
 	fieldPathResolver,
 	printXPath,
+	projectXPath,
 	renameCasePropertyInXPath,
 	type XPathExpression,
 	type XPathPrintableDoc,
+	XPathProjectionError,
 	xpathPrintContext,
 } from "@/lib/domain";
-import { parseXPathExpression } from "../expressionAst";
+import {
+	parseXPathExpression,
+	parseXPathExpressionWithIssues,
+} from "../expressionAst";
 
-const FORM = "form-1";
+const FORM = testUuid("form-1");
+const AGE = testUuid("f-age");
+const GROUP = testUuid("f-grp");
+const INNER = testUuid("f-inner");
+const REGION = testUuid("property-region");
 
 function makeDoc(): XPathPrintableDoc {
 	return {
 		forms: { [FORM]: {} },
 		fields: {
-			"f-age": { id: "age" },
-			"f-grp": { id: "grp" },
-			"f-inner": { id: "inner" },
+			[AGE]: { id: "age" },
+			[GROUP]: { id: "grp" },
+			[INNER]: { id: "inner" },
 		},
 		fieldOrder: {
-			[FORM]: ["f-age", "f-grp"],
-			"f-grp": ["f-inner"],
+			[FORM]: [AGE, GROUP],
+			[GROUP]: [INNER],
 		},
 		userProperties: {
-			"property-region": { slug: "region" },
+			[REGION]: { slug: "region" },
 		},
 	};
 }
@@ -48,36 +58,39 @@ describe("leaf classification", () => {
 	it("resolves #form refs to field-ref leaves, full path only", () => {
 		const doc = makeDoc();
 		expect(parse("#form/age", doc).parts).toEqual([
-			{ kind: "field-ref", uuid: "f-age" },
+			{ kind: "field-ref", uuid: AGE },
 		]);
 		expect(parse("#form/grp/inner", doc).parts).toEqual([
-			{ kind: "field-ref", uuid: "f-inner" },
+			{ kind: "field-ref", uuid: INNER },
 		]);
 		// A bare leaf id nested under a group does NOT resolve from the
-		// form root — it stays raw, the dangling treatment.
+		// form root. No mutable raw-reference leaf is admitted.
 		expect(parse("#form/inner", doc).parts).toEqual([
-			{ kind: "raw-ref", namespace: "form", segments: ["inner"] },
+			{ kind: "text", text: "#form/inner" },
 		]);
 	});
 
-	it("resolves pure /data chains to path-ref leaves with verbatim separators", () => {
+	it("resolves pure /data chains to canonical path-ref leaves", () => {
 		const doc = makeDoc();
 		expect(parse("/data/grp/inner", doc).parts).toEqual([
-			{ kind: "path-ref", uuid: "f-inner", seps: ["/", "/", "/"] },
+			{ kind: "path-ref", uuid: INNER },
 		]);
 		expect(parse("/ data / age", doc).parts).toEqual([
-			{ kind: "path-ref", uuid: "f-age", seps: ["/ ", " / "] },
+			{ kind: "path-ref", uuid: AGE },
 		]);
 		expect(parse("//data//age", doc).parts).toEqual([
-			{ kind: "path-ref", uuid: "f-age", seps: ["//", "//"] },
+			{ kind: "text", text: "//data//age" },
 		]);
+		expect(printXPath(parse("//data//age", doc), xpathPrintContext(doc))).toBe(
+			"//data//age",
+		);
 	});
 
 	it("keeps impure chains as text, claiming only the nested pure prefix", () => {
 		const doc = makeDoc();
 		const parts = parse("/data/grp[1]/inner", doc).parts;
 		expect(parts).toEqual([
-			{ kind: "path-ref", uuid: "f-grp", seps: ["/", "/"] },
+			{ kind: "path-ref", uuid: GROUP },
 			{ kind: "text", text: "[1]/inner" },
 		]);
 	});
@@ -91,10 +104,30 @@ describe("leaf classification", () => {
 			{ kind: "user-ref", property: "role" },
 		]);
 		expect(parse("#case/age", doc).parts).toEqual([
-			{ kind: "raw-ref", namespace: "case", segments: ["age"] },
+			{ kind: "text", text: "#case/age" },
 		]);
 		expect(parse("#mother/a/b", doc).parts).toEqual([
-			{ kind: "raw-ref", namespace: "mother", segments: ["a", "b"] },
+			{ kind: "text", text: "#mother/a/b" },
+		]);
+	});
+
+	it("rejects raw #case authoring instead of minting a contextual identity", () => {
+		const doc = makeDoc();
+		const parsed = parseXPathExpressionWithIssues(
+			"#case/age",
+			fieldPathResolver(doc, FORM),
+			resolvableUserPropertySlug(doc),
+		);
+		expect(parsed.expression.parts).toEqual([
+			{ kind: "text", text: "#case/age" },
+		]);
+		expect(parsed.issues).toEqual([
+			{
+				kind: "unresolved-reference",
+				source: "#case/age",
+				from: 0,
+				to: 9,
+			},
 		]);
 	});
 
@@ -111,11 +144,44 @@ describe("leaf classification", () => {
 });
 
 describe("resolve at print", () => {
+	it("stores #form identity while the editor projects only the current friendly id", () => {
+		const doc = makeDoc();
+		(doc.fields as Record<string, { id: string }>)[AGE].id = "first_name";
+		const expr = parse("#form/first_name != ''", doc);
+
+		expect(expr.parts).toEqual([
+			{ kind: "field-ref", uuid: AGE },
+			{ kind: "text", text: " != ''" },
+		]);
+		const stored = structuredClone(expr);
+		const before = projectXPath(expr, xpathPrintContext(doc));
+		expect(before).toEqual({ ok: true, text: "#form/first_name != ''" });
+		if (before.ok) expect(before.text).not.toContain(AGE);
+
+		(doc.fields as Record<string, { id: string }>)[AGE].id = "given_name";
+		expect(expr).toEqual(stored);
+		const after = projectXPath(expr, xpathPrintContext(doc));
+		expect(after).toEqual({ ok: true, text: "#form/given_name != ''" });
+		if (after.ok) expect(after.text).not.toContain(AGE);
+	});
+
+	it("resolves a UUID-looking friendly field id by path, not by identity text", () => {
+		const doc = makeDoc();
+		const uuidLookingId = testUuid("friendly-looking-id");
+		(doc.fields as Record<string, { id: string }>)[AGE].id = uuidLookingId;
+
+		const expr = parse(`#form/${uuidLookingId}`, doc);
+		expect(expr.parts).toEqual([{ kind: "field-ref", uuid: AGE }]);
+		expect(printXPath(expr, xpathPrintContext(doc))).toBe(
+			`#form/${uuidLookingId}`,
+		);
+	});
+
 	it("prints the target's CURRENT name after a rename — no rewrite", () => {
 		const doc = makeDoc();
 		const expr = parse("#form/age > 18 and /data/age != ''", doc);
 		const fields = doc.fields as Record<string, { id: string }>;
-		fields["f-age"].id = "years";
+		fields[AGE].id = "years";
 		expect(printXPath(expr, xpathPrintContext(doc))).toBe(
 			"#form/years > 18 and /data/years != ''",
 		);
@@ -126,8 +192,8 @@ describe("resolve at print", () => {
 		const expr = parse("#form/age + /data/age", doc);
 		// Move `age` into the group.
 		const order = doc.fieldOrder as Record<string, string[]>;
-		order[FORM] = ["f-grp"];
-		order["f-grp"] = ["f-age", "f-inner"];
+		order[FORM] = [GROUP];
+		order[GROUP] = [AGE, INNER];
 		expect(printXPath(expr, xpathPrintContext(doc))).toBe(
 			"#form/grp/age + /data/grp/age",
 		);
@@ -136,7 +202,7 @@ describe("resolve at print", () => {
 	it("prints a container rename through refs to its descendants", () => {
 		const doc = makeDoc();
 		const expr = parse("#form/grp/inner", doc);
-		(doc.fields as Record<string, { id: string }>)["f-grp"].id = "section";
+		(doc.fields as Record<string, { id: string }>)[GROUP].id = "section";
 		expect(printXPath(expr, xpathPrintContext(doc))).toBe(
 			"#form/section/inner",
 		);
@@ -145,17 +211,26 @@ describe("resolve at print", () => {
 	it("prints raw and case leaves verbatim regardless of doc changes", () => {
 		const doc = makeDoc();
 		const expr = parse("#form/gone + #mother/age + #case/age", doc);
-		(doc.fields as Record<string, { id: string }>)["f-age"].id = "years";
+		(doc.fields as Record<string, { id: string }>)[AGE].id = "years";
 		expect(printXPath(expr, xpathPrintContext(doc))).toBe(
 			"#form/gone + #mother/age + #case/age",
 		);
 	});
 
-	it("falls back to the uuid spelling for an unresolvable identity leaf", () => {
+	it("shows repair text without leaking identity and blocks strict projection", () => {
 		const doc = makeDoc();
 		const expr = parse("#form/age", doc);
-		delete (doc.fields as Record<string, unknown>)["f-age"];
-		expect(printXPath(expr, xpathPrintContext(doc))).toBe("#form/f-age");
+		delete (doc.fields as Record<string, unknown>)[AGE];
+		const projected = projectXPath(expr, xpathPrintContext(doc));
+		expect(projected).toEqual({
+			ok: false,
+			text: "#form/[reference needs repair]",
+			unresolved: [{ kind: "field-ref", identity: AGE }],
+		});
+		expect(projected.text).not.toContain(AGE);
+		expect(() => printXPath(expr, xpathPrintContext(doc))).toThrow(
+			XPathProjectionError,
+		);
 	});
 
 	it("prints a custom user property through its current slug without rewriting", () => {
@@ -164,14 +239,14 @@ describe("resolve at print", () => {
 		expect(expr.parts).toEqual([
 			{
 				kind: "user-property-ref",
-				userPropertyUuid: "property-region",
+				userPropertyUuid: REGION,
 			},
 			{ kind: "text", text: " + " },
 			{ kind: "user-ref", property: "commcare_project" },
 		]);
 
 		doc.userProperties = {
-			"property-region": { slug: "district" },
+			[REGION]: { slug: "district" },
 		};
 		expect(printXPath(expr, xpathPrintContext(doc))).toBe(
 			"#user/district + #user/commcare_project",
@@ -184,7 +259,7 @@ describe("resolve at print", () => {
 			parts: [{ kind: "user-ref", property: "region" }],
 		};
 		doc.userProperties = {
-			"property-region": { slug: "district" },
+			[REGION]: { slug: "district" },
 		};
 		expect(printXPath(expr, xpathPrintContext(doc))).toBe("#user/region");
 	});
@@ -192,28 +267,28 @@ describe("resolve at print", () => {
 	it("does not bind a malformed duplicate slug to an arbitrary uuid", () => {
 		const doc = makeDoc();
 		doc.userProperties = {
-			first: { slug: "region" },
-			second: { slug: "region" },
+			[testUuid("first")]: { slug: "region" },
+			[testUuid("second")]: { slug: "region" },
 		};
 		expect(parse("#user/region", doc).parts).toEqual([
 			{ kind: "user-ref", property: "region" },
 		]);
 	});
 
-	it("keeps built-in names raw even when an invalid legacy custom property collides", () => {
+	it("keeps built-in names raw when an invalid custom property collides", () => {
 		const doc = makeDoc();
 		doc.userProperties = {
-			legacy: { slug: "user_type" },
+			[testUuid("invalid-built-in-collision")]: { slug: "user_type" },
 		};
 		expect(parse("#user/user_type", doc).parts).toEqual([
 			{ kind: "user-ref", property: "user_type" },
 		]);
 	});
 
-	it("keeps reserved legacy custom-property names raw", () => {
+	it("keeps invalid reserved custom-property names raw", () => {
 		const doc = makeDoc();
 		doc.userProperties = {
-			legacy: { slug: "case_id" },
+			[testUuid("invalid-reserved-collision")]: { slug: "case_id" },
 		};
 		expect(parse("#user/case_id", doc).parts).toEqual([
 			{ kind: "user-ref", property: "case_id" },
@@ -223,15 +298,15 @@ describe("resolve at print", () => {
 	it("keeps a case-insensitive duplicate raw even when one spelling matches exactly", () => {
 		const doc = makeDoc();
 		doc.userProperties = {
-			upper: { slug: "Region" },
-			lower: { slug: "region" },
+			[testUuid("upper")]: { slug: "Region" },
+			[testUuid("lower")]: { slug: "region" },
 		};
 		const expr = parse("#user/region", doc);
 		expect(expr.parts).toEqual([{ kind: "user-ref", property: "region" }]);
 
 		doc.userProperties = {
-			upper: { slug: "Region" },
-			lower: { slug: "district" },
+			[testUuid("upper")]: { slug: "Region" },
+			[testUuid("lower")]: { slug: "district" },
 		};
 		expect(printXPath(expr, xpathPrintContext(doc))).toBe("#user/region");
 	});
@@ -239,53 +314,30 @@ describe("resolve at print", () => {
 	it("requires exact capitalization even for one unambiguous custom identity", () => {
 		const doc = makeDoc();
 		doc.userProperties = {
-			upper: { slug: "Region" },
+			[testUuid("upper")]: { slug: "Region" },
 		};
 		const expr = parse("#user/region", doc);
 		expect(expr.parts).toEqual([{ kind: "user-ref", property: "region" }]);
 
 		doc.userProperties = {
-			upper: { slug: "District" },
+			[testUuid("upper")]: { slug: "District" },
 		};
 		expect(printXPath(expr, xpathPrintContext(doc))).toBe("#user/region");
 	});
 });
 
 describe("structural case-property rename", () => {
-	it("renames matching case-ref leaves and contextual raw leaves", () => {
+	it("renames only the explicit identity and never rejected raw #case text", () => {
 		const doc = makeDoc();
 		const expr = parse("#mother/age + #case/age + #other/age", doc);
-		const renamed = renameCasePropertyInXPath(
-			expr,
-			{ caseType: "mother", oldName: "age", newName: "years" },
-			{ contextualMatches: true },
-		);
-		expect(renamed).toBe(2);
+		const renamed = renameCasePropertyInXPath(expr, {
+			caseType: "mother",
+			oldName: "age",
+			newName: "years",
+		});
+		expect(renamed).toBe(1);
 		expect(printXPath(expr, xpathPrintContext(doc))).toBe(
-			"#mother/years + #case/years + #other/age",
+			"#mother/years + #case/age + #other/age",
 		);
-	});
-
-	it("leaves contextual refs alone when the carrier's module type differs", () => {
-		const doc = makeDoc();
-		const expr = parse("#case/age", doc);
-		const renamed = renameCasePropertyInXPath(
-			expr,
-			{ caseType: "mother", oldName: "age", newName: "years" },
-			{ contextualMatches: false },
-		);
-		expect(renamed).toBe(0);
-		expect(printXPath(expr, xpathPrintContext(doc))).toBe("#case/age");
-	});
-
-	it("never touches multi-segment contextual refs", () => {
-		const doc = makeDoc();
-		const expr = parse("#case/parent/age", doc);
-		const renamed = renameCasePropertyInXPath(
-			expr,
-			{ caseType: "mother", oldName: "age", newName: "years" },
-			{ contextualMatches: true },
-		);
-		expect(renamed).toBe(0);
 	});
 });

@@ -4,25 +4,12 @@ import { CommitReauthError } from "@/lib/db/commitGuard";
 const mocks = vi.hoisted(() => {
 	class MockAppAccessError extends Error {}
 	class MockAppBusyError extends Error {}
-	class MockCaseDataStrandedError extends Error {}
-	class MockCrossProjectAppMoveBlockedError extends Error {
-		readonly code = "cross_project_move_unavailable" as const;
-	}
 	class MockAppRunStateCorruptError extends Error {}
-	class MockProjectMoveCompatibilityError extends Error {
-		constructor(readonly code: "disabled" | "incompatible_receiver") {
-			super(code);
-		}
-	}
 
 	return {
 		AppAccessError: MockAppAccessError,
 		AppBusyError: MockAppBusyError,
 		AppRunStateCorruptError: MockAppRunStateCorruptError,
-		ProjectMoveCompatibilityError: MockProjectMoveCompatibilityError,
-		readProjectMovesEnabled: vi.fn(),
-		CaseDataStrandedError: MockCaseDataStrandedError,
-		CrossProjectAppMoveBlockedError: MockCrossProjectAppMoveBlockedError,
 		getSession: vi.fn(),
 		moveAppToProject: vi.fn(),
 		resolveAppAccess: vi.fn(),
@@ -47,12 +34,7 @@ vi.mock("@/lib/db/apps", () => ({
 vi.mock("@/lib/db/moveAppToProject", () => ({
 	AppBusyError: mocks.AppBusyError,
 	AppRunStateCorruptError: mocks.AppRunStateCorruptError,
-	CaseDataStrandedError: mocks.CaseDataStrandedError,
-	CrossProjectAppMoveBlockedError: mocks.CrossProjectAppMoveBlockedError,
 	moveAppToProject: mocks.moveAppToProject,
-}));
-vi.mock("@/lib/db/projectMoveAdmission", () => ({
-	ProjectMoveCompatibilityError: mocks.ProjectMoveCompatibilityError,
 }));
 
 import {
@@ -102,7 +84,7 @@ describe("delete/restore authoritative admission", () => {
 	});
 });
 
-describe("moveApp temporary Project policy", () => {
+describe("moveApp Project policy", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mocks.getSession.mockResolvedValue({ user: { id: "user-1" } });
@@ -112,7 +94,6 @@ describe("moveApp temporary Project policy", () => {
 			actorUserId: "user-1",
 		});
 		mocks.moveAppToProject.mockResolvedValue(undefined);
-		mocks.readProjectMovesEnabled.mockResolvedValue(true);
 	});
 
 	it("moves the app", async () => {

@@ -1,13 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import {
-	asUuid,
-	calculatedColumn,
-	dateColumn,
-	plainColumn,
-} from "@/lib/domain";
+import { calculatedColumn, dateColumn, plainColumn } from "@/lib/domain";
 import { prop, term } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { runValidation } from "../../../runner";
 
 describe("columnReferences", () => {
@@ -30,8 +27,8 @@ describe("columnReferences", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},
@@ -59,9 +56,9 @@ describe("columnReferences", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [
-							plainColumn(asUuid("col-name"), "case_name", "Name"),
+							plainColumn(testUuid("col-name"), "case_name", "Name"),
 							plainColumn(
-								asUuid("col-sort"),
+								testUuid("col-sort"),
 								"missing_sort_property",
 								"Old sort",
 								{
@@ -81,8 +78,8 @@ describe("columnReferences", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},
@@ -95,7 +92,7 @@ describe("columnReferences", () => {
 			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
 				(error) =>
 					error.code === "CASE_LIST_COLUMN_UNKNOWN_FIELD" &&
-					error.details?.columnUuid === "col-sort",
+					error.details?.columnUuid === testUuid("col-sort"),
 			),
 		).toBe(true);
 	});
@@ -119,14 +116,14 @@ describe("columnReferences", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 								f({
 									kind: "int",
 									id: "age",
-									label: "Age",
-									case_property_on: "patient",
+									label: proseText("Age"),
+									caseWrite: { caseType: "patient", property: "age" },
 								}),
 							],
 						},
@@ -154,9 +151,9 @@ describe("columnReferences", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [
-							plainColumn(asUuid("col-name"), "case_name", "Name"),
+							plainColumn(testUuid("col-name"), "case_name", "Name"),
 							dateColumn(
-								asUuid("col-date"),
+								testUuid("col-date"),
 								"missing_date",
 								"Date",
 								"%Y-%m-%d",
@@ -172,8 +169,8 @@ describe("columnReferences", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},
@@ -204,9 +201,9 @@ describe("columnReferences", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [
-							plainColumn(asUuid("col-name"), "case_name", "Name"),
+							plainColumn(testUuid("col-name"), "case_name", "Name"),
 							calculatedColumn(
-								asUuid("col-calc"),
+								testUuid("col-calc"),
 								"Display name",
 								term(prop("patient", "case_name")),
 							),
@@ -221,8 +218,8 @@ describe("columnReferences", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},
@@ -240,7 +237,7 @@ describe("columnReferences", () => {
 
 	it("admits declared-only properties (no field writer, no standard)", () => {
 		// `weight` is declared on `ct.properties[]` but NOT written by
-		// any field via `case_property_on`. Pre-fix, the rule consulted
+		// any field via `caseWrite`. Pre-fix, the rule consulted
 		// only writer-derived + standard, so a declared-only property
 		// would spuriously fire UNKNOWN_FIELD. The shared resolver's
 		// declared-first arm closes that gap; this test pins the
@@ -263,8 +260,8 @@ describe("columnReferences", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},
@@ -275,9 +272,13 @@ describe("columnReferences", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name", data_type: "text" },
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
 						// Declared but no writer + not in the standard set.
-						{ name: "weight", label: "Weight", data_type: "decimal" },
+						{
+							name: "weight",
+							label: proseText("Weight"),
+							data_type: "decimal",
+						},
 					],
 				},
 			],
@@ -301,7 +302,7 @@ describe("columnReferences", () => {
 						{
 							name: "Survey",
 							type: "survey",
-							fields: [f({ kind: "text", id: "q", label: "Q" })],
+							fields: [f({ kind: "text", id: "q", label: proseText("Q") })],
 						},
 					],
 				},

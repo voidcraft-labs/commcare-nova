@@ -1,13 +1,14 @@
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { applyMutation } from "@/lib/doc/mutations";
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
-import { asUuid } from "@/lib/doc/types";
+
 import type { Form, Module } from "@/lib/domain";
 
-const M = (s: string) => asUuid(`mod${s}-0000-0000-0000-000000000000`);
-const F = (s: string) => asUuid(`frm${s}-0000-0000-0000-000000000000`);
-const Q = (s: string) => asUuid(`qst${s}-0000-0000-0000-000000000000`);
+const M = (s: string) => testUuid(`mod${s}-0000-0000-0000-000000000000`);
+const F = (s: string) => testUuid(`frm${s}-0000-0000-0000-000000000000`);
+const Q = (s: string) => testUuid(`qst${s}-0000-0000-0000-000000000000`);
 
 function form_(uuid: Uuid, name = "Form"): Form {
 	return { uuid, name, type: "survey" } as Form;
@@ -198,6 +199,7 @@ describe("renameForm", () => {
 			...docWithModule(M("A")),
 			forms: { [F("1")]: form_(F("1"), "Old") },
 			formOrder: { [M("A")]: [F("1")] },
+			fieldOrder: { [F("1")]: [] },
 		};
 		const next = produce(start, (d) => {
 			applyMutation(d, { kind: "renameForm", uuid: F("1"), newId: "New" });
@@ -213,6 +215,7 @@ describe("updateForm", () => {
 			...docWithModule(M("A")),
 			forms: { [F("1")]: form_(F("1")) },
 			formOrder: { [M("A")]: [F("1")] },
+			fieldOrder: { [F("1")]: [] },
 		};
 		const next = produce(start, (d) => {
 			applyMutation(d, {

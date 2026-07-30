@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import type { BlueprintDoc, LookupOptionsSource } from "@/lib/domain";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
+import { proseText } from "@/lib/domain/prose";
 import type {
 	LookupCellValue,
 	LookupDataType,
@@ -41,7 +42,7 @@ function carrierDoc(source: LookupOptionsSource = SOURCE): BlueprintDoc {
 							f({
 								kind: "single_select",
 								id: "status",
-								label: "Status",
+								label: proseText("Status"),
 								optionsSource: source,
 							}),
 						],

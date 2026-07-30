@@ -3,22 +3,22 @@
  *
  * Contracts locked in:
  *
- *   - On a registration form, `#case/case_id` (and the own-type
- *     `#<own_type>/case_id`) rewrites to the form-local path
+ *   - On a registration form, the own-type `#<own_type>/case_id` rewrites to
+ *     the form-local path
  *     `/data/case/@case_id` (populated by the case-create scaffolding's
- *     setvalue chain). Every other `#case/<X>` is left in place / expanded to
- *     the case-loading shape so the validator + binding oracle reject it.
- *   - On every other form type (followup / close / survey),
- *     `expandHashtagsInContext` is identical to the context-free
- *     `expandHashtags` for the flat + literal-`#case/` namespaces.
+ *     setvalue chain).
+ *   - Literal authored `#case/...` fails closed at every wire projection.
  *   - A per-case-type namespace `#<type>/<prop>` resolves to the SAME
- *     parent-index walk as `#case/parent…/<prop>`, addressed by the type's
- *     reachable-case-type hop depth: own (depth 0) is byte-identical to
- *     `#case/<prop>`, an ancestor (depth N) to `#case/parent×N/<prop>`.
+ *     parent-index walk the private HQ `#case/parent…/<prop>` projection names,
+ *     addressed by the type's reachable-case-type hop depth.
  */
 
 import { describe, expect, it } from "vitest";
-import { expandHashtags, hqLoadReference } from "@/lib/commcare/hashtags";
+import {
+	expandCaseToWire,
+	expandFlatHashtags,
+	hqLoadReference,
+} from "@/lib/commcare/hashtags";
 import {
 	expandHashtagsInContext,
 	type FormHashtagContext,
@@ -31,70 +31,25 @@ const ctx = (
 ): FormHashtagContext => ({ formType, caseTypeDepths });
 
 describe("expandHashtagsInContext", () => {
-	describe("registration forms", () => {
-		it("rewrites #case/case_id to /data/case/@case_id", () => {
-			expect(
-				expandHashtagsInContext("#case/case_id", ctx("registration")),
-			).toBe("/data/case/@case_id");
-		});
-
-		it("rewrites #case/case_id inside a larger expression", () => {
-			expect(
+	it.each(["registration", "followup", "close", "survey"] as const)(
+		"rejects raw authored #case/ on %s forms",
+		(formType) => {
+			expect(() =>
 				expandHashtagsInContext(
-					"concat(#case/case_id, '-suffix')",
-					ctx("registration"),
+					"#case/case_id",
+					ctx(formType, new Map([["patient", 0]])),
 				),
-			).toBe("concat(/data/case/@case_id, '-suffix')");
-		});
+			).toThrow('Authored "#case/..." is not a Nova reference');
+		},
+	);
 
-		it("leaves #case/<other> un-rewritten so it surfaces as a build error downstream", () => {
-			// The un-rewritten ref flows through the case-loading expansion; the
-			// binding-resolution oracle then catches that registration entries
-			// declare no `case_id` datum and throws at compile time.
-			const result = expandHashtagsInContext(
-				"#case/some_other_prop",
-				ctx("registration"),
-			);
-			// It expands to the case-loading shape — NOT to /data/case/@case_id,
-			// which is reserved for the form's own allocated case_id.
-			expect(result).not.toContain("/data/case/@case_id");
-		});
-
-		it("rewrites only the exact #case/case_id token (not prefix matches)", () => {
-			// A hashtag whose segment starts with "case_id" — e.g. a hypothetical
-			// `case_id_x` property — must NOT be rewritten. Lezer matches on the
-			// segment boundary, not by string prefix.
-			const result = expandHashtagsInContext(
-				"#case/case_id_extension",
-				ctx("registration"),
-			);
-			expect(result).not.toContain("/data/case/@case_id");
-		});
-
-		it("expands #form/ and #user/ hashtags the same way the context-free expander does", () => {
-			expect(expandHashtagsInContext("#form/x + 1", ctx("registration"))).toBe(
-				expandHashtags("#form/x + 1"),
-			);
-			expect(
-				expandHashtagsInContext("#user/username", ctx("registration")),
-			).toBe(expandHashtags("#user/username"));
-		});
-	});
-
-	describe("non-registration forms", () => {
-		for (const formType of ["followup", "close", "survey"] as const) {
-			it(`expands #case/case_id the case-loading way on ${formType}`, () => {
-				expect(expandHashtagsInContext("#case/case_id", ctx(formType))).toBe(
-					expandHashtags("#case/case_id"),
-				);
-			});
-
-			it(`expands #case/<other> identically to the context-free expander on ${formType}`, () => {
-				expect(
-					expandHashtagsInContext("#case/total_visits", ctx(formType)),
-				).toBe(expandHashtags("#case/total_visits"));
-			});
-		}
+	it("expands #form/ and #user/ through the flat authored resolver", () => {
+		expect(expandHashtagsInContext("#form/x + 1", ctx("registration"))).toBe(
+			expandFlatHashtags("#form/x + 1"),
+		);
+		expect(expandHashtagsInContext("#user/username", ctx("registration"))).toBe(
+			expandFlatHashtags("#user/username"),
+		);
 	});
 
 	describe("per-case-type namespaces", () => {
@@ -108,7 +63,7 @@ describe("expandHashtagsInContext", () => {
 		it("resolves #<own_type>/<prop> byte-identical to #case/<prop>", () => {
 			expect(
 				expandHashtagsInContext("#pregnancy/ga_weeks", ctx("followup", depths)),
-			).toBe(expandHashtags("#case/ga_weeks"));
+			).toBe(expandCaseToWire(0, "ga_weeks"));
 		});
 
 		it("resolves #<parent_type>/<prop> byte-identical to #case/parent/<prop>", () => {
@@ -117,7 +72,7 @@ describe("expandHashtagsInContext", () => {
 					"#mother/household_code",
 					ctx("followup", depths),
 				),
-			).toBe(expandHashtags("#case/parent/household_code"));
+			).toBe(expandCaseToWire(1, "household_code"));
 		});
 
 		it("rewrites #<own_type>/case_id to /data/case/@case_id on a registration form", () => {
@@ -141,7 +96,7 @@ describe("expandHashtagsInContext", () => {
 					"#form/age > #mother/min_age",
 					ctx("followup", depths),
 				),
-			).toBe(`/data/age > ${expandHashtags("#case/parent/min_age")}`);
+			).toBe(`/data/age > ${expandCaseToWire(1, "min_age")}`);
 		});
 	});
 
@@ -168,10 +123,12 @@ describe("vellumShorthandInContext", () => {
 		["household", 2],
 	]);
 
-	it("projects an own-type ref onto #case/ and keeps transitional #case/ refs", () => {
+	it("projects a canonical own-type ref onto HQ's private #case/ spelling", () => {
 		const c = ctx("followup", depths);
 		expect(vellumShorthandInContext("#pregnancy/ga", c)).toBe("#case/ga");
-		expect(vellumShorthandInContext("#case/ga", c)).toBe("#case/ga");
+		expect(() => vellumShorthandInContext("#case/ga", c)).toThrow(
+			'Authored "#case/..." is not a Nova reference',
+		);
 	});
 
 	it("suppresses ancestor-generation shadows — HQ derives parent generations from in-app subcase forms, not the catalog", () => {
@@ -182,10 +139,6 @@ describe("vellumShorthandInContext", () => {
 		const c = ctx("followup", depths);
 		expect(vellumShorthandInContext("#mother/code", c)).toBeUndefined();
 		expect(vellumShorthandInContext("#household/head", c)).toBeUndefined();
-		expect(vellumShorthandInContext("#case/parent/code", c)).toBeUndefined();
-		expect(
-			vellumShorthandInContext("#case/parent/parent/head", c),
-		).toBeUndefined();
 	});
 
 	it("suppresses #user/ shadows — the usercase namespace is a domain privilege Nova can't know", () => {
@@ -237,9 +190,6 @@ describe("vellumShorthandInContext", () => {
 			),
 		).toBeUndefined();
 		expect(
-			vellumShorthandInContext("#case/case_id", ctx("registration")),
-		).toBeUndefined();
-		expect(
 			vellumShorthandInContext("#pregnancy/ga", ctx("survey", depths)),
 		).toBeUndefined();
 		// #form shadows survive on every form type.
@@ -253,15 +203,12 @@ describe("vellumShorthandInContext", () => {
 		expect(vellumShorthandInContext("#unknown/x", c)).toBeUndefined();
 		// A property literally named after a relationship word would be read by
 		// the editor as a WALK, diverging from the expanded attribute.
-		expect(vellumShorthandInContext("#case/grandparent", c)).toBeUndefined();
 		expect(
 			vellumShorthandInContext("#pregnancy/grandparent", c),
 		).toBeUndefined();
 		expect(vellumShorthandInContext("#pregnancy/parent", c)).toBeUndefined();
 		// Multi-segment property path — no editor prefix covers it.
 		expect(vellumShorthandInContext("#pregnancy/a/b", c)).toBeUndefined();
-		// Bare relationship ref (no property) — same.
-		expect(vellumShorthandInContext("#case/parent", c)).toBeUndefined();
 	});
 
 	it("returns undefined when the expression has no hashtags at all", () => {
@@ -275,13 +222,13 @@ describe("vellumShorthandInContext", () => {
 		const c = ctx("followup", depths);
 		const seen: Array<[string, string]> = [];
 		vellumShorthandInContext(
-			"#pregnancy/ga > 20 and #case/risk = 'high'",
+			"#pregnancy/ga > 20 and #pregnancy/risk = 'high'",
 			c,
 			(ref, expanded) => seen.push([ref, expanded]),
 		);
 		expect(seen).toEqual([
-			["#case/ga", expandHashtags("#case/ga")],
-			["#case/risk", expandHashtags("#case/risk")],
+			["#case/ga", expandCaseToWire(0, "ga")],
+			["#case/risk", expandCaseToWire(0, "risk")],
 		]);
 
 		// A suppressed expression reports nothing — its refs must not leak into
@@ -318,10 +265,9 @@ describe("hqLoadReference", () => {
 		);
 	});
 
-	it("passes #case/, #user/, and unreachable namespaces through verbatim", () => {
-		expect(hqLoadReference("#case/ga", depths)).toBe("#case/ga");
-		expect(hqLoadReference("#case/parent/code", depths)).toBe(
-			"#case/parent/code",
+	it("rejects authored #case/ and passes #user/ plus unreachable namespaces through", () => {
+		expect(() => hqLoadReference("#case/ga", depths)).toThrow(
+			'Authored "#case/..." is not a Nova reference',
 		);
 		expect(hqLoadReference("#user/role", depths)).toBe("#user/role");
 		expect(hqLoadReference("#unknown/x", depths)).toBe("#unknown/x");

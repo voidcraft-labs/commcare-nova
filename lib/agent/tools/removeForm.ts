@@ -6,7 +6,7 @@
  * shared `ToolExecutionContext` interface. The reducer cascades
  * deletion to the form's fields — the full subtree is dropped atomically.
  *
- * The tool tolerates a missing form UUID: instead of returning an
+ * The tool tolerates an already-missing form UUID: instead of returning an
  * error (which would poison the SA's follow-up logic), it returns a
  * clear "does not exist, no change" success message. The SA sees the
  * target-already-gone state explicitly and keeps moving rather than
@@ -17,14 +17,13 @@
  *
  *   - Missing UUID → no mutations, "does not exist, no change" message.
  *   - Success → human-readable "Successfully removed" summary tagged
- *     with the form UUID.
+ *     `form:M-F`.
  */
 
 import type { z } from "zod";
 import { orderedFormUuids } from "@/lib/doc/fieldWalk";
 import type { Mutation } from "@/lib/doc/types";
-import type { BlueprintDoc } from "@/lib/domain";
-import { asUuid } from "@/lib/domain";
+import { asUuid, type BlueprintDoc } from "@/lib/domain";
 import { removeFormMutations } from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import {
@@ -105,7 +104,7 @@ export const removeFormTool = {
 			const remainingForms = orderedFormUuids(newDoc, moduleUuid);
 			return {
 				kind: "mutate" as const,
-				mutations,
+				mutations: commit.mutations,
 				newDoc,
 				result: {
 					message: `Successfully removed form "${removedName}" from module "${mod.name}". Module now has ${remainingForms.length} form${remainingForms.length === 1 ? "" : "s"}.`,

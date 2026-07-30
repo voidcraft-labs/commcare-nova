@@ -4,7 +4,7 @@ import { expandDoc } from "@/lib/commcare/expander";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { validateXForm } from "@/lib/commcare/validator/xformOracle";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import { asUuid } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 
 // ── XForm XML Validator ────────────────────────────────────────────
 
@@ -424,8 +424,8 @@ describe("case list column validation", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},
@@ -433,7 +433,10 @@ describe("case list column validation", () => {
 				},
 			],
 			caseTypes: [
-				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
 			],
 		});
 		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
@@ -465,8 +468,8 @@ describe("case list column validation", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},
@@ -474,7 +477,10 @@ describe("case list column validation", () => {
 				},
 			],
 			caseTypes: [
-				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
 			],
 		});
 		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
@@ -502,14 +508,14 @@ describe("case list column validation", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 								f({
 									kind: "int",
 									id: "age",
-									label: "Age",
-									case_property_on: "patient",
+									label: proseText("Age"),
+									caseWrite: { caseType: "patient", property: "age" },
 								}),
 							],
 						},
@@ -520,8 +526,8 @@ describe("case list column validation", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name" },
-						{ name: "age", label: "Age" },
+						{ name: "case_name", label: proseText("Name") },
+						{ name: "age", label: proseText("Age") },
 					],
 				},
 			],
@@ -554,14 +560,14 @@ describe("expanded XForm validation", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Full Name",
-									case_property_on: "patient",
+									label: proseText("Full Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 								f({
 									kind: "int",
 									id: "age",
-									label: "Age",
-									case_property_on: "patient",
+									label: proseText("Age"),
+									caseWrite: { caseType: "patient", property: "age" },
 								}),
 								f({
 									kind: "hidden",
@@ -574,7 +580,10 @@ describe("expanded XForm validation", () => {
 				},
 			],
 			caseTypes: [
-				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
 			],
 		});
 
@@ -599,20 +608,26 @@ describe("expanded XForm validation", () => {
 							name: "Survey",
 							type: "survey",
 							fields: [
-								f({ kind: "text", id: "intro", label: "Intro" }),
+								f({ kind: "text", id: "intro", label: proseText("Intro") }),
 								f({
 									kind: "group",
 									id: "details",
-									label: "Details",
-									children: [f({ kind: "text", id: "item", label: "Item" })],
+									label: proseText("Details"),
+									children: [
+										f({ kind: "text", id: "item", label: proseText("Item") }),
+									],
 								}),
 								f({
 									kind: "repeat",
 									id: "visits",
-									label: "Visits",
+									label: proseText("Visits"),
 									children: [
-										f({ kind: "date", id: "visit_date", label: "Date" }),
-										f({ kind: "text", id: "notes", label: "Notes" }),
+										f({
+											kind: "date",
+											id: "visit_date",
+											label: proseText("Date"),
+										}),
+										f({ kind: "text", id: "notes", label: proseText("Notes") }),
 									],
 								}),
 							],
@@ -646,42 +661,20 @@ describe("expanded XForm validation", () => {
 								f({
 									kind: "single_select",
 									id: "color",
-									label: "Color",
-									optionsSource: {
-										kind: "inline",
-										options: [
-											{
-												uuid: asUuid("0cd988f8-0289-4cee-a800-620c6275b676"),
-												value: "red",
-												label: "Red",
-											},
-											{
-												uuid: asUuid("9276ec2a-8b7c-4b45-a71e-3d53ec09e834"),
-												value: "blue",
-												label: "Blue",
-											},
-										],
-									},
+									label: proseText("Color"),
+									options: [
+										{ value: "red", label: "Red" },
+										{ value: "blue", label: "Blue" },
+									],
 								}),
 								f({
 									kind: "multi_select",
 									id: "tags",
-									label: "Tags",
-									optionsSource: {
-										kind: "inline",
-										options: [
-											{
-												uuid: asUuid("16544537-021b-44ca-a8c2-279e9b1eeb51"),
-												value: "a",
-												label: "A",
-											},
-											{
-												uuid: asUuid("aa56c916-f52e-46b4-a7c7-291361338e4d"),
-												value: "b",
-												label: "B",
-											},
-										],
-									},
+									label: proseText("Tags"),
+									options: [
+										{ value: "a", label: "A" },
+										{ value: "b", label: "B" },
+									],
 								}),
 							],
 						},

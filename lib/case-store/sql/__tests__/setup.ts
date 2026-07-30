@@ -4,6 +4,9 @@
 // with `globalSetup.ts` (which boots one container per `vitest
 // run`); this file runs in each worker and gives every test a
 // `Kysely<Database>` instance inside a BEGIN / ROLLBACK envelope.
+// Every deferred constraint is switched to IMMEDIATE before the test body:
+// rollback-only isolation must not let a foreign-key violation remain pending
+// forever and make an invalid write look successful.
 //
 // Two fixtures share one connection so writes through `db` are
 // immediately visible to raw queries through `pgClient` and vice
@@ -42,6 +45,22 @@ const connectionString = inject("postgresTestUrl");
 
 /** `max: 5` leaves headroom for `test.concurrent` opt-ins. */
 const pool = new Pool({ connectionString, max: 5 });
+
+/**
+ * Parent rows for every `(app_id, project_id)` pair the compiler harnesses
+ * insert through `makeCaseRow`. They are seeded inside each test transaction,
+ * so direct case fixtures exercise the real composite tenant FK under
+ * immediate checking instead of depending on a never-reached COMMIT.
+ */
+const HARNESS_APP_PROJECTS = [
+	["app-test", "project-test"],
+	["app-expression-compiler", "owner-expression-compiler"],
+	["app-lookup-compiler", "project-lookup-compiler"],
+	["app-pred-compiler", "owner-pred-compiler"],
+	["app-relation-read-normalization", "project-relation-read-normalization"],
+	["app-relation-path", "owner-relation-path"],
+	["app-term-compiler", "owner-term-compiler"],
+] as const;
 
 afterAll(async () => {
 	// `pool.end()` is idempotent on closed pools, so re-firing
@@ -104,6 +123,18 @@ export const test = baseTest.extend<CaseStoreFixtures>({
 		const client = await pool.connect();
 		try {
 			await client.query("BEGIN");
+			await client.query("SET CONSTRAINTS ALL IMMEDIATE");
+			await client.query(
+				`
+					INSERT INTO apps (id, owner, project_id, app_name, app_name_lower)
+					SELECT app_id, project_id, project_id, app_id, lower(app_id)
+					FROM unnest($1::text[], $2::text[]) AS fixture(app_id, project_id)
+				`,
+				[
+					HARNESS_APP_PROJECTS.map(([appId]) => appId),
+					HARNESS_APP_PROJECTS.map(([, projectId]) => projectId),
+				],
+			);
 			try {
 				await use(client);
 			} finally {

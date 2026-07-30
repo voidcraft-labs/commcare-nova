@@ -14,13 +14,13 @@
  *
  * Three exit branches:
  *
- *   1. Module index out of range → `{ error }`, no mutations.
+ *   1. Module UUID address does not resolve → `{ error }`, no mutations.
  *   2. Search-input uuid not present → `{ error }`, no mutations.
  *   3. Success → `{ message, uuid }` plus the persisted mutation,
  *      tagged `module:M:caseList:searchInput:update`.
  */
 
-import { z } from "zod";
+import type { z } from "zod";
 import { asUuid, type BlueprintDoc, type Uuid } from "@/lib/domain";
 import { updateSearchInputMutation } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
@@ -29,23 +29,23 @@ import {
 	type MutatingToolResult,
 	toToolErrorResult,
 } from "../common";
+import {
+	moduleAddressSchema,
+	resolveModuleAddress,
+} from "../shared/entityAddresses";
 import type { ToolCallSummary } from "../shared/toolCallSummary";
 import {
-	moduleNotFoundResult,
-	searchInputDefInputSchema,
+	searchInputUpdateInputSchema,
 	stampSearchInputUuid,
 	uuidInputSchema,
 } from "./shared";
 
-export const updateSearchInputInputSchema = z
-	.object({
-		moduleUuid: uuidInputSchema.describe(
-			"Stable uuid of the module whose search input is updated",
-		),
+export const updateSearchInputInputSchema = moduleAddressSchema
+	.extend({
 		searchInputUuid: uuidInputSchema.describe(
 			"Uuid of the existing search input to replace. Look at getModule's projection or run searchBlueprint to surface the current uuids.",
 		),
-		searchInput: searchInputDefInputSchema.describe(
+		searchInput: searchInputUpdateInputSchema.describe(
 			"Replacement search-input body (full shape, `simple` or `advanced`). The uuid carries over — never supply one.",
 		),
 	})
@@ -74,21 +74,19 @@ export const updateSearchInputTool = {
 		ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<UpdateSearchInputResult>> {
-		const {
-			moduleUuid: rawModuleUuid,
-			searchInputUuid: rawSearchInputUuid,
-			searchInput,
-		} = input;
-		const moduleUuid = asUuid(rawModuleUuid);
+		const { searchInputUuid: rawSearchInputUuid, searchInput } = input;
 		const searchInputUuid = asUuid(rawSearchInputUuid);
 		try {
-			const mod = doc.modules[moduleUuid];
-			if (!mod)
-				return moduleNotFoundResult<UpdateSearchInputSuccess>(
-					doc,
-					rawModuleUuid,
-					"update a search input",
-				);
+			const address = resolveModuleAddress(doc, input);
+			if (!address.ok) {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					newDoc: doc,
+					result: { error: address.error },
+				};
+			}
+			const { moduleUuid, module: mod } = address;
 
 			const replacement = stampSearchInputUuid(searchInput, searchInputUuid);
 			const result = updateSearchInputMutation(
@@ -123,7 +121,7 @@ export const updateSearchInputTool = {
 
 			return {
 				kind: "mutate" as const,
-				mutations: result.mutations,
+				mutations: commit.mutations,
 				newDoc,
 				result: {
 					message: `Updated search input ${searchInputUuid} on module "${mod.name}". New kind: ${searchInput.kind}, label "${searchInput.label}".`,

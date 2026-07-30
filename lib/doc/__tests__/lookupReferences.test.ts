@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
-import { collectLookupCarriers } from "@/lib/doc/lookupCarrierInventory";
 import {
 	canonicalLookupReferenceSubpath,
 	EMPTY_LOOKUP_REFERENCE_TARGETS,
@@ -14,7 +14,6 @@ import {
 } from "@/lib/doc/lookupReferences";
 import {
 	advancedSearchInputDef,
-	asUuid,
 	calculatedColumn,
 	simpleSearchInputDef,
 	type Uuid,
@@ -117,13 +116,13 @@ describe("lookup reference extraction", () => {
 	});
 
 	it("extracts every production carrier slot with the exact nested owner identity", () => {
-		const moduleUuid = asUuid("module-lookup");
-		const formUuid = asUuid("form-lookup");
-		const fieldUuid = asUuid("field-lookup");
-		const columnUuid = asUuid("column-lookup");
-		const simpleInputUuid = asUuid("search-simple");
-		const advancedInputUuid = asUuid("search-advanced");
-		const operationUuid = asUuid("operation-lookup");
+		const moduleUuid = testUuid("module-lookup");
+		const formUuid = testUuid("form-lookup");
+		const fieldUuid = testUuid("field-lookup");
+		const columnUuid = testUuid("column-lookup");
+		const simpleInputUuid = testUuid("search-simple");
+		const advancedInputUuid = testUuid("search-advanced");
+		const operationUuid = testUuid("operation-lookup");
 		const sourceTable = tableId("1");
 		const nestedTable = tableId("2");
 
@@ -145,7 +144,7 @@ describe("lookup reference extraction", () => {
 								"simple",
 								"Simple",
 								"text",
-								"name",
+								"case_name",
 								{ default: lookupExpression(6) },
 							),
 							advancedSearchInputDef(
@@ -265,15 +264,6 @@ describe("lookup reference extraction", () => {
 		].sort();
 
 		expect(slotOwners).toEqual(expectedSlotOwners);
-		expect(
-			[
-				...new Set(
-					collectLookupCarriers(doc).map(
-						(carrier) => `${carrier.slot}:${carrier.ownerUuid}`,
-					),
-				),
-			].sort(),
-		).toEqual(expectedSlotOwners);
 		expect(occurrences).toHaveLength(39);
 		expect(
 			occurrences.every((occurrence) => occurrence.columnId !== undefined),
@@ -566,23 +556,23 @@ describe("lookup reference extraction", () => {
 				registrySlot: "future.itemset.value",
 				extract: () => [
 					{
-						carrierUuid: asUuid("carrier-b"),
+						carrierUuid: testUuid("carrier-b"),
 						subpath: ["value", 1],
 						tableId: tableId("2"),
 						columnId: columnId("2"),
 						acceptedColumnTypes: ["decimal", "int", "decimal"] as const,
 						location: {
 							scope: "field" as const,
-							fieldUuid: asUuid("carrier-b"),
+							fieldUuid: testUuid("carrier-b"),
 						},
 					},
 					{
-						carrierUuid: asUuid("carrier-a"),
+						carrierUuid: testUuid("carrier-a"),
 						subpath: ["value", 0],
 						tableId: tableId("1"),
 						location: {
 							scope: "module" as const,
-							moduleUuid: asUuid("carrier-a"),
+							moduleUuid: testUuid("carrier-a"),
 						},
 					},
 				],
@@ -591,16 +581,16 @@ describe("lookup reference extraction", () => {
 
 		const occurrences = extractLookupReferenceOccurrences(doc, registry);
 		expect(occurrences.map((occurrence) => occurrence.carrierUuid)).toEqual([
-			"carrier-a",
-			"carrier-b",
+			testUuid("carrier-b"),
+			testUuid("carrier-a"),
 		]);
-		expect(occurrences[1]).toMatchObject({
+		expect(occurrences[0]).toMatchObject({
 			registrySlot: "future.itemset.value",
 			subpath: "/k:value/i:1",
 			acceptedColumnTypes: ["int", "decimal"],
 		});
 		expect(Object.isFrozen(occurrences)).toBe(true);
-		expect(Object.isFrozen(occurrences[1].acceptedColumnTypes)).toBe(true);
+		expect(Object.isFrozen(occurrences[0].acceptedColumnTypes)).toBe(true);
 	});
 
 	it("rejects duplicate registry slots and a type contract without a column", () => {
@@ -619,7 +609,7 @@ describe("lookup reference extraction", () => {
 					registrySlot: "future.typed",
 					extract: () => [
 						{
-							carrierUuid: asUuid("carrier"),
+							carrierUuid: testUuid("carrier"),
 							subpath: [],
 							tableId: tableId("1"),
 							acceptedColumnTypes: ["text"],
@@ -636,7 +626,7 @@ describe("lookup reference extraction", () => {
 					registrySlot: "future.empty-types",
 					extract: () => [
 						{
-							carrierUuid: asUuid("carrier"),
+							carrierUuid: testUuid("carrier"),
 							subpath: [],
 							tableId: tableId("1"),
 							columnId: columnId("1"),
@@ -676,7 +666,7 @@ describe("lookup reference target normalization", () => {
 
 	it("projects occurrences and unions partitions through the same normalizer", () => {
 		const occurrence = {
-			carrierUuid: asUuid("carrier"),
+			carrierUuid: testUuid("carrier"),
 			registrySlot: "future.slot",
 			subpath: "",
 			tableId: tableId("1"),

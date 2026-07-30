@@ -2,11 +2,6 @@
  * Rule: keep schema-valid server-only / multi-valued expressions out of scalar
  * module slots evaluated by CommCare Core on the device.
  *
- * Core has no `unwrap-list` XPath function. CCHQ does expose that function in
- * its server-side CSQL grammar, so advanced search predicates retain a native
- * CSQL `unwrap-list`; only a subtree that the CSQL emitter interpolates through
- * on-device XPath is rejected.
- *
  * Standalone scalar ValueExpression roots have one additional cardinality
  * rule: a subcase or direction-agnostic property read can return several case
  * values, while Core's scalar evaluator requires one. Authors use `count` for
@@ -53,7 +48,6 @@ import {
 } from "./moduleWireSlots";
 import { moduleTypeContext } from "./shared";
 
-type UnwrapListExpression = Extract<ValueExpression, { kind: "unwrap-list" }>;
 type ScalarIssue = NonNullable<
 	ReturnType<typeof findOnDeviceScalarExpressionIssue>
 >;
@@ -84,7 +78,6 @@ export function onDeviceExpressionCompatibility(
 	const ctx = moduleTypeContext(mod, doc, lookupTables);
 
 	return collectModuleWireSlotFindings(mod, moduleUuid, {
-		calculatedColumns: "all-definitions",
 		judgePredicate(predicate, slot) {
 			return judgePredicateSlot(predicate, ctx, slot);
 		},
@@ -105,10 +98,6 @@ function judgePredicateSlot(
 	const invalidCenter = firstInvalidLiteralGeopointCenter(predicate);
 	if (invalidCenter !== undefined) {
 		return buildError(slot, invalidCenter);
-	}
-	const offender = firstUnwrapListInPredicate(predicate);
-	if (offender !== undefined) {
-		return buildError(slot, { reason: "unwrap-list", expression: offender });
 	}
 	let lookupIssue: RelationIssue | undefined;
 	walkPredicateExpressionNodes(predicate, (node) => {
@@ -167,7 +156,6 @@ function judgeCsqlPredicateSlot(
 	if ("issue" in normalization) {
 		return buildError(slot, normalization.issue);
 	}
-	let offender: UnwrapListExpression | undefined;
 	let nestedCount: RelationIssue | undefined;
 	walkCsqlOnDeviceNodes(normalization.predicate, {
 		visitPredicate(node) {
@@ -176,30 +164,12 @@ function judgeCsqlPredicateSlot(
 			}
 		},
 		visitExpression(node) {
-			if (offender === undefined && node.kind === "unwrap-list") {
-				offender = node;
-			}
 			if (nestedCount === undefined) {
 				nestedCount = firstNestedMultiCaseCountInExpression(node, ctx);
 			}
 		},
 	});
-	if (offender !== undefined) {
-		return buildError(slot, { reason: "unwrap-list", expression: offender });
-	}
 	return nestedCount === undefined ? undefined : buildError(slot, nestedCount);
-}
-
-function firstUnwrapListInPredicate(
-	predicate: Predicate,
-): UnwrapListExpression | undefined {
-	let offender: UnwrapListExpression | undefined;
-	walkPredicateExpressionNodes(predicate, (node) => {
-		if (offender === undefined && node.kind === "unwrap-list") {
-			offender = node;
-		}
-	});
-	return offender;
 }
 
 function firstInvalidLiteralGeopointCenter(
@@ -327,7 +297,6 @@ function predicateReadsTableColumn(predicate: Predicate): boolean {
 				return;
 			case "in":
 			case "is-blank":
-			case "is-null":
 				found = expressionReadsTableColumn(node.left);
 				return;
 			case "between":
@@ -368,7 +337,6 @@ function expressionReadsTableColumn(expression: ValueExpression): boolean {
 		case "date-coerce":
 		case "datetime-coerce":
 		case "double":
-		case "unwrap-list":
 			return expressionReadsTableColumn(expression.value);
 		case "format-date":
 			return expressionReadsTableColumn(expression.date);
@@ -433,7 +401,6 @@ function walkPredicateCarriersInExpression(
 		case "date-coerce":
 		case "datetime-coerce":
 		case "double":
-		case "unwrap-list":
 			walkPredicateCarriersInExpression(expression.value, visit);
 			return;
 		case "format-date":
@@ -505,7 +472,6 @@ function firstNestedMultiCaseCountInPredicate(
 				firstNestedMultiCaseCountInExpression(predicate.right, context, anchor)
 			);
 		case "in":
-		case "is-null":
 		case "is-blank":
 			return firstNestedMultiCaseCountInExpression(
 				predicate.left,
@@ -620,7 +586,6 @@ function firstNestedMultiCaseCountInExpression(
 		case "date-coerce":
 		case "datetime-coerce":
 		case "double":
-		case "unwrap-list":
 			return firstNestedMultiCaseCountInExpression(
 				expression.value,
 				context,
@@ -745,8 +710,6 @@ function buildError(
 ): ValidationError {
 	const message = (() => {
 		switch (issue.reason) {
-			case "unwrap-list":
-				return `Module "${args.mod.name}" turns stored list text into several values in ${args.slotLabel}, but that setting runs in an app screen that can only use one value. Replace it with a single-value calculation.`;
 			case "multi-valued-relation-read":
 				return `Module "${args.mod.name}" reads case property "${issue.property.property}" through a relationship that can return several cases in ${args.slotLabel}, but that setting needs one value. Use an explicit related-case count or move the check into a related-case condition.`;
 			case "mixed-property-scopes":

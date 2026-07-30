@@ -24,11 +24,9 @@
  *
  * "References" are the slots that NAME the case type:
  *   - another case-type record declaring it as `parent_type`;
- *   - a field's `case_property_on` (the field writes to it);
- *   - a `#<type>/<prop>` hashtag in any XPath or prose slot
- *     (the reference-slot registry enumerates them; XPath surfaces are
- *     read through the Lezer grammar, prose through the shared
- *     bare-hashtag matcher);
+ *   - a field's `caseWrite.caseType` (the field writes to it);
+ *   - a typed `case-ref` atom in any XPath or prose slot (the reference-slot
+ *     registry enumerates them);
  *   - a predicate/expression AST leaf whose `PropertyRef.caseType` or
  *     relation-walk hints (`throughCaseType` / `ofCaseType`) name it,
  *     and a simple search input whose `via` hints name it.
@@ -54,10 +52,14 @@ import {
 	caseTypeTargetKey,
 	FORM_REFERENCE_SLOTS,
 	fieldReferenceSlotsFor,
+	isOwnerOnlyCaseSearchConfig,
 	isXPathExpression,
 	MODULE_REFERENCE_SLOTS,
+	type ProseTemplate,
 	readSlotStrings,
 	readSlotValues,
+	searchInputDefault,
+	uuidSchema,
 	xpathRefParts,
 } from "@/lib/domain";
 import {
@@ -72,13 +74,12 @@ import {
 	walkPredicateNodes,
 	walkTerms,
 } from "@/lib/domain/predicate";
-import { transformBareHashtags } from "@/lib/preview/engine/labelRefs";
 
 // ── Outcome shape ───────────────────────────────────────────────────────
 
 /** A blocked retirement's reference site, rendered for TWO audiences:
- *  `verbose` keeps the wire spelling the SA self-corrects on (the raw
- *  `case_property_on` slot key, the literal `#<type>/…` hashtag);
+ *  `verbose` keeps the canonical machine-facing spelling the SA self-corrects
+ *  on (`caseWrite.caseType`, the literal `#<type>/…` hashtag);
  *  `concise` is the jargon-free line the builder toast shows. Equal for
  *  sites that never carried wire vocabulary (the case type name itself is
  *  a user concept). */
@@ -227,7 +228,7 @@ function planRetirement(
 		caseType: displaced,
 		// Granular `retireCaseType` keyed by name (the reducer canonicalizes an
 		// emptied catalog to `null`), so a concurrent edit to a DIFFERENT type
-		// merges rather than being clobbered by a wholesale `setCaseTypes`.
+		// merges rather than being clobbered by a whole-catalog replacement.
 		mutations: [{ kind: "retireCaseType", caseType: displaced }],
 	};
 }
@@ -279,13 +280,12 @@ function userBlockedRetirementMessage(
  * The carriers come from ONE reference-index lookup on the case type's
  * name — never a doc walk. The index's `t:` bucket holds exactly the
  * type-NAMING reference classes this planner adjudicates (a field's
- * `case_property_on`, explicit `#<type>/…` hashtags in XPath and
- * prose, AST origin types and relation-walk hints) and deliberately
- * excludes the contextual shapes that follow a module's current type
- * (`#case/…`, column `field`s, simple search-input properties). The
+ * `caseWrite.caseType`, typed XPath/prose case atoms, AST origin types and
+ * relation-walk hints) and deliberately excludes contextual shapes that follow
+ * a module's current type (column `field`s, simple search-input properties). The
  * per-entity collectors below then re-derive each carrier's
- * person-readable descriptions — re-parsing only the named carrier's
- * own slots — and the module's own `case_type` slot edge contributes
+ * person-readable descriptions by walking only the named carrier's typed
+ * slots, and the module's own `case_type` slot edge contributes
  * nothing because the module collector treats ownership as the
  * planner's other-owner check's concern, not a reference.
  *
@@ -321,7 +321,9 @@ function findCaseTypeReferences(
 		doc,
 		caseTypeTargetKey(caseType),
 	)) {
-		const placement = placeCarrier(doc, carrierUuid as Uuid, scanIndex);
+		const parsedCarrierUuid = uuidSchema.safeParse(carrierUuid);
+		if (!parsedCarrierUuid.success) continue;
+		const placement = placeCarrier(doc, parsedCarrierUuid.data, scanIndex);
 		if (!placement) continue;
 		if (placement.moduleUuid === opts.excludeModuleUuid) continue;
 		placed.push(placement);
@@ -383,16 +385,15 @@ interface FormPosition {
 	formIndex: number;
 }
 
-/** Sorted-position lookups built ONCE per scan and threaded through every
- *  `placeCarrier` call, so a heavily-referenced type doesn't re-sort the whole
- *  module list (and each module's forms) per referencing carrier. */
+/** Sequence-position lookups built once per scan and threaded through every
+ * `placeCarrier` call. */
 interface CarrierScanIndex {
 	moduleIndex: ReadonlyMap<Uuid, number>;
 	formPosition: ReadonlyMap<Uuid, FormPosition>;
 }
 
-/** Walk the sorted module + form sequences ONCE, indexing every module's and
- *  form's DISPLAY position (`sort-by-(order, uuid)`). */
+/** Walk the module + form membership sequences once, indexing every display
+ * position. */
 function buildCarrierScanIndex(doc: BlueprintDoc): CarrierScanIndex {
 	const moduleIndex = new Map<Uuid, number>();
 	const formPosition = new Map<Uuid, FormPosition>();
@@ -432,9 +433,8 @@ function placeCarrier(
 		};
 	}
 	if (doc.fields[uuid]) {
-		// Climb to the containing form collecting each level's DISPLAY (sorted)
-		// sibling index — the depth-first rank within the form. Sequence is
-		// `sort-by-(order, uuid)`, not array position.
+		// Climb to the containing form collecting each level's membership-array
+		// sibling index — the depth-first display rank within the form.
 		const childIndices: number[] = [];
 		let cursor: Uuid = uuid;
 		const seen = new Set<Uuid>();
@@ -473,7 +473,7 @@ function collectFieldReferences(
 				for (const entry of readSlotStrings(field, slot.path)) {
 					if (entry.text === caseType) {
 						out.push({
-							verbose: `field "${field.id}" in ${where} saves to it (case_property_on)`,
+							verbose: `field "${field.id}" in ${where} saves to it (caseWrite.caseType)`,
 							concise: `field "${field.id}" in ${where} saves to it`,
 						});
 					}
@@ -482,18 +482,11 @@ function collectFieldReferences(
 			}
 			case "xpath-ast": {
 				// Identity leaves name their case type directly — a leaf walk,
-				// never a re-parse. Explicit multi-segment raw refs keep their
-				// namespace as a type name, matching the string scan's rule.
+				// never a re-parse.
 				for (const entry of readSlotValues(field, slot.path)) {
 					if (!isXPathExpression(entry.value)) continue;
 					const names = xpathRefParts(entry.value).some(
-						(part) =>
-							(part.kind === "case-ref" && part.caseType === caseType) ||
-							(part.kind === "raw-ref" &&
-								part.namespace === caseType &&
-								part.namespace !== "form" &&
-								part.namespace !== "user" &&
-								part.namespace !== "case"),
+						(part) => part.kind === "case-ref" && part.caseType === caseType,
 					);
 					if (names) {
 						out.push({
@@ -505,8 +498,8 @@ function collectFieldReferences(
 				break;
 			}
 			case "prose": {
-				for (const entry of readSlotStrings(field, slot.path)) {
-					if (proseNamesCaseType(entry.text, caseType)) {
+				for (const entry of readSlotValues(field, slot.path)) {
+					if (proseNamesCaseType(entry.value as ProseTemplate, caseType)) {
 						out.push({
 							verbose: `field "${field.id}" in ${where} references #${caseType}/… in its "${slot.slot}" text`,
 							concise: `field "${field.id}" in ${where} mentions it in its ${slotLabel(slot.slot)} text`,
@@ -643,13 +636,7 @@ function collectFormSlotReferences(
 		for (const entry of readSlotValues(form, slot.path)) {
 			if (!isXPathExpression(entry.value)) continue;
 			const names = xpathRefParts(entry.value).some(
-				(part) =>
-					(part.kind === "case-ref" && part.caseType === caseType) ||
-					(part.kind === "raw-ref" &&
-						part.namespace === caseType &&
-						part.namespace !== "form" &&
-						part.namespace !== "user" &&
-						part.namespace !== "case"),
+				(part) => part.kind === "case-ref" && part.caseType === caseType,
 			);
 			if (!names) continue;
 			out.push({
@@ -752,9 +739,10 @@ function collectModuleConfigReferences(
 			}
 			case "search_input_default": {
 				for (const input of list?.searchInputs ?? []) {
+					const defaultValue = searchInputDefault(input);
 					if (
-						input.default !== undefined &&
-						expressionRefsCaseType(input.default, caseType)
+						defaultValue !== undefined &&
+						expressionRefsCaseType(defaultValue, caseType)
 					) {
 						out.push({
 							verbose: `${inputName(input.name)} defaults from a "${caseType}" property`,
@@ -780,7 +768,9 @@ function collectModuleConfigReferences(
 			}
 			case "search_button_display_condition": {
 				if (
-					search?.searchButtonDisplayCondition &&
+					search !== undefined &&
+					!isOwnerOnlyCaseSearchConfig(search) &&
+					search.searchButtonDisplayCondition &&
 					predicateRefsCaseType(search.searchButtonDisplayCondition, caseType)
 				) {
 					out.push({
@@ -878,16 +868,15 @@ function expressionRefsCaseType(
 	return found;
 }
 
-/** Whether prose text embeds a bare `#<caseType>/…` hashtag — located by
- *  the shared bare-hashtag matcher (prose is not XPath). */
-function proseNamesCaseType(text: string, caseType: string): boolean {
-	let found = false;
-	transformBareHashtags(text, (hashtag) => {
-		const slashIdx = hashtag.indexOf("/");
-		if (slashIdx > 1 && hashtag.slice(1, slashIdx) === caseType) {
-			found = true;
-		}
-		return hashtag;
-	});
-	return found;
+/** Whether a canonical prose template names a case type. Literal text is inert. */
+function proseNamesCaseType(
+	template: ProseTemplate,
+	caseType: string,
+): boolean {
+	return (
+		Array.isArray(template?.parts) &&
+		template.parts.some(
+			(part) => part.kind === "case-ref" && part.caseType === caseType,
+		)
+	);
 }

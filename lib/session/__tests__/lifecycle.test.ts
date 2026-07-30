@@ -324,12 +324,12 @@ describe("derivePostBuildEdit", () => {
 		expect(derivePostBuildEdit([], true)).toBe(false);
 	});
 
-	it("false when the run opened on an empty doc (an initial build)", () => {
+	it("false when the run began before app creation (an initial build)", () => {
 		expect(derivePostBuildEdit([mut("app", 0)], false)).toBe(false);
 		expect(derivePostBuildEdit([mut("module:create", 0)], false)).toBe(false);
 	});
 
-	it("true when a run is in progress and it opened on a populated doc", () => {
+	it("true when a run is in progress and began from an existing app", () => {
 		expect(derivePostBuildEdit([mut("edit:0-1", 0)], true)).toBe(true);
 		/* Edits emit the same construction tags builds do — the run-start
 		 * capture, not the tag, is the discriminator. */
@@ -338,7 +338,7 @@ describe("derivePostBuildEdit", () => {
 
 	it("true even if buffer only has conversation events (askQuestions mid-edit)", () => {
 		/* User mid-edit asking a clarifying question — buffer has
-		 * tool-call but no mutations. The run opened on a populated doc.
+		 * tool-call but no mutations. The run began from an existing app.
 		 * Still a post-build edit in progress. */
 		const events: Event[] = [
 			{

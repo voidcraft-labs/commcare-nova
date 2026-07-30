@@ -19,7 +19,7 @@ import {
 	DropdownMenuPositioner,
 	DropdownMenuTrigger,
 } from "@/components/shadcn/dropdown-menu";
-import { asUuid } from "@/lib/domain";
+import type { Uuid } from "@/lib/domain";
 import { humanizeId } from "@/lib/domain/idSlug";
 import {
 	input as buildInput,
@@ -39,8 +39,13 @@ export function whenInputPresentDefault(
 	ctx: PredicateEditContext,
 ): Extract<Predicate, { kind: "when-input-present" }> {
 	const firstInput = ctx.knownInputs[0];
+	if (firstInput === undefined) {
+		throw new Error(
+			"A search-answer condition is unavailable until a search field exists.",
+		);
+	}
 	return whenInput(
-		buildInput(firstInput?.uuid ?? asUuid("")),
+		buildInput(firstInput.uuid),
 		firstConditionSeed(ctx) ?? matchAll(),
 	);
 }
@@ -59,10 +64,10 @@ export function WhenInputPresentCard({
 	const inputErrors = useEditorErrorsAt(
 		appendKindSlot(path, "when-input-present", "input"),
 	);
-	const inputUuid = value.input.searchInputUuid || undefined;
+	const inputUuid = value.input.searchInputUuid;
 
-	const setInput = (uuid: string) => {
-		onChange(whenInput(buildInput(asUuid(uuid)), value.clause));
+	const setInput = (uuid: Uuid) => {
+		onChange(whenInput(buildInput(uuid), value.clause));
 	};
 
 	const setClause = (next: Predicate) => {
@@ -102,8 +107,8 @@ export function SearchInputMenu({
 	onChange,
 	invalid,
 }: {
-	readonly value: string | undefined;
-	readonly onChange: (uuid: string) => void;
+	readonly value: Uuid | undefined;
+	readonly onChange: (uuid: Uuid) => void;
 	readonly invalid: boolean;
 }) {
 	const ctx = usePredicateEditContext();

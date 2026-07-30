@@ -1,32 +1,31 @@
 import type { CaseProperty } from "@/lib/domain";
 import {
-	authorableCaseProperties,
-	canonicalCasePropertyName,
 	effectiveDataType,
 	isStandardCaseListProperty,
-	LEGACY_STANDARD_CASE_PROPERTY_ALIASES,
 	standardCasePropertyDisplayLabel,
 } from "@/lib/domain";
 import { humanizeId } from "@/lib/domain/idSlug";
 
-export function propertyDisplayLabel(property: CaseProperty): string {
-	const authored = property.label.trim();
-	const canonicalName = canonicalCasePropertyName(property.name);
-	const generatedNames = [
-		canonicalName,
-		...Object.entries(LEGACY_STANDARD_CASE_PROPERTY_ALIASES)
-			.filter(([, canonical]) => canonical === canonicalName)
-			.map(([legacy]) => legacy),
-	];
-	const authoredLooksGenerated = generatedNames.some(
-		(name) =>
-			normalizedIdentifierLabel(authored) === normalizedIdentifierLabel(name),
-	);
+/**
+ * A catalog label is a `ProseTemplate`, so its current spelling only exists
+ * relative to a document. The projector is required rather than defaulted: a
+ * default would render the same property correctly on one screen and as a
+ * repair marker on the next, and the caller that cannot supply a document is
+ * the one that should not be projecting.
+ */
+export function propertyDisplayLabel(
+	property: CaseProperty,
+	project: (label: CaseProperty["label"]) => string,
+): string {
+	const authored = project(property.label).trim();
+	const authoredLooksGenerated =
+		normalizedIdentifierLabel(authored) ===
+		normalizedIdentifierLabel(property.name);
 	if (
 		isStandardCaseListProperty(property.name) &&
 		(authored.length === 0 || authoredLooksGenerated)
 	) {
-		return propertyFallbackDisplayLabel(canonicalName);
+		return propertyFallbackDisplayLabel(property.name);
 	}
 	return authored.length > 0
 		? humanizeId(authored)
@@ -34,34 +33,24 @@ export function propertyDisplayLabel(property: CaseProperty): string {
 }
 
 /**
- * Friendly fallback when a surface has only a stored property name. Legacy
- * CCHQ spellings are normalized before display so they can keep working in an
- * old document without reappearing as a second Nova concept.
+ * Friendly fallback when a surface has only a stored property name.
  */
 export function propertyFallbackDisplayLabel(name: string): string {
-	const canonicalName = canonicalCasePropertyName(name);
-	if (isStandardCaseListProperty(canonicalName)) {
-		return standardCasePropertyDisplayLabel(canonicalName);
+	if (isStandardCaseListProperty(name)) {
+		return standardCasePropertyDisplayLabel(name);
 	}
-	return humanizeId(canonicalName) || "Untitled information";
+	return humanizeId(name) || "Untitled information";
 }
 
-/**
- * Resolve a stored name through Nova's canonical authoring projection. A
- * meaningful legacy-authored label survives, while generated alias copy is
- * replaced by the canonical system label.
- */
 export function propertyDisplayLabelForName(
 	name: string,
 	properties: readonly CaseProperty[],
+	project: (label: CaseProperty["label"]) => string,
 ): string {
-	const canonicalName = canonicalCasePropertyName(name);
-	const property = authorableCaseProperties(properties).find(
-		(candidate) => candidate.name === canonicalName,
-	);
+	const property = properties.find((candidate) => candidate.name === name);
 	return property === undefined
-		? propertyFallbackDisplayLabel(canonicalName)
-		: propertyDisplayLabel(property);
+		? propertyFallbackDisplayLabel(name)
+		: propertyDisplayLabel(property, project);
 }
 
 /**
@@ -70,16 +59,15 @@ export function propertyDisplayLabelForName(
  * external-ID, and opened-date concepts use their carefully cased labels.
  */
 export function propertyFallbackSentenceLabel(name: string): string {
-	const canonicalName = canonicalCasePropertyName(name);
 	if (
-		canonicalName === "case_name" ||
-		canonicalName === "external_id" ||
-		canonicalName === "date_opened"
+		name === "case_name" ||
+		name === "external_id" ||
+		name === "date_opened"
 	) {
-		const label = propertyFallbackDisplayLabel(canonicalName);
+		const label = propertyFallbackDisplayLabel(name);
 		return label.charAt(0).toLowerCase() + label.slice(1);
 	}
-	return canonicalName.replace(/[_-]+/g, " ").trim() || canonicalName;
+	return name.replace(/[_-]+/g, " ").trim() || name;
 }
 
 function normalizedIdentifierLabel(value: string): string {
@@ -97,11 +85,12 @@ function normalizedDisplayLabel(label: string): string {
 export function friendlyPropertyDisambiguator(
 	property: CaseProperty,
 	properties: readonly CaseProperty[],
+	project: (label: CaseProperty["label"]) => string,
 ): string | undefined {
-	const label = propertyDisplayLabel(property);
+	const label = propertyDisplayLabel(property, project);
 	const peers = properties.filter(
 		(candidate) =>
-			normalizedDisplayLabel(propertyDisplayLabel(candidate)) ===
+			normalizedDisplayLabel(propertyDisplayLabel(candidate, project)) ===
 			normalizedDisplayLabel(label),
 	);
 	if (peers.length < 2) return undefined;

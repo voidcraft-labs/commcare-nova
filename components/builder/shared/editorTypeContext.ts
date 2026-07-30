@@ -48,6 +48,7 @@ export interface EditorTypeVocabulary {
 	readonly userProperties?: readonly UserProperty[];
 	readonly formFields?: readonly EditorFormFieldDecl[];
 	readonly operationScope?: OperationValueScope | undefined;
+	readonly ownerValues?: boolean;
 	readonly lookupTables?: readonly EditorLookupTableDecl[];
 	readonly tableScope?: EditorLookupTableScope;
 }
@@ -64,6 +65,7 @@ export function buildEditorTypeContext(
 		userProperties = EMPTY_USER_PROPERTIES,
 		formFields = EMPTY_FORM_FIELDS,
 		operationScope,
+		ownerValues = false,
 		lookupTables = [],
 		tableScope,
 	} = args;
@@ -95,7 +97,7 @@ export function buildEditorTypeContext(
 			operationIds: new Set(
 				operationScope.creates.map((create) => create.uuid),
 			),
-			caseOperationValues: true,
 		}),
+		...(ownerValues && { ownerValues: true }),
 	};
 }

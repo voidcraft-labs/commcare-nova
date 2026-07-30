@@ -25,9 +25,11 @@
 
 import { produce } from "immer";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { caseListConfig } from "@/lib/__tests__/docHelpers";
 import { applyMutations } from "@/lib/doc/mutations";
-import type { Field, Form, Module } from "@/lib/domain";
-import { asUuid, type BlueprintDoc } from "@/lib/domain";
+import type { BlueprintDoc, Field, Form, Module } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import type { GenerationContext } from "../generationContext";
 import { createSolutionsArchitect } from "../solutionsArchitect";
 import { makeTestContext } from "./fixtures";
@@ -66,9 +68,9 @@ vi.mock("@/lib/db/apps", () => ({
 	commitGuardedBatch: commitGuardedBatchMock,
 }));
 
-const MOD = asUuid("11111111-1111-1111-1111-111111111111");
-const FORM = asUuid("22222222-2222-2222-2222-222222222222");
-const SEED_FIELD = asUuid("33333333-3333-3333-3333-333333333333");
+const MOD = testUuid("11111111-1111-1111-1111-111111111111");
+const FORM = testUuid("22222222-2222-2222-2222-222222222222");
+const SEED_FIELD = testUuid("33333333-3333-3333-3333-333333333333");
 
 /** A doc with one module + one registration form + one seed field, so
  *  the test's two new addFields calls land on a real form. */
@@ -78,19 +80,22 @@ function makeDoc(): BlueprintDoc {
 		id: "patient",
 		name: "Patient",
 		caseType: "patient",
+		caseListConfig: caseListConfig([
+			{ field: "case_name", header: "Patient name" },
+		]),
 	};
 	const form: Form = {
 		uuid: FORM,
 		id: "enroll",
 		name: "Enroll Patient",
-		type: "registration",
+		type: "followup",
 	};
 	const field: Field = {
 		uuid: SEED_FIELD,
 		id: "case_name",
 		kind: "text",
-		label: "Patient name",
-		case_property_on: "case_name",
+		label: proseText("Patient name"),
+		caseWrite: { caseType: "patient", property: "case_name" },
 	} as Field;
 	return {
 		appId: "test-app",
@@ -99,7 +104,7 @@ function makeDoc(): BlueprintDoc {
 		caseTypes: [
 			{
 				name: "patient",
-				properties: [{ name: "case_name", label: "Full name" }],
+				properties: [{ name: "case_name", label: proseText("Full name") }],
 			},
 		],
 		modules: { [MOD]: mod },
@@ -149,12 +154,12 @@ describe("solutionsArchitect — tool execution serializer", () => {
 		const inFlightA = runTool(sa, "addFields", {
 			moduleUuid: MOD,
 			formUuid: FORM,
-			fields: [{ id: "dob", kind: "date", label: "Date of birth" }],
+			fields: [{ id: "dob", kind: "date", label: proseText("Date of birth") }],
 		});
 		const inFlightB = runTool(sa, "addFields", {
 			moduleUuid: MOD,
 			formUuid: FORM,
-			fields: [{ id: "phone", kind: "text", label: "Phone" }],
+			fields: [{ id: "phone", kind: "text", label: proseText("Phone") }],
 		});
 		await Promise.all([inFlightA, inFlightB]);
 
@@ -182,7 +187,7 @@ describe("solutionsArchitect — tool execution serializer", () => {
 		const inFlightWrite = runTool(sa, "addFields", {
 			moduleUuid: MOD,
 			formUuid: FORM,
-			fields: [{ id: "dob", kind: "date", label: "Date of birth" }],
+			fields: [{ id: "dob", kind: "date", label: proseText("Date of birth") }],
 		});
 		const inFlightRead = runTool(sa, "getForm", {
 			moduleUuid: MOD,

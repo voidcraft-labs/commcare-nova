@@ -1,11 +1,7 @@
 /**
  * blueprintHelpers — SA-only pure helpers over `BlueprintDoc`.
  *
- * Two surfaces:
- *
- *   - Read snapshots that expose canonical entities and immutable UUID
- *     references to the SA.
- *   - Mutation builders that return `Mutation[]` for the caller to apply
+ * Mutation builders return `Mutation[]` for the caller to apply
  *     via `docStore.applyMany(mutations)`. Helpers cover every level of
  *     the tree (app / module / form / field) plus the scaffolding +
  *     case-type bulk operations used during initial generation.
@@ -23,22 +19,23 @@ import { addModuleMutation } from "@/lib/doc/addModuleMutation";
 import {
 	columnAddMutation,
 	columnContentEqualIgnoringGranularSlots,
+	columnContentSnapshot,
 	columnSortMutations,
 	columnVisibilityMutations,
-	legacyCompatibleColumnSnapshot,
 } from "@/lib/doc/caseListColumnMutations";
 import {
 	cleanupCaseSearchAfterFinalInputMutation,
 	enableCaseSearchMutation,
 } from "@/lib/doc/caseSearchConfigMutations";
-import { normalizeConnectConfig } from "@/lib/doc/connectConfig";
 import { buildFieldTree, type FieldWithChildren } from "@/lib/doc/fieldWalk";
-import { modulePatchMutations } from "@/lib/doc/modulePatchMutations";
+import {
+	type ModuleAuthoringPatch,
+	modulePatchMutations,
+} from "@/lib/doc/modulePatchMutations";
 import { anchorForIndex, sequenceMovesTo } from "@/lib/doc/mutations/sequence";
 import { searchInputUpdateMutation as planSearchInputUpdate } from "@/lib/doc/searchInputMutations";
 import type { Mutation } from "@/lib/doc/types";
 import type {
-	AssetId,
 	BlueprintDoc,
 	CaseOperation,
 	Column,
@@ -47,14 +44,26 @@ import type {
 	FieldKind,
 	FieldPatchFor,
 	Form,
+	FormIconRef,
+	FormIconSlug,
 	FormType,
 	Media,
+	MediaAssetId,
 	Module,
+	ModuleIconRef,
 	PostSubmitDestination,
 	SearchInputDef,
 	Uuid,
 } from "@/lib/domain";
-import { asUuid, fieldKinds, isContainer, slugifyId } from "@/lib/domain";
+import {
+	asUuid,
+	fieldKinds,
+	isBuiltinIconRef,
+	isContainer,
+	isOwnerOnlyCaseSearchConfig,
+	parseBuiltinIconSlug,
+	slugifyId,
+} from "@/lib/domain";
 import { effectiveFilterForEmission } from "@/lib/domain/predicate";
 import {
 	removeByUuid,
@@ -66,19 +75,21 @@ import {
 
 /**
  * Shape returned by `formSnapshot` — the form entity augmented with its
- * ordered, nested field tree. It keeps canonical domain names and immutable
- * UUID references exactly as stored.
+ * ordered, nested field tree. It keeps domain names (`closeCondition`,
+ * `postSubmit`, `formLinks`) and preserves the canonical UUID-backed
+ * expression and lookup shapes SA/MCP callers can round-trip.
  *
- * This is a `BlueprintDoc`-read derived shape; it never translates identity
- * back to mutable paths or names.
+ * Lives alongside the other `BlueprintDoc`-read derived shapes.
  */
-export type FormSnapshot = Omit<Form, "caseOperations"> & {
+export type FormSnapshot = Omit<Form, "caseOperations" | "icon"> & {
+	/** Built-ins project to their accepted catalog slug; uploads stay UUIDs. */
+	icon?: FormIconSlug | MediaAssetId;
 	fields: FieldWithChildren[];
 	caseOperations?: CaseOperation[];
 };
 
 /**
- * Build a canonical `FormSnapshot` for the given form uuid. Returns
+ * Build the canonical `FormSnapshot` for the given form UUID. Returns
  * `undefined` when the form doesn't exist in the doc — callers surface that
  * as a "form not found" error to the SA.
  */
@@ -88,10 +99,24 @@ export function formSnapshot(
 ): FormSnapshot | undefined {
 	const form = doc.forms[formUuid];
 	if (!form) return undefined;
-	return {
+	const projected = {
 		...form,
 		fields: buildFieldTree(doc, formUuid),
 	};
+	const { icon, ...withoutStoredIcon } = projected;
+	return {
+		...withoutStoredIcon,
+		...(icon !== undefined && {
+			icon: projectFormIconForAuthoring(icon),
+		}),
+	};
+}
+
+function projectFormIconForAuthoring(
+	icon: FormIconRef,
+): FormIconSlug | MediaAssetId {
+	if (!isBuiltinIconRef(icon)) return icon;
+	return parseBuiltinIconSlug(icon) as FormIconSlug;
 }
 
 // ── Mutation builders — modules ─────────────────────────────────────────
@@ -154,17 +179,9 @@ export function removeModuleMutations(
  *  module up out of the doc to derive its uuid + read sibling fields, so
  *  re-resolving inside the helper would just repeat the same map lookup.
  *  The "module not found" defense lives at each tool's call boundary. */
-type ModuleMutationPatch = Omit<
-	Partial<Omit<Module, "uuid">>,
-	"caseSearchConfig"
-> & {
-	/** Explicit null survives JSON and clears the optional search config. */
-	caseSearchConfig?: Module["caseSearchConfig"] | null;
-};
-
 export function updateModuleMutations(
 	mod: Module,
-	patch: ModuleMutationPatch,
+	patch: ModuleAuthoringPatch,
 ): Mutation[] {
 	return modulePatchMutations(mod, patch, {
 		nullCaseSearchConfig: "settings",
@@ -177,7 +194,7 @@ export function updateModuleMutations(
  * for `doc.logo`. Passing an asset id sets it; passing `null` clears it.
  * The `setAppLogo` reducer maps `null → undefined` so the cleared key
  * drops off the doc rather than persisting as a literal `null`. */
-export function setAppLogoMutations(logo: AssetId | null): Mutation[] {
+export function setAppLogoMutations(logo: MediaAssetId | null): Mutation[] {
 	return [{ kind: "setAppLogo", logo }];
 }
 
@@ -218,8 +235,8 @@ export function setFieldMediaMutations(
  * Both slots are set in one call — pass `null` on either to clear it. */
 export function setModuleMediaMutations(
 	moduleUuid: Uuid,
-	icon: AssetId | null,
-	audioLabel: AssetId | null,
+	icon: ModuleIconRef | null,
+	audioLabel: MediaAssetId | null,
 ): Mutation[] {
 	return [{ kind: "setModuleMedia", uuid: moduleUuid, icon, audioLabel }];
 }
@@ -230,8 +247,8 @@ export function setModuleMediaMutations(
  * mutation so a clear survives the SSE wire as an explicit `null`. */
 export function setFormMediaMutations(
 	formUuid: Uuid,
-	icon: AssetId | null,
-	audioLabel: AssetId | null,
+	icon: FormIconRef | null,
+	audioLabel: MediaAssetId | null,
 ): Mutation[] {
 	return [{ kind: "setFormMedia", uuid: formUuid, icon, audioLabel }];
 }
@@ -249,17 +266,18 @@ export function setFormMediaMutations(
 // Other (non-SA) consumers — UI mutations — destructure the same
 // shape and surface their own error UI.
 //
-// Each builder takes the resolved `Module` directly. Every call site has
-// already resolved and membership-checked the stable module UUID; passing
-// `mod` straight in keeps the helper from re-running the same map lookup and
-// lets the "module not found" defense live at the tool's call boundary
+// Each builder takes the resolved `Module` directly. Every call site already
+// proves the UUID address and reads the module's sibling fields; passing `mod`
+// straight in
+// keeps the helper from re-running the same map lookup and lets the
+// "module not found" defense live at the tool's call boundary
 // (uniformly worded, in one place per tool).
 //
 // The array-walk primitives (`replaceByUuid` / `removeByUuid` /
 // `reorderByUuid`) live in `tools/case-list-config/shared.ts` because
 // they're pure generic utilities over `{ uuid: Uuid }[]` arrays —
 // reusable by anything that walks a case-list-shaped array. The
-// builders in this file produce `Mutation[]` for the saga, which is
+// builders in this file produce admitted-writer `Mutation[]`, which is
 // agent-specific.
 
 /**
@@ -283,8 +301,8 @@ export type CaseListMutationResult = CaseListMutationOk | { error: string };
 
 /**
  * Append one or more columns to a module's case list, each as a granular
- * `addColumn` carrying a fresh fractional `order` placed after the last
- * existing column — so a concurrent edit to a different column merges. There
+ * `addColumn` naming its predecessor in both surface sequences — so a
+ * concurrent edit to a different column merges. There
  * is no separate single-column builder: the SA surface is the plural
  * `addCaseListColumns`, and one column is a length-1 array.
  *
@@ -316,7 +334,7 @@ export function addColumnsMutation(
 /**
  * Replace one column on a module's case list, keyed by `columnUuid` — a
  * granular `updateColumn` plus any per-surface visibility deltas (the reducer
- * preserves the column's current order + visibility slots while replaying the
+ * preserves both surface sequences and current visibility while replaying the
  * content replacement).
  *
  * Failure arm: columnUuid not in the module's columns array.
@@ -348,9 +366,7 @@ export function updateColumnMutation(
 			kind: "updateColumn",
 			moduleUuid: mod.uuid,
 			uuid: columnUuid,
-			column: legacyCompatibleColumnSnapshot(nextColumn),
-			preserveVisibility: true,
-			preserveSort: true,
+			column: columnContentSnapshot(nextColumn),
 		});
 	}
 	mutations.push(...columnVisibilityMutations(current, nextColumn, mod.uuid));
@@ -388,7 +404,7 @@ export function removeColumnMutation(
 /**
  * Reorder the visible fields on ONE user-facing case screen. Results and
  * Details are independent compositions, so this changes only the selected
- * surface key and leaves generic/legacy order plus the other screen untouched.
+ * surface sequence and leaves the other screen untouched.
  *
  * Failure arms: length mismatch, duplicate uuid, unknown uuid in the request.
  */
@@ -451,7 +467,7 @@ export function addSearchInputsMutation(
 	}));
 	if (
 		mod.caseSearchConfig === undefined ||
-		mod.caseSearchConfig.searchActionEnabled === false
+		isOwnerOnlyCaseSearchConfig(mod.caseSearchConfig)
 	) {
 		mutations.unshift(enableCaseSearchMutation(mod.uuid, mod.caseSearchConfig));
 	}
@@ -554,13 +570,7 @@ export interface NewFormInput {
 	type: FormType;
 	purpose?: string;
 	closeCondition?: Form["closeCondition"];
-	connect?: ConnectConfig | null;
 	postSubmit?: PostSubmitDestination;
-	/** Explicit `order` key — supplied by a caller adding SEVERAL forms to a
-	 *  module in ONE batch (`createModule`), which pre-mints a sequential run
-	 *  since none of the sibling forms is in `doc` yet. Omitted for a single
-	 *  `addForm`, where the key is derived from the module's existing forms. */
-	order?: string;
 }
 
 /** Build an `addForm` mutation. Mints a uuid when the caller doesn't
@@ -595,12 +605,6 @@ export function addFormMutations(
 		...(input.closeCondition !== undefined && {
 			closeCondition: input.closeCondition,
 		}),
-		...(input.connect != null && {
-			// `normalizeConnectConfig` strips empty sub-configs. A returned
-			// `undefined` means "every sub-config was empty" — which for
-			// `addForm` means "don't stamp connect at all".
-			connect: normalizeConnectConfig(input.connect),
-		}),
 		...(input.postSubmit !== undefined && { postSubmit: input.postSubmit }),
 	};
 	return [
@@ -620,14 +624,11 @@ export function removeFormMutations(
 }
 
 /**
- * Patch form-level fields. Nullable fields (`closeCondition`, `connect`,
- * `postSubmit`) follow a convention: passing `null` clears the field
- * (the reducer stores `undefined`), passing an object replaces it, and
- * omitting the key leaves it untouched.
- *
- * `connect` additionally runs through `normalizeConnectConfig` so an
- * empty / all-empty connect config is stripped — it lands as absent
- * rather than as an empty `{ connect: {} }` marker.
+ * Patch non-Connect form-level fields. Nullable fields (`closeCondition`,
+ * `postSubmit`) follow a convention: passing `null` clears the field (the
+ * reducer stores `undefined`), passing an object replaces it, and omitting
+ * the key leaves it untouched. Connect participation is deliberately absent;
+ * the app-wide target planner owns membership.
  */
 export function updateFormMutations(
 	doc: BlueprintDoc,
@@ -636,41 +637,53 @@ export function updateFormMutations(
 		name: string;
 		type: FormType;
 		closeCondition: Form["closeCondition"] | null;
-		connect: ConnectConfig | null;
 		postSubmit: PostSubmitDestination | null;
 		purpose: string | null;
 	}>,
 ): Mutation[] {
 	if (doc.forms[formUuid] === undefined) return [];
-	const reducerPatch: Partial<Omit<Form, "uuid">> = {};
-	if (patch.name !== undefined) reducerPatch.name = patch.name;
+	const mutations: Mutation[] = [];
+	if (patch.name !== undefined) {
+		mutations.push({ kind: "renameForm", uuid: formUuid, newId: patch.name });
+	}
+	const reducerPatch: Extract<Mutation, { kind: "updateForm" }>["patch"] = {};
 	if (patch.type !== undefined) reducerPatch.type = patch.type;
 	if (patch.closeCondition !== undefined) {
-		// `null` → clear (reducer treats `undefined` as "remove" via
-		// Object.assign — not perfect, but Immer's Object.assign with an
-		// explicit `undefined` clears the key in strict mode).
 		reducerPatch.closeCondition =
-			patch.closeCondition === null ? undefined : patch.closeCondition;
-	}
-	if (patch.connect !== undefined) {
-		reducerPatch.connect =
-			patch.connect === null
-				? undefined
-				: (normalizeConnectConfig(patch.connect) ?? undefined);
+			patch.closeCondition === null ? null : patch.closeCondition;
 	}
 	if (patch.postSubmit !== undefined) {
 		reducerPatch.postSubmit =
-			patch.postSubmit === null ? undefined : patch.postSubmit;
+			patch.postSubmit === null ? null : patch.postSubmit;
 	}
 	if (patch.purpose !== undefined) {
-		reducerPatch.purpose = patch.purpose === null ? undefined : patch.purpose;
+		reducerPatch.purpose = patch.purpose === null ? null : patch.purpose;
 	}
-	return [{ kind: "updateForm", uuid: formUuid, patch: reducerPatch }];
+	if (Object.keys(reducerPatch).length > 0) {
+		mutations.push({ kind: "updateForm", uuid: formUuid, patch: reducerPatch });
+	}
+	return mutations;
+}
+
+/**
+ * Refine the complete Connect configuration of an existing participant.
+ * This named helper cannot create or remove participation: a form without a
+ * live block, or a nullish runtime value from an untyped caller, is refused
+ * with an empty plan. App-wide membership transitions use
+ * `planConnectTargetState` instead.
+ */
+export function refineFormConnectMutations(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	connect: ConnectConfig,
+): Mutation[] {
+	if (doc.forms[formUuid]?.connect === undefined || connect == null) return [];
+	return [{ kind: "updateForm", uuid: formUuid, patch: { connect } }];
 }
 
 // ── Mutation builders — fields ──────────────────────────────────────────
 
-/** Build an `addField` mutation. The caller supplies a full field entity. */
+/** Build an `addField` mutation from the canonical domain entity. */
 export function addFieldMutations(
 	doc: BlueprintDoc,
 	input: {
@@ -712,17 +725,6 @@ export function removeFieldMutations(
 	return [{ kind: "removeField", uuid: fieldUuid }];
 }
 
-/** Rename a field's semantic id. The reducer rewrites XPath references
- *  to the old id across the entire doc atomically. */
-export function renameFieldMutations(
-	doc: BlueprintDoc,
-	fieldUuid: Uuid,
-	newId: string,
-): Mutation[] {
-	if (doc.fields[fieldUuid] === undefined) return [];
-	return [{ kind: "renameField", uuid: fieldUuid, newId }];
-}
-
 /** Patch arbitrary fields on a field entity. The `Field` union is
  *  discriminated by `kind`; the helper takes the target kind as an
  *  explicit generic so the patch type narrows to that variant's
@@ -748,7 +750,7 @@ export function updateFieldMutations<K extends FieldKind>(
 
 // ── Private helpers ─────────────────────────────────────────────────────
 
-/** Derive a module's semantic id slug from its display name.
+/** Derive a module's wire id from its display name.
  *
  *  DISPLAY ONLY. Nothing addresses a module or a form by this slug any more —
  *  the case-operation tools were the last consumer and now take uuids — so it
@@ -758,8 +760,8 @@ function slugifyModuleId(name: string): string {
 	return slugifyId(name, "module");
 }
 
-/** Derive a form's semantic id slug from its display name. Same rule and the
- *  same display-only status as the module slug. */
+/** Derive a form's wire id from its display name. Same rule and the same
+ *  display-only status as the module wire id. */
 function slugifyFormId(name: string): string {
 	return slugifyId(name, "form");
 }

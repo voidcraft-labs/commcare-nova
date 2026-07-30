@@ -20,7 +20,9 @@ const { listReadyAssetsForProject } = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/db/apps", () => ({
-	loadAppProjectId: vi.fn(() => Promise.resolve("project-1")),
+	loadAppProjectId: vi.fn(() =>
+		Promise.resolve({ kind: "found", projectId: "project-1" }),
+	),
 }));
 vi.mock("@/lib/db/mediaAssets", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("@/lib/db/mediaAssets")>();

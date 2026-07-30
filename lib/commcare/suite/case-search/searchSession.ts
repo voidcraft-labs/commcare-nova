@@ -12,8 +12,9 @@ import type { Element } from "domhandler";
 import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
 import {
 	type CaseListConfig,
-	type CaseSearchConfig,
 	DEFAULT_CASE_SEARCH_TITLE,
+	type OrdinaryCaseSearchConfig,
+	searchInputDefault,
 } from "@/lib/domain";
 import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
 import { validateCaseType } from "../../identifierValidation";
@@ -85,7 +86,7 @@ export interface SearchSessionEmission {
  */
 export function buildSearchSession(args: {
 	readonly caseListConfig: CaseListConfig;
-	readonly caseSearchConfig: CaseSearchConfig;
+	readonly caseSearchConfig: OrdinaryCaseSearchConfig;
 	readonly wire: WireShape;
 	readonly caseType: string;
 	readonly moduleIndex: number;
@@ -149,6 +150,7 @@ export function buildSearchSession(args: {
 		caseListConfig,
 		caseType,
 		args.typeContext,
+		args.lookupNaming,
 	);
 	if (xpathQueryEmission !== undefined) {
 		dataElements.push(
@@ -180,8 +182,8 @@ export function buildSearchSession(args: {
 		);
 	}
 
-	// `<prompt>`s render in DISPLAY order (`sort-by-(order, uuid)`); the
-	// instance accumulation below is order-independent (a Set).
+	// `<prompt>`s render in searchInputs array order; the instance accumulation
+	// below is order-independent (a Set).
 	const promptEmission = buildSearchPrompts(
 		[...caseListConfig.searchInputs],
 		moduleId,
@@ -331,9 +333,10 @@ export function buildSearchSession(args: {
 		// `<prompt default="…">` attribute. A default that references
 		// another input or a session term needs the matching instance
 		// declared on `<remote-request>`.
-		if (input.default !== undefined) {
+		const inputDefault = searchInputDefault(input);
+		if (inputDefault !== undefined) {
 			for (const id of collectExpressionInstances(
-				input.default,
+				inputDefault,
 				args.lookupNaming,
 			)) {
 				instances.add(id);
@@ -378,7 +381,7 @@ export function buildSearchSession(args: {
  */
 export function emitSearchSession(args: {
 	readonly caseListConfig: CaseListConfig;
-	readonly caseSearchConfig: CaseSearchConfig;
+	readonly caseSearchConfig: OrdinaryCaseSearchConfig;
 	readonly wire: WireShape;
 	readonly caseType: string;
 	readonly moduleIndex: number;

@@ -242,10 +242,6 @@ function inspectorOriginForSelection(
 	return root.querySelector<HTMLElement>("[data-project-data-focus-fallback]");
 }
 
-function tableStateKey(projectId: string, tableId: LookupTableId): string {
-	return `${projectId}\u0000${tableId}`;
-}
-
 function unavailableConflictFor(
 	edit: ProjectDataRowEditSession | undefined,
 	existing: ProjectDataRowConflict | undefined,
@@ -334,9 +330,12 @@ function ActiveHost({
 	const [rowConflicts, setRowConflicts] = useState<
 		ReadonlyMap<string, ProjectDataRowConflict>
 	>(() => new Map());
+	/* Table ids stay under their Project instead of flattening into a composite
+	 * string key: a flat key has to be split and re-narrowed to recover the
+	 * identity, and narrowing helpers validate rather than cast. */
 	const [locallyUnavailableTables, setLocallyUnavailableTables] = useState<
-		ReadonlySet<string>
-	>(() => new Set());
+		ReadonlyMap<string, ReadonlySet<LookupTableId>>
+	>(() => new Map());
 	/* Most builder routes need no lookup manifest at all. Keep the Project-wide
 	 * read alive while its own workspace is visible or this tab carries row work
 	 * that must notice an off-route peer deletion; otherwise a fresh/dormant
@@ -569,11 +568,11 @@ function ActiveHost({
 	const noteTableUnavailable = useCallback(
 		(unavailableTableId: LookupTableId) => {
 			if (projectId === undefined) return;
-			const key = tableStateKey(projectId, unavailableTableId);
 			setLocallyUnavailableTables((current) => {
-				if (current.has(key)) return current;
-				const next = new Set(current);
-				next.add(key);
+				const scoped = current.get(projectId);
+				if (scoped?.has(unavailableTableId)) return current;
+				const next = new Map(current);
+				next.set(projectId, new Set(scoped ?? []).add(unavailableTableId));
 				return next;
 			});
 		},
@@ -583,11 +582,8 @@ function ActiveHost({
 	const unavailableTableIds = useMemo(() => {
 		const unavailable = new Set<LookupTableId>();
 		if (projectId === undefined) return unavailable;
-		for (const key of locallyUnavailableTables) {
-			const [scopeProjectId, scopedTableId] = key.split("\u0000");
-			if (scopeProjectId === projectId && scopedTableId !== undefined) {
-				unavailable.add(scopedTableId as LookupTableId);
-			}
+		for (const tableId of locallyUnavailableTables.get(projectId) ?? []) {
+			unavailable.add(tableId);
 		}
 		if (manifest.kind === "data" && manifest.value.projectId === projectId) {
 			const available = new Set(manifest.value.tables.map((entry) => entry.id));

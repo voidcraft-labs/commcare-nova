@@ -24,9 +24,9 @@
 // branches.
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import {
-	asUuid,
 	type CaseListConfig,
 	type CaseSearchConfig,
 	simpleSearchInputDef,
@@ -82,11 +82,11 @@ const INPUTS_ONLY_CONFIG: CaseListConfig = resolveCaseListConfig({
 	columns: [],
 	searchInputs: [
 		simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000001"),
+			testUuid("00000000-0000-4000-8000-000000000001"),
 			"name",
 			"Name",
 			"text",
-			"name",
+			"case_name",
 		),
 	],
 });
@@ -99,11 +99,11 @@ const FILTER_AND_INPUTS_CONFIG: CaseListConfig = resolveCaseListConfig({
 	filter: eq(prop("patient", "is_active"), literal(true)),
 	searchInputs: [
 		simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000002"),
+			testUuid("00000000-0000-4000-8000-000000000002"),
 			"name",
 			"Name",
 			"text",
-			"name",
+			"case_name",
 		),
 	],
 });

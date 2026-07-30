@@ -11,12 +11,15 @@
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { asUuid, type CaseType } from "@/lib/domain";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { BlueprintDocProvider } from "@/lib/doc/provider";
+import type { CaseType } from "@/lib/domain";
 import {
 	type Predicate,
 	predicateSchema,
 	type SearchInputDecl,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import {
 	type PredicateEditContext,
 	predicateCardSchemas,
@@ -26,40 +29,36 @@ import { PredicateCardEditor } from "../PredicateCardEditor";
 const PATIENT: CaseType = {
 	name: "patient",
 	properties: [
-		{ name: "name", label: "Name", data_type: "text" },
-		{ name: "age", label: "Age", data_type: "int" },
-		{ name: "weight", label: "Weight", data_type: "decimal" },
-		{ name: "dob", label: "Date of birth", data_type: "date" },
-		{ name: "last_seen", label: "Last seen", data_type: "datetime" },
-		{ name: "wakeup", label: "Wake time", data_type: "time" },
+		{ name: "case_name", label: proseText("Case name"), data_type: "text" },
+		{ name: "age", label: proseText("Age"), data_type: "int" },
+		{ name: "weight", label: proseText("Weight"), data_type: "decimal" },
+		{ name: "dob", label: proseText("Date of birth"), data_type: "date" },
+		{ name: "last_seen", label: proseText("Last seen"), data_type: "datetime" },
+		{ name: "wakeup", label: proseText("Wake time"), data_type: "time" },
 		{
 			name: "status",
-			label: "Status",
+			label: proseText("Status"),
 			data_type: "single_select",
 			options: [
-				{ value: "active", label: "Active" },
-				{ value: "inactive", label: "Inactive" },
+				{ value: "active", label: proseText("Active") },
+				{ value: "inactive", label: proseText("Inactive") },
 			],
 		},
 		{
 			name: "tags",
-			label: "Tags",
+			label: proseText("Tags"),
 			data_type: "multi_select",
 			options: [
-				{ value: "vip", label: "VIP" },
-				{ value: "new", label: "New" },
+				{ value: "vip", label: proseText("VIP") },
+				{ value: "new", label: proseText("New") },
 			],
 		},
-		{ name: "location", label: "Home", data_type: "geopoint" },
+		{ name: "location", label: proseText("Home"), data_type: "geopoint" },
 	],
 };
 
 const KNOWN_INPUTS: readonly SearchInputDecl[] = [
-	{
-		uuid: asUuid("b3dba847-fcda-4409-84cb-64e94fca14cc"),
-		name: "name_search",
-		data_type: "text",
-	},
+	{ uuid: testUuid("name_search"), name: "name_search", data_type: "text" },
 ];
 
 const ctx: PredicateEditContext = {
@@ -88,14 +87,18 @@ describe("cards smoke — mount via PredicateCardEditor", () => {
 	for (const kind of allKinds) {
 		it(`${kind}: mounts inside PredicateCardEditor`, () => {
 			const value = predicateCardSchemas[kind].defaultValue(ctx);
+			// Cards spell authored prose against the document; every
+			// production mount sits inside the builder's provider.
 			const { container } = render(
-				<PredicateCardEditor
-					value={value}
-					onChange={() => {}}
-					caseTypes={ctx.caseTypes}
-					currentCaseType={ctx.currentCaseType}
-					knownInputs={ctx.knownInputs}
-				/>,
+				<BlueprintDocProvider appId="test-app">
+					<PredicateCardEditor
+						value={value}
+						onChange={() => {}}
+						caseTypes={ctx.caseTypes}
+						currentCaseType={ctx.currentCaseType}
+						knownInputs={ctx.knownInputs}
+					/>
+				</BlueprintDocProvider>,
 			);
 			// One element in the container — the predicate card —
 			// confirms render landed without throwing.

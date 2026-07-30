@@ -16,9 +16,13 @@
  * fixture matches the manifest those rules see in production.
  */
 
+import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import type { MediaAssetRecord } from "@/lib/db/mediaAssets";
-import type { AssetMimeType, MediaAssetStatus } from "@/lib/domain/multimedia";
-import { asAssetId } from "@/lib/domain/multimedia";
+import type {
+	AssetMimeType,
+	MediaAssetId,
+	MediaAssetStatus,
+} from "@/lib/domain/multimedia";
 
 /** The owner string the rule-tests treat as "this app's owner". */
 export const APP_OWNER = "owner-fixture";
@@ -54,13 +58,15 @@ export function makeAssetRecord(
 		// read back as a `Date`).
 		created_at: new Date(0),
 		...overrides,
-		id: asAssetId(overrides.id ?? id),
+		id: overrides.id ?? testMediaAssetId(id),
 	};
 }
+
+export const mediaId = testMediaAssetId;
 
 /** Build a manifest map from a list of records, keyed by record.id. */
 export function makeManifest(
 	records: ReadonlyArray<MediaAssetRecord>,
-): ReadonlyMap<string, MediaAssetRecord> {
-	return new Map(records.map((r) => [r.id as string, r]));
+): ReadonlyMap<MediaAssetId, MediaAssetRecord> {
+	return new Map(records.map((r) => [r.id, r]));
 }

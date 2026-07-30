@@ -107,7 +107,7 @@ export type XPathValue = string | number | boolean | XPathDate;
 export interface EvalContext {
 	/** Resolve an absolute path (/data/question_id) to its current value. */
 	getValue(path: string): string | undefined;
-	/** Resolve a hashtag ref (#case/prop, #user/prop, #form/question_id) to a value. */
+	/** Resolve a hashtag ref (#patient/prop, #user/prop, #form/question_id). */
 	resolveHashtag(ref: string): string;
 	/** Current field path (for '.') */
 	contextPath: string;

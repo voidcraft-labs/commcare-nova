@@ -27,6 +27,13 @@ export {
 	validateCaseOperationTargetDescriptor,
 	validateResolvedCaseOperationTypeSequence,
 } from "./caseOperationTargets";
+export type {
+	CasePropertyRenameStoragePreflight,
+	CasePropertyRenameStoragePreflightByRename,
+	CasePropertyRenameStoragePreflightConflict,
+	CasePropertyRenameStoragePreflightEntry,
+} from "./casePropertyRenamePreflight";
+export { readCasePropertyRenameStoragePreflightInTransaction } from "./casePropertyRenamePreflight";
 
 // Typed user-domain errors.
 export type { CasePropertyFailure, SubmissionRejection } from "./errors";
@@ -41,9 +48,6 @@ export {
 	SubmissionRejectedError,
 } from "./errors";
 export { withProjectContext, withSchemaContext } from "./projectContext";
-// Cross-tenant case re-tenant — the case-store half of moving an app between
-// Projects. The db-injectable `*On` twin stays package-private (harness only).
-export { retenantAppCases } from "./retenant";
 export type { LookupTableSchemas } from "./sql/compileLookup";
 export type {
 	FormFieldBindingValue,
@@ -57,10 +61,13 @@ export type {
 	JsonValue,
 } from "./sql/database";
 export type {
+	ApplyCasePropertyRenameArgs,
 	ApplySchemaChangeArgs,
 	CalculatedColumn,
 	CalculatedValue,
 	CaseInsert,
+	CasePropertyRenameEntry,
+	CasePropertyRenameReport,
 	CaseRow,
 	CaseRowWithCalculated,
 	CaseStore,
@@ -71,6 +78,7 @@ export type {
 	MigrationReport,
 	ParkedValueEntry,
 	ParkedValueStanding,
+	PreparedCasePropertyRenamePhaseB,
 	PreparedSchemaChangePhaseB,
 	QueryArgs,
 	ResetSampleDataArgs,
@@ -79,7 +87,10 @@ export type {
 	SortKey,
 	TransactionalSchemaCaseStore,
 } from "./store";
-export { buildCaseTypeMap } from "./store";
+export {
+	buildCaseTypeMap,
+	CasePropertyRenameStorageConflictError,
+} from "./store";
 export type {
 	ApplySubmissionArgs,
 	CaseOperationProgram,

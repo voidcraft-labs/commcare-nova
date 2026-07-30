@@ -15,9 +15,12 @@
 
 import type { BlueprintDocState } from "@/lib/doc/store";
 import {
+	asUuid,
 	type Field,
 	type FieldKind,
 	type Form,
+	type ProseTemplate,
+	projectProseTemplate,
 	reachableCaseTypes,
 	toReachableIndex,
 	type Uuid,
@@ -41,7 +44,7 @@ export function buildLintContext(
 	let moduleUuid: Uuid | undefined;
 	for (const [mUuid, formUuids] of Object.entries(state.formOrder)) {
 		if (formUuids.includes(formUuid)) {
-			moduleUuid = mUuid as Uuid;
+			moduleUuid = asUuid(mUuid);
 			break;
 		}
 	}
@@ -51,6 +54,7 @@ export function buildLintContext(
 	// Walk fields under the form root to collect valid paths + form entries.
 	const validPaths = new Set<string>();
 	const formEntries: Array<{
+		uuid: Uuid;
 		path: string;
 		label: string;
 		kind: FieldKind;
@@ -64,10 +68,13 @@ export function buildLintContext(
 			validPaths.add(path);
 			// Field variants differ in label presence — safe fallback to id so
 			// the autocomplete always has something readable to display.
-			const withLabel = field as Field & { label?: string };
+			const withLabel = field as Field & { label?: ProseTemplate };
 			formEntries.push({
+				uuid: field.uuid,
 				path: path.slice("/data/".length),
-				label: withLabel.label ?? field.id,
+				label: withLabel.label
+					? projectProseTemplate(withLabel.label, state).text
+					: field.id,
 				kind: field.kind,
 			});
 			if (field.kind === "group" || field.kind === "repeat") {
@@ -80,12 +87,13 @@ export function buildLintContext(
 	// Readable case types: the form's own case type plus its ancestor chain
 	// (walked through `parent_type`). The case-type record on `doc.caseTypes`
 	// is the authoritative property list; it's populated by the SA and we never
-	// synthesize entries from per-field `case_property_on` values (by design).
+	// synthesize entries from field write destinations (by design).
 	// Child types are deliberately NOT included — a child case is created fresh
 	// and never loaded, so reading its properties is unresolvable at runtime.
 	const reachable = moduleCaseType
 		? toReachableIndex(
 				reachableCaseTypes(moduleCaseType, state.caseTypes ?? []),
+				state,
 			)
 		: undefined;
 

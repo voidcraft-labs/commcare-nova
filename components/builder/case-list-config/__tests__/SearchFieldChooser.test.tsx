@@ -1,41 +1,56 @@
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import { emptyCaseListConfig } from "@/lib/domain";
+import { proseTemplateText, proseText } from "@/lib/domain/prose";
 // @vitest-environment happy-dom
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+	fireEvent,
+	render as rtlRender,
+	screen,
+	waitFor,
+} from "@testing-library/react";
+import type { ReactElement, ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
+import { BlueprintDocProvider } from "@/lib/doc/provider";
 import type { CaseProperty } from "@/lib/domain";
 import { AddSearchFieldControl } from "../canvas/SearchCanvas";
 import { seedSearchInputForProperty } from "../seeds";
 
+// The surfaces here spell authored prose against the document; every production
+// mount sits inside the builder's provider. Wrapping at `render` reproduces it
+// and carries through each `rerender`.
+function DocumentProvider({ children }: { readonly children: ReactNode }) {
+	return (
+		<BlueprintDocProvider appId="test-app">{children}</BlueprintDocProvider>
+	);
+}
+
+function render(ui: ReactElement) {
+	return rtlRender(ui, { wrapper: DocumentProvider });
+}
+
+/** Every fixture property below is labeled with literal prose, so a
+ *  context-free projection spells exactly what a document-aware one would. */
+const projectProse = proseTemplateText;
+
 const CASE_NAME: CaseProperty = {
 	name: "case_name",
-	label: "case_name",
-	data_type: "text",
-};
-const LEGACY_NAME: CaseProperty = {
-	name: "name",
-	label: "name",
+	label: proseText("case_name"),
 	data_type: "text",
 };
 const EXTERNAL_ID: CaseProperty = {
 	name: "external_id",
-	label: "external_id",
-	data_type: "text",
-};
-const LEGACY_EXTERNAL_ID: CaseProperty = {
-	name: "external-id",
-	label: "external-id",
+	label: proseText("external_id"),
 	data_type: "text",
 };
 const DATE_OF_BIRTH: CaseProperty = {
 	name: "date_of_birth",
-	label: "Date of birth",
+	label: proseText("Date of birth"),
 	data_type: "date",
 };
 const COMMUNITY: CaseProperty = {
 	name: "community",
-	label: "Community",
+	label: proseText("Community"),
 	data_type: "text",
 };
 
@@ -58,17 +73,11 @@ async function openChooser(): Promise<HTMLInputElement> {
 }
 
 describe("AddSearchFieldControl", () => {
-	it("asks which information to search, collapses aliases, and puts case name first", async () => {
+	it("asks which information to search and puts case name first", async () => {
 		const onChoose = vi.fn();
 		render(
 			<AddSearchFieldControl
-				properties={[
-					LEGACY_EXTERNAL_ID,
-					COMMUNITY,
-					LEGACY_NAME,
-					EXTERNAL_ID,
-					CASE_NAME,
-				]}
+				properties={[COMMUNITY, EXTERNAL_ID, CASE_NAME]}
 				onChoose={onChoose}
 				disabledReason={undefined}
 			/>,
@@ -90,7 +99,6 @@ describe("AddSearchFieldControl", () => {
 		expect(visibleCopy).toContain("Case name");
 		expect(visibleCopy).toContain("External ID");
 		expect(visibleCopy).not.toContain("case_name");
-		expect(visibleCopy).not.toContain("external-id");
 		expect(onChoose).not.toHaveBeenCalled();
 		await closeChooser();
 	});
@@ -152,12 +160,12 @@ describe("AddSearchFieldControl", () => {
 				properties={[
 					{
 						name: "intake_status",
-						label: "Program status",
+						label: proseText("Program status"),
 						data_type: "text",
 					},
 					{
 						name: "followup_status",
-						label: "Program status",
+						label: proseText("Program status"),
 						data_type: "text",
 					},
 				]}
@@ -211,7 +219,11 @@ describe("AddSearchFieldControl", () => {
 
 describe("seedSearchInputForProperty", () => {
 	it("keeps established widget and match defaults after explicit selection", () => {
-		const text = seedSearchInputForProperty(emptyCaseListConfig(), COMMUNITY);
+		const text = seedSearchInputForProperty(
+			emptyCaseListConfig(),
+			COMMUNITY,
+			projectProse,
+		);
 		expect(text).toMatchObject({
 			kind: "simple",
 			property: "community",
@@ -223,6 +235,7 @@ describe("seedSearchInputForProperty", () => {
 		const date = seedSearchInputForProperty(
 			emptyCaseListConfig(),
 			DATE_OF_BIRTH,
+			projectProse,
 		);
 		expect(date).toMatchObject({
 			kind: "simple",
@@ -235,14 +248,16 @@ describe("seedSearchInputForProperty", () => {
 		expect(date.mode).toBeUndefined();
 	});
 
-	it("canonicalizes legacy choices and keeps repeated internal names unique", () => {
+	it("keeps repeated internal names unique", () => {
 		const first = seedSearchInputForProperty(
 			emptyCaseListConfig(),
-			LEGACY_NAME,
+			CASE_NAME,
+			projectProse,
 		);
 		const second = seedSearchInputForProperty(
 			resolveCaseListConfig({ columns: [], searchInputs: [first] }),
-			LEGACY_NAME,
+			CASE_NAME,
+			projectProse,
 		);
 
 		expect(first).toMatchObject({

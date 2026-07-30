@@ -87,8 +87,8 @@ export const CLOUD_SQL_MAX_CONNECTIONS = 25;
 export const CLOUD_SQL_SUPERUSER_RESERVED_CONNECTIONS = 3;
 export const CLOUD_SQL_RESERVED_CONNECTIONS = 0;
 
-/** Ordinary-login room left outside Nova's three capped application roles. */
-export const CLOUD_SQL_ORDINARY_LOGIN_HEADROOM_CONNECTIONS = 2;
+/** Ordinary-login room left outside Nova's four capped workload roles. */
+export const CLOUD_SQL_ORDINARY_LOGIN_HEADROOM_CONNECTIONS = 1;
 
 /** Two ordinary slots plus PostgreSQL's three true-superuser-only slots. */
 export const CLOUD_SQL_CAPACITY_HEADROOM_CONNECTIONS =
@@ -132,6 +132,9 @@ export const CAPTURE_CLEANUP_POOL_MAX_PER_EXECUTION = 2;
  */
 export const CAPTURE_CLEANUP_LOCK_CONTENDER_CONNECTIONS = 1;
 
+/** The canonical-identity audit is a single-session, read-only workload. */
+export const AUDIT_POOL_MAX_PER_EXECUTION = 1;
+
 /**
  * Hard PostgreSQL per-login-role limits. Unlike Cloud Run's scaling maximum,
  * these are enforced at connection admission and apply cluster-wide. Role
@@ -142,11 +145,12 @@ export const CAPTURE_CLEANUP_LOCK_CONTENDER_CONNECTIONS = 1;
 export const RUNTIME_DB_ROLE_CONNECTION_LIMIT = 16;
 export const MIGRATION_DB_ROLE_CONNECTION_LIMIT = 1;
 export const CAPTURE_CLEANUP_DB_ROLE_CONNECTION_LIMIT = 3;
+export const AUDIT_DB_ROLE_CONNECTION_LIMIT = 1;
 
 /**
- * A one-off `scripts/* --prod` process consumes one of the two residual
- * ordinary-login slots, never a serving-workload allocation. PostgreSQL's
- * other three headroom slots are true-superuser-only.
+ * A one-off `scripts/* --prod` process consumes the residual ordinary-login
+ * slot, never a serving-workload allocation. PostgreSQL's other three
+ * headroom slots are true-superuser-only.
  */
 export const OPERATOR_POOL_MAX_PER_PROCESS = 1;
 
@@ -185,7 +189,7 @@ export const DATABASE_CONNECTION_OPTIONS = `-c search_path=${DATABASE_SEARCH_PAT
 export const POOL_CONNECTION_TIMEOUT_MS = 10_000;
 
 /**
- * Connection-budget invariant. Throws when the service or either maintenance
+ * Connection-budget invariant. Throws when the service or any maintenance
  * workload can collectively overrun Cloud SQL's cap. Fires once per process on
  * the first `getCaseStoreDatabase()` call — first-call rather than module-load
  * so a non-runtime import (Next.js build, type-only test import)
@@ -203,11 +207,13 @@ export function enforceConnectionBudget(): void {
 	const hardLoginPeak =
 		RUNTIME_DB_ROLE_CONNECTION_LIMIT +
 		MIGRATION_DB_ROLE_CONNECTION_LIMIT +
-		CAPTURE_CLEANUP_DB_ROLE_CONNECTION_LIMIT;
+		CAPTURE_CLEANUP_DB_ROLE_CONNECTION_LIMIT +
+		AUDIT_DB_ROLE_CONNECTION_LIMIT;
 	if (
 		servicePeak > RUNTIME_DB_ROLE_CONNECTION_LIMIT ||
 		MIGRATION_POOL_MAX_PER_EXECUTION > MIGRATION_DB_ROLE_CONNECTION_LIMIT ||
 		cleanupPeak > CAPTURE_CLEANUP_DB_ROLE_CONNECTION_LIMIT ||
+		AUDIT_POOL_MAX_PER_EXECUTION > AUDIT_DB_ROLE_CONNECTION_LIMIT ||
 		hardLoginPeak > applicationBudget ||
 		OPERATOR_POOL_MAX_PER_PROCESS >
 			CLOUD_SQL_ORDINARY_LOGIN_HEADROOM_CONNECTIONS
@@ -225,16 +231,18 @@ export function enforceConnectionBudget(): void {
 				`    runtime role limit: ${RUNTIME_DB_ROLE_CONNECTION_LIMIT}`,
 				`    migration demand / role limit: ${MIGRATION_POOL_MAX_PER_EXECUTION} / ${MIGRATION_DB_ROLE_CONNECTION_LIMIT}`,
 				`    cleanup demand / role limit:   ${cleanupPeak} / ${CAPTURE_CLEANUP_DB_ROLE_CONNECTION_LIMIT}`,
-				`    hard login peak:    ${RUNTIME_DB_ROLE_CONNECTION_LIMIT} + ${MIGRATION_DB_ROLE_CONNECTION_LIMIT} + ${CAPTURE_CLEANUP_DB_ROLE_CONNECTION_LIMIT} = ${hardLoginPeak}`,
+				`    audit demand / role limit:     ${AUDIT_POOL_MAX_PER_EXECUTION} / ${AUDIT_DB_ROLE_CONNECTION_LIMIT}`,
+				`    hard login peak:    ${RUNTIME_DB_ROLE_CONNECTION_LIMIT} + ${MIGRATION_DB_ROLE_CONNECTION_LIMIT} + ${CAPTURE_CLEANUP_DB_ROLE_CONNECTION_LIMIT} + ${AUDIT_DB_ROLE_CONNECTION_LIMIT} = ${hardLoginPeak}`,
 				`    available budget:   ${CLOUD_SQL_MAX_CONNECTIONS} - ${CLOUD_SQL_CAPACITY_HEADROOM_CONNECTIONS} = ${applicationBudget}`,
 				`    residual headroom:  ${CLOUD_SQL_ORDINARY_LOGIN_HEADROOM_CONNECTIONS} ordinary + ${CLOUD_SQL_SUPERUSER_RESERVED_CONNECTIONS} true-superuser-only`,
 				"",
 				"Cloud Run's service/revision maxima are soft outer controls. The",
 				"hard ceiling is PostgreSQL CONNECTION LIMIT on each direct login",
 				"role: runtime includes pooled + LISTEN sessions; migration gets one;",
-				"cleanup gets its active lock/work pair plus one losing probe.",
-				"Those non-inherited login-role limits must leave the two ordinary",
-				"operator slots and three true-superuser-reserved slots untouched.",
+				"cleanup gets its active lock/work pair plus one losing probe; audit",
+				"gets one read-only session. Those non-inherited login-role limits",
+				"must leave the ordinary operator slot and three true-superuser-",
+				"reserved slots untouched.",
 				"Crossing the budget can stall every Cloud Run instance against the",
 				"shared connection cap.",
 				"",
@@ -254,6 +262,7 @@ export const CASE_STORE_WORKLOADS = [
 	"service",
 	"migration",
 	"capture-cleanup",
+	"audit",
 	"operator",
 ] as const;
 
@@ -281,7 +290,7 @@ export function readCaseStoreWorkload(
 				"",
 				`    ${NOVA_DB_WORKLOAD_ENV}: ${JSON.stringify(raw)}`,
 				"",
-				"Serving, migration, capture-cleanup, and operator processes have",
+				"Serving, migration, capture-cleanup, audit, and operator processes have",
 				"different",
 				"pool maxima that participate in the production connection budget.",
 				"A non-local process must identify itself explicitly; silently using",
@@ -316,6 +325,8 @@ export function poolMaxForWorkload(workload: CaseStoreWorkload): number {
 			return MIGRATION_POOL_MAX_PER_EXECUTION;
 		case "capture-cleanup":
 			return CAPTURE_CLEANUP_POOL_MAX_PER_EXECUTION;
+		case "audit":
+			return AUDIT_POOL_MAX_PER_EXECUTION;
 		case "operator":
 			return OPERATOR_POOL_MAX_PER_PROCESS;
 	}

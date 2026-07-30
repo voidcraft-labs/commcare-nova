@@ -23,20 +23,20 @@ describe("formatXPath", () => {
 
 describe("prettyPrintXPath", () => {
 	it("returns short expressions on one line", () => {
-		const expr = "if(#case/status = 'active', 'Yes', 'No')";
+		const expr = "if(#patient/status = 'active', 'Yes', 'No')";
 		expect(prettyPrintXPath(expr)).toBe(expr);
 	});
 
 	it("expands long if() across multiple lines", () => {
 		const expr =
-			"if(#case/status = 'active', concat(#case/first_name, ' ', #case/last_name), 'Closed')";
+			"if(#patient/status = 'active', concat(#patient/first_name, ' ', #patient/last_name), 'Closed')";
 		expect(prettyPrintXPath(expr)).toBe(
 			"if(\n" +
-				"    #case/status = 'active',\n" +
+				"    #patient/status = 'active',\n" +
 				"    concat(\n" +
-				"        #case/first_name,\n" +
+				"        #patient/first_name,\n" +
 				"        ' ',\n" +
-				"        #case/last_name\n" +
+				"        #patient/last_name\n" +
 				"    ),\n" +
 				"    'Closed'\n" +
 				")",
@@ -45,7 +45,7 @@ describe("prettyPrintXPath", () => {
 
 	it("does not expand empty function calls", () => {
 		const expr =
-			"if(today() > date(#case/some_really_long_property_name), concat(#case/first_name, ' ', #case/last_name), 'N/A')";
+			"if(today() > date(#patient/some_really_long_property_name), concat(#patient/first_name, ' ', #patient/last_name), 'N/A')";
 		const result = prettyPrintXPath(expr);
 		expect(result).toContain("today()");
 		expect(result).not.toContain("today(\n");
@@ -53,14 +53,14 @@ describe("prettyPrintXPath", () => {
 
 	it("does not expand grouping parens", () => {
 		const expr =
-			"(#case/age + #case/bonus_years) * #case/multiplier_for_some_really_long_calculation_property > #case/threshold_value";
+			"(#patient/age + #patient/bonus_years) * #patient/multiplier_for_some_really_long_calculation_property > #patient/threshold_value";
 		const result = prettyPrintXPath(expr);
-		expect(result).toContain("(#case/age + #case/bonus_years)");
+		expect(result).toContain("(#patient/age + #patient/bonus_years)");
 	});
 
 	it("preserves string literals containing parens", () => {
 		const expr =
-			"if(#case/status = 'active (current)', concat(#case/first_name, ' (', #case/last_name, ')'), 'Inactive (closed)')";
+			"if(#patient/status = 'active (current)', concat(#patient/first_name, ' (', #patient/last_name, ')'), 'Inactive (closed)')";
 		const result = prettyPrintXPath(expr);
 		expect(result).toContain("'active (current)'");
 		expect(result).toContain("' ('");
@@ -69,10 +69,10 @@ describe("prettyPrintXPath", () => {
 
 	it("handles deeply nested calls", () => {
 		const expr =
-			"if(#case/a = 'x', if(#case/b = 'y', concat(#case/c, ' ', #case/d, ' ', #case/e), 'fallback_b'), 'fallback_a')";
+			"if(#patient/a = 'x', if(#patient/b = 'y', concat(#patient/c, ' ', #patient/d, ' ', #patient/e), 'fallback_b'), 'fallback_a')";
 		const result = prettyPrintXPath(expr);
 		// 3 levels deep: outer if → inner if → concat
-		expect(result).toContain("            #case/c");
+		expect(result).toContain("            #patient/c");
 	});
 
 	it("stays on one line when under threshold", () => {
@@ -108,7 +108,7 @@ describe("prettyPrintXPath", () => {
 
 	it("does not break and/or at top level", () => {
 		const expr =
-			"#case/status = 'active' and #case/enrolled = 'yes' and #case/age > 18 and #case/consent = 'yes'";
+			"#patient/status = 'active' and #patient/enrolled = 'yes' and #patient/age > 18 and #patient/consent = 'yes'";
 		const result = prettyPrintXPath(expr);
 		// No predicates or function calls — and stays inline
 		expect(result).not.toContain("\n");

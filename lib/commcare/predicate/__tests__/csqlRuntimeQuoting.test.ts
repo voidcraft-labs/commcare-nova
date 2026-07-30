@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { asUuid } from "@/lib/domain";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	eq,
 	ifExpr,
@@ -11,12 +11,11 @@ import {
 	or,
 	prop,
 	term,
-	unwrapList,
 	whenInput,
 } from "@/lib/domain/predicate";
 import { evaluate } from "@/lib/preview/xpath/evaluator";
 import type { EvalContext } from "@/lib/preview/xpath/types";
-import { emitCsql as emitCsqlProduction } from "../csqlEmitter";
+import { emitCsql as emitCsqlRaw } from "../csqlEmitter";
 import { quoteLiteral } from "../stringQuoting";
 import {
 	CSQL_UNREPRESENTABLE_RUNTIME_STRING,
@@ -31,34 +30,25 @@ const CONTEXT: EvalContext = {
 	size: 1,
 };
 
-const QUERY_UUID = asUuid("d794ebfb-9f47-450f-8af3-964849456a34");
-const SELECTED_TAGS_UUID = asUuid("b8ff2650-ccdd-48c0-8070-419ef5cd7332");
-const INPUT_UUID_BY_NAME = new Map([
-	["query", QUERY_UUID],
-	["selected_tags", SELECTED_TAGS_UUID],
-]);
-const EMISSION_CONTEXT = {
-	caseTypes: [],
-	knownInputs: [
-		{ uuid: QUERY_UUID, name: "query", data_type: "text" as const },
-		{
-			uuid: SELECTED_TAGS_UUID,
-			name: "selected_tags",
-			data_type: "text" as const,
-		},
-	],
-};
+const TEST_INPUTS = ["query"].map((name) => ({
+	uuid: testUuid(name),
+	name,
+	data_type: "text" as const,
+}));
 
-function emitCsql(
-	...args: Parameters<typeof emitCsqlProduction>
-): ReturnType<typeof emitCsqlProduction> {
-	return emitCsqlProduction(args[0], args[1] ?? EMISSION_CONTEXT);
+function emitCsql(predicate: Parameters<typeof emitCsqlRaw>[0]) {
+	return emitCsqlRaw(predicate, {
+		caseTypes: [],
+		knownInputs: TEST_INPUTS,
+	});
 }
 
 function resolveInput(wrapper: string, name: string, value: string): string {
-	const uuid = INPUT_UUID_BY_NAME.get(name);
-	if (uuid === undefined) throw new Error(`unknown test input '${name}'`);
-	const xpath = emitSearchInputXPath(input(uuid), new Map([[uuid, name]]));
+	const xpath = emitSearchInputXPath(input(testUuid(name)), {
+		searchInputNames: new Map(
+			TEST_INPUTS.map((entry) => [entry.uuid, entry.name]),
+		),
+	});
 	const valueXpath = quoteLiteral(value, "case-list-filter");
 	// Preserve Core's nodeset-presence semantics before substituting the scalar
 	// value. `count('answer')` is not equivalent to count(input-field): the
@@ -77,7 +67,7 @@ describe("runtime CSQL value quoting", () => {
 		["double quote only", 'The "Boss"', `full_name = 'The "Boss"'`],
 	])("preserves %s byte-for-byte", (_label, value, expected) => {
 		const wrapper = emitCsql(
-			eq(prop("patient", "full_name"), input(QUERY_UUID)),
+			eq(prop("patient", "full_name"), input(testUuid("query"))),
 		).wrapper;
 		expect(resolveInput(wrapper, "query", value)).toBe(expected);
 	});
@@ -86,7 +76,7 @@ describe("runtime CSQL value quoting", () => {
 		"keeps a one-delimiter adversarial value inside one literal",
 		(value) => {
 			const wrapper = emitCsql(
-				eq(prop("patient", "full_name"), input(QUERY_UUID)),
+				eq(prop("patient", "full_name"), input(testUuid("query"))),
 			).wrapper;
 			const rendered = resolveInput(wrapper, "query", value);
 			expect(rendered).toContain(value);
@@ -97,7 +87,7 @@ describe("runtime CSQL value quoting", () => {
 
 	it("rejects a value containing both delimiters before any bytes enter CSQL", () => {
 		const wrapper = emitCsql(
-			eq(prop("patient", "full_name"), input(QUERY_UUID)),
+			eq(prop("patient", "full_name"), input(testUuid("query"))),
 		).wrapper;
 		expect(resolveInput(wrapper, "query", `it's "quoted"`)).toBe(
 			CSQL_UNREPRESENTABLE_RUNTIME_STRING,
@@ -105,12 +95,12 @@ describe("runtime CSQL value quoting", () => {
 	});
 
 	it.each([
-		["not-equal", neq(prop("patient", "name"), input(QUERY_UUID))],
-		["not", not(eq(prop("patient", "name"), input(QUERY_UUID)))],
+		["not-equal", neq(prop("patient", "name"), input(testUuid("query")))],
+		["not", not(eq(prop("patient", "name"), input(testUuid("query"))))],
 		[
 			"or",
 			or(
-				eq(prop("patient", "name"), input(QUERY_UUID)),
+				eq(prop("patient", "name"), input(testUuid("query"))),
 				eq(prop("patient", "status"), literal("active")),
 			),
 		],
@@ -128,8 +118,8 @@ describe("runtime CSQL value quoting", () => {
 	it("propagates a nested when-input guard to the outermost query", () => {
 		const predicate = or(
 			whenInput(
-				input(QUERY_UUID),
-				not(eq(prop("patient", "name"), input(QUERY_UUID))),
+				input(testUuid("query")),
+				not(eq(prop("patient", "name"), input(testUuid("query")))),
 			),
 			eq(prop("patient", "status"), literal("active")),
 		);
@@ -156,17 +146,5 @@ describe("runtime CSQL value quoting", () => {
 			),
 		);
 		expect(rendered).toBe(expected);
-	});
-
-	it("prefers single quotes for JSON passed to unwrap-list", () => {
-		const wrapper = emitCsql(
-			eq(prop("patient", "tags"), unwrapList(term(input(SELECTED_TAGS_UUID)))),
-		).wrapper;
-		expect(resolveInput(wrapper, "selected_tags", '["alpha","beta"]')).toBe(
-			`tags = unwrap-list('["alpha","beta"]')`,
-		);
-		expect(resolveInput(wrapper, "selected_tags", `["O'Connor"]`)).toBe(
-			CSQL_UNREPRESENTABLE_RUNTIME_STRING,
-		);
 	});
 });

@@ -34,6 +34,7 @@
 
 import { produce } from "immer";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { AppAccessError } from "@/lib/db/appAccess";
 import {
 	AppProjectChangedError,
@@ -41,17 +42,19 @@ import {
 	CommitReauthError,
 } from "@/lib/db/commitGuard";
 import { applyMutations } from "@/lib/doc/mutations";
+import { canonicalAppGenesis } from "@/lib/doc/scaffolds";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, Field, Form, Module } from "@/lib/domain";
-import { asUuid } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
+
 import type { GenerationContext } from "../generationContext";
 import { createSolutionsArchitect } from "../solutionsArchitect";
 import { removeMediaAssetTool } from "../tools/media/removeMediaAsset";
 import { makeTestContext } from "./fixtures";
 
-/* The SA commits every batch through `commitGuardedBatch` (kind:'chat') —
- * except rename-carrying batches, which detour through the cross-store saga
- * (`applyBlueprintChange`). Mock both to re-apply the batch onto ONE TRACKED
+/* The SA commits ordinary batches through `commitGuardedBatch` (kind:'chat');
+ * the explicit rename command composes its storage transaction through
+ * `applyBlueprintChange`. Mock both to re-apply the batch onto ONE TRACKED
  * server doc so the SA's working doc advances across tool calls exactly as it
  * would against the real writers. The authorized-snapshot mock backs
  * `wrapMutating`'s conflict-reload path. `seedServerDoc` seeds the tracked doc
@@ -121,10 +124,18 @@ const FORBIDDEN_LEGACY_EVENTS = [
 
 // ── Uuid helpers ─────────────────────────────────────────────────────────
 
-const MOD_A = asUuid("11111111-1111-1111-1111-111111111111");
-const MOD_B = asUuid("22222222-2222-2222-2222-222222222222");
-const FORM_A = asUuid("33333333-3333-3333-3333-333333333333");
-const FIELD_A = asUuid("44444444-4444-4444-4444-444444444444");
+const MOD_A = testUuid("11111111-1111-1111-1111-111111111111");
+const MOD_B = testUuid("22222222-2222-2222-2222-222222222222");
+const FORM_A = testUuid("33333333-3333-3333-3333-333333333333");
+const FORM_B = testUuid("34343434-3434-4343-8343-343434343434");
+const FIELD_A = testUuid("44444444-4444-4444-4444-444444444444");
+const FIELD_B = testUuid("43434343-4343-4434-8434-434343434343");
+const CASE_COLUMN = testUuid("45454545-4545-4545-8545-454545454545");
+const FOLLOWUP_FORM = testUuid("55555555-5555-4555-8555-555555555555");
+const FOLLOWUP_FIELD = testUuid("66666666-6666-4666-8666-666666666666");
+const NEW_MODULE = testUuid("77777777-7777-4777-8777-777777777777");
+const NEW_MODULE_FORM = testUuid("88888888-8888-4888-8888-888888888888");
+const NEW_MODULE_FIELD = testUuid("99999999-9999-4999-8999-999999999999");
 
 // ── Fixture builders ─────────────────────────────────────────────────────
 
@@ -143,6 +154,19 @@ function makeFixtureDoc(): BlueprintDoc {
 		id: "patient",
 		name: "Patient",
 		caseType: "patient",
+		caseListConfig: {
+			columns: [
+				{
+					uuid: CASE_COLUMN,
+					kind: "plain",
+					field: "case_name",
+					header: "Name",
+				},
+			],
+			listColumnOrder: [CASE_COLUMN],
+			detailColumnOrder: [CASE_COLUMN],
+			searchInputs: [],
+		},
 	};
 	const modB: Module = {
 		uuid: MOD_B,
@@ -155,12 +179,24 @@ function makeFixtureDoc(): BlueprintDoc {
 		name: "Enroll Patient",
 		type: "registration",
 	};
+	const formB: Form = {
+		uuid: FORM_B,
+		id: "feedback",
+		name: "Feedback",
+		type: "survey",
+	};
 	const field: Field = {
 		uuid: FIELD_A,
 		id: "case_name",
 		kind: "text",
-		label: "Patient name",
-		case_property_on: "case_name",
+		label: proseText("Patient name"),
+		caseWrite: { caseType: "patient", property: "case_name" },
+	} as Field;
+	const fieldB: Field = {
+		uuid: FIELD_B,
+		id: "comments",
+		kind: "text",
+		label: proseText("Comments"),
 	} as Field;
 
 	return {
@@ -170,16 +206,16 @@ function makeFixtureDoc(): BlueprintDoc {
 		caseTypes: [
 			{
 				name: "patient",
-				properties: [{ name: "case_name", label: "Full name" }],
+				properties: [{ name: "case_name", label: proseText("Full name") }],
 			},
 		],
 		modules: { [MOD_A]: mod, [MOD_B]: modB },
-		forms: { [FORM_A]: form },
-		fields: { [FIELD_A]: field },
+		forms: { [FORM_A]: form, [FORM_B]: formB },
+		fields: { [FIELD_A]: field, [FIELD_B]: fieldB },
 		moduleOrder: [MOD_A, MOD_B],
-		formOrder: { [MOD_A]: [FORM_A], [MOD_B]: [] },
-		fieldOrder: { [FORM_A]: [FIELD_A] },
-		fieldParent: { [FIELD_A]: FORM_A },
+		formOrder: { [MOD_A]: [FORM_A], [MOD_B]: [FORM_B] },
+		fieldOrder: { [FORM_A]: [FIELD_A], [FORM_B]: [FIELD_B] },
+		fieldParent: { [FIELD_A]: FORM_A, [FIELD_B]: FORM_B },
 	};
 }
 
@@ -273,11 +309,14 @@ describe("solutionsArchitect — emitMutations migration", () => {
 
 		const result = await runTool(sa, "generateSchema", {
 			caseTypes: [
-				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
 				{
 					name: "visit",
 					parent_type: "patient",
-					properties: [{ name: "case_name", label: "Visit" }],
+					properties: [{ name: "case_name", label: proseText("Visit") }],
 				},
 			],
 		});
@@ -308,7 +347,10 @@ describe("solutionsArchitect — emitMutations migration", () => {
 
 		const result = await runTool(sa, "generateSchema", {
 			caseTypes: [
-				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
 			],
 		});
 
@@ -326,11 +368,14 @@ describe("solutionsArchitect — emitMutations migration", () => {
 
 		const result = await runTool(sa, "generateSchema", {
 			caseTypes: [
-				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
 				{
 					name: "patient",
 					parent_type: "household",
-					properties: [{ name: "age", label: "Age" }],
+					properties: [{ name: "age", label: proseText("Age") }],
 				},
 			],
 		});
@@ -349,10 +394,16 @@ describe("solutionsArchitect — emitMutations migration", () => {
 		// appends the new one (addCaseProperty would first-wins no-op).
 		const doc = makeFixtureDoc();
 		doc.caseTypes = [
+			...(doc.caseTypes ?? []),
 			{
 				name: "visit",
 				properties: [
-					{ name: "visit_date", label: "visit_date", data_type: "date" },
+					{
+						name: "visit_date",
+						label: proseText("visit_date"),
+						data_type: "date",
+					},
+					{ name: "outcome", label: proseText("outcome") },
 				],
 			},
 		];
@@ -364,8 +415,12 @@ describe("solutionsArchitect — emitMutations migration", () => {
 					name: "visit",
 					parent_type: "patient",
 					properties: [
-						{ name: "visit_date", label: "Visit date", data_type: "date" },
-						{ name: "outcome", label: "Outcome" },
+						{
+							name: "visit_date",
+							label: proseText("Visit date"),
+							data_type: "date",
+						},
+						{ name: "outcome", label: proseText("Outcome") },
 					],
 				},
 			],
@@ -377,28 +432,61 @@ describe("solutionsArchitect — emitMutations migration", () => {
 		const muts = mutationEvents(writer);
 		expect(muts).toHaveLength(1);
 		expect(muts[0].mutations.map((m) => m.kind)).toEqual([
-			"declareCaseType",
 			"setCaseTypeMeta",
 			"setCaseProperty",
 			"setCaseProperty",
 		]);
 	});
 
-	it("updateApp emits one data-mutations batch carrying setAppName + setConnectType", async () => {
+	it("updateApp emits one name-only data-mutations batch", async () => {
 		const sa = makeSa(ctx, makeEmptyDoc(), false);
 
 		await runTool(sa, "updateApp", {
 			name: "Vendor Visits",
-			connect_type: "deliver",
+		});
+
+		const muts = mutationEvents(writer);
+		expect(muts).toHaveLength(1);
+		expect(muts[0].stage).toBe("app");
+		expect(muts[0].mutations.map((m) => m.kind)).toEqual(["setAppName"]);
+		expectNoLegacyEvents(writer);
+	});
+
+	it("configureConnect emits the complete UUID-addressed target in one batch", async () => {
+		const doc = makeFixtureDoc();
+		const sa = makeSa(ctx, doc, false);
+
+		await runTool(sa, "configureConnect", {
+			mode: "deliver",
+			participants: [
+				{
+					formUuid: FORM_A,
+					connect: {
+						deliver_unit: { name: "Vendor visit" },
+					},
+				},
+			],
 		});
 
 		const muts = mutationEvents(writer);
 		expect(muts).toHaveLength(1);
 		expect(muts[0].stage).toBe("app");
 		expect(muts[0].mutations.map((m) => m.kind)).toEqual([
-			"setAppName",
 			"setConnectType",
+			"updateForm",
 		]);
+		expect(muts[0].mutations[1]).toMatchObject({
+			kind: "updateForm",
+			uuid: FORM_A,
+			patch: {
+				connect: {
+					deliver_unit: {
+						id: expect.any(String),
+						name: "Vendor visit",
+					},
+				},
+			},
+		});
 		expectNoLegacyEvents(writer);
 	});
 
@@ -423,28 +511,45 @@ describe("solutionsArchitect — emitMutations migration", () => {
 
 	it("addFields emits a single data-mutations batch (not data-form-updated)", async () => {
 		const sa = makeSa(ctx, makeFixtureDoc(), true);
+		const fieldUuid = testUuid("sa-receipt-field");
+		const optionUuids = [
+			testUuid("sa-receipt-option-yes"),
+			testUuid("sa-receipt-option-no"),
+		];
 
-		await runTool(sa, "addFields", {
+		const result = (await runTool(sa, "addFields", {
 			moduleUuid: MOD_A,
 			formUuid: FORM_A,
 			fields: [
 				{
-					id: "dob",
-					kind: "date",
-					parentId: "",
-					label: "Date of birth",
-					required: "",
-					hint: "",
-					validate: "",
-					validate_msg: "",
-					relevant: "",
-					calculate: "",
-					default_value: "",
-					options: [],
-					case_property_on: "",
+					fieldUuid,
+					id: "eligible",
+					kind: "single_select",
+					label: proseText("Eligible"),
+					optionsSource: {
+						kind: "inline",
+						options: [
+							{
+								optionUuid: optionUuids[0],
+								value: "yes",
+								label: proseText("Yes"),
+							},
+							{
+								optionUuid: optionUuids[1],
+								value: "no",
+								label: proseText("No"),
+							},
+						],
+					},
 				},
 			],
-		});
+		})) as {
+			fields: Array<{
+				uuid: string;
+				id: string;
+				options: Array<{ uuid: string; value: string }>;
+			}>;
+		};
 
 		const muts = mutationEvents(writer);
 		// Exactly one data-mutations emission for the batch. `data-phase`
@@ -452,20 +557,30 @@ describe("solutionsArchitect — emitMutations migration", () => {
 		expect(muts).toHaveLength(1);
 		expect(muts[0].stage).toBe(`form:${FORM_A}`);
 		expect(muts[0].mutations.every((m) => m.kind === "addField")).toBe(true);
+		expect(result.fields).toEqual([
+			{
+				uuid: fieldUuid,
+				id: "eligible",
+				options: [
+					{ uuid: optionUuids[0], value: "yes" },
+					{ uuid: optionUuids[1], value: "no" },
+				],
+			},
+		]);
 		expectNoLegacyEvents(writer);
 	});
 
 	it("editField with id rename emits ONE data-mutations batch carrying the whole staged edit", async () => {
 		/* Rename a non-case_name field: renaming the registration form's
-		 * case_name writer away would introduce NO_CASE_NAME_FIELD and the
+		 * case_name writer away would make the create bucket incomplete and the
 		 * gate would rightly reject the whole edit. */
-		const VILLAGE = asUuid("55555555-5555-5555-5555-555555555555");
+		const VILLAGE = testUuid("55555555-5555-5555-5555-555555555555");
 		const doc = makeFixtureDoc();
 		doc.fields[VILLAGE] = {
 			uuid: VILLAGE,
 			id: "village",
 			kind: "text",
-			label: "Village",
+			label: proseText("Village"),
 		} as Field;
 		doc.fieldOrder[FORM_A] = [...doc.fieldOrder[FORM_A], VILLAGE];
 		doc.fieldParent[VILLAGE] = FORM_A;
@@ -476,22 +591,28 @@ describe("solutionsArchitect — emitMutations migration", () => {
 			formUuid: FORM_A,
 			fieldUuid: VILLAGE,
 			updates: {
-				id: "hamlet", // triggers the rename batch
-				label: "Hamlet", // triggers the second batch
+				id: "hamlet",
+				label: proseText("Hamlet"),
 			},
 		});
 
 		const muts = mutationEvents(writer);
-		// Under the P3 chat-SA port, `recordMutationStages` concatenates the
-		// convert→rename→patch stages into ONE guarded commit and emits ONE
-		// `data-mutations` frame — preserving editField's atomicity (one seq, one
-		// batchId). The per-stage tags survive on the log envelopes, not the SSE
-		// frame, so the wire frame carries no stage.
+		// `id` and the scalar edit are one target-kind-aware updateField
+		// command. `recordMutationStages` emits one guarded commit and one
+		// `data-mutations` frame (one seq, one batchId).
 		expect(muts).toHaveLength(1);
 		expect(muts[0].stage).toBeUndefined();
-		const kinds = muts[0].mutations.map((m) => m.kind);
-		expect(kinds).toContain("renameField");
-		expect(kinds).toContain("updateField");
+		expect(muts[0].mutations).toEqual([
+			expect.objectContaining({
+				kind: "updateField",
+				uuid: VILLAGE,
+				targetKind: "text",
+				patch: expect.objectContaining({
+					id: "hamlet",
+					label: proseText("Hamlet"),
+				}),
+			}),
+		]);
 		expectNoLegacyEvents(writer);
 	});
 
@@ -514,10 +635,18 @@ describe("solutionsArchitect — emitMutations migration", () => {
 
 		await runTool(sa, "createForm", {
 			moduleUuid: MOD_A,
+			formUuid: FOLLOWUP_FORM,
 			name: "Follow-up Visit",
 			type: "followup",
 			// Atomic creation: a form lands together with its fields.
-			fields: [{ kind: "text", id: "visit_notes", label: "Visit notes" }],
+			fields: [
+				{
+					uuid: FOLLOWUP_FIELD,
+					kind: "text",
+					id: "visit_notes",
+					label: proseText("Visit notes"),
+				},
+			],
 		});
 
 		const muts = mutationEvents(writer);
@@ -546,26 +675,16 @@ describe("solutionsArchitect — emitMutations migration", () => {
 		// event across the whole sweep. If a future change re-introduces
 		// a legacy emission, this test fails regardless of which tool it
 		// sneaked into.
-		const SAFETY_FIELD = asUuid("55555555-5555-5555-5555-555555555555");
-		const safetyDoc = makeFixtureDoc();
-		safetyDoc.fields[SAFETY_FIELD] = {
-			uuid: SAFETY_FIELD,
-			id: "village",
-			kind: "text",
-			label: "Village",
-		} as Field;
-		safetyDoc.fieldOrder[FORM_A] = [
-			...safetyDoc.fieldOrder[FORM_A],
-			SAFETY_FIELD,
-		];
-		safetyDoc.fieldParent[SAFETY_FIELD] = FORM_A;
-		const sa = makeSa(ctx, safetyDoc, false);
+		const sa = makeSa(ctx, makeFixtureDoc(), false);
 
 		// The planning tool (build mode only) — pure, but walked so a
 		// future regression that makes it emit shows up here.
 		await runTool(sa, "generateSchema", {
 			caseTypes: [
-				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
 			],
 		});
 		await runTool(sa, "updateApp", { name: "App" });
@@ -581,7 +700,10 @@ describe("solutionsArchitect — emitMutations migration", () => {
 		// Shared tools: read + mutation + structural.
 		await runTool(sa, "searchBlueprint", { query: "patient" });
 		await runTool(sa, "getModule", { moduleUuid: MOD_A });
-		await runTool(sa, "getForm", { moduleUuid: MOD_A, formUuid: FORM_A });
+		await runTool(sa, "getForm", {
+			moduleUuid: MOD_A,
+			formUuid: FORM_A,
+		});
 		await runTool(sa, "getField", {
 			moduleUuid: MOD_A,
 			formUuid: FORM_A,
@@ -593,22 +715,23 @@ describe("solutionsArchitect — emitMutations migration", () => {
 			formUuid: FORM_A,
 			fields: [
 				{
+					uuid: FOLLOWUP_FIELD,
 					id: "dob",
 					kind: "date",
-					label: "Date of birth",
+					label: proseText("Date of birth"),
 				},
 			],
 		});
 		await runTool(sa, "editField", {
 			moduleUuid: MOD_A,
 			formUuid: FORM_A,
-			fieldUuid: SAFETY_FIELD,
-			updates: { label: "New label" },
+			fieldUuid: FIELD_A,
+			updates: { kind: "text", label: proseText("New label") },
 		});
 		await runTool(sa, "removeField", {
 			moduleUuid: MOD_A,
 			formUuid: FORM_A,
-			fieldUuid: SAFETY_FIELD,
+			fieldUuid: FOLLOWUP_FIELD,
 		});
 		await runTool(sa, "updateModule", {
 			moduleUuid: MOD_A,
@@ -619,26 +742,44 @@ describe("solutionsArchitect — emitMutations migration", () => {
 			formUuid: FORM_A,
 			name: "Enroll Patient 2",
 		});
-		const createFormResult = (await runTool(sa, "createForm", {
+		await runTool(sa, "createForm", {
 			moduleUuid: MOD_A,
+			formUuid: FOLLOWUP_FORM,
 			name: "Follow-up",
 			type: "followup",
-			fields: [{ kind: "text", id: "note", label: "Note" }],
-		})) as { uuid?: string };
-		if (createFormResult.uuid !== undefined) {
-			await runTool(sa, "removeForm", {
-				moduleUuid: MOD_A,
-				formUuid: createFormResult.uuid,
-			});
-		}
-		const createModuleResult = (await runTool(sa, "createModule", {
+			fields: [
+				{
+					uuid: FOLLOWUP_FIELD,
+					kind: "text",
+					id: "notes",
+					label: proseText("Notes"),
+				},
+			],
+		});
+		await runTool(sa, "removeForm", {
+			moduleUuid: MOD_A,
+			formUuid: FOLLOWUP_FORM,
+		});
+		await runTool(sa, "createModule", {
+			moduleUuid: NEW_MODULE,
 			name: "New Module",
-		})) as { uuid?: string };
-		if (createModuleResult.uuid !== undefined) {
-			await runTool(sa, "removeModule", {
-				moduleUuid: createModuleResult.uuid,
-			});
-		}
+			forms: [
+				{
+					formUuid: NEW_MODULE_FORM,
+					name: "Survey",
+					type: "survey",
+					fields: [
+						{
+							uuid: NEW_MODULE_FIELD,
+							kind: "text",
+							id: "feedback",
+							label: proseText("Feedback"),
+						},
+					],
+				},
+			],
+		});
+		await runTool(sa, "removeModule", { moduleUuid: NEW_MODULE });
 
 		// The guardrail: no tool handler wrote a forbidden event.
 		expectNoLegacyEvents(writer);
@@ -690,7 +831,7 @@ describe("solutionsArchitect — no finishing tool", () => {
 		expect("completeBuild" in editSa.tools).toBe(false);
 	});
 
-	it("the data-model tool is shared (both modes); the retired plan tool is gone; updateApp is shared", () => {
+	it("the data-model, app-name, and Connect target tools are shared in both modes", () => {
 		const { ctx } = buildCtx();
 		const buildSa = makeSa(ctx, makeEmptyDoc(), false);
 		const editSa = makeSa(ctx, makeFixtureDoc(), true);
@@ -702,6 +843,10 @@ describe("solutionsArchitect — no finishing tool", () => {
 		expect("planAppDesign" in editSa.tools).toBe(false);
 		expect("updateApp" in buildSa.tools).toBe(true);
 		expect("updateApp" in editSa.tools).toBe(true);
+		expect("configureConnect" in buildSa.tools).toBe(true);
+		expect("configureConnect" in editSa.tools).toBe(true);
+		expect("renameCaseProperties" in buildSa.tools).toBe(true);
+		expect("renameCaseProperties" in editSa.tools).toBe(true);
 	});
 
 	it("exposes the complete camelCase users and personas authoring surface", () => {
@@ -750,7 +895,7 @@ describe("solutionsArchitect — wrapMutating conflict reload / terminal reauth"
 	 *  SA rebased onto the authorized snapshot after a conflict. */
 	function reloadedDoc(): BlueprintDoc {
 		const base = makeFixtureDoc();
-		const PEER_FIELD = asUuid("99999999-9999-9999-9999-999999999999");
+		const PEER_FIELD = testUuid("99999999-9999-9999-9999-999999999999");
 		return {
 			...base,
 			fields: {
@@ -759,24 +904,31 @@ describe("solutionsArchitect — wrapMutating conflict reload / terminal reauth"
 					uuid: PEER_FIELD,
 					id: "peer_added",
 					kind: "text",
-					label: "Peer added",
+					label: proseText("Peer added"),
 				} as Field,
 			},
-			fieldOrder: { [FORM_A]: [FIELD_A, PEER_FIELD] },
-			fieldParent: { [FIELD_A]: FORM_A, [PEER_FIELD]: FORM_A },
+			fieldOrder: {
+				...base.fieldOrder,
+				[FORM_A]: [FIELD_A, PEER_FIELD],
+			},
+			fieldParent: {
+				...base.fieldParent,
+				[FIELD_A]: FORM_A,
+				[PEER_FIELD]: FORM_A,
+			},
 		};
 	}
 
 	it("catches a BlueprintCommitRejectedError escaping the tool, returns { error }, and reloads fresh for the next tool", async () => {
 		const { ctx } = buildCtx();
 		const sa = makeSa(ctx, makeFixtureDoc(), true);
+		const conflict =
+			'Saved parked data now occupies "village" on "patient". Review the rename conflicts and try again.';
 		// The guarded commit rejects (a peer changed the target); the tool's
 		// blanket catch re-throws it (via toToolErrorResult), so it reaches
 		// wrapMutating, which reloads a fresh doc carrying a peer-added field.
 		commitGuardedBatchMock.mockRejectedValueOnce(
-			new BlueprintCommitRejectedError(
-				"This app changed while you were editing — reload.",
-			),
+			new BlueprintCommitRejectedError(conflict),
 		);
 		resolveAuthorizedAppSnapshotMock.mockResolvedValueOnce({
 			app: { blueprint: reloadedDoc() },
@@ -790,11 +942,11 @@ describe("solutionsArchitect — wrapMutating conflict reload / terminal reauth"
 		const result = (await runTool(sa, "addFields", {
 			moduleUuid: MOD_A,
 			formUuid: FORM_A,
-			fields: [{ id: "dob", kind: "date", label: "Date of birth" }],
+			fields: [{ id: "dob", kind: "date", label: proseText("Date of birth") }],
 		})) as { error?: string };
 
 		// The tool surfaced the conflict as the standard `{ error }` envelope.
-		expect(result.error).toContain("reload");
+		expect(result.error).toContain(conflict);
 		// And `wrapMutating` reloaded one authorized snapshot in the admitted
 		// Project.
 		expect(resolveAuthorizedAppSnapshotMock).toHaveBeenCalledWith(
@@ -828,7 +980,9 @@ describe("solutionsArchitect — wrapMutating conflict reload / terminal reauth"
 			runTool(sa, "addFields", {
 				moduleUuid: MOD_A,
 				formUuid: FORM_A,
-				fields: [{ id: "dob", kind: "date", label: "Date of birth" }],
+				fields: [
+					{ id: "dob", kind: "date", label: proseText("Date of birth") },
+				],
 			}),
 			runTool(sa, "getForm", { moduleUuid: MOD_A, formUuid: FORM_A }),
 		]);
@@ -869,7 +1023,7 @@ describe("solutionsArchitect — wrapMutating conflict reload / terminal reauth"
 		const thrown = await runTool(sa, "addFields", {
 			moduleUuid: MOD_A,
 			formUuid: FORM_A,
-			fields: [{ id: "dob", kind: "date", label: "Date of birth" }],
+			fields: [{ id: "dob", kind: "date", label: proseText("Date of birth") }],
 		}).catch((error: unknown) => error);
 
 		expect(thrown).toBeInstanceOf(AppProjectChangedError);
@@ -893,7 +1047,9 @@ describe("solutionsArchitect — wrapMutating conflict reload / terminal reauth"
 			runTool(sa, "addFields", {
 				moduleUuid: MOD_A,
 				formUuid: FORM_A,
-				fields: [{ id: "dob", kind: "date", label: "Date of birth" }],
+				fields: [
+					{ id: "dob", kind: "date", label: proseText("Date of birth") },
+				],
 			}),
 		).rejects.toBe(databaseFault);
 		expect(ctx.reauthError()).toBeUndefined();
@@ -924,7 +1080,9 @@ describe("solutionsArchitect — wrapMutating conflict reload / terminal reauth"
 			runTool(sa, "addFields", {
 				moduleUuid: MOD_A,
 				formUuid: FORM_A,
-				fields: [{ id: "dob", kind: "date", label: "Date of birth" }],
+				fields: [
+					{ id: "dob", kind: "date", label: proseText("Date of birth") },
+				],
 			}),
 		).rejects.toBeInstanceOf(CommitReauthError);
 		expect(resolveAuthorizedAppSnapshotMock).not.toHaveBeenCalled();
@@ -943,7 +1101,9 @@ describe("solutionsArchitect — wrapMutating conflict reload / terminal reauth"
 			runTool(sa, "addFields", {
 				moduleUuid: MOD_A,
 				formUuid: FORM_A,
-				fields: [{ id: "dob", kind: "date", label: "Date of birth" }],
+				fields: [
+					{ id: "dob", kind: "date", label: proseText("Date of birth") },
+				],
 			}),
 		).rejects.toBe(projectChanged);
 		expect(commitGuardedBatchMock).toHaveBeenCalledTimes(1);
@@ -971,12 +1131,16 @@ describe("solutionsArchitect — wrapMutating conflict reload / terminal reauth"
 				runTool(sa, "addFields", {
 					moduleUuid: MOD_A,
 					formUuid: FORM_A,
-					fields: [{ id: "dob", kind: "date", label: "Date of birth" }],
+					fields: [
+						{ id: "dob", kind: "date", label: proseText("Date of birth") },
+					],
 				}),
 				runTool(sa, "addFields", {
 					moduleUuid: MOD_A,
 					formUuid: FORM_A,
-					fields: [{ id: "nickname", kind: "text", label: "Nickname" }],
+					fields: [
+						{ id: "nickname", kind: "text", label: proseText("Nickname") },
+					],
 				}),
 			]);
 
@@ -1003,7 +1167,7 @@ describe("solutionsArchitect — wrapMutating conflict reload / terminal reauth"
 		const result = (await runTool(sa, "addFields", {
 			moduleUuid: MOD_A,
 			formUuid: FORM_A,
-			fields: [{ id: "case_name", kind: "text", label: "Dup" }],
+			fields: [{ id: "case_name", kind: "text", label: proseText("Dup") }],
 		})) as { error?: string };
 
 		expect(result.error).toBeDefined();
@@ -1052,7 +1216,7 @@ describe("solutionsArchitect — read-shaped side-effect terminal fences", () =>
 // ── Small helpers kept at the bottom to avoid pollution ─────────────────
 
 function makeEmptyDoc(): BlueprintDoc {
-	return {
+	const empty: BlueprintDoc = {
 		appId: "test-app",
 		appName: "",
 		connectType: null,
@@ -1065,4 +1229,8 @@ function makeEmptyDoc(): BlueprintDoc {
 		fieldOrder: {},
 		fieldParent: {},
 	};
+	const genesis = canonicalAppGenesis(empty);
+	return produce(empty, (draft) => {
+		applyMutations(draft, genesis.mutations);
+	});
 }

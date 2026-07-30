@@ -153,23 +153,6 @@ interface RunPayload {
  * "latest runId" lookup happens first — if either app has no events, the
  * script exits with a clear error.
  */
-/**
- * Unwrap a `readEvents` result, warning when the stream came back partial
- * (events dropped for schema drift) — a partial run would skew the diff, so
- * the operator should see it rather than compare silently-incomplete logs.
- */
-function unwrapEvents(
-	label: string,
-	result: Awaited<ReturnType<typeof readEvents>>,
-): RunPayload["events"] {
-	if (result.skipped > 0) {
-		console.warn(
-			`Run ${label}: skipped ${result.skipped} unparseable event(s) (schema drift) — comparison may be incomplete.`,
-		);
-	}
-	return result.events;
-}
-
 async function loadPayloads(): Promise<[RunPayload, RunPayload]> {
 	if (target.mode === "same-app") {
 		const { appId, runIdA, runIdB } = target;
@@ -184,13 +167,13 @@ async function loadPayloads(): Promise<[RunPayload, RunPayload]> {
 				appId,
 				runId: runIdA,
 				summary: summaryA,
-				events: unwrapEvents("A", eventsA),
+				events: eventsA,
 			},
 			{
 				appId,
 				runId: runIdB,
 				summary: summaryB,
-				events: unwrapEvents("B", eventsB),
+				events: eventsB,
 			},
 		];
 	}
@@ -220,13 +203,13 @@ async function loadPayloads(): Promise<[RunPayload, RunPayload]> {
 			appId: appA,
 			runId: runIdA,
 			summary: summaryA,
-			events: unwrapEvents("A", eventsA),
+			events: eventsA,
 		},
 		{
 			appId: appB,
 			runId: runIdB,
 			summary: summaryB,
-			events: unwrapEvents("B", eventsB),
+			events: eventsB,
 		},
 	];
 }

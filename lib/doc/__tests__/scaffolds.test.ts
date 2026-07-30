@@ -1,4 +1,6 @@
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { proseText } from "@/lib/domain/prose";
 // Tests for the in-tree creation scaffolds. The contract is valid-by-
 // construction: each scaffold's batch, committed against a valid doc, must
 // pass the SAME gate the builder UI uses (`mutationCommitVerdict`) — an empty
@@ -9,11 +11,13 @@ import { describe, expect, it } from "vitest";
 import { evaluateBoundary } from "@/lib/commcare/validator/gate";
 import { planCaseTypeRetirementOnRetype } from "@/lib/doc/caseTypeRetirement";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import { modulePatchMutations } from "@/lib/doc/modulePatchMutations";
 import { applyMutation, applyMutations } from "@/lib/doc/mutations";
 import {
-	BLANK_APP_NAME,
-	blankAppMutations,
+	APP_GENESIS_FALLBACK_NAME,
+	canonicalAppGenesis,
 	caseListModuleMutations,
+	caseOperationCatalogMutations,
 	caseTypeCatalogMutations,
 	caseTypeClearPatch,
 	caseTypeSetPatch,
@@ -22,12 +26,20 @@ import {
 	surveyModuleMutations,
 } from "@/lib/doc/scaffolds";
 import type { BlueprintDoc } from "@/lib/doc/types";
-import { asUuid } from "@/lib/doc/types";
-import { type Field, type Form, type Module, plainColumn } from "@/lib/domain";
 
-const M = (s: string) => asUuid(`mod${s}-0000-0000-0000-000000000000`);
-const F = (s: string) => asUuid(`frm${s}-0000-0000-0000-000000000000`);
-const Q = (s: string) => asUuid(`qst${s}-0000-0000-0000-000000000000`);
+import {
+	CASE_SCALAR_PROPERTY_NAMES,
+	type CaseOperation,
+	type Field,
+	type Form,
+	type Module,
+	plainColumn,
+} from "@/lib/domain";
+import { literal, term } from "@/lib/domain/predicate";
+
+const M = (s: string) => testUuid(`mod${s}-0000-0000-0000-000000000000`);
+const F = (s: string) => testUuid(`frm${s}-0000-0000-0000-000000000000`);
+const Q = (s: string) => testUuid(`qst${s}-0000-0000-0000-000000000000`);
 
 function emptyDoc(): BlueprintDoc {
 	return {
@@ -47,9 +59,8 @@ function emptyDoc(): BlueprintDoc {
 
 /**
  * A valid one-module starting doc (a survey module with one form + field).
- * Built via the reducer; we don't gate it — `mutationCommitVerdict` is
- * delta-based, and a finding on a brand-new entity is a different location
- * than anything here, so it can't be masked.
+ * Built via the reducer so each scaffold test can exercise one focused batch;
+ * the shared absolute-gate assertions below prove the born shape itself.
  */
 function baseDoc(): BlueprintDoc {
 	return produce(emptyDoc(), (d) => {
@@ -74,7 +85,7 @@ function baseDoc(): BlueprintDoc {
 				uuid: Q("base"),
 				id: "note",
 				kind: "text",
-				label: "Note",
+				label: proseText("Note"),
 			} as never as Field,
 		});
 	});
@@ -125,6 +136,40 @@ describe("caseListModuleMutations", () => {
 	});
 });
 
+describe("caseOperationCatalogMutations", () => {
+	it("never materializes a scalar case column as a catalog property", () => {
+		const doc = {
+			...emptyDoc(),
+			caseTypes: [{ name: "patient", properties: [] }],
+		};
+		const operation: CaseOperation = {
+			uuid: Q("scalar-op"),
+			id: "write_scalars",
+			action: "update",
+			caseType: "patient",
+			target: { kind: "session" },
+			writes: [
+				...[...CASE_SCALAR_PROPERTY_NAMES].map((property) => ({
+					property,
+					value: term(literal(property)),
+				})),
+				{ property: "custom_code", value: term(literal("custom")) },
+			],
+		};
+
+		expect(caseOperationCatalogMutations(doc, operation)).toEqual([
+			{
+				kind: "addCaseProperty",
+				caseType: "patient",
+				property: {
+					name: "custom_code",
+					label: proseText("Custom code"),
+				},
+			},
+		]);
+	});
+});
+
 describe("surveyModuleMutations", () => {
 	it("commits a survey module born with one survey form + question", () => {
 		const base = baseDoc();
@@ -169,7 +214,7 @@ describe("surveyModuleMutations", () => {
 		expect(verdict.ok).toBe(false);
 		if (!verdict.ok) {
 			const msg =
-				verdict.introduced.find((e) => e.code === "NO_FORMS_OR_CASE_LIST")
+				verdict.findings.find((e) => e.code === "NO_FORMS_OR_CASE_LIST")
 					?.message ?? "";
 			expect(msg).toMatch(/add another form first or delete the whole module/i);
 		}
@@ -192,65 +237,38 @@ describe("surveyModuleMutations", () => {
 		);
 		expect(verdict.ok).toBe(false);
 		if (!verdict.ok) {
-			expect(verdict.introduced.map((e) => e.code)).toContain(
+			expect(verdict.findings.map((e) => e.code)).toContain(
 				"NO_FORMS_OR_CASE_LIST",
 			);
 		}
 	});
 });
 
-/**
- * The blank app (`createBlankApp`, `app/(app)/build/actions.ts`) is exactly
- * `BLANK_APP_NAME` + `blankAppMutations`, and both halves are what make it
- * EXPORT-ready the instant it exists — the bar a hand-built app has to clear
- * with no SA run behind it. These drive the real template, not a hand-rebuilt
- * copy of it, so dropping either half fails here.
- *
- * `mutationCommitVerdict` cannot prove this: it is delta-based, and an empty
- * doc's `NO_MODULES` / `EMPTY_APP_NAME` are pre-existing rather than
- * introduced, so a template that left either standing would still commit.
- * The boundary validator — the zero-tolerance compile/upload/export gate,
- * which `createApp` also runs at construction — is the only
- * oracle that answers the question actually being asked.
- */
-describe("the blank app template", () => {
-	const seeded = (appName: string): BlueprintDoc => {
-		const base = { ...emptyDoc(), appName };
-		return produce(base, (d) => {
-			applyMutations(d, blankAppMutations(base));
+describe("canonical app genesis", () => {
+	const born = (requestedName?: string) => {
+		const base = { ...emptyDoc(), appName: "" };
+		const genesis = canonicalAppGenesis(base, requestedName);
+		const doc = produce(base, (draft) => {
+			applyMutations(draft, genesis.mutations);
 		});
+		return { doc, genesis };
 	};
 
-	it("is export-ready as `createBlankApp` builds it", () => {
+	it("is the universal export-ready app birth shape", () => {
+		const { doc, genesis } = born();
 		expect(
-			evaluateBoundary(
-				seeded(BLANK_APP_NAME),
-				new Map(),
-				LOOKUP_CONTEXT_UNAVAILABLE,
-			),
+			evaluateBoundary(doc, new Map(), LOOKUP_CONTEXT_UNAVAILABLE),
 		).toEqual([]);
+		expect(doc.appName).toBe(APP_GENESIS_FALLBACK_NAME);
+		expect(doc.moduleOrder).toEqual([genesis.moduleUuid]);
+		expect(doc.formOrder[genesis.moduleUuid]).toEqual([genesis.formUuid]);
+		expect(doc.fieldOrder[genesis.formUuid]).toEqual([genesis.fieldUuid]);
+		expect(doc.fields[genesis.fieldUuid]?.kind).toBe("text");
 	});
 
-	it("names the app for real — BLANK_APP_NAME is not a blank name", () => {
-		expect(BLANK_APP_NAME.trim()).not.toBe("");
-	});
-
-	it("does not inherit the empty app's findings, which block export", () => {
-		const codes = evaluateBoundary(
-			emptyDoc(),
-			new Map(),
-			LOOKUP_CONTEXT_UNAVAILABLE,
-		).map((e) => e.code);
-		expect(codes).toContain("NO_MODULES");
-	});
-
-	it("needs the name too — a nameless blank app cannot export", () => {
-		const codes = evaluateBoundary(
-			seeded(""),
-			new Map(),
-			LOOKUP_CONTEXT_UNAVAILABLE,
-		).map((e) => e.code);
-		expect(codes).toEqual(["EMPTY_APP_NAME"]);
+	it("authors a trimmed requested name through genesis and falls back for blank input", () => {
+		expect(born("  Clinic  ").doc.appName).toBe("Clinic");
+		expect(born("   ").doc.appName).toBe(APP_GENESIS_FALLBACK_NAME);
 	});
 });
 
@@ -382,11 +400,7 @@ describe("caseTypeSetPatch", () => {
 			doc,
 			[
 				...declareCaseTypeMutations(doc, "thing"),
-				{
-					kind: "updateModule",
-					uuid: M("s"),
-					patch: caseTypeSetPatch(mod, false, "thing"),
-				},
+				...modulePatchMutations(mod, caseTypeSetPatch(mod, false, "thing")),
 			],
 			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
@@ -396,10 +410,8 @@ describe("caseTypeSetPatch", () => {
 
 	it("re-typing a viewer to a brand-new type commits clean (one catalog write)", () => {
 		// The born viewer owns type "a" alone; re-typing to a brand-new "b" must
-		// retire "a" AND declare "b" in ONE setCaseTypes. Two separate wholesale
-		// writes (declare [a,b] then retire-of-a [] ) would clobber "b" back out,
-		// failing the seeded Name column (CASE_LIST_COLUMN_UNKNOWN_FIELD) — the
-		// re-type dead-end caseTypeCatalogMutations exists to prevent.
+		// retire "a" AND declare "b" in one granular batch, preserving the new
+		// declaration for the seeded Name column.
 		const { mutations, moduleUuid } = caseListModuleMutations(emptyDoc(), {
 			caseType: "a",
 		});
@@ -413,11 +425,7 @@ describe("caseTypeSetPatch", () => {
 			doc,
 			[
 				...caseTypeCatalogMutations(doc, retirement, "b"),
-				{
-					kind: "updateModule",
-					uuid: moduleUuid,
-					patch: caseTypeSetPatch(mod, false, "b"),
-				},
+				...modulePatchMutations(mod, caseTypeSetPatch(mod, false, "b")),
 			],
 			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
@@ -462,7 +470,7 @@ describe("caseTypeClearPatch", () => {
 		});
 		const verdict = mutationCommitVerdict(
 			doc,
-			[{ kind: "updateModule", uuid: moduleUuid, patch: caseTypeClearPatch() }],
+			modulePatchMutations(doc.modules[moduleUuid], caseTypeClearPatch()),
 			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		expect(verdict.ok).toBe(true);
@@ -484,12 +492,12 @@ describe("caseTypeClearPatch", () => {
 		});
 		const verdict = mutationCommitVerdict(
 			doc,
-			[{ kind: "updateModule", uuid: moduleUuid, patch: caseTypeClearPatch() }],
+			modulePatchMutations(doc.modules[moduleUuid], caseTypeClearPatch()),
 			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		expect(verdict.ok).toBe(false);
 		if (!verdict.ok) {
-			expect(verdict.introduced.map((e) => e.code)).toContain(
+			expect(verdict.findings.map((e) => e.code)).toContain(
 				"NO_FORMS_OR_CASE_LIST",
 			);
 		}
@@ -517,7 +525,7 @@ describe("atomic creation is load-bearing", () => {
 		expect(verdict.ok).toBe(false);
 		if (!verdict.ok) {
 			expect(
-				verdict.introduced.some((e) => e.code === "NO_FORMS_OR_CASE_LIST"),
+				verdict.findings.some((e) => e.code === "NO_FORMS_OR_CASE_LIST"),
 			).toBe(true);
 		}
 	});

@@ -180,7 +180,9 @@ export function computeTimeline(events: Event[]): TimelineRow[] {
 		const kind =
 			event.kind === "mutation"
 				? `mutation${event.stage ? `:${event.stage}` : ""}`
-				: `conversation:${event.payload.type}`;
+				: event.kind === "archived-mutation"
+					? "archived-mutation"
+					: `conversation:${event.payload.type}`;
 		return { ts: event.ts, gapMs, kind };
 	});
 }
@@ -218,6 +220,7 @@ export function computeMutationsByStage(events: Event[]): StageCountRow[] {
 /** Per-kind breakdown returned by `computeEventKindCounts`. */
 export interface EventKindCounts {
 	mutation: number;
+	archivedMutation: number;
 	/** Broken down by conversation payload type. */
 	conversation: Record<string, number>;
 	total: number;
@@ -231,13 +234,16 @@ export interface EventKindCounts {
 export function computeEventKindCounts(events: Event[]): EventKindCounts {
 	const conversation: Record<string, number> = {};
 	let mutation = 0;
+	let archivedMutation = 0;
 	for (const event of events) {
 		if (event.kind === "mutation") {
 			mutation++;
+		} else if (event.kind === "archived-mutation") {
+			archivedMutation++;
 		} else {
 			conversation[event.payload.type] =
 				(conversation[event.payload.type] ?? 0) + 1;
 		}
 	}
-	return { mutation, conversation, total: events.length };
+	return { mutation, archivedMutation, conversation, total: events.length };
 }

@@ -4,31 +4,27 @@
 // stored `XPathExpression` (shape, printer, and walks live in
 // `lib/domain/xpath`). The Lezer grammar locates the reference-shaped
 // spans — hashtag refs and absolute `/data/...` chains — and
-// everything between them is kept as verbatim text runs, so
-// `printXPath(parseXPathExpression(s, ctx), printCtx)` reproduces `s`
-// byte-identically for EVERY input string over an unrenamed doc (the
-// fuzz-pinned law that makes stored-expression migration provably
-// byte-safe).
+// everything between them is kept as verbatim text runs. Identity leaves print
+// canonically; the migration separately rejects a legacy noncanonical absolute
+// path instead of preserving separator bytes in the stored AST.
 //
 // Reference classification mirrors the long-standing extractor/rewriter
 // rules exactly — an identity leaf is minted precisely where a rename
 // would have rewritten text:
 //
 //   - `#form/<path>` with a FULL id-path resolution → `field-ref`.
-//     Partial/failed resolution stays a `raw-ref` (it was dangling;
-//     it keeps printing its original text).
+//     Partial/failed resolution is reported as a parse issue.
 //   - `/data/<path>` as a PURE step chain (only `/`-or-`//` separators
 //     and plain name steps — a predicate, axis, or function call
 //     breaks the chain, exactly as it broke segment collection before)
-//     with a full resolution → `path-ref`, separators kept byte-exact.
+//     with a full resolution → canonical `path-ref { uuid }`.
 //   - `#<type>/<prop>` (one segment, explicit namespace) → `case-ref`.
 //     Case properties are name-keyed; the name pair IS the identity,
 //     so no doc lookup gates this.
 //   - `#user/<prop>` → `user-property-ref` when it names Nova-authored
 //     worker information, otherwise the final raw `user-ref` form.
-//   - `#case/...` (contextual — follows the module's CURRENT type
-//     rather than naming one), multi-segment non-form shapes, and
-//     unknown namespaces → `raw-ref`, verbatim.
+//   - Raw `#case/...`, multi-segment non-form shapes, and unknown namespaces
+//     are reported as parse issues and cannot enter a stored expression.
 //
 // A source with any Lezer parse error stays ONE opaque text run: ref
 // classification over a broken tree is unreliable, and the syntax
@@ -76,7 +72,25 @@ const T = (() => {
 interface LeafSpan {
 	from: number;
 	to: number;
-	part: XPathPart;
+	part: XPathPart | XPathUnresolvedReference;
+}
+
+interface XPathUnresolvedReference {
+	readonly kind: "unresolved-reference";
+	readonly namespace: string;
+	readonly segments: readonly string[];
+}
+
+export interface XPathParseIssue {
+	readonly kind: "syntax" | "unresolved-reference";
+	readonly source: string;
+	readonly from: number;
+	readonly to: number;
+}
+
+export interface XPathParseResult {
+	readonly expression: XPathExpression;
+	readonly issues: readonly XPathParseIssue[];
 }
 
 /**
@@ -89,7 +103,19 @@ export function parseXPathExpression(
 	resolveFieldPath: ResolveFieldPath,
 	resolveUserPropertySlug: ResolveUserPropertySlug,
 ): XPathExpression {
-	if (source.length === 0) return { parts: [] };
+	return parseXPathExpressionWithIssues(
+		source,
+		resolveFieldPath,
+		resolveUserPropertySlug,
+	).expression;
+}
+
+export function parseXPathExpressionWithIssues(
+	source: string,
+	resolveFieldPath: ResolveFieldPath,
+	resolveUserPropertySlug: ResolveUserPropertySlug,
+): XPathParseResult {
+	if (source.length === 0) return { expression: { parts: [] }, issues: [] };
 	const tree = parser.parse(source);
 
 	let hasError = false;
@@ -102,7 +128,12 @@ export function parseXPathExpression(
 			return undefined;
 		},
 	});
-	if (hasError) return opaqueXPathExpression(source);
+	if (hasError) {
+		return {
+			expression: opaqueXPathExpression(source),
+			issues: [{ kind: "syntax", source, from: 0, to: source.length }],
+		};
+	}
 
 	const spans: LeafSpan[] = [];
 	collectLeafSpans(
@@ -114,9 +145,24 @@ export function parseXPathExpression(
 	);
 	spans.sort((a, b) => a.from - b.from);
 
+	const issues: XPathParseIssue[] = [];
+	const identitySpans: Array<LeafSpan & { readonly part: XPathPart }> = [];
+	for (const span of spans) {
+		if (span.part.kind === "unresolved-reference") {
+			issues.push({
+				kind: "unresolved-reference",
+				source: source.slice(span.from, span.to),
+				from: span.from,
+				to: span.to,
+			});
+		} else {
+			identitySpans.push(span as LeafSpan & { readonly part: XPathPart });
+		}
+	}
+
 	const parts: XPathPart[] = [];
 	let cursor = 0;
-	for (const span of spans) {
+	for (const span of identitySpans) {
 		// Overlap guard — structurally unreachable (hashtags can't occur
 		// inside a pure step chain, and path spans nest strictly), kept so
 		// a grammar evolution degrades a span to text instead of
@@ -131,7 +177,7 @@ export function parseXPathExpression(
 	if (cursor < source.length) {
 		parts.push({ kind: "text", text: source.slice(cursor) });
 	}
-	return { parts };
+	return { expression: { parts }, issues };
 }
 
 function collectLeafSpans(
@@ -181,7 +227,7 @@ function classifyHashtag(
 	source: string,
 	resolveFieldPath: ResolveFieldPath,
 	resolveUserPropertySlug: ResolveUserPropertySlug,
-): XPathPart | undefined {
+): XPathPart | XPathUnresolvedReference | undefined {
 	const nsNode = node.getChild(T.HashtagType.name);
 	if (!nsNode) return undefined;
 	const namespace = source.slice(nsNode.from, nsNode.to);
@@ -193,7 +239,7 @@ function classifyHashtag(
 	if (namespace === "form") {
 		const uuid = resolveFieldPath(segments);
 		if (uuid !== undefined) return { kind: "field-ref", uuid: asUuid(uuid) };
-		return { kind: "raw-ref", namespace, segments };
+		return { kind: "unresolved-reference", namespace, segments };
 	}
 	if (namespace === "user") {
 		if (segments.length === 1) {
@@ -205,18 +251,17 @@ function classifyHashtag(
 						userPropertyUuid: asUuid(uuid),
 					};
 		}
-		return { kind: "raw-ref", namespace, segments };
+		return { kind: "unresolved-reference", namespace, segments };
 	}
 	if (namespace === "case") {
-		// Contextual — follows the owning module's CURRENT case type
-		// rather than naming one. Transitional authoring shape; stays raw
-		// so a module retype changes what it MEANS without touching it.
-		return { kind: "raw-ref", namespace, segments };
+		// CommCare-private projection vocabulary, not a canonical
+		// `(caseType, property)` identity. It cannot enter authored storage.
+		return { kind: "unresolved-reference", namespace, segments };
 	}
 	if (segments.length === 1) {
 		return { kind: "case-ref", caseType: namespace, property: segments[0] };
 	}
-	return { kind: "raw-ref", namespace, segments };
+	return { kind: "unresolved-reference", namespace, segments };
 }
 
 /**
@@ -225,7 +270,8 @@ function classifyHashtag(
  * runs (whitespace allowed around them) interleaved with the collected
  * name steps, verified by reconstruction so a predicate, axis step,
  * wildcard, or function call anywhere in the chain disqualifies it —
- * and the id path after `data` must FULLY resolve.
+ * and the id path after `data` must FULLY resolve. Separator spellings are
+ * accepted by the human text parser but never stored; printing is canonical.
  */
 function classifyDataPath(
 	node: SyntaxNode,
@@ -235,27 +281,34 @@ function classifyDataPath(
 	const collected: Array<{ text: string; from: number; to: number }> = [];
 	collectSegments(node, source, collected);
 	if (collected.length < 2 || collected[0].text !== "data") return undefined;
+	const unresolved = (): LeafSpan => ({
+		from: node.from,
+		to: node.to,
+		part: {
+			kind: "unresolved-reference",
+			namespace: "data",
+			segments: collected.slice(1).map((segment) => segment.text),
+		},
+	});
 
 	// Reconstruction check: every inter-segment run must be a single
 	// `/` or `//` with only whitespace around it, the span must start
 	// at its first separator, and end exactly at the last segment.
-	const seps: string[] = [];
 	let cursor = node.from;
 	for (const segment of collected) {
-		if (segment.from < cursor) return undefined;
+		if (segment.from < cursor) return unresolved();
 		const sep = source.slice(cursor, segment.from);
-		if (!/^\s*\/{1,2}\s*$/.test(sep)) return undefined;
-		seps.push(sep);
+		if (!/^\s*\/\s*$/.test(sep)) return unresolved();
 		cursor = segment.to;
 	}
-	if (cursor !== node.to) return undefined;
+	if (cursor !== node.to) return unresolved();
 
 	const uuid = resolveFieldPath(collected.slice(1).map((s) => s.text));
-	if (uuid === undefined) return undefined;
+	if (uuid === undefined) return unresolved();
 	return {
 		from: node.from,
 		to: node.to,
-		part: { kind: "path-ref", uuid: asUuid(uuid), seps },
+		part: { kind: "path-ref", uuid: asUuid(uuid) },
 	};
 }
 

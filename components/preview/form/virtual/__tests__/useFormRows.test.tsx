@@ -14,18 +14,19 @@
 import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
-import type { BlueprintDoc } from "@/lib/doc/types";
-import { asUuid, type Uuid } from "@/lib/doc/types";
+import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
+import { proseText } from "@/lib/domain/prose";
 import { EMPTY_COLLAPSE, useFormRows } from "../useFormRows";
 
 // ── Setup ──────────────────────────────────────────────────────────────
 
-const MODULE_UUID = asUuid("module-1-0000-0000-0000-000000000000");
-const FORM_UUID = asUuid("form-1-0000-0000-0000-000000000001");
-const Q_A = asUuid("qst-a-0000-0000-0000-000000000001");
-const Q_B = asUuid("qst-b-0000-0000-0000-000000000002");
+const MODULE_UUID = testUuid("module-1-0000-0000-0000-000000000000");
+const FORM_UUID = testUuid("form-1-0000-0000-0000-000000000001");
+const Q_A = testUuid("qst-a-0000-0000-0000-000000000001");
+const Q_B = testUuid("qst-b-0000-0000-0000-000000000002");
 
 const TEST_DOC: BlueprintDoc = {
 	appId: "app-rows",
@@ -44,8 +45,8 @@ const TEST_DOC: BlueprintDoc = {
 		},
 	},
 	fields: {
-		[Q_A]: { uuid: Q_A, id: "a", kind: "text", label: "A" },
-		[Q_B]: { uuid: Q_B, id: "b", kind: "text", label: "B" },
+		[Q_A]: { uuid: Q_A, id: "a", kind: "text", label: proseText("A") },
+		[Q_B]: { uuid: Q_B, id: "b", kind: "text", label: proseText("B") },
 	},
 	moduleOrder: [MODULE_UUID],
 	formOrder: { [MODULE_UUID]: [FORM_UUID] },
@@ -109,10 +110,10 @@ describe("useFormRows", () => {
 					kind: "addField",
 					parentUuid: FORM_UUID,
 					field: {
-						uuid: asUuid("qst-c-0000-0000-0000-000000000003"),
+						uuid: testUuid("qst-c-0000-0000-0000-000000000003"),
 						id: "c",
 						kind: "text",
-						label: "C",
+						label: proseText("C"),
 					},
 				},
 			]);
@@ -123,8 +124,8 @@ describe("useFormRows", () => {
 	});
 
 	it("recomputes when the collapsed set reference changes", () => {
-		const groupUuid = asUuid("grp-x-0000-0000-0000-000000000009");
-		const childUuid = asUuid("qst-z-0000-0000-0000-00000000000a");
+		const groupUuid = testUuid("grp-x-0000-0000-0000-000000000009");
+		const childUuid = testUuid("qst-z-0000-0000-0000-00000000000a");
 
 		const { result, rerender } = renderHook(
 			(props: { collapsed: Set<Uuid> }) => ({
@@ -144,12 +145,22 @@ describe("useFormRows", () => {
 				{
 					kind: "addField",
 					parentUuid: FORM_UUID,
-					field: { uuid: groupUuid, id: "sec", kind: "group", label: "Sec" },
+					field: {
+						uuid: groupUuid,
+						id: "sec",
+						kind: "group",
+						label: proseText("Sec"),
+					},
 				},
 				{
 					kind: "addField",
 					parentUuid: groupUuid,
-					field: { uuid: childUuid, id: "z", kind: "text", label: "Z" },
+					field: {
+						uuid: childUuid,
+						id: "z",
+						kind: "text",
+						label: proseText("Z"),
+					},
 				},
 			]);
 		});

@@ -13,7 +13,7 @@ function makeCtx(
 		resolveHashtag: (ref) => {
 			if (ref.startsWith("#form/"))
 				return values[`/data/${ref.slice(6)}`] ?? "";
-			if (ref.startsWith("#case/")) return caseData[ref.slice(6)] ?? "";
+			if (ref.startsWith("#patient/")) return caseData[ref.slice(9)] ?? "";
 			if (ref.startsWith("#user/")) return "demo_user";
 			return "";
 		},
@@ -181,9 +181,9 @@ describe("XPath evaluator", () => {
 			expect(evaluate("#form/age", ctx)).toBe("25");
 		});
 
-		it("resolves #case/ refs", () => {
+		it("resolves explicit case-type refs", () => {
 			const ctx = makeCtx({}, { risk_level: "high" });
-			expect(evaluate("#case/risk_level", ctx)).toBe("high");
+			expect(evaluate("#patient/risk_level", ctx)).toBe("high");
 		});
 
 		it("resolves #user/ refs", () => {

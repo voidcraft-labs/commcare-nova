@@ -21,17 +21,33 @@
 // would silently drop from display while still flipping the parent's
 // save gate.
 
-import { render, screen } from "@testing-library/react";
+import { render as rtlRender, screen } from "@testing-library/react";
+import type { ReactElement, ReactNode } from "react";
 import { describe, expect, it } from "vitest";
+import { BlueprintDocProvider } from "@/lib/doc/provider";
 import type { CaseType } from "@/lib/domain";
 import { literal, match, prop } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { PredicateCardEditor } from "../../PredicateCardEditor";
+
+// The surfaces here spell authored prose against the document; every production
+// mount sits inside the builder's provider. Wrapping at `render` reproduces it
+// and carries through each `rerender`.
+function DocumentProvider({ children }: { readonly children: ReactNode }) {
+	return (
+		<BlueprintDocProvider appId="test-app">{children}</BlueprintDocProvider>
+	);
+}
+
+function render(ui: ReactElement) {
+	return rtlRender(ui, { wrapper: DocumentProvider });
+}
 
 const PATIENT: CaseType = {
 	name: "patient",
 	properties: [
-		{ name: "name", label: "Name", data_type: "text" },
-		{ name: "status", label: "Status", data_type: "text" },
+		{ name: "case_name", label: proseText("Case name"), data_type: "text" },
+		{ name: "status", label: proseText("Status"), data_type: "text" },
 	],
 };
 
@@ -39,7 +55,7 @@ describe("MatchCard — inline value-slot errors", () => {
 	it("labels its subject as case information", () => {
 		render(
 			<PredicateCardEditor
-				value={match(prop("patient", "name"), literal("Alice"), "fuzzy")}
+				value={match(prop("patient", "case_name"), literal("Alice"), "fuzzy")}
 				onChange={() => {}}
 				caseTypes={[PATIENT]}
 				currentCaseType="patient"
@@ -57,7 +73,7 @@ describe("MatchCard — inline value-slot errors", () => {
 		// prefix-capture lookup must reach it so the inline diagnostic
 		// renders next to the value picker.
 		const value = match(
-			prop("patient", "name"),
+			prop("patient", "case_name"),
 			{
 				kind: "term",
 				term: prop("patient", "DOES_NOT_EXIST"),
@@ -81,7 +97,7 @@ describe("MatchCard — inline value-slot errors", () => {
 		// level slot path). Verifies the card still picks up errors
 		// at the slot's own path alongside the deeper term-side
 		// errors.
-		const value = match(prop("patient", "name"), literal(""), "fuzzy");
+		const value = match(prop("patient", "case_name"), literal(""), "fuzzy");
 		const { container } = render(
 			<PredicateCardEditor
 				value={value}
@@ -94,7 +110,11 @@ describe("MatchCard — inline value-slot errors", () => {
 	});
 
 	it("renders no error rows for a well-typed match", () => {
-		const value = match(prop("patient", "name"), literal("Alice"), "fuzzy");
+		const value = match(
+			prop("patient", "case_name"),
+			literal("Alice"),
+			"fuzzy",
+		);
 		const { container } = render(
 			<PredicateCardEditor
 				value={value}

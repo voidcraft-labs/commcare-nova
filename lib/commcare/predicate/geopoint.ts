@@ -1,6 +1,6 @@
+import type { Uuid } from "@/lib/domain";
 import type { Predicate, ValueExpression } from "@/lib/domain/predicate/types";
 import { walkPredicateNodes, walkTerms } from "@/lib/domain/predicate/walk";
-import type { Uuid } from "@/lib/domain/uuid";
 
 // Geopoint text normalization shared by on-device distance evaluation and the
 // runtime CSQL query builder. Stored case properties and search centers both
@@ -70,17 +70,17 @@ export function validOnDeviceGeopointCenter(
 }
 
 /** Search inputs whose bytes contribute to a runtime geopoint center. */
-export function collectRuntimeGeopointInputUuids(
+export function collectRuntimeGeopointInputNames(
 	predicate: Predicate,
 ): ReadonlySet<Uuid> {
-	const inputUuids = new Set<Uuid>();
+	const names = new Set<Uuid>();
 	walkPredicateNodes(predicate, (node) => {
 		if (node.kind !== "within-distance") return;
-		for (const inputUuid of collectGeopointCenterInputUuids(node.center)) {
-			inputUuids.add(inputUuid);
+		for (const name of collectGeopointCenterInputNames(node.center)) {
+			names.add(name);
 		}
 	});
-	return inputUuids;
+	return names;
 }
 
 /**
@@ -89,16 +89,16 @@ export function collectRuntimeGeopointInputUuids(
  * output is used but do not themselves become location text, so they are not
  * blamed with a location-format error.
  */
-export function collectGeopointCenterInputUuids(
+export function collectGeopointCenterInputNames(
 	expression: ValueExpression,
 ): ReadonlySet<Uuid> {
-	const inputUuids = new Set<Uuid>();
+	const names = new Set<Uuid>();
 
 	const visit = (value: ValueExpression): void => {
 		switch (value.kind) {
 			case "term":
 				if (value.term.kind === "input") {
-					inputUuids.add(value.term.searchInputUuid);
+					names.add(value.term.searchInputUuid);
 				}
 				return;
 			case "today":
@@ -110,7 +110,6 @@ export function collectGeopointCenterInputUuids(
 			case "date-coerce":
 			case "datetime-coerce":
 			case "double":
-			case "unwrap-list":
 				visit(value.value);
 				return;
 			case "format-date":
@@ -146,19 +145,19 @@ export function collectGeopointCenterInputUuids(
 				// predicate because changing one can select a different result.
 				walkTerms(value.where, (term) => {
 					if (term.kind === "input") {
-						inputUuids.add(term.searchInputUuid);
+						names.add(term.searchInputUuid);
 					}
 				});
 				return;
 			default: {
 				const _exhaustive: never = value;
 				throw new Error(
-					`collectGeopointCenterInputUuids: unhandled expression ${String(_exhaustive)}`,
+					`collectGeopointCenterInputNames: unhandled expression ${String(_exhaustive)}`,
 				);
 			}
 		}
 	};
 
 	visit(expression);
-	return inputUuids;
+	return names;
 }

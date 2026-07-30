@@ -10,14 +10,14 @@ Predicate operators carry `ValueExpression` operands, and `ValueExpression`'s `i
 
 - `in.values` and `multi-select-contains` are literal-only because the wire targets expect static lists.
 - `switch` is the simple-CASE form so the discriminator evaluates ONCE per row at the Postgres target.
-- `unwrap-list` resolves to the `SEQUENCE_TYPE` sentinel; no Predicate/Expression operator consumes a sequence — the CSQL wire emitter's `selected-any(prop, unwrap-list(...))` is the only consumer, and the Postgres compiler defensive-throws on the arm.
+- `table-lookup` resolves one result column from the first authored-order row whose table-scoped predicate matches. Its stored table and column references are UUIDs; Preview and CommCare projection resolve current names only at their boundaries.
 - `Term` has NO value-expression arm — cross-family composition lives one level up (`ValueExpression.term` lifts any Term; Predicate operators take `ValueExpression` directly).
 - Custom worker information is `session-user-property { userPropertyUuid }`,
   stored by stable identity and resolved to its current slug only at Preview,
   SQL, or CommCare emission. The separate `session-user { field }` arm remains
   intentionally name-backed for CommCare-provided or external worker fields
-  that have no Nova entity. Neither arm is a compatibility spelling of the
-  other, and authoring never infers one from the other's text. The open raw
+  that have no Nova entity. They are two distinct final identity arms, and
+  authoring never infers one from the other's text. The open raw
   field grammar begins with a letter or underscore and also admits hyphens
   afterward; it is intentionally separate from the narrower shared
   `XML_ELEMENT_NAME_PATTERN` used by search inputs and relation identifiers.
@@ -26,9 +26,9 @@ Predicate operators carry `ValueExpression` operands, and `ValueExpression`'s `i
 - `parent` is the only relation identifier the `CaseType.parent_type` graph can infer. Every custom saved index name needs an explicit `throughCaseType` / `ofCaseType`; that destination may be any declared case type because Nova has no metadata proving the custom index's direction. Never pretend a custom index follows the `parent_type` graph.
 - `count(self)` is the cardinality of the current row: `1` without a filter, or `1`/`0` according to its `where` predicate. It is a useful compositional reduction, not an invalid relation walk.
 
-## Null vs blank semantics — locked invariant
+## Blank semantics — locked invariant
 
-Three data-model states: key absent, key present with JSON null, key present with empty string. `is-null` matches strict-absent only; `is-blank` widens to absent-or-empty. CCHQ's wire layer collapses all three into one match set (`prop = ''` — broader than `is-null` says, exact for `is-blank`); Nova's Postgres runtime distinguishes them natively and emits the strict SQL. Removing `is-null` would be a one-way door (it changes the closed kind set and breaks every persisted predicate). Authoring surfaces default to `is-blank` for "field is empty"; `is-null` exists for callers that need strict-absent (audit views, `coalesce`-adjacent logic).
+`is-blank` is the one stored absence operator. It matches an absent or empty value, exactly the distinction every CommCare wire target can preserve with `prop = ''`. The live schema and editor do not carry a strict-absent arm that some targets would have to widen.
 
 ## Type checker contract
 
@@ -42,6 +42,11 @@ Three data-model states: key absent, key present with JSON null, key present wit
   that exact table. Missing table/column checker codes are semantic primitives,
   but the CommCare validator's structural lookup extractor owns their
   user-facing findings and filters them from containing-slot type errors.
+- A field's lookup row filter is one explicit table-row scope. Authoring offers
+  columns from that table, literals, worker/session values, and eligible earlier
+  form fields. Case properties, Search inputs, later answers, and answers in a
+  child or sibling repeat are absent from the context and therefore invalid,
+  not hidden preserved terms.
 - Structural consumers that need authoring provenance use the path-aware
   predicate/expression walker twins (`walkTermsWithPaths` /
   `walkExpressionTermsWithPaths`). Their paths cross family boundaries,

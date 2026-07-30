@@ -4,7 +4,7 @@
  *
  * What this pins against a REAL Postgres LISTEN/NOTIFY (a mocked listen can't):
  *
- *   - Replay from a cursor: a committed `accepted_mutations` row past the cursor
+ *   - Replay from a cursor: a committed `app_changes` row past the cursor
  *     is delivered as an `event: mutation` frame carrying `id:<seq>`.
  *   - LIVE delivery: a `commitGuardedBatch` after the stream is open pokes
  *     `nova_app_stream`, the dedicated LISTEN connection dispatches it, and the
@@ -16,10 +16,12 @@
  *     `event: reload` and closes without replaying.
  *   - Reconnect via `Last-Event-ID`: the header sets the cursor, so a reconnect
  *     resumes past the frames it already saw.
- *   - A `kind:'migration'` batch freshly reauthorizes before advancing its
- *     cursor, then emits `event: reload`, not a `mutation` frame. Destination
- *     editor/viewer and same-Project access reload; source-only loss revokes;
- *     a transient denial retries from M-1.
+ *   - Blueprint migrations, fold baselines, and Project moves freshly
+ *     reauthorize before advancing the live cursor, then emit `event: reload`,
+ *     never a browser `mutation` frame. The complete suffix is admitted before
+ *     that decision, and only the baseline and Project-move kinds may be empty.
+ *     Destination editor/viewer and same-Project access
+ *     reload; source-only loss revokes; a transient denial retries from M-1.
  *   - A gap (first delivered seq isn't cursor+1) emits `event: reload`.
  *   - Bounded revocation, CONFIRMED-only: a ban (`isUserActive → false`), a
  *     membership loss (`AppAccessError`), and a session-identity change each
@@ -28,8 +30,8 @@
  *   - The mutation frame carries the projected reconciler shape — `runId` ridden
  *     through, no server-only `ts` on the wire.
  *   - Presence roster snapshots in the projected client shape (`updatedAt` is
- *     epoch millis, no `expire_at`); a row with a malformed `location` is
- *     skipped and the roster continues.
+ *     epoch millis, no `expire_at`); one malformed row rejects the entire
+ *     current page, so no partial roster is emitted.
  *   - Connect admission is authorization-only: a denied user gets the IDOR-safe
  *     404, with no stream body.
  *   - Teardown: abort and cancel each disown the subscriptions, pumps, and
@@ -41,13 +43,13 @@
  * teardown, plus the real LISTEN/NOTIFY path are the code under test.
  *
  * Runs on the per-test-database harness booted by the case-store testcontainer
- * `globalSetup` — the app-state migrations create the `apps` / `accepted_mutations`
+ * `globalSetup` — the app-state migrations create the `apps` / `app_changes`
  * / `presence` tables; the data layer is pointed at the per-test database via
  * `__setAppDbForTests`, and the dedicated LISTEN client at the same database via
  * `__setListenerConfigForTests`.
  */
 
-import type { Kysely, Transaction } from "kysely";
+import { type Kysely, sql, type Transaction } from "kysely";
 import {
 	afterAll,
 	afterEach,
@@ -57,6 +59,7 @@ import {
 	it,
 	vi,
 } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
 import { createReconciler, type MutationFrame } from "@/lib/collab/reconciler";
@@ -66,15 +69,15 @@ import {
 } from "@/lib/db/__tests__/perTestAppDb";
 import { RETENTION_COUNT } from "@/lib/db/constants";
 import { __setAppDbForTests, type AppDatabase } from "@/lib/db/pg";
+import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { Mutation } from "@/lib/doc/types";
 import {
-	asUuid,
+	type LookupOptionsSource,
 	lookupOptionsSourceSchema,
 	type PersistableDoc,
-	type SelectOptionsSource,
-	selectOptionsSourceSchema,
 } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 
 // ── Auth mocks (no Better Auth / membership tables for the relay) ──────────
 const {
@@ -106,7 +109,7 @@ vi.mock("@/lib/auth-utils", () => ({
 }));
 /* `reauthorizeStreamScope` keeps its real shape — `withAppTx` around
  * `resolveAppScopeInTransaction` — so a test programs ONE mock and it drives the
- * connect gate, the migration reauthorization, and the cadence re-check alike,
+ * connect gate, the app-change reauthorization, and the cadence re-check alike,
  * each on a genuine transaction against the per-test database. */
 vi.mock("@/lib/db/appAccess", async () => {
 	const { withAppTx } = await import("@/lib/db/pg");
@@ -156,11 +159,12 @@ const USER = "user-1";
 const OTHER_USER = "user-2";
 const PROJECT = "project-1";
 const OTHER_PROJECT = "project-2";
-const LOOKUP_MODULE = asUuid("10000000-0000-4000-8000-000000000000");
-const LOOKUP_FORM = asUuid("20000000-0000-4000-8000-000000000000");
-const LOOKUP_FIELD = asUuid("30000000-0000-4000-8000-000000000000");
-const LOOKUP_OPTION_A = asUuid("40000000-0000-4000-8000-000000000000");
-const LOOKUP_OPTION_B = asUuid("50000000-0000-4000-8000-000000000000");
+const GENESIS_SEQ = 1;
+const LOOKUP_MODULE = testUuid("10000000-0000-4000-8000-000000000000");
+const LOOKUP_FORM = testUuid("20000000-0000-4000-8000-000000000000");
+const LOOKUP_FIELD = testUuid("30000000-0000-4000-8000-000000000000");
+const LOOKUP_OPTION_A = testUuid("40000000-0000-4000-8000-000000000000");
+const LOOKUP_OPTION_B = testUuid("50000000-0000-4000-8000-000000000000");
 const LOOKUP_SOURCE_A = lookupOptionsSourceSchema.parse({
 	kind: "lookup",
 	tableId: "018f3e8a-7b2c-7def-8abc-1234567890ab",
@@ -172,13 +176,6 @@ const LOOKUP_SOURCE_B = lookupOptionsSourceSchema.parse({
 	tableId: "018f3e8a-7b2c-7def-8abc-1234567890ac",
 	valueColumnId: "018f3e8a-7b2c-7def-8abc-1234567890af",
 	labelColumnId: "018f3e8a-7b2c-7def-8abc-1234567890b0",
-});
-const INLINE_SOURCE = selectOptionsSourceSchema.parse({
-	kind: "inline",
-	options: [
-		{ uuid: LOOKUP_OPTION_A, value: "active", label: "Active" },
-		{ uuid: LOOKUP_OPTION_B, value: "closed", label: "Closed" },
-	],
 });
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -202,41 +199,59 @@ function sessionFor(userId: string) {
 }
 
 /**
- * Seed a stored app at `head` `mutation_seq`, owner USER, null Project (so a
- * later `commitGuardedBatch` takes the owner path and needs no auth read).
- * Uses `createApp` (the real write path) then raw-updates the seq + Project.
+ * Seed a canonically-created app, then reserve `head` ordinary rows after its
+ * immutable genesis baseline. Test-local row numbers are suffix offsets:
+ * logical 1 is durable sequence 2.
  */
 async function seedApp(head: number): Promise<string> {
-	const appId = await createApp(USER, PROJECT, "run-seed", {
+	const { appId } = await createApp(USER, PROJECT, "run-seed", {
 		status: "complete",
 	});
 	await appDb.transaction().execute(async (tx) => {
 		await tx
 			.updateTable("apps")
-			.set({ mutation_seq: head, project_id: null })
+			.set({ mutation_seq: GENESIS_SEQ + head })
 			.where("id", "=", appId)
 			.execute();
 	});
 	return appId;
 }
 
-/** Insert one `accepted_mutations` row directly. */
+async function withAppChangeAdmissionDisabled(
+	body: () => Promise<void>,
+): Promise<void> {
+	await sql`
+		ALTER TABLE app_changes
+		DISABLE TRIGGER app_changes_admit_insert
+	`.execute(appDb);
+	try {
+		await body();
+	} finally {
+		await sql`
+			ALTER TABLE app_changes
+			ENABLE TRIGGER app_changes_admit_insert
+		`.execute(appDb);
+	}
+}
+
+/** Insert one `app_changes` row directly. */
 async function writeEntry(
 	appId: string,
 	seq: number,
 	opts: {
-		kind?: "autosave" | "chat" | "migration";
+		kind?: "autosave" | "chat" | "blueprint-migration";
 		runId?: string;
 		mutations?: readonly Mutation[];
 	} = {},
 ): Promise<void> {
 	const kind = opts.kind ?? "autosave";
-	await appDb.transaction().execute(async (tx) => {
-		await tx
-			.insertInto("accepted_mutations")
+	const durableSeq = GENESIS_SEQ + seq;
+	const insert = async () => {
+		await appDb
+			.insertInto("app_changes")
 			.values({
 				app_id: appId,
-				seq,
+				seq: durableSeq,
 				batch_id: crypto.randomUUID(),
 				run_id: opts.runId ?? null,
 				actor_id: USER,
@@ -244,18 +259,140 @@ async function writeEntry(
 				mutations: JSON.stringify(
 					opts.mutations ?? [{ kind: "setAppName", name: `v${seq}` }],
 				),
+				from_project_id: null,
+				to_project_id: null,
+			})
+			.execute();
+	};
+	if (opts.mutations?.length === 0) {
+		await withAppChangeAdmissionDisabled(insert);
+	} else {
+		await insert();
+	}
+}
+
+/** Insert an intentionally untrusted mutation payload, bypassing the typed
+ * writer so the stream's persisted-history parser is exercised directly. */
+async function writeRawEntry(
+	appId: string,
+	seq: number,
+	mutations: unknown,
+): Promise<void> {
+	const durableSeq = GENESIS_SEQ + seq;
+	await withAppChangeAdmissionDisabled(async () => {
+		await appDb
+			.insertInto("app_changes")
+			.values({
+				app_id: appId,
+				seq: durableSeq,
+				batch_id: crypto.randomUUID(),
+				run_id: null,
+				actor_id: USER,
+				kind: "autosave",
+				mutations: JSON.stringify(mutations),
+				from_project_id: null,
+				to_project_id: null,
 			})
 			.execute();
 	});
 }
 
-function lookupSourceMutation(optionsSource: SelectOptionsSource) {
+/** Insert the one exact fold-horizon shape admitted by the immutable baseline
+ * table. The test app has no post-genesis blueprint change, so its genesis
+ * snapshot is also the exact snapshot at this new horizon. */
+async function writeBaselineMarker(appId: string, seq: number): Promise<void> {
+	const durableSeq = GENESIS_SEQ + seq;
+	await appDb.transaction().execute(async (tx) => {
+		await tx
+			.updateTable("apps")
+			.set({ mutation_seq: durableSeq })
+			.where("id", "=", appId)
+			.execute();
+		await sql`
+			UPDATE blueprint_entities
+			SET data = data
+			WHERE app_id = ${appId}
+		`.execute(tx);
+		const genesis = await tx
+			.selectFrom("app_change_fold_baselines")
+			.select(["snapshot", "project_id"])
+			.where("app_id", "=", appId)
+			.where("seq", "=", GENESIS_SEQ)
+			.executeTakeFirstOrThrow();
+		await tx
+			.insertInto("app_changes")
+			.values({
+				app_id: appId,
+				seq: durableSeq,
+				batch_id: "fold-baseline:canonical-identity-foundation",
+				run_id: null,
+				actor_id: "system:canonical-identity-foundation",
+				kind: "fold-baseline",
+				mutations: JSON.stringify([]),
+				from_project_id: null,
+				to_project_id: null,
+			})
+			.execute();
+		await tx
+			.insertInto("app_change_fold_baselines")
+			.values({
+				app_id: appId,
+				seq: durableSeq,
+				project_id: genesis.project_id,
+				snapshot: JSON.stringify(genesis.snapshot),
+				snapshot_digest: sql<string>`
+					nova_app_change_fold_snapshot_digest(
+						${JSON.stringify(genesis.snapshot)}::jsonb
+					)
+				`,
+			})
+			.execute();
+	});
+}
+
+async function writeEmptyProjectMove(
+	appId: string,
+	fromProjectId: string,
+	toProjectId: string,
+): Promise<void> {
+	await appDb.transaction().execute(async (tx) => {
+		const app = await tx
+			.selectFrom("apps")
+			.select(["project_id", "mutation_seq"])
+			.where("id", "=", appId)
+			.forUpdate()
+			.executeTakeFirstOrThrow();
+		expect(app.project_id).toBe(fromProjectId);
+		const seq = Number(app.mutation_seq) + 1;
+		await tx
+			.insertInto("app_changes")
+			.values({
+				app_id: appId,
+				seq,
+				batch_id: `project-move:${appId}`,
+				run_id: null,
+				actor_id: USER,
+				kind: "project-move",
+				mutations: "[]",
+				from_project_id: fromProjectId,
+				to_project_id: toProjectId,
+			})
+			.execute();
+		await tx
+			.updateTable("apps")
+			.set({ project_id: toProjectId, mutation_seq: seq })
+			.where("id", "=", appId)
+			.execute();
+	});
+}
+
+function lookupSourceMutation(optionsSource: LookupOptionsSource): Mutation {
 	return {
 		kind: "updateField",
 		uuid: LOOKUP_FIELD,
 		targetKind: "single_select",
 		patch: { optionsSource },
-	} satisfies Mutation;
+	};
 }
 
 function lookupReceiverDoc(appId: string): PersistableDoc {
@@ -284,19 +421,19 @@ function lookupReceiverDoc(appId: string): PersistableDoc {
 				uuid: LOOKUP_FIELD,
 				id: "status",
 				kind: "single_select",
-				label: "Status",
+				label: proseText("Status"),
 				optionsSource: {
 					kind: "inline",
 					options: [
 						{
 							uuid: LOOKUP_OPTION_A,
 							value: "active",
-							label: "Active",
+							label: proseText("Active"),
 						},
 						{
 							uuid: LOOKUP_OPTION_B,
 							value: "closed",
-							label: "Closed",
+							label: proseText("Closed"),
 						},
 					],
 				},
@@ -306,10 +443,6 @@ function lookupReceiverDoc(appId: string): PersistableDoc {
 		formOrder: { [LOOKUP_MODULE]: [LOOKUP_FORM] },
 		fieldOrder: { [LOOKUP_FORM]: [LOOKUP_FIELD] },
 	};
-}
-
-function owns(value: object, key: PropertyKey): boolean {
-	return Object.hasOwn(value, key);
 }
 
 /** Insert one `presence` row directly. */
@@ -408,10 +541,14 @@ async function collectUntil(
 ): Promise<{ frames: Frame[]; controller: AbortController }> {
 	const controller = new AbortController();
 	const headers = new Headers();
-	if (opts.lastEventId) headers.set("Last-Event-ID", opts.lastEventId);
+	if (opts.lastEventId) {
+		headers.set(
+			"Last-Event-ID",
+			String(GENESIS_SEQ + Number(opts.lastEventId)),
+		);
+	}
 	const url = new URL(`http://localhost/api/apps/${appId}/stream`);
-	if (opts.since !== undefined)
-		url.searchParams.set("since", String(opts.since));
+	url.searchParams.set("since", String(GENESIS_SEQ + (opts.since ?? 0)));
 	const req = new Request(url, { headers, signal: controller.signal });
 
 	requireSessionMock.mockResolvedValue(sessionFor(opts.userId ?? USER));
@@ -534,51 +671,42 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 		});
 
 		const mutations = frames.filter((f) => f.event === "mutation");
-		expect(mutations.map((f) => f.id)).toEqual(["1", "2", "3"]);
+		expect(mutations.map((f) => f.id)).toEqual(["2", "3", "4"]);
 		const first = mutations[0];
 		if (!first) throw new Error("no mutation frames were replayed");
-		expect((first.data as { seq: number }).seq).toBe(1);
+		expect((first.data as { seq: number }).seq).toBe(2);
 	});
 
-	it("replays complete lookup and inline source replacements through Postgres and raw HTTP SSE", async () => {
-		const appId = await seedApp(3);
+	it("replays canonical lookup-source replacements through Postgres and raw HTTP SSE", async () => {
+		const appId = await seedApp(2);
 		const setSource = lookupSourceMutation(LOOKUP_SOURCE_A);
 		const replaceSource = lookupSourceMutation(LOOKUP_SOURCE_B);
-		const inlineSource = lookupSourceMutation(INLINE_SOURCE);
 
 		await writeEntry(appId, 1, { mutations: [setSource] });
 		await writeEntry(appId, 2, { mutations: [replaceSource] });
-		await writeEntry(appId, 3, { mutations: [inlineSource] });
 
-		/* Hop 1: the accepted_mutations jsonb value has survived the writer-side
-		 * JSON.stringify plus Postgres' jsonb decode with the explicit null
-		 * intact and still at the rolling-compatible top level. */
-		const persistedInlineRow = await appDb
-			.selectFrom("accepted_mutations")
+		/* Hop 1: the canonical nested source has survived the writer-side
+		 * JSON.stringify plus Postgres' jsonb decode. */
+		const persistedRow = await appDb
+			.selectFrom("app_changes")
 			.select("mutations")
 			.where("app_id", "=", appId)
 			.where("seq", "=", 3)
 			.executeTakeFirstOrThrow();
-		const persistedInline = (
-			persistedInlineRow.mutations as unknown as Record<string, unknown>[]
+		const persisted = (
+			persistedRow.mutations as unknown as Record<string, unknown>[]
 		)[0];
-		if (!persistedInline)
-			throw new Error("persisted inline replacement is missing");
-		expect(
-			owns(persistedInline.patch as Record<string, unknown>, "optionsSource"),
-		).toBe(true);
-		expect(persistedInline).toHaveProperty(
-			"patch.optionsSource",
-			INLINE_SOURCE,
-		);
+		if (!persisted) throw new Error("persisted mutation is missing");
+		expect(persisted).not.toHaveProperty("optionsSource");
+		expect(persisted.patch).toEqual({ optionsSource: LOOKUP_SOURCE_B });
 
 		const { frames } = await collectUntil(appId, {
 			since: 0,
 			predicate: (current) =>
-				current.filter((frame) => frame.event === "mutation").length >= 3,
+				current.filter((frame) => frame.event === "mutation").length >= 2,
 		});
 		const mutationFrames = frames.filter((frame) => frame.event === "mutation");
-		expect(mutationFrames.map((frame) => frame.id)).toEqual(["1", "2", "3"]);
+		expect(mutationFrames.map((frame) => frame.id)).toEqual(["2", "3"]);
 
 		const docStore = createBlueprintDocStore();
 		docStore.getState().load(lookupReceiverDoc(appId));
@@ -587,7 +715,7 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 			docStore,
 			{
 				appId,
-				baseSeq: 0,
+				baseSeq: GENESIS_SEQ,
 				baseDoc: docStore.getState(),
 				/* A different user makes these historical frames remote, matching a
 				 * normal reconnecting collaborator rather than a pending self-echo. */
@@ -608,7 +736,6 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 			for (const [index, expectedSource] of [
 				LOOKUP_SOURCE_A,
 				LOOKUP_SOURCE_B,
-				INLINE_SOURCE,
 			].entries()) {
 				const rawFrame = mutationFrames[index]?.data as
 					| MutationFrame
@@ -621,14 +748,9 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 					throw new Error(`missing mutation payload ${index + 1}`);
 
 				/* Hop 2: the route's JSON.stringify and the raw SSE parser's
-				 * JSON.parse preserve the canonical nested source. */
-				expect(
-					owns(rawMutation.patch as Record<string, unknown>, "optionsSource"),
-				).toBe(true);
-				expect(rawMutation).toHaveProperty(
-					"patch.optionsSource",
-					expectedSource,
-				);
+				 * JSON.parse preserve the one canonical nested source. */
+				expect(rawMutation).not.toHaveProperty("optionsSource");
+				expect(rawMutation.patch).toEqual({ optionsSource: expectedSource });
 
 				reconciler.onFrame(rawFrame);
 				const field = docStore.getState().fields[LOOKUP_FIELD];
@@ -638,22 +760,6 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 				expect(field.optionsSource).toEqual(expectedSource);
 			}
 
-			const rawInline = mutationFrames[2]?.data as MutationFrame | undefined;
-			const rawInlineMutation = rawInline?.mutations[0] as
-				| Record<string, unknown>
-				| undefined;
-			if (!rawInlineMutation)
-				throw new Error("raw inline replacement is missing");
-			expect(
-				owns(
-					rawInlineMutation.patch as Record<string, unknown>,
-					"optionsSource",
-				),
-			).toBe(true);
-			expect(rawInlineMutation).toHaveProperty(
-				"patch.optionsSource",
-				INLINE_SOURCE,
-			);
 			expect(reconciler.getSnapshot().baseSeq).toBe(3);
 		} finally {
 			reconciler.dispose();
@@ -671,17 +777,17 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 				await delay(300);
 				await commitGuardedBatch({
 					appId,
-					expectedProjectId: null,
+					expectedProjectId: PROJECT,
 					batchId: crypto.randomUUID(),
-					mutations: [{ kind: "setAppName", name: "Live" }],
+					mutations: admitMutationBatch([{ kind: "setAppName", name: "Live" }]),
 					actorUserId: USER,
 					kind: "autosave",
 				});
 			},
-			predicate: (f) => f.some((x) => x.event === "mutation" && x.id === "1"),
+			predicate: (f) => f.some((x) => x.event === "mutation" && x.id === "2"),
 		});
 
-		const frame = frames.find((f) => f.event === "mutation" && f.id === "1");
+		const frame = frames.find((f) => f.event === "mutation" && f.id === "2");
 		if (!frame) throw new Error("the live mutation frame never arrived");
 		expect((frame.data as { mutations: unknown[] }).mutations).toEqual([
 			{ kind: "setAppName", name: "Live" },
@@ -703,11 +809,11 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 
 		const { frames } = await collectUntil(appId, {
 			since: 0,
-			predicate: (f) => f.some((x) => x.event === "mutation" && x.id === "1"),
+			predicate: (f) => f.some((x) => x.event === "mutation" && x.id === "2"),
 		});
 
 		expect(attempts).toBe(2);
-		expect(frames.some((x) => x.event === "mutation" && x.id === "1")).toBe(
+		expect(frames.some((x) => x.event === "mutation" && x.id === "2")).toBe(
 			true,
 		);
 	});
@@ -959,7 +1065,7 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 		const appId = await seedApp(head);
 
 		const { frames } = await collectUntil(appId, {
-			since: 1,
+			since: 0,
 			predicate: (f) => f.some((x) => x.event === "reload"),
 		});
 
@@ -985,12 +1091,38 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 		expect(frames.some((f) => f.event === "mutation")).toBe(false);
 	});
 
-	it("reauthorizes and reloads for a same-Project migration even when its row carries mutations", async () => {
+	it("emits no partial mutation suffix and one seq-less protocol failure when durable history is malformed", async () => {
+		const appId = await seedApp(2);
+		await writeEntry(appId, 1);
+		await writeRawEntry(appId, 2, [
+			{ kind: "setAppName", name: "invalid", unexpected: true },
+		]);
+
+		const { frames } = await collectUntil(appId, {
+			since: 0,
+			predicate: (current) =>
+				current.some((frame) => frame.event === "protocol-failure"),
+		});
+
+		const failures = frames.filter(
+			(frame) => frame.event === "protocol-failure",
+		);
+		expect(failures).toEqual([
+			{
+				event: "protocol-failure",
+				data: { reason: "malformed-app-change-suffix" },
+			},
+		]);
+		expect(failures[0]?.id).toBeUndefined();
+		expect(frames.some((frame) => frame.event === "mutation")).toBe(false);
+	});
+
+	it("reauthorizes and reloads for a same-Project blueprint migration", async () => {
 		const appId = await seedApp(1);
-		await writeEntry(appId, 1, { kind: "migration" });
+		await writeEntry(appId, 1, { kind: "blueprint-migration" });
 		let reauthorizations = 0;
 		__setStreamReadTestHooksForTests({
-			beforeMigrationReauthorization() {
+			beforeAppChangeReauthorization() {
 				reauthorizations += 1;
 			},
 		});
@@ -1005,27 +1137,163 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 		expect(frames.some((f) => f.event === "mutation")).toBe(false);
 	});
 
+	it("reauthorizes and reloads for an exact fold baseline", async () => {
+		const appId = await seedApp(1);
+		await writeBaselineMarker(appId, 1);
+		let reauthorizations = 0;
+		__setStreamReadTestHooksForTests({
+			beforeAppChangeReauthorization() {
+				reauthorizations += 1;
+			},
+		});
+
+		const { frames } = await collectUntil(appId, {
+			since: 0,
+			predicate: (current) => current.some((frame) => frame.event === "reload"),
+		});
+
+		expect(reauthorizations).toBe(1);
+		expect(frames.find((frame) => frame.event === "reload")?.data).toEqual({
+			reason: "app-changed",
+		});
+		expect(frames.some((frame) => frame.event === "mutation")).toBe(false);
+	});
+
+	it("reauthorizes and reloads for an empty Project move without a browser mutation frame", async () => {
+		const appId = await seedApp(0);
+		await writeEmptyProjectMove(appId, PROJECT, OTHER_PROJECT);
+		let reauthorizations = 0;
+		__setStreamReadTestHooksForTests({
+			beforeAppChangeReauthorization() {
+				reauthorizations += 1;
+			},
+		});
+
+		const { frames } = await collectUntil(appId, {
+			since: 0,
+			predicate: (current) => current.some((frame) => frame.event === "reload"),
+		});
+
+		expect(reauthorizations).toBe(1);
+		expect(frames.find((frame) => frame.event === "reload")?.data).toEqual({
+			reason: "app-changed",
+		});
+		expect(frames.some((frame) => frame.event === "mutation")).toBe(false);
+	});
+
+	it("validates pre-baseline rows as part of the complete durable suffix", async () => {
+		const appId = await seedApp(2);
+		await writeRawEntry(appId, 1, [
+			{
+				kind: "retired-pre-horizon-vocabulary",
+				payload: 9_007_199_254_740_992,
+			},
+		]);
+		await writeBaselineMarker(appId, 2);
+
+		const { frames } = await collectUntil(appId, {
+			since: 0,
+			predicate: (current) =>
+				current.some((frame) => frame.event === "protocol-failure"),
+		});
+
+		expect(
+			frames.find((frame) => frame.event === "protocol-failure")?.data,
+		).toEqual({ reason: "malformed-app-change-suffix" });
+		expect(frames.some((frame) => frame.event === "reload")).toBe(false);
+		expect(frames.some((frame) => frame.event === "mutation")).toBe(false);
+	});
+
+	it("admits every post-baseline body before reloading for the baseline", async () => {
+		const appId = await seedApp(3);
+		await writeRawEntry(appId, 1, [{ kind: "retired-pre-horizon-vocabulary" }]);
+		await writeBaselineMarker(appId, 2);
+		await writeRawEntry(appId, 3, [
+			{ kind: "setAppName", name: "invalid", unexpected: true },
+		]);
+		await appDb
+			.updateTable("apps")
+			.set({ mutation_seq: GENESIS_SEQ + 3 })
+			.where("id", "=", appId)
+			.execute();
+
+		const { frames } = await collectUntil(appId, {
+			since: 0,
+			predicate: (current) =>
+				current.some((frame) => frame.event === "protocol-failure"),
+		});
+
+		expect(
+			frames.filter((frame) => frame.event === "protocol-failure"),
+		).toEqual([
+			{
+				event: "protocol-failure",
+				data: { reason: "malformed-app-change-suffix" },
+			},
+		]);
+		expect(frames.some((frame) => frame.event === "mutation")).toBe(false);
+		expect(frames.some((frame) => frame.event === "reload")).toBe(false);
+	});
+
+	it("rejects an empty blueprint migration before emitting any suffix frame", async () => {
+		const appId = await seedApp(1);
+		await writeEntry(appId, 1, { kind: "blueprint-migration", mutations: [] });
+
+		const { frames } = await collectUntil(appId, {
+			since: 0,
+			predicate: (current) =>
+				current.some((frame) => frame.event === "protocol-failure"),
+		});
+
+		expect(
+			frames.filter((frame) => frame.event === "protocol-failure"),
+		).toEqual([
+			{
+				event: "protocol-failure",
+				data: { reason: "malformed-app-change-suffix" },
+			},
+		]);
+		expect(frames.some((frame) => frame.event === "mutation")).toBe(false);
+		expect(frames.some((frame) => frame.event === "reload")).toBe(false);
+	});
+
+	it("emits no ordinary replay frames before a later blueprint migration", async () => {
+		const appId = await seedApp(2);
+		await writeEntry(appId, 1);
+		await writeEntry(appId, 2, { kind: "blueprint-migration" });
+
+		const { frames } = await collectUntil(appId, {
+			since: 0,
+			predicate: (current) => current.some((frame) => frame.event === "reload"),
+		});
+
+		const reload = frames.find((frame) => frame.event === "reload");
+		expect(reload?.id).toBeUndefined();
+		expect(reload?.data).toEqual({ reason: "app-changed" });
+		expect(frames.some((frame) => frame.event === "mutation")).toBe(false);
+	});
+
 	it.each([
 		["editor", true],
 		["viewer", false],
 	] as const)(
-		"reloads after migration reauthorization succeeds as destination %s",
+		"reloads after app-change reauthorization succeeds as destination %s",
 		async (role, canEdit) => {
 			const appId = await seedApp(1);
-			await writeEntry(appId, 1, { kind: "migration" });
+			await writeEntry(appId, 1, { kind: "blueprint-migration" });
 			resolveAppScopeInTransactionMock
 				.mockResolvedValueOnce({
 					projectId: PROJECT,
 					role: "editor",
 					canEdit: true,
-					baseSeq: 1,
+					baseSeq: GENESIS_SEQ + 1,
 					actorUserId: USER,
 				})
 				.mockResolvedValue({
 					projectId: OTHER_PROJECT,
 					role,
 					canEdit,
-					baseSeq: 1,
+					baseSeq: GENESIS_SEQ + 1,
 					actorUserId: USER,
 				});
 
@@ -1037,17 +1305,18 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 
 			const reload = frames.find((frame) => frame.event === "reload");
 			expect(reload?.id).toBeUndefined();
-			expect(reload?.data).toEqual({ reason: "app-migrated" });
+			expect(reload?.data).toEqual({ reason: "app-changed" });
 			expect(frames.some((frame) => frame.event === "revoked")).toBe(false);
 		},
 	);
 
-	it("keeps cursor M-1 across a transient migration reauthorization failure and retries row M", async () => {
-		const appId = await seedApp(1);
-		await writeEntry(appId, 1, { kind: "migration" });
+	it("keeps cursor M-1 across transient app-change reauthorization and retries row M", async () => {
+		const appId = await seedApp(2);
+		await writeEntry(appId, 1);
+		await writeEntry(appId, 2, { kind: "blueprint-migration" });
 		let attempts = 0;
 		__setStreamReadTestHooksForTests({
-			beforeMigrationReauthorization() {
+			beforeAppChangeReauthorization() {
 				attempts += 1;
 				if (attempts === 1)
 					throw new Error("transient reauthorization failure");
@@ -1062,19 +1331,20 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 		expect(attempts).toBe(2);
 		const reload = frames.find((frame) => frame.event === "reload");
 		expect(reload?.id).toBeUndefined();
-		expect(reload?.data).toEqual({ reason: "app-migrated" });
+		expect(reload?.data).toEqual({ reason: "app-changed" });
 		expect(frames.some((frame) => frame.event === "mutation")).toBe(false);
 	});
 
-	it("revokes seq-less when a source-only user loses view after migration", async () => {
-		const appId = await seedApp(1);
-		await writeEntry(appId, 1, { kind: "migration" });
+	it("revokes seq-less when a source-only user loses view after an app change", async () => {
+		const appId = await seedApp(2);
+		await writeEntry(appId, 1);
+		await writeEntry(appId, 2, { kind: "blueprint-migration" });
 		resolveAppScopeInTransactionMock
 			.mockResolvedValueOnce({
 				projectId: PROJECT,
 				role: "editor",
 				canEdit: true,
-				baseSeq: 1,
+				baseSeq: GENESIS_SEQ + 2,
 				actorUserId: USER,
 			})
 			.mockRejectedValue(new MockAppAccessError("not_member"));
@@ -1098,16 +1368,16 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 		await writeEntry(appId, 2);
 		await writeEntry(appId, 3);
 
-		// Reconnect at Last-Event-ID=2 → only seq 3 replays.
+		// Logical Last-Event-ID 2 maps past durable seq 3, so durable seq 4 replays.
 		const { frames } = await collectUntil(appId, {
 			lastEventId: "2",
 			predicate: (f) =>
-				f.some((x) => x.event === "mutation" && x.id === "3") &&
+				f.some((x) => x.event === "mutation" && x.id === "4") &&
 				f.some((x) => x.event === "lookup-revision"),
 		});
 
 		const mutations = frames.filter((f) => f.event === "mutation");
-		expect(mutations.map((f) => f.id)).toEqual(["3"]);
+		expect(mutations.map((f) => f.id)).toEqual(["4"]);
 		/* The initial lookup manifest rides the same EventSource but is seq-less,
 		 * so the browser's mutation Last-Event-ID remains 3. */
 		const lookupFrames = frames.filter((f) => f.event === "lookup-revision");
@@ -1123,7 +1393,7 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 
 		const { frames } = await collectUntil(appId, {
 			since: 0,
-			predicate: (f) => f.some((x) => x.event === "mutation" && x.id === "1"),
+			predicate: (f) => f.some((x) => x.event === "mutation" && x.id === "2"),
 		});
 
 		const frame = frames.find((f) => f.event === "mutation");
@@ -1178,11 +1448,9 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 		expect(entry).not.toHaveProperty("expire_at");
 	});
 
-	it("skips a presence row with a malformed location and continues the roster", async () => {
+	it("emits no partial presence roster when any stored row is malformed", async () => {
 		const appId = await seedApp(0);
 		await writePresence(appId, "good");
-		// A row whose `location` jsonb fails `locationSchema.parse` — best-effort:
-		// skip the bad row, keep the good one, never throw the whole roster.
 		await writePresence(appId, "bad", {
 			location: { kind: "not-a-real-kind" },
 		});
@@ -1190,20 +1458,12 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 		const { frames } = await collectUntil(appId, {
 			since: 0,
 			timeoutMs: 3_000,
-			predicate: (f) =>
-				f.some(
-					(x) =>
-						x.event === "presence" &&
-						(x.data as { sessionId?: string }[]).some(
-							(p) => p.sessionId === "good",
-						),
-				),
+			/* The independent lookup current page proves initial stream delivery ran;
+			 * the malformed presence page must not publish its valid subset. */
+			predicate: (f) => f.some((x) => x.event === "lookup-revision"),
 		});
 
-		const presence = frames.filter((f) => f.event === "presence").at(-1);
-		const roster = presence?.data as { sessionId: string }[];
-		expect(roster.map((p) => p.sessionId)).toContain("good");
-		expect(roster.map((p) => p.sessionId)).not.toContain("bad");
+		expect(frames.some((frame) => frame.event === "presence")).toBe(false);
 	});
 
 	it("revokes within the cadence on a CONFIRMED ban (isUserActive → false)", async () => {
@@ -1230,7 +1490,7 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 				projectId: PROJECT,
 				role: "editor",
 				canEdit: true,
-				baseSeq: 0,
+				baseSeq: GENESIS_SEQ,
 				actorUserId: USER,
 			})
 			.mockRejectedValue(new MockAppAccessError("not_member"));
@@ -1270,7 +1530,7 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 				projectId: PROJECT,
 				role: "editor",
 				canEdit: true,
-				baseSeq: 0,
+				baseSeq: GENESIS_SEQ,
 				actorUserId: USER,
 			})
 			.mockRejectedValue(new Error("db blip"));
@@ -1319,12 +1579,12 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 					projectId: PROJECT,
 					role: "editor",
 					canEdit: true,
-					baseSeq: 0,
+					baseSeq: GENESIS_SEQ,
 					actorUserId: USER,
 				})
 				.mockResolvedValue({
 					...fresh,
-					baseSeq: 0,
+					baseSeq: GENESIS_SEQ,
 					actorUserId: USER,
 				});
 
@@ -1377,7 +1637,7 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 		requireSessionMock.mockResolvedValue(sessionFor(USER));
 		const controller = new AbortController();
 		const res = await GET(
-			new Request(`http://localhost/api/apps/${appId}/stream?since=0`, {
+			new Request(`http://localhost/api/apps/${appId}/stream?since=1`, {
 				signal: controller.signal,
 			}),
 			{ params: Promise.resolve({ id: appId }) },
@@ -1422,7 +1682,7 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 		requireSessionMock.mockResolvedValue(sessionFor(USER));
 		const controller = new AbortController();
 		const res = await GET(
-			new Request(`http://localhost/api/apps/${appId}/stream?since=0`, {
+			new Request(`http://localhost/api/apps/${appId}/stream?since=1`, {
 				signal: controller.signal,
 			}),
 			{ params: Promise.resolve({ id: appId }) },

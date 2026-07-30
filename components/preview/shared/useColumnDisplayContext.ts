@@ -14,6 +14,7 @@ import {
 	resolveCalculatedTemporalType,
 } from "@/components/builder/case-list-config/columnCellRenderer";
 import { useEffectiveCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
+import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import type { CaseListConfig, CaseProperty, Column } from "@/lib/domain";
 import { useLocalCalendarDay } from "@/lib/ui/hooks/useLocalCalendarDay";
 
@@ -32,6 +33,7 @@ export function useColumnDisplayContext(
 		(candidate) => candidate.name === currentCaseType,
 	);
 	const today = useLocalCalendarDay();
+	const projectProse = useProseProjection();
 	const calculatedTemporalTypes = useMemo(() => {
 		const types = new Map<Column["uuid"], CalculatedTemporalType>();
 		if (config === undefined) return types;
@@ -53,12 +55,14 @@ export function useColumnDisplayContext(
 			calculatedTemporalTypes,
 			caseProperties: effectiveCaseType?.properties ?? fallbackProperties,
 			today,
+			projectProse,
 		}),
 		[
 			calculatedTemporalTypes,
 			effectiveCaseType?.properties,
 			fallbackProperties,
 			today,
+			projectProse,
 		],
 	);
 }

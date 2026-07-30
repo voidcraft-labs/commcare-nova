@@ -1,6 +1,13 @@
 import { z } from "zod";
-import { addCaseOperationMutations } from "@/lib/doc/caseOperationMutations";
-import { asUuid, type BlueprintDoc, type Uuid } from "@/lib/domain";
+import { addCaseOperationAfterMutations } from "@/lib/doc/caseOperationMutations";
+import {
+	asUuid,
+	type BlueprintDoc,
+	findAuthoredBlueprintIdentity,
+	orderedCaseOperations,
+	type Uuid,
+	uuidSchema,
+} from "@/lib/domain";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import {
 	applyToDoc,
@@ -22,26 +29,23 @@ export const addCaseOperationsInputSchema = operationAddressSchema.extend({
 		.array(
 			z
 				.object({
-					operationUuid: z
-						.uuid()
+					operationUuid: uuidSchema
 						.optional()
 						.describe(
-							"Stable uuid for the new operation. Supply it when a later operation in this same call refers to this operation; otherwise Nova mints it.",
+							"Stable UUID for the new operation. Supply it when another item in this call references the operation; otherwise Nova mints it.",
 						),
 					operation: caseOperationInputSchema.describe(
-						"Complete operation body. References to existing or earlier same-call operations use their stable uuids.",
+						"Complete operation body. References use stable UUIDs.",
 					),
 				})
 				.strict(),
 		)
 		.min(1)
-		// The batch duplicate-id check rides the FIELD, not the object.
-		// `lib/mcp/adapters/sharedToolAdapter.ts` rebuilds the wire schema
-		// from `inputSchema.shape` and hands the SDK-parsed args straight
-		// to `execute`, so an object-level refinement never runs on the
-		// MCP path — an MCP client could add two operations sharing one
-		// id in a call the chat path refuses. A field-level refinement
-		// travels with the field.
+		// Keep the batch duplicate-id check on the operations FIELD: the rule
+		// belongs to this collection and its issue path should point at the
+		// duplicate item. The shared MCP adapter now registers the exact Zod
+		// object (including refinements), so this same check runs on chat and
+		// MCP before either handler.
 		.superRefine((operations, ctx) => {
 			const seen = new Set<string>();
 			const seenUuids = new Set<string>();
@@ -70,14 +74,14 @@ export const addCaseOperationsInputSchema = operationAddressSchema.extend({
 			}
 		})
 		.describe(
-			"Operations in execution order. Every cross-operation reference uses a stable uuid; operation ids remain editable wire names.",
+			"Operations in execution order. Cross-operation references use stable UUIDs; operation ids remain editable wire names.",
 		),
-	index: z
-		.number()
-		.int()
-		.nonnegative()
+	afterOperationUuid: uuidSchema
+		.nullable()
 		.optional()
-		.describe("Insertion index for the first item; defaults to the end"),
+		.describe(
+			"UUID of the existing operation the new contiguous block should follow, null for first, or omit to append.",
+		),
 });
 
 export type AddCaseOperationsInput = z.infer<
@@ -85,7 +89,7 @@ export type AddCaseOperationsInput = z.infer<
 >;
 
 export interface AddCaseOperationsSuccess extends MutationSuccess {
-	readonly operationUuids: readonly string[];
+	readonly operationUuids: readonly Uuid[];
 	readonly operationIds: readonly string[];
 }
 
@@ -118,14 +122,9 @@ export const addCaseOperationsTool = {
 			const operationUuids = input.operations.map((item) =>
 				asUuid(item.operationUuid ?? crypto.randomUUID()),
 			);
-			const existingOperationUuids = new Set(
-				Object.values(doc.forms).flatMap((form) =>
-					(form.caseOperations ?? []).map((operation) => operation.uuid),
-				),
-			);
 			const duplicateOperationUuid = operationUuids.find(
 				(uuid, index) =>
-					existingOperationUuids.has(uuid) ||
+					findAuthoredBlueprintIdentity(doc, uuid) !== undefined ||
 					operationUuids.indexOf(uuid) !== index,
 			);
 			if (duplicateOperationUuid !== undefined) {
@@ -134,10 +133,32 @@ export const addCaseOperationsTool = {
 					mutations: [],
 					newDoc: doc,
 					result: {
-						error: `Operation uuid "${duplicateOperationUuid}" is already in use.`,
+						error: `Operation UUID "${duplicateOperationUuid}" is already in use.`,
 					},
 				};
 			}
+			const initialAfter =
+				input.afterOperationUuid === undefined ||
+				input.afterOperationUuid === null
+					? input.afterOperationUuid
+					: asUuid(input.afterOperationUuid);
+			if (
+				initialAfter !== undefined &&
+				initialAfter !== null &&
+				!orderedCaseOperations(working.forms[address.formUuid] ?? {}).some(
+					(operation) => operation.uuid === initialAfter,
+				)
+			) {
+				return {
+					kind: "mutate",
+					mutations: [],
+					newDoc: doc,
+					result: {
+						error: `Case operation UUID "${initialAfter}" is not an existing operation in form "${doc.forms[address.formUuid]?.name ?? input.formUuid}".`,
+					},
+				};
+			}
+			let afterOperationUuid = initialAfter;
 			for (const [offset, item] of input.operations.entries()) {
 				const authorOperation = item.operation;
 				const formOperations =
@@ -156,18 +177,23 @@ export const addCaseOperationsTool = {
 						},
 					};
 				}
+				const operationUuid = operationUuids[offset];
+				if (operationUuid === undefined) {
+					throw new Error("Case-operation UUID allocation drifted from input.");
+				}
 				const operation = resolveCaseOperationInput(
 					authorOperation,
-					operationUuids[offset] as Uuid,
+					operationUuid,
 				);
-				const planned = addCaseOperationMutations(
+				const planned = addCaseOperationAfterMutations(
 					working,
 					address.formUuid,
 					operation,
-					input.index === undefined ? undefined : input.index + offset,
+					afterOperationUuid,
 				);
 				mutations.push(...planned);
 				working = applyToDoc(working, planned);
+				afterOperationUuid = operation.uuid;
 			}
 
 			const commit = await guardedMutate(
@@ -187,7 +213,7 @@ export const addCaseOperationsTool = {
 			const operationIds = input.operations.map((item) => item.operation.id);
 			return {
 				kind: "mutate",
-				mutations,
+				mutations: commit.mutations,
 				newDoc: commit.newDoc,
 				result: {
 					message: `Added ${operationIds.length} case ${operationIds.length === 1 ? "operation" : "operations"} to form "${doc.forms[address.formUuid]?.name ?? input.formUuid}": ${operationIds.join(", ")}.`,

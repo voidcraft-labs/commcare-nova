@@ -89,6 +89,11 @@ export function CaseTile({
 				const entry = byUuid.get(cell.columnUuid);
 				if (entry === undefined) return null;
 				const plan = planTileCell(cell);
+				const label = caseColumnLabel(
+					entry.column,
+					caseProperties,
+					displayContext.projectProse,
+				);
 				return (
 					<div
 						key={cell.columnUuid}
@@ -105,9 +110,7 @@ export function CaseTile({
 						 *  and shows nothing — the device's zero-width sort carrier. */}
 						{!entry.valueHidden && (
 							<>
-								<span className="sr-only">
-									{caseColumnLabel(entry.column, caseProperties)}:{" "}
-								</span>
+								<span className="sr-only">{label}: </span>
 								{renderColumnCell(entry.column, row, displayContext)}
 							</>
 						)}

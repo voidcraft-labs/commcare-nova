@@ -1,4 +1,6 @@
+import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { proseText } from "@/lib/domain/prose";
 /**
  * Cross-rule integration tests for the case-list-config validator
  * surface. Each test pins an interaction across rules: a single
@@ -11,7 +13,6 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import {
-	asUuid,
 	calculatedColumn,
 	dateColumn,
 	idMappingEntry,
@@ -36,16 +37,16 @@ describe("case-list validator — cross-rule integration", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
-						listColumnOrder: [asUuid("col-name")],
-						detailColumnOrder: [asUuid("col-name")],
+						columns: [plainColumn(testUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [testUuid("col-name")],
+						detailColumnOrder: [testUuid("col-name")],
 						searchInputs: [
 							simpleSearchInputDef(
-								asUuid("si-name-range"),
+								testUuid("si-name-range"),
 								"name_range",
 								"Name range",
-								"text",
-								"name",
+								"date-range",
+								"full_name",
 								{ mode: rangeMode() },
 							),
 						],
@@ -58,16 +59,16 @@ describe("case-list validator — cross-rule integration", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 								// Kind-mismatch — `text` field writing to an `int`
 								// property. Surfaces FIELD_KIND_PROPERTY_TYPE_MISMATCH.
 								f({
 									kind: "text",
 									id: "age",
-									label: "Age",
-									case_property_on: "patient",
+									label: proseText("Age"),
+									caseWrite: { caseType: "patient", property: "age" },
 								}),
 								// Drives the mode-mismatch — `name` is text-typed, so
 								// `range` is structurally rejected. Surfaces
@@ -75,8 +76,8 @@ describe("case-list validator — cross-rule integration", () => {
 								f({
 									kind: "text",
 									id: "name",
-									label: "Name (full)",
-									case_property_on: "patient",
+									label: proseText("Name (full)"),
+									caseWrite: { caseType: "patient", property: "full_name" },
 								}),
 							],
 						},
@@ -87,9 +88,9 @@ describe("case-list validator — cross-rule integration", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name", data_type: "text" },
-						{ name: "age", label: "Age", data_type: "int" },
-						{ name: "name", label: "Name", data_type: "text" },
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+						{ name: "age", label: proseText("Age"), data_type: "int" },
+						{ name: "full_name", label: proseText("Name"), data_type: "text" },
 					],
 				},
 			],
@@ -127,14 +128,14 @@ describe("case-list validator — cross-rule integration", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 								f({
 									kind: "int",
 									id: "weight",
-									label: "Weight",
-									case_property_on: "patient",
+									label: proseText("Weight"),
+									caseWrite: { caseType: "patient", property: "weight" },
 								}),
 							],
 						},
@@ -145,8 +146,8 @@ describe("case-list validator — cross-rule integration", () => {
 								f({
 									kind: "decimal",
 									id: "weight",
-									label: "Weight",
-									case_property_on: "patient",
+									label: proseText("Weight"),
+									caseWrite: { caseType: "patient", property: "weight" },
 								}),
 							],
 						},
@@ -157,8 +158,8 @@ describe("case-list validator — cross-rule integration", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name", data_type: "text" },
-						{ name: "weight", label: "Weight" },
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+						{ name: "weight", label: proseText("Weight") },
 					],
 				},
 			],
@@ -187,15 +188,15 @@ describe("case-list validator — cross-rule integration", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [
-							plainColumn(asUuid("col-name"), "case_name", "Name", {
+							plainColumn(testUuid("col-name"), "case_name", "Name", {
 								sort: { direction: "asc", priority: 0 },
 							}),
 						],
-						listColumnOrder: [asUuid("col-name")],
-						detailColumnOrder: [asUuid("col-name")],
+						listColumnOrder: [testUuid("col-name")],
+						detailColumnOrder: [testUuid("col-name")],
 						searchInputs: [
 							simpleSearchInputDef(
-								asUuid("si-name-search"),
+								testUuid("si-name-search"),
 								"name_search",
 								"Name",
 								"text",
@@ -211,8 +212,8 @@ describe("case-list validator — cross-rule integration", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},
@@ -223,8 +224,8 @@ describe("case-list validator — cross-rule integration", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},
@@ -234,7 +235,9 @@ describe("case-list validator — cross-rule integration", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "case_name", label: "Name", data_type: "text" }],
+					properties: [
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+					],
 				},
 			],
 		});
@@ -251,7 +254,7 @@ describe("case-list validator — cross-rule integration", () => {
 		expect(errors.filter((e) => newCodes.has(e.code))).toEqual([]);
 	});
 
-	it("ignores malformed legacy columns that have no running-app role", () => {
+	it("validates every dormant column definition before it can be revealed", () => {
 		const dormant = {
 			visibleInList: false,
 			visibleInDetail: false,
@@ -264,23 +267,23 @@ describe("case-list validator — cross-rule integration", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [
-							plainColumn(asUuid("col-name"), "case_name", "Name"),
+							plainColumn(testUuid("col-name"), "case_name", "Name"),
 							plainColumn(
-								asUuid("col-unknown"),
+								testUuid("col-unknown"),
 								"missing_property",
-								"Old field",
+								"Saved field",
 								dormant,
 							),
 							dateColumn(
-								asUuid("col-wrong-kind"),
+								testUuid("col-wrong-kind"),
 								"case_name",
-								"Old date",
+								"Saved date",
 								"%Y-%m-%d",
 								dormant,
 							),
 							calculatedColumn(
-								asUuid("col-bad-calc"),
-								"Old calculation",
+								testUuid("col-bad-calc"),
+								"Saved calculation",
 								arith(
 									"+",
 									term(prop("patient", "case_name")),
@@ -289,27 +292,27 @@ describe("case-list validator — cross-rule integration", () => {
 								dormant,
 							),
 							calculatedColumn(
-								asUuid("col-bare-input"),
-								"Old input calculation",
-								term(input(asUuid("afab7dd2-1469-4bb1-8859-ecb091ee01d3"))),
+								testUuid("col-bare-input"),
+								"Saved input calculation",
+								term(input(testUuid("missing_search_input"))),
 								dormant,
 							),
 							{
 								kind: "id-mapping",
-								uuid: asUuid("col-bad-map"),
+								uuid: testUuid("col-bad-map"),
 								field: "case_name",
-								header: "Old labels",
+								header: "Saved labels",
 								mapping: [idMappingEntry("", "Blank")],
 								...dormant,
 							},
 							{
 								kind: "image-map",
-								uuid: asUuid("col-bad-images"),
+								uuid: testUuid("col-bad-images"),
 								field: "case_name",
-								header: "Old images",
+								header: "Saved images",
 								mapping: [
-									imageMapEntry("same", "missing-image-a"),
-									imageMapEntry("same", "missing-image-b"),
+									imageMapEntry("same", testMediaAssetId("missing-image-a")),
+									imageMapEntry("same", testMediaAssetId("missing-image-b")),
 								],
 								...dormant,
 							},
@@ -324,8 +327,8 @@ describe("case-list validator — cross-rule integration", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},
@@ -335,7 +338,9 @@ describe("case-list validator — cross-rule integration", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "case_name", label: "Name", data_type: "text" }],
+					properties: [
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+					],
 				},
 			],
 		});
@@ -347,12 +352,12 @@ describe("case-list validator — cross-rule integration", () => {
 			"CASE_LIST_BARE_SEARCH_INPUT_REF",
 			"CASE_LIST_ID_MAPPING_EMPTY_VALUE",
 			"CASE_LIST_IMAGE_MAP_DUPLICATE_VALUE",
-			"MEDIA_ASSET_NOT_FOUND",
 		]);
-		expect(
-			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((error) =>
-				dormantColumnCodes.has(error.code),
-			),
-		).toEqual([]);
+		const codes = new Set(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)
+				.filter((error) => dormantColumnCodes.has(error.code))
+				.map((error) => error.code),
+		);
+		expect(codes).toEqual(dormantColumnCodes);
 	});
 });

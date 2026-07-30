@@ -20,6 +20,7 @@
 
 import { summarizeFilter } from "@/components/builder/case-list-config/predicateSummary";
 import { Button } from "@/components/shadcn/button";
+import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import type { CaseType } from "@/lib/domain";
 import type { Predicate } from "@/lib/domain/predicate";
 import { useClearedSlotFocus } from "@/lib/ui/hooks/useClearedSlotFocus";
@@ -84,6 +85,7 @@ export function ConditionSlotSetting({
 	 * home — it started here, and the case-change canvas needs the same thing
 	 * in three more places. */
 	const { addRef: addButtonRef, onCleared } = useClearedSlotFocus(value);
+	const projectProse = useProseProjection();
 
 	const add = () => {
 		onChange(
@@ -129,6 +131,7 @@ export function ConditionSlotSetting({
 							caseTypes,
 							currentCaseType,
 							knownInputs,
+							projectProse,
 						}) ?? alwaysSummary}
 					</p>
 					<div className="mt-3 flex flex-wrap gap-2">

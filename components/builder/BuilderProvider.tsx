@@ -12,8 +12,6 @@
  *   EditGuardProvider           — select-guard predicate stack
  *   CaseListWorkspaceProvider   — the single case-list workspace controller,
  *                                 shared by the center canvas + the right rail
- *   ProjectDataWorkspaceProvider — the single Project data controller, shared
- *                                 the same way (one fetch, one selection)
  *   BuilderFormEngineProvider   — form preview runtime controller
  *     SyncBridge                — wires doc store ref into session store
  *     LocationRecoveryEffect    — repairs stale URL selection mid-session
@@ -33,7 +31,7 @@ import { CaseListWorkspaceProvider } from "@/components/builder/case-list-config
 import { EditGuardProvider } from "@/components/builder/contexts/EditGuardContext";
 import { ScrollRegistryProvider } from "@/components/builder/contexts/ScrollRegistryContext";
 import { LocationRecoveryEffect } from "@/components/builder/LocationRecoveryEffect";
-import { ProjectDataWorkspaceProvider } from "@/components/builder/project-data/ProjectDataWorkspaceProvider";
+import { BuilderLookupCatalogProvider } from "@/components/builder/lookup/BuilderLookupCatalogProvider";
 import { PresenceProvider } from "@/lib/collab/PresenceProvider";
 import { ReconcilerProvider } from "@/lib/collab/ReconcilerProvider";
 import {
@@ -146,16 +144,14 @@ function BuilderProviderInner({
 		<ScrollRegistryProvider>
 			<EditGuardProvider>
 				<CaseListWorkspaceProvider>
-					<ProjectDataWorkspaceProvider>
-						<BuilderFormEngineProvider>
-							<SyncBridge />
-							<LocationRecoveryEffect />
-							<PreviewLookupDataProvider>
-								{initialDoc ? <LoadAppHydrator /> : null}
-								{children}
-							</PreviewLookupDataProvider>
-						</BuilderFormEngineProvider>
-					</ProjectDataWorkspaceProvider>
+					<BuilderFormEngineProvider>
+						<SyncBridge />
+						<LocationRecoveryEffect />
+						<PreviewLookupDataProvider>
+							{initialDoc ? <LoadAppHydrator /> : null}
+							{children}
+						</PreviewLookupDataProvider>
+					</BuilderFormEngineProvider>
 				</CaseListWorkspaceProvider>
 			</EditGuardProvider>
 		</ScrollRegistryProvider>
@@ -180,7 +176,9 @@ function BuilderProviderInner({
 						 *  It reads the LIVE app id from the session store (not
 						 *  `buildId`), so a new build's creator heartbeats the instant
 						 *  the SA mints the app. */}
-						<PresenceProvider userId={userId ?? ""}>{inner}</PresenceProvider>
+						<BuilderLookupCatalogProvider>
+							<PresenceProvider userId={userId ?? ""}>{inner}</PresenceProvider>
+						</BuilderLookupCatalogProvider>
 					</ReconcilerProvider>
 				</BlueprintEditableBridge>
 			</BuilderSessionProvider>

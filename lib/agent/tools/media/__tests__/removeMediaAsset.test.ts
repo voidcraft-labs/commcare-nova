@@ -15,7 +15,10 @@ import type { ListAppsResult } from "@/lib/db/apps";
 import { RunHolderLostError } from "@/lib/db/commitGuard";
 import type { MediaAssetRecord } from "@/lib/db/mediaAssets";
 import type { BlueprintDoc } from "@/lib/domain";
-import { removeMediaAssetTool } from "../removeMediaAsset";
+import {
+	removeMediaAssetInputSchema,
+	removeMediaAssetTool,
+} from "../removeMediaAsset";
 import { makeMediaFixture, TEXT_FIELD } from "./fixtures";
 
 // `vi.hoisted` lifts the mock fns above the hoisted `vi.mock` factories so
@@ -45,8 +48,10 @@ const {
 		Promise.resolve({ apps: [] }),
 	),
 	loadApp: vi.fn(),
-	loadAppProjectId: vi.fn(() => Promise.resolve("project-1")),
-	deleteMediaAssetForChatRun: vi.fn(() => Promise.resolve(true)),
+	loadAppProjectId: vi.fn(() =>
+		Promise.resolve({ kind: "found", projectId: "project-1" }),
+	),
+	deleteMediaAssetForChatRun: vi.fn(),
 	deleteMediaAssetForActor: vi.fn(),
 	withMediaObjectKeyLock: vi.fn(
 		async (_key: string, body: (lockedDb: unknown) => Promise<unknown>) =>
@@ -88,7 +93,9 @@ beforeEach(() => {
 	// The reverse index (`media_asset_refs`) is now a separate query, not a field
 	// on the asset row — default to no other referencing app.
 	listReferencingAppIds.mockResolvedValue([]);
-	deleteMediaAssetForChatRun.mockResolvedValue(true);
+	deleteMediaAssetForChatRun.mockImplementation(async ({ assetId }) =>
+		ownedAsset(assetId),
+	);
 	deleteMediaAssetForActor.mockImplementation(async ({ assetId }) => ({
 		kind: "deleted",
 		asset: ownedAsset(assetId),
@@ -124,13 +131,25 @@ function docReferencing(assetId: string, base: BlueprintDoc): BlueprintDoc {
 	};
 }
 
+function removeInput(assetId: string) {
+	return removeMediaAssetInputSchema.parse({ assetId });
+}
+
 describe("removeMediaAsset", () => {
 	it("deletes the GCS object and the row when unreferenced", async () => {
 		const { doc, ctx } = makeMediaFixture();
-		loadAssetById.mockResolvedValue(ownedAsset("free-asset"));
+		const assetId = "40000000-0000-4000-8000-000000000001";
+		loadAssetById.mockResolvedValue(ownedAsset(assetId));
+		deleteMediaAssetForActor.mockResolvedValueOnce({
+			kind: "deleted",
+			asset: {
+				...ownedAsset(assetId),
+				gcsObjectKey: "projects/project-1/authoritative-deleted-row.png",
+			},
+		});
 
 		const result = await removeMediaAssetTool.execute(
-			{ assetId: "free-asset" },
+			removeInput(assetId),
 			ctx,
 			doc,
 		);
@@ -141,15 +160,15 @@ describe("removeMediaAsset", () => {
 		}
 		expect(result.data.removed).toBe(true);
 		expect(hasOtherAssetForGcsObjectKey).toHaveBeenCalledWith(
-			"projects/project-1/free-asset.png",
-			"free-asset",
+			"projects/project-1/authoritative-deleted-row.png",
+			assetId,
 			expect.anything(),
 		);
 		expect(deleteGcsObject).toHaveBeenCalledWith(
-			"projects/project-1/free-asset.png",
+			"projects/project-1/authoritative-deleted-row.png",
 		);
 		expect(deleteMediaAssetForActor).toHaveBeenCalledWith({
-			assetId: "free-asset",
+			assetId,
 			actorUserId: ctx.userId,
 			expectedProjectId: "project-1",
 		});
@@ -158,11 +177,13 @@ describe("removeMediaAsset", () => {
 
 	it("deletes only the row when another asset shares the same GCS object", async () => {
 		const { doc, ctx } = makeMediaFixture();
-		loadAssetById.mockResolvedValue(ownedAsset("shared-asset"));
+		loadAssetById.mockResolvedValue(
+			ownedAsset("40000000-0000-4000-8000-000000000002"),
+		);
 		hasOtherAssetForGcsObjectKey.mockResolvedValue(true);
 
 		const result = await removeMediaAssetTool.execute(
-			{ assetId: "shared-asset" },
+			removeInput("40000000-0000-4000-8000-000000000002"),
 			ctx,
 			doc,
 		);
@@ -171,7 +192,7 @@ describe("removeMediaAsset", () => {
 			throw new Error(`unexpected error: ${result.data.error}`);
 		}
 		expect(deleteMediaAssetForActor).toHaveBeenCalledWith({
-			assetId: "shared-asset",
+			assetId: "40000000-0000-4000-8000-000000000002",
 			actorUserId: ctx.userId,
 			expectedProjectId: "project-1",
 		});
@@ -187,10 +208,12 @@ describe("removeMediaAsset", () => {
 			runId: "thread-run",
 			nonce: "00000000-0000-4000-8000-000000000001",
 		};
-		loadAssetById.mockResolvedValue(ownedAsset("chat-asset"));
+		loadAssetById.mockResolvedValue(
+			ownedAsset("40000000-0000-4000-8000-000000000003"),
+		);
 
 		const result = await removeMediaAssetTool.execute(
-			{ assetId: "chat-asset" },
+			removeInput("40000000-0000-4000-8000-000000000003"),
 			{ ...ctx, chatRunHolder },
 			doc,
 		);
@@ -198,27 +221,29 @@ describe("removeMediaAsset", () => {
 		expect(result.data).toMatchObject({ removed: true });
 		expect(deleteMediaAssetForChatRun).toHaveBeenCalledWith({
 			appId: ctx.appId,
-			assetId: "chat-asset",
+			assetId: "40000000-0000-4000-8000-000000000003",
 			actorUserId: ctx.userId,
 			expectedProjectId: "project-1",
 			holder: chatRunHolder,
 		});
 		expect(deleteAssetRow).not.toHaveBeenCalled();
 		expect(deleteGcsObject).toHaveBeenCalledWith(
-			"projects/project-1/chat-asset.png",
+			"projects/project-1/40000000-0000-4000-8000-000000000003.png",
 		);
 	});
 
 	it("propagates authoritative chat-holder loss without touching GCS", async () => {
 		const { doc, ctx } = makeMediaFixture();
-		loadAssetById.mockResolvedValue(ownedAsset("lost-holder-asset"));
+		loadAssetById.mockResolvedValue(
+			ownedAsset("40000000-0000-4000-8000-000000000004"),
+		);
 		deleteMediaAssetForChatRun.mockRejectedValueOnce(
 			new RunHolderLostError("superseded"),
 		);
 
 		await expect(
 			removeMediaAssetTool.execute(
-				{ assetId: "lost-holder-asset" },
+				removeInput("40000000-0000-4000-8000-000000000004"),
 				{
 					...ctx,
 					chatRunHolder: {
@@ -237,11 +262,13 @@ describe("removeMediaAsset", () => {
 
 	it("refuses and deletes nothing when the doc still references it", async () => {
 		const { doc: baseDoc, ctx } = makeMediaFixture();
-		loadAssetById.mockResolvedValue(ownedAsset("used-asset"));
-		const doc = docReferencing("used-asset", baseDoc);
+		loadAssetById.mockResolvedValue(
+			ownedAsset("40000000-0000-4000-8000-000000000005"),
+		);
+		const doc = docReferencing("40000000-0000-4000-8000-000000000005", baseDoc);
 
 		const result = await removeMediaAssetTool.execute(
-			{ assetId: "used-asset" },
+			removeInput("40000000-0000-4000-8000-000000000005"),
 			ctx,
 			doc,
 		);
@@ -260,18 +287,20 @@ describe("removeMediaAsset", () => {
 		const { doc, ctx } = makeMediaFixture();
 		// The reverse index names "other-app" as a candidate, so the guard loads
 		// ONLY it (not the owner's whole list) and re-walks it to confirm.
-		loadAssetById.mockResolvedValue(ownedAsset("used-elsewhere"));
+		loadAssetById.mockResolvedValue(
+			ownedAsset("40000000-0000-4000-8000-000000000006"),
+		);
 		listReferencingAppIds.mockResolvedValue(["other-app"]);
 		loadApp.mockResolvedValue({
 			owner: "user-1",
 			project_id: "project-1",
 			app_name: "Other App",
 			deleted_at: null,
-			blueprint: docReferencing("used-elsewhere", doc),
+			blueprint: docReferencing("40000000-0000-4000-8000-000000000006", doc),
 		});
 
 		const result = await removeMediaAssetTool.execute(
-			{ assetId: "used-elsewhere" },
+			removeInput("40000000-0000-4000-8000-000000000006"),
 			ctx,
 			doc,
 		);
@@ -289,14 +318,16 @@ describe("removeMediaAsset", () => {
 
 	it("refuses when the authoritative delete re-walk catches a late attach", async () => {
 		const { doc, ctx } = makeMediaFixture();
-		loadAssetById.mockResolvedValue(ownedAsset("raced-asset"));
+		loadAssetById.mockResolvedValue(
+			ownedAsset("40000000-0000-4000-8000-000000000007"),
+		);
 		deleteMediaAssetForActor.mockResolvedValue({
 			kind: "referenced",
 			references: ['"Racing App" (app-2) on the app logo'],
 		});
 
 		const result = await removeMediaAssetTool.execute(
-			{ assetId: "raced-asset" },
+			removeInput("40000000-0000-4000-8000-000000000007"),
 			ctx,
 			doc,
 		);
@@ -312,7 +343,7 @@ describe("removeMediaAsset", () => {
 		loadAssetById.mockResolvedValue(null);
 
 		const result = await removeMediaAssetTool.execute(
-			{ assetId: "ghost" },
+			removeInput("40000000-0000-4000-8000-000000000008"),
 			ctx,
 			doc,
 		);
@@ -329,12 +360,12 @@ describe("removeMediaAsset", () => {
 		// because its `project_id` doesn't match the app's Project — the same
 		// "not found" a missing row produces, so the two can't be told apart.
 		loadAssetById.mockResolvedValue({
-			...ownedAsset("other"),
+			...ownedAsset("40000000-0000-4000-8000-000000000009"),
 			project_id: "project-2",
 		});
 
 		const result = await removeMediaAssetTool.execute(
-			{ assetId: "other" },
+			removeInput("40000000-0000-4000-8000-000000000009"),
 			ctx,
 			doc,
 		);

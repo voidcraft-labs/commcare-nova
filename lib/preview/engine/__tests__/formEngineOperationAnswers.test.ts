@@ -4,43 +4,37 @@
 // undefined — the client half of the S07b program-builder contract.
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import type {
 	CaseOperation,
 	Field,
 	FieldKind,
 	Form,
 	FormType,
+	ProseTemplate,
 	SelectOptionsSource,
 	Uuid,
 } from "@/lib/domain";
-import { asUuid } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
+
 import { FormEngine, type FormEngineInput } from "../formEngine";
 
 const ENTRY_KEY = "11111111-1111-4111-8111-111111111111";
 
-interface DFieldBase {
+interface DField {
 	id: string;
-	label?: string;
+	kind: FieldKind;
+	label?: ProseTemplate;
+	optionsSource?: SelectOptionsSource;
 	children?: DField[];
 }
-
-type DField = DFieldBase &
-	(
-		| {
-				kind: "single_select" | "multi_select";
-				optionsSource: SelectOptionsSource;
-		  }
-		| {
-				kind: Exclude<FieldKind, "single_select" | "multi_select">;
-		  }
-	);
 
 function dTree(
 	fields: DField[],
 	caseOperations?: CaseOperation[],
 	formType: FormType = "survey",
 ): FormEngineInput {
-	const formUuid = asUuid("test-form-uuid");
+	const formUuid = testUuid("test-form-uuid");
 	const form: Form = {
 		uuid: formUuid,
 		id: "test-form",
@@ -53,7 +47,7 @@ function dTree(
 	const walk = (nodes: DField[], parentUuid: Uuid, prefix: string): void => {
 		const order: Uuid[] = [];
 		for (const n of nodes) {
-			const uuid = asUuid(`${prefix}.${n.id}`);
+			const uuid = testUuid(`${prefix}.${n.id}`);
 			order.push(uuid);
 			const { children, ...rest } = n;
 			fieldMap[uuid as string] = { uuid, ...rest } as Field;
@@ -64,11 +58,11 @@ function dTree(
 		fieldOrder[parentUuid as string] = order;
 	};
 	walk(fields, formUuid, "form");
-	return { form, formUuid, fields: fieldMap, fieldOrder };
+	return { form, formUuid, fields: fieldMap, fieldOrder, caseTypes: [] };
 }
 
 const OPERATION: CaseOperation = {
-	uuid: asUuid("op.a"),
+	uuid: testUuid("op.a"),
 	id: "op_a",
 	action: "update",
 	caseType: "patient",
@@ -84,7 +78,7 @@ function valuesOf(
 describe("computeOperationAnswers", () => {
 	it("returns undefined for an operation-free form", () => {
 		const engine = new FormEngine(
-			dTree([{ id: "name", kind: "text", label: "Name" }]),
+			dTree([{ id: "name", kind: "text", label: proseText("Name") }]),
 		);
 		expect(engine.computeOperationAnswers()).toBeUndefined();
 	});
@@ -93,28 +87,28 @@ describe("computeOperationAnswers", () => {
 		const engine = new FormEngine(
 			dTree(
 				[
-					{ id: "name", kind: "text", label: "Name" },
+					{ id: "name", kind: "text", label: proseText("Name") },
 					{
 						id: "symptoms",
 						kind: "multi_select",
-						label: "Symptoms",
+						label: proseText("Symptoms"),
 						optionsSource: {
 							kind: "inline",
 							options: [
 								{
-									uuid: asUuid("f113785e-0b1a-40c4-ac1f-d0815c48ca6c"),
+									uuid: testUuid("symptom-fever"),
 									value: "fever",
-									label: "Fever",
+									label: proseText("Fever"),
 								},
 								{
-									uuid: asUuid("70466268-b2ff-4b74-af43-481f12a2ea2b"),
+									uuid: testUuid("symptom-cough"),
 									value: "cough",
-									label: "Cough",
+									label: proseText("Cough"),
 								},
 							],
 						},
 					},
-					{ id: "note", kind: "label", label: "Just a label" },
+					{ id: "note", kind: "label", label: proseText("Just a label") },
 				],
 				[OPERATION],
 			),
@@ -125,8 +119,8 @@ describe("computeOperationAnswers", () => {
 		const answers = engine.computeOperationAnswers();
 		expect(answers).toBeDefined();
 		expect(valuesOf(answers?.root ?? [])).toEqual({
-			[asUuid("form.name") as string]: "Ada",
-			[asUuid("form.symptoms") as string]: ["fever", "cough"],
+			[testUuid("form.name") as string]: "Ada",
+			[testUuid("form.symptoms") as string]: ["fever", "cough"],
 		});
 		expect(answers?.repeats).toEqual([]);
 	});
@@ -135,18 +129,20 @@ describe("computeOperationAnswers", () => {
 		const engine = new FormEngine(
 			dTree(
 				[
-					{ id: "region", kind: "text", label: "Region" },
+					{ id: "region", kind: "text", label: proseText("Region") },
 					{
 						id: "visits",
 						kind: "repeat",
-						label: "Visits",
+						label: proseText("Visits"),
 						children: [
-							{ id: "visit_note", kind: "text", label: "Note" },
+							{ id: "visit_note", kind: "text", label: proseText("Note") },
 							{
 								id: "meds",
 								kind: "repeat",
-								label: "Meds",
-								children: [{ id: "med_name", kind: "text", label: "Med" }],
+								label: proseText("Meds"),
+								children: [
+									{ id: "med_name", kind: "text", label: proseText("Med") },
+								],
 							},
 						],
 					},
@@ -163,17 +159,17 @@ describe("computeOperationAnswers", () => {
 
 		const answers = engine.computeOperationAnswers();
 		const visits = answers?.repeats.find(
-			(r) => r.repeat === (asUuid("form.visits") as string),
+			(r) => r.repeat === (testUuid("form.visits") as string),
 		);
 		const meds = answers?.repeats.find(
-			(r) => r.repeat === (asUuid("form.visits.meds") as string),
+			(r) => r.repeat === (testUuid("form.visits.meds") as string),
 		);
 		expect(visits?.iterations).toHaveLength(2);
 		expect(meds?.iterations).toHaveLength(2);
 
-		const regionUuid = asUuid("form.region") as string;
-		const noteUuid = asUuid("form.visits.visit_note") as string;
-		const medUuid = asUuid("form.visits.meds.med_name") as string;
+		const regionUuid = testUuid("form.region") as string;
+		const noteUuid = testUuid("form.visits.visit_note") as string;
+		const medUuid = testUuid("form.visits.meds.med_name") as string;
 
 		// Visit iterations: root + own; the nested meds scope is EXCLUDED.
 		expect(valuesOf(visits?.iterations[0] ?? [])).toEqual({
@@ -201,15 +197,17 @@ describe("computeOperationAnswers", () => {
 
 	it("rides the submission mutation on every arm", () => {
 		const engine = new FormEngine(
-			dTree([{ id: "name", kind: "text", label: "Name" }], [OPERATION]),
+			dTree(
+				[{ id: "name", kind: "text", label: proseText("Name") }],
+				[OPERATION],
+			),
 		);
 		const mutation = engine.computeSubmissionMutation({
-			caseTypes: [],
 			entryKey: ENTRY_KEY,
 		});
 		expect(mutation.kind).toBe("survey");
 		if (mutation.kind === "survey") {
-			expect(mutation.formUuid).toBe("test-form-uuid");
+			expect(mutation.formUuid).toBe(testUuid("test-form-uuid"));
 			expect(mutation.operationAnswers?.root).toBeDefined();
 		}
 	});

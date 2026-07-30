@@ -7,6 +7,7 @@
 
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { proseText } from "@/lib/domain/prose";
 import { summarizeBlueprint } from "../summarizeBlueprint";
 
 function readingDoc() {
@@ -15,7 +16,9 @@ function readingDoc() {
 		caseTypes: [
 			{
 				name: "medication_order",
-				properties: [{ name: "order_status", label: "Order status" }],
+				properties: [
+					{ name: "order_status", label: proseText("Order status") },
+				],
 			},
 		],
 		modules: [

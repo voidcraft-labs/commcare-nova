@@ -1,9 +1,14 @@
 /**
- * Inline-choice editor used by `OptionsSourceEditor`.
+ * OptionsEditor — declarative editor for a select field's inline options.
  *
- * It edits one complete inline source arm. A select can never have fewer than
- * two options, so the remove affordance disables at that floor instead of
- * attempting a mutation the canonical schema would reject.
+ * Two exports:
+ *   - `OptionsEditor` — the FieldEditorComponent adapter. Accepts
+ *     `FieldEditorComponentProps` and preserves the complete
+ *     `optionsSource` discriminant.
+ *   - `OptionsEditorWidget` — the underlying fieldset widget with the
+ *     `{ options, onSave }` shape. Callers that already hold a
+ *     persistence strategy and simply want the label/value rows + add
+ *     button use this directly.
  */
 
 "use client";
@@ -13,7 +18,20 @@ import { useCallback, useId, useRef, useState } from "react";
 import { AddPropertyButton } from "@/components/builder/editor/AddPropertyButton";
 import { INSPECTOR_LABEL_CLS } from "@/components/builder/inspector/inspectorChrome";
 import { MediaSlot } from "@/components/builder/media/MediaSlot";
-import { asUuid, type CommitOutcome, type SelectOption } from "@/lib/domain";
+import { RefLabelInput } from "@/components/builder/RefLabelInput";
+import { RejectionInline } from "@/components/builder/RejectionNotice";
+import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
+import {
+	asUuid,
+	type CommitOutcome,
+	type Field,
+	type ProseTemplate,
+	proseTemplateIsEmpty,
+	proseText,
+	type SelectOption,
+	type SelectOptionsSource,
+} from "@/lib/domain";
+import type { FieldEditorComponentProps } from "@/lib/domain/kinds";
 import { MEDIA_KINDS, type Media } from "@/lib/domain/multimedia";
 
 /**
@@ -32,7 +50,8 @@ export interface OptionsEditorWidgetProps {
 	 *  a refusal keeps the widget's draft (the committed-key ref only
 	 *  advances on a landed save); `void` reads as committed. */
 	onSave: (options: SelectOption[]) => CommitOutcome | undefined;
-	/** Staged-upload identity base for the option rows' media slots. */
+	/** Staged-upload identity base for the option rows' media slots —
+	 *  the owning field's uuid; each row scopes itself by option value. */
 	slotKeyBase: string;
 	/** When true, the first option label input receives focus on mount (undo/redo restore). */
 	autoFocus?: boolean;
@@ -40,15 +59,6 @@ export interface OptionsEditorWidgetProps {
 
 /** Counter for generating monotonically increasing draft IDs. */
 let nextDraftId = 0;
-
-/**
- * Stable ref callback that focuses the element on mount. Defined at
- * module scope so React doesn't see a new function identity each
- * render — if it did, React would unmount and remount the ref on
- * every parent update and steal focus.
- */
-const focusOnMount = (el: HTMLInputElement | null) =>
-	el?.focus({ preventScroll: true });
 
 /** Wrap raw options with stable draft IDs. */
 function toDraftOptions(options: SelectOption[]): DraftOption[] {
@@ -89,6 +99,10 @@ export function OptionsEditorWidget({
 	);
 	const [focusIndex, setFocusIndex] = useState<number | null>(null);
 	const groupLabelId = useId();
+	// The two accessible names below are the only place an option label is
+	// read as plain text; a screen reader hears the same words the sighted
+	// author sees in the chip, so it goes through the document too.
+	const projectProse = useProseProjection();
 
 	// Ref on the fieldset element — used by the blur handler to check
 	// whether focus moved outside the group. Checking
@@ -126,7 +140,7 @@ export function OptionsEditorWidget({
 				// even with a blank label/value so attaching an image and
 				// then blanking the text doesn't silently discard the asset
 				// reference along with the row.
-				(o) => o.label.trim() || o.value.trim() || o.media,
+				(o) => !proseTemplateIsEmpty(o.label) || o.value.trim() || o.media,
 			);
 			const outcome = onSave(cleaned);
 			if (!outcome || outcome.ok) {
@@ -137,7 +151,7 @@ export function OptionsEditorWidget({
 	);
 
 	const updateOption = useCallback(
-		(index: number, field: "label" | "value", val: string) => {
+		(index: number, field: "label" | "value", val: string | ProseTemplate) => {
 			setDraft((prev) => {
 				const next = [...prev];
 				next[index] = { ...next[index], [field]: val };
@@ -145,6 +159,17 @@ export function OptionsEditorWidget({
 			});
 		},
 		[],
+	);
+
+	const saveLabel = useCallback(
+		(index: number, label: ProseTemplate) => {
+			const next = draft.map((option, optionIndex) =>
+				optionIndex === index ? { ...option, label } : option,
+			);
+			setDraft(next);
+			commit(next);
+		},
+		[draft, commit],
 	);
 
 	const removeOption = useCallback(
@@ -174,15 +199,14 @@ export function OptionsEditorWidget({
 
 	const addOption = useCallback(() => {
 		const num = draft.length + 1;
-		// Every live option is born with a real random UUID. Array order is the
-		// authored display order.
+		// Mint the persisted identity once. Array order remains display order.
 		const next: DraftOption[] = [
 			...draft,
 			{
 				id: nextDraftId++,
 				uuid: asUuid(crypto.randomUUID()),
 				value: `option_${num}`,
-				label: `Option ${num}`,
+				label: proseText(`Option ${num}`),
 			},
 		];
 		setDraft(next);
@@ -244,20 +268,17 @@ export function OptionsEditorWidget({
 						className="flex flex-wrap items-center gap-1.5 group"
 					>
 						<div className="flex-1 min-w-0 flex gap-1">
-							<input
-								value={opt.label}
-								onChange={(e) => updateOption(i, "label", e.target.value)}
-								onKeyDown={handleKeyDown}
-								placeholder="Label"
-								ref={
-									focusIndex === i || (autoFocus && i === 0)
-										? focusOnMount
-										: undefined
-								}
-								className="flex-1 min-w-0 text-[13px] px-3 min-h-11 rounded-lg bg-nova-deep/50 border border-white/[0.06] focus:outline-none focus:ring-1 focus:border-nova-violet/40 focus:ring-nova-violet/30 text-nova-text transition-colors"
-								autoComplete="off"
-								data-1p-ignore
-							/>
+							<fieldset
+								className="flex-1 min-w-0 border-0 p-0 m-0"
+								onBlur={(event) => event.stopPropagation()}
+							>
+								<RefLabelInput
+									label="Label"
+									value={opt.label}
+									onSave={(label) => saveLabel(i, label)}
+									autoFocus={focusIndex === i || (autoFocus && i === 0)}
+								/>
+							</fieldset>
 							<input
 								value={opt.value}
 								onChange={(e) => updateOption(i, "value", e.target.value)}
@@ -272,7 +293,9 @@ export function OptionsEditorWidget({
 							type="button"
 							onClick={() => removeOption(i)}
 							disabled={draft.length <= 2}
-							aria-label={`Remove ${opt.label.trim() || `option ${i + 1}`}`}
+							aria-label={`Remove ${
+								projectProse(opt.label).trim() || `option ${i + 1}`
+							}`}
 							className="flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-lg text-nova-text-muted transition-colors hover:bg-nova-rose/10 hover:text-nova-rose disabled:cursor-not-allowed disabled:opacity-30"
 						>
 							<Icon icon={tablerTrash} width="16" height="16" />
@@ -282,8 +305,10 @@ export function OptionsEditorWidget({
 								value={opt.media}
 								onChange={(media) => setOptionMedia(i, media)}
 								kinds={MEDIA_KINDS}
+								// The UUID is the authored identity. Values are mutable
+								// wire projections and never address option media.
 								slotKey={`option:${slotKeyBase}:${opt.uuid}`}
-								ariaLabel={opt.label.trim() || `Option ${i + 1}`}
+								ariaLabel={projectProse(opt.label).trim() || `Option ${i + 1}`}
 							/>
 						</div>
 					</div>
@@ -295,5 +320,59 @@ export function OptionsEditorWidget({
 				className="mt-2"
 			/>
 		</fieldset>
+	);
+}
+
+/**
+ * Declarative FieldEditorComponent adapter.
+ *
+ * The `as F["optionsSource" & keyof F]` cast is needed because the generic
+ * `onChange(next: F[K])` is an indexed-access write; every kind that
+ * declares `optionsSource` carries the same discriminated union.
+ */
+export function OptionsEditor<F extends Field>(
+	props: FieldEditorComponentProps<F, "optionsSource" & keyof F>,
+) {
+	const { field, value, onChange, autoFocus } = props;
+	const source = value as SelectOptionsSource;
+	/* The widget's `onSave` has no inline channel of its own, so the
+	 * adapter holds the gate's finding and renders it beneath the rows —
+	 * the section dispatches through the inline (no-toast) flavor on the
+	 * promise that every editor presents its own rejections. Cleared on
+	 * the next save that lands. */
+	const [rejection, setRejection] = useState<string | null>(null);
+	if (source.kind === "lookup") {
+		return (
+			<div
+				data-field-id="options"
+				className="rounded-lg border border-white/[0.06] bg-nova-deep/35 px-3 py-2.5"
+			>
+				<p className={INSPECTOR_LABEL_CLS}>Options</p>
+				<p className="mt-1 text-xs leading-relaxed text-nova-text-muted">
+					These choices come from a project data table. Change the table,
+					columns, or row filter in the table-source editor.
+				</p>
+			</div>
+		);
+	}
+	return (
+		<div data-field-id="options">
+			<OptionsEditorWidget
+				options={source.options}
+				slotKeyBase={field.uuid}
+				autoFocus={autoFocus}
+				onSave={(next) => {
+					const outcome = onChange({
+						kind: "inline",
+						options: next,
+					} as F["optionsSource" & keyof F]);
+					setRejection(outcome.ok ? null : (outcome.messages[0] ?? null));
+					// The widget gates its committed-key ref on this — a refusal
+					// must keep the user's draft rows on screen.
+					return outcome;
+				}}
+			/>
+			<RejectionInline message={rejection} />
+		</div>
 	);
 }

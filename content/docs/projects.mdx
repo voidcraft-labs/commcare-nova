@@ -29,7 +29,7 @@ member can do is set by their **role**:
 | **Owner** | Whoever created the Project — everything an Admin can do, plus renaming the Project. Can't be removed. |
 
 Deleting a Project isn't available to anyone yet, including its Owner. A Project
-holds apps, case data, media, lookup tables, and conversation history, and Nova
+holds apps, case data, media, Project data tables, and conversation history, and Nova
 won't offer a single control that removes all of it until that lifecycle is
 fully audited. Move or delete the apps you no longer want instead.
 
@@ -75,5 +75,5 @@ allows — so treat a move as sharing that data with those members.
   destination.** This keeps an app from moving somewhere its Owners can't
   follow.
 
-Apps that use Project data tables can't move yet — their lookup tables would be
+Apps that use Project data tables can't move yet — those shared tables would be
 left behind. Nova blocks those moves rather than splitting an app from its data.

@@ -6,6 +6,7 @@ import {
 	plainColumn,
 	simpleSearchInputDef,
 } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 
 const MODULE = asUuid("11111111-1111-4111-8111-111111111111");
 const FORM = asUuid("22222222-2222-4222-8222-222222222222");
@@ -54,7 +55,7 @@ function identityFixture(): BlueprintDoc {
 				uuid: FIELD,
 				id: "target_field",
 				kind: "text",
-				label: "Target field",
+				label: proseText("Target field"),
 			},
 		},
 		moduleOrder: [MODULE],

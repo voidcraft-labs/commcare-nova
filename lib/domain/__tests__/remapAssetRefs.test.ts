@@ -1,4 +1,3 @@
-import { asUuid } from "@/lib/domain";
 /**
  * `remapAssetRefs` is the write counterpart of `walkAssetRefs` — it must touch
  * every media slot the walk reads, or a moved app would keep a stale ref the
@@ -8,16 +7,26 @@ import { asUuid } from "@/lib/domain";
  */
 
 import { describe, expect, it } from "vitest";
+import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
+import { proseText } from "@/lib/domain/prose";
 import { blueprintDocSchema } from "../blueprint";
+import { builtinIconRef, isBuiltinIconRef } from "../builtinIcons";
 import {
 	asWalkableDoc,
 	collectAssetRefs,
-	collectMovableAssetRefs,
+	collectAuthoredAssetRefs,
+	collectRealAssetRefs,
 	remapAssetRefs,
 } from "../mediaRefs";
-import { NOVA_ICON_REF_PREFIX } from "../multimedia";
 
-const BUILTIN_REF = `${NOVA_ICON_REF_PREFIX}health`;
+const BUILTIN_REF = builtinIconRef("household");
+const MOD_A = testUuid("mod-a");
+const MOD_B = testUuid("mod-b");
+const FORM = testUuid("form-1");
+const TEXT_FIELD = testUuid("field-text");
+const SELECT_FIELD = testUuid("field-select");
+const COLUMN = testUuid("col-1");
+const media = testMediaAssetId;
 
 /** A blueprint with a distinct asset id in EVERY slot `walkAssetRefs` covers:
  *  app logo; a caseListOnly module's icon/audioLabel + caseListConfig
@@ -31,85 +40,92 @@ function fixtureDoc() {
 		appName: "Fixture",
 		connectType: null,
 		caseTypes: null,
-		logo: "logo",
-		moduleOrder: ["mod-a", "mod-b"],
-		formOrder: { "mod-a": [], "mod-b": ["form-1"] },
-		fieldOrder: { "form-1": ["field-text", "field-select"] },
+		logo: media("logo"),
+		moduleOrder: [MOD_A, MOD_B],
+		formOrder: { [MOD_A]: [], [MOD_B]: [FORM] },
+		fieldOrder: { [FORM]: [TEXT_FIELD, SELECT_FIELD] },
 		modules: {
-			"mod-a": {
-				uuid: "mod-a",
+			[MOD_A]: {
+				uuid: MOD_A,
 				id: "case_list",
 				name: "Case list",
 				caseListOnly: true,
-				icon: "mod-a-icon",
-				audioLabel: "mod-a-audio",
+				icon: media("mod-a-icon"),
+				audioLabel: media("mod-a-audio"),
 				caseListConfig: {
 					columns: [
 						{
-							uuid: "col-1",
+							uuid: COLUMN,
 							kind: "image-map",
 							field: "status",
 							header: "Status",
 							mapping: [
-								{ value: "v1", assetId: "imgmap-1" },
-								{ value: "v2", assetId: "imgmap-2" },
+								{ value: "v1", assetId: media("imgmap-1") },
+								{ value: "v2", assetId: media("imgmap-2") },
 							],
 						},
 					],
-					listColumnOrder: ["col-1"],
-					detailColumnOrder: ["col-1"],
+					listColumnOrder: [COLUMN],
+					detailColumnOrder: [COLUMN],
 					searchInputs: [],
-					icon: "cl-icon",
-					audioLabel: "cl-audio",
+					icon: media("cl-icon"),
+					audioLabel: media("cl-audio"),
 				},
 			},
-			"mod-b": {
-				uuid: "mod-b",
+			[MOD_B]: {
+				uuid: MOD_B,
 				id: "intake_module",
 				name: "Intake",
 				icon: BUILTIN_REF,
-				audioLabel: "mod-b-audio",
+				audioLabel: media("mod-b-audio"),
 			},
 		},
 		forms: {
-			"form-1": {
-				uuid: "form-1",
+			[FORM]: {
+				uuid: FORM,
 				id: "intake",
 				name: "Intake",
 				type: "registration",
-				icon: "form-icon",
-				audioLabel: "form-audio",
+				icon: media("form-icon"),
+				audioLabel: media("form-audio"),
 			},
 		},
 		fields: {
-			"field-text": {
+			[TEXT_FIELD]: {
 				kind: "text",
-				uuid: "field-text",
+				uuid: TEXT_FIELD,
 				id: "patient_name",
-				label: "Name",
-				label_media: { image: "lbl-img", audio: "lbl-aud", video: "lbl-vid" },
-				hint_media: { image: "hint-img" },
-				help_media: { audio: "help-aud" },
-				validate_msg_media: { video: "val-vid" },
+				label: proseText("Name"),
+				label_media: {
+					image: media("lbl-img"),
+					audio: media("lbl-aud"),
+					video: media("lbl-vid"),
+				},
+				hint_media: { image: media("hint-img") },
+				help_media: { audio: media("help-aud") },
+				validate_msg_media: { video: media("val-vid") },
 			},
-			"field-select": {
+			[SELECT_FIELD]: {
 				kind: "single_select",
-				uuid: "field-select",
+				uuid: SELECT_FIELD,
 				id: "symptom",
-				label: "Symptom",
+				label: proseText("Symptom"),
 				optionsSource: {
 					kind: "inline",
 					options: [
 						{
-							uuid: asUuid("aa3c7600-aa77-4fea-acf4-782d0ad32361"),
+							uuid: testUuid("option-fever"),
 							value: "fever",
-							label: "Fever",
-							media: { image: "opt-img", audio: "opt-aud" },
+							label: proseText("Fever"),
+							media: {
+								image: media("opt-img"),
+								audio: media("opt-aud"),
+							},
 						},
 						{
-							uuid: asUuid("8cbb018b-5f0d-439d-a134-f8c8ea4765d0"),
+							uuid: testUuid("option-cough"),
 							value: "cough",
-							label: "Cough",
+							label: proseText("Cough"),
 						},
 					],
 				},
@@ -125,17 +141,24 @@ describe("remapAssetRefs", () => {
 		// Sanity: the fixture really does exercise a broad slot set.
 		expect(ids.size).toBeGreaterThanOrEqual(17);
 
-		const fullMap = new Map([...ids].map((id) => [id, `${id}__M`]));
+		const realIds = collectRealAssetRefs(asWalkableDoc(doc));
+		const fullMap = new Map(realIds.map((id) => [id, media(`${id}__M`)]));
 		const remapped = remapAssetRefs(doc, fullMap);
 
 		const remappedIds = collectAssetRefs(asWalkableDoc(remapped));
-		expect(remappedIds).toEqual(new Set([...ids].map((id) => `${id}__M`)));
+		expect(remappedIds).toEqual(
+			new Set(
+				[...ids].map((id) =>
+					isBuiltinIconRef(id) ? id : (fullMap.get(id) ?? id),
+				),
+			),
+		);
 	});
 
 	it("leaves the input doc untouched", () => {
 		const doc = fixtureDoc();
 		const before = collectAssetRefs(asWalkableDoc(doc));
-		remapAssetRefs(doc, new Map([["logo", "logo__M"]]));
+		remapAssetRefs(doc, new Map([[media("logo"), media("logo__M")]]));
 		expect(collectAssetRefs(asWalkableDoc(doc))).toEqual(before);
 	});
 
@@ -143,12 +166,15 @@ describe("remapAssetRefs", () => {
 		const doc = fixtureDoc();
 		// Map only the logo; everything else — including the built-in icon ref —
 		// must survive unchanged.
-		const remapped = remapAssetRefs(doc, new Map([["logo", "logo__M"]]));
+		const remappedLogo = media("logo__M");
+		const logo = media("logo");
+		const optionImage = media("opt-img");
+		const remapped = remapAssetRefs(doc, new Map([[logo, remappedLogo]]));
 		const ids = collectAssetRefs(asWalkableDoc(remapped));
-		expect(ids.has("logo__M")).toBe(true);
-		expect(ids.has("logo")).toBe(false);
+		expect(ids.has(remappedLogo)).toBe(true);
+		expect(ids.has(logo)).toBe(false);
 		expect(ids.has(BUILTIN_REF)).toBe(true); // built-in untouched
-		expect(ids.has("opt-img")).toBe(true); // unmapped real id untouched
+		expect(ids.has(optionImage)).toBe(true); // unmapped real id untouched
 	});
 
 	it("returns the same doc reference when the map is empty", () => {
@@ -161,17 +187,19 @@ describe("remapAssetRefs", () => {
  *  the residue of having once been case-list-only. The render-gated walk omits
  *  it, but it persists in the doc (and remapAssetRefs rewrites it un-gated). */
 function docWithDormantCaseListIcon() {
+	const moduleUuid = testUuid("mod-x");
+	const formUuid = testUuid("form-x");
 	return blueprintDocSchema.parse({
 		appId: "app-2",
 		appName: "Dormant",
 		connectType: null,
 		caseTypes: null,
-		moduleOrder: ["mod-x"],
-		formOrder: { "mod-x": ["form-x"] },
-		fieldOrder: { "form-x": [] },
+		moduleOrder: [moduleUuid],
+		formOrder: { [moduleUuid]: [formUuid] },
+		fieldOrder: { [formUuid]: [] },
 		modules: {
-			"mod-x": {
-				uuid: "mod-x",
+			[moduleUuid]: {
+				uuid: moduleUuid,
 				id: "m",
 				name: "M",
 				caseListOnly: false,
@@ -180,47 +208,54 @@ function docWithDormantCaseListIcon() {
 					listColumnOrder: [],
 					detailColumnOrder: [],
 					searchInputs: [],
-					icon: "dormant-cl-icon",
-					audioLabel: "dormant-cl-audio",
+					icon: media("dormant-cl-icon"),
+					audioLabel: media("dormant-cl-audio"),
 				},
 			},
 		},
 		forms: {
-			"form-x": { uuid: "form-x", id: "f", name: "F", type: "survey" },
+			[formUuid]: {
+				uuid: formUuid,
+				id: "f",
+				name: "F",
+				type: "survey",
+			},
 		},
 		fields: {},
 	});
 }
 
 function docWithDormantImageMap() {
+	const moduleUuid = testUuid("mod-x");
+	const columnUuid = testUuid("col-dormant");
 	return blueprintDocSchema.parse({
 		appId: "app-3",
 		appName: "Dormant image",
 		connectType: null,
 		caseTypes: null,
-		moduleOrder: ["mod-x"],
-		formOrder: { "mod-x": [] },
+		moduleOrder: [moduleUuid],
+		formOrder: { [moduleUuid]: [] },
 		fieldOrder: {},
 		modules: {
-			"mod-x": {
-				uuid: "mod-x",
+			[moduleUuid]: {
+				uuid: moduleUuid,
 				id: "m",
 				name: "M",
 				caseListOnly: true,
 				caseListConfig: {
 					columns: [
 						{
-							uuid: "col-dormant",
+							uuid: columnUuid,
 							kind: "image-map",
 							field: "status",
 							header: "Old status image",
 							visibleInList: false,
 							visibleInDetail: false,
-							mapping: [{ value: "open", assetId: "dormant-image" }],
+							mapping: [{ value: "open", assetId: media("dormant-image") }],
 						},
 					],
-					listColumnOrder: ["col-dormant"],
-					detailColumnOrder: ["col-dormant"],
+					listColumnOrder: [columnUuid],
+					detailColumnOrder: [columnUuid],
 					searchInputs: [],
 				},
 			},
@@ -230,23 +265,23 @@ function docWithDormantImageMap() {
 	});
 }
 
-describe("collectMovableAssetRefs", () => {
+describe("collectAuthoredAssetRefs", () => {
 	it("carries a non-caseListOnly module's caseListConfig media the gated walk drops", () => {
 		const doc = asWalkableDoc(docWithDormantCaseListIcon());
 		// The render-gated walk omits it (it doesn't render on a non-caseListOnly
 		// module), so a move keyed on it would strand the ref...
 		const gated = collectAssetRefs(doc);
-		expect(gated.has("dormant-cl-icon")).toBe(false);
-		expect(gated.has("dormant-cl-audio")).toBe(false);
+		expect(gated.has(media("dormant-cl-icon"))).toBe(false);
+		expect(gated.has(media("dormant-cl-audio"))).toBe(false);
 		// ...but the movable set carries it, so the move copies + repoints it.
-		const movable = collectMovableAssetRefs(doc);
-		expect(movable.has("dormant-cl-icon")).toBe(true);
-		expect(movable.has("dormant-cl-audio")).toBe(true);
+		const movable = collectAuthoredAssetRefs(doc);
+		expect(movable.has(media("dormant-cl-icon"))).toBe(true);
+		expect(movable.has(media("dormant-cl-audio"))).toBe(true);
 	});
 
 	it("is a superset of the gated walk (never drops a rendered ref)", () => {
 		const doc = asWalkableDoc(fixtureDoc());
-		const movable = collectMovableAssetRefs(doc);
+		const movable = collectAuthoredAssetRefs(doc);
 		for (const id of collectAssetRefs(doc)) {
 			expect(movable.has(id)).toBe(true);
 		}
@@ -254,7 +289,9 @@ describe("collectMovableAssetRefs", () => {
 
 	it("keeps dormant image-map media movable without validating or emitting it", () => {
 		const doc = asWalkableDoc(docWithDormantImageMap());
-		expect(collectAssetRefs(doc).has("dormant-image")).toBe(false);
-		expect(collectMovableAssetRefs(doc).has("dormant-image")).toBe(true);
+		expect(collectAssetRefs(doc).has(media("dormant-image"))).toBe(false);
+		expect(collectAuthoredAssetRefs(doc).has(media("dormant-image"))).toBe(
+			true,
+		);
 	});
 });

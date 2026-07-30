@@ -61,7 +61,7 @@ import {
 	useModuleSelectsCaseFirst,
 } from "@/lib/doc/hooks/useCaseOperationFacts";
 import { useCaseOperations } from "@/lib/doc/hooks/useCaseOperations";
-import type { Uuid } from "@/lib/doc/types";
+import { asUuid, type Uuid } from "@/lib/doc/types";
 import {
 	type CaseOperation,
 	RESERVED_CASE_OPERATION_TYPES,
@@ -182,7 +182,7 @@ export function CaseOperationsCanvas({
 			? dragRefusalText(
 					dragVerdictsRef.current,
 					pendingDrop.toIndex,
-					pendingDrop.itemKey as Uuid,
+					asUuid(pendingDrop.itemKey),
 					view,
 				)
 			: undefined;

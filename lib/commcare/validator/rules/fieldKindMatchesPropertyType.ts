@@ -1,6 +1,6 @@
 /**
- * Rule: every form field with `case_property_on` set writes to a case
- * property whose declared `data_type` matches the field's `kind`.
+ * Rule: every form field with `caseWrite` set writes to a case property whose
+ * declared `data_type` matches the field's `kind`.
  * Multiple writers (multiple fields targeting the same `(case_type,
  * property_name)` tuple) must agree on the kind they map to.
  *
@@ -23,19 +23,19 @@
  * calculate expression's output type does, and that's a separate
  * type-checker concern.
  *
- * Container kinds (group, repeat) and media kinds (image, audio,
- * video, signature) carry no `case_property_on` slot in their schema
- * and never reach this rule. The walker's `case_property_on` filter
- * is the structural gate; the per-kind switch below handles every
- * remaining input kind.
+ * Container kinds (group, repeat) and media kinds (image, audio, video,
+ * signature) carry no `caseWrite` slot in their schema and never reach this
+ * rule. The walker's `caseWrite` filter is the structural gate; the per-kind
+ * switch below handles every remaining input kind.
  */
 
 import {
 	type BlueprintDoc,
 	type CasePropertyDataType,
 	caseDataTypeForFieldKind,
-	type Field,
+	deriveCaseWriteInventory,
 	type FieldKind,
+	isWritableStandardCaseProperty,
 	type Uuid,
 } from "@/lib/domain";
 import { type ValidationError, validationError } from "../errors";
@@ -45,8 +45,8 @@ import { type ValidationError, validationError } from "../errors";
  * the locked domain table (`caseDataTypeForFieldKind`) named for this
  * rule's reading: the data type a writer of this kind is EXPECTED to
  * agree with. `undefined` means the kind is skipped at this rule layer
- * (`hidden` — calculate-driven; container / media kinds — no
- * `case_property_on` slot).
+ * (`hidden` — calculate-driven; container / media kinds — no `caseWrite`
+ * slot).
  */
 const expectedDataType = caseDataTypeForFieldKind;
 
@@ -65,30 +65,12 @@ interface Writer {
 	kind: FieldKind;
 }
 
-/**
- * Read `case_property_on` off any `Field` variant without manual
- * narrowing per kind. The slot is an optional string on every kind
- * whose schema declares it (every `inputFieldBaseSchema` extender +
- * `hidden`); structural containers and media kinds resolve to
- * `undefined` because their schemas omit the key. Mirrors the
- * `fieldProps.ts` pattern: structural reads through a Record cast
- * stay free of N×M narrowing cascades. Exported so sibling rules
- * (`app.ts::childCaseTypeMissingModule`) read the slot the same way —
- * their WALKS stay separate because they differ on the survey axis
- * (that rule skips wire-inert survey forms; this one covers every
- * form).
- */
-export function readCasePropertyOn(field: Field): string | undefined {
-	const value = (field as unknown as Record<string, unknown>).case_property_on;
-	return typeof value === "string" && value.length > 0 ? value : undefined;
-}
-
 export function fieldKindMatchesPropertyType(
 	doc: BlueprintDoc,
 ): ValidationError[] {
 	const errors: ValidationError[] = [];
 
-	// Walk every form in the app, collecting writers per `(case_type,
+	// Consume every form's canonical inventory, collecting writers per `(case_type,
 	// property_name)` tuple. The fully-qualified key (`caseType::id`)
 	// disambiguates a property name shared between two case types —
 	// `(patient, name)` and `(visit, name)` are independent tuples.
@@ -98,15 +80,21 @@ export function fieldKindMatchesPropertyType(
 		const mod = doc.modules[moduleUuid];
 		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
 			const form = doc.forms[formUuid];
-			collectWriters(
-				doc,
-				formUuid,
-				moduleUuid,
-				mod.name,
-				formUuid,
-				form.name,
-				writersByTuple,
-			);
+			const inventory = deriveCaseWriteInventory(doc, formUuid, mod, form.type);
+			for (const writer of inventory.writers) {
+				const key = encodeTupleKey(writer.caseType, writer.property);
+				const bucket = writersByTuple.get(key) ?? [];
+				bucket.push({
+					moduleUuid,
+					moduleName: mod.name,
+					formUuid,
+					formName: form.name,
+					fieldUuid: writer.fieldUuid,
+					fieldId: writer.fieldId,
+					kind: writer.fieldKind,
+				});
+				writersByTuple.set(key, bucket);
+			}
 		}
 	}
 
@@ -118,7 +106,14 @@ export function fieldKindMatchesPropertyType(
 		const [caseType, propertyName] = decodeTupleKey(tupleKey);
 		const ct = doc.caseTypes?.find((c) => c.name === caseType);
 		const property = ct?.properties.find((p) => p.name === propertyName);
-		const declaredType = property?.data_type;
+		// The two writable standard scalars are always text-shaped even when
+		// the catalog omits their implicit entries. An explicitly declared
+		// standard entry may carry authoring metadata/order, but may not
+		// redefine the row column's storage type.
+		const declaredType: CasePropertyDataType | undefined =
+			isWritableStandardCaseProperty(propertyName)
+				? "text"
+				: property?.data_type;
 
 		for (const writer of writers) {
 			const expected = expectedDataType(writer.kind);
@@ -130,7 +125,7 @@ export function fieldKindMatchesPropertyType(
 					validationError(
 						"FIELD_KIND_PROPERTY_TYPE_MISMATCH",
 						"field",
-						`Field "${writer.fieldId}" in "${writer.formName}" is a ${writer.kind} field saving to case property "${propertyName}" on case type "${caseType}", but that property's declared data_type is "${declaredType}". A ${writer.kind} field writes "${expected}"-shaped values; either change the field's kind, change the property's data_type, or pick a different case_property_on target.`,
+						`Field "${writer.fieldId}" in "${writer.formName}" is a ${writer.kind} field saving to case property "${propertyName}" on case type "${caseType}", but that property's declared data_type is "${declaredType}". A ${writer.kind} field writes "${expected}"-shaped values; either change the field's kind, change the property's data_type, or change where the field saves.`,
 						{
 							moduleUuid: writer.moduleUuid,
 							moduleName: writer.moduleName,
@@ -170,7 +165,7 @@ export function fieldKindMatchesPropertyType(
 					validationError(
 						"FIELD_KIND_WRITERS_DISAGREE",
 						"field",
-						`Field "${writer.fieldId}" in "${writer.formName}" is a ${writer.kind} field saving to case property "${propertyName}" on case type "${caseType}", but other fields in this app save to the same property with a different shape (${sortedTypes.map((t) => `"${t}"`).join(" / ")}). Pick one shape across every field that writes to "${propertyName}", or change the conflicting fields' \`case_property_on\` to a different property name.`,
+						`Field "${writer.fieldId}" in "${writer.formName}" is a ${writer.kind} field saving to case property "${propertyName}" on case type "${caseType}", but other fields in this app save to the same property with a different shape (${sortedTypes.map((t) => `"${t}"`).join(" / ")}). Pick one shape across every field that writes to "${propertyName}", or change where the conflicting fields save.`,
 						{
 							moduleUuid: writer.moduleUuid,
 							moduleName: writer.moduleName,
@@ -193,62 +188,6 @@ export function fieldKindMatchesPropertyType(
 	}
 
 	return errors;
-}
-
-/**
- * Walk the form's field tree, collecting every field with a
- * non-empty `case_property_on` into the per-tuple writers map.
- * Recurses through container kinds via `fieldOrder` so nested writers
- * (a field inside a group inside a repeat) are surfaced uniformly.
- */
-function collectWriters(
-	doc: BlueprintDoc,
-	parentUuid: Uuid,
-	moduleUuid: Uuid,
-	moduleName: string,
-	formUuid: Uuid,
-	formName: string,
-	writersByTuple: Map<string, Writer[]>,
-): void {
-	const order = doc.fieldOrder[parentUuid] ?? [];
-	for (const fieldUuid of order) {
-		const field = doc.fields[fieldUuid];
-		if (!field) continue;
-		const caseType = readCasePropertyOn(field);
-		if (caseType !== undefined) {
-			const key = encodeTupleKey(caseType, field.id);
-			let bucket = writersByTuple.get(key);
-			if (!bucket) {
-				bucket = [];
-				writersByTuple.set(key, bucket);
-			}
-			bucket.push({
-				moduleUuid,
-				moduleName,
-				formUuid,
-				formName,
-				fieldUuid,
-				fieldId: field.id,
-				kind: field.kind,
-			});
-		}
-		// Recurse into container kinds — `fieldOrder[uuid]` exists iff
-		// the field is a container, matching the existing walkers in
-		// `validator/index.ts` and `runner.ts`. The `formUuid` /
-		// `formName` arguments stay constant through descent so writers
-		// inside groups / repeats attribute back to their owning form.
-		if (doc.fieldOrder[fieldUuid] !== undefined) {
-			collectWriters(
-				doc,
-				fieldUuid,
-				moduleUuid,
-				moduleName,
-				formUuid,
-				formName,
-				writersByTuple,
-			);
-		}
-	}
 }
 
 /**

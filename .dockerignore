@@ -17,5 +17,6 @@ node_modules
 scripts
 !scripts/migrate.ts
 !scripts/cleanup-form-attachments.ts
+!scripts/audit-canonical-identity-foundation.ts
 !scripts/infra/apply-media-bucket-policy.ts
 !scripts/infra/databaseOwnerBootstrap.ts

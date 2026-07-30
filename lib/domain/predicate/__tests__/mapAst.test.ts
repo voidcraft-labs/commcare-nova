@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain";
-import { asUuid } from "@/lib/domain";
 import {
 	and,
 	between,
@@ -138,7 +138,7 @@ describe("node interception", () => {
 
 	it("mapPredicate resolves a gate and re-enters mapping explicitly", () => {
 		const gated = whenInput(
-			input(asUuid("f38dea69-87fd-4b8c-8190-516b176c3b33")),
+			input(testUuid("q")),
 			eq(term(sessionContext("userid")), literal("u")),
 		);
 		const mapped = mapPredicateAst(gated, {

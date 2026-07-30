@@ -24,10 +24,16 @@ import { ContentFrame } from "@/components/builder/ContentFrame";
 import type { BreadcrumbPart } from "@/components/builder/SubheaderToolbar";
 import { CollapsibleBreadcrumb } from "@/components/builder/SubheaderToolbar";
 import { ScreenNavButtons } from "@/components/preview/ScreenNavButtons";
-import { useMaterializableCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
+import {
+	useEffectiveCaseTypes,
+	useMaterializableCaseTypes,
+} from "@/lib/doc/hooks/useCaseTypes";
 import { useDocHasData } from "@/lib/doc/hooks/useDocHasData";
 import { useModule } from "@/lib/doc/hooks/useEntity";
-import { useOrderedForms } from "@/lib/doc/hooks/useModuleIds";
+import {
+	useOrderedForms,
+	useOrderedModules,
+} from "@/lib/doc/hooks/useModuleIds";
 import type { Uuid } from "@/lib/doc/types";
 import { useBreadcrumbs, useLocation, useNavigate } from "@/lib/routing/hooks";
 import {
@@ -120,13 +126,22 @@ export function BreadcrumbStrip() {
 	const canEdit = useCanEdit();
 	const currentModule = useModule(moduleUuid);
 	const materializableCaseTypes = useMaterializableCaseTypes();
-	const caseType = materializableCaseTypes.find(
-		(candidate) => candidate.name === currentModule?.caseType,
+	const effectiveCaseTypes = useEffectiveCaseTypes();
+	const orderedModules = useOrderedModules();
+	const moduleUuidByCaseType = useMemo(
+		() =>
+			orderedModules.reduce<Record<string, Uuid>>((byCaseType, module) => {
+				if (
+					module.caseType !== undefined &&
+					byCaseType[module.caseType] === undefined
+				) {
+					byCaseType[module.caseType] = module.uuid;
+				}
+				return byCaseType;
+			}, {}),
+		[orderedModules],
 	);
-	const hasLinkedChildren = materializableCaseTypes.some(
-		(candidate) => candidate.parent_type === caseType?.name,
-	);
-	const moduleForms = useOrderedForms((moduleUuid ?? "") as Uuid);
+	const moduleForms = useOrderedForms(moduleUuid);
 
 	const effectiveBreadcrumbs: PreviewBreadcrumbItem[] = useMemo(() => {
 		if (!previewing) return breadcrumbs;
@@ -200,14 +215,15 @@ export function BreadcrumbStrip() {
 					parts={breadcrumbParts}
 					compactWorkspaceBreadcrumb={compactWorkspaceBreadcrumb}
 				/>
-				{appId && caseType && moduleUuid && (
+				{appId && materializableCaseTypes.length > 0 && (
 					<CaseDataManager
-						key={`${appId}\u0000${caseType.name}`}
+						key={appId}
 						appId={appId}
-						moduleUuid={moduleUuid}
-						caseType={caseType}
+						caseTypes={materializableCaseTypes}
+						effectiveCaseTypes={effectiveCaseTypes}
+						moduleUuidByCaseType={moduleUuidByCaseType}
+						initialCaseType={currentModule?.caseType}
 						canEdit={canEdit}
-						hasLinkedChildren={hasLinkedChildren}
 					/>
 				)}
 			</ContentFrame>

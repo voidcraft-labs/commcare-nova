@@ -1,15 +1,17 @@
-import { asUuid } from "@/lib/domain";
 // @vitest-environment happy-dom
 
 import {
 	cleanup,
 	fireEvent,
-	render,
+	render as rtlRender,
 	screen,
 	waitFor,
 	within as withinElement,
 } from "@testing-library/react";
+import type { ReactElement, ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { BlueprintDocProvider } from "@/lib/doc/provider";
 import type { CaseType } from "@/lib/domain";
 import {
 	ancestorPath,
@@ -31,6 +33,7 @@ import {
 	whenInput,
 	within,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import {
 	buildPredicateKindReplacement,
 	planPredicateTransition,
@@ -44,25 +47,40 @@ import {
 import type { PredicateEditContext } from "../editorSchemas";
 import { PredicateCardEditor } from "../PredicateCardEditor";
 
+// The surfaces here spell authored prose against the document; every production
+// mount sits inside the builder's provider. Wrapping at `render` reproduces it
+// and carries through each `rerender`.
+function DocumentProvider({ children }: { readonly children: ReactNode }) {
+	return (
+		<BlueprintDocProvider appId="test-app">{children}</BlueprintDocProvider>
+	);
+}
+
+function render(ui: ReactElement) {
+	return rtlRender(ui, { wrapper: DocumentProvider });
+}
+
 const CASE_TYPES: readonly CaseType[] = [
 	{
 		name: "patient",
 		parent_type: "household",
 		properties: [
-			{ name: "age", label: "Age", data_type: "int" },
-			{ name: "name", label: "Name", data_type: "text" },
+			{ name: "age", label: proseText("Age"), data_type: "int" },
+			{ name: "case_name", label: proseText("Case name"), data_type: "text" },
 			{
 				name: "tags",
-				label: "Tags",
+				label: proseText("Tags"),
 				data_type: "multi_select",
-				options: [{ value: "priority", label: "Priority" }],
+				options: [{ value: "priority", label: proseText("Priority") }],
 			},
-			{ name: "location", label: "Location", data_type: "geopoint" },
+			{ name: "location", label: proseText("Location"), data_type: "geopoint" },
 		],
 	},
 	{
 		name: "household",
-		properties: [{ name: "region", label: "Region", data_type: "text" }],
+		properties: [
+			{ name: "region", label: proseText("Region"), data_type: "text" },
+		],
 	},
 ];
 
@@ -70,13 +88,9 @@ const EDIT_CTX: PredicateEditContext = {
 	caseTypes: CASE_TYPES,
 	currentCaseType: "patient",
 	knownInputs: [
+		{ uuid: testUuid("query"), name: "query", data_type: "text" },
 		{
-			uuid: asUuid("d794ebfb-9f47-450f-8af3-964849456a34"),
-			name: "query",
-			data_type: "text",
-		},
-		{
-			uuid: asUuid("9a407814-f043-491d-895d-14418e04af56"),
+			uuid: testUuid("location-query"),
 			name: "location_query",
 			data_type: "geopoint",
 		},
@@ -139,7 +153,7 @@ describe("predicate transition planning", () => {
 
 	it("keeps an admissible computed comparison value when switching to text match", () => {
 		const computed = concat(term(literal("Braxton")), term(literal(" Perry")));
-		const current = eq(prop("patient", "name"), computed);
+		const current = eq(prop("patient", "case_name"), computed);
 		const next = buildMatch("starts-with", current, EDIT_CTX);
 
 		expect(next.kind).toBe("match");
@@ -166,7 +180,7 @@ describe("predicate transition planning", () => {
 
 	it("moves a saved literal into a list without claiming the value is lost", () => {
 		const savedValue = literal("active");
-		const comparison = eq(prop("patient", "name"), savedValue);
+		const comparison = eq(prop("patient", "case_name"), savedValue);
 		const comparisonList = buildWithSubjectLeft("in", comparison, EDIT_CTX);
 		if (
 			comparison.right.kind !== "term" ||
@@ -186,7 +200,7 @@ describe("predicate transition planning", () => {
 		const matchValue = literal("Taylor");
 		const textMatch = {
 			kind: "match" as const,
-			property: prop("patient", "name"),
+			property: prop("patient", "case_name"),
 			value: term(matchValue),
 			mode: "starts-with" as const,
 		};
@@ -202,7 +216,7 @@ describe("predicate transition planning", () => {
 	it("replaces a null-only candidate when moving into a persisted value list", () => {
 		const membership = buildWithSubjectLeft(
 			"in",
-			eq(prop("patient", "name"), literal(null)),
+			eq(prop("patient", "case_name"), literal(null)),
 			EDIT_CTX,
 		);
 		const contains = buildContains(
@@ -228,7 +242,7 @@ describe("predicate transition planning", () => {
 	});
 
 	it("keeps a nearby center but warns that its distance settings cannot map", () => {
-		const center = term(input(asUuid("9a407814-f043-491d-895d-14418e04af56")));
+		const center = term(input(testUuid("location_query")));
 		const current = within(
 			prop("patient", "location"),
 			center,
@@ -275,11 +289,8 @@ describe("predicate transition planning", () => {
 	});
 
 	it("preserves a wrapper's child but confirms before removing its search-answer gate", () => {
-		const clause = eq(prop("patient", "name"), literal("Alice"));
-		const current = whenInput(
-			input(asUuid("d794ebfb-9f47-450f-8af3-964849456a34")),
-			clause,
-		);
+		const clause = eq(prop("patient", "case_name"), literal("Alice"));
+		const current = whenInput(input(testUuid("query")), clause);
 		const next = buildPredicateKindReplacement(current, "eq", EDIT_CTX);
 
 		expect(next).toBe(clause);
@@ -372,9 +383,9 @@ describe("predicate transition confirmation", () => {
 			fireEvent.click(item);
 		};
 		fireEvent.click(typeTrigger);
-		// Strict absence is preserved when imported, but it is not an
-		// authorable target. The structural Change menu must use the same
-		// product boundary as the sentence verb and Add-condition menus.
+		// Strict absence is not part of the stored or authorable vocabulary.
+		// The structural Change menu must agree with the sentence verb and
+		// Add-condition menus.
 		expect(screen.queryByText("Was never recorded")).toBeNull();
 		await selectEquality();
 		let dialog = await screen.findByRole("alertdialog");

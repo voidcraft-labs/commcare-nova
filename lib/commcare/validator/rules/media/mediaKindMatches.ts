@@ -11,7 +11,7 @@
  * broken-image placeholder on the device.
  *
  * The schema doesn't constrain kind on the slot side (every
- * `Media.image` is typed `AssetId | undefined`; `AssetId` is opaque),
+ * `Media.image` is typed `MediaAssetId | undefined`; `MediaAssetId` is opaque),
  * so this is the authoring-time gate that closes the mismatch. Wire
  * emitters don't re-check; they trust the validator.
  */

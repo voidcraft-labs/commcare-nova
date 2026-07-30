@@ -5,7 +5,6 @@ import { DraftField } from "@/components/builder/detail/appSettings/ConnectEnabl
 import { RejectionInline } from "@/components/builder/RejectionNotice";
 import { Switch } from "@/components/shadcn/switch";
 import { deriveConnectId } from "@/lib/commcare/connectSlugs";
-import { dedupeRestoredConnectIds } from "@/lib/doc/connectConfig";
 import {
 	connectIdsExcept,
 	useAppConnectIds,
@@ -18,7 +17,7 @@ import {
 import type { Uuid } from "@/lib/doc/types";
 import type {
 	CommitOutcome,
-	ConnectConfig,
+	ConnectDeliverConfig,
 	XPathExpression,
 } from "@/lib/domain";
 import { InlineField } from "./InlineField";
@@ -31,11 +30,11 @@ import { useConnectLintContext } from "./useConnectLintContext";
  * sub-config file owns its contract rather than importing from a sibling.
  */
 interface ConnectSubConfigProps {
-	connect: ConnectConfig;
+	connect: ConnectDeliverConfig;
 	/** Persist the new config through the gated form update —
 	 *  returns the commit outcome so a refused edit keeps the
 	 *  inline editor's draft + finding on screen. */
-	save: (c: ConnectConfig) => CommitOutcome;
+	save: (c: ConnectDeliverConfig | null) => CommitOutcome;
 	moduleUuid: Uuid;
 	formUuid: Uuid;
 }
@@ -86,7 +85,7 @@ export function DeliverConfig({
 	 *  The field editors present their own outcomes and bypass this. */
 	const [saveRejection, setSaveRejection] = useState<string | null>(null);
 	const dispatchSave = useCallback(
-		(config: ConnectConfig) => {
+		(config: ConnectDeliverConfig | null) => {
 			const outcome = save(config);
 			setSaveRejection(outcome.ok ? null : (outcome.messages[0] ?? null));
 			return outcome;
@@ -112,28 +111,16 @@ export function DeliverConfig({
 		return { deliverId, taskId };
 	}, [mod, form, appConnectIds, formUuid]);
 
-	// A ref holds each sub-block's last-seen value with its ORIGINAL id;
-	// while the block was toggled off, another form may have claimed that
-	// id. Route restores through the shared dedup path so a now-stale id
-	// can't be re-written as a duplicate.
-	const restoreConfig = useCallback(
-		(config: ConnectConfig): ConnectConfig =>
-			dedupeRestoredConnectIds(config, {
-				formUuid,
-				appConnectIds,
-				moduleName: mod?.name ?? "",
-				formName: form?.name ?? "",
-			}),
-		[formUuid, appConnectIds, mod, form],
-	);
+	// Refs preserve each sub-block's last-seen value exactly. A restore
+	// proposes that explicit id verbatim; if another form claimed it while
+	// inactive, the gate refuses the edit and the inline finding remains.
 
 	const updateDeliverUnit = useCallback(
 		(field: string, value: string | XPathExpression) => {
-			/* Defensive fallback for the rare case the deliver_unit was
-			 * stripped between render and edit. Only `name` is required
-			 * on the domain shape; `entity_id` / `entity_name` are
-			 * optional and default at wire-emit time. */
-			const current = connect.deliver_unit ?? { name: "" };
+			const current = connect.deliver_unit;
+			if (current === undefined) {
+				throw new Error("Deliver-unit edit reached a disabled block.");
+			}
 			return save({ ...connect, deliver_unit: { ...current, [field]: value } });
 		},
 		[connect, save],
@@ -153,7 +140,7 @@ export function DeliverConfig({
 			const { [field]: _removed, ...rest } = connect.deliver_unit;
 			dispatchSave({
 				...connect,
-				deliver_unit: rest as NonNullable<ConnectConfig["deliver_unit"]>,
+				deliver_unit: rest,
 			});
 		},
 		[connect, dispatchSave],
@@ -161,7 +148,10 @@ export function DeliverConfig({
 
 	const updateTask = useCallback(
 		(field: string, value: string) => {
-			const current = connect.task ?? { name: "", description: "" };
+			const current = connect.task;
+			if (current === undefined) {
+				throw new Error("Task edit reached a disabled block.");
+			}
 			return save({ ...connect, task: { ...current, [field]: value } });
 		},
 		[connect, save],
@@ -175,18 +165,18 @@ export function DeliverConfig({
 			setSaveRejection(null);
 		} else if (deliverEnabled) {
 			const { deliver_unit: _removed, ...rest } = connect;
-			dispatchSave(rest as ConnectConfig);
+			dispatchSave(connect.task === undefined ? null : rest);
 		} else {
 			const restored = lastDeliverRef.current;
 			if (restored?.name.trim()) {
-				dispatchSave(restoreConfig({ ...connect, deliver_unit: restored }));
+				dispatchSave({ ...connect, deliver_unit: restored });
 			} else {
 				/* No prior work to restore — stage and collect the name from
 				 * the user before anything commits. */
 				setStagedDeliver({ name: "" });
 			}
 		}
-	}, [stagedDeliver, deliverEnabled, connect, dispatchSave, restoreConfig]);
+	}, [stagedDeliver, deliverEnabled, connect, dispatchSave]);
 
 	const commitStagedDeliver = useCallback(() => {
 		if (!stagedDeliver?.name.trim()) return;
@@ -210,16 +200,16 @@ export function DeliverConfig({
 			setSaveRejection(null);
 		} else if (taskEnabled) {
 			const { task: _removed, ...rest } = connect;
-			dispatchSave(rest as ConnectConfig);
+			dispatchSave(connect.deliver_unit === undefined ? null : rest);
 		} else {
 			const restored = lastTaskRef.current;
 			if (restored && (restored.name.trim() || restored.description.trim())) {
-				dispatchSave(restoreConfig({ ...connect, task: restored }));
+				dispatchSave({ ...connect, task: restored });
 			} else {
 				setStagedTask({ name: "", description: "" });
 			}
 		}
-	}, [stagedTask, taskEnabled, connect, dispatchSave, restoreConfig]);
+	}, [stagedTask, taskEnabled, connect, dispatchSave]);
 
 	const stagedTaskReady =
 		stagedTask !== undefined &&

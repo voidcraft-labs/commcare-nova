@@ -51,6 +51,10 @@ import {
 	validateXFormPath,
 } from "@/lib/commcare/identifierValidation";
 import {
+	caseScalarTextValueCalculation,
+	caseScalarTextValueGuard,
+} from "@/lib/commcare/xform/caseOps";
+import {
 	appendChildren,
 	ensureInstance,
 	findDataElement,
@@ -71,6 +75,16 @@ import { FormPath } from "@/lib/commcare/xform/formPath";
  * all resolve into the case-transaction namespace without restatement.
  */
 const CASE_TRANSACTION_XMLNS = "http://commcarehq.org/case/transaction/v2";
+
+/**
+ * HQ FormActions privately names the case-name update/preload key `name`;
+ * the case transaction and casedb instance expose it as `case_name`.
+ * Nova's domain never accepts `name` as a case-property destination — this
+ * one-way projection exists only at the FormActions → XForm boundary.
+ */
+function formActionsPropertyToWire(property: string): string {
+	return property === "name" ? "case_name" : property;
+}
 
 /**
  * The structured payload `buildCaseBlocks` returns. Three siblings the caller
@@ -162,6 +176,7 @@ function buildCaseBlocks(
 	// evaluates true.
 	const isCreate = openMode === "always" || openMode === "if";
 	const isUpdate = updateCase.condition.type === "always";
+	const openExternalId = isCreate ? openCase.external_id : null;
 	// Single read of the close condition's discriminator — reused below when
 	// deciding whether to emit a `relevant` bind.
 	const closeMode = closeCase.condition.type;
@@ -234,7 +249,8 @@ function buildCaseBlocks(
 		binds.push(
 			el("bind", {
 				nodeset: primaryCreatePath.child("case_name").toXPath(),
-				calculate: validatedNamePath,
+				calculate: caseScalarTextValueCalculation(validatedNamePath),
+				constraint: caseScalarTextValueGuard(".", "reject"),
 			}),
 		);
 		// CommCare forces the case-name question required so a case can never be
@@ -286,22 +302,41 @@ function buildCaseBlocks(
 		);
 	}
 
-	if (isUpdate && updateCase.update) {
+	if ((isUpdate && updateCase.update) || openExternalId !== null) {
 		// Always emit `<update/>` on the wire — CCHQ does the same via
 		// `XFormCaseBlock.update_block`'s memoized side-effect, and we
 		// match for byte-level parity so any future CCHQ-side check on
 		// the element's presence agrees on every Nova-emitted form.
 		const props = Object.keys(updateCase.update);
+		if (openExternalId !== null) props.unshift("external_id");
 		caseChildren.push(
 			el(
 				"update",
 				{},
-				props.map((p) => el(validatePropertyName(p), {})),
+				props.map((property) =>
+					el(validatePropertyName(formActionsPropertyToWire(property)), {}),
+				),
 			),
 		);
 		const primaryUpdatePath = primaryCasePath.child("update");
-		for (const [prop, mapping] of Object.entries(updateCase.update)) {
-			const validProp = validatePropertyName(prop);
+		const updateMappings: Array<
+			readonly [
+				string,
+				{ readonly question_path: string; readonly update_mode: string },
+			]
+		> = [
+			...(openExternalId === null
+				? []
+				: [
+						[
+							"external_id",
+							{ question_path: openExternalId, update_mode: "always" },
+						] as const,
+					]),
+			...Object.entries(updateCase.update),
+		];
+		for (const [prop, mapping] of updateMappings) {
+			const validProp = validatePropertyName(formActionsPropertyToWire(prop));
 			const qPath =
 				mapping.question_path || FormPath.root().child(prop).toXPath();
 			const resolvedQPath = validateXFormPath(qPath);
@@ -318,8 +353,19 @@ function buildCaseBlocks(
 			binds.push(
 				el("bind", {
 					nodeset: primaryUpdatePath.child(validProp).toXPath(),
-					calculate: resolvedQPath,
+					calculate:
+						validProp === "external_id" || validProp === "case_name"
+							? caseScalarTextValueCalculation(resolvedQPath)
+							: resolvedQPath,
 					relevant: `count(${resolvedQPath}) > 0`,
+					...(validProp === "external_id" || validProp === "case_name"
+						? {
+								constraint: caseScalarTextValueGuard(
+									".",
+									validProp === "external_id" ? "allow" : "reject",
+								),
+							}
+						: {}),
 				}),
 			);
 		}
@@ -357,7 +403,7 @@ function buildCaseBlocks(
 					ref: validateXFormPath(questionPath),
 					event: "xforms-ready",
 					value: `instance('casedb')/casedb/case[@case_id=instance('commcaresession')/session/data/case_id]/${validatePropertyName(
-						caseProperty,
+						formActionsPropertyToWire(caseProperty),
 					)}`,
 				}),
 			);
@@ -475,7 +521,8 @@ function buildCaseBlocks(
 		binds.push(
 			el("bind", {
 				nodeset: subcaseCreatePath.child("case_name").toXPath(),
-				calculate: namePath,
+				calculate: caseScalarTextValueCalculation(namePath),
+				constraint: caseScalarTextValueGuard(".", "reject"),
 			}),
 		);
 		// CommCare forces every opened case's name question required, subcases
@@ -587,8 +634,16 @@ function buildCaseBlocks(
 			binds.push(
 				el("bind", {
 					nodeset: subcaseUpdatePath.child(validProp).toXPath(),
-					calculate: resolvedQPath,
+					calculate:
+						validProp === "external_id"
+							? caseScalarTextValueCalculation(resolvedQPath)
+							: resolvedQPath,
 					relevant: `count(${resolvedQPath}) > 0`,
+					...(validProp === "external_id"
+						? {
+								constraint: caseScalarTextValueGuard(".", "allow"),
+							}
+						: {}),
 				}),
 			);
 		}

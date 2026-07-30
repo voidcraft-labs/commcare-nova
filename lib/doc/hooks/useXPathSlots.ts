@@ -17,23 +17,36 @@ import {
 	parseXPathForForm,
 } from "@/lib/doc/expressionText";
 import {
-	useBlueprintDoc,
 	useBlueprintDocApi,
+	useBlueprintDocShallow,
 } from "@/lib/doc/hooks/useBlueprintDoc";
 import type { Uuid } from "@/lib/doc/types";
 import {
-	printXPath,
+	projectXPath,
 	type XPathExpression,
+	type XPathProjectionResult,
 	xpathPrintContext,
 } from "@/lib/domain";
 
+/** Structured human projection of an AST-stored slot. Callers that own an
+ * editor should render the unresolved arm as a repair state rather than
+ * treating its marker text as an ordinary authored expression. */
+export function useXPathProjection(
+	expr: XPathExpression | undefined,
+): XPathProjectionResult {
+	return useBlueprintDocShallow((doc) => {
+		if (expr === undefined) return { ok: true, text: "" };
+		return projectXPath(expr, xpathPrintContext(doc));
+	});
+}
+
 /** The printed text of an AST-stored slot value, kept current against
  *  doc changes (renames/moves of referenced fields re-print). An
- *  absent slot reads as `""` — the editor's empty state. */
+ *  absent slot reads as `""` — the editor's empty state. Compact
+ *  read-only callers may use this convenience; editors should consume
+ *  `useXPathProjection` so they preserve the repair discriminator. */
 export function useXPathText(expr: XPathExpression | undefined): string {
-	return useBlueprintDoc((doc) =>
-		expr === undefined ? "" : printXPath(expr, xpathPrintContext(doc)),
-	);
+	return useXPathProjection(expr).text;
 }
 
 /** A committer-side parser scoped to one field: text → stored AST,

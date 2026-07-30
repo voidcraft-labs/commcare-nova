@@ -1,4 +1,3 @@
-import { asUuid } from "@/lib/domain";
 // lib/commcare/predicate/__tests__/caseListFilterEmitter.test.ts
 //
 // Acceptance tests for the on-device case-list-filter emitter — the
@@ -24,6 +23,7 @@ import { asUuid } from "@/lib/domain";
 // `today`, `now`).
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	ancestorPath,
 	and,
@@ -40,7 +40,6 @@ import {
 	input,
 	isBlank,
 	isIn,
-	isNull,
 	literal,
 	lt,
 	lte,
@@ -65,22 +64,33 @@ import {
 	whenInput,
 	within,
 } from "@/lib/domain/predicate/builders";
-import { emitCaseListFilter as emitCaseListFilterProduction } from "../caseListFilterEmitter";
+import { emitCaseListFilter as emitCaseListFilterRaw } from "../caseListFilterEmitter";
 
-const SEARCH_INPUT_NAMES = new Map([
-	[asUuid("42ab9981-e4f6-4efd-8551-66a8fefaaacf"), "name_query"],
-	[asUuid("b7a79f7f-ddcc-48fe-84de-9c738e70a8dc"), "region"],
-	[asUuid("3344fe68-5f7e-44bd-86c8-c47a04bfcba6"), "user_loc"],
-	[asUuid("e8397dc7-c995-4c3c-8788-ea95337d548b"), "phone_query"],
-]);
+const TEST_SEARCH_INPUTS = [
+	"name_query",
+	"phone_query",
+	"region",
+	"user_loc",
+].map((name) => ({
+	uuid: testUuid(name),
+	name,
+	data_type: "text" as const,
+}));
 
 function emitCaseListFilter(
-	...args: Parameters<typeof emitCaseListFilterProduction>
+	...args: Parameters<typeof emitCaseListFilterRaw>
 ): string {
-	return emitCaseListFilterProduction(args[0], args[1], args[2], args[3], {
-		searchInputNames: SEARCH_INPUT_NAMES,
-		...args[4],
-	});
+	const [predicate, root, context, anchor, termContext] = args;
+	return emitCaseListFilterRaw(
+		predicate,
+		root,
+		{
+			...context,
+			knownInputs: context?.knownInputs ?? TEST_SEARCH_INPUTS,
+		},
+		anchor,
+		termContext,
+	);
 }
 
 function expectGuardedDistance(
@@ -193,10 +203,7 @@ describe("emitCaseListFilter — term emission", () => {
 	});
 
 	it("emits search-input refs against the search-input results instance", () => {
-		const p = eq(
-			prop("patient", "full_name"),
-			input(asUuid("42ab9981-e4f6-4efd-8551-66a8fefaaacf")),
-		);
+		const p = eq(prop("patient", "full_name"), input(testUuid("name_query")));
 		expect(emitCaseListFilter(p)).toBe(
 			"full_name = instance('search-input:results')/input/field[@name='name_query']",
 		);
@@ -354,11 +361,8 @@ describe("emitCaseListFilter — when-input-present", () => {
 		// boolean coercion of `''` is `false`, which would silently
 		// exclude every case on input-unset.
 		const p = whenInput(
-			input(asUuid("42ab9981-e4f6-4efd-8551-66a8fefaaacf")),
-			eq(
-				prop("patient", "full_name"),
-				input(asUuid("42ab9981-e4f6-4efd-8551-66a8fefaaacf")),
-			),
+			input(testUuid("name_query")),
+			eq(prop("patient", "full_name"), input(testUuid("name_query"))),
 		);
 		expect(emitCaseListFilter(p)).toBe(
 			"if(count(instance('search-input:results')/input/field[@name='name_query']), full_name = instance('search-input:results')/input/field[@name='name_query'], true())",
@@ -367,12 +371,9 @@ describe("emitCaseListFilter — when-input-present", () => {
 
 	it("recurses into a logical-conjunction inner clause without redundant grouping", () => {
 		const p = whenInput(
-			input(asUuid("b7a79f7f-ddcc-48fe-84de-9c738e70a8dc")),
+			input(testUuid("region")),
 			and(
-				eq(
-					prop("patient", "region"),
-					input(asUuid("b7a79f7f-ddcc-48fe-84de-9c738e70a8dc")),
-				),
+				eq(prop("patient", "region"), input(testUuid("region"))),
 				gt(prop("patient", "age"), literal(18)),
 			),
 		);
@@ -389,7 +390,7 @@ describe("emitCaseListFilter — is-blank", () => {
 	});
 
 	it("emits is-blank against a search-input reference as input = ''", () => {
-		const p = isBlank(input(asUuid("42ab9981-e4f6-4efd-8551-66a8fefaaacf")));
+		const p = isBlank(input(testUuid("name_query")));
 		expect(emitCaseListFilter(p)).toBe(
 			"instance('search-input:results')/input/field[@name='name_query'] = ''",
 		);
@@ -613,7 +614,7 @@ describe("emitCaseListFilter — within-distance", () => {
 	it("emits within-distance with an input center and kilometers", () => {
 		const p = within(
 			prop("clinic", "location"),
-			input(asUuid("3344fe68-5f7e-44bd-86c8-c47a04bfcba6")),
+			input(testUuid("user_loc")),
 			25,
 			"kilometers",
 		);
@@ -659,33 +660,6 @@ describe("emitCaseListFilter — within-distance", () => {
 			rawCenter: "'40.7,-74.0'",
 			meters: "80467.2",
 		});
-	});
-});
-
-describe("emitCaseListFilter — is-null", () => {
-	// CCHQ wire collapses absent / cleared / empty alike on every
-	// dialect — `prop = ''` is the closest CCHQ form for a strict-
-	// absent semantic. The AST distinction (`is-null` vs `is-blank`)
-	// is preserved on the Postgres runtime; both collapse to the same
-	// CCHQ wire string.
-
-	it("emits is-null against a property reference as prop = ''", () => {
-		const p = isNull(prop("patient", "full_name"));
-		expect(emitCaseListFilter(p)).toBe("full_name = ''");
-	});
-
-	it("emits is-null identically to is-blank for the same operand", () => {
-		const left = prop("patient", "full_name");
-		expect(emitCaseListFilter(isNull(left))).toBe(
-			emitCaseListFilter(isBlank(left)),
-		);
-	});
-
-	it("emits is-null against a search-input reference as input = ''", () => {
-		const p = isNull(input(asUuid("42ab9981-e4f6-4efd-8551-66a8fefaaacf")));
-		expect(emitCaseListFilter(p)).toBe(
-			"instance('search-input:results')/input/field[@name='name_query'] = ''",
-		);
 	});
 });
 
@@ -736,15 +710,6 @@ describe("emitCaseListFilter — relational property node sets", () => {
 		);
 		expect(emitCaseListFilter(p)).toBe(
 			"count(@case_id) > 0 and selected(join(' ', instance('casedb')/casedb/case[@case_type='patient' and (age >= 20)]/index/parent), @case_id) and count(@case_id) > 0 and selected(join(' ', instance('casedb')/casedb/case[@case_type='patient' and (age <= 25)]/index/parent), @case_id)",
-		);
-	});
-
-	it("emits related is-null as node-set equality with the empty string", () => {
-		const p = isNull(
-			prop("household", "nickname", subcasePath("parent", "patient")),
-		);
-		expect(emitCaseListFilter(p)).toBe(
-			"count(@case_id) > 0 and selected(join(' ', instance('casedb')/casedb/case[@case_type='patient' and (nickname = '')]/index/parent), @case_id)",
 		);
 	});
 
@@ -987,10 +952,7 @@ describe("emitCaseListFilter — term-arm operand (happy path)", () => {
 	});
 
 	it("emits a search-input reference in a comparison's right operand", () => {
-		const p = eq(
-			prop("patient", "phone"),
-			input(asUuid("e8397dc7-c995-4c3c-8788-ea95337d548b")),
-		);
+		const p = eq(prop("patient", "phone"), input(testUuid("phone_query")));
 		expect(emitCaseListFilter(p)).toMatch(/instance\('search-input:results'\)/);
 	});
 });

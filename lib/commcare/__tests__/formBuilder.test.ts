@@ -8,24 +8,27 @@
  * exercise `deriveCaseConfig` end-to-end through the same doc shape
  * that the expander + validator feed it in production.
  */
+
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f, xpIn } from "@/lib/__tests__/docHelpers";
 import {
 	addFieldMutations,
 	updateFormMutations,
 } from "@/lib/agent/blueprintHelpers";
+import { assertAndProjectCaseWriteInventory } from "@/lib/commcare/caseWriteAdmission";
 import { deriveCaseConfig } from "@/lib/commcare/deriveCaseConfig";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
-import { asUuid } from "@/lib/doc/types";
 import type { Field, Form, FormType } from "@/lib/domain";
-import { expressionSource } from "@/lib/domain";
+import { deriveCaseWriteInventory, expressionSource } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 
 // ── Fixture builders ──────────────────────────────────────────────────
 
-const MOD = asUuid("11111111-1111-1111-1111-111111111111");
-const FORM = asUuid("22222222-2222-2222-2222-222222222222");
+const MOD = testUuid("11111111-1111-1111-1111-111111111111");
+const FORM = testUuid("22222222-2222-2222-2222-222222222222");
 
 /** Construct a minimal normalized doc with one module + one form. */
 function makeShellDoc(type: FormType = "registration"): BlueprintDoc {
@@ -44,7 +47,9 @@ function makeShellDoc(type: FormType = "registration"): BlueprintDoc {
 				? [
 						{
 							name: "patient",
-							properties: [{ name: "case_name", label: "Full Name" }],
+							properties: [
+								{ name: "case_name", label: proseText("Full Name") },
+							],
 						},
 					]
 				: null,
@@ -81,9 +86,9 @@ function textField(
 	extras: Partial<Field> = {},
 ): Field {
 	return {
-		uuid: asUuid(crypto.randomUUID()),
+		uuid: testUuid(crypto.randomUUID()),
 		id,
-		label,
+		label: proseText(label),
 		kind: "text",
 		...(extras as object),
 	} as Field;
@@ -92,9 +97,9 @@ function textField(
 /** Build a group container field. */
 function groupField(id: string, label: string): Field {
 	return {
-		uuid: asUuid(crypto.randomUUID()),
+		uuid: testUuid(crypto.randomUUID()),
 		id,
-		label,
+		label: proseText(label),
 		kind: "group",
 	} as Field;
 }
@@ -104,7 +109,7 @@ describe("Form Builder Agent Integration — mutation-builder helpers", () => {
 		it("adds a simple text field", () => {
 			const doc0 = makeShellDoc();
 			const field = textField("case_name", "Patient Name", {
-				case_property_on: "case_name",
+				caseWrite: { caseType: "patient", property: "case_name" },
 			} as Partial<Field>);
 			const muts = addFieldMutations(doc0, { parentUuid: FORM, field });
 			const doc1 = apply(doc0, muts);
@@ -114,9 +119,10 @@ describe("Form Builder Agent Integration — mutation-builder helpers", () => {
 			const added = doc1.fields[order[0]];
 			expect(added.id).toBe("case_name");
 			expect(added.kind).toBe("text");
-			expect((added as { case_property_on?: string }).case_property_on).toBe(
-				"case_name",
-			);
+			expect("caseWrite" in added ? added.caseWrite : undefined).toEqual({
+				caseType: "patient",
+				property: "case_name",
+			});
 		});
 
 		it("adds fields in sequence", () => {
@@ -150,26 +156,26 @@ describe("Form Builder Agent Integration — mutation-builder helpers", () => {
 		it("adds a single_select field with options", () => {
 			const doc0 = makeShellDoc();
 			const field: Field = {
-				uuid: asUuid(crypto.randomUUID()),
+				uuid: testUuid(crypto.randomUUID()),
 				id: "gender",
-				label: "Gender",
+				label: proseText("Gender"),
 				kind: "single_select",
 				optionsSource: {
 					kind: "inline",
 					options: [
 						{
-							uuid: asUuid("353c4988-6d11-403f-afa4-f4a364f2c2a7"),
+							uuid: testUuid("gender-male"),
 							value: "male",
-							label: "Male",
+							label: proseText("Male"),
 						},
 						{
-							uuid: asUuid("e864b9b7-c39a-4c67-a0c6-c06534fab7f9"),
+							uuid: testUuid("gender-female"),
 							value: "female",
-							label: "Female",
+							label: proseText("Female"),
 						},
 					],
 				},
-				case_property_on: "gender",
+				caseWrite: { caseType: "patient", property: "gender" },
 			} as Field;
 			const doc1 = apply(
 				doc0,
@@ -177,11 +183,17 @@ describe("Form Builder Agent Integration — mutation-builder helpers", () => {
 			);
 
 			const uuid = doc1.fieldOrder[FORM][0];
-			const stored = doc1.fields[uuid] as {
-				options?: Array<{ value: string; label: string }>;
-			};
-			expect(stored.options).toHaveLength(2);
-			expect(stored.options?.[0].value).toBe("male");
+			const stored = doc1.fields[uuid];
+			expect(
+				stored.kind === "single_select" &&
+					stored.optionsSource.kind === "inline" &&
+					stored.optionsSource.options,
+			).toHaveLength(2);
+			expect(
+				stored.kind === "single_select" &&
+					stored.optionsSource.kind === "inline" &&
+					stored.optionsSource.options[0]?.value,
+			).toBe("male");
 		});
 
 		it("adds a hidden calculated field", () => {
@@ -194,11 +206,11 @@ describe("Form Builder Agent Integration — mutation-builder helpers", () => {
 				}),
 			);
 			const hidden: Field = {
-				uuid: asUuid(crypto.randomUUID()),
+				uuid: testUuid(crypto.randomUUID()),
 				id: "age_group",
 				kind: "hidden",
 				calculate: xpIn(doc, FORM, "if(/data/age < 18, 'child', 'adult')"),
-				case_property_on: "age_group",
+				caseWrite: { caseType: "patient", property: "age_group" },
 			} as Field;
 			doc = apply(
 				doc,
@@ -280,7 +292,7 @@ describe("Form Builder Agent Integration — mutation-builder helpers", () => {
 		it("is a no-op when parent uuid doesn't exist", () => {
 			const doc0 = makeShellDoc();
 			const muts = addFieldMutations(doc0, {
-				parentUuid: asUuid("99999999-9999-9999-9999-999999999999") as Uuid,
+				parentUuid: testUuid("99999999-9999-9999-9999-999999999999") as Uuid,
 				field: textField("orphan", "Orphan"),
 			});
 			expect(muts).toHaveLength(0);
@@ -291,11 +303,11 @@ describe("Form Builder Agent Integration — mutation-builder helpers", () => {
 		it("sets a close_condition on a close form", () => {
 			const doc0 = makeShellDoc("close");
 			const muts = updateFormMutations(doc0, FORM, {
-				closeCondition: { field: asUuid("discharge"), answer: "yes" },
+				closeCondition: { field: testUuid("discharge"), answer: "yes" },
 			});
 			const doc1 = apply(doc0, muts);
 			expect(doc1.forms[FORM].closeCondition).toEqual({
-				field: "discharge",
+				field: testUuid("discharge"),
 				answer: "yes",
 			});
 		});
@@ -306,7 +318,7 @@ describe("Form Builder Agent Integration — mutation-builder helpers", () => {
 			doc = apply(
 				doc,
 				updateFormMutations(doc, FORM, {
-					closeCondition: { field: asUuid("x"), answer: "y" },
+					closeCondition: { field: testUuid("x"), answer: "y" },
 				}),
 			);
 			expect(doc.forms[FORM].closeCondition).toBeDefined();
@@ -323,22 +335,23 @@ describe("Form Builder Agent Integration — mutation-builder helpers", () => {
 // ── deriveCaseConfig tests (doc-native helper) ───────────────────────
 //
 // `deriveCaseConfig` walks `doc.fieldOrder[formUuid]` and reads domain
-// field keys (kind, id, case_property_on). The tests feed it the same
+// field keys (kind, id, caseWrite). The tests feed it the same
 // normalized doc shape that the expander + validator use in production.
 
-describe("child case derivation via case_property_on annotations", () => {
+describe("child case derivation via explicit case destinations", () => {
 	const caseTypes = [
 		{
 			name: "patient",
-			properties: [{ name: "case_name", label: "Full Name" }],
+			properties: [{ name: "case_name", label: proseText("Full Name") }],
 		},
 		{
 			name: "referral",
-			properties: [{ name: "case_name", label: "Referral Name" }],
+			parent_type: "patient",
+			properties: [{ name: "case_name", label: proseText("Referral Name") }],
 		},
 	];
 
-	it("derives a child case from case_property_on annotations", () => {
+	it("derives a child case from caseWrite destinations", () => {
 		const doc = buildDoc({
 			appName: "Test App",
 			modules: [
@@ -352,15 +365,30 @@ describe("child case derivation via case_property_on annotations", () => {
 							fields: [
 								f({
 									kind: "text",
+									id: "patient_name",
+									label: proseText("Patient Name"),
+									caseWrite: {
+										caseType: "patient",
+										property: "case_name",
+									},
+								}),
+								f({
+									kind: "text",
 									id: "case_name",
-									label: "Referral Name",
-									case_property_on: "referral",
+									label: proseText("Referral Name"),
+									caseWrite: {
+										caseType: "referral",
+										property: "case_name",
+									},
 								}),
 								f({
 									kind: "text",
 									id: "referral_reason",
-									label: "Referral Reason",
-									case_property_on: "referral",
+									label: proseText("Referral Reason"),
+									caseWrite: {
+										caseType: "referral",
+										property: "referral_reason",
+									},
 								}),
 							],
 						},
@@ -372,11 +400,21 @@ describe("child case derivation via case_property_on annotations", () => {
 
 		const moduleUuid = doc.moduleOrder[0];
 		const formUuid = doc.formOrder[moduleUuid][0];
-		const config = deriveCaseConfig(doc, formUuid, "patient", "registration");
+		const config = deriveCaseConfig(
+			doc,
+			assertAndProjectCaseWriteInventory(
+				deriveCaseWriteInventory(
+					doc,
+					formUuid,
+					{ caseType: "patient" },
+					"registration",
+				),
+			),
+		);
 
-		expect(config.child_cases).toHaveLength(1);
-		expect(config.child_cases?.[0].case_type).toBe("referral");
-		expect(config.child_cases?.[0].case_name_field).toBe("case_name");
+		expect(config.childCases).toHaveLength(1);
+		expect(config.childCases?.[0].caseType).toBe("referral");
+		expect(config.childCases?.[0].caseNames[0]?.property).toBe("case_name");
 	});
 
 	it("separates primary and child case properties", () => {
@@ -394,20 +432,29 @@ describe("child case derivation via case_property_on annotations", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Patient Name",
-									case_property_on: "patient",
+									label: proseText("Patient Name"),
+									caseWrite: {
+										caseType: "patient",
+										property: "case_name",
+									},
 								}),
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Referral Name",
-									case_property_on: "referral",
+									label: proseText("Referral Name"),
+									caseWrite: {
+										caseType: "referral",
+										property: "case_name",
+									},
 								}),
 								f({
 									kind: "text",
 									id: "referral_reason",
-									label: "Reason",
-									case_property_on: "referral",
+									label: proseText("Reason"),
+									caseWrite: {
+										caseType: "referral",
+										property: "referral_reason",
+									},
 								}),
 							],
 						},
@@ -419,13 +466,26 @@ describe("child case derivation via case_property_on annotations", () => {
 
 		const moduleUuid = doc.moduleOrder[0];
 		const formUuid = doc.formOrder[moduleUuid][0];
-		const config = deriveCaseConfig(doc, formUuid, "patient", "registration");
+		const config = deriveCaseConfig(
+			doc,
+			assertAndProjectCaseWriteInventory(
+				deriveCaseWriteInventory(
+					doc,
+					formUuid,
+					{ caseType: "patient" },
+					"registration",
+				),
+			),
+		);
 
-		expect(config.case_name_field).toBe("case_name");
-		expect(config.child_cases).toHaveLength(1);
-		expect(config.child_cases?.[0].case_type).toBe("referral");
-		expect(config.child_cases?.[0].case_properties).toEqual([
-			{ case_property: "referral_reason", question_id: "referral_reason" },
-		]);
+		expect(config.caseNames?.[0]?.property).toBe("case_name");
+		expect(config.childCases).toHaveLength(1);
+		expect(config.childCases?.[0].caseType).toBe("referral");
+		expect(
+			config.childCases?.[0].caseProperties.map((binding) => ({
+				property: binding.property,
+				path: binding.path.toXPath(),
+			})),
+		).toEqual([{ property: "referral_reason", path: "/data/referral_reason" }]);
 	});
 });

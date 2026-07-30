@@ -18,6 +18,7 @@ import { ApiError } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
 import { validationError } from "@/lib/commcare/validator/errors";
 import { resolveAppAccess } from "@/lib/db/appAccess";
+import { proseText } from "@/lib/domain/prose";
 import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
 import { resolveMediaManifest } from "@/lib/media/manifest";
 import { prepareCompileRequest } from "../prepareCompileRequest";
@@ -36,7 +37,10 @@ function validDoc() {
 	const { fieldParent: _fieldParent, ...doc } = buildDoc({
 		appName: "Vaccine Tracker",
 		caseTypes: [
-			{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+			{
+				name: "patient",
+				properties: [{ name: "case_name", label: proseText("Name") }],
+			},
 		],
 		modules: [
 			{
@@ -50,8 +54,8 @@ function validDoc() {
 							{
 								kind: "text",
 								id: "case_name",
-								label: "Name",
-								case_property_on: "patient",
+								label: proseText("Name"),
+								caseWrite: { caseType: "patient", property: "case_name" },
 							},
 						],
 					},

@@ -1,5 +1,6 @@
 import type { QueryResultRow } from "pg";
 import {
+	AUDIT_DB_ROLE_CONNECTION_LIMIT,
 	CAPTURE_CLEANUP_DB_ROLE_CONNECTION_LIMIT,
 	MIGRATION_DB_ROLE_CONNECTION_LIMIT,
 	RUNTIME_DB_ROLE_CONNECTION_LIMIT,
@@ -10,6 +11,7 @@ export const MIGRATION_DATABASE_ROLE = "nova-migrate@commcare-nova.iam";
 export const RUNTIME_DATABASE_ROLE = "commcare-nova@commcare-nova.iam";
 export const CAPTURE_CLEANUP_DATABASE_ROLE =
 	"nova-capture-cleanup@commcare-nova.iam";
+export const AUDIT_DATABASE_ROLE = "nova-audit@commcare-nova.iam";
 export const LEGACY_DATABASE_ROLE = "51003905459-compute@developer";
 export const REQUIRED_DATABASE_EXTENSIONS = Object.freeze([
 	"pg_trgm",
@@ -25,10 +27,12 @@ export interface DatabaseOwnerBootstrapConfig {
 	readonly migrationRole: string;
 	readonly runtimeRole: string;
 	readonly cleanupRole: string;
+	readonly auditRole: string;
 	readonly legacyRole: string;
 	readonly migrationConnectionLimit: number;
 	readonly runtimeConnectionLimit: number;
 	readonly cleanupConnectionLimit: number;
+	readonly auditConnectionLimit: number;
 	readonly requiredExtensions: readonly string[];
 }
 
@@ -38,10 +42,12 @@ export const DATABASE_OWNER_BOOTSTRAP_CONFIG: DatabaseOwnerBootstrapConfig =
 		migrationRole: MIGRATION_DATABASE_ROLE,
 		runtimeRole: RUNTIME_DATABASE_ROLE,
 		cleanupRole: CAPTURE_CLEANUP_DATABASE_ROLE,
+		auditRole: AUDIT_DATABASE_ROLE,
 		legacyRole: LEGACY_DATABASE_ROLE,
 		migrationConnectionLimit: MIGRATION_DB_ROLE_CONNECTION_LIMIT,
 		runtimeConnectionLimit: RUNTIME_DB_ROLE_CONNECTION_LIMIT,
 		cleanupConnectionLimit: CAPTURE_CLEANUP_DB_ROLE_CONNECTION_LIMIT,
+		auditConnectionLimit: AUDIT_DB_ROLE_CONNECTION_LIMIT,
 		requiredExtensions: REQUIRED_DATABASE_EXTENSIONS,
 	});
 
@@ -56,22 +62,28 @@ export interface DatabaseBootstrapFacts {
 	readonly migrationRoleExists: boolean;
 	readonly runtimeRoleExists: boolean;
 	readonly cleanupRoleExists: boolean;
+	readonly auditRoleExists: boolean;
 	readonly legacyRoleExists: boolean;
 	readonly migrationRoleCanLogin: boolean;
 	readonly runtimeRoleCanLogin: boolean;
 	readonly cleanupRoleCanLogin: boolean;
+	readonly auditRoleCanLogin: boolean;
 	readonly migrationRoleIsSuperuser: boolean;
 	readonly runtimeRoleIsSuperuser: boolean;
 	readonly cleanupRoleIsSuperuser: boolean;
+	readonly auditRoleIsSuperuser: boolean;
 	readonly migrationRoleConnectionLimit: number;
 	readonly runtimeRoleConnectionLimit: number;
 	readonly cleanupRoleConnectionLimit: number;
+	readonly auditRoleConnectionLimit: number;
 	readonly currentUserIsMigrationMember: boolean;
 	readonly currentUserCanSetMigration: boolean;
 	readonly currentUserIsRuntimeMember: boolean;
 	readonly currentUserCanSetRuntime: boolean;
 	readonly currentUserIsCleanupMember: boolean;
 	readonly currentUserCanSetCleanup: boolean;
+	readonly currentUserIsAuditMember: boolean;
+	readonly currentUserCanSetAudit: boolean;
 	readonly currentUserIsLegacyMember: boolean;
 	readonly currentUserCanSetLegacy: boolean;
 	readonly migrationIsRuntimeMember: boolean;
@@ -134,22 +146,28 @@ interface DatabaseBootstrapFactRow extends QueryResultRow {
 	readonly migration_role_exists: boolean;
 	readonly runtime_role_exists: boolean;
 	readonly cleanup_role_exists: boolean;
+	readonly audit_role_exists: boolean;
 	readonly legacy_role_exists: boolean;
 	readonly migration_role_can_login: boolean;
 	readonly runtime_role_can_login: boolean;
 	readonly cleanup_role_can_login: boolean;
+	readonly audit_role_can_login: boolean;
 	readonly migration_role_is_superuser: boolean;
 	readonly runtime_role_is_superuser: boolean;
 	readonly cleanup_role_is_superuser: boolean;
+	readonly audit_role_is_superuser: boolean;
 	readonly migration_role_connection_limit: number;
 	readonly runtime_role_connection_limit: number;
 	readonly cleanup_role_connection_limit: number;
+	readonly audit_role_connection_limit: number;
 	readonly current_user_is_migration_member: boolean;
 	readonly current_user_can_set_migration: boolean;
 	readonly current_user_is_runtime_member: boolean;
 	readonly current_user_can_set_runtime: boolean;
 	readonly current_user_is_cleanup_member: boolean;
 	readonly current_user_can_set_cleanup: boolean;
+	readonly current_user_is_audit_member: boolean;
+	readonly current_user_can_set_audit: boolean;
 	readonly current_user_is_legacy_member: boolean;
 	readonly current_user_can_set_legacy: boolean;
 	readonly migration_is_runtime_member: boolean;
@@ -230,6 +248,7 @@ export function databaseOwnerBootstrapStatements(
 	const migration = quoteIdentifier(config.migrationRole);
 	const runtime = quoteIdentifier(config.runtimeRole);
 	const cleanup = quoteIdentifier(config.cleanupRole);
+	const audit = quoteIdentifier(config.auditRole);
 	const bootstrap = quoteIdentifier(facts.currentUser);
 	const statements = [
 		...config.requiredExtensions.map(
@@ -239,6 +258,7 @@ export function databaseOwnerBootstrapStatements(
 		`ALTER ROLE ${runtime} CONNECTION LIMIT ${config.runtimeConnectionLimit}`,
 		`ALTER ROLE ${migration} CONNECTION LIMIT ${config.migrationConnectionLimit}`,
 		`ALTER ROLE ${cleanup} CONNECTION LIMIT ${config.cleanupConnectionLimit}`,
+		`ALTER ROLE ${audit} CONNECTION LIMIT ${config.auditConnectionLimit}`,
 		`ALTER DATABASE ${quoteIdentifier(config.database)} OWNER TO ${migration}`,
 	];
 	if (facts.legacyRoleExists) {
@@ -319,25 +339,28 @@ function assertApplicationLoginRoleShape(
 	if (
 		!facts.migrationRoleExists ||
 		!facts.runtimeRoleExists ||
-		!facts.cleanupRoleExists
+		!facts.cleanupRoleExists ||
+		!facts.auditRoleExists
 	) {
 		throw new Error(
-			"Migration, runtime, and capture-cleanup IAM database users must exist before bootstrap.",
+			"Migration, runtime, capture-cleanup, and audit IAM database users must exist before bootstrap.",
 		);
 	}
 	if (
 		!facts.migrationRoleCanLogin ||
 		!facts.runtimeRoleCanLogin ||
-		!facts.cleanupRoleCanLogin
+		!facts.cleanupRoleCanLogin ||
+		!facts.auditRoleCanLogin
 	) {
 		throw new Error(
-			"Migration, runtime, and capture-cleanup database roles must remain direct LOGIN roles.",
+			"Migration, runtime, capture-cleanup, and audit database roles must remain direct LOGIN roles.",
 		);
 	}
 	if (
 		facts.migrationRoleIsSuperuser ||
 		facts.runtimeRoleIsSuperuser ||
-		facts.cleanupRoleIsSuperuser
+		facts.cleanupRoleIsSuperuser ||
+		facts.auditRoleIsSuperuser
 	) {
 		throw new Error(
 			"Application database login roles must not be PostgreSQL superusers.",
@@ -347,12 +370,13 @@ function assertApplicationLoginRoleShape(
 		expectExactConnectionLimits &&
 		(facts.migrationRoleConnectionLimit !== config.migrationConnectionLimit ||
 			facts.runtimeRoleConnectionLimit !== config.runtimeConnectionLimit ||
-			facts.cleanupRoleConnectionLimit !== config.cleanupConnectionLimit)
+			facts.cleanupRoleConnectionLimit !== config.cleanupConnectionLimit ||
+			facts.auditRoleConnectionLimit !== config.auditConnectionLimit)
 	) {
 		throw new Error(
 			[
 				"Application database login-role connection limits are unsafe.",
-				`Expected runtime=${config.runtimeConnectionLimit}, migration=${config.migrationConnectionLimit}, cleanup=${config.cleanupConnectionLimit}; found runtime=${facts.runtimeRoleConnectionLimit}, migration=${facts.migrationRoleConnectionLimit}, cleanup=${facts.cleanupRoleConnectionLimit}.`,
+				`Expected runtime=${config.runtimeConnectionLimit}, migration=${config.migrationConnectionLimit}, cleanup=${config.cleanupConnectionLimit}, audit=${config.auditConnectionLimit}; found runtime=${facts.runtimeRoleConnectionLimit}, migration=${facts.migrationRoleConnectionLimit}, cleanup=${facts.cleanupRoleConnectionLimit}, audit=${facts.auditRoleConnectionLimit}.`,
 			].join(" "),
 		);
 	}
@@ -409,6 +433,7 @@ export function assertDatabaseBootstrapPreconditions(
 		facts.currentUser === config.migrationRole ||
 		facts.currentUser === config.runtimeRole ||
 		facts.currentUser === config.cleanupRole ||
+		facts.currentUser === config.auditRole ||
 		facts.currentUser === config.legacyRole
 	) {
 		throw new Error(
@@ -422,11 +447,13 @@ export function assertDatabaseBootstrapPreconditions(
 		!facts.currentUserCanSetRuntime ||
 		!facts.currentUserIsCleanupMember ||
 		!facts.currentUserCanSetCleanup ||
+		!facts.currentUserIsAuditMember ||
+		!facts.currentUserCanSetAudit ||
 		(facts.legacyRoleExists &&
 			(!facts.currentUserIsLegacyMember || !facts.currentUserCanSetLegacy))
 	) {
 		throw new Error(
-			"The temporary administrator needs Cloud SQL API-assigned MEMBER and SET access to runtime, migration, capture-cleanup, and legacy when present.",
+			"The temporary administrator needs Cloud SQL API-assigned MEMBER and SET access to runtime, migration, capture-cleanup, audit, and legacy when present.",
 		);
 	}
 	assertApplicationRoleMemberships(facts);
@@ -515,6 +542,8 @@ export async function readDatabaseBootstrapFacts(
 				(SELECT oid FROM pg_catalog.pg_roles WHERE rolname = $3)
 					AS cleanup_oid,
 				(SELECT oid FROM pg_catalog.pg_roles WHERE rolname = $4)
+					AS audit_oid,
+				(SELECT oid FROM pg_catalog.pg_roles WHERE rolname = $5)
 					AS legacy_oid,
 				(SELECT oid FROM pg_catalog.pg_roles
 					WHERE rolname = 'cloudsqlsuperuser')
@@ -544,6 +573,7 @@ export async function readDatabaseBootstrapFacts(
 			role_oids.migration_oid IS NOT NULL AS migration_role_exists,
 			role_oids.runtime_oid IS NOT NULL AS runtime_role_exists,
 			role_oids.cleanup_oid IS NOT NULL AS cleanup_role_exists,
+			role_oids.audit_oid IS NOT NULL AS audit_role_exists,
 			role_oids.legacy_oid IS NOT NULL AS legacy_role_exists,
 			COALESCE(migration_role.rolcanlogin, false)
 				AS migration_role_can_login,
@@ -551,18 +581,24 @@ export async function readDatabaseBootstrapFacts(
 				AS runtime_role_can_login,
 			COALESCE(cleanup_role.rolcanlogin, false)
 				AS cleanup_role_can_login,
+			COALESCE(audit_role.rolcanlogin, false)
+				AS audit_role_can_login,
 			COALESCE(migration_role.rolsuper, false)
 				AS migration_role_is_superuser,
 			COALESCE(runtime_role.rolsuper, false)
 				AS runtime_role_is_superuser,
 			COALESCE(cleanup_role.rolsuper, false)
 				AS cleanup_role_is_superuser,
+			COALESCE(audit_role.rolsuper, false)
+				AS audit_role_is_superuser,
 			COALESCE(migration_role.rolconnlimit, -1)
 				AS migration_role_connection_limit,
 			COALESCE(runtime_role.rolconnlimit, -1)
 				AS runtime_role_connection_limit,
 			COALESCE(cleanup_role.rolconnlimit, -1)
 				AS cleanup_role_connection_limit,
+			COALESCE(audit_role.rolconnlimit, -1)
+				AS audit_role_connection_limit,
 			CASE WHEN role_oids.migration_oid IS NULL THEN false ELSE
 				EXISTS (
 					SELECT 1
@@ -608,6 +644,21 @@ export async function readDatabaseBootstrapFacts(
 						AND membership.roleid = role_oids.cleanup_oid
 						AND membership.set_option
 				) END AS current_user_can_set_cleanup,
+			CASE WHEN role_oids.audit_oid IS NULL THEN false ELSE
+				EXISTS (
+					SELECT 1
+					FROM pg_catalog.pg_auth_members AS membership
+					WHERE membership.member = login_role.oid
+						AND membership.roleid = role_oids.audit_oid
+				) END AS current_user_is_audit_member,
+			CASE WHEN role_oids.audit_oid IS NULL THEN false ELSE
+				EXISTS (
+					SELECT 1
+					FROM pg_catalog.pg_auth_members AS membership
+					WHERE membership.member = login_role.oid
+						AND membership.roleid = role_oids.audit_oid
+						AND membership.set_option
+				) END AS current_user_can_set_audit,
 			CASE WHEN role_oids.legacy_oid IS NULL THEN false ELSE
 				EXISTS (
 					SELECT 1
@@ -828,7 +879,7 @@ export async function readDatabaseBootstrapFacts(
 				(
 					SELECT count(*)::integer
 					FROM pg_catalog.pg_extension AS extension
-					WHERE extension.extname = ANY($5::text[])
+					WHERE extension.extname = ANY($6::text[])
 				) AS required_extension_count,
 				EXISTS (
 					SELECT 1
@@ -846,11 +897,14 @@ export async function readDatabaseBootstrapFacts(
 			ON runtime_role.oid = role_oids.runtime_oid
 		LEFT JOIN pg_catalog.pg_roles AS cleanup_role
 			ON cleanup_role.oid = role_oids.cleanup_oid
+		LEFT JOIN pg_catalog.pg_roles AS audit_role
+			ON audit_role.oid = role_oids.audit_oid
 		WHERE login_role.rolname = current_user`,
 		[
 			config.migrationRole,
 			config.runtimeRole,
 			config.cleanupRole,
+			config.auditRole,
 			config.legacyRole,
 			config.requiredExtensions,
 		],
@@ -917,22 +971,28 @@ export async function readDatabaseBootstrapFacts(
 		migrationRoleExists: row.migration_role_exists,
 		runtimeRoleExists: row.runtime_role_exists,
 		cleanupRoleExists: row.cleanup_role_exists,
+		auditRoleExists: row.audit_role_exists,
 		legacyRoleExists: row.legacy_role_exists,
 		migrationRoleCanLogin: row.migration_role_can_login,
 		runtimeRoleCanLogin: row.runtime_role_can_login,
 		cleanupRoleCanLogin: row.cleanup_role_can_login,
+		auditRoleCanLogin: row.audit_role_can_login,
 		migrationRoleIsSuperuser: row.migration_role_is_superuser,
 		runtimeRoleIsSuperuser: row.runtime_role_is_superuser,
 		cleanupRoleIsSuperuser: row.cleanup_role_is_superuser,
+		auditRoleIsSuperuser: row.audit_role_is_superuser,
 		migrationRoleConnectionLimit: row.migration_role_connection_limit,
 		runtimeRoleConnectionLimit: row.runtime_role_connection_limit,
 		cleanupRoleConnectionLimit: row.cleanup_role_connection_limit,
+		auditRoleConnectionLimit: row.audit_role_connection_limit,
 		currentUserIsMigrationMember: row.current_user_is_migration_member,
 		currentUserCanSetMigration: row.current_user_can_set_migration,
 		currentUserIsRuntimeMember: row.current_user_is_runtime_member,
 		currentUserCanSetRuntime: row.current_user_can_set_runtime,
 		currentUserIsCleanupMember: row.current_user_is_cleanup_member,
 		currentUserCanSetCleanup: row.current_user_can_set_cleanup,
+		currentUserIsAuditMember: row.current_user_is_audit_member,
+		currentUserCanSetAudit: row.current_user_can_set_audit,
 		currentUserIsLegacyMember: row.current_user_is_legacy_member,
 		currentUserCanSetLegacy: row.current_user_can_set_legacy,
 		migrationIsRuntimeMember: row.migration_is_runtime_member,

@@ -28,6 +28,7 @@
  */
 
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
+import { uuidSchema } from "@/lib/domain";
 import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
 import {
 	APP_SETUP_SECTIONS,
@@ -40,6 +41,20 @@ import {
  *  workspace and each matched before any uuid lookup. */
 const APP_SETUP_SEGMENT = "setup";
 const PROJECT_DATA_SEGMENT = "project-data";
+
+/**
+ * Retired two-segment authoring URLs. They intentionally neither parse nor
+ * redirect: old bookmarks stop resolving under the direct cutover, while
+ * `cases/{caseId}` remains the distinct record deep link.
+ */
+export function isRetiredAuthoringPath(segments: readonly string[]): boolean {
+	return (
+		segments.length === 2 &&
+		(segments[1] === "cases" ||
+			segments[1] === "search-config" ||
+			segments[1] === "detail-config")
+	);
+}
 
 function isAppSetupSection(value: string): value is AppSetupSection {
 	return (APP_SETUP_SECTIONS as readonly string[]).includes(value);
@@ -164,7 +179,9 @@ function findFormForField(
 		let parentUuid: Uuid | undefined;
 		for (const [key, children] of Object.entries(doc.fieldOrder)) {
 			if (children.includes(currentUuid)) {
-				parentUuid = key as Uuid;
+				const parsed = uuidSchema.safeParse(key);
+				if (!parsed.success) return undefined;
+				parentUuid = parsed.data;
 				break;
 			}
 		}
@@ -176,7 +193,10 @@ function findFormForField(
 			/* Now find which module owns this form. */
 			for (const [moduleUuid, formUuids] of Object.entries(doc.formOrder)) {
 				if (formUuids.includes(parentUuid)) {
-					return { formUuid: parentUuid, moduleUuid: moduleUuid as Uuid };
+					const parsed = uuidSchema.safeParse(moduleUuid);
+					return parsed.success
+						? { formUuid: parentUuid, moduleUuid: parsed.data }
+						: undefined;
 				}
 			}
 			return undefined;
@@ -209,9 +229,8 @@ export function parsePathToLocation(
 	if (segments.length === 0) return { kind: "home" };
 
 	/* Both workspace segments are reserved literals, matched BEFORE any uuid
-	 * lookup: a module uuid is a branded string with no format constraint, so
-	 * a doc-map lookup first would let an entity keyed `setup` or
-	 * `project-data` shadow a whole workspace. Each also prefers its own
+	 * lookup: a doc-map lookup first would otherwise give a malformed imported
+	 * record a chance to shadow a whole workspace. Each also prefers its own
 	 * landing screen over home when the rest of the path is unrecognized —
 	 * landing on the workspace the URL clearly asked for beats discarding the
 	 * whole destination. */
@@ -232,7 +251,9 @@ export function parsePathToLocation(
 			: { kind: "project-data" };
 	}
 
-	const first = segments[0] as Uuid;
+	const parsedFirst = uuidSchema.safeParse(segments[0]);
+	if (!parsedFirst.success) return { kind: "home" };
+	const first = parsedFirst.data;
 
 	if (segments.length === 1) {
 		/* Single segment — could be a module, form, or field UUID. */
@@ -243,9 +264,11 @@ export function parsePathToLocation(
 			/* Derive the module UUID from the doc's formOrder. */
 			for (const [moduleUuid, formUuids] of Object.entries(doc.formOrder)) {
 				if (formUuids.includes(first)) {
+					const parsedModule = uuidSchema.safeParse(moduleUuid);
+					if (!parsedModule.success) return { kind: "home" };
 					return {
 						kind: "form",
-						moduleUuid: moduleUuid as Uuid,
+						moduleUuid: parsedModule.data,
 						formUuid: first,
 					};
 				}
@@ -279,14 +302,11 @@ export function parsePathToLocation(
 	}
 
 	if (second === "cases") {
-		/* `/cases/{caseId}` remains the running case-record deep link.
-		 * The two-segment `/cases` form is a legacy Results-authoring alias;
-		 * LocationRecoveryEffect replaces it with the canonical `/results`. */
+		/* `/cases/{caseId}` remains the running case-record deep link. The
+		 * retired two-segment `/cases` authoring token does not parse. */
 		if (doc.modules[first] === undefined) return { kind: "home" };
-		if (segments.length === 2) {
-			return { kind: "cases", moduleUuid: first };
-		}
-		/* segments.length >= 3 — the third segment is the caseId,
+		if (segments.length !== 3) return { kind: "home" };
+		/* The third segment is the caseId,
 		 * percent-encoded by `serializePath`. */
 		return {
 			kind: "cases",
@@ -295,16 +315,14 @@ export function parsePathToLocation(
 		};
 	}
 
-	if (second === "search" || second === "search-config") {
-		/* `/search` is canonical; `/search-config` remains a legacy alias.
-		 * The module must exist or the path falls back to home. */
+	if (second === "search") {
+		/* The module must exist or the path falls back to home. */
 		if (doc.modules[first] === undefined) return { kind: "home" };
 		return { kind: "search-config", moduleUuid: first };
 	}
 
-	if (second === "details" || second === "detail-config") {
-		/* `/details` is canonical; `/detail-config` remains a legacy alias.
-		 * This is the third tab of the case workspace. */
+	if (second === "details") {
+		/* This is the third tab of the case workspace. */
 		if (doc.modules[first] === undefined) return { kind: "home" };
 		return { kind: "detail-config", moduleUuid: first };
 	}
@@ -325,12 +343,18 @@ export function parsePathToLocation(
 		if (doc.forms[first] === undefined) return { kind: "home" };
 		for (const [moduleUuid, formUuids] of Object.entries(doc.formOrder)) {
 			if (!formUuids.includes(first)) continue;
-			const operationUuid = segments[2] as Uuid | undefined;
+			const parsedModule = uuidSchema.safeParse(moduleUuid);
+			if (!parsedModule.success) return { kind: "home" };
+			const operationSegment = segments[2];
+			const operationUuid =
+				operationSegment === undefined
+					? undefined
+					: uuidSchema.safeParse(operationSegment);
 			return {
 				kind: "form-operations",
-				moduleUuid: moduleUuid as Uuid,
+				moduleUuid: parsedModule.data,
 				formUuid: first,
-				...(operationUuid !== undefined && { operationUuid }),
+				...(operationUuid?.success && { operationUuid: operationUuid.data }),
 			};
 		}
 		return { kind: "home" };
@@ -346,9 +370,11 @@ export function parsePathToLocation(
 		if (doc.forms[first] !== undefined) {
 			for (const [moduleUuid, formUuids] of Object.entries(doc.formOrder)) {
 				if (formUuids.includes(first)) {
+					const parsedModule = uuidSchema.safeParse(moduleUuid);
+					if (!parsedModule.success) return { kind: "home" };
 					return {
 						kind: "form-condition",
-						moduleUuid: moduleUuid as Uuid,
+						moduleUuid: parsedModule.data,
 						formUuid: first,
 					};
 				}
@@ -358,25 +384,27 @@ export function parsePathToLocation(
 	}
 
 	/* Two-segment path: /build/{id}/{formUuid}/{fieldUuid} */
-	const secondUuid = second as Uuid;
+	const parsedSecond = uuidSchema.safeParse(second);
 
 	if (doc.forms[first] !== undefined) {
 		/* Derive module UUID for the form. */
 		let moduleUuid: Uuid | undefined;
 		for (const [mUuid, formUuids] of Object.entries(doc.formOrder)) {
 			if (formUuids.includes(first)) {
-				moduleUuid = mUuid as Uuid;
+				const parsedModule = uuidSchema.safeParse(mUuid);
+				if (!parsedModule.success) return { kind: "home" };
+				moduleUuid = parsedModule.data;
 				break;
 			}
 		}
 		if (moduleUuid === undefined) return { kind: "home" };
 
-		if (doc.fields[secondUuid] !== undefined) {
+		if (parsedSecond.success && doc.fields[parsedSecond.data] !== undefined) {
 			return {
 				kind: "form",
 				moduleUuid,
 				formUuid: first,
-				selectedUuid: secondUuid,
+				selectedUuid: parsedSecond.data,
 			};
 		}
 		/* Second segment doesn't resolve to a field — show the form

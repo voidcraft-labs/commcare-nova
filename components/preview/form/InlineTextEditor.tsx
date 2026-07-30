@@ -46,6 +46,7 @@ import {
 	ToolbarGroup,
 	ToolbarSeparator,
 } from "@/components/tiptap-ui-primitive/toolbar";
+import type { ProseTemplate } from "@/lib/domain";
 import {
 	useLiveFormUuidGetter,
 	useReferenceProvider,
@@ -54,14 +55,16 @@ import { POPOVER_GLASS } from "@/lib/styles";
 import {
 	createInlineEditorExtensions,
 	getMarkdownContent,
+	markdownToProseTemplate,
+	proseTemplateToMarkdown,
 } from "@/lib/tiptap/markdownExtensions";
 import { FIELD_STYLES, type FieldType } from "./fieldStyles";
 
 interface InlineTextEditorProps {
-	/** Current markdown value for this field. */
-	value: string;
+	/** Current structural prose value for this field. */
+	value: ProseTemplate;
 	/** Called with the new markdown value when the editor saves (blur/Cmd+Enter). */
-	onSave: (value: string) => void;
+	onSave: (value: ProseTemplate) => void;
 	/** Called when the user cancels editing (Escape). Reverts to original value. */
 	onCancel: () => void;
 	/** Which text surface this editor replaces — drives styling to match. */
@@ -246,8 +249,8 @@ export function InlineTextEditor({
 		(editor: Editor | null) => {
 			if (savedRef.current || !editor) return;
 			savedRef.current = true;
-			const md = getMarkdownContent(editor);
-			onSave(md.trim());
+			const markdown = getMarkdownContent(editor);
+			onSave(markdownToProseTemplate(markdown));
 		},
 		[onSave],
 	);
@@ -313,13 +316,15 @@ export function InlineTextEditor({
 	const editor = useEditor({
 		extensions,
 		/* Initial content goes straight through tiptap-markdown's parse pipeline.
-		 * The CommcareRef extension registers a markdown-it inline rule that
-		 * tokenizes bare `#type/path` hashtags into `<span data-commcare-ref>`
-		 * HTML, so the resulting ProseMirror doc already contains commcareRef
-		 * nodes before the editor view is ever mounted. No post-mount hydration
-		 * dispatch is required — chips are present on first paint, and TipTap's
-		 * `ReactRenderer.flushSync` path is never hit from inside a React effect. */
-		content: value,
+		 * `proseTemplateToMarkdown` emits each typed reference as its encoded
+		 * `<span data-nova-prose-ref="…">` carrier, which CommcareRef's
+		 * `parseHTML` matches — so the ProseMirror doc already contains
+		 * commcareRef nodes before the view is ever mounted. No post-mount
+		 * hydration dispatch is required: chips are present on first paint, and
+		 * TipTap's `ReactRenderer.flushSync` path is never hit from inside a
+		 * React effect. Hashtag-looking TEXT is not a reference and never
+		 * becomes one here — only the encoded carrier does. */
+		content: proseTemplateToMarkdown(value),
 		immediatelyRender: false,
 		editorProps: {
 			attributes: {

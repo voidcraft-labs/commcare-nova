@@ -1,6 +1,6 @@
 // lib/commcare/multimedia/assetWirePath.ts
 //
-// The wire-path layer for media: the bridge between a Nova `AssetId`
+// The wire-path layer for media: the bridge between a Nova `MediaAssetId`
 // (an opaque UUID) and the strings CommCare's wire formats expect.
 //
 // Two derived strings per asset, both content-hash-keyed so they're
@@ -22,11 +22,8 @@
 // the path vocabulary the other helpers (`itextMedia`, `mediaSuiteXml`,
 // `navMenuMedia`, `logoEntry`, `imageMapColumn`) build on.
 
-import {
-	type AssetId,
-	asAssetId,
-	type MediaKind,
-} from "@/lib/domain/multimedia";
+import type { IconRef } from "@/lib/domain/builtinIcons";
+import type { MediaKind } from "@/lib/domain/multimedia";
 
 /**
  * The `jr://file/` prefix every CommCare media reference carries. A
@@ -59,7 +56,7 @@ const MEDIA_DIR = "commcare";
  * the caller's contract, not an emit-time recoverable state).
  */
 export interface ResolvedMediaAsset {
-	readonly assetId: AssetId;
+	readonly assetId: IconRef;
 	/** `commcare/<contentHash><extension>` — CCZ entry path + media-suite location stem. */
 	readonly wirePath: string;
 	readonly kind: MediaKind;
@@ -72,7 +69,7 @@ export interface ResolvedMediaAsset {
 }
 
 /**
- * The set of assets an emission run may reference, keyed by `AssetId`.
+ * The set of assets an emission run may reference, keyed by `MediaAssetId`.
  *
  * Two modes, distinguished by presence:
  *   - `undefined` — media emission is OFF. The validation loop and any
@@ -82,10 +79,10 @@ export interface ResolvedMediaAsset {
  *     carries no media.
  *   - a `Map` — media emission is ON. The caller has resolved EVERY
  *     asset the doc references (it walked the doc to build this map), so
- *     a referenced `AssetId` that's missing from the map is a
+ *     a referenced `MediaAssetId` that's missing from the map is a
  *     compiler-bug, not a recoverable state — see `requireAssetRef`.
  */
-export type AssetManifest = ReadonlyMap<AssetId, ResolvedMediaAsset>;
+export type AssetManifest = ReadonlyMap<IconRef, ResolvedMediaAsset>;
 
 /**
  * Derive the CCZ entry path / media-suite location stem for an asset:
@@ -106,7 +103,7 @@ export function jrFileRef(wirePath: string): string {
 }
 
 /**
- * Resolve an `AssetId` to its `jr://file/...` reference against a
+ * Resolve an `MediaAssetId` to its `jr://file/...` reference against a
  * manifest known to contain it. The caller built the manifest by
  * walking the doc + loading the matching rows; a miss means the doc
  * references an asset the loader couldn't return — a stale ref (deleted
@@ -119,17 +116,17 @@ export function jrFileRef(wirePath: string): string {
  * for the media-ON path.
  *
  * `assetId` is taken as a plain `string` because that's what the doc
- * carries — the `AssetId` brand is a compile-time-only decoration (the
+ * carries — the `MediaAssetId` brand is a compile-time-only decoration (the
  * Zod schema is a plain `z.string()`, no transform, so tool-schema JSON
  * generation stays clean), so the manifest key is re-branded here for
  * the lookup.
  */
 export function requireAssetRef(
-	assetId: string,
+	assetId: IconRef,
 	manifest: AssetManifest,
 	where: string,
 ): string {
-	const resolved = manifest.get(asAssetId(assetId));
+	const resolved = manifest.get(assetId);
 	if (!resolved) {
 		// Plain Error matching the project's "validator should have caught
 		// this" shape (see e.g. `formActions.ts`'s case-name-field throw):

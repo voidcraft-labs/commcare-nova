@@ -15,7 +15,7 @@
  * module would introduce `MISSING_CHILD_CASE_MODULE` with no
  * satisfiable repair in the direction the user is going.
  *
- * Like `removeForm`, the tool tolerates a missing module UUID. Rather
+ * Like `removeForm`, the tool tolerates an already-missing module UUID. Rather
  * than returning an error (which would poison the SA's follow-up
  * reasoning), it returns a clear "does not exist, no change" success
  * message. The SA sees the target-already-gone state explicitly and
@@ -26,7 +26,7 @@
  *   - Missing UUID → no mutations, "does not exist, no change" message.
  *   - Retirement blocked → `{ error }` naming the references.
  *   - Success → human-readable "Successfully removed" summary tagged
- *     with the module UUID.
+ *     `module:remove:M`.
  */
 
 import type { z } from "zod";
@@ -127,7 +127,7 @@ export const removeModuleTool = {
 
 			return {
 				kind: "mutate" as const,
-				mutations,
+				mutations: commit.mutations,
 				newDoc,
 				result: {
 					message: `Successfully removed module "${name}". App now has ${newDoc.moduleOrder.length} module${newDoc.moduleOrder.length === 1 ? "" : "s"}.${retirement.kind === "retire" ? ` Case type "${retirement.caseType}" had no other module or reference, so its record was retired from the catalog.` : ""}`,

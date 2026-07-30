@@ -2,19 +2,18 @@
  * Staged tool × transactional guard — the composition that makes
  * `editField`'s "a rejected call saved nothing" hold on the MCP surface.
  *
- * `editField` builds up to three stages (convert → rename → patch) and
+ * `editField` builds conversion and property-update stages (when needed) and
  * commits through `guardedMutateStages`, which persists via
  * `ctx.recordMutationStages`. On MCP that MUST be one transactional
  * guarded save over the concatenated sequence: a per-stage save would run
  * an independent fresh-doc re-verdict per stage, so a contention
  * rejection mid-sequence would leave the earlier stages PERSISTED while
  * the tool reports nothing was saved. These tests drive the REAL
- * `editFieldTool` through a REAL `McpContext` with only the saga module
+ * `editFieldTool` through a REAL `McpContext` with only the guarded boundary
  * mocked, pinning:
  *
  *   1. one `applyBlueprintChange` call per multi-stage edit, whose guard
- *      carries the concatenated mutations and whose prospective snapshot
- *      is the final post-edit doc;
+ *      carries the concatenated mutations;
  *   2. a contention rejection (the transactional re-verdict throwing
  *      `BlueprintCommitRejectedError`) surfaces as the tool's `{ error }`
  *      envelope with ZERO persisted prefix — the single save was the only
@@ -27,7 +26,8 @@ import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { editFieldTool } from "@/lib/agent/tools/editField";
 import { applyBlueprintChange } from "@/lib/db/applyBlueprintChange";
 import { BlueprintCommitRejectedError } from "@/lib/db/commitGuard";
-import type { BlueprintDoc, PersistableDoc } from "@/lib/domain";
+import type { BlueprintDoc } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import type { LogWriter } from "@/lib/log/writer";
 import { McpContext } from "../context";
 
@@ -37,7 +37,7 @@ vi.mock("@/lib/db/applyBlueprintChange", async () => {
 	)) as Record<string, unknown>;
 	return {
 		...actual,
-		applyBlueprintChange: vi.fn().mockResolvedValue({ seq: 0 }),
+		applyBlueprintChange: vi.fn(),
 	};
 });
 
@@ -60,14 +60,14 @@ function minDoc(): BlueprintDoc {
 							f({
 								kind: "text",
 								id: "case_name",
-								label: "Name",
-								case_property_on: "patient",
+								label: proseText("Name"),
+								caseWrite: { caseType: "patient", property: "case_name" },
 							}),
 							f({
 								kind: "text",
 								id: "village",
-								label: "Village",
-								case_property_on: "patient",
+								label: proseText("Village"),
+								caseWrite: { caseType: "patient", property: "village" },
 							}),
 						],
 					},
@@ -78,24 +78,12 @@ function minDoc(): BlueprintDoc {
 			{
 				name: "patient",
 				properties: [
-					{ name: "case_name", label: "Name" },
-					{ name: "village", label: "Village" },
+					{ name: "case_name", label: proseText("Name") },
+					{ name: "village", label: proseText("Village") },
 				],
 			},
 		],
 	});
-}
-
-function villageAddress(doc: BlueprintDoc) {
-	const moduleUuid = doc.moduleOrder[0];
-	const formUuid = doc.formOrder[moduleUuid]?.[0];
-	const fieldUuid = Object.values(doc.fields).find(
-		(field) => field.id === "village",
-	)?.uuid;
-	if (!moduleUuid || !formUuid || !fieldUuid) {
-		throw new Error("village fixture address is incomplete");
-	}
-	return { moduleUuid, formUuid, fieldUuid };
 }
 
 function makeMcpCtx() {
@@ -126,21 +114,32 @@ function makeMcpCtx() {
 
 beforeEach(() => {
 	vi.mocked(applyBlueprintChange).mockReset();
-	vi.mocked(applyBlueprintChange).mockResolvedValue({ seq: 0 });
+	vi.mocked(applyBlueprintChange).mockResolvedValue({
+		seq: 0,
+		committedDoc: minDoc(),
+	});
 });
 
 describe("editField through McpContext — one transactional save per edit", () => {
-	it("a passing rename+patch edit issues exactly one guarded save over the concatenated batch", async () => {
+	it("a passing ID+label edit issues one guarded save with one canonical field patch", async () => {
 		const doc = minDoc();
 		const { ctx, logEvent } = makeMcpCtx();
+		const moduleUuid = doc.moduleOrder[0];
+		const formUuid = doc.formOrder[moduleUuid][0];
+		const fieldUuid = doc.fieldOrder[formUuid].find(
+			(uuid) => doc.fields[uuid]?.id === "village",
+		);
+		if (fieldUuid === undefined) throw new Error("village fixture is missing");
 
 		const out = await editFieldTool.execute(
 			{
-				...villageAddress(doc),
+				moduleUuid,
+				formUuid,
+				fieldUuid,
 				updates: {
 					kind: "text",
 					id: "village_name",
-					label: "Home village",
+					label: proseText("Home village"),
 				} as never,
 			},
 			ctx,
@@ -150,30 +149,37 @@ describe("editField through McpContext — one transactional save per edit", () 
 		expect("message" in out.result).toBe(true);
 		expect(vi.mocked(applyBlueprintChange)).toHaveBeenCalledTimes(1);
 		const args = vi.mocked(applyBlueprintChange).mock.calls[0]?.[0];
-		// The guard carries the WHOLE edit (rename cascade + scalar patch) so
+		// The guard carries the WHOLE semantic edit in one updateField patch so
 		// the transaction's fresh-doc re-verdict evaluates the same candidate
-		// the optimistic gate approved — never a lone stage.
-		const kinds = (args?.guard?.mutations ?? []).map((m) => m.kind);
-		expect(kinds).toContain("renameField");
-		expect(kinds).toContain("updateField");
-		// The persisted snapshot is the FINAL doc — rename and patch applied.
-		const persisted = args?.prospective as PersistableDoc;
-		const renamed = Object.values(persisted.fields).find(
-			(fl) => fl.id === "village_name",
-		);
-		expect(renamed && "label" in renamed && renamed.label).toBe("Home village");
-		// Both stages' envelopes reached the log, tagged per stage.
+		// the optimistic gate approved. ID and case binding must remain together
+		// for the reducer to distinguish a property rename from a retarget.
+		expect(args?.guard?.mutations).toEqual([
+			expect.objectContaining({
+				kind: "updateField",
+				uuid: fieldUuid,
+				targetKind: "text",
+				patch: expect.objectContaining({
+					id: "village_name",
+					label: proseText("Home village"),
+				}),
+			}),
+		]);
+		// The one canonical edit stage reached the log.
 		const stages = logEvent.mock.calls.map(
 			(c) => (c[0] as { stage?: string }).stage,
 		);
-		expect(new Set(stages)).toEqual(
-			new Set(["rename:frm-0003", "edit:frm-0003"]),
-		);
+		expect(new Set(stages)).toEqual(new Set([`edit:${formUuid}`]));
 	});
 
 	it("a contention rejection PROPAGATES out of the tool with ZERO persisted prefix", async () => {
 		const doc = minDoc();
 		const { ctx, logEvent } = makeMcpCtx();
+		const moduleUuid = doc.moduleOrder[0];
+		const formUuid = doc.formOrder[moduleUuid][0];
+		const fieldUuid = doc.fieldOrder[formUuid].find(
+			(uuid) => doc.fields[uuid]?.id === "village",
+		);
+		if (fieldUuid === undefined) throw new Error("village fixture is missing");
 		// The fresh-doc re-verdict inside the transaction rejects — a
 		// concurrent commit landed between the tool's snapshot and the write.
 		vi.mocked(applyBlueprintChange).mockRejectedValueOnce(
@@ -191,11 +197,13 @@ describe("editField through McpContext — one transactional save per edit", () 
 		await expect(
 			editFieldTool.execute(
 				{
-					...villageAddress(doc),
+					moduleUuid,
+					formUuid,
+					fieldUuid,
 					updates: {
 						kind: "text",
 						id: "village_name",
-						label: "Home village",
+						label: proseText("Home village"),
 					} as never,
 				},
 				ctx,
@@ -205,8 +213,8 @@ describe("editField through McpContext — one transactional save per edit", () 
 
 		// "Nothing was saved" is structurally true: the ONE transactional save
 		// was the call's only write, it never committed, and no envelope reached
-		// the event log — there is no committed rename for the agent to trip over
-		// on its corrected re-issue.
+		// the event log — there is no committed field edit for the agent to trip
+		// over on its corrected re-issue.
 		expect(vi.mocked(applyBlueprintChange)).toHaveBeenCalledTimes(1);
 		expect(logEvent).not.toHaveBeenCalled();
 	});

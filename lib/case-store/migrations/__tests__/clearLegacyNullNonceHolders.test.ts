@@ -29,10 +29,12 @@ async function seedApp(
 	},
 ): Promise<void> {
 	await client.query(
+		// Every app carries a nonblank Project; this migration predates that
+		// requirement but its fixture still has to satisfy the current schema.
 		`INSERT INTO apps (
-			id, owner, app_name, app_name_lower, status, awaiting_input,
+			id, owner, project_id, app_name, app_name_lower, status, awaiting_input,
 			run_id, lock_run_id, res_run_id, res_settled, run_holder_nonce, updated_at
-		) VALUES ($1, 'owner-a', $1, $1, $2, $3, 'run-1', $4, $5, $6, $7,
+		) VALUES ($1, 'owner-a', 'nonce-holder-project', $1, $1, $2, $3, 'run-1', $4, $5, $6, $7,
 			now() - ($8 || ' hours')::interval)`,
 		[
 			row.id,

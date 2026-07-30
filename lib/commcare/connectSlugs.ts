@@ -24,25 +24,21 @@
  *    (`LearnConfig`/`DeliverConfig`, via `useAppConnectIds`), the SA tools
  *    (`enforceConnectIds`), and the `CONNECT_ID_DUPLICATE` validator
  *    rule all check it against the app-wide id set.
- *  - {@link deriveConnectId} is the creation-time autofill: an id-less block
- *    gets a valid, unique, name-derived id STORED in the doc.
- *  - {@link buildConnectSlugMap} is the emit-time resolver — a typed
- *    pass-through that asserts each block's id is present + valid and that no
- *    two blocks collide, then narrows the type. It does NOT cap, dedup, or
- *    fall back; the stored id IS the wire slug. It throws (fail-loud) if a
- *    missing, invalid, or duplicate id reaches it, and processes only blocks
- *    matching the doc's `connectType` (so a stray cross-mode block neither
- *    ships nor trips the invariant). The validator reads `form.connect`
- *    directly rather than through this resolver, because it must report an
- *    id-less block as a finding (`CONNECT_ID_MISSING`) instead of throwing.
+ *  - {@link deriveConnectId} finalizes a separate creation draft with a valid,
+ *    unique, name-derived id before a complete block enters the document.
+ *  - {@link buildConnectSlugMap} is the emit-time assertion. It does NOT cap,
+ *    dedup, narrow, or fall back; the complete stored id IS the wire slug.
+ *    Cross-mode, invalid, or duplicate data throws because it could only have
+ *    bypassed the final document schema and topology gate.
  */
-import type {
-	BlueprintDoc,
-	ConnectAssessment,
-	ConnectDeliverUnit,
-	ConnectLearnModule,
-	ConnectTask,
-	Uuid,
+import {
+	type BlueprintDoc,
+	CONNECT_ID_MAX_LENGTH,
+	type ConnectAssessment,
+	type ConnectDeliverUnit,
+	type ConnectLearnModule,
+	type ConnectTask,
+	type Uuid,
 } from "@/lib/domain";
 import { XML_ELEMENT_NAME_REGEX } from "./constants";
 import { toSnakeId } from "./identifierValidation";
@@ -57,14 +53,14 @@ import { toSnakeId } from "./identifierValidation";
  * uniformly keeps the wire element-name sane and future-proofs against
  * Connect adding one.)
  */
-export const CONNECT_SLUG_MAX_LENGTH = 50;
+export const CONNECT_SLUG_MAX_LENGTH = CONNECT_ID_MAX_LENGTH;
 
 /**
  * SA-facing schema description for every connect `id` field.
  *
- * The id is `.optional()` on every connect sub-config across the agent's
- * tool schemas (`updateForm` and the atomic creation
- * tools `createForm` / `createModule`). Without telling the SA
+ * The id is `.optional()` on every Connect sub-config across the agent's
+ * shared authoring schemas (`configureConnect` / `configure_connect` and the
+ * existing-participant refinement on `updateForm`). Without telling the SA
  * *why* it's optional, the model would either set an id on every block (and
  * risk a fail-the-call on a bad value) or omit it and wonder if the call
  * will fail. This text closes that gap: omitting is the normal, safe path
@@ -135,10 +131,10 @@ export function connectIdConflictError(
  * Derive a valid, unique connect id from a display `name`, disambiguating
  * against `existingIds`.
  *
- * This is the "force correct at the source" autofill: the instant a connect
- * block is created or enabled without an explicit id, it gets a value from
- * here that is STORED in the doc (visible via `get_form` and in the
- * authoring field), not conjured at emit. The result is always a legal XML
+ * This is the "force correct at the source" autofill: before a separate
+ * creation draft becomes a Connect block, it gets a value from here that is
+ * stored in the doc (visible via `get_form` and in the authoring field), not
+ * conjured at emit. The result is always a legal XML
  * element name (`toSnakeId`), within {@link CONNECT_SLUG_MAX_LENGTH} (the
  * base is truncated), and unique against `existingIds` (a numeric suffix is
  * appended on collision, re-cutting the base so the suffixed id still fits).
@@ -170,60 +166,16 @@ export function deriveConnectId(
 }
 
 /**
- * A Connect config whose sub-config ids are resolved — the output of
- * {@link buildConnectSlugMap}.
- *
- * On the raw `ConnectConfig`, each sub-config's `id` is optional (the
- * authoring schema admits an unset id). Resolution narrows `id` from
- * `string | undefined` to a required `string`, so the three wire consumers
- * (XForm builder, case-references load map, validator valid-path set) read
- * `<kind>.id` with no fallback and no non-null assertion.
+ * The wire-facing projection retains optional sub-config kinds because a form
+ * participates in one or both kinds for its app mode. Every present block is
+ * already complete; there is no resolved-vs-stored identity type.
  */
-type Resolved<T extends { id?: string }> = Omit<T, "id"> & { id: string };
 export type ResolvedConnectConfig = {
-	learn_module?: Resolved<ConnectLearnModule>;
-	assessment?: Resolved<ConnectAssessment>;
-	deliver_unit?: Resolved<ConnectDeliverUnit>;
-	task?: Resolved<ConnectTask>;
+	learn_module?: ConnectLearnModule;
+	assessment?: ConnectAssessment;
+	deliver_unit?: ConnectDeliverUnit;
+	task?: ConnectTask;
 };
-
-/**
- * Narrow one sub-config's id from `string | undefined` to a valid `string`
- * — the emit invariant: emit a valid id or throw.
- *
- * The resolver does NOT transform ids — no cap, no dedup, no sanitize, no
- * fallback. Every connect id is forced valid (legal element name + ≤50 +
- * unique) at the SOURCE: `deriveConnectId` autofills an omitted id on every
- * block-writing path (the SA tools via `enforceConnectIds`, the UI
- * seed/restore via `dedupeRestoredConnectIds`), and `connectIdError` +
- * `connectIdConflictError` reject bad explicit input at the UI commit guard
- * and the SA tools. So a block reaching emission with a missing OR invalid
- * id (over-length / bad characters) is an invariant violation — an entry
- * point skipped that enforcement. We throw loud rather than papering over
- * it: silently capping or sanitizing here would corrupt the wire (a
- * different id than the doc records). The throw is a tripwire BEHIND the
- * validator, not a user surface: every export entry point runs the
- * zero-tolerance boundary gate first, whose `CONNECT_ID_MISSING` /
- * format/length/duplicate rules report the same states as actionable
- * findings — so in practice this never fires.
- */
-function narrowId<T extends { id?: string }>(
-	sub: T,
-	kind: string,
-): Resolved<T> {
-	if (!sub.id) {
-		throw new Error(
-			`A Connect ${kind} block reached emission with no id. Every connect id is supposed to be filled and validated at the source (creation autofill + the field / tool guards). Reaching here with a blank id means an entry point skipped that enforcement — look at where this block was created or last edited.`,
-		);
-	}
-	const reason = connectIdError(sub.id);
-	if (reason) {
-		throw new Error(
-			`A Connect ${kind} block reached emission with an invalid id: ${reason} The resolver does not fix ids — they're enforced valid at the source (creation autofill + the field / tool guards). An invalid id here means a doc skipped that enforcement; find the entry point that wrote it.`,
-		);
-	}
-	return { ...sub, id: sub.id };
-}
 
 /**
  * Resolve the Connect ids for every form into the wire-final shape.
@@ -242,12 +194,6 @@ export function buildConnectSlugMap(
 ): ReadonlyMap<Uuid, ResolvedConnectConfig> {
 	const result = new Map<Uuid, ResolvedConnectConfig>();
 
-	// Connect blocks are only resolved when the app-level `connectType` is
-	// set — this early return is the gate. Off-mode there's no live connect
-	// config to emit, so callers get an empty map.
-	if (!doc.connectType) return result;
-	const isLearn = doc.connectType === "learn";
-
 	// Accumulate every emitted id → its `<form> <kind>` site so the resolver
 	// fails loud on a duplicate. Two distinct blocks sharing an id would
 	// collide on Connect's `(app, slug)` key and produce duplicate XForm
@@ -255,6 +201,12 @@ export function buildConnectSlugMap(
 	// reaching here is an invariant violation.
 	const idToSite = new Map<string, string>();
 	const claim = (id: string, formName: string, kindLabel: string): void => {
+		const reason = connectIdError(id);
+		if (reason !== null) {
+			throw new Error(
+				`Connect block "${formName}" ${kindLabel} reached emission with an invalid final id: ${reason}`,
+			);
+		}
 		const site = `"${formName}" ${kindLabel}`;
 		const priorSite = idToSite.get(id);
 		if (priorSite) {
@@ -271,38 +223,39 @@ export function buildConnectSlugMap(
 			const connect = form?.connect;
 			if (!connect) continue;
 
-			// Narrow each sub-config's id; absent sub-configs stay absent. Only
-			// the kinds matching the app's mode are processed — the schema isn't
-			// mode-discriminated, so a learn app can carry a stray `deliver_unit`
-			// block (and vice versa). The defaulter only fills the matching
-			// mode's blocks; the resolver agrees by emitting only those, so a
-			// cross-mode (possibly id-less) block neither ships nor trips the
-			// invariant. No transform — the stored id is the wire id.
+			if (doc.connectType === null) {
+				throw new Error(
+					`Form "${form.name}" has Connect configuration while the app has no Connect mode.`,
+				);
+			}
+			const isLearnConfig =
+				"learn_module" in connect || "assessment" in connect;
+			if ((doc.connectType === "learn") !== isLearnConfig) {
+				throw new Error(
+					`Form "${form.name}" has Connect configuration for the wrong app mode.`,
+				);
+			}
+
+			// No transform: the complete stored id is the wire id.
 			const next: ResolvedConnectConfig = {};
-			if (isLearn && connect.learn_module) {
-				next.learn_module = narrowId(connect.learn_module, "learn-module");
+			if ("learn_module" in connect && connect.learn_module) {
+				next.learn_module = connect.learn_module;
 				claim(next.learn_module.id, form.name, "learn-module");
 			}
-			if (isLearn && connect.assessment) {
-				next.assessment = narrowId(connect.assessment, "assessment");
+			if ("assessment" in connect && connect.assessment) {
+				next.assessment = connect.assessment;
 				claim(next.assessment.id, form.name, "assessment");
 			}
-			if (!isLearn && connect.deliver_unit) {
-				next.deliver_unit = narrowId(connect.deliver_unit, "deliver-unit");
+			if ("deliver_unit" in connect && connect.deliver_unit) {
+				next.deliver_unit = connect.deliver_unit;
 				claim(next.deliver_unit.id, form.name, "deliver-unit");
 			}
-			if (!isLearn && connect.task) {
-				next.task = narrowId(connect.task, "task");
+			if ("task" in connect && connect.task) {
+				next.task = connect.task;
 				claim(next.task.id, form.name, "task");
 			}
 
-			// Only record an entry when there's actually something to emit. A
-			// form whose `connect` holds only a cross-mode stray matches no
-			// live-kind arm above, leaving `next` empty — recording `{}` would
-			// break the contract that `map.get(formUuid) === undefined` means
-			// "nothing to emit" (a truthy `{}` would mislead a consumer that
-			// branches on the entry's presence).
-			if (Object.keys(next).length > 0) result.set(formUuid, next);
+			result.set(formUuid, next);
 		}
 	}
 

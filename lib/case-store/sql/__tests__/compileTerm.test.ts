@@ -57,7 +57,7 @@ import {
 	PostgresQueryCompiler,
 } from "kysely";
 import { describe, expect, it } from "vitest";
-import { asUuid } from "@/lib/doc/types";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import type { CaseType } from "@/lib/domain";
 import {
 	ancestorPath,
@@ -73,9 +73,11 @@ import {
 	sessionUser,
 	timeLiteral,
 } from "@/lib/domain/predicate/builders";
+import { proseText } from "@/lib/domain/prose";
 import { RELATION_PATH_LEAF_ALIAS } from "../compileRelationPath";
 import { compileTerm, type TermCompileContext } from "../compileTerm";
 import type { Database } from "../database";
+import { RESERVED_SCALAR_COLUMN_BY_PROPERTY } from "../dataTypeTokens";
 
 // ---------------------------------------------------------------
 // Shared fixture
@@ -107,17 +109,17 @@ const PATIENT_SCHEMA: CaseType = {
 	name: "patient",
 	parent_type: "household",
 	properties: [
-		{ name: "nickname", label: "Nickname", data_type: "text" },
-		{ name: "age", label: "Age", data_type: "int" },
-		{ name: "bmi", label: "BMI", data_type: "decimal" },
-		{ name: "dob", label: "DOB", data_type: "date" },
-		{ name: "appointment_at", label: "When", data_type: "time" },
-		{ name: "registered_at", label: "When", data_type: "datetime" },
-		{ name: "color", label: "Color", data_type: "single_select" },
-		{ name: "tags", label: "Tags", data_type: "multi_select" },
-		{ name: "loc", label: "Location", data_type: "geopoint" },
+		{ name: "nickname", label: proseText("Nickname"), data_type: "text" },
+		{ name: "age", label: proseText("Age"), data_type: "int" },
+		{ name: "bmi", label: proseText("BMI"), data_type: "decimal" },
+		{ name: "dob", label: proseText("DOB"), data_type: "date" },
+		{ name: "appointment_at", label: proseText("When"), data_type: "time" },
+		{ name: "registered_at", label: proseText("When"), data_type: "datetime" },
+		{ name: "color", label: proseText("Color"), data_type: "single_select" },
+		{ name: "tags", label: proseText("Tags"), data_type: "multi_select" },
+		{ name: "loc", label: proseText("Location"), data_type: "geopoint" },
 		// Property without an explicit data_type — defaults to text.
-		{ name: "untyped", label: "Untyped" },
+		{ name: "untyped", label: proseText("Untyped") },
 	],
 };
 
@@ -126,7 +128,7 @@ const PATIENT_SCHEMA: CaseType = {
 // joined-leaf read picks up the property's declared type.
 const HOUSEHOLD_SCHEMA: CaseType = {
 	name: "household",
-	properties: [{ name: "size", label: "Size", data_type: "int" }],
+	properties: [{ name: "size", label: proseText("Size"), data_type: "int" }],
 };
 
 const CASE_TYPE_SCHEMAS = new Map<string, CaseType>([
@@ -242,11 +244,8 @@ describe("compileTerm — prop (self via) reserved scalar columns", () => {
 		["owner_id", "owner_id"],
 		["status", "status"],
 		["case_name", "case_name"],
-		["name", "case_name"],
 		["external_id", "external_id"],
-		["external-id", "external_id"],
 		["date_opened", "opened_on"],
-		["date-opened", "opened_on"],
 		["last_modified", "modified_on"],
 	];
 
@@ -263,6 +262,13 @@ describe("compileTerm — prop (self via) reserved scalar columns", () => {
 		});
 	}
 
+	it.each(["name", "external-id", "date-opened"])(
+		"has no scalar mapping for the retired spelling %s",
+		(property) => {
+			expect(RESERVED_SCALAR_COLUMN_BY_PROPERTY.has(property)).toBe(false);
+		},
+	);
+
 	it("shadows a blueprint-declared property with the same name", () => {
 		// The blueprint validator owns rejecting reserved-column
 		// names as case-property identifiers (CommCare's wire
@@ -276,7 +282,7 @@ describe("compileTerm — prop (self via) reserved scalar columns", () => {
 			properties: [
 				// Property literally named `status` — the SQL
 				// reads from `c.status`, not from the JSONB document.
-				{ name: "status", label: "Status", data_type: "text" },
+				{ name: "status", label: proseText("Status"), data_type: "text" },
 			],
 		};
 		const ctx = makeCtx({
@@ -477,13 +483,12 @@ describe("compileTerm — literal", () => {
 
 describe("compileTerm — input (search-input ref)", () => {
 	it("resolves from the searchInputs binding map", () => {
-		const searchInputUuid = asUuid("3657244b-1bb6-4078-83e7-16dbfeda6cb6");
 		const compiled = compileTerm_(
 			compileTerm(
-				input(searchInputUuid),
+				input(testUuid("region_filter")),
 				makeCtx({
 					bindings: {
-						searchInputs: new Map([[searchInputUuid, "north"]]),
+						searchInputs: new Map([[testUuid("region_filter"), "north"]]),
 					},
 				}),
 			),
@@ -496,12 +501,9 @@ describe("compileTerm — input (search-input ref)", () => {
 		// miss is a misuse — the wider compiler must thread the
 		// runtime values through `bindings` before calling the
 		// term compiler.
-		expect(() =>
-			compileTerm(
-				input(asUuid("ff810956-b1be-454e-8fd6-f4b142d3c948")),
-				makeCtx(),
-			),
-		).toThrow(/missing/i);
+		expect(() => compileTerm(input(testUuid("missing")), makeCtx())).toThrow(
+			/missing/i,
+		);
 	});
 });
 
@@ -563,7 +565,7 @@ describe("compileTerm — session-context", () => {
 });
 
 describe("compileTerm — form field", () => {
-	const fieldUuid = asUuid("11111111-1111-4111-8111-111111111111");
+	const fieldUuid = testUuid("11111111-1111-4111-8111-111111111111");
 
 	it("resolves a submission answer from the formFields binding map", () => {
 		const compiled = compileTerm_(

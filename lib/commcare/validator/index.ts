@@ -12,6 +12,7 @@
  * surface failed.
  */
 
+import { parseXPathExpressionWithIssues } from "@/lib/commcare/xpath";
 import {
 	type BlueprintDoc,
 	CONNECT_XPATH_SLOT_IDS,
@@ -21,19 +22,25 @@ import {
 	type Field,
 	type FieldProseSlotId,
 	type FieldXPathSlotId,
+	fieldPathResolver,
+	fieldRegistry,
 	formExpressionSource,
 	formExpressionValue,
+	isConnectLearnConfig,
+	type ProseTemplate,
+	projectXPath,
 	reachableCaseTypes,
 	toReachableIndex,
 	type Uuid,
 	type XPathExpression,
+	xpathPrintContext,
 } from "@/lib/domain";
 import {
 	buildFieldTree,
 	type FieldTreeNode,
 } from "@/lib/preview/engine/fieldTree";
 import { TriggerDag } from "@/lib/preview/engine/triggerDag";
-import { BARE_HASHTAG_PATTERN } from "../proseHashtags";
+import { proseTemplateSurvivesTiptapRoundTrip } from "@/lib/tiptap/proseTemplateCodec";
 import {
 	checkCaseHashtag,
 	validateXPath,
@@ -68,7 +75,7 @@ export type ConnectXPathSlot = ConnectXPathSlotId;
 export type ProseSurface = FieldProseSlotId;
 
 /**
- * A validation scope — which entities a scoped run walks. App-level rules
+ * A validation scope — which entities a scoped diagnostic run walks. App-level rules
  * always run regardless of scope (they're cheap and their findings are
  * app-anchored); module rules run for modules in `moduleUuids`; form-level
  * work (form rules, field rules, deep XPath validation) runs for every form
@@ -78,8 +85,8 @@ export type ProseSurface = FieldProseSlotId;
  * is meaningful — it runs app rules only (e.g. a pure module reorder, which
  * can't change any module/form-level finding).
  *
- * Scopes are derived from mutation batches by `scopeOfMutations`; the
- * scoped-run ≡ full-run-filtered law is documented at
+ * The commit gate never supplies this option; it always validates the complete
+ * candidate. The scoped-run ≡ full-run-filtered law is documented at
  * `runner.ts::errorWithinScope` and property-tested.
  */
 export interface ValidationScope {
@@ -156,40 +163,31 @@ export type DeepValidationError =
 	| (DeepLocation & { kind: "cycle"; cycle: readonly string[] });
 
 /**
- * Classify how an INVALID_REF's failing `/data/...` reference is STORED
- * in the slot's expression AST, so the runner can render the repair that
- * actually fixes it (`XPathError.storedRef`). The match is exact against
- * each leaf's printed expansion:
- *
- *   - a raw `#form/...` leaf (plain text the migration could not
- *     re-resolve) expands to `/data/<segments>` — `"raw-text"`: the
- *     reference doesn't follow its field through renames, and
- *     re-committing the expression is the repair;
- *   - an identity leaf whose target no longer resolves prints the bare
- *     uuid (`#form/<uuid>` / `/data/<uuid>` — the printer's total
- *     fallback), expanding to `/data/<uuid>` — `"dangling-identity"`:
+ * Classify an INVALID_REF whose identity leaf no longer resolves, so the
+ * runner can render the repair that actually fixes it
+ * (`XPathError.storedRef`). A dangling identity has an internal diagnostic
+ * projection using its bare uuid (`#form/<uuid>` / `/data/<uuid>`) —
+ * `"dangling-identity"`:
  *     the printed text is an internal id, not a path a person can look
  *     up, so the runner must not present it as one.
  *
- * A failing ref matching neither (a typo'd reference, a cross-form
- * path) classifies as `undefined` and keeps the generic prose. The
- * dangling check needs no doc resolution: a RESOLVED leaf prints its
- * segments, so the bare-uuid expansion exists exactly when resolution
- * failed.
+ * A failing ref matching neither keeps the generic prose. The dangling
+ * check needs no doc resolution: a resolved leaf prints its current path,
+ * so a bare UUID spelling exists exactly when resolution failed.
  */
 function classifyStoredRef(
 	expr: XPathExpression | undefined,
 	failingRef: string | undefined,
-): "raw-text" | "dangling-identity" | undefined {
+): "dangling-identity" | undefined {
 	if (expr === undefined || failingRef === undefined) return undefined;
 	for (const part of expr.parts) {
-		if (part.kind === "raw-ref" && part.namespace === "form") {
-			if (failingRef === `/data/${part.segments.join("/")}`) {
-				return "raw-text";
-			}
-		}
 		if (part.kind === "field-ref" || part.kind === "path-ref") {
-			if (failingRef === `/data/${part.uuid}`) return "dangling-identity";
+			if (
+				failingRef === `/data/${part.uuid}` ||
+				failingRef === `#form/${part.uuid}`
+			) {
+				return "dangling-identity";
+			}
 		}
 	}
 	return undefined;
@@ -204,6 +202,100 @@ function withStoredRef(
 	if (error.code !== "INVALID_REF") return error;
 	const storedRef = classifyStoredRef(expr, error.ref);
 	return storedRef === undefined ? error : { ...error, storedRef };
+}
+
+function canonicalXPathError(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	text: string,
+	expr: XPathExpression | undefined,
+	validPaths: ReadonlySet<string>,
+): XPathError | undefined {
+	if (expr === undefined) {
+		return {
+			code: "INVALID_REF",
+			message: "This expression is not stored as Nova's canonical XPath AST.",
+		};
+	}
+	const projection = projectXPath(expr, xpathPrintContext(doc));
+	if (!projection.ok) {
+		const danglingField = projection.unresolved.some(
+			(part) => part.kind === "field-ref" || part.kind === "path-ref",
+		);
+		return {
+			code: "INVALID_REF",
+			message: "An identity-backed reference no longer resolves in this app.",
+			...(danglingField && { storedRef: "dangling-identity" as const }),
+		};
+	}
+	const userProperties = Object.values(doc.userProperties ?? {});
+	const parsed = parseXPathExpressionWithIssues(
+		text,
+		fieldPathResolver(doc, formUuid),
+		(slug) => {
+			const matches = userProperties.filter(
+				(property) => property?.slug === slug,
+			);
+			return matches.length === 1 ? matches[0]?.uuid : undefined;
+		},
+	);
+	/**
+	 * Connect injects wrapper/session nodes that are real `/data/...` paths on
+	 * the emitted form but are not Nova-owned field entities. Their external
+	 * wire name is therefore the identity: there is deliberately no UUID leaf
+	 * to store. Admit only an exact path already present in this form's
+	 * validator-owned path catalog. Ordinary field paths never reach this arm
+	 * because the form resolver turns them into `field-ref` / `path-ref`
+	 * identities first.
+	 */
+	const externalPath = (source: string): string | undefined =>
+		source.startsWith("/data/")
+			? source
+			: source.startsWith("#form/")
+				? `/data/${source.slice("#form/".length)}`
+				: undefined;
+	const issue = parsed.issues.find((candidate) => {
+		if (candidate.kind !== "unresolved-reference") return true;
+		const path = externalPath(candidate.source);
+		return path === undefined || !validPaths.has(path);
+	});
+	if (issue !== undefined) {
+		const ref =
+			issue.kind === "unresolved-reference"
+				? externalPath(issue.source)
+				: undefined;
+		const leaf = ref?.slice(ref.lastIndexOf("/") + 1);
+		const suggestions =
+			ref === undefined || leaf === undefined
+				? []
+				: [...validPaths]
+						.filter(
+							(path) =>
+								path !== ref && path.slice(path.lastIndexOf("/") + 1) === leaf,
+						)
+						.sort();
+		return {
+			code: issue.kind === "syntax" ? "XPATH_SYNTAX" : "INVALID_REF",
+			message:
+				issue.kind === "syntax"
+					? `Syntax error near "${issue.source}"`
+					: `Reference "${issue.source}" must resolve to one canonical identity in this form.`,
+			position: issue.from,
+			...(ref !== undefined && { ref }),
+			...(suggestions.length > 0 && { suggestions }),
+		};
+	}
+	if (
+		JSON.stringify(parsed.expression) !== JSON.stringify(expr) ||
+		projectXPath(parsed.expression, xpathPrintContext(doc)).text !== text
+	) {
+		return {
+			code: "INVALID_REF",
+			message:
+				"This expression does not survive Nova's canonical identity parse and print round trip.",
+		};
+	}
+	return undefined;
 }
 
 /**
@@ -230,6 +322,18 @@ function collectValidPaths(
 		}
 	}
 	return paths;
+}
+
+function collectTreeFieldUuids(nodes: readonly FieldTreeNode[]): Set<Uuid> {
+	const uuids = new Set<Uuid>();
+	const visit = (entries: readonly FieldTreeNode[]) => {
+		for (const node of entries) {
+			uuids.add(node.field.uuid);
+			if (node.children) visit(node.children);
+		}
+	};
+	visit(nodes);
+	return uuids;
 }
 
 /**
@@ -263,7 +367,10 @@ export function validateBlueprintDeep(
 		// case-type records — the same authoritative source the editor's lint
 		// context uses — so authoring and deep validation agree on `#<type>/<prop>`.
 		const caseTypeIndex = mod.caseType
-			? toReachableIndex(reachableCaseTypes(mod.caseType, doc.caseTypes ?? []))
+			? toReachableIndex(
+					reachableCaseTypes(mod.caseType, doc.caseTypes ?? []),
+					doc,
+				)
 			: undefined;
 
 		for (const formUuid of scopedForms) {
@@ -291,41 +398,32 @@ export function validateBlueprintDeep(
 			};
 
 			const validPaths = collectValidPaths(doc, formUuid);
+			const validFieldUuids = collectTreeFieldUuids(tree);
 
-			// The form's connect config, read directly from the doc (only when
-			// the app is in Connect mode). The validator runs on docs that may
-			// carry an id-less block (a doc that skipped the source
-			// enforcement), so it must NOT route through the emit-time
-			// `buildConnectSlugMap` (which THROWS on a missing id) — it reads
-			// `form.connect` and guards each valid-path arm on the id being
-			// set. An id-less block simply contributes no valid path; the
-			// connect-id rules in `rules/form.ts` carry the authoring signal
-			// (`CONNECT_ID_MISSING` for the unset id itself, format/length for
-			// a bad explicit one) and the app-wide `CONNECT_ID_DUPLICATE` rule
-			// in `rules/app.ts` covers collisions.
+			// The form's complete Connect config, only when the app is in
+			// Connect mode.
 			const connect = doc.connectType ? form.connect : undefined;
 
 			// Expose Connect data paths so XPath expressions can reference them.
-			// Each arm gates on the id being present — a wire node only exists
-			// once the id is set.
 			if (connect) {
-				if (connect.learn_module?.id) {
-					validPaths.add(`/data/${connect.learn_module.id}`);
-				}
-				if (connect.assessment?.id) {
-					validPaths.add(
-						`/data/${connect.assessment.id}/assessment/user_score`,
-					);
-				}
-				if (connect.deliver_unit?.id) {
-					const duId = connect.deliver_unit.id;
-					validPaths.add(`/data/${duId}/deliver/entity_id`);
-					validPaths.add(`/data/${duId}/deliver/entity_name`);
-				}
-				if (connect.task?.id) {
-					// Wrapper-only bind, like learn_module — the XForm emits
-					// `<bind nodeset="/data/<taskId>"/>` with no child paths.
-					validPaths.add(`/data/${connect.task.id}`);
+				if (isConnectLearnConfig(connect)) {
+					if (connect.learn_module) {
+						validPaths.add(`/data/${connect.learn_module.id}`);
+					}
+					if (connect.assessment) {
+						validPaths.add(
+							`/data/${connect.assessment.id}/assessment/user_score`,
+						);
+					}
+				} else {
+					if (connect.deliver_unit) {
+						const duId = connect.deliver_unit.id;
+						validPaths.add(`/data/${duId}/deliver/entity_id`);
+						validPaths.add(`/data/${duId}/deliver/entity_name`);
+					}
+					if (connect.task) {
+						validPaths.add(`/data/${connect.task.id}`);
+					}
 				}
 			}
 
@@ -348,17 +446,18 @@ export function validateBlueprintDeep(
 			// (no wire break), but the author gets no signal. Reuse the SAME
 			// per-form accept map and `checkCaseHashtag` rule the XPath pass
 			// uses, so prose and XPath can never disagree on which refs are
-			// live. Skipped when the form has no reachable case type.
-			if (caseTypeProps) {
-				validateTreeProse(
-					doc,
-					tree,
-					caseTypeProps,
-					isRegistrationForm,
-					loc,
-					errors,
-				);
-			}
+			// live. Field/custom-worker identities are validated even on a
+			// survey form; an empty case map simply admits no case refs.
+			validateTreeProse(
+				doc,
+				tree,
+				validPaths,
+				validFieldUuids,
+				caseTypeProps ?? new Map(),
+				isRegistrationForm,
+				loc,
+				errors,
+			);
 
 			// Connect-block XPath expressions. The expressions themselves
 			// (`user_score`, `entity_id`, `entity_name`) are id-independent, so
@@ -367,9 +466,28 @@ export function validateBlueprintDeep(
 			// not a prose label.
 			if (connect) {
 				for (const slot of CONNECT_XPATH_SLOT_IDS) {
-					const text = formExpressionSource(form, slot, doc);
-					if (!text) continue;
 					const expr = formExpressionValue(form, slot);
+					const text =
+						expr === undefined
+							? formExpressionSource(form, slot, doc)
+							: projectXPath(expr, xpathPrintContext(doc)).text;
+					if (!text) continue;
+					const canonicalError = canonicalXPathError(
+						doc,
+						formUuid,
+						text,
+						expr,
+						validPaths,
+					);
+					if (canonicalError !== undefined) {
+						errors.push({
+							...loc,
+							kind: "connect-xpath",
+							slot,
+							error: canonicalError,
+						});
+						continue;
+					}
 					for (const error of validateXPath(
 						text,
 						validPaths,
@@ -454,6 +572,17 @@ function validateTreeXPath(
 					? text.trim().length === 0
 					: text.length === 0;
 			if (blank) continue;
+			const canonicalError = canonicalXPathError(
+				doc,
+				loc.formUuid,
+				text,
+				expr,
+				validPaths,
+			);
+			if (canonicalError !== undefined) {
+				pushFieldError(node.field, slot, withStoredRef(canonicalError, expr));
+				continue;
+			}
 			for (const error of validateXPath(
 				text,
 				validPaths,
@@ -478,27 +607,14 @@ function validateTreeXPath(
 }
 
 /**
- * Match an embedded Nova hashtag ref inside PROSE using the SAME pattern the
- * XForm builder's lowering pass consumes (`BARE_HASHTAG_PATTERN`), so emission
- * and validation can't drift on what counts as a prose hashtag. Own global
- * instance (the shared pattern carries no `/g`); `/g` is safe with `matchAll`
- * (it clones, never mutating `lastIndex`).
- */
-const PROSE_HASHTAG_RE = new RegExp(BARE_HASHTAG_PATTERN, "g");
-
-/**
- * Recursively scan every PROSE surface (label / hint / help / validate_msg +
- * per-option labels) for embedded `#<type>/<prop>` case refs, pushing a TYPED
- * `field-prose` `DeepValidationError` per ref the form can't read. Runs the
- * SAME `checkCaseHashtag` rule against the SAME per-form accept map the XPath
- * pass uses, with the LENIENT `surface: "prose"` policy: a ref is flagged only
- * when its namespace is a reachable case type AND the property is invalid on
- * it. An unreachable / innocent prose token is left alone — exactly as the
- * emitter ships it as literal text (`xform/builder.ts::buildLabelNodes`).
+ * Recursively validate the typed parts in every canonical prose template.
+ * Literal text is inert even when it looks like a hashtag reference.
  */
 function validateTreeProse(
 	doc: BlueprintDoc,
 	nodes: FieldTreeNode[],
+	validPaths: Set<string>,
+	validFieldUuids: Set<Uuid>,
 	caseTypeProps: Map<string, Set<string>>,
 	isRegistrationForm: boolean,
 	loc: DeepLocation,
@@ -507,30 +623,110 @@ function validateTreeProse(
 	const scan = (
 		field: Field,
 		surface: ProseSurface,
-		text: string | undefined,
+		template: ProseTemplate | undefined,
 	): void => {
-		if (!text) return;
-		for (const match of text.matchAll(PROSE_HASHTAG_RE)) {
-			const refText = match[0];
-			const slashIdx = refText.indexOf("/");
-			const ns = refText.slice(1, slashIdx);
-			const rest = refText.slice(slashIdx + 1);
-			const message = checkCaseHashtag(
-				refText,
-				ns,
-				rest,
-				caseTypeProps,
-				isRegistrationForm,
-				"prose",
-			);
-			if (message) {
+		if (!template) return;
+		if (!proseTemplateSurvivesTiptapRoundTrip(template)) {
+			errors.push({
+				...loc,
+				kind: "field-prose",
+				fieldUuid: field.uuid,
+				fieldId: field.id,
+				surface,
+				error: {
+					code: "INVALID_REF",
+					message:
+						"This text does not survive Nova's canonical reference-editor round trip.",
+				},
+			});
+			return;
+		}
+		const print = xpathPrintContext(doc);
+		for (const [partIndex, part] of template.parts.entries()) {
+			let error: XPathError | undefined;
+			switch (part.kind) {
+				case "text":
+					break;
+				case "field-ref": {
+					const path = print.fieldPathSegments(part.uuid);
+					const ref = path ? `/data/${path.join("/")}` : `/data/${part.uuid}`;
+					const target = doc.fields[part.uuid];
+					if (
+						!path ||
+						!validPaths.has(ref) ||
+						!validFieldUuids.has(part.uuid) ||
+						target === undefined ||
+						fieldRegistry[target.kind].isStructural
+					) {
+						error = {
+							code: "INVALID_REF",
+							message: `Unknown form field reference: ${ref}`,
+							position: partIndex,
+							ref,
+							storedRef: "dangling-identity",
+						};
+					}
+					break;
+				}
+				case "case-ref": {
+					const refText = `#${part.caseType}/${part.property}`;
+					const message = checkCaseHashtag(
+						refText,
+						part.caseType,
+						part.property,
+						caseTypeProps,
+						isRegistrationForm,
+						"prose",
+					);
+					if (message) {
+						error = {
+							code: "INVALID_CASE_REF",
+							message,
+							position: partIndex,
+						};
+					}
+					break;
+				}
+				case "user-property-ref":
+					if (doc.userProperties?.[part.userPropertyUuid] === undefined) {
+						error = {
+							code: "INVALID_REF",
+							message: `Unknown worker information reference: ${part.userPropertyUuid}`,
+							position: partIndex,
+							ref: part.userPropertyUuid,
+							storedRef: "dangling-identity",
+						};
+					}
+					break;
+				case "user-ref":
+					if (
+						Object.values(doc.userProperties ?? {}).some(
+							(property) =>
+								property?.slug.toLowerCase() === part.property.toLowerCase(),
+						)
+					) {
+						error = {
+							code: "INVALID_REF",
+							message:
+								"This worker information name belongs to the app and must use its stable identity-backed reference.",
+							position: partIndex,
+							ref: `#user/${part.property}`,
+						};
+					}
+					break;
+				default: {
+					const _exhaustive: never = part;
+					break;
+				}
+			}
+			if (error) {
 				errors.push({
 					...loc,
 					kind: "field-prose",
 					fieldUuid: field.uuid,
 					fieldId: field.id,
 					surface,
-					error: { code: "INVALID_CASE_REF", message, position: match.index },
+					error,
 				});
 			}
 		}
@@ -542,13 +738,19 @@ function validateTreeProse(
 		// including the fan-out `option_label` slot, whose per-option
 		// labels lower to itext just like a field label, so an embedded
 		// case ref there must resolve too.
-		for (const { slot, text } of expressionSurfaceReads(field, "prose", doc)) {
-			scan(field, slot, text);
+		for (const { slot, template } of expressionSurfaceReads(
+			field,
+			"prose",
+			doc,
+		)) {
+			scan(field, slot, template);
 		}
 		if (node.children) {
 			validateTreeProse(
 				doc,
 				node.children,
+				validPaths,
+				validFieldUuids,
 				caseTypeProps,
 				isRegistrationForm,
 				loc,

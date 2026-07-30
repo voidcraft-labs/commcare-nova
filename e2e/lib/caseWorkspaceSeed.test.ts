@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import { blueprintDocSchema } from "@/lib/domain";
+import { blueprintDocSchema, isOwnerOnlyCaseSearchConfig } from "@/lib/domain";
 import { projectTileGrid } from "@/lib/preview/caseTileLayout";
 import {
 	buildCaseWorkspaceBlueprint,
@@ -24,7 +24,12 @@ describe("case workspace visual-QA seed", () => {
 		const module = doc.modules[CASE_WORKSPACE_SEED.moduleUuid];
 		expect(module).toBeDefined();
 		expect(module?.caseListOnly).toBe(true);
-		expect(module?.caseSearchConfig?.searchScreenSubtitle).toBeUndefined();
+		const searchConfig = module?.caseSearchConfig;
+		expect(
+			searchConfig === undefined || isOwnerOnlyCaseSearchConfig(searchConfig)
+				? undefined
+				: searchConfig.searchScreenSubtitle,
+		).toBeUndefined();
 
 		const columns = module?.caseListConfig?.columns ?? [];
 		expect(

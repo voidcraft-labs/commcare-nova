@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import type { XPathLintContext } from "@/lib/codemirror/xpath-lint";
 import {
-	asUuid,
 	type CaseType,
 	reachableCaseTypes,
 	toReachableIndex,
 } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import { ReferenceProvider } from "../provider";
 
 /** Minimal lint context carrying just the `#form/` slice this suite exercises.
@@ -19,6 +20,7 @@ function formCtx(
 		validPaths: new Set(entries.map(([p]) => `/data/${p}`)),
 		reachableCaseTypes: undefined,
 		formEntries: entries.map(([path, label]) => ({
+			uuid: testUuid(`${formUuid}:${path}`),
 			path,
 			label,
 			kind: "text" as const,
@@ -40,6 +42,7 @@ function caseCtx(
 		validPaths: new Set(),
 		reachableCaseTypes: toReachableIndex(
 			reachableCaseTypes(caseType, caseTypes),
+			{ fields: {}, forms: {}, fieldOrder: {} },
 		),
 		formEntries: [],
 		formType,
@@ -82,6 +85,62 @@ describe("ReferenceProvider — form-entry cache is keyed per form", () => {
 		expect(provider.resolve("#form/g/b", "formA")?.path).toBe("g/b");
 	});
 
+	it("reprojects field paths and worker-information names after invalidation", () => {
+		const fieldUuid = testUuid("stable-field");
+		const propertyUuid = testUuid("stable-worker-property");
+		let path = "group_a/value";
+		let property = {
+			uuid: propertyUuid,
+			slug: "district",
+			label: "District",
+		};
+		const provider = new ReferenceProvider(() => ({
+			...formCtx("formA", []),
+			formEntries: [
+				{
+					uuid: fieldUuid,
+					path,
+					label: "Value",
+					kind: "text",
+				},
+			],
+			userProperties: [property],
+		}));
+		const template = {
+			parts: [
+				{ kind: "field-ref" as const, uuid: fieldUuid },
+				{ kind: "text" as const, text: " / " },
+				{
+					kind: "user-property-ref" as const,
+					userPropertyUuid: propertyUuid,
+				},
+			],
+		};
+
+		expect(provider.projectTemplate(template, "formA").text).toBe(
+			"#form/group_a/value / #user/district",
+		);
+
+		path = "group_b/value";
+		property = {
+			...property,
+			slug: "supervision_area",
+			label: "Supervision area",
+		};
+		provider.invalidate();
+
+		expect(provider.projectTemplate(template, "formA")).toEqual({
+			ok: true,
+			text: "#form/group_b/value / #user/supervision_area",
+		});
+		expect(
+			provider.projectPart({ kind: "field-ref", uuid: fieldUuid }, "formA"),
+		).toMatchObject({
+			ok: true,
+			reference: { raw: "#form/group_b/value" },
+		});
+	});
+
 	it("a form ref needs a form scope — no formUuid resolves to null", () => {
 		const provider = new ReferenceProvider(() =>
 			formCtx("formA", [["g/a", "A"]]),
@@ -113,33 +172,44 @@ describe("ReferenceProvider.parse — namespace classification", () => {
 	it("rejects a malformed namespace or empty path", () => {
 		expect(ReferenceProvider.parse("#1bad/x")).toBeNull();
 		expect(ReferenceProvider.parse("#mother/")).toBeNull();
+		expect(ReferenceProvider.parse("#case/name")).toBeNull();
 		expect(ReferenceProvider.parse("no-hash")).toBeNull();
 	});
 });
 
 describe("ReferenceProvider — custom worker properties", () => {
-	it("keeps prose name-based while XPath exposes the identity-backed catalog", () => {
+	it("offers friendly worker names with identity-backed parts on both surfaces", () => {
+		const propertyUuid = testUuid("property-1");
 		const provider = new ReferenceProvider(() => ({
 			...formCtx("formA", []),
 			userProperties: [
 				{
-					uuid: asUuid("property-1"),
+					uuid: propertyUuid,
 					slug: "supervisor_area",
 					label: "Supervisor area",
 				},
 			],
 		}));
 
-		expect(provider.search("user", "supervisor", "formA")).toEqual([]);
-		expect(provider.search("user", "supervisor", "formA", "xpath")).toEqual([
+		const expected = [
 			{
-				type: "user",
+				type: "user" as const,
 				path: "supervisor_area",
 				label: "Supervisor area (supervisor_area)",
 				raw: "#user/supervisor_area",
+				part: {
+					kind: "user-property-ref" as const,
+					userPropertyUuid: propertyUuid,
+				},
 			},
-		]);
-		expect(provider.resolve("#user/supervisor_area", "formA")).toBeNull();
+		];
+		expect(provider.search("user", "supervisor", "formA")).toEqual(expected);
+		expect(provider.search("user", "supervisor", "formA", "xpath")).toEqual(
+			expected,
+		);
+		expect(provider.resolve("#user/supervisor_area", "formA")).toMatchObject(
+			expected[0],
+		);
 		expect(
 			provider.resolve("#user/supervisor_area", "formA", "xpath"),
 		).toMatchObject({
@@ -148,9 +218,54 @@ describe("ReferenceProvider — custom worker properties", () => {
 		});
 	});
 
+	it("returns an identity-free structured repair state for a missing UUID", () => {
+		const missing = testUuid("missing-property");
+		const provider = new ReferenceProvider(() => ({
+			...formCtx("formA", []),
+			userProperties: [],
+		}));
+
+		const projected = provider.projectPart(
+			{ kind: "user-property-ref", userPropertyUuid: missing },
+			"formA",
+		);
+		expect(projected).toEqual({
+			ok: false,
+			unresolved: {
+				kind: "unresolved-reference",
+				referenceKind: "user-property-ref",
+				type: "user",
+				repairText: "#user/[reference needs repair]",
+			},
+		});
+		expect(JSON.stringify(projected)).not.toContain(missing);
+	});
+
+	it("projects open external worker names without requiring a built-in catalog row", () => {
+		const provider = new ReferenceProvider(() => formCtx("formA", []));
+		expect(
+			provider.projectPart(
+				{ kind: "user-ref", property: "external_program_code" },
+				"formA",
+			),
+		).toEqual({
+			ok: true,
+			reference: {
+				type: "user",
+				path: "external_program_code",
+				label: "external_program_code",
+				raw: "#user/external_program_code",
+				part: {
+					kind: "user-ref",
+					property: "external_program_code",
+				},
+			},
+		});
+	});
+
 	it("reads mutable worker names live so an open XPath chip follows a rename", () => {
 		let property = {
-			uuid: asUuid("property-1"),
+			uuid: testUuid("property-1"),
 			slug: "district",
 			label: "District",
 		};
@@ -176,11 +291,12 @@ describe("ReferenceProvider — custom worker properties", () => {
 	});
 
 	it("prefers a custom XPath identity when its slug overlaps a built-in", () => {
+		const propertyUuid = testUuid("property-1");
 		const provider = new ReferenceProvider(() => ({
 			...formCtx("formA", []),
 			userProperties: [
 				{
-					uuid: asUuid("property-1"),
+					uuid: propertyUuid,
 					slug: "username",
 					label: "Program username",
 				},
@@ -193,6 +309,10 @@ describe("ReferenceProvider — custom worker properties", () => {
 				path: "username",
 				label: "Program username (username)",
 				raw: "#user/username",
+				part: {
+					kind: "user-property-ref",
+					userPropertyUuid: propertyUuid,
+				},
 			},
 		]);
 		expect(provider.resolve("#user/username", "formA", "xpath")?.label).toBe(
@@ -208,17 +328,19 @@ describe("ReferenceProvider.resolve — per-case-type scoping", () => {
 	const caseTypes: CaseType[] = [
 		{
 			name: "mother",
-			properties: [{ name: "household_code", label: "Household code" }],
+			properties: [
+				{ name: "household_code", label: proseText("Household code") },
+			],
 		},
 		{
 			name: "pregnancy",
 			parent_type: "mother",
-			properties: [{ name: "edd", label: "EDD" }],
+			properties: [{ name: "edd", label: proseText("EDD") }],
 		},
 		{
 			name: "child",
 			parent_type: "mother",
-			properties: [{ name: "vaccine", label: "Vaccine" }],
+			properties: [{ name: "vaccine", label: proseText("Vaccine") }],
 		},
 	];
 

@@ -37,7 +37,7 @@
  * Both the SA chat factory and the MCP adapter call this through the shared
  * `ToolExecutionContext` interface. Five exit branches:
  *
- *   1. Module index out of range → `{ error }`, no mutations.
+ *   1. Module UUID address does not resolve → `{ error }`, no mutations.
  *   2. Module has no case list at all → `{ error }`, no mutations. There is
  *      nothing to lay out, and the metadata reducer would no-op silently.
  *   3. The call named neither `tile` nor `placements` → `{ error }`.
@@ -64,19 +64,15 @@ import {
 	type MutatingToolResult,
 	toToolErrorResult,
 } from "../common";
-import type { MutationSuccess } from "../shared/toolCallSummary";
 import {
-	caseTileLayoutInputSchema,
-	moduleNotFoundResult,
-	tilePlacementInputSchema,
-	uuidInputSchema,
-} from "./shared";
+	moduleAddressSchema,
+	resolveModuleAddress,
+} from "../shared/entityAddresses";
+import type { MutationSuccess } from "../shared/toolCallSummary";
+import { caseTileLayoutInputSchema, tilePlacementInputSchema } from "./shared";
 
-export const setCaseListTileInputSchema = z
-	.object({
-		moduleUuid: uuidInputSchema.describe(
-			"Stable uuid of the module whose case list is laid out",
-		),
+export const setCaseListTileInputSchema = moduleAddressSchema
+	.extend({
 		tile: caseTileLayoutInputSchema
 			.nullable()
 			.optional()
@@ -126,21 +122,16 @@ export const setCaseListTileTool = {
 		ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<SetCaseListTileResult>> {
-		const { moduleUuid: rawModuleUuid, tile, placements } = input;
-		const moduleUuid = asUuid(rawModuleUuid);
+		const { tile, placements } = input;
 		try {
-			const mod = doc.modules[moduleUuid];
-			if (!mod)
-				return moduleNotFoundResult<SetCaseListTileSuccess>(
-					doc,
-					rawModuleUuid,
-					"lay out the case list as a tile",
-				);
+			const address = resolveModuleAddress(doc, input);
+			if (!address.ok) return errorResult(doc, address.error);
+			const { moduleUuid, module: mod } = address;
 
 			if (tile === undefined && placements === undefined) {
 				return errorResult(
 					doc,
-					`Tried to lay out the case list on module "${mod.name}". The call named neither \`tile\` nor \`placements\`, so there was nothing to change. Pass \`tile\` to turn the tile layout on or off, \`placements\` to place fields on the grid, or both together.`,
+					`Tried to lay out the case list on module "${mod.name}" (${moduleUuid}). The call named neither \`tile\` nor \`placements\`, so there was nothing to change. Pass \`tile\` to turn the tile layout on or off, \`placements\` to place fields on the grid, or both together.`,
 				);
 			}
 
@@ -148,7 +139,7 @@ export const setCaseListTileTool = {
 			if (!config) {
 				return errorResult(
 					doc,
-					`Tried to lay out the case list on module "${mod.name}". That module has no case list, so there is nothing to lay out. Give the module a case list first — a module that shows cases is created with one — or lay out a module that already has one.`,
+					`Tried to lay out the case list on module "${mod.name}" (${moduleUuid}). That module has no case list, so there is nothing to lay out. Give the module a case list first — a module that shows cases is created with one — or lay out a module that already has one.`,
 				);
 			}
 
@@ -180,16 +171,12 @@ export const setCaseListTileTool = {
 			}
 
 			if (tile !== undefined && !deepEqual(config.tile, tile ?? undefined)) {
-				// The layout rides the granular `setCaseListMeta` kind (not a
-				// wholesale `updateModule{caseListConfig}` that would clobber a
-				// concurrent column edit on the guarded re-apply). `tilePatch` is
-				// top-level on that kind rather than inside its `.strict()` patch
-				// body, so an old parser strips it instead of rejecting the event.
+				// The layout rides the granular `setCaseListMeta` kind, so it does
+				// not clobber a concurrent column edit on guarded re-apply.
 				mutations.push({
 					kind: "setCaseListMeta",
 					uuid: mod.uuid,
-					patch: {},
-					tilePatch: tile,
+					patch: { tile },
 				});
 			}
 
@@ -222,11 +209,12 @@ export const setCaseListTileTool = {
 
 			return {
 				kind: "mutate" as const,
-				mutations,
+				mutations: commit.mutations,
 				newDoc: commit.newDoc,
 				result: {
 					message: describeOutcome({
 						moduleName: mod.name,
+						moduleUuid,
 						tile,
 						nextLayout: committedConfig.tile,
 						placementCount: named.size,
@@ -270,12 +258,13 @@ function errorResult(
  */
 function describeOutcome(facts: {
 	moduleName: string;
+	moduleUuid: Uuid;
 	tile: CaseTileLayout | null | undefined;
 	nextLayout: CaseTileLayout | undefined;
 	placementCount: number;
 	unplacedColumnUuids: readonly Uuid[];
 }): string {
-	const where = `module "${facts.moduleName}"`;
+	const where = `module "${facts.moduleName}" (${facts.moduleUuid})`;
 	const parts: string[] = [];
 	if (facts.tile === null) {
 		parts.push(

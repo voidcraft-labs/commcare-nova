@@ -67,8 +67,9 @@
 // per concern.
 
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import type { Kysely } from "kysely";
+import { type Kysely, sql } from "kysely";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { CaseListScreen } from "@/components/preview/screens/CaseListScreen";
 import { FormScreen } from "@/components/preview/screens/FormScreen";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
@@ -79,7 +80,7 @@ import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
 import type { Database } from "@/lib/case-store/sql/database";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
-import { asUuid as asDocUuid, type Uuid } from "@/lib/doc/types";
+import type { Uuid } from "@/lib/doc/types";
 import {
 	asUuid,
 	type BlueprintDoc,
@@ -95,6 +96,7 @@ import {
 	qualifiedLiteral,
 	term,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import type {
 	LoadCasesResult,
 	PopulateSampleCasesResult,
@@ -126,20 +128,20 @@ const dbHandle = setupPerTestDatabase({
 const APP_ID = "case-list-search-int";
 const MODULE_NAME = "Patients";
 const OWNER_ID = "owner-int";
-const MODULE_UUID = asDocUuid("00000000-0000-0000-0000-00000000a001");
-const REG_FORM_UUID = asDocUuid("00000000-0000-0000-0000-00000000a002");
-const FOLLOWUP_FORM_UUID = asDocUuid("00000000-0000-0000-0000-00000000a003");
-const CLOSE_FORM_UUID = asDocUuid("00000000-0000-0000-0000-00000000a004");
+const MODULE_UUID = testUuid("00000000-0000-0000-0000-00000000a001");
+const REG_FORM_UUID = testUuid("00000000-0000-0000-0000-00000000a002");
+const FOLLOWUP_FORM_UUID = testUuid("00000000-0000-0000-0000-00000000a003");
+const CLOSE_FORM_UUID = testUuid("00000000-0000-0000-0000-00000000a004");
 
-const COL_NAME_UUID = asUuid("00000000-0000-4000-8000-000000000001");
-const COL_AGE_UUID = asUuid("00000000-0000-4000-8000-000000000002");
+const COL_NAME_UUID = testUuid("00000000-0000-4000-8000-000000000001");
+const COL_AGE_UUID = testUuid("00000000-0000-4000-8000-000000000002");
 // Calculated column projecting `age + 1` ("age next year"). Mirrors
 // the authoring integration test's calc-column shape — `arith` plus
 // a typed `int` literal compiles cleanly into the case-store's SQL
 // `calculated` projection and surfaces on `row.calculated[uuid]`.
 // The screen reads the slot through `evaluateColumnValue`.
-const COL_CALC_UUID = asUuid("00000000-0000-4000-8000-000000000003");
-const SI_NAME_UUID = asUuid("00000000-0000-4000-8000-000000000010");
+const COL_CALC_UUID = testUuid("00000000-0000-4000-8000-000000000003");
+const SI_NAME_UUID = testUuid("00000000-0000-4000-8000-000000000010");
 
 // ── Mocks ────────────────────────────────────────────────────────
 //
@@ -312,15 +314,15 @@ function buildFixtureDoc(): BlueprintDoc {
 					searchInputs: [
 						simpleSearchInputDef(
 							SI_NAME_UUID,
-							// `name` is both the input key and the property
-							// it targets — `composeRuntimeFilter` reads the
+							// `name` is the input key; its explicit case destination
+							// is `full_name`. `composeRuntimeFilter` reads the
 							// typed value out of `inputValues.get("name")`
 							// and emits a `case-property` term referencing
-							// `patient.name`.
+							// `patient.full_name`.
 							"name",
 							"Name",
 							"text",
-							"name",
+							"full_name",
 						),
 					],
 				},
@@ -338,20 +340,20 @@ function buildFixtureDoc(): BlueprintDoc {
 							f({
 								kind: "text",
 								id: "case_name",
-								label: "Patient name",
-								case_property_on: "patient",
+								label: proseText("Patient name"),
+								caseWrite: { caseType: "patient", property: "case_name" },
 							}),
 							f({
 								kind: "text",
 								id: "name",
-								label: "Full name",
-								case_property_on: "patient",
+								label: proseText("Full name"),
+								caseWrite: { caseType: "patient", property: "full_name" },
 							}),
 							f({
 								kind: "int",
 								id: "age",
-								label: "Age",
-								case_property_on: "patient",
+								label: proseText("Age"),
+								caseWrite: { caseType: "patient", property: "age" },
 							}),
 						],
 					},
@@ -363,8 +365,8 @@ function buildFixtureDoc(): BlueprintDoc {
 							f({
 								kind: "int",
 								id: "age",
-								label: "Age",
-								case_property_on: "patient",
+								label: proseText("Age"),
+								caseWrite: { caseType: "patient", property: "age" },
 							}),
 						],
 					},
@@ -390,8 +392,8 @@ function buildFixtureDoc(): BlueprintDoc {
 			{
 				name: "patient",
 				properties: [
-					{ name: "name", label: "Name", data_type: "text" },
-					{ name: "age", label: "Age", data_type: "int" },
+					{ name: "full_name", label: proseText("Name"), data_type: "text" },
+					{ name: "age", label: proseText("Age"), data_type: "int" },
 					// `status` is a CommCare standard property reserved
 					// at the scalar-column layer (`RESERVED_SCALAR_COLUMNS`);
 					// the type checker resolves it as `text`-typed without
@@ -505,6 +507,12 @@ beforeEach(async () => {
 	navigateMock.openForm.mockClear();
 
 	await runCaseStoreMigrations(dbHandle.db);
+	await sql`
+		INSERT INTO apps
+			(id, owner, project_id, app_name, app_name_lower)
+		VALUES
+			(${APP_ID}, ${OWNER_ID}, ${OWNER_ID}, 'Case list search', 'case list search')
+	`.execute(dbHandle.db);
 
 	// Bind a per-test store + sync the case-type schema so `insert`
 	// / `update` validators have a row in `case_type_schemas`. Every
@@ -574,7 +582,7 @@ beforeEach(async () => {
 				submissionEnvelopeArgs(mutation, appId, {
 					submissionReceipt: {
 						entryKey: mutation.entryKey,
-						formUuid: mutation.formUuid,
+						formUuid: asUuid(mutation.formUuid),
 						expectedAppMutationSeq: 0,
 						requestDigest: "case-list-running-app-submission",
 					},
@@ -626,7 +634,7 @@ describe("CaseListScreen with search inputs — real Postgres narrowing", () => 
 				case_type: "patient",
 				case_name: "Alice",
 				status: "open",
-				properties: { name: "Alice", age: 25 },
+				properties: { full_name: "Alice", age: 25 },
 			},
 		});
 		await store.insert({
@@ -635,7 +643,7 @@ describe("CaseListScreen with search inputs — real Postgres narrowing", () => 
 				case_type: "patient",
 				case_name: "Bob",
 				status: "open",
-				properties: { name: "Bob", age: 40 },
+				properties: { full_name: "Bob", age: 40 },
 			},
 		});
 		await store.insert({
@@ -644,7 +652,7 @@ describe("CaseListScreen with search inputs — real Postgres narrowing", () => 
 				case_type: "patient",
 				case_name: "Carol",
 				status: "closed",
-				properties: { name: "Carol", age: 30 },
+				properties: { full_name: "Carol", age: 30 },
 			},
 		});
 
@@ -819,7 +827,7 @@ describe("FormScreen followup submit — patch round-trip to case list", () => {
 				case_type: "patient",
 				case_name: "Alice",
 				status: "open",
-				properties: { name: "Alice", age: 40 },
+				properties: { full_name: "Alice", age: 40 },
 			},
 		});
 		const caseId = insertResult.caseId;
@@ -869,7 +877,7 @@ describe("FormScreen followup submit — patch round-trip to case list", () => {
 				caseType: "patient",
 				caseTypeSchemas: buildCaseTypeMap(doc),
 			});
-			expect(rows[0]?.properties).toEqual({ name: "Alice", age: 41 });
+			expect(rows[0]?.properties).toEqual({ full_name: "Alice", age: 41 });
 		});
 
 		formView.unmount();
@@ -934,7 +942,7 @@ describe("FormScreen close submit — closed_on stamps on the bound row", () => 
 				case_type: "patient",
 				case_name: "Alice",
 				status: "open",
-				properties: { name: "Alice", age: 25 },
+				properties: { full_name: "Alice", age: 25 },
 			},
 		});
 		const caseId = insertResult.caseId;

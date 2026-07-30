@@ -3,7 +3,6 @@ import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import {
 	formFieldEntriesFor,
 	lookupFilterEligibleFormFields,
-	lookupFilterFormFieldAdmission,
 } from "@/lib/doc/formFieldEntries";
 import { asUuid } from "@/lib/domain";
 
@@ -135,47 +134,48 @@ function fixture() {
 	return { doc, formUuid };
 }
 
-describe("lookupFilterFormFieldAdmission", () => {
+describe("lookup filter form-field admission", () => {
 	it("offers only earlier root/current/enclosing-repeat answers", () => {
 		const { doc, formUuid } = fixture();
-		const entries = formFieldEntriesFor(doc.fields, doc.fieldOrder, formUuid);
+		const entries = formFieldEntriesFor(doc, formUuid);
 
 		expect(
 			lookupFilterEligibleFormFields(entries, CURRENT).map(
 				(entry) => entry.uuid,
 			),
 		).toEqual([ROOT, OUTER_VALUE, INNER_VALUE]);
-		expect(lookupFilterFormFieldAdmission(entries, CURRENT, LATER)).toEqual({
-			admitted: false,
-			reason: "field-not-earlier",
-		});
 		expect(
-			lookupFilterFormFieldAdmission(entries, CURRENT, CHILD_VALUE),
-		).toEqual({
-			admitted: false,
-			reason: "field-repeat-scope",
-		});
+			lookupFilterEligibleFormFields(entries, CURRENT).map(
+				(entry) => entry.uuid,
+			),
+		).not.toContain(LATER);
 		expect(
-			lookupFilterFormFieldAdmission(entries, CURRENT, SIBLING_VALUE),
-		).toEqual({
-			admitted: false,
-			reason: "field-repeat-scope",
-		});
-		expect(lookupFilterFormFieldAdmission(entries, CURRENT, LABEL)).toEqual({
-			admitted: false,
-			reason: "field-unavailable",
-		});
+			lookupFilterEligibleFormFields(entries, CURRENT).map(
+				(entry) => entry.uuid,
+			),
+		).not.toContain(CHILD_VALUE);
+		expect(
+			lookupFilterEligibleFormFields(entries, CURRENT).map(
+				(entry) => entry.uuid,
+			),
+		).not.toContain(SIBLING_VALUE);
+		expect(
+			lookupFilterEligibleFormFields(entries, CURRENT).map(
+				(entry) => entry.uuid,
+			),
+		).not.toContain(LABEL);
 	});
 
 	it("recomputes earlier-answer admission from the current fieldOrder sequences", () => {
 		const { doc, formUuid } = fixture();
 		doc.fieldOrder[formUuid] = [OUTER, ROOT, SIBLING_REPEAT, LABEL];
-		const entries = formFieldEntriesFor(doc.fields, doc.fieldOrder, formUuid);
+		const entries = formFieldEntriesFor(doc, formUuid);
 
-		expect(lookupFilterFormFieldAdmission(entries, CURRENT, ROOT)).toEqual({
-			admitted: false,
-			reason: "field-not-earlier",
-		});
+		expect(
+			lookupFilterEligibleFormFields(entries, CURRENT).map(
+				(entry) => entry.uuid,
+			),
+		).not.toContain(ROOT);
 		expect(
 			lookupFilterEligibleFormFields(entries, CURRENT).map(
 				(entry) => entry.uuid,

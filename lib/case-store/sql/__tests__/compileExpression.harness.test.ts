@@ -40,7 +40,7 @@
 
 import { sql } from "kysely";
 import { describe } from "vitest";
-import { asUuid } from "@/lib/doc/types";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import type { CaseType } from "@/lib/domain";
 import {
 	ancestorPath,
@@ -69,6 +69,7 @@ import {
 	today,
 } from "@/lib/domain/predicate/builders";
 import type { DateAddInterval } from "@/lib/domain/predicate/types";
+import { proseText } from "@/lib/domain/prose";
 import { evaluate } from "@/lib/preview/xpath/evaluator";
 import type { EvalContext } from "@/lib/preview/xpath/types";
 import {
@@ -93,20 +94,22 @@ const PATIENT_SCHEMA: CaseType = {
 	name: "patient",
 	parent_type: "household",
 	properties: [
-		{ name: "nickname", label: "Nickname", data_type: "text" },
-		{ name: "age", label: "Age", data_type: "int" },
-		{ name: "registered_at", label: "When", data_type: "datetime" },
+		{ name: "nickname", label: proseText("Nickname"), data_type: "text" },
+		{ name: "age", label: proseText("Age"), data_type: "int" },
+		{ name: "registered_at", label: proseText("When"), data_type: "datetime" },
 	],
 };
 
 const HOUSEHOLD_SCHEMA: CaseType = {
 	name: "household",
-	properties: [{ name: "size", label: "Size", data_type: "int" }],
+	properties: [{ name: "size", label: proseText("Size"), data_type: "int" }],
 };
 
 const GUARDIAN_SCHEMA: CaseType = {
 	name: "guardian",
-	properties: [{ name: "rating", label: "Rating", data_type: "int" }],
+	properties: [
+		{ name: "rating", label: proseText("Rating"), data_type: "int" },
+	],
 };
 
 const SCHEMAS = new Map<string, CaseType>([
@@ -135,7 +138,7 @@ describe("compileExpression — round-trip — form bindings", () => {
 	test("preserves a multi-select answer as a JSONB array for operation writes", async ({
 		db,
 	}) => {
-		const fieldUuid = asUuid("44444444-4444-4444-8444-444444444444");
+		const fieldUuid = testUuid("44444444-4444-4444-8444-444444444444");
 		const expr = compileExpression(
 			term(formField(fieldUuid)),
 			makeCtx(db, {
@@ -955,16 +958,15 @@ describe("compileExpression — round-trip — date-add arm", () => {
 		test(`date-add accepts an integral decimal runtime binding for ${interval}`, async ({
 			db,
 		}) => {
-			const quantityInputUuid = asUuid("5bab836e-482c-4091-80b7-d7614349d99e");
 			const expr = compileExpression(
 				dateAdd(
 					datetimeCoerce(term(literal("2024-01-31T12:30:00Z"))),
 					interval,
-					double(term(input(quantityInputUuid))),
+					double(term(input(testUuid("calendar_quantity")))),
 				),
 				makeCtx(db, {
 					bindings: {
-						searchInputs: new Map([[quantityInputUuid, "1.0"]]),
+						searchInputs: new Map([[testUuid("calendar_quantity"), "1.0"]]),
 					},
 				}),
 			);
@@ -984,16 +986,15 @@ describe("compileExpression — round-trip — date-add arm", () => {
 		test(`date-add rejects a non-integral decimal runtime binding for ${interval}`, async ({
 			db,
 		}) => {
-			const quantityInputUuid = asUuid("5bab836e-482c-4091-80b7-d7614349d99e");
 			const expr = compileExpression(
 				dateAdd(
 					datetimeCoerce(term(literal("2024-01-31T12:30:00Z"))),
 					interval,
-					double(term(input(quantityInputUuid))),
+					double(term(input(testUuid("calendar_quantity")))),
 				),
 				makeCtx(db, {
 					bindings: {
-						searchInputs: new Map([[quantityInputUuid, "1.5"]]),
+						searchInputs: new Map([[testUuid("calendar_quantity"), "1.5"]]),
 					},
 				}),
 			);

@@ -77,7 +77,7 @@ import {
 	tileCell,
 	type Uuid,
 } from "@/lib/domain";
-import { asAssetId } from "@/lib/domain/multimedia";
+import { asMediaAssetId } from "@/lib/domain/multimedia";
 import {
 	concat,
 	eq,
@@ -88,6 +88,7 @@ import {
 	term,
 	whenInput,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import {
 	buildField,
 	type FieldBuildCtx,
@@ -128,7 +129,7 @@ const PROPERTY_POOL: ReadonlyArray<{
 function poolProperties(): CaseProperty[] {
 	return PROPERTY_POOL.map((p) => ({
 		name: p.name,
-		label: p.name,
+		label: proseText(p.name),
 		data_type: p.dataType,
 	}));
 }
@@ -184,7 +185,7 @@ const columnSpecArb: fc.Arbitrary<ColumnGenSpec> = fc.oneof(
 		}),
 	),
 	// Image-map: same value-keyed lookup shape as id-mapping, but resolves
-	// each value to an image `AssetId`. The lowering mints two distinct
+	// each value to an image `MediaAssetId`. The lowering mints two distinct
 	// values (`"a"` / `"i"`) so the imageMapValueUnique validator rule
 	// always passes; the assets themselves are minted at lowering time.
 	fc.constantFrom("status_code").map(
@@ -245,9 +246,9 @@ function lowerColumn(
 			// Two distinct value→asset entries — the `imageMapValueUnique`
 			// validator rule rejects duplicate `value` strings, so the keys
 			// MUST stay distinct. The assets are minted via the shared minter
-			// so each id is globally unique and conforms to `assetIdSchema`.
-			const assetA = asAssetId(minter.uuid("imageA"));
-			const assetB = asAssetId(minter.uuid("imageB"));
+			// so each id is globally unique and conforms to `mediaAssetIdSchema`.
+			const assetA = asMediaAssetId(minter.uuid("imageA"));
+			const assetB = asMediaAssetId(minter.uuid("imageB"));
 			return imageMapColumn(
 				uuid,
 				spec.field,
@@ -395,10 +396,10 @@ function lowerSearchInput(
 			// A `when-input-present`-wrapped equality against a text property: the
 			// canonical advanced shape the validator accepts (the bare `input(...)`
 			// ref must sit inside the envelope). The advanced arm's name is
-			// index-keyed since its predicate references its own `input(name)`.
+			// index-keyed while the predicate references the input by identity.
 			const name = `adv_${index}`;
 			// `whenInput(inputRef, clause)` — the first arg is a `SearchInputRef`
-			// (`input(name)`), not a bare string. The envelope gates the inner
+			// (`input(uuid)`), not a bare string. The envelope gates the inner
 			// comparison on the input being present so the bare `input(...)` ref
 			// inside the clause passes `searchInputRefUsesWhenInputPresent`.
 			return advancedSearchInputDef(
@@ -602,7 +603,7 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 
 		// Filter — a clean always-on equality the type checker accepts, scoped to
 		// the module's case type. A `caseSearchConfig` requires at least one
-		// searchable surface (`CASE_SEARCH_CONFIG_NO_SEARCHABLE_SURFACE`): a filter
+		// searchable surface: a filter
 		// OR ≥1 search input. Force the filter on whenever search is present and
 		// no input would otherwise fill that role — that's exactly the
 		// `defaultSearch` shape (search button, zero inputs, filter narrows the
@@ -689,12 +690,12 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 			: undefined;
 
 		// Menu-tile media on the module. Each slot is independent and mints a
-		// fresh `AssetId` via the shared minter.
+		// fresh `MediaAssetId` via the shared minter.
 		const moduleIcon = modSpec.hasIcon
-			? asAssetId(minter.uuid("modicon"))
+			? asMediaAssetId(minter.uuid("modicon"))
 			: undefined;
 		const moduleAudio = modSpec.hasAudioLabel
-			? asAssetId(minter.uuid("modaud"))
+			? asMediaAssetId(minter.uuid("modaud"))
 			: undefined;
 
 		modules[moduleUuid] = {
@@ -714,7 +715,7 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 		};
 
 		// Forms. Case-bearing forms inject `case_name` (+ a saved property, for
-		// realistic case data) so they satisfy NO_CASE_NAME_FIELD.
+		// realistic case data) so each create bucket has exactly one name writer.
 		const caseFirst = modSpec.forms.every(
 			(form) => form.type === "followup" || form.type === "close",
 		);
@@ -724,10 +725,10 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 			fieldOrder[formUuid] = [];
 
 			const formIcon = formSpec.hasIcon
-				? asAssetId(minter.uuid("frmicon"))
+				? asMediaAssetId(minter.uuid("frmicon"))
 				: undefined;
 			const formAudio = formSpec.hasAudioLabel
-				? asAssetId(minter.uuid("frmaud"))
+				? asMediaAssetId(minter.uuid("frmaud"))
 				: undefined;
 
 			forms[formUuid] = {
@@ -755,8 +756,8 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 					uuid: caseNameUuid,
 					kind: "text",
 					id: "case_name",
-					label: "Case name",
-					case_property_on: caseTypeName,
+					label: proseText("Case name"),
+					caseWrite: { caseType: caseTypeName, property: "case_name" },
 				} as Field;
 
 				const propUuid = minter.uuid("fld");
@@ -769,15 +770,15 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 					// `full_name` text property so calc-column / search references
 					// against it resolve to a real writer.
 					id: "full_name",
-					label: "Full name",
-					case_property_on: caseTypeName,
+					label: proseText("Full name"),
+					caseWrite: { caseType: caseTypeName, property: "full_name" },
 				} as Field;
 			}
 
 			// Random root fields draw ids from the sibling pool — same cousin-
-			// collision coverage the XForm generator relies on. Not wired to
-			// `case_property_on` (see the XForm generator's note on the tension
-			// between cousin id-sharing and id-as-property).
+			// collision coverage the XForm generator relies on. They deliberately
+			// have no `caseWrite`; the fixed fields above own the case output while
+			// these random fields focus on path/identity collision coverage.
 			formSpec.fields.forEach((fieldSpec, i) => {
 				buildField(ctx, formUuid, pickSiblingId(i), fieldSpec);
 			});
@@ -785,7 +786,7 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 	});
 
 	// App-level logo (web-apps banner) — minted only when the spec asks for it.
-	const logo = spec.hasLogo ? asAssetId(minter.uuid("logo")) : undefined;
+	const logo = spec.hasLogo ? asMediaAssetId(minter.uuid("logo")) : undefined;
 
 	return {
 		appId: "suite-fuzz-app",

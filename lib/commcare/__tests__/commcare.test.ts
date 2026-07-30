@@ -8,7 +8,8 @@ import {
 	detailPair,
 	emptyFormActions,
 	escapeRegex,
-	expandHashtags,
+	expandCaseToWire,
+	expandFlatHashtags,
 	extractHashtags,
 	formShell,
 	ifCondition,
@@ -29,7 +30,6 @@ describe("RESERVED_CASE_PROPERTIES", () => {
 			"case_id",
 			"case_name",
 			"case_type",
-			"name",
 			"owner_id",
 			"closed",
 			"status",
@@ -37,7 +37,6 @@ describe("RESERVED_CASE_PROPERTIES", () => {
 			"date",
 			"index",
 			"parent",
-			"external-id",
 			"xform_id",
 			"xform_ids",
 		];
@@ -45,6 +44,13 @@ describe("RESERVED_CASE_PROPERTIES", () => {
 			expect(RESERVED_CASE_PROPERTIES.has(word), `missing: ${word}`).toBe(true);
 		}
 	});
+
+	it.each(["name", "external-id", "date-opened"])(
+		"does not retain the domain-rejected spelling %s as a live reserved lookup",
+		(word) => {
+			expect(RESERVED_CASE_PROPERTIES.has(word)).toBe(false);
+		},
+	);
 
 	it("does not contain common user property names", () => {
 		expect(RESERVED_CASE_PROPERTIES.has("age")).toBe(false);
@@ -101,90 +107,78 @@ describe("validation regex patterns", () => {
 });
 
 describe("hashtag expansion", () => {
-	it("expandHashtags replaces #case/ with full XPath", () => {
-		const result = expandHashtags("#case/total_visits + 1");
-		expect(result).toContain("instance('casedb')");
-		expect(result).toContain("/total_visits");
-		expect(result).not.toContain("#case/");
-	});
-
-	it("expandHashtags leaves a plain #case/<prop> byte-identical (regression)", () => {
-		// The relationship-aware case expander must reproduce the historical
-		// flat-prefix output exactly for the zero-relationship case.
-		expect(expandHashtags("#case/edd")).toBe(
+	it("projects an own-case typed ref to the exact private wire selector", () => {
+		expect(expandCaseToWire(0, "edd")).toBe(
 			"instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/edd",
 		);
 	});
 
-	it("expandHashtags resolves #case/parent/<prop> through index/parent", () => {
-		const result = expandHashtags("#case/parent/edd");
+	it("projects an ancestor typed ref through index/parent", () => {
+		const result = expandCaseToWire(1, "edd");
 		// One index-walk to the parent case, property read off it, no literal
-		// `parent` child element, and the hashtag fully consumed.
+		// `parent` child element.
 		expect(result.split("/index/parent").length - 1).toBe(1);
 		expect(result).not.toContain("/parent/edd"); // not a literal child step
 		expect(result.endsWith("]/edd")).toBe(true);
-		expect(result).not.toContain("#case/");
 	});
 
-	it("resolves chained #case/parent/parent via two index/parent hops", () => {
-		const result = expandHashtags("#case/parent/parent/address");
+	it("projects a grandparent typed ref via two index/parent hops", () => {
+		const result = expandCaseToWire(2, "address");
 		expect(result.split("/index/parent").length - 1).toBe(2);
 		expect(result.endsWith("]/address")).toBe(true);
-		expect(result).not.toContain("#case/");
 	});
 
-	it("treats #case/grandparent as a property, not a relationship keyword", () => {
-		// Only `parent` is a relationship segment (and it's CommCare-reserved,
-		// so it can't be a real property). `grandparent` is NOT reserved, so it
-		// must read as an ordinary property — depth is expressed by chaining
-		// `parent/parent`, never a `grandparent` keyword that would shadow it.
-		const result = expandHashtags("#case/grandparent");
+	it("keeps a property named grandparent as a property", () => {
+		const result = expandCaseToWire(0, "grandparent");
 		expect(result).not.toContain("/index/parent");
 		expect(result.endsWith("]/grandparent")).toBe(true);
 	});
 
-	it("expandHashtags replaces #user/ with full XPath", () => {
-		const result = expandHashtags("#user/role");
+	it("expands #user/ with the flat authored resolver", () => {
+		const result = expandFlatHashtags("#user/role");
 		expect(result).toContain("instance('casedb')");
 		expect(result).toContain("/role");
 		expect(result).not.toContain("#user/");
 	});
 
-	it("expandHashtags replaces #form/ with /data/ path", () => {
-		expect(expandHashtags("#form/age")).toBe("/data/age");
-		expect(expandHashtags("#form/age > 18")).toBe("/data/age > 18");
+	it("expands #form/ with the flat authored resolver", () => {
+		expect(expandFlatHashtags("#form/age")).toBe("/data/age");
+		expect(expandFlatHashtags("#form/age > 18")).toBe("/data/age > 18");
 	});
 
-	it("expandHashtags handles nested #form/ paths", () => {
-		expect(expandHashtags("#form/group/age")).toBe("/data/group/age");
-		expect(expandHashtags("#form/a/b/c")).toBe("/data/a/b/c");
+	it("expands nested #form/ paths", () => {
+		expect(expandFlatHashtags("#form/group/age")).toBe("/data/group/age");
+		expect(expandFlatHashtags("#form/a/b/c")).toBe("/data/a/b/c");
 	});
 
-	it("expandHashtags handles mixed #form/ and #case/ in same expression", () => {
-		const result = expandHashtags(
-			"if(#form/confirmed = 'yes', #case/name, '')",
+	it("expands mixed #form/ and #user/ refs", () => {
+		const result = expandFlatHashtags(
+			"if(#form/confirmed = 'yes', #user/username, '')",
 		);
 		expect(result).toContain("/data/confirmed");
 		expect(result).toContain("instance('casedb')");
 		expect(result).not.toContain("#form/");
-		expect(result).not.toContain("#case/");
+		expect(result).not.toContain("#user/");
 	});
 
-	it("expandHashtags leaves plain /data/ paths untouched", () => {
-		expect(expandHashtags("/data/age > 18")).toBe("/data/age > 18");
+	it("leaves plain /data/ paths untouched", () => {
+		expect(expandFlatHashtags("/data/age > 18")).toBe("/data/age > 18");
 	});
 
 	it("extractHashtags collects unique references", () => {
-		const result = extractHashtags(["#case/a + #case/b", "#user/c + #case/a"]);
-		expect(result).toContain("#case/a");
-		expect(result).toContain("#case/b");
+		const result = extractHashtags([
+			"#patient/a + #patient/b",
+			"#user/c + #patient/a",
+		]);
+		expect(result).toContain("#patient/a");
+		expect(result).toContain("#patient/b");
 		expect(result).toContain("#user/c");
 		expect(result).toHaveLength(3);
 	});
 
 	it("extractHashtags does not include #form/ refs (not in transforms map)", () => {
-		const result = extractHashtags(["#form/age + #case/name"]);
-		expect(result).toContain("#case/name");
+		const result = extractHashtags(["#form/age + #patient/name"]);
+		expect(result).toContain("#patient/name");
 		expect(result).not.toContain("#form/age");
 		expect(result).toHaveLength(1);
 	});
@@ -216,7 +210,7 @@ describe("validation functions", () => {
 	});
 
 	it("isReservedProperty returns correct results", () => {
-		expect(isReservedProperty("name")).toBe(true);
+		expect(isReservedProperty("case_id")).toBe(true);
 		expect(isReservedProperty("age")).toBe(false);
 	});
 });

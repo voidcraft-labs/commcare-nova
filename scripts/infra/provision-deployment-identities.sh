@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
-# Provision Nova's least-privilege deployment, migration, bucket-policy, and
-# scheduled capture-maintenance identities. Plan-only by default.
+# Provision Nova's least-privilege deployment, migration, audit, bucket-policy,
+# and scheduled capture-maintenance identities. Plan-only by default.
 
 set -euo pipefail
 
@@ -20,12 +20,14 @@ MIGRATION_ACCOUNT="nova-migrate@${PROJECT}.iam.gserviceaccount.com"
 RUNTIME_ACCOUNT="commcare-nova@${PROJECT}.iam.gserviceaccount.com"
 MEDIA_POLICY_ACCOUNT="nova-media-policy@${PROJECT}.iam.gserviceaccount.com"
 CAPTURE_CLEANUP_ACCOUNT="nova-capture-cleanup@${PROJECT}.iam.gserviceaccount.com"
+AUDIT_ACCOUNT="nova-audit@${PROJECT}.iam.gserviceaccount.com"
 CAPTURE_SCHEDULER_ACCOUNT="nova-capture-scheduler@${PROJECT}.iam.gserviceaccount.com"
 BUILD_SERVICE_AGENT="service-${PROJECT_NUMBER}@gcp-sa-cloudbuild.iam.gserviceaccount.com"
 SCHEDULER_SERVICE_AGENT="service-${PROJECT_NUMBER}@gcp-sa-cloudscheduler.iam.gserviceaccount.com"
 MIGRATION_DB_USER="nova-migrate@${PROJECT}.iam"
 RUNTIME_DB_USER="commcare-nova@${PROJECT}.iam"
 CAPTURE_CLEANUP_DB_USER="nova-capture-cleanup@${PROJECT}.iam"
+AUDIT_DB_USER="nova-audit@${PROJECT}.iam"
 
 APPLY=false
 case "${1:-}" in
@@ -133,6 +135,7 @@ ensure_service_account "$BUILD_ACCOUNT" "nova-build" "Nova Cloud Build deployer"
 ensure_service_account "$MIGRATION_ACCOUNT" "nova-migrate" "Nova database migrator"
 ensure_service_account "$MEDIA_POLICY_ACCOUNT" "nova-media-policy" "Nova media bucket policy"
 ensure_service_account "$CAPTURE_CLEANUP_ACCOUNT" "nova-capture-cleanup" "Nova capture cleanup worker"
+ensure_service_account "$AUDIT_ACCOUNT" "nova-audit" "Nova canonical identity auditor"
 ensure_service_account "$CAPTURE_SCHEDULER_ACCOUNT" "nova-capture-scheduler" "Nova capture cleanup scheduler"
 
 for role in \
@@ -174,6 +177,8 @@ bind_project_role "$MIGRATION_ACCOUNT" roles/cloudsql.client
 bind_project_role "$MIGRATION_ACCOUNT" roles/cloudsql.instanceUser
 bind_project_role "$CAPTURE_CLEANUP_ACCOUNT" roles/cloudsql.client
 bind_project_role "$CAPTURE_CLEANUP_ACCOUNT" roles/cloudsql.instanceUser
+bind_project_role "$AUDIT_ACCOUNT" roles/cloudsql.client
+bind_project_role "$AUDIT_ACCOUNT" roles/cloudsql.instanceUser
 ensure_custom_role \
 	"$MEDIA_POLICY_ROLE_ID" \
 	"Nova media bucket policy" \
@@ -268,7 +273,18 @@ if [[ "$existing_capture_cleanup_user" != "$CAPTURE_CLEANUP_DB_USER" ]]; then
 		--instance="$INSTANCE" \
 		--type=CLOUD_IAM_SERVICE_ACCOUNT
 fi
-# Runtime and capture cleanup inherit no custom database role.
+existing_audit_user="$(gcloud sql users list \
+	--project="$PROJECT" \
+	--instance="$INSTANCE" \
+	--filter="name=${AUDIT_DB_USER}" \
+	--format='value(name)')"
+if [[ "$existing_audit_user" != "$AUDIT_DB_USER" ]]; then
+	run gcloud sql users create "$AUDIT_DB_USER" \
+		--project="$PROJECT" \
+		--instance="$INSTANCE" \
+		--type=CLOUD_IAM_SERVICE_ACCOUNT
+fi
+# Runtime, capture cleanup, and audit inherit no custom database role.
 # `--database-roles` is intentionally omitted: Cloud SQL interprets this as an
 # empty replacement set.
 run gcloud sql users assign-roles "$RUNTIME_DB_USER" \
@@ -290,6 +306,12 @@ run gcloud sql users assign-roles "$CAPTURE_CLEANUP_DB_USER" \
 	--type=CLOUD_IAM_SERVICE_ACCOUNT \
 	--revoke-existing-roles \
 	--quiet
+run gcloud sql users assign-roles "$AUDIT_DB_USER" \
+	--project="$PROJECT" \
+	--instance="$INSTANCE" \
+	--type=CLOUD_IAM_SERVICE_ACCOUNT \
+	--revoke-existing-roles \
+	--quiet
 
 run gcloud beta builds triggers update developer-connect "$TRIGGER_ID" \
 	--project="$PROJECT" \
@@ -298,5 +320,5 @@ run gcloud beta builds triggers update developer-connect "$TRIGGER_ID" \
 
 printf '%s\n' \
 	"Database bootstrap remains intentionally separate:" \
-	"  ${RUNTIME_DB_USER} and ${CAPTURE_CLEANUP_DB_USER} have no custom parent role; only migration inherits ${RUNTIME_DB_USER}." \
+	"  ${RUNTIME_DB_USER}, ${CAPTURE_CLEANUP_DB_USER}, and ${AUDIT_DB_USER} have no custom parent role; only migration inherits ${RUNTIME_DB_USER}." \
 	"  Run the checked-in privileged bootstrap dry-run, inspect its catalog inventory, then apply it before ordinary migrations."

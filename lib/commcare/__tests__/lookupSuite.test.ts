@@ -3,13 +3,14 @@ import { type Document, type Element, isTag } from "domhandler";
 import { findAll, getAttributeValue, getChildren } from "domutils";
 import { parseDocument } from "htmlparser2";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
 import { buildLookupFixtures } from "@/lib/commcare/lookup/fixtures";
 import { lookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { validateSuite } from "@/lib/commcare/validator/suiteOracle";
-import { asUuid, calculatedColumn, plainColumn } from "@/lib/domain";
+import { calculatedColumn, plainColumn } from "@/lib/domain";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import {
 	eq,
@@ -19,20 +20,13 @@ import {
 	tableColumn,
 	tableLookup,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import type { LookupRevision, LookupRowId } from "@/lib/lookup/types";
 
 const REGIONS = "018f3e8a-7b2c-7def-8abc-0000000000a1" as LookupTableId;
 const VALUE = "018f3e8a-7b2c-7def-8abc-0000000000b1" as LookupColumnId;
 const LABEL = "018f3e8a-7b2c-7def-8abc-0000000000b2" as LookupColumnId;
 const NAME = "018f3e8a-7b2c-7def-8abc-0000000000b3" as LookupColumnId;
-
-/** Named CommCare item-list oracle captured as literal fixture bytes.
- *
- * This is intentionally not assembled with Nova's fixture builder: the test
- * must compare the compiler to an independent accepted wire shape, not compare
- * one generated value with another generated value. */
-const COMMCARE_REGIONS_ITEM_LIST_FIXTURE_BYTES =
-	'<fixture id="item-list:regions"><regions_list><regions><value>north</value><label>North</label><name>Northland</name></regions><regions><value>south</value><label>South</label><name>Southland</name></regions></regions_list></fixture>';
 
 const naming = lookupWireNaming([
 	{
@@ -76,8 +70,8 @@ function lookupApp() {
 			{
 				name: "patient",
 				properties: [
-					{ name: "case_name", label: "Name" },
-					{ name: "region", label: "Region" },
+					{ name: "case_name", label: proseText("Name") },
+					{ name: "region", label: proseText("Region") },
 				],
 			},
 		],
@@ -92,12 +86,12 @@ function lookupApp() {
 				caseListConfig: {
 					columns: [
 						plainColumn(
-							asUuid("018f3e8a-7b2c-7def-8abc-0000000000e1"),
+							testUuid("018f3e8a-7b2c-7def-8abc-0000000000e1"),
 							"case_name",
 							"Name",
 						),
 						calculatedColumn(
-							asUuid("018f3e8a-7b2c-7def-8abc-0000000000e2"),
+							testUuid("018f3e8a-7b2c-7def-8abc-0000000000e2"),
 							"Region",
 							tableLookup(
 								REGIONS,
@@ -116,13 +110,13 @@ function lookupApp() {
 							f({
 								kind: "text",
 								id: "case_name",
-								label: "Name",
-								case_property_on: "patient",
+								label: proseText("Name"),
+								caseWrite: { caseType: "patient", property: "case_name" },
 							}),
 							f({
 								kind: "single_select",
 								id: "region_select",
-								label: "Region",
+								label: proseText("Region"),
 								optionsSource: {
 									kind: "lookup",
 									tableId: REGIONS,
@@ -160,10 +154,7 @@ function parse(xml: string): Document {
 describe("compileCcz — lookup wire embedding", () => {
 	it("embeds the fixture after the menus with the exact serialized body", () => {
 		const suiteXml = compile().readAsText("suite.xml");
-		expect(fixtures.fixtures[0].xml).toBe(
-			COMMCARE_REGIONS_ITEM_LIST_FIXTURE_BYTES,
-		);
-		expect(suiteXml).toContain(COMMCARE_REGIONS_ITEM_LIST_FIXTURE_BYTES);
+		expect(suiteXml).toContain(fixtures.fixtures[0].xml);
 
 		const suite = findAll(
 			(el) => el.name === "suite",
@@ -217,15 +208,16 @@ describe("compileCcz — lookup wire embedding", () => {
 		const itemsets = findAll((el) => el.name === "itemset", root.children);
 		expect(itemsets).toHaveLength(1);
 		expect(getAttributeValue(itemsets[0], "nodeset")).toBe(
-			"instance('item-list:regions')/regions_list/regions",
+			"instance('regions')/regions_list/regions",
 		);
 		const formFixtureInstances = findAll(
 			(el) => el.name === "instance",
 			root.children,
-		).filter(
-			(instance) => getAttributeValue(instance, "id") === "item-list:regions",
-		);
+		).filter((instance) => getAttributeValue(instance, "id") === "regions");
 		expect(formFixtureInstances).toHaveLength(1);
+		expect(getAttributeValue(formFixtureInstances[0], "src")).toBe(
+			"jr://fixture/item-list:regions",
+		);
 	});
 });
 

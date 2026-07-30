@@ -20,8 +20,24 @@ import {
 	ASSET_KINDS,
 	DOCUMENT_KINDS,
 	isDocumentKind,
+	mediaAssetIdSchema,
 } from "@/lib/domain/multimedia";
 import { MAX_ATTACHMENTS_PER_MESSAGE } from "./limits";
+
+/**
+ * Asset kinds the chat composer and untrusted request boundary accept: images
+ * plus the document kinds the Solutions Architect can read. Audio/video are
+ * CommCare carriers, not chat inputs.
+ */
+export const CHAT_ATTACHMENT_KINDS = ["image", ...DOCUMENT_KINDS] as const;
+
+const attachmentRefFields = {
+	assetId: mediaAssetIdSchema,
+	filename: z.string().min(1).max(255),
+	mimeType: z.string().min(1).max(255),
+	title: z.string().max(200).optional(),
+	summary: z.string().max(2_000).optional(),
+};
 
 /**
  * A reference to one attached asset. `assetId` is the durable pointer (the
@@ -38,19 +54,25 @@ import { MAX_ATTACHMENTS_PER_MESSAGE } from "./limits";
  * an asset id is a UUID (36 chars), filenames + MIME types are short, and an
  * extracted title is ~ten words / a summary two-to-four sentences.
  */
-export const attachmentRefSchema = z.object({
-	assetId: z.string().min(1).max(128),
-	kind: z.enum(ASSET_KINDS),
-	filename: z.string().min(1).max(255),
-	mimeType: z.string().min(1).max(255),
+export const attachmentRefSchema = z.strictObject({
+	...attachmentRefFields,
+	kind: z.enum(CHAT_ATTACHMENT_KINDS),
 	/** A document's extracted title/summary, snapshotted at attach time so the
 	 *  transcript chip's preview header has them the instant it opens — no fetch.
 	 *  Display-only (the server re-derives what it needs from `assetId`); absent
 	 *  for media and for a document not yet extracted when it was attached. */
-	title: z.string().max(200).optional(),
-	summary: z.string().max(2_000).optional(),
 });
 export type AttachmentRef = z.infer<typeof attachmentRefSchema>;
+
+/**
+ * Immutable event-audit receipts retain the broad historical asset-kind
+ * vocabulary. They are never live chat carriers and are not resolved.
+ */
+export const auditAttachmentRefSchema = z.strictObject({
+	...attachmentRefFields,
+	kind: z.enum(ASSET_KINDS),
+});
+export type AuditAttachmentRef = z.infer<typeof auditAttachmentRefSchema>;
 
 /**
  * Whether a DOCUMENT attachment still needs reading (extraction) at send time —
@@ -102,12 +124,3 @@ export type NovaMessageMetadata = z.infer<typeof messageMetadataSchema>;
 /** The app's `UIMessage`, carrying Nova's attachment metadata. Typing the chat
  *  with this is what makes `sendMessage`'s `metadata` field accept our shape. */
 export type NovaUIMessage = UIMessage<NovaMessageMetadata>;
-
-/**
- * Asset kinds the chat composer accepts: images (read directly by the model's
- * vision pass) plus the library-only document kinds (condensed to a requirements
- * extract). Deliberately NOT audio/video — those are CommCare carriers, not
- * things the Solutions Architect reads. Passed to `MediaPickerDialog` as the
- * allowed `kinds`.
- */
-export const CHAT_ATTACHMENT_KINDS = ["image", ...DOCUMENT_KINDS] as const;

@@ -41,6 +41,7 @@ import {
 	createLookupRow,
 	createLookupTable,
 	deleteLookupRow,
+	getAllLookupDefinitions,
 	getLookupDefinitions,
 	getLookupManifest,
 	getLookupTable,
@@ -344,6 +345,15 @@ export async function getLookupManifestAction(
 ): Promise<LookupResult<LookupManifest>> {
 	return runLookupAction(projectId, undefined, z.undefined(), "view", (scope) =>
 		getLookupManifest(scope),
+	);
+}
+
+/** Complete rows-free Project lookup catalog for builder authoring. */
+export async function getAllLookupDefinitionsAction(
+	projectId: unknown,
+): Promise<LookupResult<LookupDefinitionsSnapshot>> {
+	return runLookupAction(projectId, undefined, z.undefined(), "view", (scope) =>
+		getAllLookupDefinitions(scope),
 	);
 }
 

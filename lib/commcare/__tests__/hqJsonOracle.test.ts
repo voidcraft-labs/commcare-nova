@@ -25,6 +25,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import {
 	applicationShell,
@@ -41,12 +42,12 @@ import { expandDoc } from "@/lib/commcare/expander";
 import type { ValidationErrorCode } from "@/lib/commcare/validator/errors";
 import { validateHqJson } from "@/lib/commcare/validator/hqJsonOracle";
 import {
-	asUuid,
 	calculatedColumn,
 	emptyCaseListConfig,
 	plainColumn,
 } from "@/lib/domain";
 import { prop, toValueExpression } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 
 // ── Fixture builders ───────────────────────────────────────────────
 
@@ -147,13 +148,12 @@ function moduleOf(app: HqApplication): HqModule {
 describe("HQ-JSON oracle — clean baseline", () => {
 	it("accepts independently ordered short and long column arrays with list-indexed calculated sort", () => {
 		const name = plainColumn(
-			asUuid("00000000-0000-4000-8000-000000000091"),
+			testUuid("00000000-0000-4000-8000-000000000091"),
 			"name",
 			"Name",
-			{ listOrder: "a", detailOrder: "b" },
 		);
 		const age = calculatedColumn(
-			asUuid("00000000-0000-4000-8000-000000000092"),
+			testUuid("00000000-0000-4000-8000-000000000092"),
 			"Age",
 			toValueExpression(prop("patient", "age")),
 			{
@@ -182,8 +182,8 @@ describe("HQ-JSON oracle — clean baseline", () => {
 					{
 						name: "patient",
 						properties: [
-							{ name: "name", label: "Name", data_type: "text" },
-							{ name: "age", label: "Age", data_type: "int" },
+							{ name: "name", label: proseText("Name"), data_type: "text" },
+							{ name: "age", label: proseText("Age"), data_type: "int" },
 						],
 					},
 				],
@@ -207,12 +207,12 @@ describe("HQ-JSON oracle — clean baseline", () => {
 
 	it("keeps a Results sort carrier invisible and omits it from Details", () => {
 		const name = plainColumn(
-			asUuid("00000000-0000-4000-8000-000000000093"),
+			testUuid("00000000-0000-4000-8000-000000000093"),
 			"name",
 			"Name",
 		);
 		const sortOnly = plainColumn(
-			asUuid("00000000-0000-4000-8000-000000000094"),
+			testUuid("00000000-0000-4000-8000-000000000094"),
 			"external_id",
 			"External ID",
 			{
@@ -239,10 +239,10 @@ describe("HQ-JSON oracle — clean baseline", () => {
 					{
 						name: "patient",
 						properties: [
-							{ name: "name", label: "Name", data_type: "text" },
+							{ name: "name", label: proseText("Name"), data_type: "text" },
 							{
 								name: "external_id",
-								label: "External ID",
+								label: proseText("External ID"),
 								data_type: "text",
 							},
 						],
@@ -253,12 +253,12 @@ describe("HQ-JSON oracle — clean baseline", () => {
 
 		const details = app.modules[0].case_details;
 		expect(details.short.columns.map((column) => column.field)).toEqual([
-			"case_name",
+			"name",
 			"external_id",
 		]);
 		expect(details.short.columns[1].format).toBe("invisible");
 		expect(details.long.columns.map((column) => column.field)).toEqual([
-			"case_name",
+			"name",
 		]);
 		expect(details.short.sort_elements[0]?.field).toBe("external_id");
 		expect(validateHqJson(app)).toEqual([]);
@@ -266,14 +266,14 @@ describe("HQ-JSON oracle — clean baseline", () => {
 
 	it("joins attribute-backed sorts to their visible HQ column and drops useless hidden definitions", () => {
 		const status = plainColumn(
-			asUuid("00000000-0000-4000-8000-000000000095"),
+			testUuid("00000000-0000-4000-8000-000000000095"),
 			"status",
 			"Case status",
 			{ sort: { direction: "asc", priority: 0 } },
 		);
 		const hidden = plainColumn(
-			asUuid("00000000-0000-4000-8000-000000000096"),
-			"external-id",
+			testUuid("00000000-0000-4000-8000-000000000096"),
+			"external_id",
 			"External ID",
 			{ visibleInList: false, visibleInDetail: false },
 		);
@@ -330,14 +330,14 @@ describe("HQ-JSON oracle — clean baseline", () => {
 								{
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								},
 								{
 									kind: "text",
 									id: "notes",
-									label: "Notes",
-									case_property_on: "patient",
+									label: proseText("Notes"),
+									caseWrite: { caseType: "patient", property: "notes" },
 								},
 							],
 						},
@@ -355,8 +355,8 @@ describe("HQ-JSON oracle — clean baseline", () => {
 								{
 									kind: "text",
 									id: "case_name",
-									label: "Visit name",
-									case_property_on: "visit",
+									label: proseText("Visit name"),
+									caseWrite: { caseType: "visit", property: "case_name" },
 								},
 							],
 						},

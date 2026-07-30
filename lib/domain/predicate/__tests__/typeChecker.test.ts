@@ -1,4 +1,3 @@
-import { asUuid } from "@/lib/domain";
 // lib/domain/predicate/__tests__/typeChecker.test.ts
 //
 // Acceptance tests for the schema-driven predicate type checker. Each
@@ -16,7 +15,9 @@ import { asUuid } from "@/lib/domain";
 // session-user / session-context refs, boolean literals).
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import type { CaseType } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import {
 	ancestorPath,
 	and,
@@ -39,7 +40,6 @@ import {
 	input,
 	isBlank,
 	isIn,
-	isNull,
 	literal,
 	lt,
 	match,
@@ -62,7 +62,6 @@ import {
 	term,
 	timeLiteral,
 	today,
-	unwrapList,
 	whenInput,
 	within,
 } from "../builders";
@@ -86,32 +85,32 @@ import { MATCH_MODES, MULTI_SELECT_QUANTIFIERS } from "../types";
 const PATIENT: CaseType = {
 	name: "patient",
 	properties: [
-		{ name: "name", label: "Name", data_type: "text" },
-		{ name: "age", label: "Age", data_type: "int" },
-		{ name: "weight_kg", label: "Weight", data_type: "decimal" },
-		{ name: "dob", label: "DOB", data_type: "date" },
-		{ name: "last_seen", label: "Last seen", data_type: "datetime" },
+		{ name: "case_name", label: proseText("Case name"), data_type: "text" },
+		{ name: "age", label: proseText("Age"), data_type: "int" },
+		{ name: "weight_kg", label: proseText("Weight"), data_type: "decimal" },
+		{ name: "dob", label: proseText("DOB"), data_type: "date" },
+		{ name: "last_seen", label: proseText("Last seen"), data_type: "datetime" },
 		{
 			name: "appointment_time",
-			label: "Appointment time",
+			label: proseText("Appointment time"),
 			data_type: "time",
 		},
 		{
 			name: "status",
-			label: "Status",
+			label: proseText("Status"),
 			data_type: "single_select",
 			options: [
-				{ value: "open", label: "Open" },
-				{ value: "closed", label: "Closed" },
+				{ value: "open", label: proseText("Open") },
+				{ value: "closed", label: proseText("Closed") },
 			],
 		},
 		{
 			name: "tags",
-			label: "Tags",
+			label: proseText("Tags"),
 			data_type: "multi_select",
 			options: [
-				{ value: "vip", label: "VIP" },
-				{ value: "urgent", label: "Urgent" },
+				{ value: "vip", label: proseText("VIP") },
+				{ value: "urgent", label: proseText("Urgent") },
 			],
 		},
 	],
@@ -140,7 +139,7 @@ const ctxWithGeo = {
 				...PATIENT.properties,
 				{
 					name: "location",
-					label: "Location",
+					label: proseText("Location"),
 					data_type: "geopoint" as const,
 				},
 			],
@@ -156,7 +155,7 @@ describe("checkPredicate — comparison operators", () => {
 	});
 
 	it("accepts text = text", () => {
-		const p = eq(prop("patient", "name"), literal("Alice"));
+		const p = eq(prop("patient", "case_name"), literal("Alice"));
 		const result = checkPredicate(p, ctx);
 		expect(result.ok).toBe(true);
 	});
@@ -177,7 +176,7 @@ describe("checkPredicate — comparison operators", () => {
 	});
 
 	it("rejects gt on text (strings aren't ordered)", () => {
-		const p = gt(prop("patient", "name"), literal("M"));
+		const p = gt(prop("patient", "case_name"), literal("M"));
 		const result = checkPredicate(p, ctx);
 		expect(result.ok).toBe(false);
 		if (!result.ok) {
@@ -251,24 +250,18 @@ describe("checkPredicate — comparison operators", () => {
 			...ctx,
 			knownInputs: [
 				{
-					uuid: asUuid("446ee3ba-b1e9-4117-8f0e-c6f3b554e062"),
+					uuid: testUuid("min_age"),
 					name: "min_age",
 					data_type: "int" as const,
 				},
 			],
 		};
-		const p = gt(
-			prop("patient", "age"),
-			input(asUuid("446ee3ba-b1e9-4117-8f0e-c6f3b554e062")),
-		);
+		const p = gt(prop("patient", "age"), input(testUuid("min_age")));
 		expect(checkPredicate(p, ctxWithInput).ok).toBe(true);
 	});
 
 	it("rejects input ref when input isn't declared", () => {
-		const p = gt(
-			prop("patient", "age"),
-			input(asUuid("52304864-effd-47d2-8600-7fde8f9724a8")),
-		);
+		const p = gt(prop("patient", "age"), input(testUuid("undeclared")));
 		const result = checkPredicate(p, ctx);
 		expect(result.ok).toBe(false);
 		if (!result.ok) {
@@ -283,10 +276,7 @@ describe("checkPredicate — comparison operators", () => {
 	// problems in one pass. The editor relies on this behavior to
 	// highlight every failing card simultaneously.
 	it("accumulates errors from both operands when both fail to resolve", () => {
-		const p = eq(
-			prop("patient", "bogus"),
-			input(asUuid("52304864-effd-47d2-8600-7fde8f9724a8")),
-		);
+		const p = eq(prop("patient", "bogus"), input(testUuid("undeclared")));
 		const result = checkPredicate(p, ctx);
 		expect(result.ok).toBe(false);
 		if (!result.ok) {
@@ -332,7 +322,7 @@ describe("checkPredicate — comparison operators", () => {
 	// Comparing a text-typed property against a session-user reference
 	// is the canonical shape; pinning it locks the resolution rule.
 	it("accepts text prop = session-user field (both resolve to text)", () => {
-		const p = eq(prop("patient", "name"), sessionUser("display_name"));
+		const p = eq(prop("patient", "case_name"), sessionUser("display_name"));
 		expect(checkPredicate(p, ctx).ok).toBe(true);
 	});
 
@@ -347,7 +337,7 @@ describe("checkPredicate — comparison operators", () => {
 	// against a text-typed property is well-typed under the
 	// text-shaped rule regardless.
 	it("accepts text prop = session-context field (both resolve to text)", () => {
-		const p = eq(prop("patient", "name"), sessionContext("username"));
+		const p = eq(prop("patient", "case_name"), sessionContext("username"));
 		expect(checkPredicate(p, ctx).ok).toBe(true);
 	});
 
@@ -356,7 +346,7 @@ describe("checkPredicate — comparison operators", () => {
 	// against a numeric or date property would fail the compatibility
 	// check; this test pins only the well-typed direction.
 	it("accepts text prop = boolean literal (boolean resolves to text)", () => {
-		const p = eq(prop("patient", "name"), literal(true));
+		const p = eq(prop("patient", "case_name"), literal(true));
 		expect(checkPredicate(p, ctx).ok).toBe(true);
 	});
 
@@ -381,7 +371,7 @@ describe("checkPredicate — recursion through logical wrappers", () => {
 		const badComparison = eq(prop("patient", "age"), literal("forty-two"));
 		const wrapped = and(
 			badComparison,
-			eq(prop("patient", "name"), literal("Alice")),
+			eq(prop("patient", "case_name"), literal("Alice")),
 		);
 		const result = checkPredicate(wrapped, ctx);
 		expect(result.ok).toBe(false);
@@ -417,7 +407,7 @@ describe("checkPredicate — recursion through logical wrappers", () => {
 	// a regression that mis-indexed (e.g. always emitted 0) would be
 	// visible here.
 	it("propagates errors from inside or(...) with index-segmented paths", () => {
-		const goodComparison = eq(prop("patient", "name"), literal("Alice"));
+		const goodComparison = eq(prop("patient", "case_name"), literal("Alice"));
 		const badComparison = eq(prop("patient", "age"), literal("forty-two"));
 		const wrapped = or(goodComparison, badComparison);
 		const result = checkPredicate(wrapped, ctx);
@@ -435,12 +425,10 @@ describe("checkPredicate — recursion through logical wrappers", () => {
 	it("propagates errors from inside when-input-present's clause", () => {
 		const ctxWithInput = {
 			...ctx,
-			knownInputs: [
-				{ uuid: asUuid("91b65850-ffdb-4800-8e63-2e6aaa1c2248"), name: "phone" },
-			],
+			knownInputs: [{ uuid: testUuid("phone"), name: "phone" }],
 		};
 		const p = whenInput(
-			input(asUuid("91b65850-ffdb-4800-8e63-2e6aaa1c2248")),
+			input(testUuid("phone")),
 			eq(prop("patient", "age"), literal("forty-two")),
 		);
 		const result = checkPredicate(p, ctxWithInput);
@@ -460,8 +448,8 @@ describe("checkPredicate — recursion through logical wrappers", () => {
 	// than its `clause` slot.
 	it("rejects when-input-present with an undeclared trigger input", () => {
 		const p = whenInput(
-			input(asUuid("52304864-effd-47d2-8600-7fde8f9724a8")),
-			eq(prop("patient", "name"), literal("Alice")),
+			input(testUuid("undeclared")),
+			eq(prop("patient", "case_name"), literal("Alice")),
 		);
 		const result = checkPredicate(p, ctx);
 		expect(result.ok).toBe(false);
@@ -498,7 +486,7 @@ describe("checkPredicate — operand resolution on in / within-distance / match 
 	it("rejects within-distance(...) with an unknown property and unknown input", () => {
 		const p = within(
 			prop("alien_type", "loc"),
-			input(asUuid("52304864-effd-47d2-8600-7fde8f9724a8")),
+			input(testUuid("undeclared")),
 			50,
 			"miles",
 		);
@@ -609,7 +597,7 @@ describe("checkPredicate — within-distance geopoint requirement", () => {
 			...ctxWithGeo,
 			knownInputs: [
 				{
-					uuid: asUuid("3344fe68-5f7e-44bd-86c8-c47a04bfcba6"),
+					uuid: testUuid("user_loc"),
 					name: "user_loc",
 					data_type: "geopoint" as const,
 				},
@@ -617,7 +605,7 @@ describe("checkPredicate — within-distance geopoint requirement", () => {
 		};
 		const p = within(
 			prop("patient", "location"),
-			input(asUuid("3344fe68-5f7e-44bd-86c8-c47a04bfcba6")),
+			input(testUuid("user_loc")),
 			50,
 			"miles",
 		);
@@ -631,7 +619,7 @@ describe("checkPredicate — within-distance geopoint requirement", () => {
 	// exists), then the semantic check rejects the type mismatch.
 	it("rejects within-distance when the property is not geopoint", () => {
 		const p = within(
-			prop("patient", "name"),
+			prop("patient", "case_name"),
 			literal("40.7 -74.0 0 0"),
 			50,
 			"miles",
@@ -680,7 +668,7 @@ describe("checkPredicate — match property-shape requirement", () => {
 	it.each(TEXT_SHAPED_MATCH_MODES)(
 		"accepts match on a text property (mode: %s)",
 		(mode) => {
-			const p = match(prop("patient", "name"), "alice", mode);
+			const p = match(prop("patient", "case_name"), "alice", mode);
 			expect(checkPredicate(p, ctx).ok).toBe(true);
 		},
 	);
@@ -707,7 +695,7 @@ describe("checkPredicate — match property-shape requirement", () => {
 
 	it("accepts a pure derived text expression as the match value", () => {
 		const p = match(
-			prop("patient", "name"),
+			prop("patient", "case_name"),
 			concat(term(literal("Al")), term(literal("ice"))),
 			"starts-with",
 		);
@@ -736,7 +724,7 @@ describe("checkPredicate — match property-shape requirement", () => {
 	});
 
 	it("classifies an empty match value as a completeness finding", () => {
-		const p = match(prop("patient", "name"), "", "fuzzy");
+		const p = match(prop("patient", "case_name"), "", "fuzzy");
 		const result = checkPredicate(p, ctx);
 		expect(result.ok).toBe(false);
 		if (!result.ok) {
@@ -748,7 +736,7 @@ describe("checkPredicate — match property-shape requirement", () => {
 		}
 	});
 
-	it.each(["name", "status", "tags"] as const)(
+	it.each(["case_name", "status", "tags"] as const)(
 		"accepts fuzzy-date match on a text-shaped property (%s)",
 		(propName) => {
 			const p = match(prop("patient", propName), "2024-12-03", "fuzzy-date");
@@ -860,7 +848,7 @@ describe("checkPredicate — multi-select-contains property requirement", () => 
 	// pass while int / decimal / date would still fail. The table closes
 	// that gap.
 	const REJECTED_NON_MULTI_SELECT = [
-		{ propName: "name", dataType: "text" },
+		{ propName: "case_name", dataType: "text" },
 		{ propName: "status", dataType: "single_select" },
 		{ propName: "age", dataType: "int" },
 		{ propName: "weight_kg", dataType: "decimal" },
@@ -952,7 +940,10 @@ describe("checkPredicate — sentinel predicates", () => {
 		// recurses through `and` into the sentinel arm, so a throwing
 		// arm here would surface as a crash on every composed
 		// predicate that includes the identity element.
-		const p = and(matchAll(), eq(prop("patient", "name"), literal("Alice")));
+		const p = and(
+			matchAll(),
+			eq(prop("patient", "case_name"), literal("Alice")),
+		);
 		expect(checkPredicate(p, ctx).ok).toBe(true);
 	});
 
@@ -962,7 +953,10 @@ describe("checkPredicate — sentinel predicates", () => {
 		// through `or` into the sentinel arm. Pinning the symmetric
 		// case keeps the per-sentinel handling explicit rather than
 		// implied by the match-all test.
-		const p = or(matchNone(), eq(prop("patient", "name"), literal("Alice")));
+		const p = or(
+			matchNone(),
+			eq(prop("patient", "case_name"), literal("Alice")),
+		);
 		expect(checkPredicate(p, ctx).ok).toBe(true);
 	});
 
@@ -1039,7 +1033,7 @@ describe("checkPredicate — between operator rules", () => {
 		// `starts-with`) is the deliberate UX. The error attaches to
 		// the predicate's own path (parallel to comparison operators'
 		// ordered-type rejection).
-		const p = between(prop("patient", "name"), {
+		const p = between(prop("patient", "case_name"), {
 			lower: literal("a"),
 			upper: literal("m"),
 		});
@@ -1132,8 +1126,8 @@ describe("checkPredicate — between operator rules", () => {
 		// wrapper's `kind` and clause index. The regression target is
 		// "the real between rule fires inside wrappers."
 		const p = and(
-			eq(prop("patient", "name"), literal("Alice")),
-			between(prop("patient", "name"), {
+			eq(prop("patient", "case_name"), literal("Alice")),
+			between(prop("patient", "case_name"), {
 				lower: literal("a"),
 				upper: literal("m"),
 			}),
@@ -1167,8 +1161,8 @@ describe("checkPredicate — between operator rules", () => {
 const HOUSEHOLD: CaseType = {
 	name: "household",
 	properties: [
-		{ name: "region", label: "Region", data_type: "text" },
-		{ name: "size", label: "Size", data_type: "int" },
+		{ name: "region", label: proseText("Region"), data_type: "text" },
+		{ name: "size", label: proseText("Size"), data_type: "int" },
 	],
 };
 
@@ -1180,8 +1174,8 @@ const PATIENT_WITH_PARENT: CaseType = {
 const VISIT: CaseType = {
 	name: "visit",
 	properties: [
-		{ name: "kind", label: "Kind", data_type: "text" },
-		{ name: "completed", label: "Completed", data_type: "text" },
+		{ name: "kind", label: proseText("Kind"), data_type: "text" },
+		{ name: "completed", label: proseText("Completed"), data_type: "text" },
 	],
 	parent_type: "patient",
 };
@@ -1191,7 +1185,9 @@ const VISIT: CaseType = {
 // and the author hasn't disambiguated via `ofCaseType`.
 const LAB_RESULT: CaseType = {
 	name: "lab_result",
-	properties: [{ name: "value", label: "Value", data_type: "decimal" }],
+	properties: [
+		{ name: "value", label: proseText("Value"), data_type: "decimal" },
+	],
 	parent_type: "patient",
 };
 
@@ -1442,7 +1438,7 @@ describe("checkPredicate — exists / missing relation-path resolution", () => {
 	it("infers the parent when it is the only either-direction target", () => {
 		const p = exists(
 			anyRelationPath("parent"),
-			eq(prop("patient", "name"), literal("Alice")),
+			eq(prop("patient", "case_name"), literal("Alice")),
 		);
 		expect(
 			checkPredicate(p, {
@@ -1455,7 +1451,7 @@ describe("checkPredicate — exists / missing relation-path resolution", () => {
 	it("infers the child when it is the only either-direction target", () => {
 		const p = exists(
 			anyRelationPath("parent"),
-			eq(prop("patient", "name"), literal("Alice")),
+			eq(prop("patient", "case_name"), literal("Alice")),
 		);
 		expect(
 			checkPredicate(p, {
@@ -1470,7 +1466,9 @@ describe("checkPredicate — exists / missing relation-path resolution", () => {
 		const node: CaseType = {
 			name: "node",
 			parent_type: "node",
-			properties: [{ name: "label", label: "Label", data_type: "text" }],
+			properties: [
+				{ name: "label", label: proseText("Label"), data_type: "text" },
+			],
 		};
 		const p = exists(
 			anyRelationPath("parent"),
@@ -1570,7 +1568,7 @@ describe("checkPredicate — exists / missing relation-path resolution", () => {
 		// at the destination-scope check.
 		const p = exists(
 			ancestorPath(relationStep("parent")),
-			eq(prop("patient", "name"), literal("Alice")),
+			eq(prop("patient", "case_name"), literal("Alice")),
 		);
 		const result = checkPredicate(p, {
 			...ctxRelations,
@@ -1650,104 +1648,22 @@ describe("checkPredicate — exists / missing relation-path resolution", () => {
 	});
 });
 
-// `is-null` and `is-blank` share one rule shape: every non-literal
-// Term variant is accepted (property refs, search-input refs, both
-// session-ref kinds — any of these can resolve to absent at runtime),
-// and literal-shaped `left` is rejected as a category error (a
-// literal is the value itself; "is the value 5 absent?" is
-// ill-formed, not a runtime question). The two operators are
-// distinguished by per-dialect emission (strict-absent vs
-// portable-absent-or-empty) — the type checker treats them
-// identically because both pose the same operand-shape question.
-// Combining the rules into one describe block keeps the parallel
-// shape readable; per-operator arms diverge only in `it` names and
-// the builder under test.
-describe("checkPredicate — is-null and is-blank operand-shape rules", () => {
-	it("accepts is-null on a property reference", () => {
-		// Any property type can be absent at runtime — the rule
-		// resolves the term but does not constrain its type. The pin
-		// on `ok: true` locks the "no operand-type narrowing" stance:
-		// `is-null` is the structural-absent question, not a typed
-		// comparison.
-		const p = isNull(prop("patient", "name"));
-		expect(checkPredicate(p, ctx).ok).toBe(true);
-	});
-
-	it("accepts is-null on a search-input reference", () => {
-		// Search inputs default to text when no `data_type` is declared,
-		// matching the comparison checker's behavior. Acceptance pins
-		// the resolution path through `resolveTermType`'s `case
-		// "input"` arm; absent inputs resolve at runtime to the wire-
-		// form empty string, which `is-null`'s strict semantic does
-		// not match — the wire-emission rule is what diverges.
-		const ctxWithInput = {
-			...ctx,
-			knownInputs: [
-				{ uuid: asUuid("91b65850-ffdb-4800-8e63-2e6aaa1c2248"), name: "phone" },
-			],
-		};
-		const p = isNull(input(asUuid("91b65850-ffdb-4800-8e63-2e6aaa1c2248")));
-		expect(checkPredicate(p, ctxWithInput).ok).toBe(true);
-	});
-
-	it("accepts is-null on a session-user reference", () => {
-		const p = isNull(sessionUser("region"));
-		expect(checkPredicate(p, ctx).ok).toBe(true);
-	});
-
-	it("accepts is-null on a session-context reference", () => {
-		const p = isNull(sessionContext("userid"));
-		expect(checkPredicate(p, ctx).ok).toBe(true);
-	});
-
-	it("rejects is-null on a literal", () => {
-		// Category error — a literal is the value, not a property
-		// read. Asking "is the literal 'x' absent" is ill-formed, so
-		// the type checker rejects rather than silently accept the
-		// shape. The error path is `["left"]` so the editor can
-		// highlight the offending operand directly.
-		const p = isNull(literal("x"));
-		const result = checkPredicate(p, ctx);
-		expect(result.ok).toBe(false);
-		if (!result.ok) {
-			expect(result.errors).toHaveLength(1);
-			expect(result.errors[0].path).toEqual(["left"]);
-			expect(result.errors[0].message).toMatch(/literal/i);
-		}
-	});
-
-	it("rejects is-null on a null literal too (parallel shape, parallel rule)", () => {
-		// `literal(null)` resolves to the null sentinel and is the
-		// canonical universal-comparable in the comparison checker.
-		// `is-null(literal(null))` is still a category error — the
-		// operand is a literal, not a property read, regardless of
-		// what value the literal carries. The rule rejects the shape
-		// (literal in `left`) before any value-level resolution runs.
-		const p = isNull(literal(null));
-		const result = checkPredicate(p, ctx);
-		expect(result.ok).toBe(false);
-		if (!result.ok) {
-			expect(result.errors[0].message).toMatch(/literal/i);
-		}
-	});
-
+describe("checkPredicate — is-blank operand-shape rules", () => {
 	it("accepts is-blank on a property reference", () => {
 		// Mirrors `is-null`'s acceptance — same operand-shape rule,
 		// different wire-emission semantic. The type checker does not
 		// narrow on "absent vs absent-or-empty"; both operators
 		// resolve the term and accept any non-literal shape.
-		const p = isBlank(prop("patient", "name"));
+		const p = isBlank(prop("patient", "case_name"));
 		expect(checkPredicate(p, ctx).ok).toBe(true);
 	});
 
 	it("accepts is-blank on a search-input reference", () => {
 		const ctxWithInput = {
 			...ctx,
-			knownInputs: [
-				{ uuid: asUuid("91b65850-ffdb-4800-8e63-2e6aaa1c2248"), name: "phone" },
-			],
+			knownInputs: [{ uuid: testUuid("phone"), name: "phone" }],
 		};
-		const p = isBlank(input(asUuid("91b65850-ffdb-4800-8e63-2e6aaa1c2248")));
+		const p = isBlank(input(testUuid("phone")));
 		expect(checkPredicate(p, ctxWithInput).ok).toBe(true);
 	});
 
@@ -1777,26 +1693,10 @@ describe("checkPredicate — is-null and is-blank operand-shape rules", () => {
 		}
 	});
 
-	it("propagates unresolved-property errors from is-null's left", () => {
-		// `is-null(prop("nonexistent", ...))` should surface the
-		// unknown-case-type error from `resolveTermType` rather than
-		// silently accept. The error path is `["left"]` so the editor
-		// highlights the same slot a comparison's left-operand error
-		// would.
-		const p = isNull(prop("ghost", "name"));
-		const result = checkPredicate(p, ctx);
-		expect(result.ok).toBe(false);
-		if (!result.ok) {
-			expect(result.errors[0].path).toEqual(["left"]);
-			expect(result.errors[0].message).toMatch(/Unknown case type/);
-		}
-	});
-
 	it("propagates unresolved-input errors from is-blank's left", () => {
-		// Symmetric with `is-null` — input refs flow through the same
-		// resolution path. An undeclared input emits the same shape of
-		// error a comparison's `input` operand would.
-		const p = isBlank(input(asUuid("91b65850-ffdb-4800-8e63-2e6aaa1c2248")));
+		// An undeclared input emits the same shape of error a comparison's
+		// input operand would.
+		const p = isBlank(input(testUuid("phone")));
 		const result = checkPredicate(p, ctx);
 		expect(result.ok).toBe(false);
 		if (!result.ok) {
@@ -1903,7 +1803,7 @@ describe("checkPredicate — prop.via destination-scope resolution", () => {
 		// `name` on `patient` directly). Pinning the positive case
 		// keeps the no-traversal shape distinct from the cross-type
 		// traversal kinds.
-		const p = eq(prop("patient", "name", selfPath()), literal("Alice"));
+		const p = eq(prop("patient", "case_name", selfPath()), literal("Alice"));
 		expect(checkPredicate(p, ctx).ok).toBe(true);
 	});
 
@@ -1913,7 +1813,7 @@ describe("checkPredicate — prop.via destination-scope resolution", () => {
 		// landed. Locks the no-`via` regression target — a refactor
 		// that rerouted absent-via through the destination-scope code
 		// would silently break every existing predicate.
-		const p = eq(prop("patient", "name"), literal("Alice"));
+		const p = eq(prop("patient", "case_name"), literal("Alice"));
 		expect(checkPredicate(p, ctx).ok).toBe(true);
 	});
 
@@ -1944,8 +1844,7 @@ describe("checkPredicate — prop.via destination-scope resolution", () => {
 // analogue of `resolveTermType`. The block below pins each
 // ValueExpression arm's resolved type plus the operator-specific
 // type rules (numeric promotion in `arith`, branch agreement in
-// `if` / `switch`, text-shaped operand in `unwrap-list`,
-// date-or-datetime in `format-date`, etc.). Tests use a thin
+// `if` / `switch`, date-or-datetime in `format-date`, etc.). Tests use a thin
 // wrapper around `checkExpression` so call-site assertions read as
 // "given this AST, expect this resolved type." The `errors` array
 // is checked separately for the negative cases.
@@ -2004,7 +1903,7 @@ describe("checkExpression — date / coercion arms", () => {
 	});
 
 	it("date-coerce accepts text-shaped and returns date", () => {
-		const v = dateCoerce(term(prop("patient", "name")));
+		const v = dateCoerce(term(prop("patient", "case_name")));
 		const { type, errors } = resolve(v);
 		expect(type).toBe("date");
 		expect(errors).toEqual([]);
@@ -2030,12 +1929,14 @@ describe("checkExpression — date / coercion arms", () => {
 	});
 
 	it("datetime-coerce returns datetime", () => {
-		const v = datetimeCoerce(term(prop("patient", "name")));
+		const v = datetimeCoerce(term(prop("patient", "case_name")));
 		expect(resolve(v).type).toBe("datetime");
 	});
 
 	it("double accepts text or numeric and returns decimal", () => {
-		expect(resolve(double(term(prop("patient", "name")))).type).toBe("decimal");
+		expect(resolve(double(term(prop("patient", "case_name")))).type).toBe(
+			"decimal",
+		);
 		expect(resolve(double(term(prop("patient", "age")))).type).toBe("decimal");
 	});
 
@@ -2075,7 +1976,7 @@ describe("checkExpression — arith arm + numeric promotion", () => {
 	);
 
 	it("arith rejects a non-numeric left operand", () => {
-		const v = arith("+", term(prop("patient", "name")), term(literal(1)));
+		const v = arith("+", term(prop("patient", "case_name")), term(literal(1)));
 		const { errors } = resolve(v);
 		expect(
 			errors.some((e) => /arith requires numeric.*left/.test(e.message)),
@@ -2093,7 +1994,7 @@ describe("checkExpression — arith arm + numeric promotion", () => {
 
 describe("checkExpression — concat / coalesce arms", () => {
 	it("concat resolves to text regardless of part types", () => {
-		const v = concat(term(prop("patient", "name")), term(literal(42)));
+		const v = concat(term(prop("patient", "case_name")), term(literal(42)));
 		expect(resolve(v).type).toBe("text");
 	});
 
@@ -2110,7 +2011,7 @@ describe("checkExpression — concat / coalesce arms", () => {
 	it("coalesce flags type mismatch between values", () => {
 		const v = coalesce(
 			term(prop("patient", "age")),
-			term(prop("patient", "name")),
+			term(prop("patient", "case_name")),
 		);
 		const { errors } = resolve(v);
 		expect(
@@ -2122,9 +2023,9 @@ describe("checkExpression — concat / coalesce arms", () => {
 describe("checkExpression — if / switch arms", () => {
 	it("if walks cond as a Predicate and returns the branches' agreed type", () => {
 		const v = ifExpr(
-			isBlank(prop("patient", "name")),
+			isBlank(prop("patient", "case_name")),
 			term(literal("(empty)")),
-			term(prop("patient", "name")),
+			term(prop("patient", "case_name")),
 		);
 		expect(resolve(v).type).toBe("text");
 	});
@@ -2145,7 +2046,7 @@ describe("checkExpression — if / switch arms", () => {
 		const v = ifExpr(
 			matchAll(),
 			term(prop("patient", "age")),
-			term(prop("patient", "name")),
+			term(prop("patient", "case_name")),
 		);
 		const { errors } = resolve(v);
 		expect(errors.some((e) => /branches must agree/.test(e.message))).toBe(
@@ -2195,22 +2096,30 @@ describe("checkExpression — if / switch arms", () => {
 	});
 });
 
-describe("checkExpression — count + unwrap-list + format-date", () => {
+describe("checkExpression — count + format-date", () => {
 	const ctxRel = {
 		caseTypes: [
 			{
 				name: "household",
 				properties: [
-					{ name: "region", label: "Region", data_type: "text" as const },
+					{
+						name: "region",
+						label: proseText("Region"),
+						data_type: "text" as const,
+					},
 				],
 			},
 			{
 				name: "patient",
 				parent_type: "household",
 				properties: [
-					{ name: "age", label: "Age", data_type: "int" as const },
-					{ name: "name", label: "Name", data_type: "text" as const },
-					{ name: "dob", label: "DOB", data_type: "date" as const },
+					{ name: "age", label: proseText("Age"), data_type: "int" as const },
+					{
+						name: "name",
+						label: proseText("Name"),
+						data_type: "text" as const,
+					},
+					{ name: "dob", label: proseText("DOB"), data_type: "date" as const },
 				],
 			},
 		],
@@ -2252,29 +2161,6 @@ describe("checkExpression — count + unwrap-list + format-date", () => {
 		).toBe(true);
 	});
 
-	it("unwrap-list resolves to the sequence sentinel", () => {
-		const v = unwrapList(term(prop("patient", "name")));
-		// sequence type is internal — describe(...) renders it as
-		// "sequence" but the raw value is the SEQUENCE_TYPE sentinel.
-		// Default `ctx` (no currentCaseType) is used so the originating-
-		// scope pin doesn't reject the property reference; the rule
-		// under test is the unwrap-list arm itself.
-		const { type } = resolve(v);
-		expect(type).toBe("_sequence");
-	});
-
-	it("unwrap-list rejects a non-text operand", () => {
-		// `age` is `int` on the patient case type — outside the
-		// text-shaped allow-list. Default `ctx` so the originating-
-		// scope pin doesn't fire; the test isolates the unwrap-list
-		// arm's text-shaped operand rule.
-		const v = unwrapList(term(prop("patient", "age")));
-		const { errors } = resolve(v);
-		expect(
-			errors.some((e) => /requires a text-shaped operand/.test(e.message)),
-		).toBe(true);
-	});
-
 	it("format-date resolves to text given a date or datetime", () => {
 		expect(resolve(formatDate(today(), "iso")).type).toBe("text");
 		expect(resolve(formatDate(now(), "long")).type).toBe("text");
@@ -2286,24 +2172,6 @@ describe("checkExpression — count + unwrap-list + format-date", () => {
 		expect(
 			errors.some((e) => /requires a date or datetime/.test(e.message)),
 		).toBe(true);
-	});
-});
-
-describe("checkExpression — sequence type incompatibility", () => {
-	// `_sequence` sits outside the scalar compatibility table — no v1
-	// operator composes a sequence with a scalar. The block below pins
-	// the boundary by routing a sequence into a comparison, where the
-	// type checker must reject the shape rather than silently widen.
-
-	it("rejects a sequence operand inside a comparison", () => {
-		const p = eq(unwrapList(term(prop("patient", "name"))), literal("x"));
-		const result = checkPredicate(p, ctx);
-		expect(result.ok).toBe(false);
-		if (!result.ok) {
-			expect(
-				result.errors.some((e) => /'sequence'.*not comparable/.test(e.message)),
-			).toBe(true);
-		}
 	});
 });
 

@@ -9,6 +9,7 @@ import {
 	caseDataInScope,
 	type PredicateEditContext,
 	relatedCaseDataInScope,
+	tableRowInScope,
 } from "./editorSchemas";
 import { firstRelatedCasePath } from "./relationSeed";
 
@@ -19,6 +20,14 @@ export const CONDITION_SEED_UNAVAILABLE_REASON =
 export function firstConditionSeed(
 	ctx: PredicateEditContext,
 ): Predicate | undefined {
+	/* A table-row scope has no valid placeholder identity. Its first seed is
+	 * the active table's first admitted column, or the gesture is unavailable
+	 * until the table owns a column. */
+	if (tableRowInScope(ctx)) {
+		return (ctx.tableScope?.columns.length ?? 0) > 0
+			? firstComparisonDefault(ctx)
+			: undefined;
+	}
 	// A global slot always has a seed: the session-value comparison the
 	// comparison seeder builds for that scope (no case to read there).
 	if (!caseDataInScope(ctx)) return firstComparisonDefault(ctx);

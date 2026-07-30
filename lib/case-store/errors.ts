@@ -245,13 +245,12 @@ export class CaseTypeNotInBlueprintError extends Error {
  */
 /**
  * `applySchemaChange`'s Phase B (post-commit index DDL) failed AFTER
- * Phase A committed its schema write + row migrations. The wrapper
- * exists so the COMMITTED Phase-A `MigrationReport` survives the
- * throw: without it, a compensating caller loses the parked-value
- * ids with the return value and can never un-park them, stranding
- * the values with no restore path. `cause` carries the underlying
- * fault, one level deep, exactly where `isTransientDbError` looks —
- * transient classification keeps working through the wrap.
+ * Phase A committed its schema write + row migrations. The wrapper preserves
+ * the COMMITTED Phase-A `MigrationReport` so the initiating surface can report
+ * parked values accurately while durable pending state drives later index
+ * convergence. `cause` carries the underlying fault, one level deep, exactly
+ * where `isTransientDbError` looks, so transient classification keeps working
+ * through the wrap.
  *
  * The report shape lives on the interface side; the slot is typed
  * structurally here to keep `errors.ts` a leaf.
@@ -286,10 +285,10 @@ export class SchemaChangePhaseBError extends Error {
 				`${INDENT}case_type: '${args.caseType}'`,
 				``,
 				"Phase A is durable: the schema row and every row rewrite (including",
-				"parked values) are committed. The next applySchemaChange call",
-				"re-emits the outstanding index DDL idempotently. Compensating",
-				"callers read `report.parkedIds` off this error so a failed commit",
-				"can still un-park what the committed Phase A set aside.",
+				"parked values) are committed, and its pending marker remains.",
+				"The next per-app or deployment-wide convergence drain re-derives",
+				"the latest desired indexes and retries Phase B idempotently.",
+				"Callers must not compensate or un-park committed Phase-A data.",
 			].join("\n"),
 			{ cause: args.cause },
 		);
@@ -323,7 +322,7 @@ export type SubmissionRejection =
 	| {
 			readonly kind: "text-value";
 			readonly operationUuid: string;
-			readonly facet: "name" | "rename" | "owner";
+			readonly facet: "name" | "rename" | "owner" | "external_id";
 			readonly reason: "blank" | "too-long";
 	  }
 	| {

@@ -9,15 +9,18 @@ import {
 	ALL_ICON_SLUGS,
 	builtinIconPublicPath,
 	builtinIconRef,
+	builtinIconRefSchema,
 	builtinIconsForSlot,
 	FORM_ICON_SLUGS,
+	formIconRefSchema,
 	ICON_CATALOG,
 	iconCatalogEntry,
 	isBuiltinIconRef,
 	MODULE_ICON_SLUGS,
+	moduleIconRefSchema,
+	NOVA_ICON_REF_PREFIX,
 	parseBuiltinIconSlug,
 } from "../builtinIcons";
-import { NOVA_ICON_REF_PREFIX } from "../multimedia";
 
 describe("ICON_CATALOG integrity", () => {
 	it("carries 33 module + 13 form + 1 fallback icons", () => {
@@ -64,18 +67,32 @@ describe("built-in icon ref helpers", () => {
 		expect(parseBuiltinIconSlug(ref)).toBe("household");
 	});
 
-	it("treats a stale built-in ref (slug gone from the catalog) as unresolvable", () => {
+	it("rejects a stale built-in ref rather than treating its prefix as identity", () => {
 		const stale = `${NOVA_ICON_REF_PREFIX}does_not_exist`;
-		// It still LOOKS built-in (prefix) so it's routed away from Postgres...
-		expect(isBuiltinIconRef(stale)).toBe(true);
-		// ...but parse returns null, so it fails closed downstream like a deleted upload.
+		expect(isBuiltinIconRef(stale)).toBe(false);
 		expect(parseBuiltinIconSlug(stale)).toBeNull();
+		expect(builtinIconRefSchema.safeParse(stale).success).toBe(false);
 	});
 
 	it("does not mistake an uploaded asset id (UUID) for a built-in ref", () => {
 		const uuid = "a1b2c3d4-1111-2222-3333-444455556666";
 		expect(isBuiltinIconRef(uuid)).toBe(false);
 		expect(parseBuiltinIconSlug(uuid)).toBeNull();
+	});
+
+	it("enforces the module and form icon families independently", () => {
+		expect(
+			moduleIconRefSchema.safeParse(builtinIconRef("household")).success,
+		).toBe(true);
+		expect(
+			moduleIconRefSchema.safeParse(builtinIconRef("register")).success,
+		).toBe(false);
+		expect(
+			formIconRefSchema.safeParse(builtinIconRef("register")).success,
+		).toBe(true);
+		expect(
+			formIconRefSchema.safeParse(builtinIconRef("household")).success,
+		).toBe(false);
 	});
 
 	it("derives the static public path for a slug", () => {

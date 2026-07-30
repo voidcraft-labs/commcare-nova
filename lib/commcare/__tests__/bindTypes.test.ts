@@ -22,6 +22,7 @@ import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { expandDoc } from "@/lib/commcare/expander";
 import { validateXForm } from "@/lib/commcare/validator/xformOracle";
+import { proseText } from "@/lib/domain/prose";
 
 /** Pull the single form's XForm XML out of the expanded HQ application. */
 function firstFormXml(doc: ReturnType<typeof buildDoc>): string {
@@ -57,18 +58,30 @@ describe("XForm bind types — HQ question-type classification", () => {
 						name: "F",
 						type: "survey",
 						fields: [
-							f({ kind: "text", id: "note", label: "Note" }),
-							f({ kind: "int", id: "count", label: "Count" }),
+							f({ kind: "text", id: "note", label: proseText("Note") }),
+							f({ kind: "int", id: "count", label: proseText("Count") }),
 							f({
 								kind: "geopoint",
 								id: "gps_location",
-								label: "GPS location",
+								label: proseText("GPS location"),
 							}),
-							f({ kind: "barcode", id: "sample_code", label: "Sample code" }),
-							f({ kind: "image", id: "photo", label: "Photo" }),
-							f({ kind: "audio", id: "recording", label: "Recording" }),
-							f({ kind: "video", id: "clip", label: "Clip" }),
-							f({ kind: "signature", id: "sign", label: "Signature" }),
+							f({
+								kind: "barcode",
+								id: "sample_code",
+								label: proseText("Sample code"),
+							}),
+							f({ kind: "image", id: "photo", label: proseText("Photo") }),
+							f({
+								kind: "audio",
+								id: "recording",
+								label: proseText("Recording"),
+							}),
+							f({ kind: "video", id: "clip", label: proseText("Clip") }),
+							f({
+								kind: "signature",
+								id: "sign",
+								label: proseText("Signature"),
+							}),
 						],
 					},
 				],

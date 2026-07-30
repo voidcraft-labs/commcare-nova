@@ -276,6 +276,8 @@ describe("Database.case_type_schemas", () => {
 			// `synced_seq` reads as a string (the column is bigint, which
 			// node-postgres returns as a string; a reader coerces with `Number(...)`).
 			synced_seq: "0",
+			index_pending_seq: null,
+			index_synced_seq: "0",
 		};
 		expect(_typecheck.case_type).toBe("patient");
 	});

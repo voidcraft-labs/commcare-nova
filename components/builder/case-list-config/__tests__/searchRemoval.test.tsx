@@ -1,32 +1,36 @@
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { proseText } from "@/lib/domain/prose";
 // @vitest-environment happy-dom
 
 import {
 	act,
 	fireEvent,
-	render,
+	render as rtlRender,
 	screen,
 	waitFor,
 } from "@testing-library/react";
 import { produce } from "immer";
-import { type ReactNode, StrictMode } from "react";
+import { type ReactElement, type ReactNode, StrictMode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { applyMutations as replayMutations } from "@/lib/doc/mutations";
+import { BlueprintDocProvider } from "@/lib/doc/provider";
 import type { Mutation } from "@/lib/doc/types";
 import {
 	advancedSearchInputDef,
-	asUuid,
 	type BlueprintDoc,
 	type CaseListConfig,
 	type CaseSearchConfig,
 	type CaseType,
 	type Column,
 	caseSearchConfigAfterFinalInputRemoval,
+	isOwnerOnlyCaseSearchConfig,
 	type SearchInputDef,
 	simpleSearchInputDef,
+	type Uuid,
 } from "@/lib/domain";
 import {
 	effectiveFilterForEmission,
@@ -50,8 +54,21 @@ import {
 } from "../CaseListConfigWorkspace";
 import { searchInputRemovalDependencies } from "../searchInputRemovalDependencies";
 
+// The surfaces here spell authored prose against the document; every production
+// mount sits inside the builder's provider. Wrapping at `render` reproduces it
+// and carries through each `rerender`.
+function DocumentProvider({ children }: { readonly children: ReactNode }) {
+	return (
+		<BlueprintDocProvider appId="test-app">{children}</BlueprintDocProvider>
+	);
+}
+
+function render(ui: ReactElement) {
+	return rtlRender(ui, { wrapper: DocumentProvider });
+}
+
 interface MutableWorkspaceModule {
-	uuid: ReturnType<typeof asUuid>;
+	uuid: ReturnType<typeof testUuid>;
 	id: string;
 	name: string;
 	caseType: string;
@@ -347,7 +364,7 @@ vi.mock("../configValidity", () => ({
 	}),
 }));
 
-const MODULE_UUID = asUuid("00000000-0000-4000-8000-000000000001");
+const MODULE_UUID = testUuid("00000000-0000-4000-8000-000000000001");
 
 /* The workspace is now split: a shared controller (mounted by
  * `CaseListWorkspaceProvider`, reading the URL) feeds the center canvas and the
@@ -373,7 +390,7 @@ function CaseListConfigWorkspace({
 	moduleUuid,
 	tab,
 }: {
-	moduleUuid: ReturnType<typeof asUuid>;
+	moduleUuid: ReturnType<typeof testUuid>;
 	tab: CaseListWorkspaceTab;
 }) {
 	harness.moduleUuid = moduleUuid;
@@ -385,11 +402,11 @@ function CaseListConfigWorkspace({
 		</CaseListWorkspaceProvider>
 	);
 }
-const FIRST_UUID = asUuid("00000000-0000-4000-8000-000000000011");
-const SECOND_UUID = asUuid("00000000-0000-4000-8000-000000000012");
-const COLUMN_UUID = asUuid("00000000-0000-4000-8000-000000000021");
-const SECOND_COLUMN_UUID = asUuid("00000000-0000-4000-8000-000000000022");
-const PEER_COLUMN_UUID = asUuid("00000000-0000-4000-8000-000000000023");
+const FIRST_UUID = testUuid("00000000-0000-4000-8000-000000000011");
+const SECOND_UUID = testUuid("00000000-0000-4000-8000-000000000012");
+const COLUMN_UUID = testUuid("00000000-0000-4000-8000-000000000021");
+const SECOND_COLUMN_UUID = testUuid("00000000-0000-4000-8000-000000000022");
+const PEER_COLUMN_UUID = testUuid("00000000-0000-4000-8000-000000000023");
 const NAME_COLUMN: Column = {
 	uuid: COLUMN_UUID,
 	kind: "plain",
@@ -412,8 +429,12 @@ const CASE_TYPES: CaseType[] = [
 	{
 		name: "client",
 		properties: [
-			{ name: "case_name", label: "Client name", data_type: "text" },
-			{ name: "external_id", label: "External ID", data_type: "text" },
+			{ name: "case_name", label: proseText("Client name"), data_type: "text" },
+			{
+				name: "external_id",
+				label: proseText("External ID"),
+				data_type: "text",
+			},
 		],
 	},
 ];
@@ -439,7 +460,7 @@ function makeModule(
 	};
 }
 
-function inputDrivenCondition(searchInputUuid: typeof FIRST_UUID): Predicate {
+function inputDrivenCondition(searchInputUuid: Uuid): Predicate {
 	return whenInput(
 		inputRef(searchInputUuid),
 		eq(prop("client", "case_name"), inputRef(searchInputUuid)),
@@ -476,14 +497,20 @@ function workspaceDoc(args: {
 							f({
 								kind: "text",
 								id: "case_name",
-								label: "Client name",
-								case_property_on: "client",
+								label: proseText("Client name"),
+								caseWrite: {
+									caseType: "client",
+									property: "case_name",
+								},
 							}),
 							f({
 								kind: "text",
 								id: "external_id",
-								label: "External ID",
-								case_property_on: "client",
+								label: proseText("External ID"),
+								caseWrite: {
+									caseType: "client",
+									property: "external_id",
+								},
 							}),
 						],
 					},
@@ -522,10 +549,24 @@ function applyMutations(batch: readonly Mutation[]): { readonly ok: true } {
 					);
 				break;
 			case "updateModule": {
+				if (mutation.caseSearchConfigPatch !== undefined) {
+					const fresh = module.caseSearchConfig ?? {};
+					for (const [key, value] of Object.entries(
+						mutation.caseSearchConfigPatch,
+					)) {
+						if (value === null || value === undefined) {
+							delete (fresh as Record<string, unknown>)[key];
+						} else {
+							(fresh as Record<string, unknown>)[key] = value;
+						}
+					}
+					module.caseSearchConfig = fresh;
+					break;
+				}
 				if (mutation.caseSearchConfigOperation === "enable") {
 					if (module.caseSearchConfig === undefined)
 						module.caseSearchConfig = {};
-					else if (module.caseSearchConfig.searchActionEnabled === false) {
+					else if (isOwnerOnlyCaseSearchConfig(module.caseSearchConfig)) {
 						const { searchActionEnabled: _disabled, ...enabled } =
 							module.caseSearchConfig;
 						module.caseSearchConfig = enabled;
@@ -594,7 +635,7 @@ describe("Search field removal", () => {
 			{
 				kind: "updateModule",
 				uuid: MODULE_UUID,
-				patch: { caseSearchConfig: {} },
+				patch: {},
 				caseSearchConfigOperation: "enable",
 			},
 		]);
@@ -727,14 +768,20 @@ describe("Search field removal", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Client name",
-									case_property_on: "client",
+									label: proseText("Client name"),
+									caseWrite: {
+										caseType: "client",
+										property: "case_name",
+									},
 								}),
 								f({
 									kind: "text",
 									id: "external_id",
-									label: "External ID",
-									case_property_on: "client",
+									label: proseText("External ID"),
+									caseWrite: {
+										caseType: "client",
+										property: "external_id",
+									},
 								}),
 							],
 						},
@@ -921,6 +968,8 @@ describe("Search field removal", () => {
 			const config = doc.modules[MODULE_UUID].caseListConfig;
 			if (config === undefined) throw new Error("Missing case-list config");
 			config.columns.push(PEER_COLUMN);
+			config.listColumnOrder.push(PEER_COLUMN.uuid);
+			config.detailColumnOrder.push(PEER_COLUMN.uuid);
 			const sibling = config.columns.find(
 				(column) => column.uuid === SECOND_COLUMN_UUID,
 			);
@@ -960,6 +1009,8 @@ describe("Search field removal", () => {
 			);
 			if (target !== undefined) target.header = "Peer-edited client name";
 			config.columns.push(PEER_COLUMN);
+			config.listColumnOrder.push(PEER_COLUMN.uuid);
+			config.detailColumnOrder.push(PEER_COLUMN.uuid);
 			config.filter = peerFilter;
 		});
 		const replayedConfig = replayed.modules[MODULE_UUID].caseListConfig;
@@ -994,6 +1045,8 @@ describe("Search field removal", () => {
 			);
 			if (target !== undefined) target.header = "Peer-edited client name";
 			config.columns.push(PEER_COLUMN);
+			config.listColumnOrder.push(PEER_COLUMN.uuid);
+			config.detailColumnOrder.push(PEER_COLUMN.uuid);
 			config.filter = matchNone();
 		});
 		const hiddenTarget = hidden.modules[
@@ -1031,38 +1084,37 @@ describe("Search field removal", () => {
 		).toBe("Peer-edited sibling");
 	});
 
-	it("replays repair and reveal as one granular batch", () => {
+	it("cannot reveal an invalid dormant definition or enter a repair state", () => {
 		const hiddenColumn = { ...NAME_COLUMN, visibleInList: false };
 		const base = workspaceDoc({ columns: [hiddenColumn, SECOND_COLUMN] });
 		testState.module = base.modules[MODULE_UUID];
 		testState.brokenColumnUuids = [COLUMN_UUID];
-		mutationApi.inlineCommitMany.mockReturnValue({ ok: true });
+		mutationApi.inlineCommitMany.mockReturnValue({
+			ok: false,
+			messages: ["The saved definition is invalid."],
+		});
 		render(<CaseListConfigWorkspace moduleUuid={MODULE_UUID} tab="list" />);
 
 		fireEvent.click(screen.getByRole("button", { name: "Show Client name" }));
-		expect(mutationApi.inlineCommitMany).not.toHaveBeenCalled();
-		fireEvent.click(screen.getByRole("button", { name: "Change information" }));
 		const batch = capturedBatch(mutationApi.inlineCommitMany);
-		expect(batch.map((mutation) => mutation.kind)).toContain("updateColumn");
-
-		const replayed = replayAfterPeerEdit(base, batch, (doc) => {
-			const config = doc.modules[MODULE_UUID].caseListConfig;
-			if (config === undefined) throw new Error("Missing case-list config");
-			config.columns.push(PEER_COLUMN);
-			config.filter = matchNone();
-			const sibling = config.columns.find(
-				(column) => column.uuid === SECOND_COLUMN_UUID,
-			);
-			if (sibling !== undefined) sibling.header = "Peer-edited sibling";
-		});
-		const replayedConfig = replayed.modules[MODULE_UUID].caseListConfig;
-		const target = replayedConfig?.columns.find(
-			(column) => column.uuid === COLUMN_UUID,
+		expect(batch).toEqual([
+			expect.objectContaining({
+				kind: "updateColumn",
+				uuid: COLUMN_UUID,
+				visibilityPatch: { surface: "list", visible: true },
+			}),
+		]);
+		expect(
+			screen.queryByRole("button", { name: "Change information" }),
+		).toBeNull();
+		expect(screen.getByRole("status").textContent).toContain(
+			"Client name could not be added to Results",
 		);
-		expect(target?.header).toBe("Client name updated");
-		expect(target?.visibleInList).not.toBe(false);
-		expect(replayedConfig?.columns).toHaveLength(3);
-		expect(replayedConfig?.filter).toEqual(matchNone());
+		expect(
+			base.modules[MODULE_UUID].caseListConfig?.columns.find(
+				(column) => column.uuid === COLUMN_UUID,
+			)?.visibleInList,
+		).toBe(false);
 	});
 
 	it("replays a Search-field rename over fresh peer inputs and references", () => {
@@ -1098,7 +1150,7 @@ describe("Search field removal", () => {
 		]);
 
 		const peerInput = input(
-			asUuid("00000000-0000-4000-8000-000000000013"),
+			testUuid("00000000-0000-4000-8000-000000000013"),
 			"peer_added",
 			"Peer-added search",
 		);

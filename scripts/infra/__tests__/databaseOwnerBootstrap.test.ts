@@ -19,22 +19,28 @@ const safeFacts: DatabaseBootstrapFacts = {
 	migrationRoleExists: true,
 	runtimeRoleExists: true,
 	cleanupRoleExists: true,
+	auditRoleExists: true,
 	legacyRoleExists: true,
 	migrationRoleCanLogin: true,
 	runtimeRoleCanLogin: true,
 	cleanupRoleCanLogin: true,
+	auditRoleCanLogin: true,
 	migrationRoleIsSuperuser: false,
 	runtimeRoleIsSuperuser: false,
 	cleanupRoleIsSuperuser: false,
+	auditRoleIsSuperuser: false,
 	migrationRoleConnectionLimit: 1,
 	runtimeRoleConnectionLimit: 16,
 	cleanupRoleConnectionLimit: 3,
+	auditRoleConnectionLimit: 1,
 	currentUserIsMigrationMember: true,
 	currentUserCanSetMigration: true,
 	currentUserIsRuntimeMember: true,
 	currentUserCanSetRuntime: true,
 	currentUserIsCleanupMember: true,
 	currentUserCanSetCleanup: true,
+	currentUserIsAuditMember: true,
+	currentUserCanSetAudit: true,
 	currentUserIsLegacyMember: true,
 	currentUserCanSetLegacy: true,
 	migrationIsRuntimeMember: true,
@@ -100,6 +106,7 @@ describe("deployment database owner bootstrap", () => {
 			'ALTER ROLE "commcare-nova@commcare-nova.iam" CONNECTION LIMIT 16',
 			'ALTER ROLE "nova-migrate@commcare-nova.iam" CONNECTION LIMIT 1',
 			'ALTER ROLE "nova-capture-cleanup@commcare-nova.iam" CONNECTION LIMIT 3',
+			'ALTER ROLE "nova-audit@commcare-nova.iam" CONNECTION LIMIT 1',
 			'ALTER DATABASE "nova_cases" OWNER TO "nova-migrate@commcare-nova.iam"',
 			`REASSIGN OWNED BY "${LEGACY_DATABASE_ROLE}" TO "nova-migrate@commcare-nova.iam"`,
 			`DROP OWNED BY "${LEGACY_DATABASE_ROLE}" RESTRICT`,
@@ -119,6 +126,7 @@ describe("deployment database owner bootstrap", () => {
 			'ALTER ROLE "commcare-nova@commcare-nova.iam" CONNECTION LIMIT 16',
 			'ALTER ROLE "nova-migrate@commcare-nova.iam" CONNECTION LIMIT 1',
 			'ALTER ROLE "nova-capture-cleanup@commcare-nova.iam" CONNECTION LIMIT 3',
+			'ALTER ROLE "nova-audit@commcare-nova.iam" CONNECTION LIMIT 1',
 			'ALTER DATABASE "nova_cases" OWNER TO "nova-migrate@commcare-nova.iam"',
 			'REASSIGN OWNED BY "nova-deployment-bootstrap" TO "nova-migrate@commcare-nova.iam"',
 			'DROP OWNED BY "nova-deployment-bootstrap" RESTRICT',
@@ -149,13 +157,25 @@ describe("deployment database owner bootstrap", () => {
 				...safeFacts,
 				currentUserCanSetLegacy: false,
 			}),
-		).toThrow("MEMBER and SET access to runtime, migration, capture-cleanup");
+		).toThrow(
+			"MEMBER and SET access to runtime, migration, capture-cleanup, audit",
+		);
 		expect(() =>
 			assertDatabaseBootstrapPreconditions({
 				...safeFacts,
 				currentUserIsCleanupMember: false,
 			}),
-		).toThrow("MEMBER and SET access to runtime, migration, capture-cleanup");
+		).toThrow(
+			"MEMBER and SET access to runtime, migration, capture-cleanup, audit",
+		);
+		expect(() =>
+			assertDatabaseBootstrapPreconditions({
+				...safeFacts,
+				currentUserCanSetAudit: false,
+			}),
+		).toThrow(
+			"MEMBER and SET access to runtime, migration, capture-cleanup, audit",
+		);
 		expect(() =>
 			assertDatabaseBootstrapPreconditions({
 				...safeFacts,
@@ -173,13 +193,25 @@ describe("deployment database owner bootstrap", () => {
 				...safeFacts,
 				cleanupRoleExists: false,
 			}),
-		).toThrow("capture-cleanup IAM database users must exist");
+		).toThrow("capture-cleanup, and audit IAM database users must exist");
 		expect(() =>
 			assertDatabaseBootstrapPreconditions({
 				...safeFacts,
 				cleanupRoleCanLogin: false,
 			}),
 		).toThrow("must remain direct LOGIN roles");
+		expect(() =>
+			assertDatabaseBootstrapPreconditions({
+				...safeFacts,
+				auditRoleExists: false,
+			}),
+		).toThrow("audit IAM database users must exist");
+		expect(() =>
+			assertDatabaseBootstrapPreconditions({
+				...safeFacts,
+				auditRoleIsSuperuser: true,
+			}),
+		).toThrow("must not be PostgreSQL superusers");
 		expect(() =>
 			assertDatabaseBootstrapPreconditions({
 				...safeFacts,
@@ -273,6 +305,12 @@ describe("deployment database owner bootstrap", () => {
 			assertDatabaseBootstrapResult({
 				...safeFacts,
 				runtimeRoleConnectionLimit: 17,
+			}),
+		).toThrow("connection limits are unsafe");
+		expect(() =>
+			assertDatabaseBootstrapResult({
+				...safeFacts,
+				auditRoleConnectionLimit: -1,
 			}),
 		).toThrow("connection limits are unsafe");
 		expect(() =>

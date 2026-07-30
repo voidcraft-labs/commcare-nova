@@ -26,6 +26,7 @@ import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { expandDoc } from "@/lib/commcare/expander";
 import { validateXForm } from "@/lib/commcare/validator/xformOracle";
+import { proseText } from "@/lib/domain/prose";
 
 function firstFormXml(doc: ReturnType<typeof buildDoc>): string {
 	const attachments = expandDoc(doc)._attachments;
@@ -51,9 +52,11 @@ describe("repeat modes — XForm emission", () => {
 								f({
 									kind: "repeat",
 									id: "members",
-									label: "Household members",
+									label: proseText("Household members"),
 									repeat_mode: "user_controlled",
-									children: [f({ kind: "text", id: "name", label: "Name" })],
+									children: [
+										f({ kind: "text", id: "name", label: proseText("Name") }),
+									],
 								}),
 							],
 						},
@@ -92,15 +95,17 @@ describe("repeat modes — XForm emission", () => {
 								f({
 									kind: "int",
 									id: "desired_count",
-									label: "How many?",
+									label: proseText("How many?"),
 								}),
 								f({
 									kind: "repeat",
 									id: "iterations",
-									label: "Iterations",
+									label: proseText("Iterations"),
 									repeat_mode: "count_bound",
 									repeat_count: "#form/desired_count",
-									children: [f({ kind: "text", id: "value", label: "Value" })],
+									children: [
+										f({ kind: "text", id: "value", label: proseText("Value") }),
+									],
 								}),
 							],
 						},
@@ -144,10 +149,12 @@ describe("repeat modes — XForm emission", () => {
 								f({
 									kind: "repeat",
 									id: "rounds",
-									label: "Rounds",
+									label: proseText("Rounds"),
 									repeat_mode: "count_bound",
 									repeat_count: "3",
-									children: [f({ kind: "text", id: "note", label: "Note" })],
+									children: [
+										f({ kind: "text", id: "note", label: proseText("Note") }),
+									],
 								}),
 							],
 						},
@@ -188,16 +195,18 @@ describe("repeat modes — XForm emission", () => {
 							name: "F",
 							type: "survey",
 							fields: [
-								f({ kind: "int", id: "base", label: "Base" }),
+								f({ kind: "int", id: "base", label: proseText("Base") }),
 								f({
 									kind: "repeat",
 									id: "slots",
-									label: "Slots",
+									label: proseText("Slots"),
 									repeat_mode: "count_bound",
 									// Arithmetic over a form field — a non-path expression
 									// JavaRosa would reject on `jr:count` directly.
 									repeat_count: "#form/base + 2",
-									children: [f({ kind: "text", id: "v", label: "V" })],
+									children: [
+										f({ kind: "text", id: "v", label: proseText("V") }),
+									],
 								}),
 							],
 						},
@@ -234,15 +243,17 @@ describe("repeat modes — XForm emission", () => {
 								f({
 									kind: "group",
 									id: "outer",
-									label: "Outer",
+									label: proseText("Outer"),
 									children: [
 										f({
 											kind: "repeat",
 											id: "inner",
-											label: "Inner",
+											label: proseText("Inner"),
 											repeat_mode: "count_bound",
 											repeat_count: "4",
-											children: [f({ kind: "text", id: "x", label: "X" })],
+											children: [
+												f({ kind: "text", id: "x", label: proseText("X") }),
+											],
 										}),
 									],
 								}),
@@ -293,30 +304,34 @@ describe("repeat modes — XForm emission", () => {
 								f({
 									kind: "group",
 									id: "outer_a",
-									label: "Outer A",
+									label: proseText("Outer A"),
 									children: [
 										f({
 											kind: "repeat",
 											id: "items",
-											label: "Items A",
+											label: proseText("Items A"),
 											repeat_mode: "count_bound",
 											repeat_count: "3",
-											children: [f({ kind: "text", id: "a", label: "A" })],
+											children: [
+												f({ kind: "text", id: "a", label: proseText("A") }),
+											],
 										}),
 									],
 								}),
 								f({
 									kind: "group",
 									id: "outer_b",
-									label: "Outer B",
+									label: proseText("Outer B"),
 									children: [
 										f({
 											kind: "repeat",
 											id: "items",
-											label: "Items B",
+											label: proseText("Items B"),
 											repeat_mode: "count_bound",
 											repeat_count: "5",
-											children: [f({ kind: "text", id: "b", label: "B" })],
+											children: [
+												f({ kind: "text", id: "b", label: proseText("B") }),
+											],
 										}),
 									],
 								}),
@@ -378,14 +393,20 @@ describe("repeat modes — XForm emission", () => {
 							name: "F",
 							type: "survey",
 							fields: [
-								f({ kind: "int", id: "desired_count", label: "How many?" }),
+								f({
+									kind: "int",
+									id: "desired_count",
+									label: proseText("How many?"),
+								}),
 								f({
 									kind: "repeat",
 									id: "iterations",
-									label: "Iterations",
+									label: proseText("Iterations"),
 									repeat_mode: "count_bound",
 									repeat_count: "#form/desired_count",
-									children: [f({ kind: "text", id: "value", label: "Value" })],
+									children: [
+										f({ kind: "text", id: "value", label: proseText("Value") }),
+									],
 								}),
 							],
 						},
@@ -420,7 +441,7 @@ describe("repeat modes — XForm emission", () => {
 								f({
 									kind: "repeat",
 									id: "service_cases",
-									label: "Service cases",
+									label: proseText("Service cases"),
 									repeat_mode: "query_bound",
 									data_source: { ids_query: "#form/service_case_ids" },
 									children: [
@@ -516,7 +537,7 @@ describe("repeat modes — XForm emission", () => {
 								f({
 									kind: "repeat",
 									id: "clients",
-									label: "Clients",
+									label: proseText("Clients"),
 									repeat_mode: "query_bound",
 									data_source: { ids_query: "#form/client_ids" },
 									children: [
@@ -529,7 +550,7 @@ describe("repeat modes — XForm emission", () => {
 										f({
 											kind: "repeat",
 											id: "services",
-											label: "Services",
+											label: proseText("Services"),
 											repeat_mode: "query_bound",
 											data_source: {
 												ids_query: "#form/clients/item/service_ids",

@@ -26,7 +26,6 @@ import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { type MutatingToolResult, toToolErrorResult } from "../common";
 import {
 	attachGuardedMutate,
-	brandAssetSlot,
 	nullableAssetSlot,
 	slotExpectation,
 } from "./shared";
@@ -57,7 +56,7 @@ export const setAppLogoTool = {
 	): Promise<MutatingToolResult<SetAppLogoResult>> {
 		const { logo } = input;
 		try {
-			const mutations = setAppLogoMutations(brandAssetSlot(logo));
+			const mutations = setAppLogoMutations(logo);
 			const commit = await attachGuardedMutate(
 				ctx,
 				doc,
@@ -77,7 +76,7 @@ export const setAppLogoTool = {
 
 			return {
 				kind: "mutate" as const,
-				mutations,
+				mutations: commit.mutations,
 				newDoc,
 				result:
 					logo === null

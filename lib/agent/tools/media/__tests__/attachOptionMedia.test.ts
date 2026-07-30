@@ -13,9 +13,12 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { asUuid, type Media, type Uuid } from "@/lib/domain";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import type { Media, Uuid } from "@/lib/domain";
 import { attachOptionMediaTool } from "../attachOptionMedia";
 import {
+	ASSET_AUD_1,
+	ASSET_IMG_1,
 	COUGH_OPTION,
 	errorOf,
 	FEVER_OPTION,
@@ -28,12 +31,21 @@ import {
 	TEXT_FIELD,
 } from "./fixtures";
 
+const UNKNOWN_OPTION = testUuid("99999999-9999-4999-8999-999999999999");
+
 vi.mock("@/lib/db/apps", () => ({
 	completeApp: vi.fn(() => Promise.resolve()),
-	loadAppProjectId: vi.fn(() => Promise.resolve("project-1")),
+	loadAppProjectId: vi.fn(() =>
+		Promise.resolve({ kind: "found", projectId: "project-1" }),
+	),
 }));
 vi.mock("@/lib/db/applyBlueprintChange", () => ({
-	applyBlueprintChange: vi.fn(() => Promise.resolve({ seq: 0 })),
+	applyBlueprintChange: vi.fn(async (args) => {
+		const { commitApplyBlueprintChangeTestBatch } = await import(
+			"@/lib/db/__tests__/applyBlueprintChangeTestWriter"
+		);
+		return commitApplyBlueprintChangeTestBatch(args);
+	}),
 }));
 // The db-constructing module stubbed at the import boundary; the
 // attach verdict's asset reads resolve against the fixtures' in-memory
@@ -76,7 +88,7 @@ describe("attachOptionMedia", () => {
 	it("sets media on the named option without disturbing siblings", async () => {
 		const { doc, ctx } = makeMediaFixture();
 		const result = await attachOptionMediaTool.execute(
-			input(attachment(FEVER_OPTION, { image: "asset-img-1" })),
+			input(attachment(FEVER_OPTION, { image: ASSET_IMG_1 })),
 			ctx,
 			doc,
 		);
@@ -84,7 +96,7 @@ describe("attachOptionMedia", () => {
 		expect(result.kind).toBe("mutate");
 		const options = optionsOf(result.newDoc);
 		expect(options[0].value).toBe("fever");
-		expect(options[0].media).toEqual({ image: "asset-img-1" });
+		expect(options[0].media).toEqual({ image: ASSET_IMG_1 });
 		// Sibling option keeps no media.
 		expect(options[1].value).toBe("cough");
 		expect(options[1].media).toBeUndefined();
@@ -94,15 +106,15 @@ describe("attachOptionMedia", () => {
 		const { doc, ctx } = makeMediaFixture();
 		const result = await attachOptionMediaTool.execute(
 			input(
-				attachment(FEVER_OPTION, { image: "asset-img-1" }),
-				attachment(COUGH_OPTION, { audio: "asset-aud-1" }),
+				attachment(FEVER_OPTION, { image: ASSET_IMG_1 }),
+				attachment(COUGH_OPTION, { audio: ASSET_AUD_1 }),
 			),
 			ctx,
 			doc,
 		);
 		const options = optionsOf(result.newDoc);
-		expect(options[0].media).toEqual({ image: "asset-img-1" });
-		expect(options[1].media).toEqual({ audio: "asset-aud-1" });
+		expect(options[0].media).toEqual({ image: ASSET_IMG_1 });
+		expect(options[1].media).toEqual({ audio: ASSET_AUD_1 });
 		const success = result.result as { summary?: { count?: number } };
 		expect(success.summary).toEqual({ count: 2 });
 	});
@@ -110,7 +122,7 @@ describe("attachOptionMedia", () => {
 	it("clears the option's media with an empty bundle", async () => {
 		const { doc: baseDoc, ctx } = makeMediaFixture();
 		const seeded = await attachOptionMediaTool.execute(
-			input(attachment(FEVER_OPTION, { image: "asset-img-1" })),
+			input(attachment(FEVER_OPTION, { image: ASSET_IMG_1 })),
 			ctx,
 			baseDoc,
 		);
@@ -135,7 +147,7 @@ describe("attachOptionMedia", () => {
 						formUuid: FORM_A,
 						fieldUuid: TEXT_FIELD,
 						optionUuid: FEVER_OPTION,
-						media: { image: "asset-img-1" },
+						media: { image: ASSET_IMG_1 },
 					},
 				],
 			},
@@ -146,27 +158,24 @@ describe("attachOptionMedia", () => {
 		expect(errorOf(result)).toContain("no options");
 	});
 
-	it("refuses an unknown option UUID", async () => {
+	it("refuses an unknown option value and names the existing values", async () => {
 		const { doc, ctx } = makeMediaFixture();
-		const missing = asUuid("ffffffff-ffff-4fff-8fff-ffffffffffff");
 		const result = await attachOptionMediaTool.execute(
-			input(attachment(missing, { image: "asset-img-1" })),
+			input(attachment(UNKNOWN_OPTION, { image: ASSET_IMG_1 })),
 			ctx,
 			doc,
 		);
 		expect(result.mutations).toEqual([]);
 		const error = errorOf(result);
-		expect(error).toContain(String(missing));
+		expect(error).toContain(UNKNOWN_OPTION);
 	});
 
 	it("writes nothing when one attachment of a batch doesn't resolve", async () => {
 		const { doc, ctx } = makeMediaFixture();
 		const result = await attachOptionMediaTool.execute(
 			input(
-				attachment(FEVER_OPTION, { image: "asset-img-1" }),
-				attachment(asUuid("ffffffff-ffff-4fff-8fff-ffffffffffff"), {
-					image: "asset-img-1",
-				}),
+				attachment(FEVER_OPTION, { image: ASSET_IMG_1 }),
+				attachment(UNKNOWN_OPTION, { image: ASSET_IMG_1 }),
 			),
 			ctx,
 			doc,
@@ -181,7 +190,7 @@ describe("attachOptionMedia", () => {
 	it("emits the same mutation batch through chat + MCP contexts", async () => {
 		const { doc, ctx: chatCtx } = makeMediaFixture();
 		const { ctx: mcpCtx } = makeMediaMcpFixture();
-		const batch = input(attachment(FEVER_OPTION, { audio: "asset-aud-1" }));
+		const batch = input(attachment(FEVER_OPTION, { audio: ASSET_AUD_1 }));
 		const r1 = await attachOptionMediaTool.execute(batch, chatCtx, doc);
 		const r2 = await attachOptionMediaTool.execute(batch, mcpCtx, doc);
 		expect(r1.mutations).toEqual(r2.mutations);

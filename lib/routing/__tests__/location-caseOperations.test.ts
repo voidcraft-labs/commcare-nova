@@ -6,6 +6,7 @@
 // happens to a selection whose operation is gone, are what matter here.
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import type { Uuid } from "@/lib/doc/types";
 import {
 	isValidLocation,
@@ -16,10 +17,11 @@ import {
 } from "@/lib/routing/location";
 import { locationSchema } from "@/lib/routing/types";
 
-const MOD = "mod-1" as Uuid;
-const FORM = "form-1" as Uuid;
-const OP = "op-1" as Uuid;
-const FIELD = "field-1" as Uuid;
+const MOD = testUuid("module");
+const FORM = testUuid("form");
+const OP = testUuid("operation");
+const FIELD = testUuid("field");
+const GONE = testUuid("gone");
 
 function doc(operationUuids: readonly Uuid[] = [OP]): LocationParseDoc {
 	return {
@@ -69,7 +71,7 @@ describe("case-operations locations", () => {
 	});
 
 	it("falls back home for an unknown or orphaned form", () => {
-		expect(parsePathToLocation(["nope" as Uuid, "operations"], doc())).toEqual({
+		expect(parsePathToLocation([GONE, "operations"], doc())).toEqual({
 			kind: "home",
 		});
 		const orphaned = { ...doc(), formOrder: {} } as LocationParseDoc;
@@ -87,14 +89,14 @@ describe("case-operations locations", () => {
 					kind: "form-operations",
 					moduleUuid: MOD,
 					formUuid: FORM,
-					operationUuid: "gone" as Uuid,
+					operationUuid: GONE,
 				},
 				doc(),
 			),
 		).toBe(true);
 		expect(
 			isValidLocation(
-				{ kind: "form-operations", moduleUuid: MOD, formUuid: "gone" as Uuid },
+				{ kind: "form-operations", moduleUuid: MOD, formUuid: GONE },
 				doc(),
 			),
 		).toBe(false);
@@ -109,7 +111,7 @@ describe("case-operations locations", () => {
 					kind: "form-operations",
 					moduleUuid: MOD,
 					formUuid: FORM,
-					operationUuid: "gone" as Uuid,
+					operationUuid: GONE,
 				},
 				doc(),
 			),
@@ -129,7 +131,7 @@ describe("case-operations locations", () => {
 	it("degrades to the module when the form is gone", () => {
 		expect(
 			recoverLocation(
-				{ kind: "form-operations", moduleUuid: MOD, formUuid: "gone" as Uuid },
+				{ kind: "form-operations", moduleUuid: MOD, formUuid: GONE },
 				doc(),
 			),
 		).toEqual({ kind: "module", moduleUuid: MOD });

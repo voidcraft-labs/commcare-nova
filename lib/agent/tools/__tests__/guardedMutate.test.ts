@@ -16,9 +16,13 @@
  */
 
 import { describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
+import type { PreparedMutationCandidate } from "@/lib/doc/commitVerdicts";
+import type { AdmittedMutationStages } from "@/lib/doc/mutationAdmission";
 import type { Mutation } from "@/lib/doc/types";
-import { asUuid, type BlueprintDoc } from "@/lib/domain";
+import type { BlueprintDoc } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { guardedMutate } from "../common";
 import { editFieldTool } from "../editField";
@@ -42,14 +46,14 @@ function minDoc(): BlueprintDoc {
 							f({
 								kind: "text",
 								id: "case_name",
-								label: "Name",
-								case_property_on: "patient",
+								label: proseText("Name"),
+								caseWrite: { caseType: "patient", property: "case_name" },
 							}),
 							f({
 								kind: "text",
 								id: "village",
-								label: "Village",
-								case_property_on: "patient",
+								label: proseText("Village"),
+								caseWrite: { caseType: "patient", property: "village" },
 							}),
 						],
 					},
@@ -60,8 +64,8 @@ function minDoc(): BlueprintDoc {
 			{
 				name: "patient",
 				properties: [
-					{ name: "case_name", label: "Name" },
-					{ name: "village", label: "Village" },
+					{ name: "case_name", label: proseText("Name") },
+					{ name: "village", label: proseText("Village") },
 				],
 			},
 		],
@@ -76,20 +80,18 @@ function minDoc(): BlueprintDoc {
  *  hydrated `nextDoc` — here with no concurrent peer edit to merge). */
 function makeCtx() {
 	const recordMutations = vi.fn(
-		async (
-			_mutations: Mutation[],
-			doc: BlueprintDoc,
-			_stage?: string,
-			_mediaExpectations?: unknown,
-		) => ({
+		async (prepared: PreparedMutationCandidate, _stage?: string) => ({
 			events: [],
-			committedDoc: doc,
+			committedDoc: prepared.nextDoc,
 		}),
 	);
 	const recordMutationStages = vi.fn(
-		async (stages: Array<{ doc: BlueprintDoc }>) => ({
+		async (
+			prepared: PreparedMutationCandidate,
+			_stages: AdmittedMutationStages,
+		) => ({
 			events: [],
-			committedDoc: stages[stages.length - 1]?.doc,
+			committedDoc: prepared.nextDoc,
 		}),
 	);
 	const ctx: ToolExecutionContext = {
@@ -117,13 +119,11 @@ function badRelevantMutation(doc: BlueprintDoc): Mutation[] {
 
 function villageAddress(doc: BlueprintDoc) {
 	const moduleUuid = doc.moduleOrder[0];
-	const formUuid = doc.formOrder[moduleUuid]?.[0];
+	const formUuid = doc.formOrder[moduleUuid][0];
 	const fieldUuid = Object.values(doc.fields).find(
 		(field) => field.id === "village",
 	)?.uuid;
-	if (!moduleUuid || !formUuid || !fieldUuid) {
-		throw new Error("village fixture address is incomplete");
-	}
+	if (!fieldUuid) throw new Error("fixture missing village");
 	return { moduleUuid, formUuid, fieldUuid };
 }
 
@@ -137,7 +137,7 @@ describe("guardedMutate", () => {
 				kind: "updateField",
 				uuid: target?.uuid,
 				targetKind: "text",
-				patch: { label: "Home village" },
+				patch: { label: proseText("Home village") },
 			} as Mutation,
 		];
 
@@ -145,12 +145,11 @@ describe("guardedMutate", () => {
 
 		expect(outcome.ok).toBe(true);
 		expect(recordMutations).toHaveBeenCalledTimes(1);
-		const [persistedMuts, persistedDoc, stage] =
-			recordMutations.mock.calls[0] ?? [];
-		expect(persistedMuts).toBe(mutations);
+		const [prepared, stage] = recordMutations.mock.calls[0] ?? [];
+		expect(prepared?.mutations).toEqual(mutations);
 		expect(stage).toBe("form:0-0");
 		// The persisted doc IS the post-batch doc the tool continues against.
-		if (outcome.ok) expect(persistedDoc).toBe(outcome.newDoc);
+		if (outcome.ok) expect(prepared?.nextDoc).toBe(outcome.newDoc);
 	});
 
 	it("persists nothing on a gate rejection and returns the findings as prose", async () => {
@@ -179,7 +178,7 @@ describe("guardedMutate", () => {
 				kind: "addForm",
 				moduleUuid: doc.moduleOrder[0],
 				form: {
-					uuid: asUuid("form-new"),
+					uuid: testUuid("form-new"),
 					id: "form_new",
 					name: "Empty survey",
 					type: "survey",
@@ -197,7 +196,7 @@ describe("guardedMutate", () => {
 		const doc = minDoc();
 		const { ctx, recordMutations } = makeCtx();
 		const outcome = await guardedMutate(ctx, doc, []);
-		expect(outcome).toEqual({ ok: true, newDoc: doc });
+		expect(outcome).toEqual({ ok: true, newDoc: doc, mutations: [] });
 		expect(recordMutations).not.toHaveBeenCalled();
 	});
 });
@@ -210,7 +209,7 @@ describe("tool-level gating (editField through the shared layer)", () => {
 		const out = await editFieldTool.execute(
 			{
 				...villageAddress(doc),
-				updates: { kind: "text", relevant: "if(" } as never,
+				updates: { kind: "text", relevant: xp("if(") },
 			},
 			ctx,
 			doc,
@@ -225,10 +224,10 @@ describe("tool-level gating (editField through the shared layer)", () => {
 		expect(recordMutations).not.toHaveBeenCalled();
 	});
 
-	it("a multi-stage edit (rename + patch) is atomic — a bad patch leaves zero committed prefix", async () => {
-		// The rename alone is valid; the relevant patch introduces
-		// XPATH_SYNTAX. The whole edit gates as ONE candidate, so the
-		// rename must NOT commit — nothing persists, the doc is untouched,
+	it("an ID-changing edit is atomic — a bad sibling property leaves zero committed prefix", async () => {
+		// The ID change alone is valid; the relevant expression introduces
+		// XPATH_SYNTAX. The whole updateField patch gates as ONE candidate,
+		// so the ID change must NOT commit — nothing persists, the doc is untouched,
 		// and the agent can re-issue the corrected call from the original
 		// state ("a rejected call saved nothing" holds with no asterisk).
 		const doc = minDoc();
@@ -240,8 +239,8 @@ describe("tool-level gating (editField through the shared layer)", () => {
 				updates: {
 					kind: "text",
 					id: "village_name",
-					relevant: "if(",
-				} as never,
+					relevant: xp("if("),
+				},
 			},
 			ctx,
 			doc,
@@ -261,7 +260,7 @@ describe("tool-level gating (editField through the shared layer)", () => {
 		expect(renamed).toBeUndefined();
 	});
 
-	it("a passing multi-stage edit persists as ONE save carrying each stage's own tag", async () => {
+	it("a passing ID-and-property edit persists as one canonical update stage", async () => {
 		const doc = minDoc();
 		const { ctx, recordMutationStages } = makeCtx();
 
@@ -271,7 +270,7 @@ describe("tool-level gating (editField through the shared layer)", () => {
 				updates: {
 					kind: "text",
 					id: "village_name",
-					label: "Home village",
+					label: proseText("Home village"),
 				} as never,
 			},
 			ctx,
@@ -279,16 +278,14 @@ describe("tool-level gating (editField through the shared layer)", () => {
 		);
 
 		expect("message" in out.result).toBe(true);
-		// One persistence call for the whole sequence — the stages ride
-		// inside it, in order, each with its own tag.
+		// One persistence call, with ID and label carried by the same
+		// target-kind-aware updateField stage.
 		expect(recordMutationStages).toHaveBeenCalledTimes(1);
-		const stages = recordMutationStages.mock.calls[0]?.[0] as Array<{
-			stage?: string;
-		}>;
-		expect(stages.map((s) => s.stage)).toEqual([
-			"rename:frm-0033",
-			"edit:frm-0033",
-		]);
+		const stages = recordMutationStages.mock.calls[0]?.[1] as {
+			slices: readonly { stage?: string }[];
+		};
+		const formUuid = villageAddress(doc).formUuid;
+		expect(stages.slices.map((s) => s.stage)).toEqual([`edit:${formUuid}`]);
 	});
 
 	it("commits a clean edit unchanged (the gate is transparent on pass)", async () => {
@@ -298,7 +295,7 @@ describe("tool-level gating (editField through the shared layer)", () => {
 		const out = await editFieldTool.execute(
 			{
 				...villageAddress(doc),
-				updates: { kind: "text", label: "Home village" } as never,
+				updates: { kind: "text", label: proseText("Home village") },
 			},
 			ctx,
 			doc,

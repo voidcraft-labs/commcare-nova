@@ -11,29 +11,70 @@ These are the tools the Nova MCP server exposes. You don't call them directly �
 
 It's a long result — a whole system prompt. Some agent frameworks cap how much of a tool result they pass through and quietly hand your agent a truncated copy, which reads as a normal short prompt and produces apps that are valid but conventionally off. So the text always ends with the line `NOVA-PROMPT-END`. Have your agent check for it and stop if it's missing, rather than building on a fragment.
 
-## Stable identity in tool calls
+## Stable identities and structured content
 
-Read before you edit. Every Nova-owned object is addressed by the immutable UUID
-returned by a read tool: `moduleUuid`, `formUuid`, `fieldUuid`,
-`operationUuid`, and the UUID-valued `id` on Project data tables and columns.
-Names, field ids and paths, operation ids, Search field names, lookup tags, and
-column export names are readable or emitted values. They can change and are
-never object addresses.
+Read an app before editing it. Nova returns stable UUIDs for modules, forms,
+fields, choices, case-list columns, search inputs, worker-information
+properties, roles, personas, case operations, Project data tables, columns, and
+rows. Editing tools address those
+objects by their UUID parameters—such as `moduleUuid`, `formUuid`,
+`fieldUuid`, `columnUuid` (the case-list column), `searchInputUuid`, and
+`operationUuid`—rather than by a display name, saved field id, path, list
+position, or operation id. Project data tables and columns carry their UUID on
+`id`. Names, saved ids, lookup tags, and column export names remain readable,
+editable authoring values; changing one does not retarget a UUID-linked
+reference.
 
-Predicate and ValueExpression inputs follow the same rule:
+When one item in a creation call will be referenced by another item in that
+same call, give it its final UUID in the matching creation slot:
+`moduleUuid`, `formUuid`, `fieldUuid`, `optionUuid`, `columnUuid`,
+`searchInputUuid`, or `operationUuid`. Otherwise, omit that slot and let Nova
+mint the UUID. A same-call group or repeat parent must appear earlier in the
+field list and declare `fieldUuid`. An operation whose result is consumed by a
+later operation must likewise appear earlier; predeclaring identity does not
+change execution order.
 
-- a form answer uses `{ "kind": "field", "uuid": "..." }`;
-- a Search answer uses `{ "kind": "input", "searchInputUuid": "..." }`;
-- a custom worker property uses
-  `{ "kind": "session-user-property", "userPropertyUuid": "..." }`;
-- a lookup row column uses
-  `{ "kind": "table-column", "tableId": "...", "columnId": "..." }`; and
-- an earlier case operation uses its stable `opUuid`.
+Every successful creation result returns the final identities it created in
+input order, including identities Nova minted. Field receipts nest their inline
+choice UUIDs in source order; `create_form` nests all field and choice receipts
+under its form, and `create_module` nests forms, fields, choices, and born
+case-list columns under its module. Continue from that result—no read-after-write
+is required just to discover a new UUID.
 
-The deliberate name-backed exceptions are case properties, identified by
-`caseType` plus `property`, and CommCare/session fields Nova does not own. A new
-field item's `parentUuid` can name a container whose `fieldUuid` was declared
-earlier in that same call. It cannot address an undeclared object.
+Machine-authored inline choices have exactly
+`{ "optionUuid"?: "...", "value": "...", "label": { "parts": [...] } }`.
+Stored `uuid`, option `media`, and identity aliases are rejected on every field
+writer. Lookup-backed choices use the canonical
+`tableId` / `valueColumnId` / `labelColumnId` fields, plus optional `filter`;
+there are no `tableUuid` or column-UUID aliases. Option media is changed through
+the dedicated media tools.
+
+MCP expression slots take Nova's typed AST, not an XPath source string. For
+example, a field reference is a part such as
+`{ "kind": "field-ref", "uuid": "<field UUID>" }`; a complete XPath value is
+`{ "parts": [/* text and typed reference parts */] }`. Reference-capable prose
+uses the same outer `{ "parts": [...] }` shape with explicit reference atoms.
+Plain text that happens to contain `#form/name` stays plain text. Predicate and
+ValueExpression leaves likewise use UUIDs—for example
+`{ "kind": "field", "uuid": "<field UUID>" }`,
+`{ "kind": "input", "searchInputUuid": "<search input UUID>" }`,
+`{ "kind": "id-of", "opUuid": "<operation UUID>" }`, and
+`{ "kind": "session-user-property", "userPropertyUuid": "<property UUID>" }`.
+
+There are exactly two name-keyed leaves, both deliberate: a case property, which
+uses `(caseType, property)`, and a CommCare session field Nova does not own,
+which names one field out of a closed framework set.
+
+This is only the machine contract. In Nova's visual XPath editor, people still
+type and read friendly expressions such as `#form/first_name`; Nova resolves
+that text to identity when the edit commits and prints the current friendly
+path when it is opened again. Users are never asked to write a UUID-shaped
+XPath.
+
+Lookup expressions use the same identity rule. A row-scoped column is
+`{ "kind": "table-column", "tableId": "...", "columnId": "..." }`; table
+lookups and lookup-backed choice sources likewise use `tableId` and column ids,
+never table tags, export names, or display labels.
 
 ## Browsing apps
 
@@ -47,24 +88,77 @@ earlier in that same call. It cannot address an undeclared object.
 
 | Tool | What it does |
 |---|---|
-| `create_app` | Create a new empty app and return its ID. Build it up with the other tools — every change is checked as it lands, so there's no separate finishing step. |
+| `create_app` | Create an export-ready survey starter and return its app ID, sequence-1 blueprint, and starter module/form/field UUIDs. Continue with those identities; every later change is checked as it lands. |
 | `delete_app` | Soft-delete an app. Recoverable within the returned window. |
 
 ## Building a new app from a description
 
-A new app is designed first, then built module by module: `update_app` names it
-(and, on a Connect build, sets the Connect type before any module lands). When
+A new app is named `Untitled` and already contains one survey module, survey
+form, and text question. Design the requested app first, then refine that
+starter or replace it only after its valid replacement exists. `update_app`
+gives it the requested name. When
 the design uses custom worker information, `add_user_properties` declares it
 next, before `generate_schema`, modules, forms, conditions, or calculations can
 refer to it. `generate_schema` then commits the data model, and each
 `create_module` call lands one complete module — every call checked as it
-lands. Roles and personas can follow the app structure; the referenced worker
-information cannot.
+lands. After a Connect build's forms exist, `configure_connect` sets the mode
+and complete UUID-addressed participant set in one call. Roles and personas can
+follow the app structure; the referenced worker information cannot.
 
 | Tool | What it does |
 |---|---|
-| `update_app` | Set the app's name and/or its CommCare Connect type. On a Connect build, set the type before creating modules. |
+| `update_app` | Set the app's name. |
+| `configure_connect` | Set the exact app-wide CommCare Connect target atomically, or turn Connect off and clear every form block. |
 | `generate_schema` | Record the data model on the app: every case type with its properties and parent links. A real write — `create_module` references the recorded types by name, and a form field that writes a recorded property inherits its label, options, and validation. Also how a new case type enters an existing app. |
+
+### Configuring CommCare Connect
+
+`configure_connect` owns enabling Connect, switching between `learn` and
+`deliver`, replacing the participant set, and disabling Connect. For an enabled
+mode, pass the complete nonempty set of participating forms. Every form is
+addressed by `formUuid`; an unlisted form is auxiliary and any old Connect block
+on it is cleared.
+
+```json
+{
+  "app_id": "app-id",
+  "mode": "learn",
+  "participants": [
+    {
+      "formUuid": "01890f45-0000-7000-8000-000000000002",
+      "connect": {
+        "learn_module": {
+          "name": "Health basics",
+          "description": "Introduction and guided practice",
+          "time_estimate": 15
+        }
+      }
+    }
+  ]
+}
+```
+
+The Connect sub-block `id` is an emitted Connect identifier, not the address of
+the Nova form. Usually omit it: Nova derives it once and stores the final value.
+An explicit id must already be valid and unique, or the whole call is refused;
+Nova never silently rewrites it. The form itself is always selected by UUID.
+
+To disable Connect and clear every form's Connect block in the same change:
+
+```json
+{
+  "app_id": "app-id",
+  "mode": null
+}
+```
+
+Do not include `participants` with `mode: null`. Duplicate or foreign form
+UUIDs, empty participation, incomplete blocks, mixed mode families, and
+duplicate Connect ids are refused before anything saves. Once a mode exists,
+`update_form` can refine one participant's block, but it cannot create the mode,
+cross mode families, or change which forms participate. Creation tools have no
+Connect slot; a newly created form is auxiliary until a later
+`configure_connect` call replaces the complete set.
 
 ## Working with workers and personas
 
@@ -79,16 +173,17 @@ ValueExpression inputs, use
 `{ "kind": "session-user-property", "userPropertyUuid": "..." }`. The
 name-based `{ "kind": "session-user", "field": "..." }` arm is for
 CommCare-provided or external worker fields that Nova does not own. Textual
-XPath uses the current `#user/<saved-name>` spelling. Nova binds it to a UUID
-only when exactly one valid custom property matches that exact capitalization;
-a built-in, external, invalid legacy, or case-insensitively ambiguous name stays
-literal and therefore does not follow a custom-property rename.
+XPath in the visual editor shows the current `#user/<saved-name>` projection.
+In an MCP `XPathExpression`, a custom property is instead an explicit
+`{ "kind": "user-property-ref", "userPropertyUuid": "..." }` part; an
+external property is a `user-ref` part. MCP never submits the projected name
+for Nova to resolve.
 
 On update tools, leaving a field out keeps it and passing `null` clears a
 clearable field. Every batch is checked as one change; if any entry would make
-the app invalid, none of it saves. A provided role/persona `values` array is a
-complete replacement: include every value that should remain. Omitting
-`values` keeps the complete set, while `null` clears it.
+the app invalid, none of it saves. Role/persona updates use `valuePatch` for
+one UUID-addressed value at a time: a string sets it, `null` clears it, and
+omitting `valuePatch` leaves every value unchanged.
 
 | Tool | What it does |
 |---|---|
@@ -97,20 +192,20 @@ complete replacement: include every value that should remain. Omitting
 | `update_user_property` | Change one property's label, saved name, required flag, or accepted values. |
 | `remove_user_property` | Remove one property and atomically clear its values from every role and persona. Refuses while any saved condition or calculation references it, naming the settings to update first. |
 | `add_user_types` | Add one or more reusable roles and their default worker-information values. |
-| `update_user_type` | Change one role's name, description, or complete set of default values. |
+| `update_user_type` | Change one role's name or description, or set/clear one UUID-addressed default with `valuePatch`. |
 | `remove_user_type` | Remove one role. Refuses while a persona still uses it. |
 | `add_personas` | Add one or more named Preview workers, optionally with a role and value overrides. |
-| `update_persona` | Change one persona's name, description, role, or complete set of overrides. |
+| `update_persona` | Change one persona's name, description, or role, or set/clear one UUID-addressed override with `valuePatch`. |
 | `remove_persona` | Remove one persona while preserving the cases that persona already owns. |
 
 ## Working on modules
 
 | Tool | What it does |
 |---|---|
-| `create_module` | Add a new module together with its forms (each with fields) and its case-list columns, in one call. Its case type must already be recorded on the app (`generate_schema`). A module lands complete or not at all. Refine the case list afterward via the case-list tools below. |
-| `update_module` | Rename a module and/or set its case type, addressed by `moduleUuid` (with starter case-list columns when the module has none) — set the case type before adding registration, follow-up, or close forms to a module created without one. |
+| `create_module` | Add a new module together with its forms (each with fields) and its case-list columns, in one call. Its case type must already be recorded on the app (`generate_schema`). A module lands complete or not at all. It returns every created UUID; predeclare only identities referenced inside the call. Refine the case list afterward via the case-list tools below. |
+| `update_module` | Rename a module and/or set its case type, addressed by `moduleUuid` (with starter case-list columns when the module has none; the result returns those born column UUIDs) — set the case type before adding registration, follow-up, or close forms to a module created without one. |
 | `remove_module` | Delete a module by `moduleUuid`. |
-| `get_module` | Show details for one module by `moduleUuid`, including the structured case-list config, stable nested UUIDs, and each menu tile's current icon and audio label. |
+| `get_module` | Read one module by `moduleUuid`, including form and field UUIDs, the structured case-list config, its display condition, and each menu tile's current icon and audio label. |
 
 ## Working on the case list
 
@@ -118,15 +213,15 @@ A module's case list is the screen that lists existing cases and the search bar 
 
 | Tool | What it does |
 |---|---|
-| `add_case_list_columns` | Add one or more columns to the case list (plain / date / phone / id-mapping / image-map / interval / calculated). Pass the whole set in one call. |
-| `update_case_list_column` | Replace a column's body, addressed by the column's uuid. |
-| `remove_case_list_column` | Remove one column by uuid. |
-| `reorder_case_list_columns` | Reorder columns by passing the desired uuid sequence. |
+| `add_case_list_columns` | Add one or more columns to the case list (plain / date / phone / id-mapping / image-map / interval / calculated). Each may predeclare `columnUuid`; the result returns the final UUIDs. |
+| `update_case_list_column` | Replace a column's body, addressed by `moduleUuid` and `columnUuid`. |
+| `remove_case_list_column` | Remove one column by `moduleUuid` and `columnUuid`. |
+| `reorder_case_list_columns` | Reorder a surface by passing its complete `columnUuids` sequence. |
 | `set_case_list_filter` | Set or clear the optional filter predicate that narrows the list. |
-| `add_search_inputs` | Add one or more search inputs (simple property bind or advanced predicate) in one call. |
-| `update_search_input` | Replace a search input's body, addressed by the input's uuid. |
-| `remove_search_input` | Remove one search input by uuid. |
-| `reorder_search_inputs` | Reorder search inputs by passing the desired uuid sequence. |
+| `add_search_inputs` | Add one or more search inputs (simple property bind or advanced predicate) in one call. Each may predeclare `searchInputUuid`; predicates reference inputs by that UUID. |
+| `update_search_input` | Replace a search input's body, addressed by `moduleUuid` and `searchInputUuid`. |
+| `remove_search_input` | Remove one search input by `moduleUuid` and `searchInputUuid`. |
+| `reorder_search_inputs` | Reorder search inputs by passing their complete `searchInputUuids` sequence. |
 
 ## Working on case search
 
@@ -143,10 +238,10 @@ CommCare has four form types: `registration` creates a new case, `followup` upda
 
 | Tool | What it does |
 |---|---|
-| `create_form` | Add a new form to a module addressed by `moduleUuid`, together with its fields in one call. |
-| `update_form` | Rename, change CommCare Connect config, set close condition or post-submit destination, addressed by `moduleUuid` and `formUuid`. |
+| `create_form` | Add a new form to `moduleUuid` together with its fields, in one call. It returns the form plus every field and inline-choice UUID; predeclare only identities referenced inside the call. |
+| `update_form` | Rename, refine one participant's CommCare Connect config after a mode exists, or set close condition/post-submit destination, addressed by `moduleUuid` and `formUuid`. |
 | `remove_form` | Delete a form by `moduleUuid` and `formUuid`. |
-| `get_form` | Show one form and its fields by `moduleUuid` and `formUuid`. |
+| `get_form` | Read one form by `moduleUuid` and `formUuid`, including its field UUIDs and complete case-operation ASTs. |
 
 ## Working with Project data in expressions
 
@@ -175,27 +270,33 @@ child or sibling repeating section.
 
 Most forms save their answers onto their primary case through their fields. Case operations cover additional ordered effects: create another case, update or close a known case, connect cases, rename or retype one, assign an owner, or repeat an effect for every row in a repeating section.
 
-Each tool names the form by `moduleUuid` and `formUuid`, and names an existing
-operation by `operationUuid`. Inside the operation, form-answer terms use field
-UUIDs and references to earlier operations use `opUuid`. The operation's `id`
-remains an editable wire name, not an address.
+Each tool names the form by `moduleUuid` and `formUuid`, both returned by read
+tools. An operation has an immutable `operationUuid` and a separate editable
+`id`; tools address and reference the operation by UUID. Form-answer terms use
+field UUIDs, repeat scopes use repeat-field UUIDs, and an operation target uses
+`{ "kind": "op", "opUuid": "..." }`. A later operation in one add call may
+consume an earlier create by UUID when the producer declares `operationUuid`;
+the complete list is checked and saved atomically.
 
 Operation ids and link identifiers contain letters, numbers, and underscores
 and start with a letter or underscore. Write-property names use the same
-characters and start with a letter.
+characters and start with a letter. These are readable, editable values rather
+than object addresses: reads return the complete canonical Predicate and
+ValueExpression ASTs, including lookup-table terms, and subsequent calls keep
+targeting the operation by `operationUuid`.
 
-When a later item in one `add_case_operations` call needs to reference an
-earlier item from that call, provide that new item an `operationUuid` up front
-and use it as the later item's `opUuid`. If no same-call reference needs it,
-Nova can mint the UUID. The whole list is checked and saved atomically.
+Operation `writes` may save custom case properties or the standard
+`external_id` scalar. They may not write `case_name`; create, rename, and
+retype operations expose their dedicated naming fields instead. Nova keeps
+standard scalars out of custom case-property data.
 
 | Tool | What it does |
 |---|---|
-| `get_case_operations` | List every operation in execution order with its stable UUID, editable wire id, and complete canonical Predicate/ValueExpression shapes. |
-| `add_case_operations` | Add one or more complete create, update, or close operations. Later items may target a predeclared UUID from an earlier item in the same call. |
-| `update_case_operation` | Edit one operation's complete shape by `operationUuid`. Only changed identity-keyed slots are written, so unrelated concurrent edits compose. |
-| `move_case_operation` | Move an operation addressed by `operationUuid` to a new execution index. Refuses dependency-breaking or non-portable placement and reports the committed index. |
-| `remove_case_operation` | Remove an operation by `operationUuid`. Refuses while another operation still depends on it and names the dependents. |
+| `get_case_operations` | List every operation in execution order with `operationUuid`, readable metadata, and the complete canonical Predicate/ValueExpression ASTs. |
+| `add_case_operations` | Add one or more complete create, update, or close operations. Predeclare `operationUuid` for same-call references; `afterOperationUuid` is the existing anchor (`null` means first, omission appends). |
+| `update_case_operation` | Edit one operation's complete author shape by `operationUuid`. Only changed identity-keyed slots are written, so unrelated concurrent edits compose. |
+| `move_case_operation` | Move `operationUuid` after `afterOperationUuid`, or pass `null` to make it first. Refuses dependency-breaking or non-portable order. |
+| `remove_case_operation` | Remove one operation by `operationUuid`. Refuses while another operation still depends on it and names the dependents. |
 
 ## Working on fields (questions)
 
@@ -203,12 +304,127 @@ A field is a single question on a form: text input, dropdown, date, number, repe
 
 | Tool | What it does |
 |---|---|
-| `add_fields` | Insert one or more fields in a UUID-addressed form. Use `beforeFieldUuid` / `afterFieldUuid` to control position and `parentUuid` for an existing or earlier-declared group/repeat; omit them to append. |
-| `edit_field` | Change a field's properties: label, validation, visibility, choices, case wiring. Also converts a field's kind in place where the data is compatible — e.g. text to dropdown (pass the choices in the same call), text to hidden (pass the calculate), text to barcode — keeping the field's identity and references, and for these string-compatible conversions the collected case data stays valid as-is. Converting a case-bound field is property-wide: the one call also converts the property's other writers in other forms and updates its declared type, so every form stays in agreement. Switching between single- and multi-select changes the shape of stored values and does not migrate existing case data. |
-| `move_field` | Reposition a field addressed by `fieldUuid`, using `beforeFieldUuid` / `afterFieldUuid` or an existing `parentUuid`, while keeping every reference to it. |
+| `add_fields` | Insert one or more fields in one call and receive every field and inline-choice UUID in input/source order. Address the form by `moduleUuid` and `formUuid`; predeclare `fieldUuid` for a same-call reference, use `parentUuid` for nesting, and use `beforeFieldUuid` / `afterFieldUuid` for placement. |
+| `edit_field` | Change a field by `moduleUuid`, `formUuid`, and `fieldUuid`: label, validation, visibility, choices, or case wiring. It also converts a field's kind in place where the data is compatible — text to dropdown (pass the choices in the same call), text to hidden (pass the calculate), text to barcode — keeping identity and references, and returns the final inline-choice UUIDs when it replaces or creates them. For these string-compatible conversions the collected case data stays valid as-is. Converting a case-bound field is property-wide: the one call also converts the property's other writers in other forms and updates its declared type, so every form stays in agreement. Switching between single- and multi-select changes the shape of stored values and does not migrate existing case data. |
+| `move_field` | Reposition `fieldUuid` with `beforeFieldUuid` / `afterFieldUuid`, or append under `parentUuid` (`null` means the form root), keeping every reference intact. |
 | `remove_field` | Delete a field by `moduleUuid`, `formUuid`, and `fieldUuid`. |
-| `get_field` | Show one field by `moduleUuid`, `formUuid`, and `fieldUuid`. |
+| `get_field` | Read one field by `moduleUuid`, `formUuid`, and `fieldUuid`. |
 | `search_blueprint` | Search across the whole app for a field id, case property, label, case type, XPath fragment, or module/form name. Returns at most 50 matches — when there are more, the result says how many and your agent should search something more specific. |
+| `rename_case_properties` | Rename one or more case properties everywhere in the app as one simultaneous, lossless change. |
+
+### Saving a field answer to a case
+
+Every case-writing field carries one complete `caseWrite` destination. The
+field's `id` remains its friendly form-local name, including in human XPath
+such as `#form/first_name`; it does not need to match the saved property:
+
+```json
+{
+  "app_id": "app-id",
+  "moduleUuid": "01890f45-0000-7000-8000-000000000001",
+  "formUuid": "01890f45-0000-7000-8000-000000000002",
+  "fields": [
+    {
+      "id": "first_name",
+      "kind": "text",
+      "caseWrite": {
+        "caseType": "patient",
+        "property": "given_name"
+      }
+    }
+  ]
+}
+```
+
+The same field shape is used inside `create_form` and `create_module`. On
+creation, omit `caseWrite` or pass `null` for a field that should not save to a
+case. In `edit_field.updates`, pass a complete pair to retarget the writer,
+pass `null` to stop writing a case property, or leave `caseWrite` out to keep
+it. Changing `id` never renames saved case data.
+
+Custom property names remain open. The two standard scalar destinations a
+field may use are `case_name` and `external_id`; other reserved system names
+are refused. These scalars store text: use a text field for an entered answer
+or a hidden calculated field for a computed value. Nova trims only boundary
+characters U+0000 through U+0020 and limits the result to 255 UTF-16 units. A
+blank case name is invalid. An active blank external ID clears it, while an
+omitted or irrelevant writer leaves the existing external ID unchanged.
+
+### Renaming case properties
+
+`rename_case_properties` takes the complete nonempty relation for one
+app-wide change:
+
+```json
+{
+  "app_id": "app-id",
+  "renames": [
+    {
+      "caseType": "patient",
+      "from": "phone",
+      "to": "primary_phone"
+    },
+    {
+      "caseType": "patient",
+      "from": "primary_phone",
+      "to": "phone"
+    }
+  ]
+}
+```
+
+All entries happen simultaneously, so the example is a swap rather than two
+overwrites. Chains and cycles are also valid. Each source and destination must
+be unique within its case type; merges, self-renames, temporary-property
+sequences, and overwriting an occupied destination are refused with nothing
+saved. Case properties are the intentional name-keyed exception to Nova's
+UUID object addresses, so each entry uses the exact `(caseType, from, to)`
+names—never a form id, field path, field UUID, or slug.
+
+On success, the result returns the exact `renames` relation and a grouped
+document impact:
+
+```json
+{
+  "message": "Renamed 2 case properties across 6 document occurrences in 5 carriers as one simultaneous app-wide change.",
+  "renames": [
+    {
+      "caseType": "patient",
+      "from": "phone",
+      "to": "primary_phone"
+    },
+    {
+      "caseType": "patient",
+      "from": "primary_phone",
+      "to": "phone"
+    }
+  ],
+  "impact": {
+    "totalOccurrences": 6,
+    "totalCarriers": 5,
+    "groups": [
+      { "key": "field-writers", "occurrences": 2, "carriers": 2 },
+      { "key": "case-operation-writes", "occurrences": 1, "carriers": 1 },
+      { "key": "typed-reads", "occurrences": 1, "carriers": 1 },
+      { "key": "catalog-declarations", "occurrences": 2, "carriers": 2 }
+    ],
+    "byRename": [
+      {
+        "caseType": "patient",
+        "from": "phone",
+        "to": "primary_phone",
+        "occurrences": 3
+      },
+      {
+        "caseType": "patient",
+        "from": "primary_phone",
+        "to": "phone",
+        "occurrences": 3
+      }
+    ]
+  }
+}
+```
 
 ## Working with media
 

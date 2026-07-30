@@ -12,6 +12,7 @@
 
 import type { IconifyIcon } from "@iconify/react/offline";
 import type { FieldPath } from "@/lib/doc/fieldPath";
+import type { ProseReferencePart } from "@/lib/domain";
 
 /** The coarse reference families. `case` is one family covering every case
  *  type — the concrete type lives on `CaseReference.caseType`. Styling keys on
@@ -27,6 +28,8 @@ interface BaseReference {
 	raw: string;
 	/** Override icon for this specific reference (e.g. field kind icon for #form/ refs). */
 	icon?: IconifyIcon;
+	/** Exact identity-bearing part inserted into a prose template. */
+	part: ProseReferencePart;
 }
 
 /** A form field reference — path may be nested (e.g. "group1/age"). */

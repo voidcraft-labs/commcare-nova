@@ -31,6 +31,7 @@
 // author can take.
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { firstComparisonDefault } from "@/components/builder/shared/cards/comparisonSeed";
 import {
 	STRUCTURE_ENTRIES,
@@ -58,7 +59,6 @@ import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { validateCaseOperations } from "@/lib/commcare/validator/rules/caseOperations";
 import { formFieldEntriesFor } from "@/lib/doc/formFieldEntries";
 import { isReservedCaseOperationProperty } from "@/lib/doc/identifierVerdicts";
-import { asUuid } from "@/lib/doc/types";
 import {
 	type BlueprintDoc,
 	type CaseOperation,
@@ -86,7 +86,9 @@ import {
 	term,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import {
+	caseOperationRuntimeTargetConstraint,
 	caseOperationTextConstraint,
 	operationCaseDataScope,
 	RUNTIME_TARGET_OPERATION_SCOPE,
@@ -98,13 +100,13 @@ import {
 	seedWriteValue,
 } from "../seeds";
 
-const CREATE = asUuid("11111111-1111-4111-8111-111111111111");
-const SUBJECT = asUuid("22222222-2222-4222-8222-222222222222");
-const TEXT = asUuid("33333333-3333-4333-8333-333333333333");
-const NUMBER = asUuid("44444444-4444-4444-8444-444444444444");
-const WHEN = asUuid("55555555-5555-4555-8555-555555555555");
-const CHOICES = asUuid("66666666-6666-4666-8666-666666666666");
-const WORKER_PROPERTY = asUuid("77777777-7777-4777-8777-777777777777");
+const CREATE = testUuid("11111111-1111-4111-8111-111111111111");
+const SUBJECT = testUuid("22222222-2222-4222-8222-222222222222");
+const TEXT = testUuid("33333333-3333-4333-8333-333333333333");
+const NUMBER = testUuid("44444444-4444-4444-8444-444444444444");
+const WHEN = testUuid("55555555-5555-4555-8555-555555555555");
+const CHOICES = testUuid("66666666-6666-4666-8666-666666666666");
+const WORKER_PROPERTY = testUuid("77777777-7777-4777-8777-777777777777");
 
 const WORKER: UserProperty = {
 	uuid: WORKER_PROPERTY,
@@ -130,20 +132,20 @@ function fixture(formType: "followup" | "registration"): {
 			{
 				name: "patient",
 				properties: [
-					{ name: "nickname", label: "Nickname", data_type: "text" },
-					{ name: "score", label: "Score", data_type: "int" },
-					{ name: "seen_on", label: "Seen on", data_type: "date" },
-					{ name: "tags", label: "Tags", data_type: "multi_select" },
-					{ name: "place", label: "Place", data_type: "geopoint" },
+					{ name: "nickname", label: proseText("Nickname"), data_type: "text" },
+					{ name: "score", label: proseText("Score"), data_type: "int" },
+					{ name: "seen_on", label: proseText("Seen on"), data_type: "date" },
+					{ name: "tags", label: proseText("Tags"), data_type: "multi_select" },
+					{ name: "place", label: proseText("Place"), data_type: "geopoint" },
 				],
 			},
 			{
 				name: "visit",
 				parent_type: "patient",
 				properties: [
-					{ name: "note", label: "Note", data_type: "text" },
-					{ name: "rating", label: "Rating", data_type: "int" },
-					{ name: "held_on", label: "Held on", data_type: "date" },
+					{ name: "note", label: proseText("Note"), data_type: "text" },
+					{ name: "rating", label: proseText("Rating"), data_type: "int" },
+					{ name: "held_on", label: proseText("Held on"), data_type: "date" },
 				],
 			},
 		],
@@ -160,31 +162,35 @@ function fixture(formType: "followup" | "registration"): {
 								uuid: SUBJECT,
 								kind: "text",
 								id: "subject",
-								label: "Subject",
+								label: proseText("Subject"),
 							}),
-							f({ uuid: TEXT, kind: "text", id: "note", label: "Note" }),
-							f({ uuid: NUMBER, kind: "int", id: "rating", label: "Rating" }),
-							f({ uuid: WHEN, kind: "date", id: "held_on", label: "Held on" }),
+							f({
+								uuid: TEXT,
+								kind: "text",
+								id: "note",
+								label: proseText("Note"),
+							}),
+							f({
+								uuid: NUMBER,
+								kind: "int",
+								id: "rating",
+								label: proseText("Rating"),
+							}),
+							f({
+								uuid: WHEN,
+								kind: "date",
+								id: "held_on",
+								label: proseText("Held on"),
+							}),
 							f({
 								uuid: CHOICES,
 								kind: "multi_select",
 								id: "choices",
-								label: "Choices",
-								optionsSource: {
-									kind: "inline",
-									options: [
-										{
-											uuid: asUuid("4712663f-caf3-4229-a27f-f97105cb5436"),
-											value: "a",
-											label: "A",
-										},
-										{
-											uuid: asUuid("ecf3f64e-6dd6-480d-aa48-a43c97fc3d83"),
-											value: "b",
-											label: "B",
-										},
-									],
-								},
+								label: proseText("Choices"),
+								options: [
+									{ value: "a", label: "A" },
+									{ value: "b", label: "B" },
+								],
 							}),
 						],
 					},
@@ -210,11 +216,7 @@ function fixture(formType: "followup" | "registration"): {
  * canvas or the scope rule moves this test with it.
  */
 function editorVocabulary(shape: ReturnType<typeof fixture>) {
-	const entries = formFieldEntriesFor(
-		shape.doc.fields,
-		shape.doc.fieldOrder,
-		shape.formUuid,
-	);
+	const entries = formFieldEntriesFor(shape.doc, shape.formUuid);
 	return {
 		caseTypes: effectiveCaseTypes(shape.doc),
 		currentCaseType: shape.doc.modules[shape.moduleUuid]?.caseType ?? "",
@@ -318,6 +320,14 @@ interface ExpressionSlot {
 	 *  other slot — see `editorScope.ts`. */
 	readonly runtimeTarget: boolean;
 	/**
+	 * Whether the editor mounts the owner-value axis on this slot. It governs
+	 * `acting-user` and `unowned` — and nothing else does — so it has to be
+	 * part of the slot table or the one slot those sentinels live on is driven
+	 * with the opposite of what the canvas mounts
+	 * (`CaseOperationDetailCanvas.tsx:441`) and never exercised at all.
+	 */
+	readonly ownerValues: boolean;
+	/**
 	 * A name / rename / owner slot, where `validateTextExpression` refuses a
 	 * BLANK literal on top of the type rule — a constraint `SlotConstraint`
 	 * has no axis for, so the picker's typed literal seed is an empty string
@@ -352,14 +362,16 @@ const TEXT_FACET = caseOperationTextConstraint();
 const EXPRESSION_SLOTS: readonly ExpressionSlot[] = [
 	{
 		name: "which case to change",
-		constraint: TEXT_STORAGE,
+		constraint: caseOperationRuntimeTargetConstraint(),
 		runtimeTarget: true,
+		ownerValues: false,
 		place: (expr) => subjectOperation({ target: { kind: "expression", expr } }),
 	},
 	{
 		name: "a link's runtime target",
-		constraint: TEXT_STORAGE,
+		constraint: caseOperationRuntimeTargetConstraint(),
 		runtimeTarget: true,
+		ownerValues: false,
 		place: (expr) =>
 			subjectOperation({
 				links: [
@@ -376,6 +388,7 @@ const EXPRESSION_SLOTS: readonly ExpressionSlot[] = [
 		name: "the case's name",
 		constraint: TEXT_FACET,
 		runtimeTarget: false,
+		ownerValues: false,
 		place: (name) =>
 			subjectOperation({
 				action: "create",
@@ -388,18 +401,21 @@ const EXPRESSION_SLOTS: readonly ExpressionSlot[] = [
 		name: "give the case a new name",
 		constraint: TEXT_FACET,
 		runtimeTarget: false,
+		ownerValues: false,
 		place: (rename) => subjectOperation({ rename }),
 	},
 	{
 		name: "who owns the case",
 		constraint: TEXT_FACET,
 		runtimeTarget: false,
+		ownerValues: true,
 		place: (owner) => subjectOperation({ owner }),
 	},
 	{
 		name: "what it saves",
 		constraint: TEXT_STORAGE,
 		runtimeTarget: false,
+		ownerValues: false,
 		place: (value) =>
 			subjectOperation({ writes: [{ property: "note", value }] }),
 	},
@@ -518,10 +534,12 @@ describe("every value the editor offers is admitted by the commit gate", () => {
 			const editCtx: ExpressionEditContext = {
 				...vocabulary,
 				operationScope: scope,
+				ownerValues: slot.ownerValues,
 			};
 			const slotTypeCtx = buildEditorTypeContext({
 				...vocabulary,
 				operationScope: scope,
+				ownerValues: slot.ownerValues,
 			});
 			for (const schema of expressionCardSchemaList) {
 				if (!isAuthorableExpressionKind(schema.kind, editCtx)) continue;
@@ -567,11 +585,19 @@ describe("every value the editor offers is admitted by the commit gate", () => {
 						.ok,
 				).toBe(true);
 			}
-			// The owner sentinels survive in BOTH, which is the reason the
-			// runtime-target scope is empty rather than absent.
-			expect(checkValueExpression(actingUser(), slotTypeCtx).ok).toBe(true);
-			expect(isAuthorableExpressionKind("acting-user", editCtx)).toBe(true);
-			expect(isAuthorableExpressionKind("unowned", editCtx)).toBe(true);
+			// The owner sentinels live on the owner slot and nowhere else: the
+			// editor mounts `ownerValues` on exactly one section and the gate
+			// passes it for exactly one facet, so the offered set and the
+			// accepted set move together on that single axis.
+			expect(checkValueExpression(actingUser(), slotTypeCtx).ok).toBe(
+				slot.ownerValues,
+			);
+			expect(isAuthorableExpressionKind("acting-user", editCtx)).toBe(
+				slot.ownerValues,
+			);
+			expect(isAuthorableExpressionKind("unowned", editCtx)).toBe(
+				slot.ownerValues,
+			);
 			expect(isAuthorableExpressionKind("id-of", editCtx)).toBe(
 				!slot.runtimeTarget,
 			);
@@ -590,11 +616,7 @@ describe("every seed the canvas commits is accepted outright", () => {
 		const shape = fixture(formType);
 		const vocabulary = editorVocabulary(shape);
 		const editCtx: PredicateEditContext = vocabulary;
-		const entries = formFieldEntriesFor(
-			shape.doc.fields,
-			shape.doc.fieldOrder,
-			shape.formUuid,
-		);
+		const entries = formFieldEntriesFor(shape.doc, shape.formUuid);
 		const writeFields = operationFormFieldDecls(entries, undefined);
 
 		// "Add a condition" on the operation, and on one of its writes.

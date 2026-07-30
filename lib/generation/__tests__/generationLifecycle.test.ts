@@ -18,10 +18,13 @@
  */
 
 import { assert, describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { docHasData } from "@/lib/doc/predicates";
 import type { BlueprintDocStoreApi } from "@/lib/doc/store";
 import type { Mutation } from "@/lib/doc/types";
-import { asUuid } from "@/lib/domain";
+import { proseTemplateText } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
+
 import type {
 	ConversationEvent,
 	ConversationPayload,
@@ -122,13 +125,24 @@ function emitConversation(
 
 // ── Fixture data ──────────────────────────────────────────────────────
 
-const MOD_UUID = asUuid("mod-registration");
-const FORM_UUID = asUuid("form-register");
-const Q_NAME_UUID = asUuid("q-patient-name");
-const Q_AGE_UUID = asUuid("q-patient-age");
+const MOD_UUID = testUuid("mod-registration");
+const FORM_UUID = testUuid("form-register");
+const Q_NAME_UUID = testUuid("q-patient-name");
+const Q_AGE_UUID = testUuid("q-patient-age");
 
 const CASE_TYPES = [
-	{ name: "patient", properties: [{ name: "name", label: "Name" }] },
+	{
+		name: "patient",
+		properties: [{ name: "case_name", label: proseText("Name") }],
+	},
+];
+const CATALOG_MUTATIONS: Mutation[] = [
+	{ kind: "declareCaseType", caseType: "patient" },
+	{
+		kind: "addCaseProperty",
+		caseType: "patient",
+		property: { name: "case_name", label: proseText("Name") },
+	},
 ];
 
 const SCAFFOLD_MUTATIONS: Mutation[] = [
@@ -162,7 +176,7 @@ const FORM_CONTENT_MUTATIONS: Mutation[] = [
 			uuid: Q_NAME_UUID,
 			id: "patient_name",
 			kind: "text",
-			label: "Patient Name",
+			label: proseText("Patient Name"),
 		},
 	},
 	{
@@ -172,7 +186,7 @@ const FORM_CONTENT_MUTATIONS: Mutation[] = [
 			uuid: Q_AGE_UUID,
 			id: "patient_age",
 			kind: "int",
-			label: "Age",
+			label: proseText("Age"),
 		},
 	},
 ];
@@ -202,12 +216,7 @@ describe("generation lifecycle (end-to-end)", () => {
 		expect(docStore.getState().canUndo).toBe(false);
 
 		// ── Schema mutation lands → foundation established ──
-		emitMutations(
-			[{ kind: "setCaseTypes", caseTypes: CASE_TYPES }],
-			"schema",
-			docStore,
-			sessionStore,
-		);
+		emitMutations(CATALOG_MUTATIONS, "schema", docStore, sessionStore);
 		expect(doc().caseTypes).toEqual(CASE_TYPES);
 		expect(deriveAgentStage(s().events)).toBe(GenerationStage.Foundation);
 		expect(derivePhaseLocal(sessionStore, docStore)).toBe(
@@ -226,14 +235,14 @@ describe("generation lifecycle (end-to-end)", () => {
 		const config = {
 			columns: [
 				{
-					uuid: asUuid("c0000000-0000-0000-0000-000000000001"),
+					uuid: testUuid("c0000000-0000-0000-0000-000000000001"),
 					kind: "plain" as const,
-					field: "name",
+					field: "case_name",
 					header: "Name",
 				},
 			],
-			listColumnOrder: [asUuid("c0000000-0000-0000-0000-000000000001")],
-			detailColumnOrder: [asUuid("c0000000-0000-0000-0000-000000000001")],
+			listColumnOrder: [testUuid("c0000000-0000-0000-0000-000000000001")],
+			detailColumnOrder: [testUuid("c0000000-0000-0000-0000-000000000001")],
 			searchInputs: [],
 		};
 		emitMutations(
@@ -241,7 +250,15 @@ describe("generation lifecycle (end-to-end)", () => {
 				{
 					kind: "updateModule",
 					uuid: MOD_UUID,
-					patch: { caseListConfig: config },
+					patch: {},
+					ensureCaseListConfig: true,
+				},
+				{
+					kind: "addColumn",
+					moduleUuid: MOD_UUID,
+					column: config.columns[0],
+					afterInList: null,
+					afterInDetail: null,
 				},
 			],
 			"module:0",
@@ -282,12 +299,7 @@ describe("generation lifecycle (end-to-end)", () => {
 		const s = () => sessionStore.getState();
 
 		s().beginRun();
-		emitMutations(
-			[{ kind: "setCaseTypes", caseTypes: CASE_TYPES }],
-			"schema",
-			docStore,
-			sessionStore,
-		);
+		emitMutations(CATALOG_MUTATIONS, "schema", docStore, sessionStore);
 		emitMutations(SCAFFOLD_MUTATIONS, "scaffold", docStore, sessionStore);
 		emitMutations(FORM_CONTENT_MUTATIONS, "form:0-0", docStore, sessionStore);
 
@@ -320,7 +332,7 @@ describe("generation lifecycle (end-to-end)", () => {
 					kind: "updateField",
 					uuid: Q_NAME_UUID,
 					targetKind: "text",
-					patch: { label: "Patient Full Name" },
+					patch: { label: proseText("Patient Full Name") },
 				},
 			],
 			"fix:attempt-1",
@@ -329,7 +341,7 @@ describe("generation lifecycle (end-to-end)", () => {
 		);
 		const nameField = docStore.getState().fields[Q_NAME_UUID];
 		assert(nameField && nameField.kind === "text");
-		expect(nameField.label).toBe("Patient Full Name");
+		expect(proseTemplateText(nameField.label)).toBe("Patient Full Name");
 		expect(deriveAgentStage(s().events)).toBe(GenerationStage.Fix);
 
 		// ── Done ──
@@ -345,12 +357,7 @@ describe("generation lifecycle (end-to-end)", () => {
 		const s = () => sessionStore.getState();
 
 		s().beginRun();
-		emitMutations(
-			[{ kind: "setCaseTypes", caseTypes: CASE_TYPES }],
-			"schema",
-			docStore,
-			sessionStore,
-		);
+		emitMutations(CATALOG_MUTATIONS, "schema", docStore, sessionStore);
 		emitMutations(SCAFFOLD_MUTATIONS, "scaffold", docStore, sessionStore);
 
 		expect(docStore.getState().moduleOrder).toHaveLength(1);
@@ -385,12 +392,7 @@ describe("generation lifecycle (end-to-end)", () => {
 
 		// Full completed build.
 		s().beginRun();
-		emitMutations(
-			[{ kind: "setCaseTypes", caseTypes: CASE_TYPES }],
-			"schema",
-			docStore,
-			sessionStore,
-		);
+		emitMutations(CATALOG_MUTATIONS, "schema", docStore, sessionStore);
 		emitMutations(SCAFFOLD_MUTATIONS, "scaffold", docStore, sessionStore);
 		s().markRunCompleted();
 		s().endRun();
@@ -418,9 +420,9 @@ describe("generation lifecycle (end-to-end)", () => {
 		emitMutations(
 			[
 				{
-					kind: "updateForm",
+					kind: "renameForm",
 					uuid: FORM_UUID,
-					patch: { name: "Register (Edited)" },
+					newId: "Register (Edited)",
 				},
 			],
 			"form:0-0",
@@ -440,12 +442,7 @@ describe("generation lifecycle (end-to-end)", () => {
 		const s = () => sessionStore.getState();
 
 		s().beginRun();
-		emitMutations(
-			[{ kind: "setCaseTypes", caseTypes: CASE_TYPES }],
-			"schema",
-			docStore,
-			sessionStore,
-		);
+		emitMutations(CATALOG_MUTATIONS, "schema", docStore, sessionStore);
 		emitMutations(SCAFFOLD_MUTATIONS, "scaffold", docStore, sessionStore);
 		emitMutations(FORM_CONTENT_MUTATIONS, "form:0-0", docStore, sessionStore);
 		s().markRunCompleted();

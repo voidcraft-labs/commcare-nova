@@ -3,8 +3,8 @@
  *
  * Pure read — no mutations, no SSE emission. Returns the form entity in
  * domain vocabulary (`closeCondition`, `postSubmit`, `formLinks`, `connect`)
- * augmented with the ordered field tree. Immutable UUID references are returned
- * exactly as stored.
+ * augmented with the ordered field tree. UUID-backed expression and lookup
+ * references remain in their canonical round-trippable shapes.
  */
 
 import type { z } from "zod";
@@ -22,25 +22,20 @@ export const getFormInputSchema = formAddressSchema;
 export type GetFormInput = z.infer<typeof getFormInputSchema>;
 
 /**
- * Two legal return shapes — `{ error }` on any lookup miss (module
- * UUID, parent-membership, or form-record miss) and `{ moduleUuid, formUuid,
- * form }` on success. The error branch collapses all three miss
- * conditions into one identical message so the SA has a single failure
- * mode to diagnose.
+ * Two legal return shapes — `{ error }` on any UUID or membership miss,
+ * and `{ moduleUuid, formUuid, form }` on success.
  */
 export type GetFormResult =
 	| { error: string }
 	| {
 			moduleUuid: Uuid;
 			formUuid: Uuid;
-			form: Omit<FormSnapshot, "caseOperations"> & {
-				caseOperations?: readonly Record<string, unknown>[];
-			};
+			form: FormSnapshot;
 	  };
 
 export const getFormTool = {
 	description:
-		"Get a form by stable module and form uuids. Returns the full form including all fields (nested by group/repeat containers).",
+		"Get a form by stable module and form UUIDs. Returns the full form including all fields (nested by group/repeat containers).",
 	inputSchema: getFormInputSchema,
 	async execute(
 		input: GetFormInput,
@@ -56,7 +51,7 @@ export const getFormTool = {
 		if (!snapshot) {
 			return {
 				kind: "read",
-				data: { error: `Form uuid "${formUuid}" is not readable.` },
+				data: { error: `Form UUID "${formUuid}" is not readable.` },
 			};
 		}
 		return {

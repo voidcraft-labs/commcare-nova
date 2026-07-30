@@ -25,6 +25,7 @@ import { expandDoc } from "@/lib/commcare/expander";
 import { projectCaseListForHq } from "@/lib/commcare/hqJson/caseList";
 import type { BlueprintDoc } from "@/lib/domain";
 import { orderedColumns, tileCell } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import { projectTileGrid } from "@/lib/preview/caseTileLayout";
 import { tileResultsColumns } from "@/lib/preview/caseTileRendering";
 
@@ -66,7 +67,9 @@ function tiledDoc(): BlueprintDoc {
 					{
 						name: "Visit",
 						type: "followup",
-						fields: [f({ kind: "text", id: "notes", label: "Notes" })],
+						fields: [
+							f({ kind: "text", id: "notes", label: proseText("Notes") }),
+						],
 					},
 				],
 			},
@@ -75,8 +78,8 @@ function tiledDoc(): BlueprintDoc {
 			{
 				name: "patient",
 				properties: [
-					{ name: "case_name", label: "Name" },
-					{ name: "village", label: "Village" },
+					{ name: "case_name", label: proseText("Name") },
+					{ name: "village", label: proseText("Village") },
 				],
 			},
 		],

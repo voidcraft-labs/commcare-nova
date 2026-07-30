@@ -30,6 +30,7 @@ import type {
 	CaseTileLayout,
 	CaseType,
 	Uuid,
+	XPathPrintableDoc,
 } from "@/lib/domain";
 import type { AssetManifest } from "../../multimedia/assetWirePath";
 import type { ResolvedSortDirective } from "./sortKeys";
@@ -156,6 +157,9 @@ export interface CaseListEmitContext {
 	 * columns derive worker-facing option labels from this metadata; other plain
 	 * fields remain raw. */
 	readonly caseProperties: readonly CaseProperty[];
+	/** Owning document used to resolve UUID-backed option-label prose. Wire
+	 * emission fails closed if an authored label identity does not resolve. */
+	readonly proseDoc: XPathPrintableDoc;
 	/**
 	 * The case list's tile layout, when it has one. Present only on the
 	 * SHORT detail, where a placed column emits its
@@ -176,7 +180,7 @@ export interface CaseListEmitContext {
 	readonly userPropertySlugs?: ReadonlyMap<Uuid, string>;
 	/**
 	 * Resolved media manifest, for image-map columns to resolve their
-	 * per-value `AssetId` → `jr://file/...` path. `undefined` when media
+	 * per-value `MediaAssetId` → `jr://file/...` path. `undefined` when media
 	 * emission is off — image-map columns then degrade to plain (raw
 	 * value) columns.
 	 */

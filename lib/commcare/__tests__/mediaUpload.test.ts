@@ -22,9 +22,9 @@
 
 import AdmZip from "adm-zip";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import type { AssetManifest } from "@/lib/commcare/multimedia/assetWirePath";
 import { buildMediaBulkUploadZip } from "@/lib/commcare/multimedia/bulkUploadZip";
-import { asAssetId } from "@/lib/domain/multimedia";
 import { uploadAppMediaBundle } from "../client";
 
 const CREDS = {
@@ -42,10 +42,11 @@ function entry(
 	kind: "image" | "audio" | "video",
 	bytes: string,
 ) {
+	const assetId = testMediaAssetId(id);
 	return [
-		asAssetId(id),
+		assetId,
 		{
-			assetId: asAssetId(id),
+			assetId,
 			wirePath,
 			kind,
 			mimeType: kind === "image" ? "image/png" : "audio/mpeg",
@@ -89,9 +90,9 @@ describe("buildMediaBulkUploadZip", () => {
 	it("throws when a manifest entry is missing its bytes", () => {
 		const manifest: AssetManifest = new Map([
 			[
-				asAssetId("id-1"),
+				testMediaAssetId("id-1"),
 				{
-					assetId: asAssetId("id-1"),
+					assetId: testMediaAssetId("id-1"),
 					wirePath: "commcare/aaa.png",
 					kind: "image" as const,
 					mimeType: "image/png",

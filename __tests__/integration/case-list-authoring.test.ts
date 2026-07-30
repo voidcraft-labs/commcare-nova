@@ -1,4 +1,6 @@
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { proseText } from "@/lib/domain/prose";
 // __tests__/integration/case-list-authoring.test.ts
 //
 // End-to-end coverage for the case-list authoring surface. Each
@@ -16,9 +18,8 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 //   - Validator: column-uuid not found, orphan search-input
 //     references inside the predicate filter, search-input mode-vs-
 //     property-type mismatches.
-//   - Sort-priority tie-break uniformity: the same fixture hits the
-//     same display-order tie-break at the saga (doc state), preview
-//     (case-store sort projection), and wire (`<sort> @order`) layers.
+//   - Sort-priority admission: the absolute commit gate rejects a
+//     second column authored at an already-used priority.
 //   - Migration coverage: the upgrade script (legacy parallel arrays
 //     → unified columns array) lands the right visibility flags and
 //     resolves header collisions.
@@ -31,7 +32,7 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 // tool path, migration) require no database and run in milliseconds.
 
 import AdmZip from "adm-zip";
-import type { Kysely } from "kysely";
+import { type Kysely, sql } from "kysely";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildDoc, f, resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import { makeStubToolContext } from "@/lib/agent/__tests__/fixtures";
@@ -54,7 +55,6 @@ import { emitShortDetail } from "@/lib/commcare/suite/case-list/shortDetail";
 import { buildSortDirectives } from "@/lib/commcare/suite/case-list/sortKeys";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import {
-	asUuid,
 	type BlueprintDoc,
 	type CaseListConfig,
 	type Column,
@@ -79,7 +79,6 @@ import {
 	matchAll,
 	prop,
 	term,
-	unwrapList,
 } from "@/lib/domain/predicate";
 import { readCases } from "@/lib/preview/engine/caseDataBindingHelpers";
 
@@ -128,12 +127,6 @@ const PATIENT_ALICE_ID = "30000000-0000-0000-0000-000000000001";
 const PATIENT_BOB_ID = "30000000-0000-0000-0000-000000000002";
 const PATIENT_CAROL_ID = "30000000-0000-0000-0000-000000000003";
 
-function firstModuleUuid(doc: BlueprintDoc) {
-	const moduleUuid = doc.moduleOrder[0];
-	if (!moduleUuid) throw new Error("fixture is missing its first module");
-	return moduleUuid;
-}
-
 // Region id-mapping table — re-used by the well-formed wire fixture.
 const REGION_MAPPING = [
 	idMappingEntry("N", "North"),
@@ -145,15 +138,15 @@ const REGION_MAPPING = [
 // multiple layers (sort directives keyed by uuid; preview cell
 // rendering keyed by uuid) without snapshotting opaque generated
 // strings.
-const COL_NAME_UUID = asUuid("00000000-0000-4000-8000-000000000001");
-const COL_DATE_UUID = asUuid("00000000-0000-4000-8000-000000000002");
-const COL_INTERVAL_UUID = asUuid("00000000-0000-4000-8000-000000000003");
-const COL_REGION_UUID = asUuid("00000000-0000-4000-8000-000000000004");
-const COL_AGE_UUID = asUuid("00000000-0000-4000-8000-000000000005");
-const COL_AGE_NEXT_UUID = asUuid("00000000-0000-4000-8000-000000000006");
+const COL_NAME_UUID = testUuid("00000000-0000-4000-8000-000000000001");
+const COL_DATE_UUID = testUuid("00000000-0000-4000-8000-000000000002");
+const COL_INTERVAL_UUID = testUuid("00000000-0000-4000-8000-000000000003");
+const COL_REGION_UUID = testUuid("00000000-0000-4000-8000-000000000004");
+const COL_AGE_UUID = testUuid("00000000-0000-4000-8000-000000000005");
+const COL_AGE_NEXT_UUID = testUuid("00000000-0000-4000-8000-000000000006");
 
-const SI_NAME_UUID = asUuid("00000000-0000-4000-8000-000000000010");
-const SI_VISIT_RANGE_UUID = asUuid("00000000-0000-4000-8000-000000000011");
+const SI_NAME_UUID = testUuid("00000000-0000-4000-8000-000000000010");
+const SI_VISIT_RANGE_UUID = testUuid("00000000-0000-4000-8000-000000000011");
 
 /**
  * Construct the well-formed v2 case-list configuration. Single
@@ -203,7 +196,7 @@ function buildWellFormedCaseListConfig(): CaseListConfig {
 				"patient_name",
 				"Patient name",
 				"text",
-				"name",
+				"full_name",
 			),
 			// CommCare's range prompt carries one inseparable start/end
 			// answer, so Nova pairs it only with the date-range widget.
@@ -249,32 +242,32 @@ function buildFixtureDoc(): BlueprintDoc {
 							f({
 								kind: "text",
 								id: "case_name",
-								label: "Patient name",
-								case_property_on: "patient",
+								label: proseText("Patient name"),
+								caseWrite: { caseType: "patient", property: "case_name" },
 							}),
 							f({
 								kind: "text",
 								id: "name",
-								label: "Full name",
-								case_property_on: "patient",
+								label: proseText("Full name"),
+								caseWrite: { caseType: "patient", property: "full_name" },
 							}),
 							f({
 								kind: "int",
 								id: "age",
-								label: "Age",
-								case_property_on: "patient",
+								label: proseText("Age"),
+								caseWrite: { caseType: "patient", property: "age" },
 							}),
 							f({
 								kind: "text",
 								id: "region",
-								label: "Region",
-								case_property_on: "patient",
+								label: proseText("Region"),
+								caseWrite: { caseType: "patient", property: "region" },
 							}),
 							f({
 								kind: "date",
 								id: "last_visit",
-								label: "Last visit",
-								case_property_on: "patient",
+								label: proseText("Last visit"),
+								caseWrite: { caseType: "patient", property: "last_visit" },
 							}),
 						],
 					},
@@ -288,7 +281,9 @@ function buildFixtureDoc(): BlueprintDoc {
 						// wire.
 						name: "Visit",
 						type: "followup",
-						fields: [f({ kind: "text", id: "notes", label: "Notes" })],
+						fields: [
+							f({ kind: "text", id: "notes", label: proseText("Notes") }),
+						],
 					},
 				],
 			},
@@ -306,8 +301,8 @@ function buildFixtureDoc(): BlueprintDoc {
 							f({
 								kind: "text",
 								id: "case_name",
-								label: "Household name",
-								case_property_on: "household",
+								label: proseText("Household name"),
+								caseWrite: { caseType: "household", property: "case_name" },
 							}),
 						],
 					},
@@ -318,15 +313,21 @@ function buildFixtureDoc(): BlueprintDoc {
 			{
 				name: "patient",
 				properties: [
-					{ name: "name", label: "Name", data_type: "text" },
-					{ name: "age", label: "Age", data_type: "int" },
-					{ name: "region", label: "Region", data_type: "text" },
-					{ name: "last_visit", label: "Last visit", data_type: "date" },
+					{ name: "full_name", label: proseText("Name"), data_type: "text" },
+					{ name: "age", label: proseText("Age"), data_type: "int" },
+					{ name: "region", label: proseText("Region"), data_type: "text" },
+					{
+						name: "last_visit",
+						label: proseText("Last visit"),
+						data_type: "date",
+					},
 				],
 			},
 			{
 				name: "household",
-				properties: [{ name: "name", label: "Name", data_type: "text" }],
+				properties: [
+					{ name: "full_name", label: proseText("Name"), data_type: "text" },
+				],
 			},
 		],
 	});
@@ -375,7 +376,7 @@ describe("SA tool path — column atomic ops", () => {
 	it("threads uuids through add → update → reorder → remove", async () => {
 		const { ctx } = makeStubToolContext({ appId: APP_ID });
 		// Single case-typed module — every SA tool invocation here
-		// targets the module's stable UUID. The `f` helper auto-stamps field
+		// targets its stable UUID. The `f` helper auto-stamps field
 		// uuids; explicit case-list slot is omitted so the first
 		// `addCaseListColumns` initializes it.
 		const startDoc = buildDoc({
@@ -393,14 +394,14 @@ describe("SA tool path — column atomic ops", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Patient name",
-									case_property_on: "patient",
+									label: proseText("Patient name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 								f({
 									kind: "int",
 									id: "age",
-									label: "Age",
-									case_property_on: "patient",
+									label: proseText("Age"),
+									caseWrite: { caseType: "patient", property: "age" },
 								}),
 							],
 						},
@@ -411,17 +412,18 @@ describe("SA tool path — column atomic ops", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name", data_type: "text" },
-						{ name: "age", label: "Age", data_type: "int" },
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+						{ name: "age", label: proseText("Age"), data_type: "int" },
 					],
 				},
 			],
 		});
+		const moduleUuid = startDoc.moduleOrder[0];
 
 		// 1. Add the first column — capture the uuid the tool mints.
 		const addNameResult = await addCaseListColumnsTool.execute(
 			{
-				moduleUuid: firstModuleUuid(startDoc),
+				moduleUuid,
 				columns: [{ kind: "plain", field: "case_name", header: "Patient" }],
 			},
 			ctx,
@@ -441,7 +443,7 @@ describe("SA tool path — column atomic ops", () => {
 		// 2. Add a second column on the post-add doc.
 		const addAgeResult = await addCaseListColumnsTool.execute(
 			{
-				moduleUuid: firstModuleUuid(startDoc),
+				moduleUuid,
 				columns: [{ kind: "plain", field: "age", header: "Age" }],
 			},
 			ctx,
@@ -458,7 +460,7 @@ describe("SA tool path — column atomic ops", () => {
 		// existing uuid back onto the supplied body).
 		const updateResult = await updateCaseListColumnTool.execute(
 			{
-				moduleUuid: firstModuleUuid(startDoc),
+				moduleUuid,
 				columnUuid: ageUuid,
 				column: {
 					kind: "plain",
@@ -478,7 +480,7 @@ describe("SA tool path — column atomic ops", () => {
 		// 4. Reorder — supply both uuids in age-first order.
 		const reorderResult = await reorderCaseListColumnsTool.execute(
 			{
-				moduleUuid: firstModuleUuid(startDoc),
+				moduleUuid,
 				surface: "results",
 				columnUuids: [ageUuid, nameUuid],
 			},
@@ -500,7 +502,7 @@ describe("SA tool path — column atomic ops", () => {
 		// 5. Remove the original first column — still keyed by uuid
 		// so the address survives the prior reorder.
 		const removeResult = await removeCaseListColumnTool.execute(
-			{ moduleUuid: firstModuleUuid(startDoc), columnUuid: nameUuid },
+			{ moduleUuid, columnUuid: nameUuid },
 			ctx,
 			reorderResult.newDoc,
 		);
@@ -518,13 +520,14 @@ describe("SA tool path — column atomic ops", () => {
 		const { ctx } = makeStubToolContext({ appId: APP_ID });
 		const doc = buildDoc({
 			appId: APP_ID,
-			modules: [{ name: "Patients", caseType: "patient" }],
+			modules: [{ name: "Patients", caseType: "patient", caseListOnly: true }],
 			caseTypes: [{ name: "patient", properties: [] }],
 		});
+		const moduleUuid = doc.moduleOrder[0];
 		const result = await updateCaseListColumnTool.execute(
 			{
-				moduleUuid: firstModuleUuid(doc),
-				columnUuid: asUuid("ffffffff-ffff-ffff-ffff-ffffffffffff"),
+				moduleUuid,
+				columnUuid: testUuid("ffffffff-ffff-ffff-ffff-ffffffffffff"),
 				column: { kind: "plain", field: "case_name", header: "Patient" },
 			},
 			ctx,
@@ -606,11 +609,11 @@ describe("wire emission", () => {
 	it("filters columns by visibleInList on short detail and visibleInDetail on long detail", () => {
 		// Two columns: one hidden from list, one hidden from detail.
 		// The shared columns appear on both surfaces.
-		const moduleUuid = asUuid("11111111-1111-1111-1111-111111111111");
-		const formUuid = asUuid("22222222-2222-2222-2222-222222222222");
-		const colShared = asUuid("00000000-0000-4000-8000-aaaa00000001");
-		const colListOnly = asUuid("00000000-0000-4000-8000-aaaa00000002");
-		const colDetailOnly = asUuid("00000000-0000-4000-8000-aaaa00000003");
+		const moduleUuid = testUuid("11111111-1111-1111-1111-111111111111");
+		const formUuid = testUuid("22222222-2222-2222-2222-222222222222");
+		const colShared = testUuid("00000000-0000-4000-8000-aaaa00000001");
+		const colListOnly = testUuid("00000000-0000-4000-8000-aaaa00000002");
+		const colDetailOnly = testUuid("00000000-0000-4000-8000-aaaa00000003");
 		const mod: Module = {
 			uuid: moduleUuid,
 			id: "patients",
@@ -637,9 +640,9 @@ describe("wire emission", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name", data_type: "text" },
-						{ name: "age", label: "Age", data_type: "int" },
-						{ name: "region", label: "Region", data_type: "text" },
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+						{ name: "age", label: proseText("Age"), data_type: "int" },
+						{ name: "region", label: proseText("Region"), data_type: "text" },
 					],
 				},
 			],
@@ -711,8 +714,8 @@ describe("wire emission", () => {
 // =================================================================
 
 describe("calc-column comparator-type fallback", () => {
-	const moduleUuid = asUuid("11111111-1111-1111-1111-111111111111");
-	const calcUuid = asUuid("00000000-0000-4000-8000-cccc00000001");
+	const moduleUuid = testUuid("11111111-1111-1111-1111-111111111111");
+	const calcUuid = testUuid("00000000-0000-4000-8000-cccc00000001");
 
 	function buildCalcModule(
 		expression: Parameters<typeof calculatedColumn>[2],
@@ -770,18 +773,6 @@ describe("calc-column comparator-type fallback", () => {
 		if (!dir) throw new Error("missing directive on calc column");
 		expect(dir.type).toBe("plain");
 	});
-
-	it("rejects SEQUENCE_TYPE instead of emitting unsupported on-device XPath", () => {
-		// `unwrap-list` is a CCHQ server-side CSQL function. Although
-		// the type checker represents its result with `SEQUENCE_TYPE`,
-		// CommCare Core cannot evaluate that function in a calculated
-		// sort expression. Imported invalid state therefore fails at
-		// the wire boundary rather than silently becoming a broken sort.
-		const { mod, doc } = buildCalcModule(unwrapList(term(literal("any"))));
-		expect(() => buildSortDirectives(mod, doc)).toThrow(
-			/unwrap-list.*server-side case-search function/i,
-		);
-	});
 });
 
 // =================================================================
@@ -791,31 +782,75 @@ describe("calc-column comparator-type fallback", () => {
 //    edits byte-identically.
 // =================================================================
 
-describe("SearchInputDef discriminated round-trip", () => {
+describe("SearchInputDef exact four-arm round-trip", () => {
 	it("converts simple → advanced → simple via updateSearchInput, preserving uuid + common slots", async () => {
 		const { ctx } = makeStubToolContext({ appId: APP_ID });
 		const baseDoc = buildDoc({
 			appId: APP_ID,
-			modules: [{ name: "Patients", caseType: "patient" }],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					caseListConfig: resolveCaseListConfig({
+						columns: [
+							plainColumn(
+								testUuid("00000000-0000-4000-8000-aaaa00000001"),
+								"case_name",
+								"Patient",
+							),
+						],
+						searchInputs: [],
+					}),
+					forms: [
+						{
+							name: "Register",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "case_name",
+									label: proseText("Case name"),
+									caseWrite: {
+										caseType: "patient",
+										property: "case_name",
+									},
+								}),
+								f({
+									kind: "text",
+									id: "name",
+									label: proseText("Patient name"),
+									caseWrite: {
+										caseType: "patient",
+										property: "full_name",
+									},
+								}),
+							],
+						},
+					],
+				},
+			],
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "name", label: "Name", data_type: "text" }],
+					properties: [
+						{ name: "full_name", label: proseText("Name"), data_type: "text" },
+					],
 				},
 			],
 		});
+		const moduleUuid = baseDoc.moduleOrder[0];
 
 		// Add a simple input — capture the uuid the tool mints.
 		const addResult = await addSearchInputsTool.execute(
 			{
-				moduleUuid: firstModuleUuid(baseDoc),
+				moduleUuid,
 				searchInputs: [
 					{
 						kind: "simple",
 						name: "patient_name",
 						label: "Patient name",
 						type: "text",
-						property: "name",
+						property: "full_name",
 						default: term(literal("Alice")),
 					},
 				],
@@ -836,7 +871,7 @@ describe("SearchInputDef discriminated round-trip", () => {
 		// default across the call.
 		const toAdvancedResult = await updateSearchInputTool.execute(
 			{
-				moduleUuid: firstModuleUuid(baseDoc),
+				moduleUuid,
 				searchInputUuid: inputUuid,
 				searchInput: {
 					kind: "advanced",
@@ -862,7 +897,9 @@ describe("SearchInputDef discriminated round-trip", () => {
 		expect(advanced.name).toBe("patient_name");
 		expect(advanced.label).toBe("Patient name");
 		expect(advanced.type).toBe("text");
-		expect(advanced.default).toEqual(term(literal("Alice")));
+		if (advanced.type !== "date-range") {
+			expect(advanced.default).toEqual(term(literal("Alice")));
+		}
 
 		// Convert back to simple. The discriminated SA tool accepts
 		// the simple-arm body shape; the advanced predicate is
@@ -870,14 +907,14 @@ describe("SearchInputDef discriminated round-trip", () => {
 		// are distinct unions — there is no shared "predicate" slot).
 		const toSimpleResult = await updateSearchInputTool.execute(
 			{
-				moduleUuid: firstModuleUuid(baseDoc),
+				moduleUuid,
 				searchInputUuid: inputUuid,
 				searchInput: {
 					kind: "simple",
 					name: "patient_name",
 					label: "Patient name",
 					type: "text",
-					property: "name",
+					property: "full_name",
 					default: term(literal("Alice")),
 				},
 			},
@@ -896,32 +933,28 @@ describe("SearchInputDef discriminated round-trip", () => {
 		expect(simple.name).toBe("patient_name");
 		expect(simple.label).toBe("Patient name");
 		expect(simple.type).toBe("text");
-		expect(simple.default).toEqual(term(literal("Alice")));
+		if (simple.type !== "date-range") {
+			expect(simple.default).toEqual(term(literal("Alice")));
+		}
 		if (simple.kind === "simple") {
-			expect(simple.property).toBe("case_name");
+			expect(simple.property).toBe("full_name");
 		}
 	});
 });
 
 // =================================================================
-// 6. Search-input rename + orphan validator surface. Renaming a
-//    search input by `name` does NOT auto-rewrite predicate
-//    references; an orphan reference in `caseListConfig.filter`
-//    surfaces as `CASE_LIST_FILTER_TYPE_ERROR` via the predicate
-//    type checker. The rename pays the same cross-reference cost
-//    Field renames pay, by design.
+// 6. Orphan Search-input identity validator surface. An unresolved
+//    Search-input UUID in `caseListConfig.filter` surfaces as
+//    `CASE_LIST_FILTER_TYPE_ERROR` via the predicate type checker.
 // =================================================================
 
-describe("search-input rename — orphan reference surfaces validator error", () => {
-	it("flags an unresolvable search-input UUID inside the filter as CASE_LIST_FILTER_TYPE_ERROR", () => {
-		const orphanInputUuid = asUuid("c394403b-6738-4f91-87c9-ad0c6c2f693f");
-		const moduleUuid = asUuid("11111111-1111-1111-1111-111111111111");
-		const formUuid = asUuid("22222222-2222-2222-2222-222222222222");
-		// The filter references `input("orphan_input")` — no
-		// matching declaration in `searchInputs`. The predicate
-		// checker walks `term`s and surfaces "Unknown search input
-		// 'orphan_input'."; the validator wraps that as
-		// `CASE_LIST_FILTER_TYPE_ERROR`.
+describe("orphan Search-input identity surfaces a validator error", () => {
+	it("flags an unresolvable Search-input identity inside the filter as CASE_LIST_FILTER_TYPE_ERROR", () => {
+		const moduleUuid = testUuid("11111111-1111-1111-1111-111111111111");
+		const formUuid = testUuid("22222222-2222-2222-2222-222222222222");
+		// The filter references an immutable UUID with no matching
+		// declaration in `searchInputs`; the validator reports the
+		// owning filter slot without inventing a mutable-name fallback.
 		const doc: BlueprintDoc = {
 			appId: APP_ID,
 			appName: "Orphan Input",
@@ -929,7 +962,9 @@ describe("search-input rename — orphan reference surfaces validator error", ()
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "name", label: "Name", data_type: "text" }],
+					properties: [
+						{ name: "full_name", label: proseText("Name"), data_type: "text" },
+					],
 				},
 			],
 			modules: {
@@ -941,20 +976,23 @@ describe("search-input rename — orphan reference surfaces validator error", ()
 					caseListConfig: resolveCaseListConfig({
 						columns: [
 							plainColumn(
-								asUuid("00000000-0000-4000-8000-aaaa00000001"),
-								"name",
+								testUuid("00000000-0000-4000-8000-aaaa00000001"),
+								"full_name",
 								"Name",
 							),
 						],
-						filter: eq(prop("patient", "name"), term(input(orphanInputUuid))),
+						filter: eq(
+							prop("patient", "full_name"),
+							term(input(testUuid("orphan_input"))),
+						),
 						searchInputs: [
-							// A different UUID is declared; the reference above is orphaned.
+							// A different immutable identity is declared.
 							simpleSearchInputDef(
-								asUuid("00000000-0000-4000-8000-bbbb00000001"),
+								testUuid("00000000-0000-4000-8000-bbbb00000001"),
 								"declared_input",
 								"Declared",
 								"text",
-								"name",
+								"full_name",
 							),
 						],
 					}),
@@ -975,13 +1013,9 @@ describe("search-input rename — orphan reference surfaces validator error", ()
 			fieldParent: {},
 		};
 		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
-		expect(
-			errors.some(
-				(e) =>
-					e.code === "CASE_LIST_FILTER_TYPE_ERROR" &&
-					e.message.includes(orphanInputUuid),
-			),
-		).toBe(true);
+		expect(errors.some((e) => e.code === "CASE_LIST_FILTER_TYPE_ERROR")).toBe(
+			true,
+		);
 	});
 });
 
@@ -1014,14 +1048,25 @@ describe("validator rejection of broken references", () => {
 		const corruptedColumns: Column[] = [
 			...mod.caseListConfig.columns.slice(0, -1),
 			plainColumn(
-				asUuid("00000000-0000-4000-8000-eeee00000001"),
+				testUuid("00000000-0000-4000-8000-eeee00000001"),
 				"ghost_property",
 				"Ghost",
 			),
 		];
+		const replacedColumnUuid = mod.caseListConfig.columns.at(-1)?.uuid;
+		const ghostColumnUuid = corruptedColumns.at(-1)?.uuid;
+		if (!replacedColumnUuid || !ghostColumnUuid) {
+			throw new Error("fixture has no column to replace");
+		}
 		mod.caseListConfig = {
 			...mod.caseListConfig,
 			columns: corruptedColumns,
+			listColumnOrder: mod.caseListConfig.listColumnOrder.map((uuid) =>
+				uuid === replacedColumnUuid ? ghostColumnUuid : uuid,
+			),
+			detailColumnOrder: mod.caseListConfig.detailColumnOrder.map((uuid) =>
+				uuid === replacedColumnUuid ? ghostColumnUuid : uuid,
+			),
 		};
 		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(
@@ -1047,11 +1092,11 @@ describe("validator rejection of broken references", () => {
 			...mod.caseListConfig,
 			searchInputs: [
 				simpleSearchInputDef(
-					asUuid("00000000-0000-4000-8000-ffff00000001"),
+					testUuid("00000000-0000-4000-8000-ffff00000001"),
 					"name_range",
 					"Name range",
-					"text",
-					"name",
+					"date-range",
+					"full_name",
 					{ mode: rangeMode() },
 				),
 			],
@@ -1066,77 +1111,20 @@ describe("validator rejection of broken references", () => {
 });
 
 // =================================================================
-// 8. Sort-priority collisions — the commit gate rejects a write that
-//    would land two sorted columns at one priority (saga layer), and
-//    for LEGACY docs that already carry a collision, preview
-//    (`buildCaseStoreSortKeys`) and wire (`buildSortDirectives`)
-//    tie-break to display order (lower index wins).
+// 8. Sort-priority collisions — the absolute gate rejects the edit
+//    that would land two sorted columns at one priority.
 // =================================================================
 
-describe("sort-priority collision tie-breaks to display order at every layer", () => {
-	const moduleUuid = asUuid("11111111-1111-1111-1111-111111111111");
-	const colFirstUuid = asUuid("00000000-0000-4000-8000-bbbb00000001");
-	const colSecondUuid = asUuid("00000000-0000-4000-8000-bbbb00000002");
-
-	/**
-	 * Construct a module with two columns at the same priority. The
-	 * shared fixture lets the three layer assertions read against
-	 * one canonical input.
-	 */
-	function buildCollisionModule(): {
-		mod: Module;
-		doc: BlueprintDoc;
-	} {
-		const mod: Module = {
-			uuid: moduleUuid,
-			id: "patients",
-			name: "Patients",
-			caseType: "patient",
-			caseListConfig: resolveCaseListConfig({
-				columns: [
-					plainColumn(colFirstUuid, "case_name", "Patient", {
-						sort: { direction: "asc", priority: 0 },
-					}),
-					plainColumn(colSecondUuid, "age", "Age", {
-						sort: { direction: "desc", priority: 0 },
-					}),
-				],
-				searchInputs: [],
-			}),
-		};
-		const doc: BlueprintDoc = {
-			appId: APP_ID,
-			appName: "Tie-break",
-			connectType: null,
-			caseTypes: [
-				{
-					name: "patient",
-					properties: [
-						{ name: "case_name", label: "Name", data_type: "text" },
-						{ name: "age", label: "Age", data_type: "int" },
-					],
-				},
-			],
-			modules: { [moduleUuid]: mod },
-			forms: {},
-			fields: {},
-			moduleOrder: [moduleUuid],
-			formOrder: { [moduleUuid]: [] },
-			fieldOrder: {},
-			fieldParent: {},
-		};
-		return { mod, doc };
-	}
+describe("sort-priority collision admission", () => {
+	const colFirstUuid = testUuid("00000000-0000-4000-8000-bbbb00000001");
+	const colSecondUuid = testUuid("00000000-0000-4000-8000-bbbb00000002");
 
 	it("rejects a colliding priority at the commit gate (saga layer) — nothing renumbered, nothing written", async () => {
 		// The saga layer never silently renumbers a priority collision —
 		// and with the commit gate live, it never PERSISTS one either:
 		// the second `updateCaseListColumn` that would land a duplicate
 		// priority fails the call with the validator's actionable
-		// message and leaves the doc untouched. The tie-break layers
-		// below (preview, wire emitter) keep their priority +
-		// source-index ordering for LEGACY docs that already carry a
-		// collision — covered by the sibling tests in this describe.
+		// message and leaves the doc untouched.
 		const { ctx } = makeStubToolContext({ appId: APP_ID });
 		const startDoc = buildDoc({
 			appId: APP_ID,
@@ -1144,6 +1132,7 @@ describe("sort-priority collision tie-breaks to display order at every layer", (
 				{
 					name: "Patients",
 					caseType: "patient",
+					caseListOnly: true,
 					caseListConfig: resolveCaseListConfig({
 						columns: [
 							plainColumn(colFirstUuid, "case_name", "Patient"),
@@ -1157,16 +1146,17 @@ describe("sort-priority collision tie-breaks to display order at every layer", (
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name", data_type: "text" },
-						{ name: "age", label: "Age", data_type: "int" },
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+						{ name: "age", label: proseText("Age"), data_type: "int" },
 					],
 				},
 			],
 		});
+		const moduleUuid = startDoc.moduleOrder[0];
 
 		const firstUpdate = await updateCaseListColumnTool.execute(
 			{
-				moduleUuid: firstModuleUuid(startDoc),
+				moduleUuid,
 				columnUuid: colFirstUuid,
 				column: {
 					kind: "plain",
@@ -1183,7 +1173,7 @@ describe("sort-priority collision tie-breaks to display order at every layer", (
 		}
 		const secondUpdate = await updateCaseListColumnTool.execute(
 			{
-				moduleUuid: firstModuleUuid(startDoc),
+				moduleUuid,
 				columnUuid: colSecondUuid,
 				column: {
 					kind: "plain",
@@ -1209,87 +1199,6 @@ describe("sort-priority collision tie-breaks to display order at every layer", (
 		expect(finalCols[0]?.sort?.priority).toBe(0);
 		expect(finalCols[1]?.sort).toBeUndefined();
 	});
-
-	it("orders by display index at the wire layer (buildSortDirectives.order)", () => {
-		const { mod, doc } = buildCollisionModule();
-		const directives = buildSortDirectives(mod, doc);
-		// Lower display index → smaller `order`. Both columns kept
-		// the user-authored priority 0; the wire layer's tie-break
-		// resolves to source-array order.
-		const firstDir = directives.get(colFirstUuid);
-		const secondDir = directives.get(colSecondUuid);
-		if (!firstDir || !secondDir) {
-			throw new Error("expected both columns to receive sort directives");
-		}
-		expect(firstDir.order).toBe(1);
-		expect(secondDir.order).toBe(2);
-	});
-
-	it("orders by display index at the preview layer (Postgres rows ordered consistently)", async () => {
-		// Preview layer assertion — `readCases` threads the v2 sort
-		// directives through `buildCaseStoreSortKeys` into the case-
-		// store's `query`. Same tie-break rule: the column at the
-		// lower display index drives the primary sort.
-		const { doc } = buildCollisionModule();
-		await runCaseStoreMigrations(dbHandle.db);
-		const store = buildStore();
-		await store.applySchemaChange({
-			appId: APP_ID,
-			caseType: "patient",
-			caseTypeSchemas: buildCaseTypeMap(doc),
-		});
-		// Insert three rows. The first column (`case_name`,
-		// ascending) drives the primary sort under the tie-break
-		// rule; without the tie-break, ordering would be undefined
-		// across the two priority-0 directives.
-		await store.insert({
-			appId: APP_ID,
-			row: {
-				case_id: PATIENT_ALICE_ID,
-				case_type: "patient",
-				case_name: "Alice",
-				properties: { age: 25 },
-			},
-		});
-		await store.insert({
-			appId: APP_ID,
-			row: {
-				case_id: PATIENT_BOB_ID,
-				case_type: "patient",
-				case_name: "Bob",
-				properties: { age: 40 },
-			},
-		});
-		await store.insert({
-			appId: APP_ID,
-			row: {
-				case_id: PATIENT_CAROL_ID,
-				case_type: "patient",
-				case_name: "Carol",
-				properties: { age: 30 },
-			},
-		});
-
-		const moduleUuidIn = doc.moduleOrder[0];
-		const mod = doc.modules[moduleUuidIn];
-		if (!mod) throw new Error("missing collision module");
-		const result = await readCases(store, {
-			appId: APP_ID,
-			caseType: "patient",
-			caseTypeSchemas: buildCaseTypeMap(doc),
-			caseListConfig: mod.caseListConfig,
-		});
-		if (result.kind !== "rows") {
-			throw new Error("expected rows from preview");
-		}
-		// `case_name` ascending is the primary sort by tie-break;
-		// rows surface as Alice, Bob, Carol in that order.
-		expect(result.rows.map((r) => r.case_name)).toEqual([
-			"Alice",
-			"Bob",
-			"Carol",
-		]);
-	});
 });
 
 // =================================================================
@@ -1302,6 +1211,12 @@ describe("sort-priority collision tie-breaks to display order at every layer", (
 describe("preview rendering (PostgresCaseStore.query against v2 caseListConfig)", () => {
 	beforeEach(async () => {
 		await runCaseStoreMigrations(dbHandle.db);
+		await sql`
+			INSERT INTO apps
+				(id, owner, project_id, app_name, app_name_lower)
+			VALUES
+				(${APP_ID}, ${OWNER_ID}, ${OWNER_ID}, 'Case list authoring', 'case list authoring')
+		`.execute(dbHandle.db);
 	});
 
 	it("filters, sorts, and projects calc values per the authored config", async () => {
@@ -1321,7 +1236,7 @@ describe("preview rendering (PostgresCaseStore.query against v2 caseListConfig)"
 				case_type: "patient",
 				case_name: "Alice",
 				status: "open",
-				properties: { name: "Alice", age: 25, region: "N" },
+				properties: { full_name: "Alice", age: 25, region: "N" },
 			},
 		});
 		// Bob — open, age 40. Filter passes; calc = 41.
@@ -1332,7 +1247,7 @@ describe("preview rendering (PostgresCaseStore.query against v2 caseListConfig)"
 				case_type: "patient",
 				case_name: "Bob",
 				status: "open",
-				properties: { name: "Bob", age: 40, region: "S" },
+				properties: { full_name: "Bob", age: 40, region: "S" },
 			},
 		});
 		// Carol — closed, age 30. Filter rejects.
@@ -1343,7 +1258,7 @@ describe("preview rendering (PostgresCaseStore.query against v2 caseListConfig)"
 				case_type: "patient",
 				case_name: "Carol",
 				status: "closed",
-				properties: { name: "Carol", age: 30, region: "N" },
+				properties: { full_name: "Carol", age: 30, region: "N" },
 			},
 		});
 

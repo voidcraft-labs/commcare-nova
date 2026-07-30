@@ -1,22 +1,15 @@
 import { z } from "zod";
-import { selectOptionSchema } from "./fields/base";
 import { lookupColumnIdSchema, lookupTableIdSchema } from "./lookupIds";
 import { predicateSchema } from "./predicate/types";
 
 /**
- * A select's complete, exclusive choice source.
+ * A select whose choices come from one Project lookup table.
  *
- * Inline and Project-table choices are mutually exclusive stored shapes. There
- * is no field-level option list beside this union, no precedence rule, and no
- * inactive fallback body. Every consumer switches on `kind`.
+ * Stable table/column identities are persisted here; display names and wire
+ * tags remain projections of the current lookup definition. The source
+ * discriminant is final: a select has either inline options or this lookup
+ * source, never both.
  */
-export const inlineOptionsSourceSchema = z
-	.object({
-		kind: z.literal("inline"),
-		options: z.array(selectOptionSchema).min(2),
-	})
-	.strict();
-
 export const lookupOptionsSourceSchema = z
 	.object({
 		kind: z.literal("lookup"),
@@ -27,16 +20,9 @@ export const lookupOptionsSourceSchema = z
 	})
 	.strict();
 
-export const selectOptionsSourceSchema = z.discriminatedUnion("kind", [
-	inlineOptionsSourceSchema,
-	lookupOptionsSourceSchema,
-]);
-
-export type InlineOptionsSource = z.infer<typeof inlineOptionsSourceSchema>;
 export type LookupOptionsSource = z.infer<typeof lookupOptionsSourceSchema>;
-export type SelectOptionsSource = z.infer<typeof selectOptionsSourceSchema>;
 
 // Keep recursive Predicate payloads behind one stable definition when this
-// union appears in generated schemas. Register in place; `.meta()` would clone
-// the shared node and duplicate recursive definitions.
-z.globalRegistry.add(selectOptionsSourceSchema, { id: "SelectOptionsSource" });
+// carrier appears in generated schemas. Register in place; `.meta()` would
+// clone the shared node and duplicate recursive definitions.
+z.globalRegistry.add(lookupOptionsSourceSchema, { id: "LookupOptionsSource" });

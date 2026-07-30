@@ -1,5 +1,9 @@
 // @vitest-environment happy-dom
 
+import { renderHook } from "@testing-library/react";
+import type { ReactNode } from "react";
+import { act } from "react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 /**
  * Tests for the `useNavigate` and `useSelect` navigation hooks.
  *
@@ -11,13 +15,11 @@
  * has its own dedicated coverage; here we just need the consult
  * function to return `true` so the gate lets the selection through.
  */
-import { renderHook } from "@testing-library/react";
-import type { ReactNode } from "react";
-import { act } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
+import { proseText } from "@/lib/domain/prose";
 
 const consultGuard = vi.fn(() => true);
 
@@ -58,7 +60,6 @@ vi.mock("@/lib/session/hooks", () => ({
 	useClearFocusHint: () => () => {},
 }));
 
-import { asUuid } from "@/lib/doc/types";
 import { useNavigate, useSelect } from "@/lib/routing/hooks";
 
 const pushStateSpy = vi.spyOn(window.history, "pushState");
@@ -83,7 +84,14 @@ function makeStore() {
 							uuid: "f-1",
 							name: "F",
 							type: "survey",
-							fields: [f({ uuid: "q-1", kind: "text", id: "q", label: "Q" })],
+							fields: [
+								f({
+									uuid: "q-1",
+									kind: "text",
+									id: "q",
+									label: proseText("Q"),
+								}),
+							],
 						},
 					],
 				},
@@ -123,7 +131,9 @@ describe("useNavigate", () => {
 		const { result } = renderHook(() => useNavigate(), {
 			wrapper: wrap(store),
 		});
-		act(() => result.current.openForm(asUuid(moduleUuid), asUuid(formUuid)));
+		act(() =>
+			result.current.openForm(testUuid(moduleUuid), testUuid(formUuid)),
+		);
 		expect(pushStateSpy).toHaveBeenCalledWith(
 			null,
 			"",
@@ -138,21 +148,21 @@ describe("useNavigate", () => {
 			wrapper: wrap(store),
 		});
 
-		act(() => result.current.openSearchConfig(asUuid(moduleUuid)));
+		act(() => result.current.openSearchConfig(testUuid(moduleUuid)));
 		expect(pushStateSpy).toHaveBeenLastCalledWith(
 			null,
 			"",
 			`/build/app-1/${moduleUuid}/search`,
 		);
 
-		act(() => result.current.openCaseList(asUuid(moduleUuid)));
+		act(() => result.current.openCaseList(testUuid(moduleUuid)));
 		expect(pushStateSpy).toHaveBeenLastCalledWith(
 			null,
 			"",
 			`/build/app-1/${moduleUuid}/results`,
 		);
 
-		act(() => result.current.openDetailConfig(asUuid(moduleUuid)));
+		act(() => result.current.openDetailConfig(testUuid(moduleUuid)));
 		expect(pushStateSpy).toHaveBeenLastCalledWith(
 			null,
 			"",
@@ -168,7 +178,7 @@ describe("useNavigate", () => {
 		});
 
 		act(() =>
-			result.current.openCaseDetail(asUuid(moduleUuid), "case-record-1"),
+			result.current.openCaseDetail(testUuid(moduleUuid), "case-record-1"),
 		);
 		expect(pushStateSpy).toHaveBeenCalledWith(
 			null,
@@ -210,10 +220,15 @@ describe("useNavigate", () => {
 		const { result } = renderHook(() => useSelect(), {
 			wrapper: wrap(store),
 		});
-		act(() => result.current(asUuid("q-42")));
+		const selectedUuid = testUuid("q-42");
+		act(() => result.current(selectedUuid));
 		/* Selection serializes as a single field UUID — the parser
 		 * derives the parent form via findFormForField. */
-		expect(replaceStateSpy).toHaveBeenCalledWith(null, "", "/build/app-1/q-42");
+		expect(replaceStateSpy).toHaveBeenCalledWith(
+			null,
+			"",
+			`/build/app-1/${selectedUuid}`,
+		);
 		expect(pushStateSpy).not.toHaveBeenCalled();
 	});
 
@@ -229,7 +244,7 @@ describe("useNavigate", () => {
 		const { result } = renderHook(() => useSelect(), {
 			wrapper: wrap(store),
 		});
-		act(() => result.current(asUuid("q-99")));
+		act(() => result.current(testUuid("q-99")));
 		expect(replaceStateSpy).not.toHaveBeenCalled();
 	});
 
@@ -247,7 +262,7 @@ describe("useNavigate", () => {
 		const { result } = renderHook(() => useSelect(), {
 			wrapper: wrap(store),
 		});
-		act(() => result.current(asUuid("q-42")));
+		act(() => result.current(testUuid("q-42")));
 		expect(consultGuard).toHaveBeenCalled();
 		expect(replaceStateSpy).not.toHaveBeenCalled();
 

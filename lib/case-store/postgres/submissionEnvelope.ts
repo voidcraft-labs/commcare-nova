@@ -48,7 +48,7 @@ import {
 	type CasePropertyDataType,
 	casePropertyDataTypes,
 	deriveAuthoredCaseId,
-	prepareCaseOperationTextValue,
+	prepareCaseScalarTextValue,
 	type Uuid,
 } from "@/lib/domain";
 import {
@@ -119,6 +119,7 @@ export interface SubmissionEnvelopeHost {
 			seed: {
 				caseType: string;
 				caseName: string;
+				externalId?: string;
 				properties: JsonObject;
 				parentCaseId?: string;
 			};
@@ -1058,14 +1059,14 @@ async function resolveOperationProgram(
 		}
 
 		// Text facets — one shared normalization contract with the XForm
-		// calculate and HQ (`prepareCaseOperationTextValue`), applied to
+		// calculate and HQ (`prepareCaseScalarTextValue`), applied to
 		// every evaluated name/rename/owner INCLUDING the create's
 		// default acting-user owner.
 		const prepareText = (
 			facet: "name" | "rename" | "owner",
 			raw: string,
 		): string => {
-			const prepared = prepareCaseOperationTextValue(raw);
+			const prepared = prepareCaseScalarTextValue(raw, "reject");
 			if (!prepared.ok) {
 				throw new SubmissionRejectedError({
 					kind: "text-value",
@@ -1114,6 +1115,25 @@ async function resolveOperationProgram(
 				write.condition !== undefined &&
 				bag?.writeConditions.get(writeIndex) !== true
 			) {
+				continue;
+			}
+			if (write.property === "external_id") {
+				const prepared = prepareCaseScalarTextValue(
+					evaluatedText(bag?.writes.get(writeIndex)),
+					"allow",
+				);
+				if (!prepared.ok) {
+					throw new SubmissionRejectedError({
+						kind: "text-value",
+						operationUuid: operation.uuid,
+						facet: "external_id",
+						reason: prepared.reason,
+					});
+				}
+				writes.push({
+					property: write.property,
+					value: prepared.value,
+				});
 				continue;
 			}
 			const dataType =
@@ -1196,6 +1216,7 @@ async function resolveOperationProgram(
 		ordinary.caseType !== undefined &&
 		(Object.keys(ordinary.patch.properties).length > 0 ||
 			ordinary.patch.caseName !== undefined ||
+			ordinary.patch.externalId !== undefined ||
 			ordinary.children.length > 0)
 	) {
 		const boundRow = knownRows.get(ordinary.caseId);
@@ -1353,14 +1374,35 @@ async function applyOperationEffects(
 function partitionWrites(writes: ResolvedInstance["writes"]): {
 	patch: JsonObject;
 	removals: string[];
+	externalId?: string;
 } {
 	const patch: JsonObject = {};
 	const removals: string[] = [];
+	let externalId: string | undefined;
 	for (const write of writes) {
+		if (write.property === "external_id") {
+			if (typeof write.value !== "string") {
+				throw new Error(
+					compilerBugMessage({
+						where: "case-store.submissionEnvelope.partitionWrites",
+						invariant:
+							"an admitted external_id write did not carry its prepared scalar string",
+						detail:
+							"Resolution normalizes external_id separately before generic JSON conversion; blank is a real empty-string scalar write and must never become a JSONB removal.",
+					}),
+				);
+			}
+			externalId = write.value;
+			continue;
+		}
 		if (write.value === undefined) removals.push(write.property);
 		else patch[write.property] = write.value;
 	}
-	return { patch, removals };
+	return {
+		patch,
+		removals,
+		...(externalId === undefined ? {} : { externalId }),
+	};
 }
 
 async function applyCreateEffect(
@@ -1371,13 +1413,17 @@ async function applyCreateEffect(
 	operation: CaseOperation,
 	createdInEnvelope: Set<string>,
 ): Promise<void> {
-	const { patch, removals } = partitionWrites(entry.writes);
+	const { patch, removals, externalId } = partitionWrites(entry.writes);
 	if (entry.mergesExisting || createdInEnvelope.has(entry.caseId)) {
 		// Create-of-existing merges (duplicate authored key, a retry of
 		// the same definition): the create block's facets apply over the
 		// existing row, exactly as Core/HQ accept a create for a known
 		// id. The rolling proof already refused a stored-type mismatch.
-		if (entry.preparedName !== undefined || Object.keys(patch).length > 0) {
+		if (
+			entry.preparedName !== undefined ||
+			externalId !== undefined ||
+			Object.keys(patch).length > 0
+		) {
 			await host.updateCase(trx, {
 				appId,
 				caseId: entry.caseId,
@@ -1385,6 +1431,7 @@ async function applyCreateEffect(
 					...(entry.preparedName === undefined
 						? {}
 						: { case_name: entry.preparedName }),
+					...(externalId === undefined ? {} : { external_id: externalId }),
 					...(Object.keys(patch).length > 0 ? { properties: patch } : {}),
 				},
 			});
@@ -1415,6 +1462,7 @@ async function applyCreateEffect(
 		seed: {
 			caseType: operation.caseType,
 			caseName: entry.preparedName,
+			...(externalId === undefined ? {} : { externalId }),
 			properties: patch,
 		},
 		caseId: entry.caseId,
@@ -1442,8 +1490,12 @@ async function applyMutationEffect(
 		// destination-typed and land on the destination-typed row.
 		await applyRetypeEffect(trx, host, appId, entry, operation.retype);
 	} else {
-		const { patch, removals } = partitionWrites(entry.writes);
-		if (Object.keys(patch).length > 0 || entry.preparedRename !== undefined) {
+		const { patch, removals, externalId } = partitionWrites(entry.writes);
+		if (
+			Object.keys(patch).length > 0 ||
+			entry.preparedRename !== undefined ||
+			externalId !== undefined
+		) {
 			await host.updateCase(trx, {
 				appId,
 				caseId: entry.caseId,
@@ -1451,6 +1503,7 @@ async function applyMutationEffect(
 					...(entry.preparedRename === undefined
 						? {}
 						: { case_name: entry.preparedRename }),
+					...(externalId === undefined ? {} : { external_id: externalId }),
 					...(Object.keys(patch).length > 0 ? { properties: patch } : {}),
 				},
 			});
@@ -1526,7 +1579,7 @@ async function applyRetypeEffect(
 		throw err;
 	}
 
-	const { patch, removals } = partitionWrites(entry.writes);
+	const { patch, removals, externalId } = partitionWrites(entry.writes);
 	const finalDocument: JsonObject = { ...retained, ...patch };
 	for (const key of removals) delete finalDocument[key];
 	if (Object.keys(patch).length > 0) {
@@ -1544,6 +1597,7 @@ async function applyRetypeEffect(
 			...(entry.preparedRename === undefined
 				? {}
 				: { case_name: entry.preparedRename }),
+			...(externalId === undefined ? {} : { external_id: externalId }),
 			modified_on: sql<Date>`now()`,
 		})
 		.where("c.app_id", "=", appId)
@@ -1674,7 +1728,7 @@ function requireCaseName(
 				where: "case-store.submissionEnvelope.requireCaseName",
 				invariant: `${role === "primary" ? "registration form" : "child-case op"} for case type \`${seed.caseType}\` produced no \`case_name\` value`,
 				detail:
-					"Every case row carries a top-level `case_name` (`cases.case_name` is `text NOT NULL`). A form that creates a case must include a leaf field with `id: \"case_name\"` bound to the destination case type via `case_property_on`; the engine's walker plucks it into the `caseName` slot. Reaching this throw means the form's field tree omits the name leaf — an upstream blueprint authoring contract violation.",
+					"Every case row carries a top-level `case_name` (`cases.case_name` is `text NOT NULL`). A form that creates a case must include exactly one admitted field writer whose explicit destination property is `case_name`; the shared case-write inventory projects its value into the `caseName` slot. Reaching this throw means the admitted submission program omitted that required writer — an upstream blueprint authoring contract violation.",
 			}),
 		);
 	}
@@ -1697,6 +1751,9 @@ async function applyOrdinaryAction(
 				seed: {
 					caseType: ordinary.primary.caseType,
 					caseName: requireCaseName(ordinary.primary, "primary"),
+					...(ordinary.primary.externalId === undefined
+						? {}
+						: { externalId: ordinary.primary.externalId }),
 					properties: ordinary.primary.properties,
 				},
 			});
@@ -1708,6 +1765,9 @@ async function applyOrdinaryAction(
 						seed: {
 							caseType: child.caseType,
 							caseName: requireCaseName(child, "child"),
+							...(child.externalId === undefined
+								? {}
+								: { externalId: child.externalId }),
 							properties: child.properties,
 							parentCaseId: primaryCaseId,
 						},
@@ -1721,7 +1781,8 @@ async function applyOrdinaryAction(
 			const hasPropertyWrites =
 				Object.keys(ordinary.patch.properties).length > 0;
 			const hasCaseNameWrite = ordinary.patch.caseName !== undefined;
-			if (hasPropertyWrites || hasCaseNameWrite) {
+			const hasExternalIdWrite = ordinary.patch.externalId !== undefined;
+			if (hasPropertyWrites || hasCaseNameWrite || hasExternalIdWrite) {
 				await host.updateCase(trx, {
 					appId,
 					caseId: ordinary.caseId,
@@ -1730,6 +1791,9 @@ async function applyOrdinaryAction(
 							? { properties: ordinary.patch.properties }
 							: {}),
 						...(hasCaseNameWrite ? { case_name: ordinary.patch.caseName } : {}),
+						...(hasExternalIdWrite
+							? { external_id: ordinary.patch.externalId }
+							: {}),
 					},
 				});
 			}
@@ -1741,6 +1805,9 @@ async function applyOrdinaryAction(
 						seed: {
 							caseType: child.caseType,
 							caseName: requireCaseName(child, "child"),
+							...(child.externalId === undefined
+								? {}
+								: { externalId: child.externalId }),
 							properties: child.properties,
 							parentCaseId: child.parentCaseId,
 						},

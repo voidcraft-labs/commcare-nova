@@ -37,7 +37,6 @@ export interface DetailCanvasProps {
 	readonly addDisabledReason: string | undefined;
 	readonly onMoveColumn: (uuid: Column["uuid"], toIndex: number) => void;
 	readonly onShowColumn: (column: Column) => void;
-	readonly onRepairColumn: (column: Column) => void;
 }
 
 export function DetailCanvas({
@@ -51,7 +50,6 @@ export function DetailCanvas({
 	addDisabledReason,
 	onMoveColumn,
 	onShowColumn,
-	onRepairColumn,
 }: DetailCanvasProps) {
 	const canEdit = useCanEdit();
 	const projection = projectCaseWorkspaceColumns(config);
@@ -118,7 +116,6 @@ export function DetailCanvas({
 							repeatableProperties={repeatableProperties}
 							brokenColumns={brokenColumns}
 							onShow={onShowColumn}
-							onRepair={onRepairColumn}
 							onCreate={onAddDetailField}
 							onCreateCalculated={onAddCalculated}
 							createDisabledReason={addDisabledReason}

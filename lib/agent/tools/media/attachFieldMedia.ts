@@ -51,7 +51,6 @@ import {
 } from "../shared/entityAddresses";
 import type { MutationSuccess } from "../shared/toolCallSummary";
 import {
-	brandMediaBundle,
 	bundleExpectations,
 	commitMediaBatch,
 	FIELD_MEDIA_SLOTS,
@@ -145,18 +144,17 @@ export const attachFieldMediaTool = {
 				// all-empty bundle becomes a `null` payload so the reducer drops
 				// the slot (rather than storing an empty object). `null` survives
 				// JSON over the SSE wire; `undefined` would not.
-				const branded = brandMediaBundle(media);
-				const setKinds = Object.entries(branded)
+				const setKinds = Object.entries(media)
 					.filter(([, v]) => v !== undefined)
 					.map(([k]) => k);
 				resolved.push({
 					mutations: setFieldMediaMutations(
 						field.uuid,
 						slot,
-						setKinds.length > 0 ? branded : null,
+						setKinds.length > 0 ? media : null,
 					),
 					expectations: bundleExpectations(
-						branded,
+						media,
 						`the ${slot} media on field "${field.id}"`,
 					),
 					fieldUuid: field.uuid,

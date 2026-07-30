@@ -5,7 +5,7 @@
 // round trip and the recovery walk are what keep them honest.
 
 import { describe, expect, it } from "vitest";
-import type { Uuid } from "@/lib/doc/types";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	isValidLocation,
 	type LocationParseDoc,
@@ -15,9 +15,10 @@ import {
 } from "@/lib/routing/location";
 import { locationSchema } from "@/lib/routing/types";
 
-const MOD = "mod-1" as Uuid;
-const FORM = "form-1" as Uuid;
-const FIELD = "field-1" as Uuid;
+const MOD = testUuid("module");
+const FORM = testUuid("form");
+const FIELD = testUuid("field");
+const GONE = testUuid("gone");
 
 const doc: LocationParseDoc = {
 	modules: { [MOD]: { uuid: MOD, caseType: "mother" } },
@@ -45,7 +46,7 @@ describe("display-condition locations", () => {
 	});
 
 	it("falls back home when the condition's owner is unknown", () => {
-		expect(parsePathToLocation(["nope" as Uuid, "condition"], doc)).toEqual({
+		expect(parsePathToLocation([GONE, "condition"], doc)).toEqual({
 			kind: "home",
 		});
 	});
@@ -62,10 +63,7 @@ describe("display-condition locations", () => {
 			isValidLocation({ kind: "module-condition", moduleUuid: MOD }, doc),
 		).toBe(true);
 		expect(
-			isValidLocation(
-				{ kind: "module-condition", moduleUuid: "gone" as Uuid },
-				doc,
-			),
+			isValidLocation({ kind: "module-condition", moduleUuid: GONE }, doc),
 		).toBe(false);
 		expect(
 			isValidLocation(
@@ -75,7 +73,7 @@ describe("display-condition locations", () => {
 		).toBe(true);
 		expect(
 			isValidLocation(
-				{ kind: "form-condition", moduleUuid: MOD, formUuid: "gone" as Uuid },
+				{ kind: "form-condition", moduleUuid: MOD, formUuid: GONE },
 				doc,
 			),
 		).toBe(false);
@@ -84,15 +82,12 @@ describe("display-condition locations", () => {
 	it("recovers inward: a deleted form leaves the module, a deleted module leaves home", () => {
 		expect(
 			recoverLocation(
-				{ kind: "form-condition", moduleUuid: MOD, formUuid: "gone" as Uuid },
+				{ kind: "form-condition", moduleUuid: MOD, formUuid: GONE },
 				doc,
 			),
 		).toEqual({ kind: "module", moduleUuid: MOD });
 		expect(
-			recoverLocation(
-				{ kind: "module-condition", moduleUuid: "gone" as Uuid },
-				doc,
-			),
+			recoverLocation({ kind: "module-condition", moduleUuid: GONE }, doc),
 		).toEqual({ kind: "home" });
 	});
 

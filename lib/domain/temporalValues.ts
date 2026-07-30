@@ -52,7 +52,7 @@
 // tidier (the instance would then hold what the device's instance holds)
 // but bought nothing observable: a bare time parses to `null` in the XPath
 // evaluator either way and no comparison can see the difference. What it
-// cost was real — two separate preload paths and the `#case/<prop>`
+// cost was real — two separate preload paths and the typed case-property
 // resolver each had to remember to strip, and a single miss meant the same
 // property read one way through a field and another through an expression.
 //

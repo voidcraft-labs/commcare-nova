@@ -14,7 +14,7 @@ import type { Location } from "@/lib/routing/types";
 const tableId = lookupTableIdSchema.parse(
 	"01912d68-783e-7000-8000-000000000001",
 );
-const moduleUuid = asUuid("11111111-1111-1111-1111-111111111111");
+const moduleUuid = asUuid("11111111-1111-4111-8111-111111111111");
 
 const emptyDoc: LocationParseDoc = {
 	modules: {},
@@ -42,19 +42,12 @@ describe("Project data locations", () => {
 		}
 	});
 
-	it("matches the reserved segment before any doc lookup", () => {
-		/* A module uuid is a branded string with no format constraint, so a doc
-		 * keyed on the literal segment must not be able to shadow the
-		 * workspace. */
-		const shadowing: LocationParseDoc = {
-			...emptyDoc,
-			modules: {
-				[asUuid("project-data")]: {
-					name: "Not a workspace",
-				} as unknown as LocationParseDoc["modules"][string],
-			},
-		};
-		expect(parsePathToLocation(["project-data"], shadowing)).toEqual({
+	it("cannot be shadowed by a module, because the segment is not a uuid", () => {
+		/* The reserved segment is safe by construction rather than by ordering:
+		 * a module is keyed by a canonical uuid, and "project-data" is not one,
+		 * so no doc can carry a module that shadows the workspace. */
+		expect(() => asUuid("project-data")).toThrow();
+		expect(parsePathToLocation(["project-data"], emptyDoc)).toEqual({
 			kind: "project-data",
 		});
 	});
@@ -65,10 +58,13 @@ describe("Project data locations", () => {
 		).toEqual({ kind: "project-data" });
 	});
 
-	it("normalizes a table id's case, so a hand-typed link still resolves", () => {
+	it("opens the table list for an uppercase id rather than normalizing it", () => {
+		/* A uuid has one spelling. Nova only ever emits the lowercase one, so an
+		 * uppercase segment is not a second address for the same table — it is
+		 * an id this Project has no table for, and it lands on the list. */
 		expect(
 			parsePathToLocation(["project-data", tableId.toUpperCase()], emptyDoc),
-		).toEqual({ kind: "project-data", tableId });
+		).toEqual({ kind: "project-data" });
 	});
 
 	it("stays valid against any document, because it names no blueprint entity", () => {

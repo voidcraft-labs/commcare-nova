@@ -20,6 +20,7 @@ import {
 } from "@/lib/commcare/connectDefaults";
 import type { ResolvedConnectConfig } from "@/lib/commcare/connectSlugs";
 import { buildXForm } from "@/lib/commcare/xform";
+import { proseText } from "@/lib/domain/prose";
 
 const XMLNS = "http://openrosa.org/formdesigner/connect-defaults-test";
 
@@ -37,7 +38,9 @@ function emitAssessmentForm(connect: ResolvedConnectConfig): string {
 						name: "Quiz",
 						type: "survey",
 						connect,
-						fields: [f({ kind: "text", id: "feedback", label: "Feedback" })],
+						fields: [
+							f({ kind: "text", id: "feedback", label: proseText("Feedback") }),
+						],
 					},
 				],
 			},
@@ -77,18 +80,12 @@ describe("assessment user_score wire default", () => {
 		const EMPTY_DOC = { forms: {}, fields: {}, fieldOrder: {} };
 		expect(
 			effectiveAssessmentUserScore(
-				{ user_score: xp("#form/score") },
+				{ id: "quiz", user_score: xp("#form/score") },
 				EMPTY_DOC,
 			),
 		).toBe("#form/score");
-		expect(effectiveAssessmentUserScore({}, EMPTY_DOC)).toBe(
+		expect(effectiveAssessmentUserScore({ id: "quiz" }, EMPTY_DOC)).toBe(
 			DEFAULT_ASSESSMENT_USER_SCORE,
 		);
-		// An explicit empty expression still falls through — `<bind
-		// calculate=""/>` is a CCHQ build rejection, and the validator's
-		// CONNECT_EMPTY_XPATH flags the doc state itself.
-		expect(
-			effectiveAssessmentUserScore({ user_score: xp("") }, EMPTY_DOC),
-		).toBe(DEFAULT_ASSESSMENT_USER_SCORE);
 	});
 });

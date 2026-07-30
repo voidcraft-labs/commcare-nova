@@ -7,6 +7,7 @@
 // preview pauses ONLY for the ASTs the SQL compiler consumes.
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import {
 	advancedSearchInputDef,
@@ -24,20 +25,24 @@ import {
 	matchAll,
 	prop,
 	term,
-	today,
 	whenInput,
 } from "@/lib/domain/predicate";
-import { asUuid } from "@/lib/domain/uuid";
+import { proseTemplateText, proseText } from "@/lib/domain/prose";
+
 import { caseListConfigVerdicts } from "../configValidity";
+
+/** Every fixture property below is labeled with literal prose, so a
+ *  context-free projection spells exactly what a document-aware one would. */
+const projectProse = proseTemplateText;
 
 const CASE_TYPES: CaseType[] = [
 	{
 		name: "patient",
 		properties: [
-			{ name: "name", label: "Name", data_type: "text" },
-			{ name: "dob", label: "Date of birth", data_type: "date" },
-			{ name: "age", label: "Age", data_type: "int" },
-			{ name: "score", label: "Score", data_type: "int" },
+			{ name: "case_name", label: proseText("Name"), data_type: "text" },
+			{ name: "dob", label: proseText("Date of birth"), data_type: "date" },
+			{ name: "age", label: proseText("Age"), data_type: "int" },
+			{ name: "score", label: proseText("Score"), data_type: "int" },
 		],
 	} as CaseType,
 ];
@@ -47,7 +52,12 @@ function config(partial: Partial<CaseListConfig>): CaseListConfig {
 }
 
 function verdicts(partial: Partial<CaseListConfig>) {
-	return caseListConfigVerdicts(config(partial), CASE_TYPES, "patient");
+	return caseListConfigVerdicts(
+		config(partial),
+		CASE_TYPES,
+		"patient",
+		projectProse,
+	);
 }
 
 const CLEAN = { search: false, list: false, detail: false };
@@ -66,21 +76,21 @@ describe("caseListConfigVerdicts", () => {
 	it("reports well-typed columns, filter, and inputs clean", () => {
 		const v = verdicts({
 			columns: [
-				plainColumn(asUuid("c1"), "name", "Name"),
-				dateColumn(asUuid("c2"), "dob", "DOB", "%d/%m/%Y"),
+				plainColumn(testUuid("c1"), "case_name", "Name"),
+				dateColumn(testUuid("c2"), "dob", "DOB", "%d/%m/%Y"),
 			],
 			filter: {
 				kind: "neq",
-				left: term(prop("patient", "name")),
+				left: term(prop("patient", "case_name")),
 				right: term(literal("")),
 			},
 			searchInputs: [
 				simpleSearchInputDef(
-					asUuid("s1"),
+					testUuid("s1"),
 					"patient_name",
 					"Patient name",
 					"text",
-					"name",
+					"case_name",
 				),
 			],
 		});
@@ -89,7 +99,7 @@ describe("caseListConfigVerdicts", () => {
 	});
 
 	it("checks Results filters against a date field's runtime date value", () => {
-		const searchInputUuid = asUuid("2de51271-7975-4e10-80db-1834901ef38d");
+		const searchInputUuid = testUuid("date-search");
 		const v = verdicts({
 			filter: eq(prop("patient", "dob"), input(searchInputUuid)),
 			searchInputs: [
@@ -109,17 +119,17 @@ describe("caseListConfigVerdicts", () => {
 
 	it("marks a kind-vs-property mismatch on every screen that shows it", () => {
 		const v = verdicts({
-			columns: [dateColumn(asUuid("c1"), "name", "Name", "%d/%m/%Y")],
+			columns: [dateColumn(testUuid("c1"), "case_name", "Name", "%d/%m/%Y")],
 		});
 		// The mark + both tab dots (the default column appears on both screens)…
-		expect(v.brokenColumns.has(asUuid("c1"))).toBe(true);
+		expect(v.brokenColumns.has(testUuid("c1"))).toBe(true);
 		expect(v.errorAreas.list).toBe(true);
 		expect(v.errorAreas.detail).toBe(true);
 	});
 
 	it("badges only Details for a broken Details-only field", () => {
 		const column = {
-			...dateColumn(asUuid("details-only"), "name", "Name", "%d/%m/%Y"),
+			...dateColumn(testUuid("details-only"), "case_name", "Name", "%d/%m/%Y"),
 			visibleInList: false,
 		};
 		const v = verdicts({ columns: [column] });
@@ -131,7 +141,7 @@ describe("caseListConfigVerdicts", () => {
 
 	it("attributes a broken off-screen sort carrier to Results only", () => {
 		const column = {
-			...dateColumn(asUuid("sort-carrier"), "name", "Name", "%d/%m/%Y"),
+			...dateColumn(testUuid("sort-carrier"), "case_name", "Name", "%d/%m/%Y"),
 			visibleInList: false,
 			visibleInDetail: false,
 			sort: { direction: "asc" as const, priority: 0 },
@@ -146,15 +156,16 @@ describe("caseListConfigVerdicts", () => {
 		const caseTypes: CaseType[] = [
 			{
 				name: "patient",
-				properties: [{ name: "mystery", label: "Mystery" }],
+				properties: [{ name: "mystery", label: proseText("Mystery") }],
 			} as CaseType,
 		];
 		const v = caseListConfigVerdicts(
 			config({
-				columns: [dateColumn(asUuid("c1"), "mystery", "M", "%d/%m/%Y")],
+				columns: [dateColumn(testUuid("c1"), "mystery", "M", "%d/%m/%Y")],
 			}),
 			caseTypes,
 			"patient",
+			projectProse,
 		);
 		expect(v.errorAreas).toEqual(CLEAN);
 		expect(v.brokenColumns.size).toBe(0);
@@ -165,21 +176,21 @@ describe("caseListConfigVerdicts", () => {
 			columns: [
 				// References a property that doesn't exist on the case type.
 				calculatedColumn(
-					asUuid("c1"),
+					testUuid("c1"),
 					"Calc",
 					term(prop("patient", "missing_prop")),
 				),
 			],
 		});
-		expect(v.brokenColumns.has(asUuid("c1"))).toBe(true);
+		expect(v.brokenColumns.has(testUuid("c1"))).toBe(true);
 		expect(v.errorAreas.list).toBe(true);
 		expect(v.errorAreas.detail).toBe(true);
 	});
 
-	it("ignores an unconsumed legacy hidden calculation until it is added back", () => {
+	it("marks an invalid dormant calculation without assigning it to a screen", () => {
 		const hidden = {
 			...calculatedColumn(
-				asUuid("hidden-calc"),
+				testUuid("hidden-calc"),
 				"Old calculation",
 				term(prop("patient", "missing_prop")),
 			),
@@ -189,7 +200,7 @@ describe("caseListConfigVerdicts", () => {
 		const v = verdicts({ columns: [hidden] });
 
 		expect(v.errorAreas).toEqual(CLEAN);
-		expect(v.brokenColumns.size).toBe(0);
+		expect(v.brokenColumns).toEqual(new Set([testUuid("hidden-calc")]));
 	});
 
 	it("marks Cases available on Results when its rule references an unknown property", () => {
@@ -209,12 +220,12 @@ describe("caseListConfigVerdicts", () => {
 		const v = verdicts({
 			columns: [
 				calculatedColumn(
-					asUuid("c1"),
+					testUuid("c1"),
 					"A",
 					term(prop("patient", "missing_prop")),
 				),
 				calculatedColumn(
-					asUuid("c2"),
+					testUuid("c2"),
 					"B",
 					term(prop("patient", "missing_prop")),
 				),
@@ -226,56 +237,40 @@ describe("caseListConfigVerdicts", () => {
 			},
 		});
 		expect(v.filterBroken).toBe(true);
-		expect(v.brokenColumns).toEqual(new Set([asUuid("c1"), asUuid("c2")]));
+		expect(v.brokenColumns).toEqual(new Set([testUuid("c1"), testUuid("c2")]));
 	});
 
 	it("flags structural search-input errors on the search tab only", () => {
 		const v = verdicts({
 			searchInputs: [
-				simpleSearchInputDef(asUuid("s1"), "a", "", "text", "name"),
-				simpleSearchInputDef(asUuid("s2"), "a", "Second", "text", "name"),
+				simpleSearchInputDef(testUuid("s1"), "a", "", "text", "case_name"),
+				simpleSearchInputDef(
+					testUuid("s2"),
+					"a",
+					"Second",
+					"text",
+					"case_name",
+				),
 			],
 		});
 		expect(v.errorAreas.search).toBe(true);
 		expect(v.errorAreas.list).toBe(false);
 	});
 
-	it("flags legacy range defaults and range/widget mismatches on Search", () => {
-		const legacyDefault = verdicts({
+	it("accepts the final date-range shape", () => {
+		const v = verdicts({
 			searchInputs: [
 				simpleSearchInputDef(
-					asUuid("range-default"),
+					testUuid("range-mode"),
 					"dob",
 					"DOB",
 					"date-range",
 					"dob",
-					{ default: today() },
-				),
-			],
-		});
-		const mismatchedWidget = verdicts({
-			searchInputs: [
-				simpleSearchInputDef(
-					asUuid("range-mode"),
-					"dob",
-					"DOB",
-					"date",
-					"dob",
-					{ mode: { kind: "range" } },
 				),
 			],
 		});
 
-		expect(legacyDefault.errorAreas).toEqual({
-			search: true,
-			list: false,
-			detail: false,
-		});
-		expect(mismatchedWidget.errorAreas).toEqual({
-			search: true,
-			list: false,
-			detail: false,
-		});
+		expect(v.errorAreas).toEqual(CLEAN);
 	});
 
 	it("accepts an advanced input whose condition references its own input", () => {
@@ -283,7 +278,7 @@ describe("caseListConfigVerdicts", () => {
 		// via the when-input-present envelope. The edited row must be in
 		// scope for that to resolve — otherwise the gate flags a condition
 		// the commit gate and wire emitter accept.
-		const searchInputUuid = asUuid("556707de-6346-4bde-8e05-297ee5720141");
+		const searchInputUuid = testUuid("s1");
 		const v = verdicts({
 			searchInputs: [
 				advancedSearchInputDef(
@@ -293,7 +288,7 @@ describe("caseListConfigVerdicts", () => {
 					"text",
 					whenInput(
 						input(searchInputUuid),
-						eq(prop("patient", "name"), input(searchInputUuid)),
+						eq(prop("patient", "case_name"), input(searchInputUuid)),
 					),
 				),
 			],
@@ -315,12 +310,14 @@ describe("caseListConfigVerdicts", () => {
 			propertyComparison,
 			CASE_TYPES,
 			"patient",
+			projectProse,
 			{ caseSearchEnabled: false },
 		);
 		const searchBacked = caseListConfigVerdicts(
 			propertyComparison,
 			CASE_TYPES,
 			"patient",
+			projectProse,
 			{ caseSearchEnabled: true },
 		);
 
@@ -342,6 +339,7 @@ describe("caseListConfigVerdicts", () => {
 			config({}),
 			CASE_TYPES,
 			"patient",
+			projectProse,
 			{
 				boundary: { ...baseBoundary, searchButtonConditionBroken: true },
 			},
@@ -350,6 +348,7 @@ describe("caseListConfigVerdicts", () => {
 			config({}),
 			CASE_TYPES,
 			"patient",
+			projectProse,
 			{
 				boundary: { ...baseBoundary, excludedOwnerIdsBroken: true },
 			},
@@ -379,8 +378,11 @@ describe("caseListConfigVerdicts", () => {
 		const v = verdicts({
 			tile: {},
 			columns: [
-				{ ...plainColumn(asUuid("c1"), "name", "Name"), tile: TOP_LEFT },
-				{ ...plainColumn(asUuid("c2"), "age", "Age"), tile: TOP_RIGHT },
+				{
+					...plainColumn(testUuid("c1"), "case_name", "Name"),
+					tile: TOP_LEFT,
+				},
+				{ ...plainColumn(testUuid("c2"), "age", "Age"), tile: TOP_RIGHT },
 			],
 		});
 		expect(v.errorAreas).toEqual(CLEAN);
@@ -392,13 +394,13 @@ describe("caseListConfigVerdicts", () => {
 			tile: {},
 			columns: [
 				{
-					...plainColumn(asUuid("c1"), "name", "Name"),
+					...plainColumn(testUuid("c1"), "case_name", "Name"),
 					tile: { x: 8, y: 0, width: 6, height: 1 },
 				},
 			],
 		});
 		expect(v.errorAreas).toEqual({ search: false, list: true, detail: false });
-		expect(v.tileIssues.get(asUuid("c1"))?.[0]).toContain(
+		expect(v.tileIssues.get(testUuid("c1"))?.[0]).toContain(
 			"runs past the edge of the tile",
 		);
 	});
@@ -409,7 +411,7 @@ describe("caseListConfigVerdicts", () => {
 		const v = verdicts({
 			columns: [
 				{
-					...plainColumn(asUuid("c1"), "name", "Name"),
+					...plainColumn(testUuid("c1"), "case_name", "Name"),
 					tile: { x: 8, y: 0, width: 6, height: 1 },
 				},
 			],
@@ -422,17 +424,19 @@ describe("caseListConfigVerdicts", () => {
 		const v = verdicts({
 			tile: {},
 			columns: [
-				{ ...plainColumn(asUuid("c1"), "name", "Name"), tile: TOP_LEFT },
 				{
-					...plainColumn(asUuid("c2"), "age", "Age"),
+					...plainColumn(testUuid("c1"), "case_name", "Name"),
+					tile: TOP_LEFT,
+				},
+				{
+					...plainColumn(testUuid("c2"), "age", "Age"),
 					tile: { x: 3, y: 0, width: 6, height: 1 },
 				},
 			],
 		});
-		expect([...v.tileIssues.keys()].sort()).toEqual([
-			asUuid("c1"),
-			asUuid("c2"),
-		]);
+		expect([...v.tileIssues.keys()].sort()).toEqual(
+			[testUuid("c1"), testUuid("c2")].sort(),
+		);
 	});
 
 	it("badges Results, never Details, for a field shown on both screens", () => {
@@ -440,7 +444,7 @@ describe("caseListConfigVerdicts", () => {
 			tile: {},
 			columns: [
 				{
-					...plainColumn(asUuid("c1"), "name", "Name"),
+					...plainColumn(testUuid("c1"), "case_name", "Name"),
 					tile: { x: 8, y: 0, width: 6, height: 1 },
 				},
 			],
@@ -451,13 +455,16 @@ describe("caseListConfigVerdicts", () => {
 
 	it("reports coverage only while the tile is on", () => {
 		const columns = [
-			{ ...plainColumn(asUuid("c1"), "name", "Name"), tile: TOP_LEFT },
-			plainColumn(asUuid("c2"), "age", "Age"),
+			{
+				...plainColumn(testUuid("c1"), "case_name", "Name"),
+				tile: TOP_LEFT,
+			},
+			plainColumn(testUuid("c2"), "age", "Age"),
 		];
 		expect(verdicts({ columns }).errorAreas).toEqual(CLEAN);
 		const on = verdicts({ tile: {}, columns });
 		expect(on.errorAreas.list).toBe(true);
-		expect(on.tileIssues.get(asUuid("c2"))?.[0]).toContain(
+		expect(on.tileIssues.get(testUuid("c2"))?.[0]).toContain(
 			"has no place on the tile",
 		);
 	});
@@ -468,9 +475,12 @@ describe("caseListConfigVerdicts", () => {
 		const v = verdicts({
 			tile: {},
 			columns: [
-				{ ...plainColumn(asUuid("c1"), "name", "Name"), tile: TOP_LEFT },
 				{
-					...plainColumn(asUuid("c2"), "age", "Age"),
+					...plainColumn(testUuid("c1"), "case_name", "Name"),
+					tile: TOP_LEFT,
+				},
+				{
+					...plainColumn(testUuid("c2"), "age", "Age"),
 					visibleInList: false,
 					sort: { direction: "asc" as const, priority: 1 },
 				},

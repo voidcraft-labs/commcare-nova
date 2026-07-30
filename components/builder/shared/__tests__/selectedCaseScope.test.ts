@@ -28,6 +28,7 @@ import {
 	subcasePath,
 	term,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { firstConditionSeed } from "../conditionSeed";
 import {
 	type CaseDataScope,
@@ -42,12 +43,14 @@ import {
 
 const MOTHER: CaseType = {
 	name: "mother",
-	properties: [{ name: "status", label: "Status", data_type: "text" }],
+	properties: [
+		{ name: "status", label: proseText("Status"), data_type: "text" },
+	],
 } as CaseType;
 const CHILD: CaseType = {
 	name: "child",
 	parent_type: "mother",
-	properties: [{ name: "age", label: "Age", data_type: "int" }],
+	properties: [{ name: "age", label: proseText("Age"), data_type: "int" }],
 } as CaseType;
 const EMPTY: CaseType = { name: "empty", properties: [] } as CaseType;
 
@@ -161,7 +164,7 @@ describe("related-read walkers", () => {
 });
 
 // `match-none` is legitimate authored data in a DIFFERENT carrier: an
-// origin-compatible `{ excludedOwnerIds, searchButtonDisplayCondition:
+// accepted-shape `{ excludedOwnerIds, searchButtonDisplayCondition:
 // match-none }` projection is behavior-inert with zero inputs but stays
 // valid authored data and must remain editable (`lib/domain/CLAUDE.md`).
 // A display condition is the one carrier where "never" means nobody

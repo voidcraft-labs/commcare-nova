@@ -2,7 +2,7 @@
  * Real-time relay — Server-Sent Events over a Postgres LISTEN/NOTIFY poke.
  *
  * GET /api/apps/{id}/stream — a same-origin SSE channel that pipes the app's
- * durable mutation stream (`accepted_mutations`), Project lookup manifest, and
+ * durable app-change stream (`app_changes`), Project lookup manifest, and
  * live presence roster to the browser. The browser carries no database client
  * and no second identity: this
  * route subscribes to the process-wide LISTEN connection (`lib/db/streamListener`)
@@ -22,22 +22,32 @@
  * `maxDuration` below is advisory.
  *
  * Frames:
- *   event: mutation  id:<seq>  — one committed batch (the `AcceptedMutationDoc`).
+ *   event: mutation  id:<seq>  — one browser-replayable committed batch.
  *   event: lookup-revision     — the Project's complete authoritative lookup
  *                                manifest. Seq-less; the mutation cursor stays
  *                                exclusively on `mutation` frames.
  *   event: presence            — the full presence roster snapshot.
  *   event: reload              — replay is impossible (below the retention
- *                                efficiency bound, a gap, or a migration
- *                                batch); the client GETs the fresh blueprint.
+ *                                efficiency bound or a gap), or a server-only
+ *                                change requires a fresh snapshot handoff; the
+ *                                client GETs the current blueprint.
  *                                Seq-less, no `id:` line.
+ *   event: protocol-failure    — the complete post-cursor suffix failed the
+ *                                canonical frame grammar. No mutation frame
+ *                                was emitted and the client reloads from its
+ *                                unchanged cursor. Seq-less and terminal.
  *   event: revoked             — access was revoked; the client stops. Seq-less.
  */
 
 import { sql } from "kysely";
 import { ApiError, handleApiError } from "@/lib/apiError";
 import { getSessionSafe, requireSession } from "@/lib/auth-utils";
-import type { PresenceEntry } from "@/lib/collab/presenceTypes";
+import { lookupManifestFrameSchema } from "@/lib/collab/lookupManifestFrame";
+import {
+	admitMutationFrame,
+	type MutationFrame,
+} from "@/lib/collab/mutationFrame";
+import type { RevocationReason } from "@/lib/collab/revocationFrame";
 import { isUserActive } from "@/lib/db/api-keys";
 import {
 	AppAccessError,
@@ -46,21 +56,29 @@ import {
 } from "@/lib/db/appAccess";
 import { createCoalescedStreamPump } from "@/lib/db/coalescedStreamPump";
 import { RETENTION_COUNT } from "@/lib/db/constants";
+import { parsePersistedAppChangeEnvelope } from "@/lib/db/persistedJson";
 import { getAppDb } from "@/lib/db/pg";
+import {
+	type PresenceRosterRow,
+	projectPresenceRoster,
+} from "@/lib/db/presenceRoster";
 import {
 	subscribeAppStream,
 	subscribeLookupProject,
 } from "@/lib/db/streamListener";
 import {
 	runAfterAppStreamSubscribeTestHook,
+	runBeforeAppChangeReauthorizationTestHook,
 	runBeforeLookupManifestReadTestHook,
-	runBeforeMigrationReauthorizationTestHook,
 	runBeforeMutationReadTestHook,
 } from "@/lib/db/streamReadTestHooks";
 import { log } from "@/lib/logger";
 import { getLookupManifest } from "@/lib/lookup/service";
 import type { LookupScope } from "@/lib/lookup/types";
-import { locationSchema } from "@/lib/routing/types";
+import {
+	nextPersistedSequence,
+	safePersistedSequence,
+} from "@/lib/utils/persistedSequence";
 
 /* Node runtime — the route holds a long-lived subscription to the Postgres
  * LISTEN connection and `setInterval`s, neither of which the Edge runtime
@@ -108,42 +126,11 @@ function parseCursor(req: Request): number {
 	const url = new URL(req.url);
 	const raw =
 		req.headers.get("Last-Event-ID") ?? url.searchParams.get("since") ?? "0";
-	const parsed = Number.parseInt(raw, 10);
-	return Number.isNaN(parsed) || parsed < 0 ? 0 : parsed;
-}
-
-/** A `presence` row as read back from Postgres (`selectAll`). */
-interface PresenceRow {
-	user_id: string;
-	session_id: string;
-	name: string;
-	image: string | null;
-	email: string;
-	color: string;
-	location: unknown;
-	updated_at: Date;
-}
-
-/**
- * Project a `presence` row into the client's `PresenceEntry` wire shape — the
- * exact contract `lib/collab/presence.ts` parses. `updated_at` becomes epoch
- * millis (the client does `now − updatedAt` arithmetic for stale-hide and `>`
- * for newest-wins dedup), the server-only `expire_at` TTL is dropped, and
- * `location` is validated against the routing schema so a peer's location is a
- * structurally valid builder URL on the wire. THROWS on an invalid `location`;
- * the caller skips the row.
- */
-function projectPresence(row: PresenceRow): PresenceEntry {
-	return {
-		userId: row.user_id,
-		sessionId: row.session_id,
-		name: row.name,
-		image: row.image ?? null,
-		email: row.email ?? "",
-		color: row.color,
-		location: locationSchema.parse(row.location),
-		updatedAt: row.updated_at.getTime(),
-	};
+	try {
+		return safePersistedSequence(raw, "App stream cursor");
+	} catch {
+		return 0;
+	}
 }
 
 const STREAM_HEADERS = {
@@ -254,7 +241,7 @@ function openStream(args: {
 					if (closed) return;
 					let frame = `event: ${event}\n`;
 					/* `revoked` / `reload` are seq-less — no `id:` line, so a reconnect
-					 * never resumes from a migration reload. */
+					 * never advances past a change that requires a fresh snapshot. */
 					if (seqId !== undefined) frame += `id: ${seqId}\n`;
 					frame += `data: ${JSON.stringify(data)}\n\n`;
 					try {
@@ -301,13 +288,18 @@ function openStream(args: {
 					teardown();
 				}
 
-				function revokeAndClose(reason: string): void {
+				function revokeAndClose(reason: RevocationReason): void {
 					send("revoked", { reason });
 					teardown();
 				}
 
+				function protocolFailureAndClose(reason: string): void {
+					send("protocol-failure", { reason });
+					teardown();
+				}
+
 				/* SELECT every committed batch past the delivered cursor and emit it. The
-				 * `accepted_mutations` log is PERMANENT, so the entries always exist above
+				 * `app_changes` log is PERMANENT, so the entries always exist above
 				 * the retention efficiency bound — a gap here means the cursor is a real
 				 * hole, not a pruned window. */
 				async function deliverSince(): Promise<void> {
@@ -315,72 +307,144 @@ function openStream(args: {
 					runBeforeMutationReadTestHook();
 					const db = await getAppDb();
 					const rows = await db
-						.selectFrom("accepted_mutations")
+						.selectFrom("app_changes")
+						.leftJoin("app_change_fold_baselines as baseline", (join) =>
+							join
+								.onRef("baseline.app_id", "=", "app_changes.app_id")
+								.onRef("baseline.seq", "=", "app_changes.seq"),
+						)
 						.select([
-							"seq",
-							"batch_id",
-							"run_id",
-							"actor_id",
-							"kind",
-							"mutations",
+							"app_changes.seq as seq",
+							"app_changes.batch_id as batch_id",
+							"app_changes.run_id as run_id",
+							"app_changes.actor_id as actor_id",
+							"app_changes.kind as kind",
+							"app_changes.from_project_id as from_project_id",
+							"app_changes.to_project_id as to_project_id",
+							"baseline.seq as baseline_seq",
 						])
-						.where("app_id", "=", appId)
-						.where("seq", ">", deliveredThrough)
-						.orderBy("seq")
+						.select(
+							sql<string>`${sql.ref("app_changes.mutations")}::text`.as(
+								"mutations_text",
+							),
+						)
+						.where("app_changes.app_id", "=", appId)
+						.where("app_changes.seq", ">", deliveredThrough)
+						.orderBy("app_changes.seq")
 						.execute();
+					/* Validate the COMPLETE fetched suffix with the server-only durable
+					 * parser before emitting any browser frame. A disruptive change later
+					 * in the SELECT prevents partial delivery of earlier ordinary rows. */
+					let previousSeq = deliveredThrough;
+					const parsedFrames: MutationFrame[] = [];
+					let containsDisruptiveChange = false;
 					for (const row of rows) {
-						if (closed) return;
-						const seq = Number(row.seq);
-						/* A hole — the browser missed entries between its cursor and the
-						 * first delivered seq. Replay is impossible; reload. */
-						if (seq !== deliveredThrough + 1) {
-							reloadAndClose();
-							return;
-						}
-						/* Migration batches reload the complete snapshot even when their
-						 * durable history row carries replayable deterministic mutations. The
-						 * migration may also have moved the app, so freshly reauthorize BEFORE
-						 * advancing the private cursor. A transient failure throws back to the
-						 * pump with `deliveredThrough` still at M-1, causing row M to retry. */
-						if (row.kind === "migration") {
-							try {
-								runBeforeMigrationReauthorizationTestHook();
-								await reauthorizeStreamScope(appId, userId);
-							} catch (err) {
-								if (err instanceof AppAccessError) {
-									revokeAndClose("access-revoked");
-									return;
-								}
-								throw err;
+						try {
+							const expectedSeq = nextPersistedSequence(
+								previousSeq,
+								`delivered app-change sequence for app ${appId}`,
+							);
+							const change = parsePersistedAppChangeEnvelope(
+								{
+									seq: row.seq,
+									batchId: row.batch_id,
+									runId: row.run_id,
+									actorId: row.actor_id,
+									kind: row.kind,
+									mutationsText: row.mutations_text,
+									fromProjectId: row.from_project_id,
+									toProjectId: row.to_project_id,
+								},
+								`app_changes row for app ${appId}`,
+							);
+							if (change.seq !== expectedSeq) {
+								reloadAndClose();
+								return;
 							}
-							if (closed) return;
-							deliveredThrough = seq;
-							reloadAndClose("app-migrated");
+							const baselineSeq =
+								row.baseline_seq === null
+									? null
+									: safePersistedSequence(
+											row.baseline_seq,
+											`app_change_fold_baselines.seq for app ${appId}`,
+										);
+							if (
+								(change.kind === "fold-baseline") !== (baselineSeq !== null) ||
+								(baselineSeq !== null && baselineSeq !== change.seq)
+							) {
+								throw new Error(
+									"fold-baseline change and immutable baseline do not match",
+								);
+							}
+							previousSeq = change.seq;
+							if (
+								change.kind === "autosave" ||
+								change.kind === "mcp" ||
+								change.kind === "chat"
+							) {
+								const frame = admitMutationFrame({
+									seq: change.seq,
+									batchId: change.batchId,
+									actorId: change.actorId,
+									kind: change.kind,
+									mutations: change.mutations,
+									...(change.runId === undefined
+										? {}
+										: { runId: change.runId }),
+								});
+								if (frame === null) {
+									throw new Error(
+										"durable client change failed browser-frame admission",
+									);
+								}
+								parsedFrames.push(frame);
+							} else {
+								containsDisruptiveChange = true;
+							}
+						} catch (error) {
+							log.error("[stream] malformed durable app-change suffix", {
+								appId,
+								error,
+							});
+							protocolFailureAndClose("malformed-app-change-suffix");
 							return;
 						}
-						deliveredThrough = seq;
+					}
+
+					if (containsDisruptiveChange) {
+						/* Blueprint migrations, fold baselines, and Project moves require
+						 * fresh scope. Reauthorize before advancing any cursor or emitting
+						 * any earlier ordinary row. A
+						 * transient failure leaves `deliveredThrough` unchanged and the
+						 * pump retries the whole suffix; a confirmed loss revokes. */
+						try {
+							runBeforeAppChangeReauthorizationTestHook();
+							await reauthorizeStreamScope(appId, userId);
+						} catch (err) {
+							if (err instanceof AppAccessError) {
+								revokeAndClose("access-revoked");
+								return;
+							}
+							throw err;
+						}
+						if (closed) return;
+						reloadAndClose("app-changed");
+						return;
+					}
+
+					for (const frame of parsedFrames) {
+						if (closed) return;
+						deliveredThrough = frame.seq;
 						/* Project the client-relevant shape — the reconciler keys on these
 						 * fields (echo classification, gap detection, apply). The row's
 						 * server-only `ts` is not on the wire. */
-						send(
-							"mutation",
-							{
-								seq,
-								batchId: row.batch_id,
-								runId: row.run_id ?? undefined,
-								actorId: row.actor_id,
-								kind: row.kind,
-								mutations: row.mutations,
-							},
-							seq,
-						);
+						send("mutation", frame, frame.seq);
 					}
 				}
 
-				/* Read the live roster (unexpired rows) and emit a full snapshot. Each
-				 * row is projected best-effort: a row whose `location` fails the schema
-				 * is skipped (never blows up the whole roster), mirroring the presence
-				 * contract. */
+				/* Read and validate the complete live roster before emitting anything.
+				 * One malformed stored row rejects this current page; publishing the
+				 * remaining rows would falsely present a partial roster as authoritative. */
 				async function emitRosterOnce(): Promise<void> {
 					if (closed) return;
 					const db = await getAppDb();
@@ -400,22 +464,7 @@ function openStream(args: {
 						.where(sql<boolean>`expire_at > now()`)
 						.execute();
 					if (closed) return;
-					const roster: PresenceEntry[] = [];
-					for (const row of rows) {
-						try {
-							roster.push(projectPresence(row as PresenceRow));
-						} catch (parseErr) {
-							log.warn("[stream] malformed presence row (skipped)", {
-								appId,
-								sessionId: row.session_id,
-								err:
-									parseErr instanceof Error
-										? parseErr.message
-										: String(parseErr),
-							});
-						}
-					}
-					send("presence", roster);
+					send("presence", projectPresenceRoster(rows as PresenceRosterRow[]));
 				}
 
 				/* Coalesce overlapping roster emits into one follow-up query — a poke or
@@ -466,8 +515,12 @@ function openStream(args: {
 							runBeforeLookupManifestReadTestHook();
 							const manifest = await getLookupManifest(lookupScope);
 							if (closed) return;
-							/* Deliberately seq-less: only mutation frames own Last-Event-ID. */
-							send("lookup-revision", manifest);
+							/* Validate the complete current page before emission. Deliberately
+							 * seq-less: only mutation frames own Last-Event-ID. */
+							send(
+								"lookup-revision",
+								lookupManifestFrameSchema.parse(manifest),
+							);
 						},
 						onError(err) {
 							log.warn("[stream] lookup manifest pump error (will retry)", {

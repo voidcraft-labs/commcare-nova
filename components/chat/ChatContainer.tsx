@@ -35,9 +35,9 @@ import { WorkflowChatTransport } from "@ai-sdk/workflow";
 import type { UIMessage } from "ai";
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
-import { createBlankApp } from "@/app/(app)/build/actions";
+import { createStarterApp } from "@/app/(app)/build/actions";
 import { ChatSidebar } from "@/components/chat/ChatSidebar";
-import { StartBlankApp } from "@/components/chat/StartBlankApp";
+import { StartFromScratch } from "@/components/chat/StartFromScratch";
 import { Logo } from "@/components/ui/Logo";
 import { parseApiErrorMessage } from "@/lib/apiError";
 import {
@@ -49,10 +49,16 @@ import type { ReconcilerContextValue } from "@/lib/collab/context";
 import { useReconcilerContext } from "@/lib/collab/context";
 import { useProjectToast } from "@/lib/collab/useProjectToast";
 import type { ThreadDoc, ThreadMeta } from "@/lib/db/types";
+import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import {
 	BlueprintDocContext,
 	type BlueprintDocStore,
 } from "@/lib/doc/provider";
+import {
+	blueprintDocSchema,
+	type PersistableDoc,
+} from "@/lib/domain/blueprint";
+import { uuidSchema } from "@/lib/domain/uuid";
 import { applyStreamEvent } from "@/lib/generation/streamDispatcher";
 import { useExternalNavigate } from "@/lib/routing/hooks";
 import { pushBuilderHistory } from "@/lib/routing/useClientPath";
@@ -248,16 +254,29 @@ export interface CreatedAppActivation {
 	readonly projectId: string;
 	readonly role: string;
 	readonly canEdit: boolean;
-	readonly baseSeq: number;
+	readonly baseSeq: 1;
+	readonly blueprint: PersistableDoc;
+	readonly starter: {
+		readonly moduleUuid: string;
+		readonly formUuid: string;
+		readonly fieldUuid: string;
+	};
 }
 
 /** Strict boundary for the server's one-shot new-app handoff. Never activate
- * multiplayer from a partial event: the app id, Project capability, and
- * confirmed cursor are one authority. */
+ * multiplayer from a partial event: app identity, Project capability, exact
+ * sequence-1 blueprint, and starter identities are one authority. */
 export function parseCreatedAppActivation(
 	data: Record<string, unknown>,
 ): CreatedAppActivation | null {
-	const { appId, projectId, role, canEdit, baseSeq } = data;
+	if (
+		Object.keys(data).sort().join(",") !==
+		"appId,baseSeq,blueprint,canEdit,projectId,role,starter"
+	) {
+		return null;
+	}
+	const { appId, projectId, role, canEdit, baseSeq, starter } = data;
+	const parsedBlueprint = blueprintDocSchema.safeParse(data.blueprint);
 	if (
 		typeof appId !== "string" ||
 		appId.trim().length === 0 ||
@@ -266,13 +285,54 @@ export function parseCreatedAppActivation(
 		typeof role !== "string" ||
 		role.trim().length === 0 ||
 		typeof canEdit !== "boolean" ||
-		typeof baseSeq !== "number" ||
-		!Number.isSafeInteger(baseSeq) ||
-		baseSeq < 0
+		baseSeq !== 1 ||
+		!parsedBlueprint.success ||
+		typeof starter !== "object" ||
+		starter === null ||
+		Array.isArray(starter) ||
+		Object.keys(starter).sort().join(",") !== "fieldUuid,formUuid,moduleUuid"
 	) {
 		return null;
 	}
-	return { appId, projectId, role, canEdit, baseSeq };
+	const starterRecord = starter as Record<string, unknown>;
+	const moduleUuid = uuidSchema.safeParse(starterRecord.moduleUuid);
+	const formUuid = uuidSchema.safeParse(starterRecord.formUuid);
+	const fieldUuid = uuidSchema.safeParse(starterRecord.fieldUuid);
+	if (!moduleUuid.success || !formUuid.success || !fieldUuid.success) {
+		return null;
+	}
+	const blueprint = parsedBlueprint.data;
+	if (
+		blueprint.appId !== appId ||
+		blueprint.appName.trim().length === 0 ||
+		blueprint.connectType !== null ||
+		blueprint.caseTypes !== null ||
+		blueprint.moduleOrder.length !== 1 ||
+		Object.keys(blueprint.modules).length !== 1 ||
+		Object.keys(blueprint.forms).length !== 1 ||
+		Object.keys(blueprint.fields).length !== 1 ||
+		blueprint.moduleOrder[0] !== moduleUuid.data ||
+		blueprint.formOrder[moduleUuid.data]?.[0] !== formUuid.data ||
+		blueprint.fieldOrder[formUuid.data]?.[0] !== fieldUuid.data ||
+		blueprint.modules[moduleUuid.data] === undefined ||
+		blueprint.forms[formUuid.data]?.type !== "survey" ||
+		blueprint.fields[fieldUuid.data]?.kind !== "text"
+	) {
+		return null;
+	}
+	return {
+		appId,
+		projectId,
+		role,
+		canEdit,
+		baseSeq,
+		blueprint,
+		starter: {
+			moduleUuid: moduleUuid.data,
+			formUuid: formUuid.data,
+			fieldUuid: fieldUuid.data,
+		},
+	};
 }
 
 /** Create a Chat instance with transport, data handling, and auto-resend config.
@@ -304,8 +364,9 @@ function createChatInstance(
 	 * this is an edit-mode request." Generating / Idle / Loading all mean
 	 * "don't strip tools." This handles the askQuestions-auto-resend during an
 	 * initial build correctly: the buffer still carries the build's
-	 * stage-tagged events and the run opened on an empty doc, so phase stays
-	 * Generating → appReady=false → the planning tools remain available. */
+	 * stage-tagged events and `runStartedWithData` captured the pre-creation
+	 * `/build/new` state, so phase stays Generating → appReady=false even after
+	 * the canonical starter receipt hydrates → the build tools remain available. */
 	const requestFields = () => {
 		const doc = docStoreRef.current?.getState();
 		const session = sessionStoreRef.current;
@@ -509,6 +570,17 @@ function createChatInstance(
 					role: activation.role,
 					canEdit: activation.canEdit,
 				});
+				/* Install the exact sequence-1 server receipt before activating the
+				 * reconciler. The remote-apply bracket makes this authoritative
+				 * hydration invisible to undo and auto-save; the reconciler then
+				 * captures this same document as its confirmed base. */
+				const store = docApi.getState();
+				store.beginRemoteApply();
+				try {
+					store.commitDoc(hydratePersistedBlueprint(activation.blueprint));
+				} finally {
+					store.endRemoteApply();
+				}
 				pushBuilderHistory(`/build/${activation.appId}`, true);
 				/* Activate the dormant new-build reconciler: seed it at
 				 * the receipt's confirmed cursor with the current doc, so subsequent
@@ -627,8 +699,8 @@ export function ChatContainer({
 	);
 	/** One-shot: the next `beginRun` belongs to a reconnected (live resume) or
 	 *  RE-DRIVEN (instance death) BUILD run, so its build-vs-edit capture must
-	 *  read "started empty" even though the build's committed modules are
-	 *  already in the loaded doc — mirrors openThread's
+	 *  preserve "started as a build" even though canonical genesis means
+	 *  committed modules are already in the loaded doc — mirrors openThread's
 	 *  `(live || redrive) && appGenerating`. Without the redrive arm, a
 	 *  re-driven build would capture `runStartedWithData: true` off the
 	 *  committed doc and render edit-mode chrome for the whole run. */
@@ -656,22 +728,22 @@ export function ChatContainer({
 	 *  The level-triggered server signal already retries on the NEXT load. */
 	const healRedroveRef = useRef<string | null>(null);
 
-	// ── Blank-app escape hatch (new builds only) ─────────────────────────
+	// ── From-scratch escape hatch (new builds only) ──────────────────────
 
 	/* The two ways out of `/build/new` are mutually exclusive, and whichever
 	 * the user picks first wins — latched synchronously, in the handler that
-	 * starts it. Refs, not state: `StartBlankApp` stays clickable all the way
+	 * starts it. Refs, not state: `StartFromScratch` stays clickable all the way
 	 * through its collapse (deliberately — it must not flash disabled mid-fade),
 	 * so a click landing in that window has to meet a latch that was already set
 	 * when the message was sent, rather than wait on a re-render. */
 	const { replace } = useExternalNavigate();
-	const [creatingBlankApp, setCreatingBlankApp] = useState(false);
+	const [creatingStarterApp, setCreatingStarterApp] = useState(false);
 	const agentEngagedRef = useRef(false);
-	const creatingBlankAppRef = useRef(false);
+	const creatingStarterAppRef = useRef(false);
 	/** Set when a send failed before any app was minted — see the `chatError`
 	 *  effect. Un-collapses the starter so the user isn't left with neither path. */
 	const [sendFailedBeforeApp, setSendFailedBeforeApp] = useState(false);
-	/** `createBlankApp` resolves against an app-wide router and a global toast
+	/** `createStarterApp` resolves against an app-wide router and a global toast
 	 *  store, neither of which unmounts with us. Without this, abandoning a slow
 	 *  create (Back, or the header logo) yanks the user into the new app seconds
 	 *  later, or toasts a create failure onto a page that never had the button.
@@ -1288,7 +1360,7 @@ export function ChatContainer({
 
 		/* A pre-stream rejection (out of credits, a build already running in
 		 * another tab, a 5xx) fails before the route mints an app, leaving the
-		 * user on `/build/new` with nothing. Re-arm the blank-app path they were
+		 * user on `/build/new` with nothing. Re-arm the from-scratch path they were
 		 * offered a moment ago — the send had latched it shut, and without this
 		 * the only ways out are a reload or navigating away. A failure that got
 		 * far enough to mint an app already announced it via `data-app-id`, so
@@ -1350,7 +1422,7 @@ export function ChatContainer({
 			text: string;
 			attachments?: AttachmentRef[];
 		}) => {
-			if (creatingBlankAppRef.current) return;
+			if (creatingStarterAppRef.current) return;
 			if (threadHydrationStateRef.current !== "ready") return;
 			const session = sessionStoreRef.current?.getState();
 			if (
@@ -1389,8 +1461,8 @@ export function ChatContainer({
 		[addToolOutput, scopeEpoch],
 	);
 
-	const handleCreateBlankApp = useCallback(() => {
-		if (agentEngagedRef.current || creatingBlankAppRef.current) return;
+	const handleCreateStarterApp = useCallback(() => {
+		if (agentEngagedRef.current || creatingStarterAppRef.current) return;
 		const session = sessionStoreRef.current?.getState();
 		if (
 			session?.accessPhase !== "authorized" ||
@@ -1400,15 +1472,15 @@ export function ChatContainer({
 		)
 			return;
 		const expectedProjectId = session.projectId;
-		creatingBlankAppRef.current = true;
-		setCreatingBlankApp(true);
-		createBlankApp(expectedProjectId).then(
+		creatingStarterAppRef.current = true;
+		setCreatingStarterApp(true);
+		createStarterApp(expectedProjectId).then(
 			(result) => {
 				/* The app was created either way; we just no longer own the screen. */
 				if (!mountedRef.current) return;
 				if (!result.success) {
-					creatingBlankAppRef.current = false;
-					setCreatingBlankApp(false);
+					creatingStarterAppRef.current = false;
+					setCreatingStarterApp(false);
 					projectToast("error", "Couldn't create the app", result.error);
 					return;
 				}
@@ -1425,8 +1497,8 @@ export function ChatContainer({
 			 * can mint a second one; say so rather than inviting it. */
 			() => {
 				if (!mountedRef.current) return;
-				creatingBlankAppRef.current = false;
-				setCreatingBlankApp(false);
+				creatingStarterAppRef.current = false;
+				setCreatingStarterApp(false);
 				projectToast(
 					"error",
 					"Couldn't confirm the app was created",
@@ -1453,23 +1525,23 @@ export function ChatContainer({
 	 * — a surface that can't send can't create either. `/build/new` is seeded
 	 * from the active Project's server-resolved role, so a viewer never sees this
 	 * authoring action; the create route remains the enforcement authority. */
-	const showBlankAppStarter = centered && !isExistingApp && !readOnly;
+	const showFromScratch = centered && !isExistingApp && !readOnly;
 
 	return (
 		<ChatSidebar
 			key="chat"
 			centered={centered}
 			heroLogo={centered ? <Logo size="hero" /> : undefined}
-			startBlankApp={
-				showBlankAppStarter ? (
-					<StartBlankApp
+			startFromScratch={
+				showFromScratch ? (
+					<StartFromScratch
 						agentEngaged={agentEngaged}
-						creating={creatingBlankApp}
-						onCreate={handleCreateBlankApp}
+						creating={creatingStarterApp}
+						onCreate={handleCreateStarterApp}
 					/>
 				) : undefined
 			}
-			composerBusy={creatingBlankApp || threadScopeReloading}
+			composerBusy={creatingStarterApp || threadScopeReloading}
 			interactionBlocked={threadScopeReloading}
 			interactionBlockedRecovery={
 				threadScopeHydrationFailed

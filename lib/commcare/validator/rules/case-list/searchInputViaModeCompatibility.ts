@@ -2,14 +2,7 @@
  * Rule: reject simple-arm `(mode, via, name vs property)`
  * combinations that no CCHQ wire shape can carry faithfully.
  *
- * Three distinct rejections fire here:
- *
- *   - `range` and the `date-range` widget are an inseparable pair. A
- *     single-date widget cannot collect the two bounds `range` consumes, and
- *     a date-range widget cannot feed one scalar mode. Legacy mismatches load
- *     for repair but never pass the commit/export gate.
- *
- *   - `range` mode requires self-walk AND `name === property`.
+ * `range` mode requires self-walk AND `name === property`.
  *     CCHQ's `daterange` widget serializes one encoded
  *     `__range__<start>__<end>` answer, and CCHQ's special runtime matcher
  *     applies that pair to the current-case property named by the prompt key
@@ -28,32 +21,6 @@
  *         predicate would need two synthetic per-bound input refs
  *         the wire layer doesn't synthesize for `range`).
  *
- *   - `multi-select-contains` mode is rejected on every simple-arm
- *     input, including self-walk. The runtime preview comma-splits
- *     one user-typed value into a token list at evaluation time;
- *     CCHQ's wire side has two failure modes:
- *
- *       - Self-walk: the bare `<prompt key="X">` element binds one
- *         literal string at the search-input slot, and CCHQ's
- *         runtime defaults a `case_property = "<bound value>"`
- *         criteria to full-string exact match
- *         (`commcare-hq/corehq/apps/es/case_search.py::case_property_query`
- *         → `exact_case_property_text_query`). The author's intent
- *         ("does this multi-select property contain this token?")
- *         silently mismatches.
- *
- *       - Cross-walk: the simple-arm derivation lifts to an
- *         advanced-style predicate at wire emission, but
- *         `multi-select-contains` in Nova's AST stores the values
- *         list as literals — no operator in the simple-arm
- *         derivation admits an `input(name)` Term as the
- *         membership source, so the lift has no faithful target.
- *
- *     Authors who need token containment compose the explicit
- *     `selected(prop, input("name"))` predicate on the advanced
- *     arm, where CCHQ's `selected_any` query function gives the
- *     desired space-delimited-token semantic.
- *
  * Modes that ride cleanly on the wire — `exact` (bare prompt for
  * self-walk; predicate in `_xpath_query` for cross-walk) and
  * `fuzzy` / `starts-with` / `phonetic` / `fuzzy-date` (always
@@ -70,11 +37,9 @@
 
 import {
 	type BlueprintDoc,
-	canonicalCasePropertyName,
 	effectiveSimpleSearchModeKind,
 	type Module,
 	type SimpleSearchInputDef,
-	simpleSearchInputHasCoherentRangeWidget,
 	type Uuid,
 } from "@/lib/domain";
 import { type ValidationError, validationError } from "../../errors";
@@ -98,56 +63,6 @@ export function searchInputViaModeCompatibility(
 		// slot.
 		const modeKind = effectiveSimpleSearchModeKind(input);
 
-		if (!simpleSearchInputHasCoherentRangeWidget(input)) {
-			const needsRangeWidget = modeKind === "range";
-			errors.push(
-				validationError(
-					"CASE_LIST_SIMPLE_INPUT_VIA_INCOMPATIBLE_MODE",
-					"module",
-					needsRangeWidget
-						? `Search input "${input.label || input.name}" (input #${i + 1}, name "${input.name}") on module "${mod.name}" uses the \`range\` match with a "${input.type}" field. CommCare's range answer contains both a start and an end, but that field collects one value. Change the field type to \`date-range\`; Nova stores that widget's native \`range\` mode automatically.`
-						: `Search input "${input.label || input.name}" (input #${i + 1}, name "${input.name}") on module "${mod.name}" uses a \`date-range\` field with the \`${modeKind}\` match. The field collects a start/end pair, but that match consumes one value. Change the field type to a single Date picker, or use the date range's \`range\` match.`,
-					{ moduleUuid, moduleName: mod.name },
-					{
-						// `slot` keys the case-workspace boundary verdicts
-						// (`lib/doc/commitVerdicts.ts::caseWorkspaceBoundaryVerdicts`)
-						// — an input finding without it never flips the
-						// workspace's Search attention state.
-						slot: `caseListConfig.searchInputs[${i}]`,
-						inputName: input.name,
-						inputUuid: input.uuid,
-						modeKind,
-						inputType: input.type,
-						reason: needsRangeWidget
-							? "range-needs-date-range-widget"
-							: "date-range-needs-range-mode",
-					},
-				),
-			);
-			continue;
-		}
-
-		// `multi-select-contains` rejects on every simple-arm input;
-		// see the rule docstring for the wire-shape rationale.
-		if (modeKind === "multi-select-contains") {
-			errors.push(
-				validationError(
-					"CASE_LIST_SIMPLE_INPUT_VIA_INCOMPATIBLE_MODE",
-					"module",
-					`Search input "${input.label || input.name}" (input #${i + 1}, name "${input.name}") on module "${mod.name}" uses the \`multi-select-contains\` mode on the simple arm. CCHQ's runtime treats a bare search-input value as a full-string exact match against the case property, so simple-arm \`multi-select-contains\` silently mismatches — a multi-select case property storing "red green blue" would not match the typed value "green". Convert this input to the advanced arm and author the predicate as \`selected(prop("${mod.caseType ?? "<case-type>"}", "${input.property}"), input("${input.name}"))\`, which CCHQ evaluates as space-delimited token containment via its \`selected_any\` query function.`,
-					{ moduleUuid, moduleName: mod.name },
-					{
-						slot: `caseListConfig.searchInputs[${i}]`,
-						inputName: input.name,
-						inputUuid: input.uuid,
-						modeKind,
-						viaKind: input.via?.kind ?? "absent",
-					},
-				),
-			);
-			continue;
-		}
-
 		// `range` rejects on two shapes: a non-self via (the two-value
 		// wire form can't ride on a single prompt binding when the
 		// property lives on a related case) and `name !== property` on
@@ -157,8 +72,7 @@ export function searchInputViaModeCompatibility(
 		// only `range` shape the bare prompt slot carries faithfully.
 		const via = input.via;
 		const viaIsCrossWalk = via !== undefined && via.kind !== "self";
-		const nameDiverges =
-			input.name !== canonicalCasePropertyName(input.property);
+		const nameDiverges = input.name !== input.property;
 		if (modeKind === "range" && (viaIsCrossWalk || nameDiverges)) {
 			errors.push(
 				validationError(

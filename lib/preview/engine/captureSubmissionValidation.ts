@@ -1,17 +1,18 @@
 import { z } from "zod";
 import { CaptureSubmissionRejectedError } from "@/lib/case-store/errors";
+import { uuidSchema } from "@/lib/domain";
 import { MAX_SUBMITTED_CAPTURE_COUNT } from "@/lib/domain/captureFormats";
 
 const captureSubmissionProjectionSchema = z
 	.object({
 		entryKey: z.string().uuid(),
-		formUuid: z.string().uuid(),
+		formUuid: uuidSchema,
 		attachmentRefs: z
 			.array(
 				z
 					.object({
 						attachmentName: z.string().min(1).max(255),
-						fieldUuid: z.string().uuid(),
+						fieldUuid: uuidSchema,
 						instancePath: z.string().min(1).max(1024),
 					})
 					.strict(),

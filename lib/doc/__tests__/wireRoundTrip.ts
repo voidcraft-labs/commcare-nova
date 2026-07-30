@@ -37,7 +37,7 @@ import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
  */
 export function applyOverWire(
 	doc: BlueprintDoc,
-	mutations: Mutation[],
+	mutations: readonly Mutation[],
 ): BlueprintDoc {
 	// Round-trip through JSON to mirror the SSE wire — `JSON.stringify`
 	// drops `undefined`-valued keys, which is the exact failure this helper

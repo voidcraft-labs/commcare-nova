@@ -63,12 +63,12 @@ export const CHAT_SIDEBAR_WIDTH = INSPECTOR_RAIL_WIDTH;
 interface ChatSidebarProps {
 	centered: boolean;
 	heroLogo?: ReactNode;
-	/** Rendered under the chat card in centered mode — the blank-app escape
+	/** Rendered under the chat card in centered mode — the from-scratch escape
 	 *  hatch on a new build. Sharing the centered column is the point: it holds
 	 *  the chat above true center until it collapses away. */
-	startBlankApp?: ReactNode;
+	startFromScratch?: ReactNode;
 	/** Locks the composer while a non-chat action owns the screen (creating a
-	 *  blank app, then navigating). Distinct from `readOnly`, which hides it. */
+	 *  starter, then navigating). Distinct from `readOnly`, which hides it. */
 	composerBusy?: boolean;
 	/** Keep the mounted transcript/draft but make tool + thread interactions
 	 * inert while its Project-bound attachment refs are re-authorized. */
@@ -147,7 +147,7 @@ export function shouldShowShortChatFallback({
 export function ChatSidebar({
 	centered,
 	heroLogo,
-	startBlankApp,
+	startFromScratch,
 	composerBusy,
 	interactionBlocked = false,
 	interactionBlockedRecovery,
@@ -763,7 +763,7 @@ export function ChatSidebar({
 			{/* Under the card, inside the same centered column — sharing it is the
 			 *  point: this holds the chat above true center, and the chat settles
 			 *  back to center as this collapses away. */}
-			{centered && startBlankApp}
+			{centered && startFromScratch}
 		</motion.div>
 	);
 }

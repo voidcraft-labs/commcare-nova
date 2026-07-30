@@ -12,6 +12,18 @@ Same as `lib/doc`: the store is private. Consumers go through the named hooks in
 - **Write from outside React.** Stream handlers and route handlers toggle run lifecycle via the store without threading through context.
 - **Disjoint responsibilities.** Mutations to the blueprint and mutations to UI state are visibly different call sites, so reviewers can reason about each independently.
 
+## Connect UI state is not Connect document ownership
+
+The store owns only the form-settings convenience state: mode-specific draft
+stashes and `lastConnectType` as the next-dialog default. `switchConnectMode`
+never infers a target mode from that hint. Its caller supplies an explicit mode
+and, for learn/deliver, the complete desired participant blocks; the store
+delegates document planning to `lib/doc/connectTargetState.ts` and gates the
+returned batch once. A null target clears the app mode and every form block;
+an enabled target clears every unlisted block. The stash is updated only after
+the document batch commits and can never make a dormant Connect configuration
+part of the blueprint.
+
 ## Lifecycle = events buffer + runCompletedAt + the run-start capture
 
 Four session fields describe "what phase is the builder in":
@@ -35,7 +47,11 @@ Run-boundary actions are orthogonal and atomic:
 BuilderSession is the one client owner of `{projectId, role, canEdit,
 accessPhase, scopeEpoch}`. Existing apps seed the first four values from the
 RSC's atomic app snapshot; `/build/new` seeds them from the active Project's
-role with `baseSeq: 0` while its reconciler stays dormant. `baseSeq` otherwise
+role with `baseSeq: 0` while its in-memory doc and reconciler stay dormant.
+Creation's one-shot receipt carries the exact sequence-1 canonical starter
+blueprint plus its module/form/field UUIDs; the client installs that blueprint
+before activating the reconciler, so session identity and confirmed doc state
+cross the birth boundary together. `baseSeq` otherwise
 stays with the reconciler. A new app is promoted only through
 `activateCreatedApp`, which installs its server-returned app id and complete
 Project capability tuple in one store update before the reconciler opens.
@@ -61,7 +77,7 @@ composer draft are deliberately retained.
 
 **Generation stages are cumulative milestones, not the latest tool label.** The live model is `Foundation → Build`: `updateApp` and the optional `generateSchema` establish the foundation; atomic module/form tools establish Build. A later schema enrichment cannot undo already-committed content, so `deriveAgentStage` folds the whole event prefix into those facts instead of reading the last recognized tag or clamping against hidden state. Historical `schema` / `scaffold` / `fix:*` tags are projected into the current model at read time; stage values themselves are ephemeral and are not stored beside the event log, so this model needs no data migration.
 
-**Disambiguation: initial build vs post-build edit.** Both emit the same stage tags (`module:create` during construction, `form:M-F` for field work). `derivePhase` and `derivePostBuildEdit` key on `runStartedWithData` — a run that opened on an empty doc is an initial build (Generating layout); one that opened on a populated doc is an edit (the builder stays Ready/interactive while the agent works).
+**Disambiguation: initial build vs post-build edit.** Both emit the same stage tags (`module:create` during construction, `form:M-F` for field work). `derivePhase` and `derivePostBuildEdit` key on `runStartedWithData` as a run-mode fact captured before canonical genesis is activated — an initial build uses the Generating layout even though its persisted app is already the born-valid survey starter; an edit keeps the builder Ready/interactive while the agent works.
 
 When adding a new lifecycle signal: add a derivation in `lifecycle.ts`, expose a named hook in `hooks.tsx`. Don't add a field to the store.
 

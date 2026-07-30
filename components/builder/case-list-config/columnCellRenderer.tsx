@@ -28,6 +28,7 @@ import {
 	PopoverTrigger,
 } from "@/components/shadcn/popover";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
+import type { ProseProjector } from "@/lib/doc/hooks/useProseProjection";
 import {
 	type CaseProperty,
 	type Column,
@@ -47,7 +48,7 @@ import type {
 	CaseRowWithCalculated,
 } from "@/lib/preview/engine/caseDataBindingTypes";
 import { toDate } from "@/lib/preview/xpath/coerce";
-import { formatCommCareDate } from "@/lib/preview/xpath/dateFormatting";
+import { formatConcreteCommCareDate } from "@/lib/preview/xpath/dateFormatting";
 import { XPathDate } from "@/lib/preview/xpath/types";
 
 /**
@@ -102,6 +103,10 @@ export type ColumnDisplayContext = {
 		CalculatedTemporalType
 	>;
 	readonly today: Date;
+	/** Spells an option label's references against the owning document. Rides
+	 *  the display context rather than being read per cell, so the Results
+	 *  list and the Quick Filter that matches it can never disagree. */
+	readonly projectProse: ProseProjector;
 };
 
 /** Resolve the authored expression type once per calculated column. */
@@ -135,6 +140,7 @@ export function projectColumnDisplay(
 				context.caseProperties.find(
 					(property) => property.name === column.field,
 				),
+				context.projectProse,
 			);
 		case "phone":
 			return {
@@ -163,6 +169,7 @@ export function projectColumnDisplay(
 				context.caseProperties.find(
 					(property) => property.name === column.field,
 				),
+				context.projectProse,
 			);
 		case "calculated":
 			return projectCalculatedValue(
@@ -176,6 +183,7 @@ function projectPlainValue(
 	row: CaseRowWithCalculated,
 	field: string,
 	property: CaseProperty | undefined,
+	projectProse: ProseProjector,
 ): PreviewFormattedValue {
 	const source = caseRowDisplaySourceValue(row, field);
 	if (
@@ -183,7 +191,7 @@ function projectPlainValue(
 		(Array.isArray(source) || typeof source === "string")
 	) {
 		const rawTokens = Array.isArray(source)
-			? source.map((item) => projectStoredScalar(item, undefined))
+			? source.map((item) => projectStoredScalar(item, undefined, projectProse))
 			: source.split(/\s+/).filter(Boolean);
 		if (rawTokens.some((token) => token === undefined)) {
 			return unsupportedStoredValue();
@@ -198,7 +206,7 @@ function projectPlainValue(
 			text: [
 				...(property.options ?? [])
 					.filter((option) => selected.has(option.value))
-					.map((option) => option.label),
+					.map((option) => projectProse(option.label)),
 				...tokens.filter((token) => !knownValues.has(token)),
 			].join(" "),
 		};
@@ -206,7 +214,7 @@ function projectPlainValue(
 	if (Array.isArray(source)) {
 		const labels: string[] = [];
 		for (const item of source) {
-			const label = projectStoredScalar(item, property);
+			const label = projectStoredScalar(item, property, projectProse);
 			if (label === undefined) return unsupportedStoredValue();
 			if (label !== "") labels.push(label);
 		}
@@ -228,7 +236,7 @@ function projectPlainValue(
 	}
 	return {
 		kind: "value",
-		text: projectStoredScalar(source, property) ?? "",
+		text: projectStoredScalar(source, property, projectProse) ?? "",
 	};
 }
 
@@ -253,17 +261,19 @@ function projectImageMappedValue(
 	source: ReturnType<typeof caseRowDisplaySourceValue>,
 	mapping: Extract<Column, { kind: "image-map" }>["mapping"],
 	property: CaseProperty | undefined,
+	projectProse: ProseProjector,
 ): PreviewFormattedValue {
 	const selected = selectedTokens(source);
 	if (selected === undefined) return unsupportedStoredValue();
 	const match = mapping.find((entry) => selected.has(entry.value));
+	const option = property?.options?.find(
+		(candidate) => candidate.value === match?.value,
+	);
 	return match === undefined
 		? { kind: "value", text: "" }
 		: {
 				kind: "image",
-				text:
-					property?.options?.find((option) => option.value === match.value)
-						?.label ?? match.value,
+				text: option ? projectProse(option.label) : match.value,
 				assetId: match.assetId,
 			};
 }
@@ -287,6 +297,7 @@ function selectedTokens(
 function projectStoredScalar(
 	value: unknown,
 	property: CaseProperty | undefined,
+	projectProse: ProseProjector,
 ): string | undefined {
 	if (value === null || value === undefined) return "";
 	if (
@@ -298,7 +309,7 @@ function projectStoredScalar(
 	}
 	const raw = String(value);
 	const option = property?.options?.find((entry) => entry.value === raw);
-	if (option !== undefined) return option.label;
+	if (option !== undefined) return projectProse(option.label);
 	if (typeof value === "boolean") return value ? "Yes" : "No";
 	return raw;
 }
@@ -408,9 +419,10 @@ const CALCULATED_DATETIME_FORMAT_OPTIONS: Intl.DateTimeFormatOptions = {
 // ── Runtime-aligned formatters ────────────────────────────────────
 
 /**
- * Parse a stored date and apply the column's authored JavaRosa pattern. A
- * malformed value or unsupported legacy style stays visible as raw data with
- * a plain-language explanation; Preview never substitutes a locale default.
+ * Parse a stored date and apply the column's exact authored JavaRosa pattern.
+ * A malformed value stays visible as raw data with a plain-language
+ * explanation; Preview never substitutes a locale default or resolves the
+ * expression layer's semantic preset names.
  */
 export type PreviewFormattedValue =
 	| {
@@ -445,14 +457,11 @@ export function formatDateForPreview(
 			message: "Showing the original value because it isn’t a valid date",
 		};
 	}
-	const formatted = formatCommCareDate(parsed, pattern);
+	const formatted = formatConcreteCommCareDate(parsed, pattern);
 	if (formatted.kind === "unsupported-pattern") {
-		return {
-			kind: "fallback",
-			text: raw,
-			message:
-				"Showing the original value because Preview can’t use this saved date style",
-		};
+		throw new Error(
+			"Unsupported case-list date pattern reached Preview after document admission.",
+		);
 	}
 	return { kind: "value", text: formatted.text };
 }

@@ -11,15 +11,16 @@
  *     the form's top level;
  *   - every reducer warn-and-skip condition (own-subtree destination)
  *     comes back as a real `{ error }`, never a false success;
- *   - a cross-parent move that collides with a sibling id reports the
- *     reducer's dedup rename.
+ *   - a cross-parent move that collides with a sibling id is refused before
+ *     dispatch; moving never performs a hidden semantic rename.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import type { PreparedMutationCandidate } from "@/lib/doc/commitVerdicts";
 import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
-import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
+import { proseTemplateText, proseText } from "@/lib/domain/prose";
 import { makeStubToolContext } from "../../__tests__/fixtures";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { applyToDoc } from "../common";
@@ -29,7 +30,12 @@ vi.mock("@/lib/db/apps", () => ({
 	completeApp: vi.fn(() => Promise.resolve()),
 }));
 vi.mock("@/lib/db/applyBlueprintChange", () => ({
-	applyBlueprintChange: vi.fn(() => Promise.resolve({ seq: 0 })),
+	applyBlueprintChange: vi.fn(async (args) => {
+		const { commitApplyBlueprintChangeTestBatch } = await import(
+			"@/lib/db/__tests__/applyBlueprintChangeTestWriter"
+		);
+		return commitApplyBlueprintChangeTestBatch(args);
+	}),
 }));
 
 /**
@@ -55,7 +61,7 @@ function makeDoc(): BlueprintDoc {
 							f({
 								id: "grp",
 								kind: "group",
-								label: "Group",
+								label: proseText("Group"),
 								children: [
 									f({ id: "golf_one", kind: "text" }),
 									f({ id: "golf_two", kind: "text" }),
@@ -87,9 +93,15 @@ function formUuidOf(doc: BlueprintDoc): Uuid {
 	return doc.formOrder[doc.moduleOrder[0]][0];
 }
 
-function docParentId(doc: BlueprintDoc, fieldUuid: Uuid): string | undefined {
-	const parentUuid = doc.fieldParent[fieldUuid];
-	return parentUuid ? doc.fields[parentUuid]?.id : undefined;
+function fieldAddress(
+	doc: BlueprintDoc,
+	id: string,
+): { moduleUuid: Uuid; formUuid: Uuid; fieldUuid: Uuid } {
+	return {
+		moduleUuid: doc.moduleOrder[0],
+		formUuid: formUuidOf(doc),
+		fieldUuid: uuidOf(doc, id),
+	};
 }
 
 beforeEach(() => {
@@ -102,9 +114,7 @@ describe("moveField — anchored placement", () => {
 		const { ctx } = makeStubToolContext();
 		const result = await moveFieldTool.execute(
 			{
-				moduleUuid: doc.moduleOrder[0],
-				formUuid: formUuidOf(doc),
-				fieldUuid: uuidOf(doc, "alpha"),
+				...fieldAddress(doc, "alpha"),
 				afterFieldUuid: uuidOf(doc, "bravo"),
 			},
 			ctx,
@@ -125,9 +135,7 @@ describe("moveField — anchored placement", () => {
 		const { ctx } = makeStubToolContext();
 		const result = await moveFieldTool.execute(
 			{
-				moduleUuid: doc.moduleOrder[0],
-				formUuid: formUuidOf(doc),
-				fieldUuid: uuidOf(doc, "charlie"),
+				...fieldAddress(doc, "charlie"),
 				beforeFieldUuid: uuidOf(doc, "alpha"),
 				afterFieldUuid: uuidOf(doc, "bravo"),
 			},
@@ -148,9 +156,7 @@ describe("moveField — anchored placement", () => {
 		const { ctx } = makeStubToolContext();
 		const result = await moveFieldTool.execute(
 			{
-				moduleUuid: doc.moduleOrder[0],
-				formUuid: formUuidOf(doc),
-				fieldUuid: uuidOf(doc, "alpha"),
+				...fieldAddress(doc, "alpha"),
 				afterFieldUuid: uuidOf(doc, "golf_one"),
 			},
 			ctx,
@@ -170,14 +176,12 @@ describe("moveField — anchored placement", () => {
 		]);
 	});
 
-	it("addresses the moved field and anchor by UUID", async () => {
+	it("accepts UUIDs for the moved field and the anchor", async () => {
 		const doc = makeDoc();
 		const { ctx } = makeStubToolContext();
 		const result = await moveFieldTool.execute(
 			{
-				moduleUuid: doc.moduleOrder[0],
-				formUuid: formUuidOf(doc),
-				fieldUuid: uuidOf(doc, "alpha"),
+				...fieldAddress(doc, "alpha"),
 				beforeFieldUuid: uuidOf(doc, "charlie"),
 			},
 			ctx,
@@ -199,9 +203,7 @@ describe("moveField — parentUuid placement", () => {
 		const { ctx } = makeStubToolContext();
 		const result = await moveFieldTool.execute(
 			{
-				moduleUuid: doc.moduleOrder[0],
-				formUuid: formUuidOf(doc),
-				fieldUuid: uuidOf(doc, "alpha"),
+				...fieldAddress(doc, "alpha"),
 				parentUuid: uuidOf(doc, "grp"),
 			},
 			ctx,
@@ -220,12 +222,7 @@ describe("moveField — parentUuid placement", () => {
 		const doc = makeDoc();
 		const { ctx } = makeStubToolContext();
 		const result = await moveFieldTool.execute(
-			{
-				moduleUuid: doc.moduleOrder[0],
-				formUuid: formUuidOf(doc),
-				fieldUuid: uuidOf(doc, "golf_one"),
-				parentUuid: null,
-			},
+			{ ...fieldAddress(doc, "golf_one"), parentUuid: null },
 			ctx,
 			doc,
 		);
@@ -240,7 +237,7 @@ describe("moveField — parentUuid placement", () => {
 		expect(idsUnder(result.newDoc, uuidOf(doc, "grp"))).toEqual(["golf_two"]);
 	});
 
-	it("reports the reducer's dedup rename when the new level already holds the id", async () => {
+	it("refuses a cross-parent collision instead of silently renaming identity text", async () => {
 		// A top-level twin of a group child — legal (per-level uniqueness),
 		// and the exact collision a cross-parent move must dedup.
 		const twinDoc = buildDoc({
@@ -252,13 +249,21 @@ describe("moveField — parentUuid placement", () => {
 							name: "Encounter",
 							type: "survey",
 							fields: [
-								f({ id: "dup", kind: "text", label: "Top-level dup" }),
+								f({
+									id: "dup",
+									kind: "text",
+									label: proseText("Top-level dup"),
+								}),
 								f({
 									id: "grp",
 									kind: "group",
-									label: "Group",
+									label: proseText("Group"),
 									children: [
-										f({ id: "dup", kind: "text", label: "Nested dup" }),
+										f({
+											id: "dup",
+											kind: "text",
+											label: proseText("Nested dup"),
+										}),
 									],
 								}),
 							],
@@ -269,7 +274,11 @@ describe("moveField — parentUuid placement", () => {
 		});
 		const { ctx } = makeStubToolContext();
 		const nested = Object.values(twinDoc.fields).find(
-			(fld) => fld.id === "dup" && "label" in fld && fld.label === "Nested dup",
+			(fld) =>
+				fld.id === "dup" &&
+				"label" in fld &&
+				fld.label !== undefined &&
+				proseTemplateText(fld.label) === "Nested dup",
 		);
 		if (!nested) throw new Error("fixture field missing");
 		const result = await moveFieldTool.execute(
@@ -282,9 +291,11 @@ describe("moveField — parentUuid placement", () => {
 			ctx,
 			twinDoc,
 		);
-		if ("error" in result.result) throw new Error(result.result.error);
-		expect(result.newDoc.fields[nested.uuid]?.id).toBe("dup_2");
-		expect(result.result.message).toContain('Renamed to "dup_2"');
+		expect(result.mutations).toEqual([]);
+		if (!("error" in result.result)) throw new Error("expected error");
+		expect(result.result.error).toContain("same ID");
+		expect(result.result.error).toContain("Rename this field explicitly");
+		expect(result.newDoc).toBe(twinDoc);
 	});
 });
 
@@ -293,11 +304,7 @@ describe("moveField — refusals", () => {
 		const doc = makeDoc();
 		const { ctx } = makeStubToolContext();
 		const result = await moveFieldTool.execute(
-			{
-				moduleUuid: doc.moduleOrder[0],
-				formUuid: formUuidOf(doc),
-				fieldUuid: uuidOf(doc, "alpha"),
-			},
+			fieldAddress(doc, "alpha"),
 			ctx,
 			doc,
 		);
@@ -306,57 +313,12 @@ describe("moveField — refusals", () => {
 		expect(result.result.error).toContain("Nothing says where");
 	});
 
-	it("targets one of two same-id fields by exact UUID", async () => {
-		const twin = buildDoc({
-			modules: [
-				{
-					name: "Clinic",
-					forms: [
-						{
-							name: "Encounter",
-							type: "survey",
-							fields: [
-								f({ id: "dup", kind: "text" }),
-								f({
-									id: "grp",
-									kind: "group",
-									label: "Group",
-									children: [f({ id: "dup", kind: "text" })],
-								}),
-								f({ id: "anchor_field", kind: "text" }),
-							],
-						},
-					],
-				},
-			],
-		});
-		const { ctx } = makeStubToolContext();
-		const target = Object.values(twin.fields).find(
-			(field) => field.id === "dup" && docParentId(twin, field.uuid) === "grp",
-		);
-		if (!target) throw new Error("nested duplicate is missing");
-		const result = await moveFieldTool.execute(
-			{
-				moduleUuid: twin.moduleOrder[0],
-				formUuid: formUuidOf(twin),
-				fieldUuid: target.uuid,
-				afterFieldUuid: uuidOf(twin, "anchor_field"),
-			},
-			ctx,
-			twin,
-		);
-		if ("error" in result.result) throw new Error(result.result.error);
-		expect(result.newDoc.fields[target.uuid]?.id).toBe("dup_2");
-	});
-
 	it("refuses anchoring a field to itself", async () => {
 		const doc = makeDoc();
 		const { ctx } = makeStubToolContext();
 		const result = await moveFieldTool.execute(
 			{
-				moduleUuid: doc.moduleOrder[0],
-				formUuid: formUuidOf(doc),
-				fieldUuid: uuidOf(doc, "alpha"),
+				...fieldAddress(doc, "alpha"),
 				afterFieldUuid: uuidOf(doc, "alpha"),
 			},
 			ctx,
@@ -380,18 +342,16 @@ describe("moveField — refusals", () => {
 			appId: "test-app",
 			userId: "user-1",
 			runId: "run-1",
-			recordMutations: vi.fn(async (mutations: Mutation[]) => ({
+			recordMutations: vi.fn(async (prepared: PreparedMutationCandidate) => ({
 				events: [],
-				committedDoc: applyToDoc(peerDoc, mutations),
+				committedDoc: applyToDoc(peerDoc, prepared.mutations),
 			})),
 			recordMutationStages: vi.fn(),
 			recordConversation: vi.fn(),
 		} as unknown as ToolExecutionContext;
 		const result = await moveFieldTool.execute(
 			{
-				moduleUuid: doc.moduleOrder[0],
-				formUuid: formUuidOf(doc),
-				fieldUuid: uuidOf(doc, "alpha"),
+				...fieldAddress(doc, "alpha"),
 				afterFieldUuid: uuidOf(doc, "bravo"),
 			},
 			ctx,
@@ -406,9 +366,7 @@ describe("moveField — refusals", () => {
 		const { ctx } = makeStubToolContext();
 		const result = await moveFieldTool.execute(
 			{
-				moduleUuid: doc.moduleOrder[0],
-				formUuid: formUuidOf(doc),
-				fieldUuid: uuidOf(doc, "grp"),
+				...fieldAddress(doc, "grp"),
 				afterFieldUuid: uuidOf(doc, "golf_one"),
 			},
 			ctx,
@@ -421,14 +379,12 @@ describe("moveField — refusals", () => {
 		expect(result.newDoc).toBe(doc);
 	});
 
-	it("refuses a parentUuid naming a non-container", async () => {
+	it("refuses a parentUuid naming a non-container, pointing at the anchor style", async () => {
 		const doc = makeDoc();
 		const { ctx } = makeStubToolContext();
 		const result = await moveFieldTool.execute(
 			{
-				moduleUuid: doc.moduleOrder[0],
-				formUuid: formUuidOf(doc),
-				fieldUuid: uuidOf(doc, "alpha"),
+				...fieldAddress(doc, "alpha"),
 				parentUuid: uuidOf(doc, "bravo"),
 			},
 			ctx,
@@ -443,9 +399,7 @@ describe("moveField — refusals", () => {
 		const { ctx } = makeStubToolContext();
 		const result = await moveFieldTool.execute(
 			{
-				moduleUuid: doc.moduleOrder[0],
-				formUuid: formUuidOf(doc),
-				fieldUuid: uuidOf(doc, "alpha"),
+				...fieldAddress(doc, "alpha"),
 				afterFieldUuid: uuidOf(doc, "bravo"),
 				parentUuid: uuidOf(doc, "grp"),
 			},
@@ -453,7 +407,9 @@ describe("moveField — refusals", () => {
 			doc,
 		);
 		if (!("error" in result.result)) throw new Error("expected error");
-		expect(result.result.error).toContain("not inside");
+		expect(result.result.error).toContain(
+			'Anchor "bravo" sits at the form\'s top level',
+		);
 	});
 
 	it("accepts a parentUuid that agrees with the anchor's parent", async () => {
@@ -461,9 +417,7 @@ describe("moveField — refusals", () => {
 		const { ctx } = makeStubToolContext();
 		const result = await moveFieldTool.execute(
 			{
-				moduleUuid: doc.moduleOrder[0],
-				formUuid: formUuidOf(doc),
-				fieldUuid: uuidOf(doc, "alpha"),
+				...fieldAddress(doc, "alpha"),
 				afterFieldUuid: uuidOf(doc, "golf_one"),
 				parentUuid: uuidOf(doc, "grp"),
 			},

@@ -84,7 +84,7 @@ describe("derivePhase", () => {
 		).toBe(BuilderPhase.Completed);
 	});
 
-	it("returns Generating when a build run (opened on an empty doc) has a stage", () => {
+	it("returns Generating when a pre-creation build run has a stage", () => {
 		expect(derivePhase({ ...idle, events: [mut("app", 0)] }, false)).toBe(
 			BuilderPhase.Generating,
 		);
@@ -139,7 +139,7 @@ describe("derivePhase", () => {
 		expect(derivePhase(idle, true)).toBe(BuilderPhase.Ready);
 	});
 
-	it("returns Ready during a post-build edit (run opened on a populated doc)", () => {
+	it("returns Ready during a post-build edit begun from an existing app", () => {
 		/* Edit in progress: the run opened with data, so even stage-tagged
 		 * mutations (an edit-mode createModule, an addFields) fall through
 		 * to Ready — the builder stays interactive while the agent works. */

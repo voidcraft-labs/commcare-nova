@@ -13,11 +13,9 @@
 //
 // Everything between the reference leaves is verbatim source text —
 // operators, literals, function calls, whitespace, quoting — kept
-// byte-exact in `text` runs. That carries the round-trip law the
-// parser/printer pair is fuzz-pinned to: `print(parse(s)) === s`
-// byte-identical for every input string, which is what makes a stored
-// expression provably safe to migrate (parse → AST → print reproduces
-// the original bytes over an unrenamed doc).
+// byte-exact in `text` runs. Reference spellings themselves are canonical
+// projections of identity. In particular, an absolute form path always prints
+// as `/data/<current path>`; separator bytes are not persisted.
 //
 // The parser (`lib/commcare/xpath/expressionAst.ts` — it needs the
 // Lezer grammar) decides which textual shapes become leaves; this
@@ -29,22 +27,17 @@
 //
 //   - `field-ref` — a resolved `#form/<path>` reference. Prints as
 //     `#form/` + the target's current id path from its form root.
-//   - `path-ref` — the same identity in the absolute `/data/<path>`
-//     spelling. `seps` keeps each separator run byte-exact (`/`, `//`,
-//     and any whitespace around them), one entry per path segment
-//     (the first precedes `data`), so unusual spacing survives the
-//     round trip; print re-derives the segment names from the uuid.
+//   - `path-ref` — the same identity in the canonical absolute
+//     `/data/<path>` spelling. Only the target UUID is stored; print
+//     re-derives the complete path from current identity.
 //   - `case-ref` — an explicit per-type reference `#<type>/<prop>`.
 //   - `user-ref` — a built-in or external `#user/<property>` name. The
 //     name is intentionally the identity because it has no doc entity.
 //   - `user-property-ref` — Nova-authored custom worker information,
 //     stored by stable uuid and printed through its current saved name.
-//   - `raw-ref` — a hashtag that names no identity the doc can
-//     anchor: a dangling `#form/...`, the transitional contextual
-//     `#case/...` (whose meaning follows the owning module's CURRENT
-//     case type rather than naming one), an unknown namespace, or a
-//     malformed multi-segment shape. Prints verbatim; the validator
-//     adjudicates it from the printed text exactly as it always has.
+// Unresolved, contextual, unknown, and malformed hashtag references are not a
+// stored arm. The parse boundary reports them and the commit gate rejects
+// them; only canonical identity-backed leaves enter the document.
 //
 // `.`/`..` and every other structural XPath shape stay inside `text`
 // runs — they are evaluation context, not references.
@@ -59,6 +52,8 @@
 // concern.
 
 import { z } from "zod";
+import { authoredCasePropertyNameSchema } from "../casePropertyName";
+import { externalUserPropertyNameSchema } from "../externalUserProperty";
 import { uuidSchema } from "../uuid";
 
 const xpathTextPartSchema = z
@@ -79,7 +74,6 @@ const xpathPathRefPartSchema = z
 	.object({
 		kind: z.literal("path-ref"),
 		uuid: uuidSchema,
-		seps: z.array(z.string()),
 	})
 	.strict();
 
@@ -87,14 +81,14 @@ const xpathCaseRefPartSchema = z
 	.object({
 		kind: z.literal("case-ref"),
 		caseType: z.string(),
-		property: z.string(),
+		property: authoredCasePropertyNameSchema,
 	})
 	.strict();
 
 const xpathUserRefPartSchema = z
 	.object({
 		kind: z.literal("user-ref"),
-		property: z.string(),
+		property: externalUserPropertyNameSchema,
 	})
 	.strict();
 
@@ -105,14 +99,6 @@ const xpathUserPropertyRefPartSchema = z
 	})
 	.strict();
 
-const xpathRawRefPartSchema = z
-	.object({
-		kind: z.literal("raw-ref"),
-		namespace: z.string(),
-		segments: z.array(z.string()),
-	})
-	.strict();
-
 const xpathPartSchema = z.discriminatedUnion("kind", [
 	xpathTextPartSchema,
 	xpathFieldRefPartSchema,
@@ -120,7 +106,6 @@ const xpathPartSchema = z.discriminatedUnion("kind", [
 	xpathCaseRefPartSchema,
 	xpathUserRefPartSchema,
 	xpathUserPropertyRefPartSchema,
-	xpathRawRefPartSchema,
 ]);
 
 export type XPathTextPart = z.infer<typeof xpathTextPartSchema>;
@@ -131,7 +116,6 @@ export type XPathUserRefPart = z.infer<typeof xpathUserRefPartSchema>;
 export type XPathUserPropertyRefPart = z.infer<
 	typeof xpathUserPropertyRefPartSchema
 >;
-export type XPathRawRefPart = z.infer<typeof xpathRawRefPartSchema>;
 export type XPathPart = z.infer<typeof xpathPartSchema>;
 
 /** A reference-carrying part — everything except verbatim text. */
@@ -145,15 +129,11 @@ export const xpathExpressionSchema = z
 
 export type XPathExpression = z.infer<typeof xpathExpressionSchema>;
 
-/** Is this stored slot value an expression AST (vs any legacy shape a
- *  degenerate doc might carry)? A cheap structural probe for total
- *  readers that cannot assume schema-parsed input. */
+/** Is this stored slot value an exact canonical expression AST? Total readers
+ * cannot assume schema-parsed input, so the predicate validates every part and
+ * rejects missing, unknown, or extra leaf fields. */
 export function isXPathExpression(value: unknown): value is XPathExpression {
-	return (
-		typeof value === "object" &&
-		value !== null &&
-		Array.isArray((value as { parts?: unknown }).parts)
-	);
+	return xpathExpressionSchema.safeParse(value).success;
 }
 
 /** The empty expression — prints as `""`. */

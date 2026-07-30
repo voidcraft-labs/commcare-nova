@@ -16,13 +16,18 @@
  * Both the SA chat factory and the MCP adapter call this through the
  * shared `ToolExecutionContext` interface. Two exit branches:
  *
- *   1. Module index out of range → `{ error }`, no mutations.
+ *   1. Module UUID address does not resolve → `{ error }`, no mutations.
  *   2. Success → `{ message, uuids }` plus the persisted mutation,
  *      tagged `module:M:caseList:column:add`.
  */
 
 import { z } from "zod";
-import { asUuid, type BlueprintDoc, type Uuid } from "@/lib/domain";
+import {
+	asUuid,
+	type BlueprintDoc,
+	findAuthoredBlueprintIdentity,
+	type Uuid,
+} from "@/lib/domain";
 import { addColumnsMutation } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import {
@@ -30,25 +35,20 @@ import {
 	type MutatingToolResult,
 	toToolErrorResult,
 } from "../common";
-import type { MutationSuccess } from "../shared/toolCallSummary";
 import {
-	columnInputSchema,
-	moduleNotFoundResult,
-	newUuid,
-	stampColumnUuid,
-	uuidInputSchema,
-} from "./shared";
+	moduleAddressSchema,
+	resolveModuleAddress,
+} from "../shared/entityAddresses";
+import type { MutationSuccess } from "../shared/toolCallSummary";
+import { columnInputSchema, newUuid, stampColumnUuid } from "./shared";
 
-export const addCaseListColumnsInputSchema = z
-	.object({
-		moduleUuid: uuidInputSchema.describe(
-			"Stable uuid of the module whose case list receives the columns",
-		),
+export const addCaseListColumnsInputSchema = moduleAddressSchema
+	.extend({
 		columns: z
 			.array(columnInputSchema)
 			.min(1)
 			.describe(
-				"The columns to append, in display order. Pick each column's kind and fill its fields; the tool mints uuids — never supply one.",
+				"The columns to append, in display order. Supply columnUuid when another item in this call references the column; otherwise Nova mints it.",
 			),
 	})
 	.strict();
@@ -80,18 +80,37 @@ export const addCaseListColumnsTool = {
 		ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<AddCaseListColumnsResult>> {
-		const { moduleUuid: rawModuleUuid, columns } = input;
-		const moduleUuid = asUuid(rawModuleUuid);
+		const { columns } = input;
 		try {
-			const mod = doc.modules[moduleUuid];
-			if (!mod)
-				return moduleNotFoundResult<AddCaseListColumnsSuccess>(
-					doc,
-					rawModuleUuid,
-					"add case list columns",
-				);
+			const address = resolveModuleAddress(doc, input);
+			if (!address.ok) {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					newDoc: doc,
+					result: { error: address.error },
+				};
+			}
+			const { moduleUuid, module: mod } = address;
 
-			const uuids = columns.map(() => newUuid());
+			const uuids = columns.map((column) =>
+				column.columnUuid === undefined ? newUuid() : asUuid(column.columnUuid),
+			);
+			const collision = uuids.find(
+				(uuid, index) =>
+					uuids.indexOf(uuid) !== index ||
+					findAuthoredBlueprintIdentity(doc, uuid) !== undefined,
+			);
+			if (collision !== undefined) {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					newDoc: doc,
+					result: {
+						error: `Column UUID "${collision}" is duplicated in this call or already belongs to an authored object.`,
+					},
+				};
+			}
 			const stamped = columns.map((c, i) => stampColumnUuid(c, uuids[i]));
 			// `addColumnsMutation` can't fail on a resolved module — it returns
 			// `CaseListMutationOk` (no error arm), so there's no error branch here.
@@ -116,7 +135,7 @@ export const addCaseListColumnsTool = {
 			const headers = columns.map((c) => `"${c.header}"`).join(", ");
 			return {
 				kind: "mutate" as const,
-				mutations: result.mutations,
+				mutations: commit.mutations,
 				newDoc,
 				result: {
 					message: `Added ${columns.length} column${columns.length === 1 ? "" : "s"} to module "${mod.name}": ${headers}.`,

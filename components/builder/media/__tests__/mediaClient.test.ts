@@ -13,6 +13,7 @@
  */
 
 import { describe, expect, it, vi } from "vitest";
+import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import type { Media } from "@/lib/domain/multimedia";
 import {
 	clearMediaSlot,
@@ -26,38 +27,45 @@ import {
 
 describe("setMediaSlot", () => {
 	it("sets a kind on an empty bundle", () => {
-		expect(setMediaSlot(undefined, "image", "asset-1")).toEqual({
-			image: "asset-1",
+		const asset = testMediaAssetId("asset-1");
+		expect(setMediaSlot(undefined, "image", asset)).toEqual({
+			image: asset,
 		});
 	});
 
 	it("preserves the other slots", () => {
-		const value: Media = { image: "img-1", audio: "aud-1" };
-		expect(setMediaSlot(value, "video", "vid-1")).toEqual({
-			image: "img-1",
-			audio: "aud-1",
-			video: "vid-1",
+		const image = testMediaAssetId("img-1");
+		const audio = testMediaAssetId("aud-1");
+		const video = testMediaAssetId("vid-1");
+		const value: Media = { image, audio };
+		expect(setMediaSlot(value, "video", video)).toEqual({
+			image,
+			audio,
+			video,
 		});
 	});
 
 	it("replaces an existing slot of the same kind", () => {
-		expect(setMediaSlot({ image: "old" }, "image", "new")).toEqual({
-			image: "new",
+		const oldAsset = testMediaAssetId("old");
+		const newAsset = testMediaAssetId("new");
+		expect(setMediaSlot({ image: oldAsset }, "image", newAsset)).toEqual({
+			image: newAsset,
 		});
 	});
 });
 
 describe("clearMediaSlot", () => {
 	it("returns undefined when clearing the only slot (bundle drops, not {})", () => {
-		expect(clearMediaSlot({ image: "img-1" }, "image")).toBeUndefined();
+		expect(
+			clearMediaSlot({ image: testMediaAssetId("img-1") }, "image"),
+		).toBeUndefined();
 	});
 
 	it("keeps the remaining slots when clearing one of several", () => {
-		expect(clearMediaSlot({ image: "img-1", audio: "aud-1" }, "image")).toEqual(
-			{
-				audio: "aud-1",
-			},
-		);
+		const audio = testMediaAssetId("aud-1");
+		expect(
+			clearMediaSlot({ image: testMediaAssetId("img-1"), audio }, "image"),
+		).toEqual({ audio });
 	});
 
 	it("is a no-op (undefined) on an absent bundle", () => {
@@ -65,15 +73,17 @@ describe("clearMediaSlot", () => {
 	});
 
 	it("clearing an absent kind leaves the other slots intact", () => {
-		expect(clearMediaSlot({ audio: "aud-1" }, "image")).toEqual({
-			audio: "aud-1",
+		const audio = testMediaAssetId("aud-1");
+		expect(clearMediaSlot({ audio }, "image")).toEqual({
+			audio,
 		});
 	});
 });
 
 describe("mediaSrc", () => {
 	it("points at the session-authed proxy route", () => {
-		expect(mediaSrc("asset-xyz")).toBe("/api/media/asset-xyz");
+		const assetId = testMediaAssetId("asset-xyz");
+		expect(mediaSrc(assetId)).toBe(`/api/media/${assetId}`);
 	});
 });
 
@@ -111,16 +121,17 @@ describe("Project-scoped extract reads", () => {
 				Response.json({ title: "Protocol", summary: "Summary" }),
 			);
 		try {
-			await fetchAssetExtract("asset-1");
-			await fetchAssetExtractMeta("asset-1");
+			const assetId = testMediaAssetId("asset-1");
+			await fetchAssetExtract(assetId);
+			await fetchAssetExtractMeta(assetId);
 			expect(fetchMock).toHaveBeenNthCalledWith(
 				1,
-				"/api/media/asset-1/extract",
+				`/api/media/${assetId}/extract`,
 				{ cache: "no-store", signal: undefined },
 			);
 			expect(fetchMock).toHaveBeenNthCalledWith(
 				2,
-				"/api/media/asset-1/extract?meta=1",
+				`/api/media/${assetId}/extract?meta=1`,
 				{ cache: "no-store", signal: undefined },
 			);
 		} finally {

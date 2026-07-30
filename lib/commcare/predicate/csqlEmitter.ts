@@ -85,9 +85,9 @@
 // Operand-side ValueExpression dispatch:
 //
 //   - `term` arms unwrap to terms via the shared term emitter.
-//   - The eight CSQL value-function whitelist arms (`today`, `now`,
+//   - The seven CSQL value-function whitelist arms (`today`, `now`,
 //     `date-coerce`, `datetime-coerce`, `double`, `date-add`,
-//     `unwrap-list`, plus the `term` lifter) emit through the value-
+//     plus the `term` lifter) emit through the value-
 //     expression emitter at `lib/commcare/expression/csqlEmitter.ts`
 //     so the result is CSQL the server parses natively.
 //   - `count` with `via.kind === "subcase"` in comparison-LHS slot
@@ -105,7 +105,7 @@
 
 import { normalizeRelationEvaluationScopes } from "@/lib/domain/predicate/normalizeRelationEvaluationScopes";
 import { normalizeRelationPropertyReads } from "@/lib/domain/predicate/normalizeRelationReads";
-import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
+import type { TypeContext as DomainTypeContext } from "@/lib/domain/predicate/typeChecker";
 import type {
 	ComparisonKind,
 	Predicate,
@@ -117,6 +117,7 @@ import {
 	isNativeCsqlValueExpression,
 } from "../expression/csqlEmitter";
 import { emitOnDeviceExpression } from "../expression/onDeviceEmitter";
+import type { LookupWireNaming } from "../lookup/naming";
 import { normalizeCsqlPredicate } from "./csqlRepresentability";
 import {
 	type CsqlSegment,
@@ -125,7 +126,7 @@ import {
 	type RuntimeCsqlRejection,
 } from "./csqlSegment";
 import {
-	collectGeopointCenterInputUuids,
+	collectGeopointCenterInputNames,
 	isValidStaticGeopointCenter,
 	normalizeOnDeviceGeopoint,
 	normalizeStaticGeopoint,
@@ -135,7 +136,7 @@ import {
 	classifySubcaseCountBound,
 	invalidNonnegativeWholeNumberXPath,
 } from "./runtimeCsqlNumericSafety";
-import { collectRuntimeCsqlStringExpressionInputUuids } from "./runtimeCsqlQuoteSafety";
+import { collectRuntimeCsqlStringExpressionInputNames } from "./runtimeCsqlQuoteSafety";
 import { formatNumeric, quoteLiteral } from "./stringQuoting";
 import {
 	CSQL_UNREPRESENTABLE_RUNTIME_STRING,
@@ -147,6 +148,10 @@ import {
 	serializeAncestorPath,
 	wrapTermAsSegmentList,
 } from "./termEmitter";
+
+interface TypeContext extends DomainTypeContext {
+	readonly lookupNaming?: LookupWireNaming;
+}
 
 /**
  * Output of the CSQL emission pipeline. `wrapper` is the on-device
@@ -425,16 +430,11 @@ function emitPredicateSegments(
 		case "between":
 			return emitBetweenSegments(p, typeContext);
 		case "is-blank":
-		case "is-null":
-			// Both emit as `<term> = ''` on CSQL — the server-side
+			// Emits as `<term> = ''` on CSQL — the server-side
 			// `case_property_query()` short-circuits to
 			// `case_property_missing()` semantics at
 			// `commcare-hq/corehq/apps/es/case_search.py::case_property_query`,
-			// matching absent / cleared / empty alike. The strict-
-			// absent intent of `is-null` is faithfully expressed as the
-			// closest CSQL form (the same wire that `is-blank` uses);
-			// runtime-strict semantics live on the Postgres target and
-			// don't surface on CCHQ's wire dialect.
+			// matching absent / cleared / empty alike.
 			return emitAbsenceSegments(p, typeContext);
 		case "match":
 			return emitMatchSegments(p, typeContext);
@@ -484,12 +484,11 @@ function emitWhenInputPresentSegments(
 	p: Extract<Predicate, { kind: "when-input-present" }>,
 	typeContext?: TypeContext,
 ): CsqlSegment[] {
-	const triggerXPath = emitSearchInputXPath(
-		p.input,
-		new Map(
+	const triggerXPath = emitSearchInputXPath(p.input, {
+		searchInputNames: new Map(
 			(typeContext?.knownInputs ?? []).map((input) => [input.uuid, input.name]),
 		),
-	);
+	});
 	const innerSegments = emitPredicateSegments(p.clause, 0, typeContext);
 	const inner = buildConcatExpression(innerSegments);
 	const conditionalXPath = `if(count(${triggerXPath}), ${inner.query}, 'match-all()')`;
@@ -555,29 +554,26 @@ function emitSubcaseCountBoundSegments(
 	expression: ValueExpression,
 	typeContext?: TypeContext,
 ): CsqlSegment[] {
-	const classification = classifySubcaseCountBound(expression);
+	const classification = classifySubcaseCountBound(
+		expression,
+		typeContext?.knownInputs,
+	);
 	if (classification.kind === "static-valid") {
 		return [{ kind: "constant", text: formatNumeric(classification.value) }];
 	}
 	if (classification.kind === "runtime-input") {
-		const inputName = resolveSearchInputNames(
-			[classification.inputUuid],
-			typeContext,
-		)[0] as string;
-		const inputXPath = emitSearchInputXPath(
-			{ kind: "input", searchInputUuid: classification.inputUuid },
-			new Map([[classification.inputUuid, inputName]]),
-		);
 		return [
 			{
 				kind: "runtime",
 				// CSQL parses a leading minus as a UnaryExpression, even for
 				// numeric negative zero. Canonicalize every zero spelling to the
 				// bare token `0`; all other validated integer spellings pass through.
-				xpath: `if(number(${inputXPath}) = 0, 0, ${inputXPath})`,
-				rejectWhen: invalidNonnegativeWholeNumberXPath(inputXPath),
+				xpath: `if(number(${classification.inputXPath}) = 0, 0, ${classification.inputXPath})`,
+				rejectWhen: invalidNonnegativeWholeNumberXPath(
+					classification.inputXPath,
+				),
 				rejectionKind: "nonnegative-whole-number",
-				rejectionInputNames: [inputName],
+				rejectionInputNames: [classification.inputName],
 			},
 		];
 	}
@@ -612,8 +608,8 @@ function emitSubcaseCountBoundSegments(
  *      `wrapTermAsSegmentList` helper so a runtime-resolved term
  *      interpolates as a CSQL double-quoted value.
  *   4. CSQL value-function whitelist arm (`today`, `now`,
- *      `date-coerce`, `datetime-coerce`, `double`, `date-add`,
- *      `unwrap-list`) — delegates to the value-expression emitter at
+ *      `date-coerce`, `datetime-coerce`, `double`, `date-add`) —
+ *      delegates to the value-expression emitter at
  *      `lib/commcare/expression/csqlEmitter.ts`. The wire form is
  *      the function-call result which CCHQ's grammar accepts as a
  *      value directly.
@@ -672,7 +668,7 @@ function emitOperandSegments(
 	}
 	if (isNativeCsqlValueExpression(expr)) {
 		// Whitelist arms (`today`, `now`, `date-coerce`,
-		// `datetime-coerce`, `double`, `date-add`, `unwrap-list`)
+		// `datetime-coerce`, `double`, `date-add`)
 		// delegate to the value-expression emitter for native CSQL.
 		return emitCsqlExpressionSegments(expr, typeContext);
 	}
@@ -712,12 +708,19 @@ function inlineAsRuntimeOperand(
 		undefined,
 		typeContext ?? {},
 		undefined,
-		{ searchInputNames: currentSearchInputNames(typeContext) },
+		typeContext?.lookupNaming === undefined
+			? {}
+			: {
+					lookup: {
+						naming: typeContext.lookupNaming,
+						instanceScope: "suite",
+					},
+				},
 	);
 	return quoteRuntimeCsqlValue(xpath, "double", [
-		...resolveSearchInputNames(
-			collectRuntimeCsqlStringExpressionInputUuids(expr),
-			typeContext,
+		...collectRuntimeCsqlStringExpressionInputNames(
+			expr,
+			typeContext?.knownInputs,
 		),
 	]);
 }
@@ -870,18 +873,14 @@ function emitBetweenSegments(
 }
 
 /**
- * Emit `is-blank` / `is-null` as `<term> = ''`. CCHQ's server-side
+ * Emit `is-blank` as `<term> = ''`. CCHQ's server-side
  * `case_property_query()` at
  * `commcare-hq/corehq/apps/es/case_search.py::case_property_query`
  * short-circuits `value == ''` to `case_property_missing()` semantics,
- * matching absent / cleared / empty alike on every CSQL emission. The
- * two predicate kinds map to the same wire form because CSQL has no
- * mechanism for distinguishing strict-absent from cleared from empty
- * — `is-null`'s strict-absent semantic surfaces only on the Postgres
- * target where JSONB key presence is observable.
+ * matching absent / cleared / empty alike on every CSQL emission.
  */
 function emitAbsenceSegments(
-	p: Extract<Predicate, { kind: "is-blank" | "is-null" }>,
+	p: Extract<Predicate, { kind: "is-blank" }>,
 	typeContext?: TypeContext,
 ): CsqlSegment[] {
 	const left = emitComparisonOperandSegments(p.left, typeContext);
@@ -1101,14 +1100,15 @@ function emitGeopointCenterSegments(
 		center,
 		undefined,
 		typeContext ?? {},
-		undefined,
-		{ searchInputNames: currentSearchInputNames(typeContext) },
 	);
 	const normalized = normalizeOnDeviceGeopoint(rawCenter);
-	const inputNames = resolveSearchInputNames(
-		collectGeopointCenterInputUuids(center),
-		typeContext,
-	);
+	const inputNames = [...collectGeopointCenterInputNames(center)]
+		.map(
+			(uuid) =>
+				typeContext?.knownInputs.find((input) => input.uuid === uuid)?.name,
+		)
+		.filter((name): name is string => name !== undefined)
+		.sort();
 	return [
 		{
 			kind: "runtime",
@@ -1120,35 +1120,6 @@ function emitGeopointCenterSegments(
 			rejectionInputNames: inputNames,
 		},
 	];
-}
-
-function currentSearchInputNames(
-	typeContext?: TypeContext,
-): ReadonlyMap<
-	NonNullable<TypeContext["knownInputs"]>[number]["uuid"],
-	string
-> {
-	return new Map(
-		(typeContext?.knownInputs ?? []).map((input) => [input.uuid, input.name]),
-	);
-}
-
-function resolveSearchInputNames(
-	inputUuids: Iterable<NonNullable<TypeContext["knownInputs"]>[number]["uuid"]>,
-	typeContext?: TypeContext,
-): string[] {
-	const names = currentSearchInputNames(typeContext);
-	return [...inputUuids]
-		.map((inputUuid) => {
-			const name = names.get(inputUuid);
-			if (name === undefined) {
-				throw new Error(
-					`csqlEmitter: search input '${inputUuid}' has no current saved-name binding.`,
-				);
-			}
-			return name;
-		})
-		.sort();
 }
 
 /**

@@ -6,38 +6,28 @@
  * and complete (the validity gate evaluates the whole batch — on a
  * complete app, an empty form would introduce EMPTY_FORM and a
  * registration form without a `case_name` writer would introduce
- * NO_CASE_NAME_FIELD, both rejected at this call with the validator's
+ * CASE_CREATE_NAME_MISSING, both rejected at this call with the validator's
  * own repair guidance, all satisfiable by adjusting THIS call's
  * `fields`). The field items ride the same shared per-kind schema
  * `addFields` uses, through the same assembly pipeline
  * (`shared/fieldAssembly.ts`), so groups + nested children compose
  * identically on both tools.
  *
- * A `connect` block crosses the text → AST parse boundary
- * (`shared/connectInput.ts::buildConnectConfig`, same as `updateForm`)
- * against the assembly's batch-aware resolver — so an
- * `assessment.user_score` referencing a field landing in this same
- * call resolves to an identity leaf — and then runs through
- * `enforceConnectIds` (the agent-path source guard, same as
- * `updateForm` / `createModule`): an omitted connect id is autofilled
- * with a valid, unique, name-derived id (stored on the doc from then
- * on), and an explicit invalid or duplicate id fails the call — the
- * schema's "leave the id unset and Nova fills it in" promise holds on
- * this tool too.
+ * A new form is auxiliary on a Connect app. App-wide participation is
+ * configured afterward through `configureConnect`, once the form's final UUID
+ * exists; creation cannot become a second participant-set writer.
  *
  * Both the SA chat factory and the MCP adapter call this through the
  * shared `ToolExecutionContext` interface. Exit branches:
  *
- *   1. Parent module UUID absent → `{ error }`, no mutations.
+ *   1. Parent module UUID address does not resolve → `{ error }`, no mutations.
  *   2. Identifier guard rejection (any field id illegal / reserved /
  *      over-long / batch-conflicting) → `{ error }` naming EVERY failing
  *      item, nothing persisted.
- *   3. An explicit connect id is invalid/duplicate → `{ error }`, no
- *      mutations.
- *   4. Commit-gate rejection (the batch would introduce a validator
+ *   3. Commit-gate rejection (the batch would introduce a validator
  *      finding) → `{ error }` listing each finding, nothing persisted.
- *   5. Success → human-readable summary with the new form's UUID
- *      + field count, tagged under its module UUID so the event log
+ *   4. Success → human-readable summary with the new form's positional
+ *      index + field count, tagged under `module:M` so the event log
  *      groups this creation with the rest of that module's activity.
  */
 
@@ -45,16 +35,18 @@ import { z } from "zod";
 import { orderedFormUuids } from "@/lib/doc/fieldWalk";
 import type {
 	BlueprintDoc,
-	ConnectConfig,
 	FormType,
 	PostSubmitDestination,
 } from "@/lib/domain";
-import { asUuid, FORM_TYPES, USER_FACING_DESTINATIONS } from "@/lib/domain";
-import { addFormMutations } from "../blueprintHelpers";
 import {
-	closeConditionInputSchema,
-	connectFormConfigSchema,
-} from "../planningSchemas";
+	asUuid,
+	FORM_TYPES,
+	findAuthoredBlueprintIdentity,
+	POST_SUBMIT_DESTINATIONS,
+	uuidSchema,
+} from "@/lib/domain";
+import { addFormMutations } from "../blueprintHelpers";
+import { closeConditionInputSchema } from "../planningSchemas";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import { addFieldsItemSchema } from "../toolSchemas";
 import {
@@ -62,14 +54,13 @@ import {
 	type MutatingToolResult,
 	toToolErrorResult,
 } from "./common";
-import { collectConnectIds, enforceConnectIds } from "./shared/connectIds";
-import { buildConnectConfig } from "./shared/connectInput";
 import {
 	moduleAddressSchema,
 	resolveModuleAddress,
 } from "./shared/entityAddresses";
 import {
 	assembleFieldMutations,
+	type CreatedFieldIdentity,
 	describeRejectedFieldIds,
 	resolveCloseCondition,
 } from "./shared/fieldAssembly";
@@ -80,6 +71,11 @@ import type {
 
 export const createFormInputSchema = moduleAddressSchema
 	.extend({
+		formUuid: uuidSchema
+			.optional()
+			.describe(
+				"Stable UUID for the new form. Omit when nothing in this call references the form.",
+			),
 		name: z.string().min(1).describe("Form display name"),
 		type: z
 			.enum(FORM_TYPES)
@@ -90,7 +86,7 @@ export const createFormInputSchema = moduleAddressSchema
 			.array(addFieldsItemSchema)
 			.min(1)
 			.describe(
-				"The form's fields, in order — a form is created together with its content in one call (a registration form must include a case_name writer). Same per-field shape as addFields; use parentId on an item to nest it under a group/repeat created earlier in this list.",
+				"The form's fields, in order — a form is created together with its content in one call (a registration form must include a case_name writer). Same per-field shape as addFields; use parentUuid on an item to nest it under a predeclared group/repeat created earlier in this list.",
 			),
 		purpose: z
 			.string()
@@ -101,7 +97,7 @@ export const createFormInputSchema = moduleAddressSchema
 				"Brief description of what this form collects and why. null when there's nothing to add.",
 			),
 		post_submit: z
-			.enum(USER_FACING_DESTINATIONS)
+			.enum(POST_SUBMIT_DESTINATIONS)
 			.nullable()
 			.optional()
 			.describe(
@@ -111,13 +107,7 @@ export const createFormInputSchema = moduleAddressSchema
 			.nullable()
 			.optional()
 			.describe(
-				"Close forms only — close the case only when the named field matches (the field may be one landing in this same call). null for an unconditional close.",
-			),
-		connect: connectFormConfigSchema
-			.nullable()
-			.optional()
-			.describe(
-				"Per-form Connect config — a block opts the form INTO Connect, and a participating form lands with its block in this call. Pass null on a form that shouldn't participate (a Connect app just needs at least one participating form), and always on standard apps.",
+				"Close forms only — close the case only when the UUID-addressed field matches (the field may be predeclared in this same call). null for an unconditional close.",
 			),
 	})
 	.strict();
@@ -126,7 +116,10 @@ export type CreateFormInput = z.infer<typeof createFormInputSchema>;
 
 /** Human-readable success string or an error record. */
 export type CreateFormResult =
-	| (MutationSuccess & { uuid: string })
+	| (MutationSuccess & {
+			formUuid: string;
+			fields: CreatedFieldIdentity[];
+	  })
 	| { error: string };
 
 export const createFormTool = {
@@ -140,13 +133,13 @@ export const createFormTool = {
 	): Promise<MutatingToolResult<CreateFormResult>> {
 		const {
 			moduleUuid: rawModuleUuid,
+			formUuid: requestedFormUuid,
 			name,
 			type,
 			fields,
 			purpose,
 			post_submit,
 			close_condition,
-			connect,
 		} = input;
 		try {
 			const address = resolveModuleAddress(doc, {
@@ -166,14 +159,24 @@ export const createFormTool = {
 			// the form only exists once the addForm mutation applies, but the
 			// assembly's sibling scans correctly read an absent `fieldOrder`
 			// entry as "no existing siblings".
-			const formUuid = asUuid(crypto.randomUUID());
+			const formUuid = requestedFormUuid ?? asUuid(crypto.randomUUID());
+			if (findAuthoredBlueprintIdentity(doc, formUuid) !== undefined) {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					newDoc: doc,
+					result: {
+						error: `formUuid ${formUuid} already belongs to an authored entity in this app.`,
+					},
+				};
+			}
 
-			// Assembled BEFORE the connect block so the block's XPath slots
-			// can parse against the batch-aware resolver below.
+			// Assemble every field into the same atomic form-creation batch.
 			const assembly = assembleFieldMutations({
 				doc,
 				formUuid,
 				items: fields,
+				occupiedUuids: new Set([formUuid]),
 			});
 			if (!assembly.ok) {
 				return {
@@ -207,41 +210,22 @@ export const createFormTool = {
 				};
 			}
 
-			// The connect block's XPath slots parse text → AST against the
-			// assembly's batch resolver (a `user_score` naming a field from
-			// this same call lands as an identity leaf). Then force connect
-			// ids correct at the source: autofill an omitted id (valid +
-			// unique, derived from the module/form name), reject an explicit
-			// invalid or duplicate id by failing the call (writes nothing).
-			// No exclusion is passed to the collector — the form this call
-			// creates doesn't exist in the doc yet, so every stored id is a
-			// potential conflict.
-			let enforcedConnect: ConnectConfig | undefined;
-			if (connect) {
-				const moduleName = doc.modules[moduleUuid]?.name ?? "module";
-				const enforced = enforceConnectIds(
-					buildConnectConfig(connect, undefined, assembly.parseExpression),
-					moduleName,
-					name,
-					collectConnectIds(doc),
-				);
-				if (!enforced.ok) {
-					return {
-						kind: "mutate" as const,
-						mutations: [],
-						newDoc: doc,
-						result: { error: enforced.error },
-					};
-				}
-				enforcedConnect = enforced.config;
+			if (
+				close_condition &&
+				!assembly.created.some(
+					(field) => field.uuid === close_condition.fieldUuid,
+				)
+			) {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					newDoc: doc,
+					result: {
+						error: `Close-condition fieldUuid ${close_condition.fieldUuid} is not a field created in form "${name}".`,
+					},
+				};
 			}
-
-			// The condition's field id resolves against the batch overlay, so
-			// it can name a field landing in this same call.
-			const closeCondition = resolveCloseCondition(
-				assembly.resolveFieldRef,
-				close_condition,
-			);
+			const closeCondition = resolveCloseCondition(close_condition);
 			const formMutations = addFormMutations(doc, moduleUuid, {
 				uuid: formUuid,
 				name,
@@ -251,13 +235,12 @@ export const createFormTool = {
 					postSubmit: post_submit as PostSubmitDestination,
 				}),
 				...(closeCondition && { closeCondition }),
-				...(enforcedConnect && { connect: enforcedConnect }),
 			});
 
 			// Tag under the parent module — the event log groups this
 			// creation event with the rest of that module's activity so the
 			// lifecycle UI renders "forms added to Patient module" as one
-			// chapter rather than interleaved per-form events.
+			// chapter rather than interleaved events per form index.
 			const mutations = [...formMutations, ...assembly.mutations];
 			const commit = await guardedMutate(
 				ctx,
@@ -290,11 +273,12 @@ export const createFormTool = {
 					: "";
 			return {
 				kind: "mutate" as const,
-				mutations,
+				mutations: commit.mutations,
 				newDoc,
 				result: {
-					message: `Successfully created form "${name}" (${type}, uuid ${formUuid}) with ${fieldCount} field${fieldCount === 1 ? "" : "s"} in module "${mod?.name ?? moduleUuid}". Module now has ${forms.length} form${forms.length === 1 ? "" : "s"}.${skippedNote}`,
-					uuid: formUuid,
+					message: `Successfully created form "${name}" (${type}, UUID ${formUuid}) with ${fieldCount} field${fieldCount === 1 ? "" : "s"} in module "${mod?.name ?? moduleUuid}". Module now has ${forms.length} form${forms.length === 1 ? "" : "s"}.${skippedNote}`,
+					formUuid,
+					fields: assembly.created,
 					summary: {
 						location: mod?.name,
 						subject: name,

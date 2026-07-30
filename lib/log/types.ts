@@ -1,15 +1,16 @@
 /**
- * Event log types — one time-ordered stream, two event families.
+ * Event log types — one time-ordered stream, three final event families.
  *
  * `MutationEvent` captures every doc state change (actor=user or agent).
- * `ConversationEvent` captures user messages, assistant output, tool calls,
+ * `ArchivedMutationEvent` preserves pre-canonical mutation payloads as
+ * non-dereferenced audit JSON. `ConversationEvent` captures user messages, assistant output, tool calls,
  * tool results, and classified errors. The log is supplemental: blueprint
  * state lives on the `AppDoc.blueprint` snapshot. If the event log is lost
  * or corrupt, the app still loads — only admin inspection is affected.
  *
  * Schema authority: Zod schemas below are the source of truth. TS types
- * infer via `z.infer`. Reads re-validate each stored payload via
- * `eventSchema.safeParse` (see `decodeEventsLenient`).
+ * infer via `z.infer`. Reads strictly validate the complete stored page via
+ * `eventSchema.array().parse` (see `decodeEvents`).
  *
  * Storage: one row per event in the `events` table, whose `id` identity
  * column carries no ordering semantics — every write is collision-free
@@ -19,29 +20,29 @@
  */
 import { z } from "zod";
 import {
-	type AttachmentRef,
-	attachmentRefSchema,
+	type AuditAttachmentRef,
+	auditAttachmentRefSchema,
 } from "@/lib/chat/attachmentRefs";
-import { canonicalMutationSchema } from "@/lib/doc/types";
+import { mutationSchema } from "@/lib/doc/types";
 
 // ── Conversation payloads ──────────────────────────────────────────
 
 /**
- * Attachment manifest for a user message — the same `AttachmentRef` shape the
- * composer sends and the stored thread keeps, so admin inspect can show
- * what was attached, and a reader can reach the bytes (`/api/media/{assetId}`)
- * and extract (`/api/media/{assetId}/extract`) from the `assetId`. Only the
- * manifest is logged, never the extract body — that lives durably on the asset.
+ * Attachment manifest for a user message — the live chat shape plus broad
+ * historical asset kinds, snapshotted solely so admin inspect can show what
+ * was attached. These UUIDs are immutable,
+ * non-dereferenced audit receipts: they are never resolved, remapped, copied,
+ * reverse-indexed, or allowed to block deletion. Only the manifest is logged.
  */
-export const conversationAttachmentSchema = attachmentRefSchema;
-export type ConversationAttachment = AttachmentRef;
+export const conversationAttachmentSchema = auditAttachmentRefSchema;
+export type ConversationAttachment = AuditAttachmentRef;
 
 /**
  * Classified error payload — a small subset of `ClassifiedError` shared on
  * the log. We deliberately drop the raw stack trace: the log is not a
  * crash-report surface, and raw stacks can leak internal paths.
  */
-export const classifiedErrorPayloadSchema = z.object({
+export const classifiedErrorPayloadSchema = z.strictObject({
 	/** Classifier bucket: "api_auth" | "rate_limit" | "internal" | … */
 	type: z.string(),
 	/** User-safe message. */
@@ -71,34 +72,34 @@ export type ClassifiedErrorPayload = z.infer<
  * rebuild the pairing map for simple tool-usage counts.
  */
 export const conversationPayloadSchema = z.discriminatedUnion("type", [
-	z.object({
+	z.strictObject({
 		type: z.literal("user-message"),
 		text: z.string(),
 		attachments: z.array(conversationAttachmentSchema).optional(),
 	}),
-	z.object({
+	z.strictObject({
 		type: z.literal("assistant-text"),
 		text: z.string(),
 	}),
-	z.object({
+	z.strictObject({
 		type: z.literal("assistant-reasoning"),
 		text: z.string(),
 	}),
-	z.object({
+	z.strictObject({
 		type: z.literal("tool-call"),
 		toolCallId: z.string(),
 		toolName: z.string(),
 		/** Tool arguments — JSON-safe. Validated lazily downstream. */
 		input: z.unknown(),
 	}),
-	z.object({
+	z.strictObject({
 		type: z.literal("tool-result"),
 		toolCallId: z.string(),
 		toolName: z.string(),
 		/** Tool return value — JSON-safe. `null` when the tool returned void. */
 		output: z.unknown(),
 	}),
-	z.object({
+	z.strictObject({
 		type: z.literal("error"),
 		error: classifiedErrorPayloadSchema,
 	}),
@@ -107,7 +108,7 @@ export const conversationPayloadSchema = z.discriminatedUnion("type", [
 	 * historical runs still replay/render. `attempt` is 1-indexed; `errors`
 	 * carries the human-readable errorToString results so a log reader can
 	 * pair the errors with the fix:attempt-N mutations that follow. */
-	z.object({
+	z.strictObject({
 		type: z.literal("validation-attempt"),
 		attempt: z.number().int().positive(),
 		errors: z.array(z.string()),
@@ -121,7 +122,7 @@ export const conversationPayloadSchema = z.discriminatedUnion("type", [
 	 * it, `cacheWriteTokens` the metered cache-write count when the provider
 	 * reports one. A run annotation, not chat-visible content; aggregate
 	 * cost stays on the run summary (see lib/log/CLAUDE.md). */
-	z.object({
+	z.strictObject({
 		type: z.literal("step-usage"),
 		inputTokens: z.number().int().nonnegative(),
 		outputTokens: z.number().int().nonnegative(),
@@ -138,7 +139,7 @@ export const conversationPayloadSchema = z.discriminatedUnion("type", [
 	 * document attachments still needed reading, so a log reader can see how much
 	 * real extraction work the turn did. Logged like `validation-attempt`: a run
 	 * annotation, not chat-visible content. */
-	z.object({
+	z.strictObject({
 		type: z.literal("attachment-prep"),
 		phase: z.enum(["start", "done"]),
 		count: z.number().int().positive().optional(),
@@ -171,7 +172,7 @@ export type ConversationPayload = z.infer<typeof conversationPayloadSchema>;
  * first; its events are noise), but readers should treat wall-clock
  * order as approximate, not strict.
  */
-const envelopeSchema = z.object({
+const envelopeSchema = z.strictObject({
 	runId: z.string(),
 	ts: z.number().int().nonnegative(),
 	seq: z.number().int().nonnegative(),
@@ -199,9 +200,22 @@ export const mutationEventSchema = envelopeSchema.extend({
 	actor: z.enum(["user", "agent"]),
 	/** Optional semantic tag: "scaffold" | "module:0" | "form:0-1" | "fix" | … */
 	stage: z.string().optional(),
-	mutation: canonicalMutationSchema,
+	mutation: mutationSchema,
 });
 export type MutationEvent = z.infer<typeof mutationEventSchema>;
+
+/**
+ * A mutation event written before the canonical-identity fold horizon.
+ *
+ * `archived` is the exact former event JSONB value. No reducer, validator,
+ * model message, or current tool schema consumes it; admin inspection may
+ * render it only as historical audit data.
+ */
+export const archivedMutationEventSchema = envelopeSchema.extend({
+	kind: z.literal("archived-mutation"),
+	archived: z.unknown(),
+});
+export type ArchivedMutationEvent = z.infer<typeof archivedMutationEventSchema>;
 
 /** A conversation-visible artifact from the current run. */
 export const conversationEventSchema = envelopeSchema.extend({
@@ -212,12 +226,13 @@ export type ConversationEvent = z.infer<typeof conversationEventSchema>;
 
 /**
  * Discriminated union over both event families. Reads re-validate each
- * stored `event` payload through `eventSchema.safeParse` (see
- * `decodeEventsLenient`), so any shape drift on disk surfaces at read time
- * as a dropped-and-counted row rather than a thrown read.
+ * stored `event` page through `eventSchema.array().parse` (see
+ * `decodeEvents`), so any shape drift fails the read instead of producing a
+ * partial event sequence.
  */
 export const eventSchema = z.discriminatedUnion("kind", [
 	mutationEventSchema,
+	archivedMutationEventSchema,
 	conversationEventSchema,
 ]);
 export type Event = z.infer<typeof eventSchema>;

@@ -7,6 +7,7 @@
 
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { proseText } from "@/lib/domain/prose";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { getFieldTool } from "../getField";
 
@@ -15,7 +16,7 @@ const CTX = {} as ToolExecutionContext;
 const ORDER_CATALOG = [
 	{
 		name: "medication_order",
-		properties: [{ name: "order_status", label: "Order status" }],
+		properties: [{ name: "order_status", label: proseText("Order status") }],
 	},
 ];
 
@@ -34,13 +35,11 @@ function docWith(fields: ReturnType<typeof f>[]) {
 
 async function getField(doc: ReturnType<typeof buildDoc>, fieldId: string) {
 	const moduleUuid = doc.moduleOrder[0];
-	const formUuid = doc.formOrder[moduleUuid]?.[0];
+	const formUuid = doc.formOrder[moduleUuid][0];
 	const fieldUuid = Object.values(doc.fields).find(
 		(field) => field.id === fieldId,
 	)?.uuid;
-	if (!moduleUuid || !formUuid || !fieldUuid) {
-		throw new Error(`fixture address for "${fieldId}" is incomplete`);
-	}
+	if (!fieldUuid) throw new Error(`fixture missing field "${fieldId}"`);
 	const outcome = await getFieldTool.execute(
 		{ moduleUuid, formUuid, fieldUuid },
 		CTX,
@@ -72,7 +71,7 @@ describe("getField — unwritten-property reminder", () => {
 			f({
 				id: "admin",
 				kind: "group",
-				label: "Administration",
+				label: proseText("Administration"),
 				children: [
 					f({
 						id: "med_given",
@@ -97,7 +96,10 @@ describe("getField — unwritten-property reminder", () => {
 			f({
 				id: "order_status",
 				kind: "text",
-				case_property_on: "medication_order",
+				caseWrite: {
+					caseType: "medication_order",
+					property: "order_status",
+				},
 			}),
 		]);
 		const data = await getField(doc, "med_given");

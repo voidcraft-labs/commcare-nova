@@ -12,7 +12,7 @@
 // Consumers (FieldEditorPanel and the inspect UI) import from here;
 // the domain layer never does.
 
-import { CasePropertyEditor } from "@/components/builder/editor/fields/CasePropertyEditor";
+import { CaseWriteEditor } from "@/components/builder/editor/fields/CaseWriteEditor";
 import { MediaSlotEditor } from "@/components/builder/editor/fields/MediaSlotEditor";
 import { OptionsSourceEditor } from "@/components/builder/editor/fields/OptionsSourceEditor";
 import { RequiredEditor } from "@/components/builder/editor/fields/RequiredEditor";
@@ -35,6 +35,7 @@ import type {
 	IntField,
 	LabelField,
 	MultiSelectField,
+	ProseTemplate,
 	RepeatField,
 	SecretField,
 	SignatureField,
@@ -70,7 +71,16 @@ function xpathEntry<F extends Field, K extends keyof F & string>(
 		component: XPathEditor,
 		label,
 		addable: true,
-		visible: (field) => !!field[key],
+		visible: (field) => {
+			const value = field[key];
+			return (
+				value !== undefined &&
+				typeof value === "object" &&
+				value !== null &&
+				"parts" in value &&
+				(value as ProseTemplate).parts.length > 0
+			);
+		},
 	};
 }
 
@@ -150,7 +160,8 @@ function hintEntry<F extends Field>(): {
 		component: TextEditor,
 		label: "Hint",
 		addable: true,
-		visible: (field) => !!(field as F & { hint?: string }).hint,
+		visible: (field) =>
+			!!(field as F & { hint?: ProseTemplate }).hint?.parts.length,
 	};
 }
 
@@ -176,14 +187,14 @@ function mediaEntry<F extends Field, K extends keyof F & string>(
 	};
 }
 
-function casePropertyEntry<F extends Field>(): {
-	key: "case_property_on" & keyof F;
-	component: typeof CasePropertyEditor;
+function caseWriteEntry<F extends Field>(): {
+	key: "caseWrite" & keyof F;
+	component: typeof CaseWriteEditor;
 	label: string;
 } {
 	return {
-		key: "case_property_on" as "case_property_on" & keyof F,
-		component: CasePropertyEditor,
+		key: "caseWrite" as "caseWrite" & keyof F,
+		component: CaseWriteEditor,
 		label: "Saves to",
 	};
 }
@@ -203,7 +214,7 @@ function casePropertyEntry<F extends Field>(): {
 // labelled to read as the validation message's media.
 
 const textFieldEditorSchema: FieldEditorSchema<TextField> = {
-	data: [casePropertyEntry<TextField>()],
+	data: [caseWriteEntry<TextField>()],
 	logic: [
 		requiredEntry<TextField>(),
 		xpathEntry<TextField, "validate">("validate", "Validation"),
@@ -224,7 +235,7 @@ const textFieldEditorSchema: FieldEditorSchema<TextField> = {
 };
 
 const intFieldEditorSchema: FieldEditorSchema<IntField> = {
-	data: [casePropertyEntry<IntField>()],
+	data: [caseWriteEntry<IntField>()],
 	logic: [
 		requiredEntry<IntField>(),
 		xpathEntry<IntField, "validate">("validate", "Validation"),
@@ -245,7 +256,7 @@ const intFieldEditorSchema: FieldEditorSchema<IntField> = {
 };
 
 const decimalFieldEditorSchema: FieldEditorSchema<DecimalField> = {
-	data: [casePropertyEntry<DecimalField>()],
+	data: [caseWriteEntry<DecimalField>()],
 	logic: [
 		requiredEntry<DecimalField>(),
 		xpathEntry<DecimalField, "validate">("validate", "Validation"),
@@ -266,7 +277,7 @@ const decimalFieldEditorSchema: FieldEditorSchema<DecimalField> = {
 };
 
 const dateFieldEditorSchema: FieldEditorSchema<DateField> = {
-	data: [casePropertyEntry<DateField>()],
+	data: [caseWriteEntry<DateField>()],
 	logic: [
 		requiredEntry<DateField>(),
 		xpathEntry<DateField, "validate">("validate", "Validation"),
@@ -287,7 +298,7 @@ const dateFieldEditorSchema: FieldEditorSchema<DateField> = {
 };
 
 const timeFieldEditorSchema: FieldEditorSchema<TimeField> = {
-	data: [casePropertyEntry<TimeField>()],
+	data: [caseWriteEntry<TimeField>()],
 	logic: [
 		requiredEntry<TimeField>(),
 		xpathEntry<TimeField, "validate">("validate", "Validation"),
@@ -308,7 +319,7 @@ const timeFieldEditorSchema: FieldEditorSchema<TimeField> = {
 };
 
 const datetimeFieldEditorSchema: FieldEditorSchema<DatetimeField> = {
-	data: [casePropertyEntry<DatetimeField>()],
+	data: [caseWriteEntry<DatetimeField>()],
 	logic: [
 		requiredEntry<DatetimeField>(),
 		xpathEntry<DatetimeField, "validate">("validate", "Validation"),
@@ -332,7 +343,7 @@ const datetimeFieldEditorSchema: FieldEditorSchema<DatetimeField> = {
 };
 
 const secretFieldEditorSchema: FieldEditorSchema<SecretField> = {
-	data: [casePropertyEntry<SecretField>()],
+	data: [caseWriteEntry<SecretField>()],
 	logic: [
 		requiredEntry<SecretField>(),
 		xpathEntry<SecretField, "validate">("validate", "Validation"),
@@ -353,7 +364,7 @@ const secretFieldEditorSchema: FieldEditorSchema<SecretField> = {
 };
 
 const barcodeFieldEditorSchema: FieldEditorSchema<BarcodeField> = {
-	data: [casePropertyEntry<BarcodeField>()],
+	data: [caseWriteEntry<BarcodeField>()],
 	logic: [
 		requiredEntry<BarcodeField>(),
 		xpathEntry<BarcodeField, "validate">("validate", "Validation"),
@@ -376,7 +387,7 @@ const barcodeFieldEditorSchema: FieldEditorSchema<BarcodeField> = {
 // Geopoint is input-capable but has no `validate` / `validate_msg` —
 // so it carries no validation-message media entry.
 const geopointFieldEditorSchema: FieldEditorSchema<GeopointField> = {
-	data: [casePropertyEntry<GeopointField>()],
+	data: [caseWriteEntry<GeopointField>()],
 	logic: [
 		requiredEntry<GeopointField>(),
 		xpathEntry<GeopointField, "relevant">("relevant", "Show When"),
@@ -396,7 +407,7 @@ const geopointFieldEditorSchema: FieldEditorSchema<GeopointField> = {
 
 const singleSelectFieldEditorSchema: FieldEditorSchema<SingleSelectField> = {
 	data: [
-		casePropertyEntry<SingleSelectField>(),
+		caseWriteEntry<SingleSelectField>(),
 		{
 			key: "optionsSource",
 			component: OptionsSourceEditor,
@@ -427,7 +438,7 @@ const singleSelectFieldEditorSchema: FieldEditorSchema<SingleSelectField> = {
 
 const multiSelectFieldEditorSchema: FieldEditorSchema<MultiSelectField> = {
 	data: [
-		casePropertyEntry<MultiSelectField>(),
+		caseWriteEntry<MultiSelectField>(),
 		{
 			key: "optionsSource",
 			component: OptionsSourceEditor,
@@ -526,7 +537,7 @@ const signatureFieldEditorSchema: FieldEditorSchema<SignatureField> = {
 // DataBindOnly). No `ui` section (hidden fields have no label, no label
 // media, and never render to the user).
 const hiddenFieldEditorSchema: FieldEditorSchema<HiddenField> = {
-	data: [casePropertyEntry<HiddenField>()],
+	data: [caseWriteEntry<HiddenField>()],
 	logic: [
 		xpathEntry<HiddenField, "calculate">("calculate", "Calculate"),
 		xpathEntry<HiddenField, "default_value">("default_value", "Default Value"),

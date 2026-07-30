@@ -36,7 +36,7 @@
 //     fallback.
 //
 //   - One `<field>` per column where `visibleInList ?? true`, in
-//     independent Results order (`listOrder ?? order`, then uuid).
+//     the config's exact Results UUID permutation.
 //
 // Per-column sort directives are resolved once by
 // `sortKeys.ts::buildSortDirectives(mod, doc)` and threaded through
@@ -217,6 +217,7 @@ export function buildShortDetail(args: {
 		detailKind: "short",
 		target,
 		caseProperties,
+		proseDoc: doc,
 		caseTypes: relationContext.caseTypes,
 		currentCaseType: mod.caseType,
 		userPropertySlugs: userPropertySlugsByUuid(doc),
@@ -228,7 +229,7 @@ export function buildShortDetail(args: {
 	const fields: Element[] = [];
 	const strings: Record<string, string> = {};
 
-	// Walk every column in Results order (`listOrder ?? order`, then uuid), not
+	// Walk every column in the config's exact Results UUID permutation, not
 	// array position. Position is 1-based against the complete short-detail
 	// sequence — the counter advances for fields hidden from Results because
 	// CCHQ's header-locale suffix keys off the column's position in that array.
@@ -383,7 +384,9 @@ function buildSearchActionBlock(
 			undefined,
 			relationContext,
 			undefined,
-			lookupNaming === undefined ? {} : { lookup: { naming: lookupNaming } },
+			lookupNaming === undefined
+				? {}
+				: { lookup: { naming: lookupNaming, instanceScope: "suite" } },
 		);
 	}
 

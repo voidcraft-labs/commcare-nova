@@ -35,8 +35,8 @@ export const MAX_LOOKUP_FIXTURE_BYTES = 16 * 1024 * 1024;
 export interface CompiledLookupFixture {
 	readonly tableId: LookupTableId;
 	readonly tag: string;
-	/** `item-list:<tag>` — fixture id, instance id, and src suffix. */
-	readonly instanceId: string;
+	/** `item-list:<tag>` — suite fixture id and XForm src suffix. */
+	readonly fixtureId: string;
 	/** The suite-embeddable `<fixture>` element. */
 	readonly element: Element;
 	/** Exact serialized block under the shared suite render options. */
@@ -73,7 +73,7 @@ function buildFixtureElement(
 			}),
 		),
 	);
-	return el("fixture", { id: table.instanceId }, [
+	return el("fixture", { id: table.fixtureId }, [
 		el(table.listElementName, {}, rowElements),
 	]);
 }
@@ -103,7 +103,7 @@ export function buildLookupFixtures(
 			return {
 				tableId: table.tableId,
 				tag: table.tag,
-				instanceId: table.instanceId,
+				fixtureId: table.fixtureId,
 				element,
 				xml,
 				bytes: Buffer.byteLength(xml, "utf8"),

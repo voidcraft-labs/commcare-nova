@@ -9,7 +9,8 @@
 // forgets a required facet fails this test rather than the author.
 
 import { describe, expect, it } from "vitest";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { caseOperationTargetTypeAfter } from "@/lib/doc/caseOperationIntents";
 import {
 	addCaseOperationMutations,
@@ -17,13 +18,13 @@ import {
 } from "@/lib/doc/caseOperationMutations";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import { asUuid } from "@/lib/doc/types";
 import {
 	type BlueprintDoc,
 	type CaseOperation,
 	isCaseOperationIdentifier,
 	type Uuid,
 } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import {
 	actionChangeLosses,
 	type CaseOperationSeedKind,
@@ -37,8 +38,8 @@ import {
 	writeSeedUnavailableReason,
 } from "../seeds";
 
-const NAME = asUuid("44444444-4444-4444-8444-444444444444");
-const ANSWER = asUuid("55555555-5555-4555-8555-555555555555");
+const NAME = testUuid("44444444-4444-4444-8444-444444444444");
+const ANSWER = testUuid("55555555-5555-4555-8555-555555555555");
 
 /** A seed carries no lookup carrier, so the explicit no-snapshot context
  *  is the honest one — the same one every client-side gate passes. */
@@ -48,16 +49,22 @@ const NO_LOOKUPS = LOOKUP_CONTEXT_UNAVAILABLE;
  *  "the case this form opened". */
 function caseFirstDoc(): {
 	doc: BlueprintDoc;
-	formUuid: ReturnType<typeof asUuid>;
+	formUuid: ReturnType<typeof testUuid>;
 } {
 	const doc = buildDoc({
 		caseTypes: [
-			{ name: "patient", properties: [{ name: "nickname", label: "Nick" }] },
+			{
+				name: "patient",
+				properties: [{ name: "nickname", label: proseText("Nick") }],
+			},
 		],
 		modules: [
 			{
 				name: "Patients",
 				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "nickname", header: "Nickname" },
+				]),
 				forms: [
 					{
 						name: "Edit",
@@ -67,8 +74,11 @@ function caseFirstDoc(): {
 								uuid: NAME,
 								kind: "text",
 								id: "nickname",
-								label: "Nickname",
-								case_property_on: "patient",
+								label: proseText("Nickname"),
+								caseWrite: {
+									caseType: "patient",
+									property: "nickname",
+								},
 							}),
 						],
 					},
@@ -82,7 +92,7 @@ function caseFirstDoc(): {
 
 function commits(
 	doc: BlueprintDoc,
-	formUuid: ReturnType<typeof asUuid>,
+	formUuid: ReturnType<typeof testUuid>,
 	operation: CaseOperation,
 ) {
 	return mutationCommitVerdict(
@@ -171,13 +181,28 @@ describe("case-operation seeds", () => {
 					{
 						name: "Patients",
 						caseType: "patient",
-						forms: [{ name: "Edit", type: "followup" }],
+						caseListConfig: caseListConfig([
+							{ field: "case_name", header: "Case name" },
+						]),
+						forms: [
+							{
+								name: "Edit",
+								type: "followup",
+								fields: [
+									f({
+										kind: "text",
+										id: "note",
+										label: proseText("Note"),
+									}),
+								],
+							},
+						],
 					},
 				],
 			});
 			const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
 			const retype: CaseOperation = {
-				uuid: asUuid("66666666-6666-4666-8666-666666666666"),
+				uuid: testUuid("66666666-6666-4666-8666-666666666666"),
 				id: "retype_patient",
 				action: "update",
 				caseType: "patient",
@@ -248,25 +273,55 @@ describe("the value a fresh write starts from", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "p", label: "P", data_type: dataType }],
+					properties: [
+						{ name: "p", label: proseText("P"), data_type: dataType },
+					],
 				},
 			],
 			modules: [
 				{
 					name: "Patients",
 					caseType: "patient",
+					caseListConfig: caseListConfig([{ field: "p", header: "P" }]),
 					forms: [
 						{
 							name: "Edit",
 							type: "followup",
-							fields: fields.map((field, index) =>
+							fields: [
 								f({
-									uuid: field.uuid,
-									kind: field.dataType === "int" ? "int" : field.dataType,
-									id: `answer_${index}`,
-									label: `Answer ${index}`,
+									kind: "text",
+									id: "note",
+									label: proseText("Note"),
 								}),
-							),
+								...fields.map((field, index) =>
+									f({
+										uuid: field.uuid,
+										kind: field.dataType === "int" ? "int" : field.dataType,
+										id: `answer_${index}`,
+										label: proseText(`Answer ${index}`),
+										...(field.dataType === "single_select" ||
+										field.dataType === "multi_select"
+											? {
+													optionsSource: {
+														kind: "inline" as const,
+														options: [
+															{
+																uuid: testUuid(`answer-${index}-yes`),
+																value: "yes",
+																label: proseText("Yes"),
+															},
+															{
+																uuid: testUuid(`answer-${index}-no`),
+																value: "no",
+																label: proseText("No"),
+															},
+														],
+													},
+												}
+											: {}),
+									}),
+								),
+							],
 						},
 					],
 				},
@@ -277,7 +332,7 @@ describe("the value a fresh write starts from", () => {
 		const value = seedWriteValue(dataType, fields);
 		if (value === undefined) return { seeded: false, ok: false };
 		const operation: CaseOperation = {
-			uuid: asUuid("99999999-9999-4999-8999-999999999999"),
+			uuid: testUuid("99999999-9999-4999-8999-999999999999"),
 			id: "update_patient",
 			action: "update",
 			caseType: "patient",

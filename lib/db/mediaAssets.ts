@@ -2,8 +2,8 @@
  * Media asset CRUD against Postgres.
  *
  * The asset row lives in `media_assets` (keyed by the asset's UUID); the
- * referencing-apps reverse index lives in the `media_asset_refs` join table
- * (one row per `(asset, app)` candidate edge). A successful browser confirm
+ * exact authored/thread reverse projection lives in the `media_asset_refs`
+ * join table (one row per `(Project, app, asset)` live edge). A successful browser confirm
  * that deduplicates to another row leaves a 24-hour `media_upload_aliases`
  * replay record keyed by the original attempt id. `project_id` is the tenant
  * and the only access gate — every read SITE authorizes Project membership on
@@ -18,14 +18,13 @@ import { randomUUID } from "node:crypto";
 import { type Kysely, type Selectable, sql, type Transaction } from "kysely";
 import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import {
-	type AssetId,
 	type AssetKind,
 	type AssetMimeType,
-	asAssetId,
+	asMediaAssetId,
+	type MediaAssetId,
 	type MediaAssetStatus,
 	pendingGcsObjectKeyFor,
 } from "@/lib/domain/multimedia";
-import { log } from "@/lib/logger";
 import {
 	type AppDatabase,
 	getAppDb,
@@ -44,7 +43,7 @@ import {
  * convenience. The row body never carries `id` (it is the primary key), so
  * reattaching here saves every caller from threading the id through.
  */
-export type MediaAssetRecord = MediaAssetDoc & { id: AssetId };
+export type MediaAssetRecord = MediaAssetDoc & { id: MediaAssetId };
 
 /** Identity of one extraction claim. `extractedAt` is the row-stored fencing
  * token, not merely display metadata: a stale job may publish only while this
@@ -75,7 +74,7 @@ export function mediaAssetRecordFromRow(
 	row: Selectable<MediaAssetsTable>,
 ): MediaAssetRecord {
 	return {
-		id: asAssetId(row.id),
+		id: asMediaAssetId(row.id),
 		project_id: row.project_id,
 		owner: row.owner,
 		contentHash: row.content_hash,
@@ -105,7 +104,7 @@ export function mediaAssetRecordFromRow(
  * storage key is a server-only detail).
  */
 export interface WireMediaAsset {
-	id: AssetId;
+	id: MediaAssetId;
 	contentHash: string;
 	mimeType: string;
 	kind: AssetKind;
@@ -207,10 +206,10 @@ export async function createPendingAsset(
 	},
 	lockedDb?: Kysely<AppDatabase>,
 ): Promise<{
-	assetId: AssetId;
+	assetId: MediaAssetId;
 	gcsObjectKey: string;
 }> {
-	const assetId = asAssetId(randomUUID());
+	const assetId = asMediaAssetId(randomUUID());
 	const gcsObjectKey =
 		args.gcsObjectKey ??
 		pendingGcsObjectKeyFor(args.project_id, assetId, args.extension);
@@ -254,7 +253,7 @@ export async function createPendingAsset(
  */
 export async function confirmAssetReady(
 	args: {
-		assetId: AssetId;
+		assetId: MediaAssetId;
 		gcsObjectKey?: string;
 		mimeType?: AssetMimeType;
 		extension?: string;
@@ -311,7 +310,7 @@ export type PendingAssetPublicationResult =
  */
 export async function publishPendingAssetForActor(
 	args: {
-		assetId: AssetId;
+		assetId: MediaAssetId;
 		actorUserId: string;
 		expectedProjectId: string;
 		gcsObjectKey: string;
@@ -381,7 +380,7 @@ export type PendingAssetDeleteResult =
  */
 export async function deletePendingAssetForActor(
 	args: {
-		assetId: AssetId;
+		assetId: MediaAssetId;
 		actorUserId: string;
 		expectedProjectId: string;
 	},
@@ -444,8 +443,8 @@ export type PendingAssetCanonicalizationResult =
  */
 export async function canonicalizePendingAssetForActor(
 	args: {
-		attemptAssetId: AssetId;
-		canonicalAssetId: AssetId;
+		attemptAssetId: MediaAssetId;
+		canonicalAssetId: MediaAssetId;
 		actorUserId: string;
 		expectedProjectId: string;
 		expectedContentHash: string;
@@ -583,7 +582,7 @@ export async function canonicalizePendingAssetForActor(
  * freshly proves Project edit authority before taking the asset share lock.
  */
 export async function resolveReadyUploadAliasForActor(args: {
-	attemptAssetId: AssetId;
+	attemptAssetId: MediaAssetId;
 	actorUserId: string;
 }): Promise<MediaAssetRecord | null> {
 	const db = await getAppDb();
@@ -595,7 +594,7 @@ export async function resolveReadyUploadAliasForActor(args: {
 async function resolveReadyUploadAliasInTransaction(
 	tx: Transaction<AppDatabase>,
 	args: {
-		attemptAssetId: AssetId;
+		attemptAssetId: MediaAssetId;
 		actorUserId: string;
 	},
 ): Promise<MediaAssetRecord | null> {
@@ -655,7 +654,7 @@ export async function purgeExpiredMediaUploadAliases(
 }
 
 export interface ReadyAssetInsert {
-	assetId: AssetId;
+	assetId: MediaAssetId;
 	owner: string;
 	project_id: string;
 	contentHash: string;
@@ -732,8 +731,8 @@ export async function insertReadyAsset(
 export async function createReadyAsset(
 	args: Omit<ReadyAssetInsert, "assetId">,
 	lockedDb?: Kysely<AppDatabase>,
-): Promise<{ assetId: AssetId }> {
-	const assetId = asAssetId(randomUUID());
+): Promise<{ assetId: MediaAssetId }> {
+	const assetId = asMediaAssetId(randomUUID());
 	await insertReadyAsset({ ...args, assetId }, lockedDb);
 	return { assetId };
 }
@@ -747,7 +746,7 @@ export async function createReadyAsset(
  */
 export async function installCopiedReadyExtract(
 	args: {
-		assetId: AssetId;
+		assetId: MediaAssetId;
 		extract: MediaAssetExtract;
 	},
 	lockedDb?: Kysely<AppDatabase>,
@@ -791,7 +790,7 @@ export async function installCopiedReadyExtract(
 					args.extract.version
 				);
 			})
-			.map((row) => asAssetId(row.id));
+			.map((row) => asMediaAssetId(row.id));
 		if (eligibleIds.length > 0) {
 			await tx
 				.updateTable("media_assets")
@@ -831,7 +830,7 @@ export async function installCopiedReadyExtract(
  */
 export async function publishClaimedAssetExtract(
 	args: {
-		readonly assetId: AssetId;
+		readonly assetId: MediaAssetId;
 		readonly claim: AssetExtractionClaim;
 		readonly extract: Omit<MediaAssetExtract, "extractedAt" | "status"> & {
 			readonly status: "ready" | "failed";
@@ -921,7 +920,7 @@ export async function publishClaimedAssetExtract(
 					const siblingExtract = mediaAssetExtractSchema.parse(sibling.extract);
 					return siblingExtract.version <= extract.version;
 				})
-				.map((sibling) => asAssetId(sibling.id));
+				.map((sibling) => asMediaAssetId(sibling.id));
 		}
 		await tx
 			.updateTable("media_assets")
@@ -950,7 +949,7 @@ export async function publishClaimedAssetExtract(
  * backs off.
  */
 export async function claimExtractionIfIdle(
-	assetId: AssetId,
+	assetId: MediaAssetId,
 	opts: { now: number; staleMs: number; currentVersion: number; model: string },
 ): Promise<AssetExtractionClaimResult> {
 	return withAppTx(async (tx) => {
@@ -1010,7 +1009,7 @@ export async function claimExtractionIfIdle(
  */
 export async function hasOtherAssetForGcsObjectKey(
 	gcsObjectKey: string,
-	excludeAssetId: AssetId,
+	excludeAssetId: MediaAssetId,
 	lockedDb?: Kysely<AppDatabase>,
 ): Promise<boolean> {
 	const db = lockedDb ?? (await getAppDb());
@@ -1131,7 +1130,7 @@ export async function findReadyAssetByProjectAndHash(
  * row so ids stay non-enumerable. Returns `null` for a missing row.
  */
 export async function loadAssetById(
-	assetId: AssetId,
+	assetId: MediaAssetId,
 ): Promise<MediaAssetRecord | null> {
 	const db = await getAppDb();
 	const row = await db
@@ -1144,7 +1143,7 @@ export async function loadAssetById(
 
 /**
  * Bulk-load a Project's assets among a set of ids — the compile / upload
- * manifest loader's primary call. Resolves every `AssetId` a blueprint
+ * manifest loader's primary call. Resolves every `MediaAssetId` a blueprint
  * references (from `lib/domain/mediaRefs::collectAssetRefs`) into rows in one
  * pass (`id = ANY($ids)`), then filters to the Project IN MEMORY.
  *
@@ -1157,7 +1156,7 @@ export async function loadAssetById(
  * the cross-tenant distinction below the surface.
  */
 export async function loadAssetsByIds(
-	ids: readonly string[],
+	ids: readonly MediaAssetId[],
 	projectId: string,
 ): Promise<MediaAssetRecord[]> {
 	const unique = [...new Set(ids)];
@@ -1180,16 +1179,15 @@ export async function loadAssetsByIds(
  * the attach) serializes against the blueprint commit instead of slipping
  * between a pre-commit check and the write.
  *
- * Missing rows are simply absent from the returned map — the caller's judgment
- * (`describeMediaExpectationFailures`) owns the missing/foreign distinction,
- * including the privacy rule that both read as "not found".
+ * Missing rows are simply absent from the returned map; the complete
+ * post-state projection caller owns the fail-closed admission message.
  */
 export async function getAssetsInTransaction(
 	tx: Transaction<AppDatabase>,
-	ids: readonly string[],
-): Promise<Map<string, MediaAssetRecord>> {
-	const unique = [...new Set(ids)];
-	const out = new Map<string, MediaAssetRecord>();
+	ids: readonly MediaAssetId[],
+): Promise<Map<MediaAssetId, MediaAssetRecord>> {
+	const unique = [...new Set(ids)].sort();
+	const out = new Map<MediaAssetId, MediaAssetRecord>();
 	if (unique.length === 0) return out;
 	const rows = await tx
 		.selectFrom("media_assets")
@@ -1290,7 +1288,7 @@ export async function listReadyAssetsForProject(
  * value would not round-trip through `getTime()` and could straddle a page
  * boundary. Keep inserts passing an explicit `new Date()`.
  */
-export function encodeLibraryCursor(createdAt: Date, id: string): string {
+export function encodeLibraryCursor(createdAt: Date, id: MediaAssetId): string {
 	return Buffer.from(
 		JSON.stringify({ createdAtMs: createdAt.getTime(), id }),
 	).toString("base64url");
@@ -1298,7 +1296,7 @@ export function encodeLibraryCursor(createdAt: Date, id: string): string {
 
 export function decodeLibraryCursor(cursor: string): {
 	createdAtMs: number;
-	id: string;
+	id: MediaAssetId;
 } {
 	try {
 		const parsed = JSON.parse(
@@ -1308,7 +1306,10 @@ export function decodeLibraryCursor(cursor: string): {
 			Number.isFinite(parsed?.createdAtMs) &&
 			typeof parsed?.id === "string"
 		) {
-			return { createdAtMs: parsed.createdAtMs, id: parsed.id };
+			return {
+				createdAtMs: parsed.createdAtMs,
+				id: asMediaAssetId(parsed.id),
+			};
 		}
 	} catch {
 		/* malformed cursor falls through to the throw below */
@@ -1330,106 +1331,88 @@ export class MalformedCursorError extends Error {
 	}
 }
 
-/**
- * Reverse-index maintenance: record that `appId`'s persisted blueprint
- * references each of `assetIds`, so the delete reference guard can read an
- * asset's candidate referencing-app set instead of scanning every app the
- * Project has. Called by the blueprint writers on every save
- * (`syncMediaReferences`).
- *
- * Append-only by design: `ON CONFLICT DO NOTHING` is idempotent at the edge
- * level (re-adding a present `(asset, app)` leaves the set unchanged) and never
- * removes an app that stopped referencing the asset — the guard re-walks each
- * candidate to confirm + prune-by-omission, so a stale edge costs one extra app
- * load, never a wrong block. An empty `assetIds` (the overwhelming common case —
- * no media) does nothing.
- *
- * Each asset is written INDEPENDENTLY (settled, not one atomic batch): a saved
- * blueprint can carry a dangling asset id — a ref to a recovered or purged asset
- * with no `media_assets` row — and the `media_asset_refs.asset_id` foreign key
- * rejects the insert. In an atomic batch that one bad ref would drop EVERY edge
- * in the save; settled independently, the bogus id skips itself and every valid
- * edge still lands.
- */
-export async function addReferencingApp(
-	assetIds: readonly string[],
-	appId: string,
-): Promise<void> {
-	const unique = [...new Set(assetIds)];
-	if (unique.length === 0) return;
-	const db = await getAppDb();
-	const results = await Promise.allSettled(
-		unique.map((assetId) =>
-			db
-				.insertInto("media_asset_refs")
-				.values({ asset_id: assetId, app_id: appId })
-				.onConflict((oc) => oc.columns(["asset_id", "app_id"]).doNothing())
-				.execute(),
-		),
-	);
-	results.forEach((r, i) => {
-		// A rejection is almost always a dangling ref (no asset row → FK
-		// violation). The valid edges still landed; log the orphan so it's
-		// diagnosable, don't throw.
-		if (r.status === "rejected") {
-			log.warn("[addReferencingApp] couldn't index a referenced asset", {
-				assetId: unique[i],
-				appId,
-				err: r.reason,
-			});
-		}
-	});
+export interface MediaReferenceRequirement {
+	readonly assetId: MediaAssetId;
+	readonly expectedKind: AssetKind;
 }
 
-/**
- * Persist newly introduced reverse edges on the authoritative app-write
- * transaction. Callers must already hold every named asset `FOR SHARE` and
- * have validated its Project/readiness; an FK failure therefore aborts the app
- * write instead of silently leaving the completeness protocol behind.
- */
-export async function addReferencingAppInTransaction(
+export class MediaReferenceProjectionError extends Error {
+	readonly name = "MediaReferenceProjectionError";
+	constructor(
+		message: string,
+		readonly assetId?: MediaAssetId,
+	) {
+		super(message);
+	}
+}
+
+/** Lock every referenced asset in UUID order and prove its exact live shape. */
+export async function lockAndValidateMediaReferences(
 	tx: Transaction<AppDatabase>,
-	assetIds: readonly string[],
+	projectId: string,
+	requirements: readonly MediaReferenceRequirement[],
+): Promise<MediaAssetId[]> {
+	const ids = [...new Set(requirements.map((entry) => entry.assetId))].sort();
+	const assets = await getAssetsInTransaction(tx, ids);
+	for (const requirement of requirements) {
+		const asset = assets.get(requirement.assetId);
+		if (
+			asset === undefined ||
+			asset.project_id !== projectId ||
+			asset.status !== "ready" ||
+			asset.kind !== requirement.expectedKind
+		) {
+			throw new MediaReferenceProjectionError(
+				"A referenced media file is unavailable, not ready, outside this Project, or has the wrong kind for its authored slot.",
+				requirement.assetId,
+			);
+		}
+	}
+	return ids;
+}
+
+/** Remove the complete derived reference projection for one app. */
+export async function deleteMediaReferenceEdges(
+	tx: Transaction<AppDatabase>,
 	appId: string,
 ): Promise<void> {
-	const unique = [...new Set(assetIds)].sort();
-	if (unique.length === 0) return;
+	await tx.deleteFrom("media_asset_refs").where("app_id", "=", appId).execute();
+}
+
+/** Insert one app's already-validated exact Project-scoped projection. */
+export async function insertMediaReferenceEdges(
+	tx: Transaction<AppDatabase>,
+	args: {
+		readonly projectId: string;
+		readonly appId: string;
+		readonly assetIds: readonly MediaAssetId[];
+	},
+): Promise<string[]> {
+	const unique = [...new Set(args.assetIds)].sort();
+	if (unique.length === 0) return [];
 	await tx
 		.insertInto("media_asset_refs")
-		.values(unique.map((assetId) => ({ asset_id: assetId, app_id: appId })))
-		.onConflict((oc) => oc.columns(["asset_id", "app_id"]).doNothing())
+		.values(
+			unique.map((assetId) => ({
+				project_id: args.projectId,
+				app_id: args.appId,
+				asset_id: assetId,
+			})),
+		)
 		.execute();
+	return unique;
 }
 
-/**
- * The apps whose persisted blueprint has EVER referenced `assetId` — the asset's
- * reverse-index candidate set (`media_asset_refs`), read by the deletion guard
- * so it re-walks only the 0–2 candidates instead of the Project's whole app
- * list. Append-only, so a candidate may be stale; the guard re-walks each to
- * confirm.
- */
+/** Exact app ids whose live authored/thread projection references an asset. */
 export async function listReferencingAppIds(
-	assetId: string,
+	assetId: MediaAssetId,
 ): Promise<string[]> {
 	const db = await getAppDb();
 	const rows = await db
 		.selectFrom("media_asset_refs")
 		.select("app_id")
 		.where("asset_id", "=", assetId)
+		.orderBy("app_id")
 		.execute();
 	return rows.map((row) => row.app_id);
-}
-
-/**
- * Hard-delete an asset row. Caller is responsible for the GCS object cleanup AND
- * for ensuring no live blueprint references the asset — the deletion MCP tool
- * refuses to call this if any reference is found. The `media_asset_refs` edges
- * cascade on the row delete.
- */
-export async function deleteAsset(
-	assetId: AssetId,
-	lockedDb?: Kysely<AppDatabase>,
-): Promise<void> {
-	const db = lockedDb ?? (await getAppDb());
-	await db.deleteFrom("media_assets").where("id", "=", assetId).execute();
 }

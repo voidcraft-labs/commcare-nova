@@ -3,19 +3,23 @@
 import {
 	act,
 	fireEvent,
-	render,
+	render as rtlRender,
 	screen,
 	waitFor,
 } from "@testing-library/react";
+import type { ReactElement, ReactNode } from "react";
 import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import { settleBaseUiTransitions } from "@/__tests__/helpers/baseUiInteractions";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
+import { BlueprintDocProvider } from "@/lib/doc/provider";
 import type {
 	CaseListConfig,
 	CaseSearchConfig,
 	CaseType,
 	CommitOutcome,
 } from "@/lib/domain";
+import { lookupColumnIdSchema, lookupTableIdSchema } from "@/lib/domain";
 import {
 	ancestorPath,
 	and,
@@ -27,6 +31,7 @@ import {
 	exists,
 	ifExpr,
 	literal,
+	match,
 	matchAll,
 	not,
 	or,
@@ -34,7 +39,9 @@ import {
 	prop,
 	relationStep,
 	term,
+	type ValueExpression,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { loadFilterPreviewAction } from "@/lib/preview/engine/caseDataBinding";
 import { invalidateCaseData } from "@/lib/preview/hooks/caseDataInvalidation";
 import { expressionCardSchemaList } from "../../shared/expressionEditorSchemas";
@@ -44,7 +51,10 @@ import { CaseAvailabilityComposer } from "../canvas/CaseAvailabilityComposer";
 const docApi = vi.hoisted(() => ({ getState: () => ({}) }));
 const permissions = vi.hoisted(() => ({ canEdit: true }));
 
-vi.mock("@/lib/doc/hooks/useBlueprintDoc", () => ({
+// The composer spells a saved condition's authored prose against the document,
+// so it needs the real projection hook alongside the imperative-api stub.
+vi.mock("@/lib/doc/hooks/useBlueprintDoc", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@/lib/doc/hooks/useBlueprintDoc")>()),
 	useBlueprintDocApi: () => docApi,
 }));
 
@@ -65,10 +75,23 @@ vi.mock("@/lib/session/hooks", () => ({
 	useProjectScopeEpoch: () => 0,
 }));
 
+// The composer and the workbench both spell a saved condition's authored prose
+// against the document. Wrapping at `render` reproduces the builder's provider
+// for every surface here, and carries through each `rerender`.
+function DocumentProvider({ children }: { readonly children: ReactNode }) {
+	return <BlueprintDocProvider appId="app-1">{children}</BlueprintDocProvider>;
+}
+
+function render(ui: ReactElement) {
+	return rtlRender(ui, { wrapper: DocumentProvider });
+}
+
 const CASE_TYPES: CaseType[] = [
 	{
 		name: "patient",
-		properties: [{ name: "region", label: "Region", data_type: "text" }],
+		properties: [
+			{ name: "region", label: proseText("Region"), data_type: "text" },
+		],
 	},
 ];
 
@@ -238,6 +261,28 @@ describe("Results Cases available composer", () => {
 		expect(otherCaseInformation.getAttribute("aria-disabled")).not.toBe("true");
 	});
 
+	it("uses the intersection of device and case-search match modes", async () => {
+		renderComposer({
+			config: {
+				...EMPTY_CONFIG,
+				filter: match(prop("patient", "region"), "N", "starts-with"),
+			},
+			caseSearchEnabled: true,
+		});
+		await settleBaseUiTransitions();
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "Condition starts with" }),
+		);
+		for (const label of ["Similar spelling", "Sounds like", "Flexible date"]) {
+			expect(
+				screen
+					.getByRole("menuitem", { name: new RegExp(`^${label}`, "i") })
+					.getAttribute("aria-disabled"),
+			).toBe("true");
+		}
+	});
+
 	it("does not guess singular grammar from a plural case type identifier", () => {
 		renderComposer({ currentCaseType: "clients" });
 
@@ -320,7 +365,9 @@ describe("Results Cases available composer", () => {
 			{ ...patient, parent_type: "household" },
 			{
 				name: "household",
-				properties: [{ name: "region", label: "Region", data_type: "text" }],
+				properties: [
+					{ name: "region", label: proseText("Region"), data_type: "text" },
+				],
 			},
 		];
 		const onChange = vi.fn();
@@ -689,12 +736,27 @@ describe("Results Cases available composer", () => {
 			caseTypes: CASE_TYPES,
 			currentCaseType: "patient",
 			knownInputs: [],
+			operationScope: {
+				creates: [
+					{ uuid: testUuid("earlier-create"), label: "Create a referral" },
+				],
+			},
 		};
 		for (const schema of expressionCardSchemaList) {
-			const value = eq(
-				term(prop("patient", "region")),
-				schema.defaultValue(editContext),
-			);
+			const calculated: ValueExpression =
+				schema.kind === "table-lookup"
+					? {
+							kind: "table-lookup",
+							tableId: lookupTableIdSchema.parse(
+								"018f3e8a-7b2c-7def-8abc-1234567890ab",
+							),
+							resultColumnId: lookupColumnIdSchema.parse(
+								"018f3e8a-7b2c-7def-8abc-1234567890ac",
+							),
+							where: and(),
+						}
+					: schema.defaultValue(editContext);
+			const value = eq(term(prop("patient", "region")), calculated);
 			const view = render(
 				<PredicateWorkbench
 					value={value}

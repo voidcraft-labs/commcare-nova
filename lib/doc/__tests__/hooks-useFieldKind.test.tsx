@@ -9,17 +9,18 @@
 import { renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { useChildFieldCount, useFieldKind } from "@/lib/doc/hooks/useFieldKind";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { BlueprintDoc } from "@/lib/doc/types";
-import { asUuid } from "@/lib/doc/types";
+import { proseText } from "@/lib/domain/prose";
 
-const MOD_UUID = asUuid("module-1-uuid");
-const FORM_UUID = asUuid("form-1-uuid");
-const Q_NAME = asUuid("q-name-0000-0000-0000-000000000000");
-const Q_AGE = asUuid("q-age-0000-0000-0000-000000000000");
-const Q_GROUP = asUuid("q-group-0000-0000-0000-00000000000");
+const MOD_UUID = testUuid("module-1-uuid");
+const FORM_UUID = testUuid("form-1-uuid");
+const Q_NAME = testUuid("q-name-0000-0000-0000-000000000000");
+const Q_AGE = testUuid("q-age-0000-0000-0000-000000000000");
+const Q_GROUP = testUuid("q-group-0000-0000-0000-00000000000");
 
 function setup() {
 	const store = createBlueprintDocStore();
@@ -44,19 +45,19 @@ function setup() {
 				uuid: Q_NAME,
 				id: "name",
 				kind: "text",
-				label: "Name",
+				label: proseText("Name"),
 			} as BlueprintDoc["fields"][string],
 			[Q_AGE]: {
 				uuid: Q_AGE,
 				id: "age",
 				kind: "int",
-				label: "Age",
+				label: proseText("Age"),
 			} as BlueprintDoc["fields"][string],
 			[Q_GROUP]: {
 				uuid: Q_GROUP,
 				id: "basics",
 				kind: "group",
-				label: "Basics",
+				label: proseText("Basics"),
 			} as BlueprintDoc["fields"][string],
 		},
 		moduleOrder: [MOD_UUID],
@@ -87,7 +88,7 @@ describe("useFieldKind", () => {
 	it("returns undefined for an unknown uuid", () => {
 		const { wrapper } = setup();
 		const { result } = renderHook(
-			() => useFieldKind(asUuid("does-not-exist")),
+			() => useFieldKind(testUuid("does-not-exist")),
 			{ wrapper },
 		);
 		expect(result.current).toBeUndefined();
@@ -120,7 +121,7 @@ describe("useChildFieldCount", () => {
 	it("returns 0 when the parent uuid has no children in fieldOrder", () => {
 		const { wrapper } = setup();
 		const { result } = renderHook(
-			() => useChildFieldCount(asUuid("no-children-uuid")),
+			() => useChildFieldCount(testUuid("no-children-uuid")),
 			{ wrapper },
 		);
 		expect(result.current).toBe(0);

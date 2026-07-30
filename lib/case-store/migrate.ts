@@ -32,14 +32,25 @@ import { caseStoreMigrationProvider } from "./migrations";
  * deploy's migrate Job before the new revision ships (the guarantee the Atlas
  * Cloud Run Job gave).
  */
-export async function runCaseStoreMigrations(
+export interface CaseStoreMigrationRunReport {
+	readonly appliedMigrationNames: readonly string[];
+}
+
+export async function runCaseStoreMigrationsWithReport(
 	db: Kysely<unknown>,
-): Promise<void> {
+): Promise<CaseStoreMigrationRunReport> {
 	const migrator = new Migrator({ db, provider: caseStoreMigrationProvider });
 	const { error, results } = await migrator.migrateToLatest();
 
 	const failed = results?.find((r) => r.status === "Error");
-	if (error === undefined && failed === undefined) return;
+	if (error === undefined && failed === undefined) {
+		return {
+			appliedMigrationNames:
+				results
+					?.filter((result) => result.status === "Success")
+					.map((result) => result.migrationName) ?? [],
+		};
+	}
 
 	// Inline Elm-style throw (header / indented diagnostic / narrative / Hint). A
 	// failed migration is operator/authoring error — a SQL mistake in the
@@ -71,4 +82,16 @@ export async function runCaseStoreMigrations(
 			"re-run `npm run db:migrate` against a scratch database to reproduce.",
 		].join("\n"),
 	);
+}
+
+/**
+ * Apply all pending migrations without exposing the per-run result. Runtime
+ * callers historically need only success/failure; the production migration
+ * entrypoint uses the reporting variant above to bind one-time cutover checks
+ * to the exact migration invocation that applied them.
+ */
+export async function runCaseStoreMigrations(
+	db: Kysely<unknown>,
+): Promise<void> {
+	await runCaseStoreMigrationsWithReport(db);
 }

@@ -61,7 +61,7 @@ function removalRefusal(
 
 export const removeCaseOperationTool = {
 	description:
-		"Remove one case operation by stable uuid. Refuses removal while another operation still depends on it; dependency refusals name every dependent.",
+		"Remove one case operation by stable UUID. Refuses removal while another operation still depends on it; dependency refusals name every dependent.",
 	inputSchema: removeCaseOperationInputSchema,
 	async execute(
 		input: RemoveCaseOperationInput,
@@ -89,7 +89,7 @@ export const removeCaseOperationTool = {
 					mutations: [],
 					newDoc: doc,
 					result: {
-						error: `Case operation uuid "${input.operationUuid}" not found in form "${doc.forms[address.formUuid]?.name ?? input.formUuid}".`,
+						error: `Case operation UUID "${input.operationUuid}" not found in form "${doc.forms[address.formUuid]?.name ?? input.formUuid}".`,
 					},
 				};
 			}
@@ -133,7 +133,7 @@ export const removeCaseOperationTool = {
 			}
 			return {
 				kind: "mutate",
-				mutations,
+				mutations: commit.mutations,
 				newDoc: commit.newDoc,
 				result: {
 					message: `Removed case operation "${operation.id}".`,

@@ -37,7 +37,10 @@ import type { CaseDataScope } from "@/components/builder/shared/editorSchemas";
 import type { OperationValueScope } from "@/components/builder/shared/expressionEditorSchemas";
 import { PredicateWorkbench } from "@/components/builder/shared/PredicateWorkbench";
 import { Button } from "@/components/shadcn/button";
-import { caseOperationTargetTypeAfter } from "@/lib/doc/caseOperationIntents";
+import {
+	caseOperationTargetTypeAfter,
+	retargetCaseOperation,
+} from "@/lib/doc/caseOperationIntents";
 import {
 	useModuleCaseType,
 	useModuleSelectsCaseFirst,
@@ -63,7 +66,9 @@ import { useCanEdit } from "@/lib/session/hooks";
 import { useClearedSlotFocus } from "@/lib/ui/hooks/useClearedSlotFocus";
 import { useRemovedRowFocus } from "@/lib/ui/hooks/useRemovedRowFocus";
 import { CaseOperationLinks } from "./CaseOperationLinks";
+import { useCaseTargetDraft } from "./CaseTargetDraftContext";
 import {
+	caseOperationRuntimeTargetConstraint,
 	caseOperationTextConstraint,
 	operationCaseDataScope,
 	RUNTIME_TARGET_OPERATION_SCOPE,
@@ -94,6 +99,7 @@ export function CaseOperationDetailCanvas({
 	const caseTypes = useEffectiveCaseTypes();
 	const headingRef = useRef<HTMLHeadingElement>(null);
 	const [refusal, setRefusal] = useState<string | undefined>(undefined);
+	const targetDraft = useCaseTargetDraft(formUuid, operationUuid);
 
 	const operations = view.operations;
 	const index = operations.findIndex(
@@ -170,11 +176,16 @@ export function CaseOperationDetailCanvas({
 	const sentence = operationSentence(operation, sentenceContext);
 
 	const operationCanEdit = canEdit;
-	const commit = (next: CaseOperation) => {
-		if (!operationCanEdit) return;
+	const commit = (next: CaseOperation): boolean => {
+		if (!operationCanEdit) return false;
 		const outcome = view.update(next);
 		setRefusal(outcome.ok ? undefined : outcome.messages.join(" "));
+		return outcome.ok;
 	};
+	const runtimeTargetExpression =
+		operation.target.kind === "expression"
+			? operation.target.expr
+			: targetDraft.expression;
 
 	const editorScope = {
 		caseTypes,
@@ -334,21 +345,47 @@ export function CaseOperationDetailCanvas({
 					)}
 				</Section>
 
-				{operation.target.kind === "expression" && (
+				{runtimeTargetExpression !== undefined && (
 					<Section
 						title="Which case to change"
 						description="Work out the case this change acts on. The result must be a case id."
+						action={
+							operation.target.kind !== "expression" && operationCanEdit ? (
+								<Button
+									type="button"
+									variant="ghost"
+									size="xl"
+									onClick={targetDraft.clear}
+								>
+									Cancel
+								</Button>
+							) : undefined
+						}
 					>
 						<ExpressionCardEditor
-							value={operation.target.expr}
-							onChange={(expr: ValueExpression) =>
-								commit({ ...operation, target: { kind: "expression", expr } })
-							}
-							constraint={storageAssignmentConstraint(["text"])}
+							value={runtimeTargetExpression}
+							onChange={(expr: ValueExpression) => {
+								if (operation.target.kind === "expression") {
+									commit({
+										...operation,
+										target: { kind: "expression", expr },
+									});
+									return;
+								}
+								targetDraft.update(expr);
+								const next = retargetCaseOperation(
+									operation,
+									{ kind: "expression", expr },
+									operations.slice(0, index),
+									caseFirst ? expressionCaseType : undefined,
+								);
+								if (commit(next)) targetDraft.clear();
+							}}
+							constraint={caseOperationRuntimeTargetConstraint()}
 							{...editorScope}
 							// A runtime target may not name a create's output — target
-							// that create directly instead. The empty scope withholds
-							// `id-of` while keeping the owner sentinels available.
+							// that create directly instead. Owner sentinels are withheld
+							// because this is not an owner-value slot.
 							operationScope={RUNTIME_TARGET_OPERATION_SCOPE}
 						/>
 					</Section>
@@ -401,6 +438,7 @@ export function CaseOperationDetailCanvas({
 						onChange={(owner) => commit({ ...operation, owner })}
 						constraint={caseOperationTextConstraint()}
 						editorScope={editorScope}
+						ownerValues
 					/>
 				)}
 
@@ -600,6 +638,7 @@ function OptionalExpressionSection({
 	onChange,
 	constraint,
 	editorScope,
+	ownerValues = false,
 }: {
 	readonly title: string;
 	readonly description: string;
@@ -613,6 +652,7 @@ function OptionalExpressionSection({
 	readonly onChange: (next: ValueExpression | undefined) => void;
 	readonly constraint: ReturnType<typeof storageAssignmentConstraint>;
 	readonly editorScope: EditorScope;
+	readonly ownerValues?: boolean;
 }) {
 	const { addRef, onCleared } = useClearedSlotFocus(value);
 	return (
@@ -647,6 +687,7 @@ function OptionalExpressionSection({
 					onChange={onChange}
 					constraint={constraint}
 					{...editorScope}
+					ownerValues={ownerValues}
 				/>
 			)}
 		</Section>

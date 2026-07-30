@@ -109,9 +109,7 @@ interface PredicateEditContextValue {
 	 * every surface that reads no form answers at all.
 	 */
 	readonly formFields: readonly EditorFormFieldDecl[];
-	/** Rows-free lookup definitions available to identity-backed expressions. */
 	readonly lookupTables: readonly EditorLookupTableDecl[];
-	/** The active lookup row, when this editor is filtering table choices. */
 	readonly tableScope: EditorLookupTableScope | undefined;
 	/**
 	 * The submission-local vocabulary, present only inside a case
@@ -120,6 +118,8 @@ interface PredicateEditContextValue {
 	 * three.
 	 */
 	readonly operationScope: OperationValueScope | undefined;
+	/** Owner sentinels are available only in a case-owner value slot. */
+	readonly ownerValues: boolean;
 	/**
 	 * Whether this slot evaluates against a case row (`"per-case"`) or
 	 * once before any case is selected (`"global"`). Kind menus and
@@ -170,6 +170,7 @@ interface PredicateEditProviderProps {
 	readonly lookupTables?: readonly EditorLookupTableDecl[];
 	readonly tableScope?: EditorLookupTableScope;
 	readonly operationScope?: OperationValueScope;
+	readonly ownerValues?: boolean;
 	/** Absent means the ordinary per-case scope. */
 	readonly caseDataScope?: CaseDataScope;
 	readonly allowsNeverMatch?: boolean;
@@ -202,6 +203,7 @@ export function PredicateEditProvider({
 	lookupTables = [],
 	tableScope,
 	operationScope,
+	ownerValues = false,
 	caseDataScope = "per-case",
 	allowsNeverMatch = true,
 	evaluationTarget = "on-device",
@@ -228,6 +230,7 @@ export function PredicateEditProvider({
 			lookupTables,
 			tableScope,
 			operationScope,
+			ownerValues,
 			caseDataScope,
 			allowsNeverMatch,
 			evaluationTarget,
@@ -244,6 +247,7 @@ export function PredicateEditProvider({
 			lookupTables,
 			tableScope,
 			operationScope,
+			ownerValues,
 			caseDataScope,
 			allowsNeverMatch,
 			evaluationTarget,
@@ -352,6 +356,29 @@ export function WithCurrentCaseType({
 	);
 }
 
+export function WithLookupTableScope({
+	table,
+	children,
+}: {
+	readonly table: EditorLookupTableDecl;
+	readonly children: ReactNode;
+}) {
+	const outer = usePredicateEditContext();
+	const value = useMemo<PredicateEditContextValue>(
+		() => ({
+			...outer,
+			caseDataScope: "table-row",
+			tableScope: { tableId: table.id, columns: table.columns },
+		}),
+		[outer, table],
+	);
+	return (
+		<PredicateEditContext.Provider value={value}>
+			{children}
+		</PredicateEditContext.Provider>
+	);
+}
+
 /**
  * Read the editor context. Use this when a card needs the full
  * trio (case types + current scope + known inputs) — typical for
@@ -385,6 +412,7 @@ export function predicateEditContextFrom(
 		lookupTables: ctx.lookupTables,
 		tableScope: ctx.tableScope,
 		operationScope: ctx.operationScope,
+		ownerValues: ctx.ownerValues,
 		caseDataScope: ctx.caseDataScope,
 		allowsNeverMatch: ctx.allowsNeverMatch,
 		evaluationTarget: ctx.evaluationTarget,
@@ -443,6 +471,7 @@ export function useEditorTypeContext(): TypeContext {
 		lookupTables,
 		tableScope,
 		operationScope,
+		ownerValues,
 	} = usePredicateEditContext();
 	return useMemo(
 		() =>
@@ -455,6 +484,7 @@ export function useEditorTypeContext(): TypeContext {
 				lookupTables,
 				tableScope,
 				operationScope,
+				ownerValues,
 			}),
 		[
 			caseTypes,
@@ -465,6 +495,7 @@ export function useEditorTypeContext(): TypeContext {
 			lookupTables,
 			tableScope,
 			operationScope,
+			ownerValues,
 		],
 	);
 }

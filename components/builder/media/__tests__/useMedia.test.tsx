@@ -3,7 +3,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { asAssetId } from "@/lib/domain/multimedia";
+import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import { BuilderSessionProvider } from "@/lib/session/provider";
 import type { MediaAssetView } from "../mediaClient";
 import { useMediaLibrary, useMediaUpload } from "../useMedia";
@@ -20,7 +20,7 @@ vi.mock("../mediaClient", () => ({
 
 function imageAsset(id: string, name: string): MediaAssetView {
 	return {
-		id: asAssetId(id),
+		id: testMediaAssetId(id),
 		contentHash: id.padEnd(64, "0").slice(0, 64),
 		mimeType: "image/png",
 		kind: "image",

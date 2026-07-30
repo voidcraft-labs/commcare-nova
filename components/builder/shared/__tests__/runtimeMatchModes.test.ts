@@ -28,13 +28,14 @@ import {
 	prop,
 	term,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 
 const CASE_TYPES: readonly CaseType[] = [
 	{
 		name: "patient",
 		properties: [
-			{ name: "nickname", label: "Nickname", data_type: "text" },
-			{ name: "case_name", label: "Name", data_type: "text" },
+			{ name: "nickname", label: proseText("Nickname"), data_type: "text" },
+			{ name: "case_name", label: proseText("Name"), data_type: "text" },
 		],
 	},
 ];
@@ -84,6 +85,10 @@ describe("match modes follow the carrier's runtime", () => {
 		expect([...admittedModes("case-search")].sort()).toEqual(
 			[...MATCH_MODES].sort(),
 		);
+	});
+
+	it("offers only the shared subset when the same rule runs in both runtimes", () => {
+		expect(admittedModes("on-device-and-case-search")).toEqual(["starts-with"]);
 	});
 
 	// The axis is optional on the type, so a surface that never passes it

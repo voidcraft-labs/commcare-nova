@@ -114,7 +114,7 @@ export function searchInputModeMatchesPropertyType(
 				validationError(
 					"CASE_LIST_SEARCH_INPUT_UNKNOWN_PROPERTY",
 					"module",
-					`Search input "${input.label}" (input #${index + 1}, name "${input.name}") on the case list of module "${mod.name}" targets the case property "${input.property}" on case type "${destinationCaseType}", but no case property by that name is declared on that case type, written by any form field via \`case_property_on\`, or part of CommCare's standard set ("case_name", "date_opened", …). Either add "${input.property}" to "${destinationCaseType}"'s properties, point a form field at it via \`case_property_on\`, or change the search input to target an existing property.`,
+					`Search input "${input.label}" (input #${index + 1}, name "${input.name}") on the case list of module "${mod.name}" targets the case property "${input.property}" on case type "${destinationCaseType}", but no case property by that name is declared on that case type, written by any form field's case destination, or part of CommCare's standard set ("case_name", "date_opened", …). Either add "${input.property}" to "${destinationCaseType}"'s properties, set a form field's case destination to it, or change the search input to target an existing property.`,
 					{ moduleUuid, moduleName: mod.name },
 					{
 						index: String(index),

@@ -1,3 +1,4 @@
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
  * CSQL is narrower than Nova's predicate AST: a server-side case-search
@@ -11,7 +12,7 @@ import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { emitCsql } from "@/lib/commcare/predicate";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { userFacingError } from "@/lib/doc/userFacingErrors";
-import { advancedSearchInputDef, asUuid, plainColumn } from "@/lib/domain";
+import { advancedSearchInputDef, plainColumn } from "@/lib/domain";
 import {
 	ancestorPath,
 	arith,
@@ -22,7 +23,6 @@ import {
 	exists,
 	gt,
 	isIn,
-	isNull,
 	literal,
 	lt,
 	matchAll,
@@ -37,7 +37,7 @@ import {
 	term,
 	today,
 } from "@/lib/domain/predicate";
-import { classifyError, errorIdentity, evaluateBoundary } from "../../../gate";
+import { classifyError, evaluateBoundary } from "../../../gate";
 import { runValidation } from "../../../runner";
 
 const CODE = "CASE_LIST_CSQL_NOT_REPRESENTABLE" as const;
@@ -50,7 +50,7 @@ const standardForm = {
 			kind: "text" as const,
 			id: "case_name",
 			label: "Name",
-			case_property_on: "patient",
+			caseWrite: { caseType: "patient", property: "case_name" },
 		}),
 	],
 };
@@ -89,9 +89,9 @@ function docWithFilter(
 				name: "Clients",
 				caseType: "patient",
 				caseListConfig: {
-					columns: [plainColumn(asUuid("column-name"), "case_name", "Name")],
-					listColumnOrder: [asUuid("column-name")],
-					detailColumnOrder: [asUuid("column-name")],
+					columns: [plainColumn(testUuid("column-name"), "case_name", "Name")],
+					listColumnOrder: [testUuid("column-name")],
+					detailColumnOrder: [testUuid("column-name")],
 					filter,
 					searchInputs: [],
 				},
@@ -118,12 +118,12 @@ function docWithAdvancedPredicate(predicate: Predicate) {
 				name: "Clients",
 				caseType: "patient",
 				caseListConfig: {
-					columns: [plainColumn(asUuid("column-name"), "case_name", "Name")],
-					listColumnOrder: [asUuid("column-name")],
-					detailColumnOrder: [asUuid("column-name")],
+					columns: [plainColumn(testUuid("column-name"), "case_name", "Name")],
+					listColumnOrder: [testUuid("column-name")],
+					detailColumnOrder: [testUuid("column-name")],
 					searchInputs: [
 						advancedSearchInputDef(
-							asUuid("input-condition"),
+							testUuid("input-condition"),
 							"condition_value",
 							"Condition value",
 							"text",
@@ -192,7 +192,7 @@ describe("csqlPredicateRepresentability", () => {
 		);
 		expect(rejected.ok).toBe(false);
 		if (rejected.ok) throw new Error("Expected search-backed edit to fail");
-		expect(rejected.introduced.map((error) => error.code)).toContain(CODE);
+		expect(rejected.findings.map((error) => error.code)).toContain(CODE);
 
 		expect(
 			mutationCommitVerdict(
@@ -384,21 +384,6 @@ describe("csqlPredicateRepresentability", () => {
 		expect(csqlFindings(doc)).toEqual([]);
 	});
 
-	it("delegates strict-null to the portable-null rule without a duplicate CSQL finding", () => {
-		const doc = docWithAdvancedPredicate(isNull(prop("patient", "case_name")));
-
-		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
-		expect(errors.filter((error) => error.code === CODE)).toHaveLength(0);
-		const portableHits = errors.filter(
-			(error) => error.code === "CASE_LIST_STRICT_NULL_NOT_PORTABLE",
-		);
-		expect(portableHits).toHaveLength(1);
-		expect(userFacingError(portableHits[0])).toContain(
-			'search field "Condition value"',
-		);
-		expect(userFacingError(portableHits[0])).not.toContain("CCHQ");
-	});
-
 	it("rejects a self relationship envelope", () => {
 		const doc = docWithFilter(
 			exists(selfPath(), eq(prop("patient", "case_name"), literal("Alice"))),
@@ -429,7 +414,7 @@ describe("csqlPredicateRepresentability", () => {
 	});
 
 	it("attributes advanced-input findings to the stable input identity", () => {
-		const inputUuid = asUuid("input-score");
+		const inputUuid = testUuid("input-score");
 		const doc = buildDoc({
 			appName: "Clinic",
 			modules: [
@@ -438,9 +423,11 @@ describe("csqlPredicateRepresentability", () => {
 					name: "Clients",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("column-name"), "case_name", "Name")],
-						listColumnOrder: [asUuid("column-name")],
-						detailColumnOrder: [asUuid("column-name")],
+						columns: [
+							plainColumn(testUuid("column-name"), "case_name", "Name"),
+						],
+						listColumnOrder: [testUuid("column-name")],
+						detailColumnOrder: [testUuid("column-name")],
 						filter: eq(prop("patient", "age"), prop("patient", "score")),
 						searchInputs: [
 							advancedSearchInputDef(
@@ -476,16 +463,9 @@ describe("csqlPredicateRepresentability", () => {
 		expect(inputHit.message).toContain('advanced search input "Minimum score"');
 		expect(userFacingError(inputHit)).toContain('search field "Minimum score"');
 		expect(userFacingError(inputHit)).not.toContain("minimum_score");
-		expect(new Set(hits.map(errorIdentity))).toHaveLength(2);
 		expect(
-			errorIdentity({
-				...inputHit,
-				details: {
-					...inputHit.details,
-					slot: "caseListConfig.searchInputs[7].predicate",
-				},
-			}),
-		).toBe(errorIdentity(inputHit));
+			hits.filter((hit) => hit.details?.inputUuid === inputUuid),
+		).toHaveLength(1);
 	});
 
 	it("is a soundness finding that rejects the zero-tolerance export boundary", () => {

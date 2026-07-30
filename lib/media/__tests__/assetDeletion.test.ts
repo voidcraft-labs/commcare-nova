@@ -6,13 +6,13 @@
 //     `media_asset_refs` reverse-index candidate set it re-walks ONLY those
 //     candidate apps (names the app + carrier; skips a given app; ignores
 //     deleted/foreign-Project; drops stale candidates). This is only the fast
-//     preflight; the metadata-delete transaction full-scans while its durable
-//     reverse-index completeness marker is unset.
+//     preflight; the metadata-delete transaction locks and re-walks the exact
+//     committed reverse projection.
 //   - `purgeAssetStorage` — commit metadata deletion first, then under the
 //     canonical key lock delete bytes + siblings only when unshared.
 //
-// Driven against mocked db/storage + a mocked `walkAssetRefs`, so no Postgres,
-// GCS, or real blueprint walk runs. `walkAssetRefs` is mocked to return chosen
+// Driven against mocked db/storage + a mocked `walkAuthoredAssetRefs`, so no Postgres,
+// GCS, or real blueprint walk runs. The authored walk is mocked to return chosen
 // references — its own traversal is covered in the domain layer.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -37,7 +37,7 @@ const {
 	hasOtherAssetForGcsObjectKey,
 	hasReadyExtractForProjectAndHash,
 	deleteGcsObject,
-	walkAssetRefs,
+	walkAuthoredAssetRefs,
 	withMediaObjectKeyLock,
 } = vi.hoisted(() => ({
 	listApps: vi.fn<() => Promise<ListAppsResult>>(() =>
@@ -49,7 +49,7 @@ const {
 	hasOtherAssetForGcsObjectKey: vi.fn(() => Promise.resolve(false)),
 	hasReadyExtractForProjectAndHash: vi.fn(() => Promise.resolve(false)),
 	deleteGcsObject: vi.fn(() => Promise.resolve()),
-	walkAssetRefs: vi.fn(() => []),
+	walkAuthoredAssetRefs: vi.fn(() => []),
 	withMediaObjectKeyLock: vi.fn(
 		async (_key: string, body: (lockedDb: unknown) => Promise<unknown>) =>
 			body({ pinned: true }),
@@ -71,7 +71,7 @@ vi.mock("@/lib/domain/mediaRefs", async (importOriginal) => ({
 	// Keep the real `describeCarrier` (a pure domain switch carriersForAsset
 	// renders refs through); override only the walk + adapter.
 	...(await importOriginal<typeof import("@/lib/domain/mediaRefs")>()),
-	walkAssetRefs,
+	walkAuthoredAssetRefs,
 	// `carriersForAsset` calls `asWalkableDoc` before walking; the walk is mocked,
 	// so the adapter is a passthrough here.
 	asWalkableDoc: (doc: unknown) => doc,
@@ -113,7 +113,7 @@ beforeEach(() => {
 	hasAssetForGcsObjectKey.mockResolvedValue(false);
 	hasOtherAssetForGcsObjectKey.mockResolvedValue(false);
 	hasReadyExtractForProjectAndHash.mockResolvedValue(false);
-	walkAssetRefs.mockReturnValue([]);
+	walkAuthoredAssetRefs.mockReturnValue([]);
 });
 
 /** A persisted app doc as `loadApp` returns it (only the fields the guard reads). */
@@ -133,7 +133,7 @@ describe("carriersForAsset", () => {
 
 	it("filters to the asset, maps to carrier phrases, and dedups", async () => {
 		// Two references to asset-1 (logo + module icon) plus one to asset-2.
-		walkAssetRefs.mockReturnValue([
+		walkAuthoredAssetRefs.mockReturnValue([
 			{ assetId: "asset-1", location: { kind: "app_logo" } },
 			{
 				assetId: "asset-1",
@@ -151,7 +151,7 @@ describe("carriersForAsset", () => {
 	});
 
 	it("dedups identical carriers (same asset on two slots of one form reads once)", async () => {
-		walkAssetRefs.mockReturnValue([
+		walkAuthoredAssetRefs.mockReturnValue([
 			{ assetId: "asset-1", location: { kind: "app_logo" } },
 			{ assetId: "asset-1", location: { kind: "app_logo" } },
 		] as never);
@@ -159,7 +159,7 @@ describe("carriersForAsset", () => {
 	});
 
 	it("returns empty when the doc doesn't reference the asset", async () => {
-		walkAssetRefs.mockReturnValue([
+		walkAuthoredAssetRefs.mockReturnValue([
 			{ assetId: "other", location: { kind: "app_logo" } },
 		] as never);
 		expect(carriersForAsset(doc, "asset-1")).toEqual([]);
@@ -169,7 +169,7 @@ describe("carriersForAsset", () => {
 describe("findAppReferencesToAsset — index path (candidates given)", () => {
 	it("loads ONLY the candidate apps, never the Project's whole list", async () => {
 		loadApp.mockResolvedValue(appDoc());
-		walkAssetRefs.mockReturnValue(logoRef);
+		walkAuthoredAssetRefs.mockReturnValue(logoRef);
 		const refs = await findAppReferencesToAsset(PROJECT, "asset-1", ["app-1"]);
 		expect(refs).toHaveLength(1);
 		expect(refs[0]).toContain("App One");
@@ -183,7 +183,7 @@ describe("findAppReferencesToAsset — index path (candidates given)", () => {
 
 	it("returns empty for a STALE candidate that no longer references the asset", async () => {
 		loadApp.mockResolvedValue(appDoc());
-		walkAssetRefs.mockReturnValue([]); // app loaded, but no carrier points at it
+		walkAuthoredAssetRefs.mockReturnValue([]); // app loaded, but no carrier points at it
 		expect(
 			await findAppReferencesToAsset(PROJECT, "asset-1", ["app-1"]),
 		).toEqual([]);
@@ -196,7 +196,7 @@ describe("findAppReferencesToAsset — index path (candidates given)", () => {
 	});
 
 	it("skips the candidate named by skipAppId (without loading it)", async () => {
-		walkAssetRefs.mockReturnValue(logoRef);
+		walkAuthoredAssetRefs.mockReturnValue(logoRef);
 		const refs = await findAppReferencesToAsset(
 			PROJECT,
 			"asset-1",
@@ -211,7 +211,7 @@ describe("findAppReferencesToAsset — index path (candidates given)", () => {
 
 	it("ignores a deleted or foreign-Project candidate", async () => {
 		loadApp.mockResolvedValue(appDoc({ project_id: "project-2" })); // another Project
-		walkAssetRefs.mockReturnValue(logoRef);
+		walkAuthoredAssetRefs.mockReturnValue(logoRef);
 		expect(
 			await findAppReferencesToAsset(PROJECT, "asset-1", ["app-1"]),
 		).toEqual([]);
@@ -220,10 +220,11 @@ describe("findAppReferencesToAsset — index path (candidates given)", () => {
 
 describe("purgeAssetStorage", () => {
 	it("deletes the row, the bytes, and the sibling keys when unshared", async () => {
-		await purgeAssetStorage(asset(), {
+		const deleted = asset();
+		await purgeAssetStorage({
+			deleteRow: async () => deleted,
 			alsoDelete: ["projects/project-1/asset-1.extract.v1.md"],
 		});
-		expect(deleteAssetRow).toHaveBeenCalledWith("asset-1");
 		expect(deleteGcsObject).toHaveBeenCalledWith(
 			"projects/project-1/asset-1.pdf",
 		);
@@ -234,8 +235,11 @@ describe("purgeAssetStorage", () => {
 
 	it("deletes the row but RETAINS bytes when another row shares them", async () => {
 		hasOtherAssetForGcsObjectKey.mockResolvedValue(true);
-		await purgeAssetStorage(asset(), { alsoDelete: ["x.extract"] });
-		expect(deleteAssetRow).toHaveBeenCalledWith("asset-1");
+		const deleted = asset();
+		await purgeAssetStorage({
+			deleteRow: async () => deleted,
+			alsoDelete: ["x.extract"],
+		});
 		expect(deleteGcsObject).not.toHaveBeenCalled();
 	});
 
@@ -261,7 +265,10 @@ describe("purgeAssetStorage", () => {
 		// even though it does not share the `.txt` base-object key.
 		hasReadyExtractForProjectAndHash.mockResolvedValue(true);
 
-		await purgeAssetStorage(deleted, { alsoDelete: [extractKey] });
+		await purgeAssetStorage({
+			deleteRow: async () => deleted,
+			alsoDelete: [extractKey],
+		});
 
 		expect(deleteGcsObject).toHaveBeenCalledWith(deleted.gcsObjectKey);
 		expect(deleteGcsObject).not.toHaveBeenCalledWith(extractKey);
@@ -285,7 +292,10 @@ describe("purgeAssetStorage", () => {
 		const extractKey = `projects/project-1/${"c".repeat(64)}.extract.v${EXTRACTOR_VERSION}.md`;
 		hasReadyExtractForProjectAndHash.mockResolvedValue(true);
 
-		await purgeAssetStorage(deleted, { alsoDelete: [extractKey] });
+		await purgeAssetStorage({
+			deleteRow: async () => deleted,
+			alsoDelete: [extractKey],
+		});
 
 		expect(deleteGcsObject).toHaveBeenCalledWith(deleted.gcsObjectKey);
 		expect(deleteGcsObject).not.toHaveBeenCalledWith(extractKey);
@@ -318,7 +328,10 @@ describe("purgeAssetStorage", () => {
 			new Error("db unavailable"),
 		);
 
-		await purgeAssetStorage(deleted, { alsoDelete: [extractKey] });
+		await purgeAssetStorage({
+			deleteRow: async () => deleted,
+			alsoDelete: [extractKey],
+		});
 
 		expect(deleteGcsObject).toHaveBeenCalledWith(deleted.gcsObjectKey);
 		expect(deleteGcsObject).not.toHaveBeenCalledWith(extractKey);
@@ -326,13 +339,17 @@ describe("purgeAssetStorage", () => {
 
 	it("fails closed (retains bytes) when the shared-bytes probe throws", async () => {
 		hasOtherAssetForGcsObjectKey.mockRejectedValue(new Error("db unavailable"));
-		await purgeAssetStorage(asset());
-		expect(deleteAssetRow).toHaveBeenCalledWith("asset-1");
+		const deleted = asset();
+		await purgeAssetStorage({ deleteRow: async () => deleted });
 		expect(deleteGcsObject).not.toHaveBeenCalled();
 	});
 
 	it("skips null sibling keys (a non-document has no extract)", async () => {
-		await purgeAssetStorage(asset(), { alsoDelete: [null] });
+		const deleted = asset();
+		await purgeAssetStorage({
+			deleteRow: async () => deleted,
+			alsoDelete: [null],
+		});
 		expect(deleteGcsObject).toHaveBeenCalledTimes(1);
 		expect(deleteGcsObject).toHaveBeenCalledWith(
 			"projects/project-1/asset-1.pdf",
@@ -340,9 +357,9 @@ describe("purgeAssetStorage", () => {
 	});
 
 	it("runs an authoritative row delete before GCS and stops when it lost the row", async () => {
-		const deleteRow = vi.fn(() => Promise.resolve(false));
+		const deleteRow = vi.fn(() => Promise.resolve(false as const));
 		expect(
-			await purgeAssetStorage(asset(), {
+			await purgeAssetStorage({
 				alsoDelete: ["x.extract"],
 				deleteRow,
 			}),
@@ -353,8 +370,9 @@ describe("purgeAssetStorage", () => {
 	});
 
 	it("commits metadata deletion before taking the object-key cleanup lock", async () => {
-		const deleteRow = vi.fn(() => Promise.resolve(true));
-		await purgeAssetStorage(asset(), { deleteRow });
+		const deleted = asset();
+		const deleteRow = vi.fn(() => Promise.resolve(deleted));
+		await purgeAssetStorage({ deleteRow });
 
 		expect(deleteRow.mock.invocationCallOrder[0]).toBeLessThan(
 			withMediaObjectKeyLock.mock.invocationCallOrder[0] ?? 0,
@@ -371,7 +389,7 @@ describe("purgeAssetStorage", () => {
 			contentHash: "final-hash",
 		});
 		const deleteRow = vi.fn(() => Promise.resolve(locked));
-		await purgeAssetStorage(asset({ gcsObjectKey: "pending/asset-1.pdf" }), {
+		await purgeAssetStorage({
 			deleteRow,
 			alsoDeleteForAsset: (deletedAsset) => [
 				`${deletedAsset.contentHash}.extract`,

@@ -29,19 +29,16 @@ import tablerTextSize from "@iconify-icons/tabler/text-size";
 import type { ComponentType } from "react";
 import type { CaseProperty, CaseType, UserProperty } from "@/lib/domain";
 import {
-	authorableCaseProperties,
 	type Column,
 	type ColumnKind,
 	calculatedColumn,
-	canonicalCasePropertyName,
 	columnKindAcceptsPropertyType,
+	DATE_FORMAT_PRESET_DEFINITIONS,
 	dateColumn,
 	effectiveDataType,
 	idMappingColumn,
 	imageMapColumn,
 	intervalColumn,
-	isDateTyped,
-	isTextShaped,
 	phoneColumn,
 	plainColumn,
 } from "@/lib/domain";
@@ -118,7 +115,7 @@ export interface ColumnCardSchema<K extends ColumnKind> {
 	}>;
 	readonly defaultValue: (
 		ctx: ColumnEditContext,
-	) => Extract<Column, { kind: K }>;
+	) => Extract<Column, { kind: K }> | undefined;
 	readonly applicableForProperty: (
 		property: CaseProperty | undefined,
 	) => boolean;
@@ -134,10 +131,10 @@ export interface ColumnCardSchema<K extends ColumnKind> {
 // accept-set. The verdict is honest-unknown-permissive: a property
 // whose `data_type` the effective view leaves absent (neither a
 // declaration nor the writing fields pin one) accepts every kind —
-// missing metadata never manufactures an error. Same for `undefined`
-// from the caller (no property selected yet, or a name the admission
-// set doesn't resolve): the kind picker stays open while the user is
-// choosing.
+// missing metadata never manufactures an error. The applicability
+// predicate itself also has no opinion on `undefined`, but creation
+// and kind-swap affordances separately require a declared property:
+// they never manufacture an unbound column.
 
 /** Thin per-kind arrow over the domain predicate — the kind→family
  *  mapping itself lives ONLY in `columnKindPropertyRequirement`. */
@@ -151,29 +148,28 @@ function applicableFor(
 //
 // Each `defaultValue(ctx)` picks a sensible first property from the
 // `currentCaseType` matching the kind's applicability. When no
-// property qualifies, the seed emits an empty `field` — the column-
-// add UI surfaces an inline error from the type checker so the user
-// knows to either pick a property or remove the column.
+// property qualifies, the factory returns `undefined`: an unbound
+// column is not a valid authoring state and must never be persisted.
 
 function pickFirstProperty(
 	ctx: ColumnEditContext,
 	predicate: (p: CaseProperty) => boolean,
-): string {
+): string | undefined {
 	const ct = ctx.caseTypes.find((c) => c.name === ctx.currentCaseType);
-	if (ct === undefined) return "";
-	const property = authorableCaseProperties(ct.properties).find(predicate);
-	return property?.name ?? "";
+	if (ct === undefined) return undefined;
+	const property = ct.properties.find(predicate);
+	return property?.name;
 }
 
-function pickFirstDate(ctx: ColumnEditContext): string {
-	return pickFirstProperty(ctx, isDateTyped);
+function pickFirstDate(ctx: ColumnEditContext): string | undefined {
+	return pickFirstProperty(ctx, applicableFor("date"));
 }
 
-function pickFirstText(ctx: ColumnEditContext): string {
-	return pickFirstProperty(ctx, isTextShaped);
+function pickFirstText(ctx: ColumnEditContext): string | undefined {
+	return pickFirstProperty(ctx, applicableFor("phone"));
 }
 
-function pickFirstAny(ctx: ColumnEditContext): string {
+function pickFirstAny(ctx: ColumnEditContext): string | undefined {
 	return pickFirstProperty(ctx, () => true);
 }
 
@@ -199,7 +195,12 @@ export const columnCardSchemas: {
 		icon: tablerTextSize,
 		description: "Show the value as saved",
 		component: PlainColumnCard,
-		defaultValue: (ctx) => plainColumn(newUuid(), pickFirstAny(ctx), ""),
+		defaultValue: (ctx) => {
+			const field = pickFirstAny(ctx);
+			return field === undefined
+				? undefined
+				: plainColumn(newUuid(), field, "");
+		},
 		applicableForProperty: applicableFor("plain"),
 		applicabilityRequirement: null,
 	},
@@ -209,8 +210,17 @@ export const columnCardSchemas: {
 		icon: tablerCalendarStats,
 		description: "Make a date easier to read",
 		component: DateColumnCard,
-		defaultValue: (ctx) =>
-			dateColumn(newUuid(), pickFirstDate(ctx), "", "%Y-%m-%d"),
+		defaultValue: (ctx) => {
+			const field = pickFirstDate(ctx);
+			return field === undefined
+				? undefined
+				: dateColumn(
+						newUuid(),
+						field,
+						"",
+						DATE_FORMAT_PRESET_DEFINITIONS.iso.commCarePattern,
+					);
+		},
 		applicableForProperty: applicableFor("date"),
 		applicabilityRequirement: "date or date-and-time information",
 	},
@@ -220,7 +230,12 @@ export const columnCardSchemas: {
 		icon: tablerPhone,
 		description: "Let people tap the number to call",
 		component: PhoneColumnCard,
-		defaultValue: (ctx) => phoneColumn(newUuid(), pickFirstText(ctx), ""),
+		defaultValue: (ctx) => {
+			const field = pickFirstText(ctx);
+			return field === undefined
+				? undefined
+				: phoneColumn(newUuid(), field, "");
+		},
 		applicableForProperty: applicableFor("phone"),
 		applicabilityRequirement: "text or choice information",
 	},
@@ -230,8 +245,12 @@ export const columnCardSchemas: {
 		icon: tablerListNumbers,
 		description: "Replace saved values with friendly labels",
 		component: IdMappingCard,
-		defaultValue: (ctx) =>
-			idMappingColumn(newUuid(), pickFirstAny(ctx), "", []),
+		defaultValue: (ctx) => {
+			const field = pickFirstAny(ctx);
+			return field === undefined
+				? undefined
+				: idMappingColumn(newUuid(), field, "", []);
+		},
 		applicableForProperty: applicableFor("id-mapping"),
 		applicabilityRequirement: null,
 	},
@@ -241,7 +260,12 @@ export const columnCardSchemas: {
 		icon: tablerPhoto,
 		description: "Replace saved values with images",
 		component: ImageMapColumnCard,
-		defaultValue: (ctx) => imageMapColumn(newUuid(), pickFirstAny(ctx), "", []),
+		defaultValue: (ctx) => {
+			const field = pickFirstAny(ctx);
+			return field === undefined
+				? undefined
+				: imageMapColumn(newUuid(), field, "", []);
+		},
 		applicableForProperty: applicableFor("image-map"),
 		applicabilityRequirement: null,
 	},
@@ -251,16 +275,12 @@ export const columnCardSchemas: {
 		icon: tablerHourglass,
 		description: "Show time since a date or flag overdue cases",
 		component: IntervalCard,
-		defaultValue: (ctx) =>
-			intervalColumn(
-				newUuid(),
-				pickFirstDate(ctx),
-				"",
-				7,
-				"days",
-				"always",
-				"",
-			),
+		defaultValue: (ctx) => {
+			const field = pickFirstDate(ctx);
+			return field === undefined
+				? undefined
+				: intervalColumn(newUuid(), field, "", 7, "days", "always", "");
+		},
 		applicableForProperty: applicableFor("interval"),
 		applicabilityRequirement: "date or date-and-time information",
 	},
@@ -283,6 +303,23 @@ export const columnCardSchemas: {
 export const columnCardSchemaList: readonly ColumnCardSchema<ColumnKind>[] =
 	Object.values(columnCardSchemas) as readonly ColumnCardSchema<ColumnKind>[];
 
+/** Whether this context can produce a complete default for the requested
+ * display kind. Calculated columns need no property; every other kind must
+ * find a declared property admitted by that kind. */
+export function canSeedColumnKind(
+	ctx: ColumnEditContext,
+	kind: ColumnKind,
+): boolean {
+	if (kind === "calculated") return true;
+	const caseType = ctx.caseTypes.find(
+		(candidate) => candidate.name === ctx.currentCaseType,
+	);
+	if (caseType === undefined) return false;
+	return caseType.properties.some((property) =>
+		columnCardSchemas[kind].applicableForProperty(property),
+	);
+}
+
 /**
  * Resolve the effective `data_type` of the column's referenced
  * property against the editor context. Returns `undefined` when
@@ -300,9 +337,7 @@ export function resolveColumnPropertyDataType(
 	if (field === "") return undefined;
 	const ct = ctx.caseTypes.find((c) => c.name === ctx.currentCaseType);
 	if (ct === undefined) return undefined;
-	const property = authorableCaseProperties(ct.properties).find(
-		(p) => p.name === canonicalCasePropertyName(field),
-	);
+	const property = ct.properties.find((p) => p.name === field);
 	if (property === undefined) return undefined;
 	return effectiveDataType(property);
 }
@@ -311,9 +346,10 @@ export function resolveColumnPropertyDataType(
  * Look up the case property a column references. Returns
  * `undefined` when the case type isn't declared, when the case
  * type has no property by that name, or when the column's `field`
- * is empty. The applicability predicate accepts `undefined` as
- * "no opinion" so the kind picker stays available while the user
- * is choosing a property.
+ * is empty. The applicability predicate itself accepts `undefined`
+ * as "no opinion", while creation and swap affordances require this
+ * lookup to succeed so they only emit columns bound to declared
+ * information.
  *
  * Calculated columns have no `field` slot; callers must guard
  * before invoking this on a calculated value.
@@ -325,7 +361,5 @@ export function resolveColumnProperty(
 	if (field === "") return undefined;
 	const ct = ctx.caseTypes.find((c) => c.name === ctx.currentCaseType);
 	if (ct === undefined) return undefined;
-	return authorableCaseProperties(ct.properties).find(
-		(p) => p.name === canonicalCasePropertyName(field),
-	);
+	return ct.properties.find((p) => p.name === field);
 }

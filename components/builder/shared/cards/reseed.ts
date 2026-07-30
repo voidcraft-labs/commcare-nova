@@ -69,7 +69,7 @@ export function resolveExpressionType(
 // The literal types the editor can construct an EMPTY typed value for,
 // in the order a reseed prefers them. `geopoint` has no literal widget
 // (a coordinate is authored as text or read from a property), and the
-// sentinels (`_any` / `_sequence`) never carry user content — a slot
+// null sentinel (`_any`) never carries user content — a slot
 // that admits only those falls through to the universally-compatible
 // `null` literal.
 const BUILDABLE_TYPES: readonly ResolvedType[] = [

@@ -1,7 +1,7 @@
 // lib/commcare/multimedia/logoEntry.ts
 //
 // The app logo (web-apps banner slot). Two wire surfaces, both fed from
-// `blueprintDoc.logo` (a single image `AssetId`):
+// `blueprintDoc.logo` (a single image `MediaAssetId`):
 //
 //   1. HQ-JSON `logo_refs` (the upload path — CCHQ regenerates the
 //      profile from this on import):
@@ -20,6 +20,7 @@
 
 import type { Element } from "domhandler";
 import { el } from "@/lib/commcare/elementBuilders";
+import type { MediaAssetId } from "@/lib/domain/multimedia";
 import { type AssetManifest, requireAssetRef } from "./assetWirePath";
 
 /**
@@ -48,7 +49,7 @@ export interface LogoRef {
  * `logo_refs`, and the type slot widens from the shell's empty default.
  */
 export function buildLogoRefs(
-	logo: string | undefined,
+	logo: MediaAssetId | undefined,
 	manifest: AssetManifest | undefined,
 	where: string,
 ): Record<string, LogoRef> {
@@ -63,7 +64,7 @@ export function buildLogoRefs(
  * the logo overrides any client default banner.
  */
 export function buildLogoProfileProperty(
-	logo: string | undefined,
+	logo: MediaAssetId | undefined,
 	manifest: AssetManifest | undefined,
 	where: string,
 ): Element | undefined {

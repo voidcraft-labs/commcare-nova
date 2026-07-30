@@ -10,7 +10,7 @@
 #     backup, and PITR with 4-day WAL retention (Phase 2)
 #   - The application database (Phase 3)
 #   - Project IAM bindings + Cloud SQL database users for the dedicated
-#     migration/runtime/capture-cleanup SAs and the developer principal (Phase 4)
+#     migration/runtime/capture-cleanup/audit SAs and developer (Phase 4)
 #   - Cloud Run wiring (Direct VPC Egress + the env vars `connection.ts`
 #     reads) (Phase 6)
 #
@@ -59,12 +59,14 @@ readonly DATABASE_FLAGS="cloudsql.enable_pgaudit=on,cloudsql.iam_authentication=
 readonly MIGRATION_SA_EMAIL="nova-migrate@${PROJECT_ID}.iam.gserviceaccount.com"
 readonly RUNTIME_SA_EMAIL="commcare-nova@${PROJECT_ID}.iam.gserviceaccount.com"
 readonly CAPTURE_CLEANUP_SA_EMAIL="nova-capture-cleanup@${PROJECT_ID}.iam.gserviceaccount.com"
+readonly AUDIT_SA_EMAIL="nova-audit@${PROJECT_ID}.iam.gserviceaccount.com"
 # Cloud SQL database usernames (truncated form — the .gserviceaccount.com
 # suffix is appended internally by Cloud SQL during IAM token exchange and
 # rejected by `gcloud sql users create`).
 readonly MIGRATION_SA_DBUSER="nova-migrate@${PROJECT_ID}.iam"
 readonly RUNTIME_SA_DBUSER="commcare-nova@${PROJECT_ID}.iam"
 readonly CAPTURE_CLEANUP_SA_DBUSER="nova-capture-cleanup@${PROJECT_ID}.iam"
+readonly AUDIT_SA_DBUSER="nova-audit@${PROJECT_ID}.iam"
 readonly DEVELOPER_USER="bperry@dimagi.com"
 
 readonly CLOUD_RUN_SERVICE="commcare-nova"
@@ -244,7 +246,7 @@ fi
 # ---------------------------------------------------------------------------
 echo "=== Phase 4: IAM bindings + database users ==="
 
-# Ensure all three durable database identities exist. The broader build/deploy
+# Ensure all four durable database identities exist. The broader build/deploy
 # grants remain owned by `provision-deployment-identities.sh`; creating the
 # accounts here makes a first-ever Cloud SQL provision self-contained.
 if ! gcloud iam service-accounts describe "$MIGRATION_SA_EMAIL" \
@@ -265,13 +267,20 @@ if ! gcloud iam service-accounts describe "$CAPTURE_CLEANUP_SA_EMAIL" \
 		--project="$PROJECT_ID" \
 		--display-name="Nova capture cleanup worker"
 fi
+if ! gcloud iam service-accounts describe "$AUDIT_SA_EMAIL" \
+	--project="$PROJECT_ID" >/dev/null 2>&1; then
+	run gcloud iam service-accounts create nova-audit \
+		--project="$PROJECT_ID" \
+		--display-name="Nova canonical identity auditor"
+fi
 
 # Project-level IAM grants. add-iam-policy-binding is idempotent
 # (re-applying an existing binding is a no-op + a verbose policy print).
 for account in \
 	"$MIGRATION_SA_EMAIL" \
 	"$RUNTIME_SA_EMAIL" \
-	"$CAPTURE_CLEANUP_SA_EMAIL"; do
+	"$CAPTURE_CLEANUP_SA_EMAIL" \
+	"$AUDIT_SA_EMAIL"; do
 	for role in roles/cloudsql.client roles/cloudsql.instanceUser; do
 		run gcloud projects add-iam-policy-binding "$PROJECT_ID" \
 			--member="serviceAccount:${account}" \
@@ -286,14 +295,15 @@ for role in roles/cloudsql.client roles/cloudsql.instanceUser; do
 		--condition=None
 done
 
-# Dedicated runtime, migration, and cleanup database users. Runtime is created
+# Dedicated runtime, migration, cleanup, and audit database users. Runtime is created
 # first because migration's sole custom database-role membership is runtime.
-# Capture cleanup is intentionally isolated and receives only direct table
-# grants from the migration-time privilege convergence.
+# Capture cleanup and audit are intentionally isolated and receive only direct
+# grants from migration-time privilege convergence.
 for database_user in \
 	"$RUNTIME_SA_DBUSER" \
 	"$MIGRATION_SA_DBUSER" \
-	"$CAPTURE_CLEANUP_SA_DBUSER"; do
+	"$CAPTURE_CLEANUP_SA_DBUSER" \
+	"$AUDIT_SA_DBUSER"; do
 	if gcloud sql users list --instance="$INSTANCE_ID" \
 		--format='value(name)' 2>/dev/null \
 		| grep -qx "$database_user"; then
@@ -304,7 +314,7 @@ for database_user in \
 			--type=CLOUD_IAM_SERVICE_ACCOUNT
 	fi
 done
-# Runtime and capture cleanup have no custom database-role memberships.
+# Runtime, capture cleanup, and audit have no custom database-role memberships.
 run gcloud sql users assign-roles "$RUNTIME_SA_DBUSER" \
 	--instance="$INSTANCE_ID" \
 	--type=CLOUD_IAM_SERVICE_ACCOUNT \
@@ -315,6 +325,10 @@ run gcloud sql users assign-roles "$MIGRATION_SA_DBUSER" \
 	--database-roles="$RUNTIME_SA_DBUSER" \
 	--revoke-existing-roles
 run gcloud sql users assign-roles "$CAPTURE_CLEANUP_SA_DBUSER" \
+	--instance="$INSTANCE_ID" \
+	--type=CLOUD_IAM_SERVICE_ACCOUNT \
+	--revoke-existing-roles
+run gcloud sql users assign-roles "$AUDIT_SA_DBUSER" \
 	--instance="$INSTANCE_ID" \
 	--type=CLOUD_IAM_SERVICE_ACCOUNT \
 	--revoke-existing-roles
@@ -350,17 +364,17 @@ run gcloud sql users assign-roles "$DEVELOPER_USER" \
 #   1. Create a strong-password temporary BUILT_IN administrator with NO inline
 #      `--database-roles`; assigning roles at creation suppresses its automatic
 #      cloudsqlsuperuser membership.
-#   2. After creation, assign runtime, migration, cleanup, and any source owner
+#   2. After creation, assign runtime, migration, cleanup, audit, and any source owner
 #      the bootstrap must transfer WITHOUT `--revoke-existing-roles`,
 #      preserving cloudsqlsuperuser. Migration keeps runtime as its sole custom
-#      role; runtime and capture cleanup keep none.
+#      role; runtime, capture cleanup, and audit keep none.
 #   3. Export NOVA_DB_BOOTSTRAP_USER and NOVA_DB_BOOTSTRAP_PASSWORD only in the
 #      local operator shell.
 #   4. Run `npx tsx scripts/infra/bootstrap-database-owner.ts` locally without
 #      `--apply`, inspect its owner/version/config/dependency inventory, then
 #      run the same command with `--apply`.
 #      It transactionally creates pg_trgm/fuzzystrmatch/postgis/pgaudit, sets
-#      runtime/migration/cleanup CONNECTION LIMIT 16/1/3, makes `nova-migrate`
+#      runtime/migration/cleanup/audit CONNECTION LIMIT 16/1/3/1, makes `nova-migrate`
 #      the database owner, retains trusted Cloud-SQL-managed `postgres`
 #      extension ownership, transfers non-permanent ownership, and
 #      audits every result.
@@ -393,7 +407,8 @@ echo "=== Phase 5: SKIPPED (manual — run the checked-in local CLI) ==="
 # `--max` (which spans revisions) and revision-level `--max-instances` stay at
 # four as soft outer controls. PostgreSQL's runtime login cap of 16 is the hard
 # boundary for the current `4 * (pool 3 + listener 1)` demand; migration=1 and
-# cleanup=3 are separate non-inherited login-role caps. NOVA_DB_WORKLOAD=service
+# cleanup=3 and audit=1 are separate non-inherited login-role caps.
+# NOVA_DB_WORKLOAD=service
 # selects pool 3 and fails closed if a non-local deployment omits its workload.
 # ---------------------------------------------------------------------------
 echo "=== Phase 6: Wire Cloud Run to Cloud SQL ==="

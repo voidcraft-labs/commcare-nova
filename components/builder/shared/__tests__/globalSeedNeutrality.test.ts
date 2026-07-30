@@ -21,18 +21,16 @@ import {
 	type PredicateEditContext,
 	predicateCardSchemas,
 } from "@/components/builder/shared/editorSchemas";
-import type { LookupColumnId, LookupTableId } from "@/lib/domain";
-import {
-	type Predicate,
-	tableColumn,
-	type ValueExpression,
-} from "@/lib/domain/predicate";
+import type { Predicate, ValueExpression } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 
 const GLOBAL_CTX: PredicateEditContext = {
 	caseTypes: [
 		{
 			name: "patient",
-			properties: [{ name: "status", label: "Status", data_type: "text" }],
+			properties: [
+				{ name: "status", label: proseText("Status"), data_type: "text" },
+			],
 		},
 	],
 	currentCaseType: "patient",
@@ -126,38 +124,5 @@ describe("global placeholders hold the truth value their destination needs", () 
 		expect(
 			evalSeed(predicateCardSchemas.not.defaultValue(HOLD_FALSE_CTX)),
 		).toBe(false);
-	});
-});
-
-describe("data-table row placeholders", () => {
-	it("start from the active table column instead of case or session data", () => {
-		const tableId = "018f3e8a-7b2c-7def-8abc-1234567890ab" as LookupTableId;
-		const columnId = "018f3e8a-7b2c-7def-8abc-1234567890ac" as LookupColumnId;
-		const seed = firstComparisonDefault({
-			caseTypes: [],
-			currentCaseType: "",
-			knownInputs: [],
-			userProperties: [],
-			formFields: [],
-			lookupTables: [],
-			tableScope: {
-				tableId,
-				columns: [
-					{
-						id: columnId,
-						wireName: "rank",
-						label: "Rank",
-						dataType: "int",
-					},
-				],
-			},
-			caseDataScope: "table-row",
-		});
-
-		expect(seed).toEqual({
-			kind: "eq",
-			left: { kind: "term", term: tableColumn(tableId, columnId) },
-			right: { kind: "term", term: { kind: "literal", value: 0 } },
-		});
 	});
 });

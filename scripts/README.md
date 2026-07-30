@@ -90,17 +90,14 @@ so use the raw scanner and writer when deploying that cutover:
 
 ```bash
 # Read-only inventory. `--prod` uses the read-only gcloud IAM connection.
-npx tsx scripts/scan-search-input-identity.ts
 npx tsx scripts/scan-search-input-identity.ts --prod
 
 # The writer is a dry run unless --execute is present. It writes only through
 # NOVA_DB_LOCAL_URL or the Cloud SQL connector environment; there is no
 # convenience --prod writer flag.
-npx tsx scripts/migrate-search-input-identity.ts
 npx tsx scripts/migrate-search-input-identity.ts --execute
 
 # Required postcondition in the same target environment.
-npx tsx scripts/scan-search-input-identity.ts
 ```
 
 Use `--app <appId>` to constrain either command. The writer locks each app,

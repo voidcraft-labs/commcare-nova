@@ -10,8 +10,6 @@ import {
 	caseSearchConfigHasAuthoredSettings,
 	emptyCaseListConfig,
 	isOwnerOnlyCaseSearchConfig,
-	normalizeOwnerOnlyCaseSearchConfig,
-	type TileCell,
 } from "@/lib/domain";
 import { effectiveFilterForEmission } from "@/lib/domain/predicate";
 import { cascadeDeleteForm } from "./helpers";
@@ -68,26 +66,7 @@ export function applyModuleMutation(
 	switch (mut.kind) {
 		case "addModule": {
 			const { uuid } = mut.module;
-			// The nested module is the origin-compatible fallback snapshot. Rebuild
-			// current-only nested state from optional top-level extensions without
-			// mutating the payload object shared by the event log/caller.
 			const module = structuredClone(mut.module);
-			const columns = module.caseListConfig?.columns;
-			if (columns !== undefined) {
-				const columnByUuid = new Map(
-					columns.map((column) => [column.uuid, column]),
-				);
-				applyColumnTileCells(columnByUuid, mut.columnTileCells);
-			}
-			if (
-				mut.caseListTile !== undefined &&
-				module.caseListConfig !== undefined
-			) {
-				module.caseListConfig.tile = structuredClone(mut.caseListTile);
-			}
-			if (mut.caseSearchConfigValue !== undefined) {
-				module.caseSearchConfig = structuredClone(mut.caseSearchConfigValue);
-			}
 			draft.modules[uuid] = module;
 			draft.formOrder[uuid] = [];
 			// The membership array IS the sequence, so the add splices.
@@ -132,24 +111,27 @@ export function applyModuleMutation(
 			// `null` only on the clearable (optional) slots, so a required slot
 			// can never reach here as `null`.
 			const target = mod as unknown as Record<string, unknown>;
-			for (const [key, value] of Object.entries(mut.patch)) {
+			const entries: [string, unknown][] = Object.entries(mut.patch);
+			if (
+				mut.ensureCaseListConfig &&
+				!Object.hasOwn(mut.patch, "caseListConfig")
+			) {
+				entries.push(["caseListConfig", undefined]);
+			}
+			if (
+				(mut.caseSearchConfigPatch !== undefined ||
+					mut.caseSearchConfigOperation !== undefined) &&
+				!Object.hasOwn(mut.patch, "caseSearchConfig")
+			) {
+				entries.push(["caseSearchConfig", undefined]);
+			}
+			for (const [key, value] of entries) {
 				if (key === "caseListConfig" && mut.ensureCaseListConfig) {
-					// New receivers interpret the optional semantic extension instead of
-					// applying its empty old-client fallback snapshot. This makes a stale
-					// absent -> present batch preserve a config a peer already populated.
 					ensureCaseListConfig(draft, mut.uuid);
 					continue;
 				}
 				if (key === "caseListConfig" && value !== null && value !== undefined) {
-					const config = structuredClone(value) as CaseListConfig;
-					const columnByUuid = new Map(
-						config.columns.map((column) => [column.uuid, column]),
-					);
-					applyColumnTileCells(columnByUuid, mut.columnTileCells);
-					if (mut.caseListTile !== undefined) {
-						config.tile = structuredClone(mut.caseListTile);
-					}
-					target[key] = config;
+					target[key] = structuredClone(value) as CaseListConfig;
 					continue;
 				}
 				if (key === "caseSearchConfig" && mut.caseSearchConfigPatch) {
@@ -158,16 +140,20 @@ export function applyModuleMutation(
 						([, next]) => next === null || next === undefined,
 					);
 					if (mod.caseSearchConfig === undefined && clearOnly) continue;
-					const fresh = mod.caseSearchConfig ?? {};
+					const fresh =
+						mod.caseSearchConfig === undefined
+							? {}
+							: isOwnerOnlyCaseSearchConfig(mod.caseSearchConfig)
+								? {
+										excludedOwnerIds: mod.caseSearchConfig.excludedOwnerIds,
+									}
+								: mod.caseSearchConfig;
 					const targetSearch = fresh as unknown as Record<string, unknown>;
 					for (const [slot, next] of entries) {
 						if (next === null || next === undefined) delete targetSearch[slot];
 						else targetSearch[slot] = structuredClone(next);
 					}
-					if (
-						fresh.searchActionEnabled === false &&
-						!caseSearchConfigHasAuthoredSettings(fresh)
-					) {
+					if (!caseSearchConfigHasAuthoredSettings(fresh)) {
 						delete mod.caseSearchConfig;
 					} else {
 						mod.caseSearchConfig = fresh;
@@ -179,18 +165,19 @@ export function applyModuleMutation(
 					if (operation === "set-owner-only") {
 						const desiredOwnerIds = mut.caseSearchConfigValue?.excludedOwnerIds;
 						if (desiredOwnerIds === undefined) continue;
-						const freshRaw = mod.caseSearchConfig;
-						const fresh =
-							freshRaw === undefined
-								? undefined
-								: normalizeOwnerOnlyCaseSearchConfig(freshRaw);
+						const fresh = mod.caseSearchConfig;
 						const searchIsFreshlyEnabled =
 							(mod.caseListConfig?.searchInputs.length ?? 0) > 0 ||
 							(fresh !== undefined && !isOwnerOnlyCaseSearchConfig(fresh));
 						if (searchIsFreshlyEnabled) {
 							// Same-slot owner edits are last-writer-wins, while every peer Search
 							// setting and the peer's enabled action state survive this stale edit.
-							const { searchActionEnabled: _intent, ...enabled } = fresh ?? {};
+							const enabled =
+								fresh === undefined
+									? {}
+									: isOwnerOnlyCaseSearchConfig(fresh)
+										? { excludedOwnerIds: fresh.excludedOwnerIds }
+										: fresh;
 							mod.caseSearchConfig = {
 								...enabled,
 								excludedOwnerIds: desiredOwnerIds,
@@ -209,11 +196,9 @@ export function applyModuleMutation(
 						if (mod.caseSearchConfig === undefined) {
 							mod.caseSearchConfig = {};
 						} else if (isOwnerOnlyCaseSearchConfig(mod.caseSearchConfig)) {
-							const normalized = normalizeOwnerOnlyCaseSearchConfig(
-								mod.caseSearchConfig,
-							);
-							const { searchActionEnabled: _disabled, ...enabled } = normalized;
-							mod.caseSearchConfig = enabled;
+							mod.caseSearchConfig = {
+								excludedOwnerIds: mod.caseSearchConfig.excludedOwnerIds,
+							};
 						}
 						continue;
 					}
@@ -223,7 +208,7 @@ export function applyModuleMutation(
 						// synthetic unused marker is safe to remove.
 						if (
 							mod.caseSearchConfig !== undefined &&
-							mod.caseSearchConfig.searchActionEnabled !== false &&
+							!isOwnerOnlyCaseSearchConfig(mod.caseSearchConfig) &&
 							!caseSearchConfigHasAuthoredSettings(mod.caseSearchConfig) &&
 							(mod.caseListConfig?.searchInputs.length ?? 0) === 0 &&
 							effectiveFilterForEmission(mod.caseListConfig?.filter) ===
@@ -254,9 +239,7 @@ export function applyModuleMutation(
 						mod.caseSearchConfig !== undefined &&
 						isOwnerOnlyCaseSearchConfig(mod.caseSearchConfig)
 					) {
-						mod.caseSearchConfig = normalizeOwnerOnlyCaseSearchConfig(
-							mod.caseSearchConfig,
-						);
+						continue;
 					}
 					const config = mod.caseSearchConfig;
 					if (config === undefined) continue;
@@ -269,11 +252,13 @@ export function applyModuleMutation(
 						effectiveFilterForEmission(mod.caseListConfig?.filter) !==
 						undefined;
 					if (hasSearchActionSetting || hasCasesAvailableCondition) {
-						delete config.searchActionEnabled;
 						continue;
 					}
 					if (config.excludedOwnerIds !== undefined) {
-						config.searchActionEnabled = false;
+						mod.caseSearchConfig = {
+							searchActionEnabled: false,
+							excludedOwnerIds: config.excludedOwnerIds,
+						};
 						continue;
 					}
 					delete mod.caseSearchConfig;
@@ -286,16 +271,18 @@ export function applyModuleMutation(
 		}
 		case "setModuleMedia": {
 			// Set or clear the module's menu media (home-screen tile `icon` +
-			// `audioLabel`). The mutation carries explicit `AssetId | null`
+			// `audioLabel`). The mutation carries explicit `MediaAssetId | null`
 			// slots so a clear survives JSON over the SSE wire — a generic
 			// `updateModule` patch would encode the clear as `{ key: undefined }`,
 			// which `JSON.stringify` drops, leaving the stale ref on the client.
-			// Each `null` maps to `undefined` here so the cleared slot drops off
-			// the module (both slots are `.optional()`, never a stored `null`).
+			// A `null` clear deletes the optional property; canonical documents
+			// never retain own `undefined` values.
 			const mod = draft.modules[mut.uuid];
 			if (!mod) return;
-			mod.icon = mut.icon ?? undefined;
-			mod.audioLabel = mut.audioLabel ?? undefined;
+			if (mut.icon === null) delete mod.icon;
+			else mod.icon = mut.icon;
+			if (mut.audioLabel === null) delete mod.audioLabel;
+			else mod.audioLabel = mut.audioLabel;
 			return;
 		}
 		case "addColumn": {
@@ -307,7 +294,6 @@ export function applyModuleMutation(
 			// produced (frozen) state that a later apply of the same batch edits in
 			// place. A spread leaves `tile`, `sort`, and any expression aliased.
 			const column = structuredClone(mut.column);
-			if (mut.tileCell !== undefined) column.tile = { ...mut.tileCell };
 			config.columns.push(column);
 			// The column joins BOTH sequences, at the placement each one named.
 			config.listColumnOrder = spliceAfter(
@@ -347,38 +333,19 @@ export function applyModuleMutation(
 				else current.tile = structuredClone(mut.tilePatch);
 				return;
 			}
-			// Always preserve CURRENT order keys and tile placement. New emitters also
-			// mark content-only replacements to preserve CURRENT visibility; an
-			// unmarked event retains the pre-granular full-body behavior for persisted
-			// replay / old clients. Delete absent current keys too: a stale payload may
-			// still carry one.
-			//
-			// Tile placement is unconditionally preserved rather than opt-in because
-			// it has no fallback spelling at all: an origin/main receiver that applied
-			// this same event dropped the cell from its own copy, so its next content
-			// edit would arrive here cell-free. Preserving on every content update is
-			// what stops that round trip from silently un-placing a column.
-			// A content edit does not have to protect the column's position: its
-			// place lives in the config's two ordering arrays, which this
-			// replacement never touches.
-			const replacement = { ...structuredClone(mut.column), uuid: mut.uuid };
-			if (current.tile === undefined) delete replacement.tile;
-			// `current` is an Immer draft, whose Proxy `structuredClone` rejects.
-			// A tile cell is a flat value object, so a shallow copy detaches it.
-			else replacement.tile = { ...current.tile };
-			if (mut.preserveVisibility) {
-				// Visibility true is canonicalized as absence by the dedicated mutation.
-				for (const key of ["visibleInList", "visibleInDetail"] as const) {
-					if (current[key] === undefined) delete replacement[key];
-					else replacement[key] = current[key];
-				}
-			}
-			if (mut.preserveSort) {
-				if (current.sort === undefined) delete replacement.sort;
-				// `current` is an Immer draft; structuredClone rejects its Proxy.
-				// ColumnSort is a flat value, so a shallow copy safely detaches it.
-				else replacement.sort = { ...current.sort };
-			}
+			if (mut.column === undefined) return;
+			const replacement = {
+				...structuredClone(mut.column),
+				uuid: mut.uuid,
+				...(current.sort === undefined ? {} : { sort: { ...current.sort } }),
+				...(current.tile === undefined ? {} : { tile: { ...current.tile } }),
+				...(current.visibleInList === undefined
+					? {}
+					: { visibleInList: current.visibleInList }),
+				...(current.visibleInDetail === undefined
+					? {}
+					: { visibleInDetail: current.visibleInDetail }),
+			};
 			config.columns[idx] = replacement;
 			return;
 		}
@@ -434,8 +401,7 @@ export function applyModuleMutation(
 			return;
 		}
 		case "updateSearchInput": {
-			const mod = draft.modules[mut.moduleUuid];
-			const config = mod?.caseListConfig;
+			const config = draft.modules[mut.moduleUuid]?.caseListConfig;
 			if (!config) return;
 			const idx = config.searchInputs.findIndex((s) => s.uuid === mut.uuid);
 			if (idx === -1) return;
@@ -469,7 +435,7 @@ export function applyModuleMutation(
 		case "setCaseListMeta": {
 			// Edit the metadata of an EXISTING config — never births one. A
 			// module whose config a peer concurrently cleared is a MISSING target
-			// (the guarded commit's `batchTargetsMissing` turns this into a 409
+			// (the guarded commit's `mutationTargetsInvalid` turns this into a 409
 			// reload), not a config to resurrect empty: reading the config directly
 			// (not the semantic config ensure) leaves this a no-op if the guard is ever
 			// bypassed, so a removed case list can't reappear as `{columns:[],
@@ -478,39 +444,13 @@ export function applyModuleMutation(
 			if (!config) return;
 			// Apply the patch key-by-key: a `null` (wire spelling of a clear —
 			// JSON drops `undefined`) DELETES the slot, any other value sets it.
-			// The tile layout is one more such slot; it rides top-level only so an
-			// origin/main parser can strip it off the `.strict()` patch body.
 			const target = config as unknown as Record<string, unknown>;
-			const slots: Record<string, unknown> =
-				mut.tilePatch === undefined
-					? mut.patch
-					: { ...mut.patch, tile: mut.tilePatch };
-			for (const [key, value] of Object.entries(slots)) {
+			for (const [key, value] of Object.entries(mut.patch)) {
 				if (value === null || value === undefined) delete target[key];
 				else target[key] = value;
 			}
 			return;
 		}
-	}
-}
-
-/**
- * Replays the top-level tile-cell extension onto a wholesale module or
- * case-list write, whose nested fallback body is deliberately cell-free
- * so an origin/main strict schema can parse it.
- *
- * An entry naming a column the fallback does not carry is skipped rather
- * than throwing — the schema already rejects that payload at the wire, and
- * reducers stay total so historical replay can never block.
- */
-function applyColumnTileCells(
-	columnByUuid: ReadonlyMap<string, { tile?: TileCell }>,
-	entries: readonly { readonly uuid: string; readonly tile: TileCell }[] = [],
-): void {
-	for (const entry of entries) {
-		const column = columnByUuid.get(entry.uuid);
-		if (column === undefined) continue;
-		column.tile = structuredClone(entry.tile);
 	}
 }
 

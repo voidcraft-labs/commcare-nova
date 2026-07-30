@@ -17,14 +17,14 @@
  *
  * Three exit branches:
  *
- *   1. Module index out of range → `{ error }`, no mutations.
+ *   1. Module UUID address does not resolve → `{ error }`, no mutations.
  *   2. Column uuid not present in the module's case-list config →
  *      `{ error }`, no mutations.
  *   3. Success → `{ message, uuid }` plus the persisted mutation,
  *      tagged `module:M:caseList:column:update`.
  */
 
-import { z } from "zod";
+import type { z } from "zod";
 import { asUuid, type BlueprintDoc, type Uuid } from "@/lib/domain";
 import { updateColumnMutation } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
@@ -33,19 +33,19 @@ import {
 	type MutatingToolResult,
 	toToolErrorResult,
 } from "../common";
+import {
+	moduleAddressSchema,
+	resolveModuleAddress,
+} from "../shared/entityAddresses";
 import type { ToolCallSummary } from "../shared/toolCallSummary";
 import {
 	columnUpdateInputSchema,
-	moduleNotFoundResult,
 	stampColumnUuid,
 	uuidInputSchema,
 } from "./shared";
 
-export const updateCaseListColumnInputSchema = z
-	.object({
-		moduleUuid: uuidInputSchema.describe(
-			"Stable uuid of the module whose case list column is updated",
-		),
+export const updateCaseListColumnInputSchema = moduleAddressSchema
+	.extend({
 		columnUuid: uuidInputSchema.describe(
 			"Uuid of the existing column to replace. Look at getModule's projection or run searchBlueprint to surface the current uuids.",
 		),
@@ -78,21 +78,19 @@ export const updateCaseListColumnTool = {
 		ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<UpdateCaseListColumnResult>> {
-		const {
-			moduleUuid: rawModuleUuid,
-			columnUuid: rawColumnUuid,
-			column,
-		} = input;
-		const moduleUuid = asUuid(rawModuleUuid);
+		const { columnUuid: rawColumnUuid, column } = input;
 		const columnUuid = asUuid(rawColumnUuid);
 		try {
-			const mod = doc.modules[moduleUuid];
-			if (!mod)
-				return moduleNotFoundResult<UpdateCaseListColumnSuccess>(
-					doc,
-					rawModuleUuid,
-					"update a case list column",
-				);
+			const address = resolveModuleAddress(doc, input);
+			if (!address.ok) {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					newDoc: doc,
+					result: { error: address.error },
+				};
+			}
+			const { moduleUuid, module: mod } = address;
 
 			const replacement = stampColumnUuid(column, columnUuid);
 			const result = updateColumnMutation(mod, columnUuid, replacement);
@@ -123,7 +121,7 @@ export const updateCaseListColumnTool = {
 
 			return {
 				kind: "mutate" as const,
-				mutations: result.mutations,
+				mutations: commit.mutations,
 				newDoc,
 				result: {
 					message: `Updated case list column ${columnUuid} on module "${mod.name}". New kind: ${column.kind}, header "${column.header}".`,

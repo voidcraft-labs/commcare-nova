@@ -5,6 +5,7 @@ import type { LookupReferenceExtractorRegistry } from "@/lib/doc/lookupReference
 import type { LookupOptionsSource } from "@/lib/domain";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
+import { proseText } from "@/lib/domain/prose";
 import {
 	getLookupDefinitions,
 	getLookupFixtureData,
@@ -36,8 +37,8 @@ function validDoc() {
 			{
 				name: "patient",
 				properties: [
-					{ name: "case_name", label: "Name" },
-					{ name: "village", label: "Village" },
+					{ name: "case_name", label: proseText("Name") },
+					{ name: "village", label: proseText("Village") },
 				],
 			},
 		],
@@ -56,14 +57,14 @@ function validDoc() {
 							f({
 								kind: "text",
 								id: "case_name",
-								label: "Name",
-								case_property_on: "patient",
+								label: proseText("Name"),
+								caseWrite: { caseType: "patient", property: "case_name" },
 							}),
 							f({
 								kind: "text",
 								id: "village",
-								label: "Village",
-								case_property_on: "patient",
+								label: proseText("Village"),
+								caseWrite: { caseType: "patient", property: "village" },
 							}),
 						],
 					},
@@ -136,7 +137,7 @@ function lookupCarrierDoc() {
 							f({
 								kind: "single_select",
 								id: "status",
-								label: "Status",
+								label: proseText("Status"),
 								optionsSource: CARRIER_SOURCE,
 							}),
 						],
@@ -395,7 +396,7 @@ describe("prepareExportBoundary", () => {
 		if (!result.ok) throw new Error("expected prepared ccz export");
 		const wire = result.prepared.lookupWire;
 		expect(wire).toBeDefined();
-		expect(wire?.naming.tableFor(CARRIER_TABLE).instanceId).toBe(
+		expect(wire?.naming.tableFor(CARRIER_TABLE).fixtureId).toBe(
 			"item-list:statuses",
 		);
 		expect(wire?.fixtures.fixtures.map((fixture) => fixture.xml)).toEqual([

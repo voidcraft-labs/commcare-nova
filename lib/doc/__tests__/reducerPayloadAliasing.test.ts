@@ -6,11 +6,11 @@
  * `commitGuardedBatch` applies the SAME batch again onto the freshly loaded
  * document — so every server-side save runs the reducers over one batch twice.
  *
- * Both runs go through Immer's `produce`, which FREEZES what it returns. So a
- * reducer that splices its mutation's payload object straight into the draft
- * makes that payload part of a frozen state; the second run's in-place edit of
- * the same object then throws `Cannot assign to read only property`, and the
- * save 500s. The rule is simply: a reducer clones what it stores.
+ * Both runs go through Immer's `produce`, which FREEZES what it returns.
+ * `applyMutations` therefore detaches its admitted command before any reducer
+ * sees it. A reducer can never splice the protected command object itself into
+ * state, and the candidate never retains admission's non-enumerable
+ * serialization protectors.
  *
  * The batches below are the shapes that reach the server: the builder persists
  * the commands it dispatched, so an add and a later edit of the same thing land
@@ -19,16 +19,19 @@
 
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import { applyMutations } from "@/lib/doc/mutations";
-import { asUuid, type BlueprintDoc, type Mutation } from "@/lib/doc/types";
+import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import { literal, term } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 
-const MODULE = asUuid("11111111-1111-4111-8111-111111111111");
-const FORM = asUuid("22222222-2222-4222-8222-222222222222");
-const OPERATION = asUuid("33333333-3333-4333-8333-333333333333");
-const COLUMN = asUuid("44444444-4444-4444-8444-444444444444");
-const FIELD = asUuid("55555555-5555-4555-8555-555555555555");
+const MODULE = testUuid("11111111-1111-4111-8111-111111111111");
+const FORM = testUuid("22222222-2222-4222-8222-222222222222");
+const OPERATION = testUuid("33333333-3333-4333-8333-333333333333");
+const COLUMN = testUuid("44444444-4444-4444-8444-444444444444");
+const FIELD = testUuid("55555555-5555-4555-8555-555555555555");
 
 function base(): BlueprintDoc {
 	return buildDoc({
@@ -48,8 +51,11 @@ function base(): BlueprintDoc {
 								uuid: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
 								kind: "text",
 								id: "case_name",
-								label: "Name",
-								case_property_on: "patient",
+								label: proseText("Name"),
+								caseWrite: {
+									caseType: "patient",
+									property: "case_name",
+								},
 							}),
 						],
 					},
@@ -82,6 +88,33 @@ function applyTwice(batch: Mutation[]): BlueprintDoc {
 }
 
 describe("a batch applies twice", () => {
+	it("never aliases an admitted payload into the candidate document", () => {
+		const admitted = admitMutationBatch([
+			{
+				kind: "addField",
+				parentUuid: FORM,
+				field: {
+					uuid: FIELD,
+					kind: "text",
+					id: "notes",
+					label: proseText("Notes"),
+				},
+			},
+		]);
+		const next = produce(base(), (draft) => {
+			applyMutations(draft, admitted);
+		});
+		const commandField = (
+			admitted[0] as Extract<Mutation, { kind: "addField" }>
+		).field;
+		const candidateField = next.fields[FIELD];
+
+		expect(candidateField).toEqual(commandField);
+		expect(candidateField).not.toBe(commandField);
+		expect(Object.hasOwn(candidateField, "toJSON")).toBe(false);
+		expect(Object.hasOwn(commandField, "toJSON")).toBe(true);
+	});
+
 	it("adds a case-operation link and then edits it", () => {
 		const doc = applyTwice([
 			{
@@ -103,25 +136,6 @@ describe("a batch applies twice", () => {
 				kind: "updateForm",
 				uuid: FORM,
 				patch: {},
-				caseOperationChange: {
-					operation: "update",
-					uuid: OPERATION,
-					value: {
-						uuid: OPERATION,
-						id: "update_patient",
-						action: "update",
-						caseType: "patient",
-						target: { kind: "session" },
-						links: [
-							{
-								identifier: "parent",
-								targetType: "patient",
-								target: null,
-								relationship: "child",
-							},
-						],
-					},
-				},
 				caseOperationPatch: {
 					operation: "add-link",
 					uuid: OPERATION,
@@ -131,32 +145,13 @@ describe("a batch applies twice", () => {
 						target: null,
 						relationship: "child",
 					},
-					index: 0,
+					after: null,
 				},
 			},
 			{
 				kind: "updateForm",
 				uuid: FORM,
 				patch: {},
-				caseOperationChange: {
-					operation: "update",
-					uuid: OPERATION,
-					value: {
-						uuid: OPERATION,
-						id: "update_patient",
-						action: "update",
-						caseType: "patient",
-						target: { kind: "session" },
-						links: [
-							{
-								identifier: "parent",
-								targetType: "household",
-								target: null,
-								relationship: "child",
-							},
-						],
-					},
-				},
 				caseOperationPatch: {
 					operation: "update-link",
 					uuid: OPERATION,
@@ -191,30 +186,17 @@ describe("a batch applies twice", () => {
 				kind: "updateForm",
 				uuid: FORM,
 				patch: {},
-				caseOperationChange: {
-					operation: "update",
-					uuid: OPERATION,
-					value: { ...operation, writes: [write] },
-				},
 				caseOperationPatch: {
 					operation: "add-write",
 					uuid: OPERATION,
 					value: write,
-					index: 0,
+					after: null,
 				},
 			},
 			{
 				kind: "updateForm",
 				uuid: FORM,
 				patch: {},
-				caseOperationChange: {
-					operation: "update",
-					uuid: OPERATION,
-					value: {
-						...operation,
-						writes: [{ property: "status", value: term(literal("filed")) }],
-					},
-				},
 				caseOperationPatch: {
 					operation: "update-write",
 					uuid: OPERATION,
@@ -234,7 +216,7 @@ describe("a batch applies twice", () => {
 			{
 				kind: "updateModule",
 				uuid: MODULE,
-				patch: { caseListConfig: null },
+				patch: {},
 				ensureCaseListConfig: true,
 			},
 			{
@@ -254,7 +236,6 @@ describe("a batch applies twice", () => {
 				moduleUuid: MODULE,
 				uuid: COLUMN,
 				column: {
-					uuid: COLUMN,
 					kind: "plain",
 					field: "case_name",
 					header: "Patient name",
@@ -268,9 +249,9 @@ describe("a batch applies twice", () => {
 	});
 
 	it("adds a worker property, a role, and a persona, then edits each", () => {
-		const PROPERTY = asUuid("66666666-6666-4666-8666-666666666666");
-		const ROLE = asUuid("77777777-7777-4777-8777-777777777777");
-		const PERSONA = asUuid("88888888-8888-4888-8888-888888888888");
+		const PROPERTY = testUuid("66666666-6666-4666-8666-666666666666");
+		const ROLE = testUuid("77777777-7777-4777-8777-777777777777");
+		const PERSONA = testUuid("88888888-8888-4888-8888-888888888888");
 		const doc = applyTwice([
 			{
 				kind: "addUserProperty",
@@ -307,18 +288,18 @@ describe("a batch applies twice", () => {
 					uuid: FIELD,
 					kind: "text",
 					id: "notes",
-					label: "Notes",
+					label: proseText("Notes"),
 				},
 			},
 			{
 				kind: "updateField",
 				uuid: FIELD,
 				targetKind: "text",
-				patch: { label: "Visit notes" },
+				patch: { label: proseText("Visit notes") },
 			},
 		]);
 
 		const field = doc.fields[FIELD];
-		expect("label" in field && field.label).toBe("Visit notes");
+		expect("label" in field && field.label).toEqual(proseText("Visit notes"));
 	});
 });

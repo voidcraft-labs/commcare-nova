@@ -1,3 +1,4 @@
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
  * Tests for `matchModeOnDeviceCompatibility`. JavaRosa on-device
@@ -13,7 +14,6 @@ import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { userFacingError } from "@/lib/doc/userFacingErrors";
 import {
 	advancedSearchInputDef,
-	asUuid,
 	calculatedColumn,
 	plainColumn,
 	simpleSearchInputDef,
@@ -37,7 +37,6 @@ import {
 	subcasePath,
 	term,
 } from "@/lib/domain/predicate";
-import { errorIdentity } from "../../../gate";
 import { runValidation } from "../../../runner";
 
 const CODE = "CASE_LIST_MATCH_MODE_NOT_ON_DEVICE" as const;
@@ -50,7 +49,7 @@ const standardForm = {
 			kind: "text" as const,
 			id: "case_name",
 			label: "Name",
-			case_property_on: "patient",
+			caseWrite: { caseType: "patient", property: "case_name" },
 		}),
 	],
 };
@@ -74,9 +73,9 @@ describe("matchModeOnDeviceCompatibility", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("c-1")],
-						detailColumnOrder: [asUuid("c-1")],
+						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [testUuid("c-1")],
+						detailColumnOrder: [testUuid("c-1")],
 						filter: match(prop("patient", "case_name"), "Alice", "fuzzy"),
 						searchInputs: [],
 					},
@@ -104,9 +103,9 @@ describe("matchModeOnDeviceCompatibility", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("c-1")],
-						detailColumnOrder: [asUuid("c-1")],
+						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [testUuid("c-1")],
+						detailColumnOrder: [testUuid("c-1")],
 						filter: match(prop("patient", "case_name"), "Alice", "phonetic"),
 						searchInputs: [],
 					},
@@ -130,9 +129,9 @@ describe("matchModeOnDeviceCompatibility", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("c-1")],
-						detailColumnOrder: [asUuid("c-1")],
+						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [testUuid("c-1")],
+						detailColumnOrder: [testUuid("c-1")],
 						filter: match(
 							prop("patient", "dob"),
 							dateLiteral("2020-01-15"),
@@ -160,9 +159,9 @@ describe("matchModeOnDeviceCompatibility", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("c-1")],
-						detailColumnOrder: [asUuid("c-1")],
+						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [testUuid("c-1")],
+						detailColumnOrder: [testUuid("c-1")],
 						filter: match(prop("patient", "case_name"), "Ali", "starts-with"),
 						searchInputs: [],
 					},
@@ -185,9 +184,9 @@ describe("matchModeOnDeviceCompatibility", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("c-1")],
-						detailColumnOrder: [asUuid("c-1")],
+						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [testUuid("c-1")],
+						detailColumnOrder: [testUuid("c-1")],
 						filter: and(
 							eq(prop("patient", "case_name"), literal("Alice")),
 							match(prop("patient", "case_name"), "Smith", "fuzzy"),
@@ -214,9 +213,9 @@ describe("matchModeOnDeviceCompatibility", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("c-1")],
-						detailColumnOrder: [asUuid("c-1")],
+						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [testUuid("c-1")],
+						detailColumnOrder: [testUuid("c-1")],
 						filter: not(
 							match(prop("patient", "case_name"), "Alice", "phonetic"),
 						),
@@ -242,9 +241,9 @@ describe("matchModeOnDeviceCompatibility", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("c-1")],
-						detailColumnOrder: [asUuid("c-1")],
+						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [testUuid("c-1")],
+						detailColumnOrder: [testUuid("c-1")],
 						filter: eq(
 							coalesce(
 								ifExpr(
@@ -279,9 +278,9 @@ describe("matchModeOnDeviceCompatibility", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("c-1")],
-						detailColumnOrder: [asUuid("c-1")],
+						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [testUuid("c-1")],
+						detailColumnOrder: [testUuid("c-1")],
 						searchInputs: [],
 					},
 					caseSearchConfig: {
@@ -316,9 +315,9 @@ describe("matchModeOnDeviceCompatibility", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("c-1")],
-						detailColumnOrder: [asUuid("c-1")],
+						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [testUuid("c-1")],
+						detailColumnOrder: [testUuid("c-1")],
 						searchInputs: [],
 					},
 					caseSearchConfig: {
@@ -351,13 +350,13 @@ describe("matchModeOnDeviceCompatibility", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("c-1")],
-						detailColumnOrder: [asUuid("c-1")],
+						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [testUuid("c-1")],
+						detailColumnOrder: [testUuid("c-1")],
 						searchInputs: [
 							{
 								kind: "advanced",
-								uuid: asUuid("si-1"),
+								uuid: testUuid("si-1"),
 								name: "name_q",
 								label: "Name",
 								type: "text",
@@ -381,7 +380,7 @@ describe("matchModeOnDeviceCompatibility", () => {
 	});
 
 	it("rejects a fuzzy match nested in an advanced value expression that CSQL inlines on-device", () => {
-		const inputUuid = asUuid("si-1");
+		const inputUuid = testUuid("si-1");
 		const doc = buildDoc({
 			appName: "T",
 			modules: [
@@ -389,9 +388,9 @@ describe("matchModeOnDeviceCompatibility", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("c-1")],
-						detailColumnOrder: [asUuid("c-1")],
+						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [testUuid("c-1")],
+						detailColumnOrder: [testUuid("c-1")],
 						searchInputs: [
 							{
 								kind: "advanced",
@@ -436,12 +435,12 @@ describe("matchModeOnDeviceCompatibility", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("c-1")],
-						detailColumnOrder: [asUuid("c-1")],
+						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [testUuid("c-1")],
+						detailColumnOrder: [testUuid("c-1")],
 						searchInputs: [
 							advancedSearchInputDef(
-								asUuid("si-count"),
+								testUuid("si-count"),
 								"child_count",
 								"Matching children",
 								"text",
@@ -476,12 +475,12 @@ describe("matchModeOnDeviceCompatibility", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("c-1")],
-						detailColumnOrder: [asUuid("c-1")],
+						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [testUuid("c-1")],
+						detailColumnOrder: [testUuid("c-1")],
 						searchInputs: [
 							advancedSearchInputDef(
-								asUuid("si-count-right"),
+								testUuid("si-count-right"),
 								"child_count_right",
 								"Matching children",
 								"text",
@@ -516,12 +515,12 @@ describe("matchModeOnDeviceCompatibility", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("c-1")],
-						detailColumnOrder: [asUuid("c-1")],
+						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [testUuid("c-1")],
+						detailColumnOrder: [testUuid("c-1")],
 						searchInputs: [
 							advancedSearchInputDef(
-								asUuid("si-runtime-count"),
+								testUuid("si-runtime-count"),
 								"runtime_count",
 								"Current matches",
 								"text",
@@ -559,13 +558,13 @@ describe("matchModeOnDeviceCompatibility", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("c-1")],
-						detailColumnOrder: [asUuid("c-1")],
+						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [testUuid("c-1")],
+						detailColumnOrder: [testUuid("c-1")],
 						filter: matchNone(),
 						searchInputs: [
 							advancedSearchInputDef(
-								asUuid("si-dead"),
+								testUuid("si-dead"),
 								"dead_q",
 								"Dead condition",
 								"text",
@@ -601,9 +600,9 @@ describe("matchModeOnDeviceCompatibility", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("c-1")],
-						detailColumnOrder: [asUuid("c-1")],
+						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [testUuid("c-1")],
+						detailColumnOrder: [testUuid("c-1")],
 						filter: and(
 							match(prop("patient", "case_name"), "Alice", "fuzzy"),
 							match(prop("patient", "case_name"), "Bob", "phonetic"),
@@ -623,7 +622,7 @@ describe("matchModeOnDeviceCompatibility", () => {
 	});
 
 	it("rejects a nested unsupported match in a runtime calculated field", () => {
-		const columnUuid = asUuid("column-derived");
+		const columnUuid = testUuid("column-derived");
 		const doc = buildDoc({
 			appName: "T",
 			modules: [
@@ -632,7 +631,7 @@ describe("matchModeOnDeviceCompatibility", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [
-							plainColumn(asUuid("c-1"), "case_name", "Name"),
+							plainColumn(testUuid("c-1"), "case_name", "Name"),
 							calculatedColumn(
 								columnUuid,
 								"Name quality",
@@ -666,7 +665,7 @@ describe("matchModeOnDeviceCompatibility", () => {
 		expect(userFacingError(hits[0])).not.toContain("advanced search");
 	});
 
-	it("ignores a fully off-screen unsorted calculated definition", () => {
+	it("checks a fully off-screen unsorted calculated definition", () => {
 		const doc = buildDoc({
 			appName: "T",
 			modules: [
@@ -675,9 +674,9 @@ describe("matchModeOnDeviceCompatibility", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [
-							plainColumn(asUuid("c-1"), "case_name", "Name"),
+							plainColumn(testUuid("c-1"), "case_name", "Name"),
 							calculatedColumn(
-								asUuid("column-retired"),
+								testUuid("column-retired"),
 								"Retired",
 								ifExpr(
 									match(prop("patient", "case_name"), "Alice", "fuzzy"),
@@ -695,16 +694,20 @@ describe("matchModeOnDeviceCompatibility", () => {
 			caseTypes: standardCaseTypes,
 		});
 
-		expect(
-			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-				(error) => error.code === CODE,
-			),
-		).toEqual([]);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+			(error) => error.code === CODE,
+		);
+		expect(hits).toHaveLength(1);
+		expect(hits[0].details).toMatchObject({
+			columnLabel: "Retired",
+			columnUuid: testUuid("column-retired"),
+			surface: "calculated-column",
+		});
 	});
 
 	it("rejects nested unsupported matches in every search-input default", () => {
-		const simpleUuid = asUuid("input-simple");
-		const advancedUuid = asUuid("input-advanced");
+		const simpleUuid = testUuid("input-simple");
+		const advancedUuid = testUuid("input-advanced");
 		const unsupportedDefault = ifExpr(
 			match(prop("patient", "case_name"), "Alice", "fuzzy"),
 			term(literal("Alice")),
@@ -717,7 +720,7 @@ describe("matchModeOnDeviceCompatibility", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
 						searchInputs: [
 							simpleSearchInputDef(
 								simpleUuid,
@@ -757,15 +760,6 @@ describe("matchModeOnDeviceCompatibility", () => {
 		expect(userFacingError(hits[1])).toContain(
 			'The default for search field "Similar name"',
 		);
-
-		const moved = {
-			...hits[1],
-			details: {
-				...hits[1].details,
-				slot: "caseListConfig.searchInputs[99].default",
-			},
-		};
-		expect(errorIdentity(moved)).toBe(errorIdentity(hits[1]));
 	});
 
 	it("rejects a nested unsupported match in the assigned-cases expression", () => {
@@ -776,9 +770,9 @@ describe("matchModeOnDeviceCompatibility", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("c-1")],
-						detailColumnOrder: [asUuid("c-1")],
+						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [testUuid("c-1")],
+						detailColumnOrder: [testUuid("c-1")],
 						searchInputs: [],
 					},
 					caseSearchConfig: {
@@ -814,9 +808,9 @@ describe("matchModeOnDeviceCompatibility", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("c-1")],
-						detailColumnOrder: [asUuid("c-1")],
+						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [testUuid("c-1")],
+						detailColumnOrder: [testUuid("c-1")],
 						filter: dead,
 						searchInputs: [],
 					},

@@ -1,4 +1,3 @@
-import { asUuid } from "@/lib/domain";
 // lib/domain/predicate/__tests__/simplify.test.ts
 //
 // Unit coverage for `simplifyForEmission` — the deep boolean-identity
@@ -10,6 +9,7 @@ import { asUuid } from "@/lib/domain";
 // structurally-equal tree when no identity is present.
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	and,
 	count,
@@ -126,7 +126,7 @@ describe("simplifyForEmission — not folds via the builder", () => {
 
 describe("simplifyForEmission — recursion through nested Predicate slots", () => {
 	it("recurses into a when-input-present clause", () => {
-		const i = input(asUuid("f38dea69-87fd-4b8c-8190-516b176c3b33"));
+		const i = input(testUuid("q"));
 		expect(simplifyForEmission(whenInput(i, and(matchAll(), a)))).toEqual(
 			whenInput(i, a),
 		);

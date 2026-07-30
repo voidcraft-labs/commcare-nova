@@ -108,6 +108,8 @@ export type CaseInsert = Omit<
 export interface CaseUpdate {
 	/** The case's display name. Routed to the top-level `case_name` column, NOT the JSONB document. */
 	readonly case_name?: string;
+	/** External-system identity. Routed to `external_id`, never JSONB; `""` is an explicit write. */
+	readonly external_id?: string;
 	/**
 	 * Open/closed lifecycle status. Normal app closure goes through
 	 * `close()`, which owns the canonical `closed` value. This slot remains
@@ -322,19 +324,12 @@ export type CaseRowWithCalculated = CaseRow & {
 };
 
 /**
- * The three change-shape arms `applySchemaChange` runs per-row
+ * The two generic change-shape arms `applySchemaChange` runs per-row
  * migrations for. No arm ever removes a case row — a value the new
  * declaration cannot hold PARKS (`parked_case_values`: the value
  * moves out with its key, the row stays present and writable, and
  * the entry is recoverable by the review surface).
  *
- *   - `rename(renames)` — one or more JSONB key renames applied
- *     SIMULTANEOUSLY per row (each destination reads the row's
- *     pre-migration value), so same-batch chains, swaps, and
- *     name-reuse (A→B while B→C) resolve with no ordering
- *     hazard. Values cast into the destination declaration;
- *     blank values drop silently (nothing to keep), uncastable
- *     values and a merge-conflict's displaced source value park.
  *   - `retype(fromType, toType)` — per-row cast into the new type;
  *     an uncastable value parks and its key drops.
  *   - `narrow-options(removedOptions)` — a select value in
@@ -345,7 +340,6 @@ export type CaseRowWithCalculated = CaseRow & {
  *     `single_select` rationale in the JSON Schema generator).
  */
 export type SchemaChangeKind =
-	| { kind: "rename"; renames: ReadonlyArray<{ from: string; to: string }> }
 	| {
 			kind: "retype";
 			fromType: CasePropertyDataType;
@@ -358,14 +352,10 @@ export type SchemaChangeKind =
  * `caseTypeSchemas` map carries the prospective state — the
  * function regenerates the JSON Schema for the targeted case type,
  * then (when `change` is present) runs the matching per-row
- * migration. The caller-supplied-snapshot shape is the cross-store
- * saga seam: the orchestrator commits the blueprint on success and
- * runs a compensating `applySchemaChange(previousState)` on
- * blueprint-commit failure.
+ * migration. Case-property renames do not use this generic change channel;
+ * their explicit command has a dedicated all-rows transactional API.
  *
- * `property` is required for the `retype` / `narrow-options`
- * change arms (they target one property) and ignored otherwise —
- * a `rename` change carries its own targets in `renames`.
+ * `property` is required for both generic change arms.
  *
  * `syncedSeq` (the `mutation_seq` this schema state derives from)
  * arms the monotone `synced_seq` guard: a sync whose `syncedSeq`
@@ -374,9 +364,7 @@ export type SchemaChangeKind =
  * no-ops (schema UPSERT + index DDL skipped). A forward sync
  * (higher or equal) UPSERTs and records the new `synced_seq`, so
  * two concurrently-added properties both survive. Absent: no guard —
- * the plain additive UPSERT (the pre-multiplayer path; the
- * migration-saga forward apply, which runs before its own committed
- * seq exists).
+ * the plain additive UPSERT path.
  *
  * `change` and `syncedSeq` are MUTUALLY EXCLUSIVE — a per-row
  * migration runs pre-commit (un-versioned); the additive gate
@@ -416,14 +404,12 @@ export interface ApplySchemaChangeArgs {
  * string↔array shape reshape rewrote, and `retyped` counts rows the
  * write-time retype detection cast — summing the axes can count a
  * row twice, so consumers report them side by side instead.
- * `skipped` counts rows a `change` migration left untouched (for
- * `rename`, rows lacking every renamed key; for the others, rows
- * lacking the targeted property).
+ * `skipped` counts rows a generic `change` migration left untouched because
+ * they lack the targeted property.
  *
  * `parkedIds` are the `parked_case_values` entries this call
  * created — one per VALUE that could not be carried (its count is
- * the review-toast count). The saga's compensation path
- * consumes the ids to un-park on a failed blueprint commit.
+ * the review-toast count).
  * `restored` counts previously-parked values this sync wrote BACK:
  * every winning sync ends by restoring any parked entry of the case
  * type whose original value conforms to the type's new schema and
@@ -551,13 +537,57 @@ export interface PreparedSchemaChangePhaseB {
 	readonly completeAfterCommit: () => Promise<void>;
 }
 
+export interface CasePropertyRenameEntry {
+	readonly caseType: string;
+	readonly from: string;
+	readonly to: string;
+}
+
+export interface ApplyCasePropertyRenameArgs {
+	readonly appId: string;
+	readonly desiredSeq: number;
+	readonly caseTypeSchemas: ReadonlyMap<string, CaseType>;
+	readonly entries: readonly CasePropertyRenameEntry[];
+}
+
+export interface CasePropertyRenameReport {
+	/** Live case rows whose JSON property document changed. */
+	readonly renamedRows: number;
+	/** Parked values relabeled, including dismissed entries. */
+	readonly renamedParkedValues: number;
+	readonly caseTypes: readonly string[];
+}
+
+export interface PreparedCasePropertyRenamePhaseB {
+	readonly report: CasePropertyRenameReport;
+	/**
+	 * Correctness-neutral expression-index convergence. The row, parked-value,
+	 * schema, Blueprint, and accepted-mutation changes are already one durable
+	 * transaction before this runs.
+	 */
+	readonly completeAfterCommit: () => Promise<void>;
+}
+
+export class CasePropertyRenameStorageConflictError extends Error {
+	constructor(
+		readonly caseType: string,
+		readonly property: string,
+		readonly carrier: "case-row" | "parked-value",
+	) {
+		super(
+			`The destination case property "${property}" on "${caseType}" already has saved ${carrier === "case-row" ? "case data" : "parked data"}.`,
+		);
+		this.name = "CasePropertyRenameStorageConflictError";
+	}
+}
+
 /**
  * The actor-free slice of the store: schema-change operations are APP-scoped
  * (they apply to every row of an app's case type regardless of which member
  * created it). The instance binds no Project, but each write locks the live app
  * and observes its current Project before schema/case work.
  * `withSchemaContext()` returns this narrow type; callers that only
- * sync schemas (the cross-store saga, the chat-completion materialize,
+ * sync schemas (the guarded commit boundary, chat-completion materialize,
  * the point-of-use heal) take it so they CANNOT reach a tenant-bound
  * read/write without a Project.
  */
@@ -569,7 +599,7 @@ export interface SchemaCaseStore {
 	 * Two-phase shape — Phase A is one Kysely transaction that
 	 * UPSERTs `case_type_schemas`, runs the detected per-property
 	 * transitions, and runs the optional per-row migration
-	 * (`rename` / `retype` / `narrow-options`); Phase B runs after
+	 * (`retype` / `narrow-options`); Phase B runs after
 	 * Phase A commits and emits the per-property expression-index
 	 * `CREATE INDEX CONCURRENTLY` / `DROP INDEX CONCURRENTLY` diff.
 	 * Phase B cannot share the Phase A transaction because
@@ -604,9 +634,7 @@ export interface SchemaCaseStore {
 
 	/**
 	 * Write parked values back under their keys and delete the restored
-	 * entries — the saga's compensation half for a failed blueprint
-	 * commit, consuming `MigrationReport.parkedIds` from the forward
-	 * apply. Call only AFTER the schema state the values were valid
+	 * entries. Call only after the schema state the values were valid
 	 * under is restored. An entry whose key meanwhile holds a real
 	 * concurrent value is KEPT (reported in `kept`) rather than
 	 * clobbered or deleted.
@@ -618,13 +646,7 @@ export interface SchemaCaseStore {
 
 	/**
 	 * Drop the `case_type_schemas` row + every per-property
-	 * expression index for `(appId, caseType)`. Used by the cross-
-	 * store saga's compensation path to revert a case-type-addition
-	 * Phase 1 commit when the blueprint commit fails: the prior
-	 * blueprint has no `caseTypes` entry for this case type, so
-	 * `applySchemaChange(prior)` cannot run (it would throw
-	 * `CaseTypeNotInBlueprintError`); a direct DROP is the only
-	 * way to honor the saga's "exactly the prior state" contract.
+	 * expression index for `(appId, caseType)`.
 	 *
 	 * Idempotent on every absence path — the schema row DELETE is
 	 * a no-op when missing, and the per-property index drops use
@@ -642,11 +664,44 @@ export interface SchemaCaseStore {
 
 /**
  * Schema store with the explicit caller-transaction seam used only by the
- * cross-store blueprint saga. Keeping this method off `SchemaCaseStore` and
+ * guarded Blueprint commit. Keeping this method off `SchemaCaseStore` and
  * `CaseStore` means ordinary consumers and test doubles cannot accidentally
  * depend on transaction composition they do not own.
  */
 export interface TransactionalSchemaCaseStore extends SchemaCaseStore {
+	/**
+	 * Converge durable pending expression-index work from the latest stored
+	 * schema and deletion tombstones for one app. Safe under duplicate and
+	 * out-of-order callers.
+	 */
+	drainPendingIndexConvergence(args: {
+		readonly appId: string;
+		readonly caseTypes?: readonly string[];
+	}): Promise<void>;
+
+	/**
+	 * Deployment-only global drain. It keeps selecting the durable schema and
+	 * deletion work queues until both are empty, and rejects on any DDL or
+	 * stored-schema fault so the migration Job fails before traffic shifts.
+	 */
+	drainAllPendingIndexConvergence(): Promise<void>;
+
+	/**
+	 * Apply one explicit, batch-exclusive property-renaming relation.
+	 *
+	 * Admission and every correctness-bearing write share the caller's app-row
+	 * transaction. Every affected live row and parked row is locked and checked
+	 * before mutation. An own destination key is occupied even when its JSON
+	 * value is null/blank; destinations that are also sources move away
+	 * simultaneously. Only `cases.properties` and
+	 * `parked_case_values.property` change, so `modified_on`, dismissal state,
+	 * reasons, original bytes, and all other columns remain exact.
+	 */
+	applyCasePropertyRenamePhaseA(
+		tx: Transaction<Database>,
+		args: ApplyCasePropertyRenameArgs,
+	): Promise<PreparedCasePropertyRenamePhaseB>;
+
 	/**
 	 * Apply only the transactional schema/data phase on a caller-owned
 	 * transaction. The returned concurrent-index completion must run after
@@ -883,15 +938,13 @@ export interface CaseStore extends SchemaCaseStore {
  *     checker: a comparison the checker admits as date-typed compiles
  *     with a date cast, and a writer-derived property resolves in
  *     `compileTerm.lookupDataType` rather than throwing.
- *   - Standard entries stay OUT because their values are not stored
- *     in the JSONB `properties` document (`date_opened` lives in the
- *     `opened_on` column): a map entry would make a reference compile
- *     to a silently-NULL JSONB read, and on the schema-write side
- *     would put `format` constraints + expression indexes on keys
- *     inserts never carry. Standard-name references resolve through
- *     `sql/dataTypeTokens.ts::RESERVED_SCALAR_COLUMN_BY_PROPERTY`
- *     onto their scalar columns BEFORE the map is consulted, so
- *     `lookupDataType` never sees them.
+ *   - Implicit standard entries stay out; an explicitly declared standard
+ *     entry remains for authoring metadata and order. Standard-name references
+ *     resolve through
+ *     `sql/dataTypeTokens.ts::RESERVED_SCALAR_COLUMN_BY_PROPERTY` onto their
+ *     scalar columns before the map is consulted. The JSON-schema and index
+ *     projections separately exclude every scalar-backed name, so retaining
+ *     the catalog entry cannot create a duplicate JSONB value or dead index.
  *
  * Reads `caseTypes` + `fields` only — never the in-memory
  * `fieldParent` index — so the parameter is the persisted shape

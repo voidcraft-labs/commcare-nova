@@ -13,7 +13,8 @@
 //     stable UUID (its current slug is resolved only for display/wire output).
 //   - `session-user` — an explicit raw built-in/external user-data field.
 //   - `field` — stable form-field identity. Offered as a real source only
-//     where the edit context supplies an admitted `formFields` catalog.
+//     where the edit context supplies `formFields` (today, a case
+//     operation); every other context rejects it.
 //   - `literal` — primitive constant (string / number / boolean /
 //     null) with optional `data_type` qualifier preserved on rebuild.
 //   - `table-column` — stable lookup-column identity. Offered only in an
@@ -29,8 +30,6 @@
 // the property / search-input dropdowns filter to admissible entries,
 // and the literal shape menu offers only shapes whose value type the
 // slot accepts. A `nonEmpty` slot refuses to commit an empty literal.
-// The current source / shape stays selectable even when the constraint
-// no longer admits it (legacy-open backstop).
 
 "use client";
 import { Icon, type IconifyIcon } from "@iconify/react/offline";
@@ -81,7 +80,6 @@ import {
 	asUuid,
 	type CaseProperty,
 	type CasePropertyDataType,
-	canonicalCasePropertyName,
 	effectiveDataType,
 	type UserProperty,
 	type Uuid,
@@ -653,7 +651,7 @@ export function termHasMeaningfulContent(value: Term): boolean {
 		case "field":
 			return true;
 		case "input":
-			return value.searchInputUuid.length > 0;
+			return true;
 		case "session-context":
 			return true;
 		case "session-user":
@@ -800,11 +798,11 @@ function computeModeAdmission(
 	const reason = reasonFor(constraint);
 	const ct = ctx.caseTypes.find((c) => c.name === ctx.currentCaseType);
 	const hasAcceptedProperty =
-		constraint.accepts === "any" ||
-		(ct?.properties.some((p) =>
-			acceptsType(constraint, effectiveDataType(p)),
-		) ??
-			false);
+		ct?.properties.some(
+			(p) =>
+				constraint.accepts === "any" ||
+				acceptsType(constraint, effectiveDataType(p)),
+		) ?? false;
 	const hasAcceptedInput =
 		constraint.accepts === "any" ||
 		ctx.knownInputs.some((i) => acceptsType(constraint, i.data_type ?? "text"));
@@ -897,10 +895,9 @@ function buildTermAdmissionProbe(
 		: buildTermDefault(mode, ctx, constraint);
 }
 
-/** Build a per-mode draft. Property, search-answer, and app-information
- * defaults are schema-valid choices. User information deliberately starts
- * incomplete because inventing a field would silently change the rule's
- * meaning; `requestMode` collects that field before this draft may commit. */
+/** Build a per-mode draft. Every returned value is a complete, schema-valid
+ * authored choice. Source families with no honest default are either excluded
+ * by admission or collected by `requestMode` before this function is reached. */
 function buildTermDefault(
 	mode: TermMode,
 	ctx: TermAdmissionContext,
@@ -915,27 +912,27 @@ function buildTermDefault(
 			const ct = ctx.caseTypes.find((c) => c.name === ctx.currentCaseType);
 			const filter = propertyFilterFor(constraint);
 			const property = ct?.properties.find((p) => (filter ? filter(p) : true));
-			// Default to a placeholder property name — the picker surfaces
-			// "Pick a property" until the author picks one, and the type
-			// checker surfaces "Unknown property ''" inline.
-			return prop(
-				ctx.currentCaseType,
-				canonicalCasePropertyName(property?.name ?? ""),
-			);
+			if (property === undefined) {
+				throw new Error(
+					"Case information is unavailable without a property of the required type.",
+				);
+			}
+			return prop(ctx.currentCaseType, property.name);
 		}
 		case "field": {
 			// The first answer whose type the slot accepts. A surface with no
-			// admissible answer never offers the source, so the placeholder uuid
-			// below is unreachable through the menu — it exists so the seed stays
-			// total, and the checker names it plainly if a document carries one.
+			// admissible answer never offers the source.
 			const admissible = (ctx.formFields ?? []).find(
 				(field) =>
 					constraint.accepts === "any" ||
 					acceptsType(constraint, field.dataType ?? "text"),
 			);
-			return formField(
-				admissible?.uuid ?? asUuid("00000000-0000-4000-8000-000000000000"),
-			);
+			if (admissible === undefined) {
+				throw new Error(
+					"Form answer is unavailable without an in-scope field of the required type.",
+				);
+			}
+			return formField(admissible.uuid);
 		}
 		case "input": {
 			const matching = ctx.knownInputs.find((i) =>
@@ -943,11 +940,13 @@ function buildTermDefault(
 					? true
 					: acceptsType(constraint, i.data_type ?? "text"),
 			);
-			return input(
-				matching?.uuid ??
-					ctx.knownInputs[0]?.uuid ??
-					asUuid("00000000-0000-4000-8000-000000000000"),
-			);
+			const selected = matching ?? ctx.knownInputs[0];
+			if (selected === undefined) {
+				throw new Error(
+					"Search answer is unavailable until a search field exists.",
+				);
+			}
+			return input(selected.uuid);
 		}
 		case "table-column": {
 			const column = ctx.tableScope?.columns.find(
@@ -968,10 +967,9 @@ function buildTermDefault(
 			// explicit pick.
 			return sessionContext("userid");
 		case "session-user":
-			// Open-namespace user-data field — defaults to a placeholder.
-			// The card surfaces a per-slot error until the author types
-			// a real field name.
-			return sessionUser("");
+			throw new Error(
+				"Worker data requires a field name before it can be authored.",
+			);
 		case "session-user-property": {
 			const property = ctx.userProperties[0];
 			if (property === undefined) {
@@ -1117,12 +1115,8 @@ function ModeMenu({
 						>
 							{items.map((item) => {
 								const isActive = item.mode === mode;
-								// The active source stays selectable even when the
-								// constraint no longer admits it (legacy-open backstop);
-								// every other inadmissible source is disabled with its
-								// reason rather than dimmed-but-clickable.
 								const verdict = admission[item.mode];
-								const admitted = isActive || verdict.admitted;
+								const admitted = verdict.admitted;
 								const hasReason = !admitted && verdict.reason !== undefined;
 								return (
 									<DropdownMenuRadioItem
@@ -1332,12 +1326,6 @@ interface TableColumnRefMenuProps {
 	readonly invalid: boolean;
 }
 
-/** Column picker for the exact lookup row in scope.
- *
- * The stored table qualifier is never silently rewritten. If a saved term
- * belongs to another/deleted table or column, the trigger names the recovery
- * state and choosing a current column creates a complete identity pair from
- * the active scope. */
 function TableColumnRefMenu({
 	value,
 	onChange,
@@ -1353,9 +1341,7 @@ function TableColumnRefMenu({
 			: undefined;
 	const items = (scope?.columns ?? []).filter(
 		(column) =>
-			column.id === value.columnId ||
-			constraint.accepts === "any" ||
-			acceptsType(constraint, column.dataType),
+			constraint.accepts === "any" || acceptsType(constraint, column.dataType),
 	);
 	const missing = current === undefined;
 	const label =
@@ -1465,11 +1451,8 @@ const SEARCH_ANSWER_TYPE_LABELS: Record<CasePropertyDataType, string> = {
 };
 
 /** Search-input dropdown — picks from declared search inputs in
- *  scope whose declared type the slot accepts. A saved input that is
- *  no longer declared keeps its readable identity and a recovery menu
- *  instead of collapsing to an empty placeholder. The currently-selected
- *  input always shows (legacy-open backstop) even when its type is no longer
- *  admitted. */
+ *  scope whose declared type the slot accepts. An unresolved identity is
+ *  shown only as an ephemeral repair state and is never re-admitted. */
 function InputRefMenu({
 	value,
 	onChange,
@@ -1482,14 +1465,13 @@ function InputRefMenu({
 		() =>
 			ctx.knownInputs.filter(
 				(i) =>
-					i.uuid === value ||
 					constraint.accepts === "any" ||
 					acceptsType(constraint, i.data_type ?? "text"),
 			),
-		[ctx.knownInputs, constraint, value],
+		[ctx.knownInputs, constraint],
 	);
 	const current = items.find((i) => i.uuid === value);
-	const hasSavedValue = value !== undefined && value.trim().length > 0;
+	const hasSavedValue = value !== undefined;
 	const currentMissing = hasSavedValue && current === undefined;
 	const currentLabel =
 		current !== undefined
@@ -1627,11 +1609,10 @@ function FormFieldRefMenu({
 		() =>
 			ctx.formFields.filter(
 				(field) =>
-					field.uuid === value ||
 					constraint.accepts === "any" ||
 					acceptsType(constraint, field.dataType ?? "text"),
 			),
-		[ctx.formFields, constraint, value],
+		[ctx.formFields, constraint],
 	);
 	const current = items.find((field) => field.uuid === value);
 	const currentLabel =
@@ -1940,7 +1921,7 @@ function describeLiteralShapeReplacement(
 
 /** Literal types are progressive options inside the existing value-source
  * menu. The ordinary comparison path therefore renders one inferred input,
- * while imported and advanced literal shapes remain fully editable. */
+ * while explicitly authored advanced literal shapes remain fully editable. */
 function LiteralShapeSubmenu({
 	shape,
 	onSelect,
@@ -1980,11 +1961,10 @@ function LiteralShapeSubmenu({
 				<DropdownMenuSubContent>
 					{items.map((s) => {
 						const isActive = s === shape;
-						// The active shape stays selectable even when the
-						// constraint no longer admits it (legacy-open backstop).
-						const admitted =
-							isActive ||
-							constraintAdmitsType(constraint, LITERAL_SHAPE_TYPE[s]);
+						const admitted = constraintAdmitsType(
+							constraint,
+							LITERAL_SHAPE_TYPE[s],
+						);
 						return (
 							<DropdownMenuItem
 								key={s}

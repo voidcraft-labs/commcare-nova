@@ -8,7 +8,7 @@
 // auto_launch>` attribute (see `types.ts` for the per-flag wire
 // landing).
 
-import type { CaseListConfig, CaseSearchConfig } from "@/lib/domain";
+import type { CaseListConfig, OrdinaryCaseSearchConfig } from "@/lib/domain";
 import { effectiveFilterForEmission } from "@/lib/domain/predicate";
 import type { PlatformContext, WireShape } from "./types";
 
@@ -37,7 +37,7 @@ import type { PlatformContext, WireShape } from "./types";
  */
 export function compileForPlatform(
 	caseListConfig: CaseListConfig,
-	_caseSearchConfig: CaseSearchConfig,
+	_caseSearchConfig: OrdinaryCaseSearchConfig,
 	ctx: PlatformContext,
 ): WireShape {
 	if (ctx.platform === "android") {

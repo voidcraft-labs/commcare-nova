@@ -1,5 +1,5 @@
 /**
- * Rule: every runtime-active `kind: "calculated"` column on
+ * Rule: every saved `kind: "calculated"` column on
  * `caseListConfig.columns` carries a `ValueExpression` that type-checks via
  * `checkValueExpression(...)` (the predicate AST type checker at
  * `@/lib/domain/predicate`) against the module's case-type schema.
@@ -23,16 +23,11 @@
  * list from `moduleTypeContext` — writer-derived + CommCare standard
  * properties are synthesized into each case type's `properties[]` so
  * the predicate AST type checker sees the same admission set the
- * per-rule resolvers do. Fully off-screen, unsorted legacy calculations are
- * ignored until they regain a Results, Details, or Default-order role.
+ * per-rule resolvers do. Visibility controls emission only; every saved
+ * calculation must type-check before it can later return to a screen.
  */
 
-import {
-	type BlueprintDoc,
-	caseListColumnHasRuntimeRole,
-	type Module,
-	type Uuid,
-} from "@/lib/domain";
+import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
 import { checkValueExpression } from "@/lib/domain/predicate";
 import { type ValidationError, validationError } from "../../errors";
 import {
@@ -55,7 +50,6 @@ export function calculatedColumnTypeCheck(
 
 	for (let index = 0; index < columns.length; index++) {
 		const column = columns[index];
-		if (!caseListColumnHasRuntimeRole(column)) continue;
 		if (column.kind !== "calculated") continue;
 		const typeErrors = semanticCheckErrors(
 			checkValueExpression(column.expression, ctx),

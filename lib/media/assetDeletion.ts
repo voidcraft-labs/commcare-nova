@@ -5,10 +5,10 @@
 // there is ONE deletion implementation rather than two that drift.
 //
 // Two concerns live here:
-//   - `findAppReferencesToAsset` — a fast UX preflight over reverse-index
-//     candidates. The authoritative full persisted-carrier check lives in the
-//     metadata-delete transaction (`lib/db/mediaDeletion.ts`); an empty preflight
-//     never authorizes deletion.
+//   - `findAppReferencesToAsset` — a fast UX preflight over exact reverse-index
+//     candidates. The authoritative metadata-delete transaction
+//     (`lib/db/mediaDeletion.ts`) locks and re-walks that projection; an empty
+//     preflight never authorizes deletion.
 //   - `purgeAssetStorage` — drop the asset row, then the GCS bytes (and any
 //     content-addressed siblings, e.g. a document's extract) only when no other
 //     asset row shares the bytes.
@@ -19,7 +19,6 @@
 
 import { loadApp } from "@/lib/db/apps";
 import {
-	deleteAsset as deleteAssetRow,
 	hasAssetForGcsObjectKey,
 	hasOtherAssetForGcsObjectKey,
 	hasReadyExtractForProjectAndHash,
@@ -29,7 +28,7 @@ import type { BlueprintDoc } from "@/lib/domain";
 import {
 	asWalkableDoc,
 	describeCarrier,
-	walkAssetRefs,
+	walkAuthoredAssetRefs,
 } from "@/lib/domain/mediaRefs";
 import {
 	EXTRACTOR_VERSION,
@@ -57,7 +56,7 @@ const APP_REF_LIMIT = 5;
 export function carriersForAsset(doc: BlueprintDoc, assetId: string): string[] {
 	return [
 		...new Set(
-			[...walkAssetRefs(doc)]
+			[...walkAuthoredAssetRefs(doc)]
 				.filter((ref) => ref.assetId === assetId)
 				.map(describeCarrier),
 		),
@@ -67,8 +66,8 @@ export function carriersForAsset(doc: BlueprintDoc, assetId: string): string[] {
 /**
  * Resolve the carriers in ONE app's persisted doc that still reference the
  * asset, as a human-readable refusal phrase — or `null` when the app is
- * gone/out-of-Project/deleted or no longer references it (a stale index
- * candidate).
+ * gone/out-of-Project/deleted or no longer exposes a Blueprint carrier during
+ * this non-authoritative preflight.
  */
 async function describeAppReference(
 	appId: string,
@@ -95,16 +94,11 @@ async function describeAppReference(
  * authoritative delete transaction may decide that the asset is safe.
  *
  * `candidateAppIds` is the asset's reverse index (`media_asset_refs`, read via
- * `listReferencingAppIds`): the only apps whose persisted blueprint has EVER
- * referenced it. Passing it turns the guard from "load every app the Project
+ * `listReferencingAppIds`): the exact committed app projection at the time it
+ * is read. Passing it turns the preflight from "load every app the Project
  * has" (measured 8s on an 83-app account) into "load only the 0–2 apps that
- * might reference it". The index is append-only, so a candidate may be STALE —
- * this re-walks each candidate's live doc to confirm a real reference and name
- * the carrier, so a stale entry simply drops out (yields `null`).
- *
- * This helper is intentionally only a latency optimization. Deletion full-scans
- * while the durable completeness marker is unset and may narrow to this index
- * only after an audited backfill stamps it complete.
+ * reference it". This helper remains only a latency/wording preflight; the
+ * asset-locked delete transaction is the authority for the winning race order.
  *
  * `skipAppId` omits one app the caller checks separately — the SA tool checks
  * its in-hand working doc (which may carry unsaved mutations the persisted copy
@@ -141,33 +135,22 @@ export async function findAppReferencesToAsset(
  * `.md` rows. A failed probe fails closed (retain), so we never delete an object
  * another row still points at.
  *
- * Callers are responsible for supplying an authoritative metadata-delete
- * callback when the operation is actor-facing. `alsoDelete` carries content-addressed sibling keys (e.g.
- * `extractObjectKeyForAsset(asset)` for a document); `deleteGcsObject` ignores a
- * missing object, so passing a key whose object was never written is a no-op.
+ * Every caller supplies the authoritative metadata-delete callback.
+ * `alsoDelete` carries content-addressed sibling keys (e.g.
+ * `extractObjectKeyForAsset(asset)` for a document); `deleteGcsObject` ignores
+ * a missing object, so passing a key whose object was never written is a no-op.
  */
-export async function purgeAssetStorage(
-	asset: MediaAssetRecord,
-	opts: {
-		alsoDelete?: ReadonlyArray<string | null>;
-		alsoDeleteForAsset?: (
-			deletedAsset: MediaAssetRecord,
-		) => ReadonlyArray<string | null>;
-		/** Optional authoritative metadata delete. It must commit before this
-		 * function touches GCS. Return the locked deleted record when metadata
-		 * could have changed since the caller's preflight; false means the row no
-		 * longer exists. `true` retains the caller's snapshot for legacy seams. */
-		deleteRow?: () => Promise<boolean | MediaAssetRecord>;
-	} = {},
-): Promise<boolean> {
-	let deletedAsset = asset;
-	if (opts.deleteRow) {
-		const result = await opts.deleteRow();
-		if (result === false) return false;
-		if (result !== true) deletedAsset = result;
-	} else {
-		await deleteAssetRow(asset.id);
-	}
+export async function purgeAssetStorage(opts: {
+	/** Authoritative, actor-scoped metadata delete. It commits before this
+	 * function touches GCS and returns the exact locked row that was deleted. */
+	deleteRow: () => Promise<MediaAssetRecord | false>;
+	alsoDelete?: ReadonlyArray<string | null>;
+	alsoDeleteForAsset?: (
+		deletedAsset: MediaAssetRecord,
+	) => ReadonlyArray<string | null>;
+}): Promise<boolean> {
+	const deletedAsset = await opts.deleteRow();
+	if (deletedAsset === false) return false;
 	await cleanupReleasedAssetStorage(deletedAsset, {
 		alsoDelete: [
 			...(opts.alsoDelete ?? []),

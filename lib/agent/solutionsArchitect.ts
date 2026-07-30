@@ -5,13 +5,13 @@
  * tool (`generateSchema` — a build's first commit, and how a new case
  * type enters an existing app), reads, mutations, case-list /
  * case-search config, media. Build vs edit picks the prompt and the
- * model — never the tool set. Both prompts are static; an edit turn's
+ * model — never the tool set. Both prompts are static; each turn's
  * blueprint summary rides a per-turn message the route appends
  * (`buildAppStateMessage`), keeping the system prompt cache-stable.
  *
  * Vocabulary is domain-native: tool arguments, return shapes, and the
  * system prompt all use `field` / `kind` / `validate` / `validate_msg` /
- * `case_property_on`. Tool args flow straight into the reducer helpers in
+ * `caseWrite`. Tool args flow straight into the reducer helpers in
  * `blueprintHelpers.ts`.
  *
  * Stream-event payloads carry fine-grained `data-mutations` events
@@ -19,12 +19,7 @@
  * no finishing tool: the chat route finalizes a build at drain end
  * (status flip + case-store materialize + the `data-done` signal).
  */
-import {
-	type FlexibleSchema,
-	stepCountIs,
-	ToolLoopAgent,
-	type ToolSet,
-} from "ai";
+import { type FlexibleSchema, stepCountIs, ToolLoopAgent } from "ai";
 import type { ZodType } from "zod";
 import {
 	AppAccessError,
@@ -34,6 +29,7 @@ import {
 	AppProjectChangedError,
 	BlueprintCommitRejectedError,
 	CommitReauthError,
+	MutationBatchIdCollisionError,
 	RunHolderLostError,
 } from "@/lib/db/commitGuard";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
@@ -47,10 +43,11 @@ import {
 } from "@/lib/models";
 import type { GenerationContext } from "./generationContext";
 import { buildSolutionsArchitectPrompt } from "./prompts";
-import { SHARED_TOOL_MANIFEST } from "./sharedToolManifest";
-import type { ToolExecutionContext } from "./toolExecutionContext";
+import {
+	SHARED_TOOL_REGISTRY,
+	type SharedToolRegistryEntry,
+} from "./sharedToolRegistry";
 import { askQuestionsTool } from "./tools/askQuestions";
-import type { MutatingToolResult, ReadToolResult } from "./tools/common";
 import { wireToolSchema } from "./wireSchemas";
 
 // ── Solutions Architect Agent ────────────────────────────────────────
@@ -59,8 +56,8 @@ import { wireToolSchema } from "./wireSchemas";
  * Create the Solutions Architect agent.
  *
  * @param initialDoc - The SA's starting `BlueprintDoc`. On initial builds
- *   this is the empty doc created by `createApp`; during edits it's the
- *   app's current state loaded from Postgres. The SA owns this doc for
+ *   this is the exact canonical starter returned by `createApp`; during edits
+ *   it's the app's current state loaded from Postgres. The SA owns this doc for
  *   the lifetime of the agent — every tool call mutates it in place.
  * @param editing - True when the app already exists (appReady). The SA gets
  *   the editing preamble in its prompt (the blueprint summary arrives as a
@@ -78,7 +75,7 @@ export function createSolutionsArchitect(
 	 * each extracted tool module via `ctx.recordMutations`. The wrappers
 	 * below only reassign `doc` when the extracted tool's `mutations`
 	 * array is non-empty, so the next tool call in the same request sees
-	 * post-mutation state for its UUID-backed lookups. Wire-format
+	 * post-mutation state for its positional-index lookups. Wire-format
 	 * snapshots are generated on demand for LLM-facing outputs and for
 	 * the CommCare validator. */
 	let doc: BlueprintDoc = initialDoc;
@@ -145,36 +142,13 @@ export function createSolutionsArchitect(
 	 */
 	function throwIfTerminalRunError(): void {
 		const terminalError =
-			ctx.holderLostError() ?? ctx.projectChangedError() ?? ctx.reauthError();
+			ctx.holderLostError() ??
+			ctx.projectChangedError() ??
+			ctx.reauthError() ??
+			ctx.batchIdCollisionError();
 		if (terminalError !== undefined) throw terminalError;
 	}
 
-	/**
-	 * Wrap an extracted mutating-tool module into the AI SDK tool-shape
-	 * the `ToolLoopAgent` expects.
-	 *
-	 * Closes over the factory's `ctx` and mutable `doc` binding so each
-	 * wrapper entry in the tool sets below collapses to `wrapMutating(x)`.
-	 * The mutations are already persisted by the extracted tool's
-	 * `ctx.recordMutations(...)` call before it returns; this helper's only
-	 * job is to advance the SA's working-doc closure when the batch was
-	 * non-empty, so the next tool call sees the updated UUID-addressed
-	 * document. Empty batches leave `doc` alone — matters for success
-	 * branches that don't change state.
-	 *
-	 * The generic input type `I` is carried through `FlexibleSchema<I>` so
-	 * the returned `execute` callback hands the exact Zod-output type to
-	 * the shared tool module — no `unknown` fallback.
-	 *
-	 * Returns a plain object literal rather than routing through `tool()`:
-	 * the AI SDK's `tool()` function is identity at runtime (`(t) => t`)
-	 * and exists only for type inference. Inside this generic helper the
-	 * `tool()` overload resolver can't bind its own `INPUT`/`OUTPUT` type
-	 * params because `R` stays abstract until each concrete call site —
-	 * `wrapMutating(addFieldsTool)`, etc. — lands on the agent's
-	 * `tools` record, at which point structural inference on the
-	 * `ToolSet` accepts the object without further annotation.
-	 */
 	/** Chat-surface wire projection — AST stubs on the wire, full Zod
 	 *  validation intact (`wireSchemas.ts`). Every SA tool is Zod-schema'd,
 	 *  so the cast holds. */
@@ -182,15 +156,16 @@ export function createSolutionsArchitect(
 		return wireToolSchema(schema as ZodType<I>);
 	}
 
-	function wrapMutating<I, R>(t: {
-		description: string;
-		inputSchema: FlexibleSchema<I>;
-		execute(
-			input: I,
-			ctx: ToolExecutionContext,
-			doc: BlueprintDoc,
-		): Promise<MutatingToolResult<R>>;
-	}) {
+	/**
+	 * Mount one entry from the canonical shared-tool registry on the SA.
+	 *
+	 * The same module object is mounted on MCP from the same registry. Its
+	 * result discriminator selects the chat projection at runtime: reads expose
+	 * `data`, mutations expose `result` and advance the working document. This
+	 * makes it impossible to add, remove, rename, or replace a shared tool on
+	 * only one surface.
+	 */
+	function wrapShared(t: SharedToolRegistryEntry["tool"]) {
 		return {
 			description: t.description,
 			inputSchema: wire(t.inputSchema),
@@ -202,39 +177,37 @@ export function createSolutionsArchitect(
 			// output tokens per call, less context echo on every later step
 			// — and our own Zod validation remains the real gate either way.
 			strict: false,
-			execute: (input: I) =>
+			execute: (input: unknown) =>
 				serial(async () => {
 					throwIfTerminalRunError();
 					try {
-						/* `kind: "mutate"` discriminator is internal to the shared
-						 * tool contract — the chat-side AI SDK tool surface only
-						 * sees `result`. Destructure-and-discard. On success the SA
-						 * continues against `newDoc` — the guarded writer's committed
-						 * doc, which may carry a peer's concurrent edit merged in. */
-						const { mutations, newDoc, result } = await t.execute(
-							input,
-							ctx,
-							doc,
-						);
-						if (mutations.length > 0) doc = newDoc;
-						/* A saga commit that PARKED saved case values stashed a
-						 * note on the context — append it to a message-bearing
-						 * result so the SA relays the data consequence to the
-						 * user, never silently. */
-						const parkedNote = ctx.consumeParkedNote?.();
-						if (
-							parkedNote !== undefined &&
-							typeof result === "object" &&
-							result !== null &&
-							"message" in result &&
-							typeof (result as { message: unknown }).message === "string"
-						) {
-							return {
-								...result,
-								message: `${(result as { message: string }).message}\n\n${parkedNote}`,
-							};
+						const outcome = await t.execute(input, ctx, doc);
+						switch (outcome.kind) {
+							case "read":
+								return outcome.data;
+							case "mutate": {
+								if (outcome.mutations.length > 0) doc = outcome.newDoc;
+								/* A committed row migration that PARKED saved case values stashed a
+								 * note on the context — append it to a message-bearing
+								 * result so the SA relays the data consequence to the
+								 * user, never silently. */
+								const parkedNote = ctx.consumeParkedNote?.();
+								if (
+									parkedNote !== undefined &&
+									typeof outcome.result === "object" &&
+									outcome.result !== null &&
+									"message" in outcome.result &&
+									typeof (outcome.result as { message: unknown }).message ===
+										"string"
+								) {
+									return {
+										...outcome.result,
+										message: `${(outcome.result as { message: string }).message}\n\n${parkedNote}`,
+									};
+								}
+								return outcome.result;
+							}
 						}
-						return result;
 					} catch (err) {
 						/* A RETRYABLE conflict — a peer deleted/changed what this
 						 * tool targeted between our read and the commit. Surface the
@@ -277,7 +250,25 @@ export function createSolutionsArchitect(
 							doc = hydratePersistedBlueprint(
 								fresh.app.blueprint as PersistableDoc,
 							);
-							return { error: err.message } as R;
+							return { error: err.message };
+						}
+						/* Read-shaped tools can still own external side effects
+						 * (currently media deletion). Preserve every authoritative
+						 * fence as the same terminal latch a guarded blueprint
+						 * commit sets. */
+						if (err instanceof RunHolderLostError) {
+							ctx.latchRunHolderLost(err);
+						} else if (err instanceof MutationBatchIdCollisionError) {
+							// A reused batch id is our protocol failure. Latching ends the
+							// run: a bare throw becomes a `tool-error` part, which the model
+							// reads as retryable and answers by calling again with a fresh
+							// server-minted id — the exact loop this exists to stop.
+							ctx.latchBatchIdCollision(err);
+						} else if (
+							err instanceof CommitReauthError ||
+							err instanceof AppProjectChangedError
+						) {
+							ctx.latchTerminalScopeError(err);
 						}
 						throw err;
 					}
@@ -285,64 +276,10 @@ export function createSolutionsArchitect(
 		};
 	}
 
-	/**
-	 * Wrap an extracted read-only tool module into the AI SDK tool-shape.
-	 * Reads the working doc and returns the tool's result; the SA's
-	 * closure is never advanced (reads don't mutate state).
-	 *
-	 * Separate from `wrapMutating` because read tools return a
-	 * `ReadToolResult<R>` envelope — the `kind: "read"` discriminator is
-	 * the contract the MCP adapter dispatches on; the chat-side wrapper
-	 * unwraps `data` so the AI SDK tool surface still sees the bare
-	 * payload the model expects.
-	 */
-	function wrapRead<I, R>(t: {
-		description: string;
-		inputSchema: FlexibleSchema<I>;
-		execute(
-			input: I,
-			ctx: ToolExecutionContext,
-			doc: BlueprintDoc,
-		): Promise<ReadToolResult<R>>;
-	}) {
-		return {
-			description: t.description,
-			inputSchema: wire(t.inputSchema),
-			// Same strict-mode opt-out as `wrapMutating` — see the note there.
-			strict: false,
-			execute: (input: I) =>
-				serial(async () => {
-					throwIfTerminalRunError();
-					/* `kind: "read"` discriminator is internal to the shared
-					 * tool contract — the AI SDK tool surface sees the bare
-					 * `data`. Unwrap. */
-					try {
-						const { data } = await t.execute(input, ctx, doc);
-						return data;
-					} catch (error) {
-						/* Read-shaped tools can still own external side effects (currently
-						 * media deletion). Preserve every authoritative side-effect fence as
-						 * the same terminal latch a guarded blueprint commit sets, so queued
-						 * tools and finalization cannot continue after the delete loses its
-						 * holder, Project, or current edit authorization. */
-						if (error instanceof RunHolderLostError) {
-							ctx.latchRunHolderLost(error);
-						} else if (
-							error instanceof CommitReauthError ||
-							error instanceof AppProjectChangedError
-						) {
-							ctx.latchTerminalScopeError(error);
-						}
-						throw error;
-					}
-				}),
-		};
-	}
-
-	// ── Shared tools (all modes) ─────────────────────────────────────
-	// Conversation, batch add, read, mutation, and validation tools.
-
-	const sharedTools: ToolSet = {
+	// `askQuestions` is the one client-side tool, so it intentionally does not
+	// appear in the SA/MCP registry. Every executable shared tool comes directly
+	// from that registry; the SA and MCP cannot carry divergent module lists.
+	const sharedTools = {
 		// `askQuestions` is the one client-side tool — no `execute`, the
 		// agent stops for user input when the model calls it. Kept as a
 		// bare `{ description, inputSchema }` object so the AI SDK can
@@ -352,11 +289,13 @@ export function createSolutionsArchitect(
 			inputSchema: wire(askQuestionsTool.inputSchema),
 			strict: false,
 		},
+		...Object.fromEntries(
+			SHARED_TOOL_REGISTRY.map(({ saName, tool }) => [
+				saName,
+				wrapShared(tool),
+			]),
+		),
 	};
-	for (const entry of SHARED_TOOL_MANIFEST) {
-		sharedTools[entry.chatName] =
-			entry.kind === "mutate" ? wrapMutating(entry.tool) : wrapRead(entry.tool);
-	}
 
 	// ── Build agent ──────────────────────────────────────────────────
 	// One tool set for both modes (generateSchema included — it's how a
@@ -370,7 +309,7 @@ export function createSolutionsArchitect(
 		model: ctx.model(editing ? SA_EDIT_MODEL : SA_BUILD_MODEL),
 		// The doc picks the build-vs-edit branch and contributes no bytes —
 		// both prompts are static so the provider's exact-prefix cache
-		// survives doc mutations. The edit turn's blueprint summary rides
+		// survives doc mutations. The current blueprint summary rides
 		// the per-turn message the route appends (`buildAppStateMessage`).
 		instructions: buildSolutionsArchitectPrompt(editing ? doc : undefined),
 		stopWhen: stepCountIs(80),

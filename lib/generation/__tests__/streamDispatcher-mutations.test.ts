@@ -9,8 +9,7 @@
  *
  *   - applies single mutations and multi-mutation atomic batches,
  *   - appends the envelopes to the session events buffer,
- *   - gracefully ignores empty or missing payloads (neither store
- *     changes), and
+ *   - accepts canonical empty batches and rejects a missing batch, and
  *   - carries the optional `stage` tag on each envelope.
  *
  * We use real wired stores (BlueprintDocStore + BuilderSessionStore) so
@@ -18,19 +17,21 @@
  */
 
 import { beforeEach, describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { createReconciler } from "@/lib/collab/reconciler";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import type { BlueprintDocStoreApi } from "@/lib/doc/store";
 import type { Mutation } from "@/lib/doc/types";
 import {
-	asUuid,
 	lookupOptionsSourceSchema,
 	type PersistableDoc,
 	type SelectOptionsSource,
-	selectOptionsSourceSchema,
 } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import type { MutationEvent } from "@/lib/log/types";
 import type { BuilderSessionStoreApi } from "@/lib/session/store";
+import { signalGrid } from "@/lib/signalGrid/store";
 import { applyStreamEvent } from "../streamDispatcher";
 import { createWiredStores, hydrateDoc } from "./testHelpers";
 
@@ -50,11 +51,11 @@ function envelopes(mutations: Mutation[], stage?: string): MutationEvent[] {
 	}));
 }
 
-const LOOKUP_MODULE = asUuid("10000000-0000-4000-8000-000000000000");
-const LOOKUP_FORM = asUuid("20000000-0000-4000-8000-000000000000");
-const LOOKUP_FIELD = asUuid("30000000-0000-4000-8000-000000000000");
-const LOOKUP_OPTION_A = asUuid("40000000-0000-4000-8000-000000000000");
-const LOOKUP_OPTION_B = asUuid("50000000-0000-4000-8000-000000000000");
+const LOOKUP_MODULE = testUuid("10000000-0000-4000-8000-000000000000");
+const LOOKUP_FORM = testUuid("20000000-0000-4000-8000-000000000000");
+const LOOKUP_FIELD = testUuid("30000000-0000-4000-8000-000000000000");
+const LOOKUP_OPTION_A = testUuid("40000000-0000-4000-8000-000000000000");
+const LOOKUP_OPTION_B = testUuid("50000000-0000-4000-8000-000000000000");
 const LOOKUP_SOURCE_A = lookupOptionsSourceSchema.parse({
 	kind: "lookup",
 	tableId: "018f3e8a-7b2c-7def-8abc-1234567890ab",
@@ -67,21 +68,29 @@ const LOOKUP_SOURCE_B = lookupOptionsSourceSchema.parse({
 	valueColumnId: "018f3e8a-7b2c-7def-8abc-1234567890af",
 	labelColumnId: "018f3e8a-7b2c-7def-8abc-1234567890b0",
 });
-const INLINE_SOURCE = selectOptionsSourceSchema.parse({
+const INLINE_SOURCE: SelectOptionsSource = {
 	kind: "inline",
 	options: [
-		{ uuid: LOOKUP_OPTION_A, value: "active", label: "Active" },
-		{ uuid: LOOKUP_OPTION_B, value: "closed", label: "Closed" },
+		{
+			uuid: LOOKUP_OPTION_A,
+			value: "active",
+			label: proseText("Active"),
+		},
+		{
+			uuid: LOOKUP_OPTION_B,
+			value: "closed",
+			label: proseText("Closed"),
+		},
 	],
-});
+};
 
-function lookupSourceMutation(optionsSource: SelectOptionsSource) {
+function lookupSourceMutation(optionsSource: SelectOptionsSource): Mutation {
 	return {
 		kind: "updateField",
 		uuid: LOOKUP_FIELD,
 		targetKind: "single_select",
 		patch: { optionsSource },
-	} satisfies Mutation;
+	};
 }
 
 function lookupReceiverDoc(): PersistableDoc {
@@ -110,22 +119,8 @@ function lookupReceiverDoc(): PersistableDoc {
 				uuid: LOOKUP_FIELD,
 				id: "status",
 				kind: "single_select",
-				label: "Status",
-				optionsSource: {
-					kind: "inline",
-					options: [
-						{
-							uuid: LOOKUP_OPTION_A,
-							value: "active",
-							label: "Active",
-						},
-						{
-							uuid: LOOKUP_OPTION_B,
-							value: "closed",
-							label: "Closed",
-						},
-					],
-				},
+				label: proseText("Status"),
+				optionsSource: INLINE_SOURCE,
 			},
 		},
 		moduleOrder: [LOOKUP_MODULE],
@@ -175,6 +170,7 @@ describe("applyStreamEvent — data-mutations", () => {
 		const stores = createWiredStores();
 		docStore = stores.docStore;
 		sessionStore = stores.sessionStore;
+		signalGrid.reset();
 	});
 
 	it("applies a single mutation AND appends its envelope to the buffer", () => {
@@ -197,8 +193,8 @@ describe("applyStreamEvent — data-mutations", () => {
 	});
 
 	it("applies a multi-mutation batch atomically AND appends all envelopes", () => {
-		const moduleUuid = asUuid("mod-live-1");
-		const formUuid = asUuid("form-live-1");
+		const moduleUuid = testUuid("mod-live-1");
+		const formUuid = testUuid("form-live-1");
 
 		const mutations: Mutation[] = [
 			{ kind: "setAppName", name: "Field Survey" },
@@ -262,7 +258,7 @@ describe("applyStreamEvent — data-mutations", () => {
 		expect(sessionStore.getState().events).toBe(eventsBefore);
 	});
 
-	it("ignores a payload with missing keys (no throw, no changes)", () => {
+	it("rejects a payload without its canonical mutations member", () => {
 		const appNameBefore = docStore.getState().appName;
 		const eventsBefore = sessionStore.getState().events;
 
@@ -275,10 +271,20 @@ describe("applyStreamEvent — data-mutations", () => {
 				null,
 				undefined,
 			);
-		}).not.toThrow();
+		}).toThrow(
+			expect.objectContaining({
+				code: "MUTATION_WIRE_CANONICALITY_INVALID",
+				details: {
+					mutationIndex: null,
+					pointer: "",
+					reason: "non-json-value",
+				},
+			}),
+		);
 
 		expect(docStore.getState().appName).toBe(appNameBefore);
 		expect(sessionStore.getState().events).toBe(eventsBefore);
+		expect(signalGrid.drainEnergy()).toBe(0);
 	});
 
 	it("stamps the optional `stage` tag onto every envelope", () => {
@@ -304,13 +310,13 @@ describe("applyStreamEvent — data-mutations", () => {
 		);
 	});
 
-	it("replays complete lookup and inline source replacements from raw generation SSE payloads", () => {
+	it("replays inline-to-lookup, lookup replacement, and lookup-to-inline from raw generation SSE payloads", () => {
 		hydrateDoc(docStore, lookupReceiverDoc());
 		const setSource = lookupSourceMutation(LOOKUP_SOURCE_A);
 		const replaceSource = lookupSourceMutation(LOOKUP_SOURCE_B);
-		const inlineSource = lookupSourceMutation(INLINE_SOURCE);
+		const returnInline = lookupSourceMutation(INLINE_SOURCE);
 
-		const payloads = [setSource, replaceSource, inlineSource].map(
+		const payloads = [setSource, replaceSource, returnInline].map(
 			rawLookupPayload,
 		);
 		for (const [index, expectedSource] of [
@@ -332,22 +338,13 @@ describe("applyStreamEvent — data-mutations", () => {
 				throw new Error(`malformed raw lookup payload ${index}`);
 			}
 
-			/* Both copies in the SSE payload preserve the canonical complete
-			 * source arm. */
-			expect(
-				owns(rawMutation.patch as Record<string, unknown>, "optionsSource"),
-			).toBe(true);
-			expect(rawMutation).toHaveProperty("patch.optionsSource", expectedSource);
-			expect(
-				owns(
-					rawEvent.mutation.patch as Record<string, unknown>,
-					"optionsSource",
-				),
-			).toBe(true);
-			expect(rawEvent.mutation).toHaveProperty(
-				"patch.optionsSource",
-				expectedSource,
-			);
+			/* Both copies carry the same final nested field patch. */
+			expect(owns(rawMutation, "optionsSource")).toBe(false);
+			expect(rawMutation.patch).toEqual({ optionsSource: expectedSource });
+			expect(owns(rawEvent.mutation, "optionsSource")).toBe(false);
+			expect(rawEvent.mutation.patch).toEqual({
+				optionsSource: expectedSource,
+			});
 
 			applyStreamEvent(
 				"data-mutations",
@@ -371,37 +368,21 @@ describe("applyStreamEvent — data-mutations", () => {
 		const rawInlineEvent = payloads[2]?.events as
 			| Array<{ mutation?: Record<string, unknown> }>
 			| undefined;
-		expect(
-			owns(
-				(rawInline?.[0]?.patch as Record<string, unknown>) ?? {},
-				"optionsSource",
-			),
-		).toBe(true);
-		expect(rawInline?.[0]).toHaveProperty("patch.optionsSource", INLINE_SOURCE);
-		expect(
-			owns(
-				(rawInlineEvent?.[0]?.mutation?.patch as Record<string, unknown>) ?? {},
-				"optionsSource",
-			),
-		).toBe(true);
-		expect(rawInlineEvent?.[0]?.mutation).toHaveProperty(
-			"patch.optionsSource",
-			INLINE_SOURCE,
-		);
+		expect(rawInline?.[0]?.patch).toEqual({ optionsSource: INLINE_SOURCE });
+		expect(rawInlineEvent?.[0]?.mutation?.patch).toEqual({
+			optionsSource: INLINE_SOURCE,
+		});
 
 		const bufferedInline = sessionStore.getState().events.at(-1);
 		expect(bufferedInline?.kind).toBe("mutation");
-		if (bufferedInline?.kind !== "mutation") {
-			throw new Error("inline replacement MutationEvent was not buffered");
+		if (
+			bufferedInline?.kind !== "mutation" ||
+			bufferedInline.mutation.kind !== "updateField" ||
+			bufferedInline.mutation.targetKind !== "single_select"
+		) {
+			throw new Error("inline-source MutationEvent was not buffered");
 		}
-		if (bufferedInline.mutation.kind !== "updateField") {
-			throw new Error("inline replacement is not an updateField");
-		}
-		expect(owns(bufferedInline.mutation.patch, "optionsSource")).toBe(true);
-		expect(bufferedInline.mutation).toHaveProperty(
-			"patch.optionsSource",
-			INLINE_SOURCE,
-		);
+		expect(bufferedInline.mutation.patch.optionsSource).toEqual(INLINE_SOURCE);
 		expect(sessionStore.getState().events).toHaveLength(3);
 	});
 
@@ -413,8 +394,8 @@ describe("applyStreamEvent — data-mutations", () => {
 	// module uuid twice and the builder tree renders it DUPLICATED for the rest of
 	// the run (the P6/P7 bug, healed only at data-done).
 	describe("echo-before-data-mutations race (no store duplication)", () => {
-		const MOD = asUuid("mod-base");
-		const NEW_MOD = asUuid("mod-added");
+		const MOD = testUuid("mod-base");
+		const NEW_MOD = testUuid("mod-added");
 
 		/** A base doc with one module, hydrated + tracking (a live builder). */
 		function seedDoc(store: BlueprintDocStoreApi): void {
@@ -474,7 +455,7 @@ describe("applyStreamEvent — data-mutations", () => {
 				actorId: "u1",
 				runId: "run-1",
 				kind: "chat",
-				mutations: addModuleBatch,
+				mutations: admitMutationBatch(addModuleBatch),
 			});
 			expect(docStore.getState().moduleOrder).toEqual([MOD, NEW_MOD]);
 
@@ -538,7 +519,7 @@ describe("applyStreamEvent — data-mutations", () => {
 				actorId: "u1",
 				runId: "run-1",
 				kind: "chat",
-				mutations: addModuleBatch,
+				mutations: admitMutationBatch(addModuleBatch),
 			});
 			expect(docStore.getState().moduleOrder).toEqual([MOD, NEW_MOD]);
 			expect(reconciler.getSnapshot().sentPending).toHaveLength(0);

@@ -98,7 +98,7 @@ function findDataPathRoot(node: SyntaxNode): SyntaxNode | null {
 	return pathRoot;
 }
 
-/** Read the namespace (case/form/user) from a HashtagRef node's doc text. */
+/** Read the namespace (case-type/form/user) from a HashtagRef node's text. */
 function readHashtagNamespace(
 	node: SyntaxNode,
 	doc: { sliceString(from: number, to: number): string },
@@ -154,11 +154,11 @@ export function hashtagSource(
 			const text = state.doc.sliceString(hashtagAncestor.from + 1, pos); // text typed so far, skip "#"
 			const slashIdx = text.indexOf("/");
 			if (slashIdx >= 0) {
-				namespace = text.slice(0, slashIdx); // "case", "form", or "user"
+				namespace = text.slice(0, slashIdx); // case-type name, "form", or "user"
 			}
 		} else {
-			// Check for cursor after "/" in a path chain rooted at HashtagRef (e.g. #case/|)
-			// Tree structure: Child { HashtagRef("#case"), "/", <cursor> }
+			// Check for a cursor after "/" in a hashtag path (e.g. #patient/|).
+			// Tree structure: Child { HashtagRef("#patient"), "/", <cursor> }
 			let current: SyntaxNode | null = node;
 			while (current && !isPathNode(current)) current = current.parent;
 			if (!current) return null;
@@ -300,7 +300,7 @@ function dataPathSource(
 export function xpathAutocomplete(
 	getContext: () => XPathLintContext | undefined,
 ): Extension {
-	// Suppress functions inside hashtag refs (#case/prop) and path steps (/data/step)
+	// Suppress functions inside hashtag refs (#patient/prop) and path steps.
 	const wrappedFunctionSource = ifNotIn(
 		["StringLiteral", "HashtagRef", "Child", "Descendant"],
 		functionSource,

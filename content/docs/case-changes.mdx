@@ -87,7 +87,8 @@ never appear. You can choose an available option knowing it will save.
 
 Values can come from a **form answer**, from information already on a case, from
 fixed values, from information about the person using the app, from Project data,
-or from a calculation you build.
+or from a calculation you build. A Project data value is found by matching one of
+the table's rows; the complete change remains editable.
 
 ## How often a change happens
 
@@ -141,11 +142,12 @@ first.
 
 Case changes are also part of Nova's shared authoring tools. You can ask Nova in
 chat to add, edit, move, or remove them, and a connected MCP agent has the same
-abilities. Rename or move a field or change and references keep pointing to the
-same thing; the names shown in the builder stay current. Change ids and
-connection names use letters, numbers, and underscores and start with a letter
-or underscore; saved property names use the same characters and start with a
-letter.
+abilities. Ask for the same change in the ordinary names you see in the builder;
+Nova keeps each reference attached to the right question or case change even if
+you later rename or move it, and the names shown in the builder stay current.
+Change ids and connection names use letters, numbers, and underscores and start
+with a letter or underscore; saved property names use the same characters and
+start with a letter.
 
 A request that adds several changes can connect them in one atomic call — for
 example, create a referral and then update that new referral. If any change is

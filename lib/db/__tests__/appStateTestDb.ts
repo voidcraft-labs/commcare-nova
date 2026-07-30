@@ -8,7 +8,7 @@
 //
 //   1. apply the case-store migrations (`runCaseStoreMigrations`) so the
 //      per-test database carries the `apps` / `blueprint_entities` /
-//      `accepted_mutations` / credit-ledger / media tables;
+//      `app_changes` / credit-ledger / media tables;
 //   2. point `getAppDb()` at the per-test handle via `__setAppDbForTests`
 //      (cleared in `afterEach`, so no injected handle leaks across files —
 //      the async-leak gate's contract);
@@ -21,6 +21,7 @@
 // handle inside test bodies (`h.db()` / `h.pool()` throw outside a test, the
 // same guard `setupPerTestDatabase` imposes).
 
+import { produce } from "immer";
 import {
 	Kysely,
 	PostgresDialect,
@@ -38,6 +39,8 @@ import { decomposeBlueprint } from "@/lib/db/blueprintRows";
 import { __setAppDbForTests, type AppDatabase } from "@/lib/db/pg";
 import type { AppReservation, AppRunLock } from "@/lib/db/types";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { applyMutations } from "@/lib/doc/mutations";
+import { canonicalAppGenesis } from "@/lib/doc/scaffolds";
 import type { BlueprintDoc } from "@/lib/domain";
 
 /** The reservation/run-lock column groups a test controls, in the same
@@ -46,9 +49,9 @@ import type { BlueprintDoc } from "@/lib/domain";
 export interface SeedAppOptions {
 	id?: string;
 	owner?: string;
-	project_id?: string | null;
+	project_id?: string;
 	app_name?: string;
-	status?: "generating" | "complete" | "error" | "deleted";
+	status?: "generating" | "complete" | "error";
 	awaiting_input?: boolean;
 	error_type?: string | null;
 	updated_at?: Date;
@@ -81,6 +84,12 @@ export interface AppStateTestDb {
 	/** Insert an `apps` row at a controlled run/credit state; returns its id. */
 	seedApp(opts?: SeedAppOptions): Promise<string>;
 	/**
+	 * Insert only the raw `apps` row, with no Blueprint entities. Reserved for
+	 * tests whose subject is malformed persisted state; ordinary fixtures use
+	 * {@link seedApp} and therefore start from canonical valid genesis.
+	 */
+	seedRawApp(opts?: SeedAppOptions): Promise<string>;
+	/**
 	 * Insert an `apps` row AND its `blueprint_entities` rows for a given
 	 * `BlueprintDoc` (the guarded-commit path reads the assembled blueprint, so
 	 * a bare row isn't enough). Scalars + entity rows land at `mutation_seq: 0`,
@@ -91,7 +100,7 @@ export interface AppStateTestDb {
 		opts?: {
 			id?: string;
 			owner?: string;
-			projectId?: string | null;
+			projectId?: string;
 		},
 	): Promise<string>;
 	/** Insert or replace a Project membership used by authoritative app writers. */
@@ -99,6 +108,18 @@ export interface AppStateTestDb {
 		userId: string,
 		projectId: string,
 		role?: "viewer" | "editor" | "admin" | "owner",
+	): Promise<void>;
+	/**
+	 * Move an app (and its case rows) to another Project the way the database
+	 * requires. A bare `UPDATE apps SET project_id` is refused: the app-Project
+	 * trigger demands an exact same-sequence `project-move` app change whose
+	 * `from`/`to` match the transition. Tests that only need an app to have
+	 * changed Projects call this instead of writing the flip by hand.
+	 */
+	moveAppToProject(
+		appId: string,
+		toProjectId: string,
+		actorUserId: string,
 	): Promise<void>;
 	/** Insert (or replace) a `credit_months` row for a user's current/other period. */
 	seedCreditMonth(
@@ -117,6 +138,30 @@ export interface AppStateTestDb {
 }
 
 const DEFAULT_APP_ID = "app-under-test";
+
+/** Build the exact smallest export-ready document production app genesis uses. */
+export function canonicalTestBlueprint(
+	appId: string,
+	requestedName?: string,
+): BlueprintDoc {
+	const empty: BlueprintDoc = {
+		appId,
+		appName: "",
+		connectType: null,
+		caseTypes: null,
+		modules: {},
+		forms: {},
+		fields: {},
+		moduleOrder: [],
+		formOrder: {},
+		fieldOrder: {},
+		fieldParent: {},
+	};
+	const genesis = canonicalAppGenesis(empty, requestedName);
+	return produce(empty, (draft) => {
+		applyMutations(draft, genesis.mutations);
+	});
+}
 
 /**
  * Wire the per-test Postgres database + migrations + the `getAppDb` injection
@@ -163,17 +208,24 @@ export function setupAppStateTestDb(prefix = "app_state_"): AppStateTestDb {
 		return injected;
 	};
 
-	async function seedApp(opts: SeedAppOptions = {}): Promise<string> {
+	async function insertAppFixture(
+		opts: SeedAppOptions,
+		doc: BlueprintDoc | null,
+	): Promise<string> {
 		const id = opts.id ?? DEFAULT_APP_ID;
 		const appName = opts.app_name ?? "";
 		const reservation = opts.reservation ?? undefined;
 		const lock = opts.run_lock ?? undefined;
 		const owner = opts.owner ?? "owner-test";
-		const projectId =
-			opts.project_id === undefined ? "project-test" : opts.project_id;
-		if (projectId !== null) {
-			await seedProjectMember(owner, projectId, "owner");
-		}
+		const projectId = opts.project_id ?? "project-test";
+		const persistable = doc === null ? null : toPersistableDoc(doc);
+		const formCount =
+			persistable?.moduleOrder.reduce(
+				(sum, moduleUuid) =>
+					sum + (persistable.formOrder[moduleUuid]?.length ?? 0),
+				0,
+			) ?? 0;
+		await seedProjectMember(owner, projectId, "owner");
 		await db()
 			.transaction()
 			.execute(async (tx) => {
@@ -185,11 +237,15 @@ export function setupAppStateTestDb(prefix = "app_state_"): AppStateTestDb {
 						project_id: projectId,
 						app_name: appName,
 						app_name_lower: (appName || UNTITLED_APP_NAME).toLowerCase(),
-						connect_type: opts.connect_type ?? null,
-						case_types: null,
-						logo: null,
-						module_count: opts.module_count ?? 0,
-						form_count: opts.form_count ?? 0,
+						connect_type: opts.connect_type ?? persistable?.connectType ?? null,
+						case_types:
+							persistable?.caseTypes == null
+								? null
+								: JSON.stringify(persistable.caseTypes),
+						logo: persistable?.logo ?? null,
+						module_count:
+							opts.module_count ?? persistable?.moduleOrder.length ?? 0,
+						form_count: opts.form_count ?? formCount,
 						mutation_seq: 0,
 						status: opts.status ?? "complete",
 						awaiting_input: opts.awaiting_input ?? false,
@@ -210,74 +266,59 @@ export function setupAppStateTestDb(prefix = "app_state_"): AppStateTestDb {
 						...(opts.created_at && { created_at: opts.created_at }),
 					})
 					.execute();
+				if (persistable !== null) {
+					const rows = decomposeBlueprint(persistable);
+					if (rows.length > 0) {
+						await tx
+							.insertInto("blueprint_entities")
+							.values(
+								rows.map((row) => ({
+									app_id: id,
+									uuid: row.uuid,
+									kind: row.kind,
+									parent_uuid: row.parent_uuid,
+									ordinal: row.ordinal,
+									data: JSON.stringify(row.data),
+								})),
+							)
+							.execute();
+					}
+				}
 			});
 		return id;
 	}
 
+	async function seedApp(opts: SeedAppOptions = {}): Promise<string> {
+		const id = opts.id ?? DEFAULT_APP_ID;
+		const doc = canonicalTestBlueprint(id, opts.app_name);
+		return insertAppFixture(
+			{
+				...opts,
+				id,
+				app_name: doc.appName,
+			},
+			doc,
+		);
+	}
+
+	async function seedRawApp(opts: SeedAppOptions = {}): Promise<string> {
+		return insertAppFixture(opts, null);
+	}
+
 	async function seedAppWithBlueprint(
 		doc: BlueprintDoc,
-		opts: { id?: string; owner?: string; projectId?: string | null } = {},
+		opts: { id?: string; owner?: string; projectId?: string } = {},
 	): Promise<string> {
-		const persistable = toPersistableDoc(doc);
 		const id = opts.id ?? crypto.randomUUID();
-		const owner = opts.owner ?? "owner-test";
-		const projectId =
-			opts.projectId === undefined ? "project-test" : opts.projectId;
-		if (projectId !== null) {
-			await seedProjectMember(owner, projectId, "owner");
-		}
-		const formCount = persistable.moduleOrder.reduce(
-			(sum, m) => sum + (persistable.formOrder[m]?.length ?? 0),
-			0,
+		return insertAppFixture(
+			{
+				id,
+				app_name: doc.appName,
+				...(opts.owner !== undefined && { owner: opts.owner }),
+				...(opts.projectId !== undefined && { project_id: opts.projectId }),
+			},
+			{ ...doc, appId: id },
 		);
-		await db()
-			.transaction()
-			.execute(async (tx) => {
-				await tx
-					.insertInto("apps")
-					.values({
-						id,
-						owner,
-						project_id: projectId,
-						app_name: persistable.appName,
-						app_name_lower: (
-							persistable.appName || UNTITLED_APP_NAME
-						).toLowerCase(),
-						connect_type: persistable.connectType ?? null,
-						case_types:
-							persistable.caseTypes === null
-								? null
-								: JSON.stringify(persistable.caseTypes),
-						logo: persistable.logo ?? null,
-						module_count: persistable.moduleOrder.length,
-						form_count: formCount,
-						mutation_seq: 0,
-						status: "complete",
-						awaiting_input: false,
-						error_type: null,
-						deleted_at: null,
-						recoverable_until: null,
-						run_id: null,
-					})
-					.execute();
-				const rows = decomposeBlueprint(persistable);
-				if (rows.length > 0) {
-					await tx
-						.insertInto("blueprint_entities")
-						.values(
-							rows.map((r) => ({
-								app_id: id,
-								uuid: r.uuid,
-								kind: r.kind,
-								parent_uuid: r.parent_uuid,
-								ordinal: r.ordinal,
-								data: JSON.stringify(r.data),
-							})),
-						)
-						.execute();
-				}
-			});
-		return id;
 	}
 
 	async function seedProjectMember(
@@ -291,6 +332,48 @@ export function setupAppStateTestDb(prefix = "app_state_"): AppStateTestDb {
 			ON CONFLICT ("organizationId", "userId")
 			DO UPDATE SET role = EXCLUDED.role
 		`.execute(db());
+	}
+
+	async function moveAppToProject(
+		appId: string,
+		toProjectId: string,
+		actorUserId: string,
+	): Promise<void> {
+		await db()
+			.transaction()
+			.execute(async (tx) => {
+				const app = await tx
+					.selectFrom("apps")
+					.select(["project_id", "mutation_seq"])
+					.where("id", "=", appId)
+					.forUpdate()
+					.executeTakeFirstOrThrow();
+				const seq = Number(app.mutation_seq) + 1;
+				// The change row must exist before the app row moves: the trigger
+				// looks for it at exactly `NEW.mutation_seq`.
+				await tx
+					.insertInto("app_changes")
+					.values({
+						app_id: appId,
+						seq,
+						batch_id: crypto.randomUUID(),
+						run_id: null,
+						actor_id: actorUserId,
+						kind: "project-move",
+						mutations: "[]",
+						from_project_id: app.project_id,
+						to_project_id: toProjectId,
+					})
+					.execute();
+				await tx
+					.updateTable("apps")
+					.set({ project_id: toProjectId, mutation_seq: seq })
+					.where("id", "=", appId)
+					.execute();
+				await sql`
+					UPDATE cases SET project_id = ${toProjectId} WHERE app_id = ${appId}
+				`.execute(tx);
+			});
 	}
 
 	async function seedCreditMonth(
@@ -381,8 +464,10 @@ export function setupAppStateTestDb(prefix = "app_state_"): AppStateTestDb {
 		pool: () => handle.pool,
 		uri: () => handle.uri,
 		seedApp,
+		seedRawApp,
 		seedAppWithBlueprint,
 		seedProjectMember,
+		moveAppToProject,
 		seedCreditMonth,
 		readConsumed,
 		readAppRow,

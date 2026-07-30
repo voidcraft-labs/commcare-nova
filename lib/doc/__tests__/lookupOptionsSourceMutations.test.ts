@@ -12,9 +12,10 @@ import {
 	lookupColumnIdSchema,
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
+import { proseText } from "@/lib/domain/prose";
 import type { LookupRevision } from "@/lib/lookup/types";
 
-const fieldUuid = asUuid("44444444-4444-4444-4444-444444444444");
+const fieldUuid = asUuid("44444444-4444-4444-8444-444444444444");
 
 const source: LookupOptionsSource = {
 	kind: "lookup",
@@ -32,12 +33,12 @@ const inlineSource = {
 		{
 			uuid: asUuid("26a5c50b-3832-4669-a929-d155e8b5af0d"),
 			value: "clinic",
-			label: "Clinic",
+			label: proseText("Clinic"),
 		},
 		{
 			uuid: asUuid("4fe7a686-ee21-4dc5-a12f-f0c288dcacc4"),
 			value: "hospital",
-			label: "Hospital",
+			label: proseText("Hospital"),
 		},
 	],
 };
@@ -57,7 +58,7 @@ function inlineSelectDoc() {
 								uuid: fieldUuid,
 								kind: "single_select",
 								id: "facility",
-								label: "Facility",
+								label: proseText("Facility"),
 								optionsSource: inlineSource,
 							}),
 						],
@@ -164,7 +165,7 @@ describe("replaceFieldOptionsSourceMutation", () => {
 		);
 		expect(unavailable.ok).toBe(false);
 		if (!unavailable.ok) {
-			expect(unavailable.introduced.map((finding) => finding.code)).toContain(
+			expect(unavailable.findings.map((finding) => finding.code)).toContain(
 				"LOOKUP_CONTEXT_UNAVAILABLE",
 			);
 		}

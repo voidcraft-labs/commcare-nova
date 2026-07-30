@@ -8,8 +8,8 @@
  * (`applyDefaults`) → uuid mint → domain `Field` assembly
  * (`flatFieldToField`) → the shared identifier verdict
  * (`lib/doc/identifierVerdicts.ts` — XML-name legality, the reserved
- * `__nova_` prefix, the case-property length cap, sibling uniqueness
- * against the doc AND this batch's earlier items). Parent resolution
+ * `__nova_` prefix, and sibling uniqueness against the doc AND this
+ * batch's earlier items). Parent resolution
  * covers containers minted earlier in the same batch (`mintedByBareId`)
  * before falling back to the doc-wide lookup, so a group + its children
  * compose in one call.
@@ -24,40 +24,24 @@
  * a partial batch would leave it guessing which fields landed.
  */
 
-import { parseXPathExpression } from "@/lib/commcare/xpath";
-import {
-	type FieldRefResolvableDoc,
-	resolvableUserPropertySlug,
-	resolveCloseFieldRef,
-} from "@/lib/doc/expressionText";
 import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
 import { fieldIdVerdict } from "@/lib/doc/identifierVerdicts";
 import { findContainingForm } from "@/lib/doc/mutations/helpers";
-import { spliceAfter } from "@/lib/doc/mutations/sequence";
 import { declareCaseTypeMutations } from "@/lib/doc/scaffolds";
 import type { Mutation } from "@/lib/doc/types";
-import type {
-	BlueprintDoc,
-	Field,
-	ResolveFieldPath,
-	ResolveUserPropertySlug,
-	Uuid,
-	XPathExpression,
-	XPathPrintableDoc,
-} from "@/lib/domain";
+import type { BlueprintDoc, Field, Uuid } from "@/lib/domain";
 import {
 	asUuid,
-	fieldCasePropertyOn,
-	fieldPathResolver,
+	fieldCaseWrite,
+	findAuthoredBlueprintIdentity,
 	isContainer,
-	opaqueXPathExpression,
 } from "@/lib/domain";
 import {
 	applyDefaults,
 	type FlatField,
 	flatFieldToField,
+	prepareFlatFieldIdentities,
 	stripEmpty,
-	unescapeXPath,
 } from "../../contentProcessing";
 
 export interface FieldAssemblyArgs {
@@ -68,13 +52,26 @@ export interface FieldAssemblyArgs {
 	formUuid: Uuid;
 	/** The SA's flat field items, in order. */
 	items: readonly FlatField[];
-	/** Existing default parent for the batch. Per-item `parentId` values are
-	 *  construction-local handles and override it only when they name a
-	 *  container created earlier in this same call. */
+	/** Other authorable identities predeclared by the surrounding creation call. */
+	occupiedUuids?: ReadonlySet<Uuid>;
+	/** Default parent for the batch. A field's own `parentUuid` overrides it. */
 	batchParentUuid?: Uuid;
 	/** Insertion anchor for the batch's top-level block — only meaningful
 	 *  against an EXISTING form (a new form has nothing to anchor to). */
 	anchor?: { beforeFieldUuid?: Uuid; afterFieldUuid?: Uuid };
+}
+
+export interface CreatedOptionIdentity {
+	uuid: Uuid;
+	value: string;
+}
+
+export interface CreatedFieldIdentity {
+	uuid: Uuid;
+	id: string;
+	/** Inline-option identities in authored/source order; empty for non-selects
+	 * and lookup-backed selects. */
+	options: CreatedOptionIdentity[];
 }
 
 export type FieldAssemblyResult =
@@ -84,26 +81,8 @@ export type FieldAssemblyResult =
 			/** Items that didn't assemble into a valid Field for their kind —
 			 *  reported, never silently dropped. */
 			skipped: Array<{ id: string; reason: string }>;
-			/**
-			 * Parse expression TEXT against the doc PLUS this batch's planned
-			 * tree — the same resolution context the landed fields' own
-			 * expression slots were re-parsed in. The creation tools route
-			 * their form-level XPath inputs (the Connect bindings, via
-			 * `buildConnectConfig`) through this so a reference to a field
-			 * landing in the same call resolves to an identity leaf, exactly
-			 * as it would once the batch has applied.
-			 */
-			parseExpression: (text: string) => XPathExpression;
-			/**
-			 * Resolve a bare field id to the target field's stable uuid over
-			 * the same doc-plus-batch overlay (pre-order first match — the
-			 * `resolveCloseFieldRef` rule). The creation tools resolve a
-			 * form's `close_condition.field` through this, so the condition
-			 * can name a field landing in the same call. An id nothing
-			 * answers to comes back verbatim, and the commit gate rejects
-			 * the introduction with the validator's close-condition finding.
-			 */
-			resolveFieldRef: (ref: string) => Uuid | string;
+			/** Every created identity, in input order. */
+			created: CreatedFieldIdentity[];
 	  }
 	| {
 			ok: false;
@@ -112,26 +91,22 @@ export type FieldAssemblyResult =
 	  };
 
 /**
- * Resolve a creation tool's `close_condition` input to the stored
- * `closeCondition` shape: the authored field id resolves to the target's
- * uuid through the assembly's `resolveFieldRef` (the same doc-plus-batch
- * overlay the batch's expressions used, so the condition may name a field
- * landing in this call; an unresolved id stays verbatim and the gate
- * rejects it with the validator's close-condition finding). One resolver
- * for both creation surfaces — `createForm` and `createModule` — so the
- * two cannot drift. Returns `undefined` for an absent/null input (an
- * unconditional close).
+ * Convert a creation tool's exact UUID-addressed `close_condition` input to
+ * the stored shape. Returns `undefined` for an absent/null input.
  */
 export function resolveCloseCondition(
-	resolveFieldRef: (ref: string) => Uuid | string,
 	input:
-		| { field: string; answer: string; operator?: "=" | "selected" | null }
+		| {
+				fieldUuid: Uuid | string;
+				answer: string;
+				operator?: "=" | "selected" | null;
+		  }
 		| null
 		| undefined,
 ): { field: Uuid; answer: string; operator?: "=" | "selected" } | undefined {
 	if (input == null) return undefined;
 	return {
-		field: asUuid(resolveFieldRef(input.field)),
+		field: asUuid(input.fieldUuid),
 		answer: input.answer,
 		...(input.operator && { operator: input.operator }),
 	};
@@ -140,21 +115,21 @@ export function resolveCloseCondition(
 export function assembleFieldMutations(
 	args: FieldAssemblyArgs,
 ): FieldAssemblyResult {
-	const { doc, formUuid, items, batchParentUuid, anchor } = args;
+	const { doc, formUuid, items, occupiedUuids, batchParentUuid, anchor } = args;
 
-	// Resolve the batch's insertion parent — the form root, or the
-	// batch-level `parentId` when it names an existing container (mirrors
-	// the per-field fallback in the loop). When an anchor is given, find
+	// Resolve the batch's insertion parent — the form root, or an existing
+	// container named by stable UUID. When an anchor is given, find
 	// the index in that parent's CURRENT order where the batch's top-level
 	// block should start; `topLevelNextIndex` then walks forward as each
 	// top-level field is placed, so the inserted fields land contiguously
-	// in batch order. A field carrying its OWN parentId nests under that
+	// in batch order. A field carrying its OWN parentUuid nests under that
 	// parent and never consumes an anchor slot.
 	let batchInsertParent: Uuid = formUuid;
 	if (batchParentUuid) {
-		const parent = doc.fields[batchParentUuid];
+		const existing = doc.fields[batchParentUuid];
 		if (
-			parent === undefined ||
+			!existing ||
+			!isContainer(existing) ||
 			findContainingForm(doc, batchParentUuid) !== formUuid
 		) {
 			return {
@@ -162,125 +137,127 @@ export function assembleFieldMutations(
 				rejected: [
 					{
 						id: batchParentUuid,
-						reason: `parentUuid "${batchParentUuid}" is not in the addressed form.`,
+						reason:
+							"batch parentUuid must name an existing group/repeat in the addressed form.",
 					},
 				],
 			};
 		}
-		if (!isContainer(parent)) {
-			return {
-				ok: false,
-				rejected: [
-					{
-						id: batchParentUuid,
-						reason: `parentUuid "${batchParentUuid}" names "${parent.id}", which is not a group or repeat.`,
-					},
-				],
-			};
-		}
-		batchInsertParent = batchParentUuid;
+		batchInsertParent = existing.uuid;
 	}
 	let topLevelNextIndex: number | undefined;
 	if (anchor?.beforeFieldUuid || anchor?.afterFieldUuid) {
 		const order = orderedFieldUuids(doc, batchInsertParent);
-		if (anchor.beforeFieldUuid) {
-			const i = order.indexOf(anchor.beforeFieldUuid);
-			if (i === -1) {
-				return {
-					ok: false,
-					rejected: [
-						{
-							id: anchor.beforeFieldUuid,
-							reason: `beforeFieldUuid "${anchor.beforeFieldUuid}" is not a child of the selected insertion parent.`,
-						},
-					],
-				};
-			}
-			topLevelNextIndex = i;
-		} else if (anchor.afterFieldUuid) {
-			const i = order.indexOf(anchor.afterFieldUuid);
-			if (i === -1) {
-				return {
-					ok: false,
-					rejected: [
-						{
-							id: anchor.afterFieldUuid,
-							reason: `afterFieldUuid "${anchor.afterFieldUuid}" is not a child of the selected insertion parent.`,
-						},
-					],
-				};
-			}
-			topLevelNextIndex = i + 1;
+		const anchorUuid = anchor.beforeFieldUuid ?? anchor.afterFieldUuid;
+		const i = anchorUuid === undefined ? -1 : order.indexOf(anchorUuid);
+		if (i === -1) {
+			return {
+				ok: false,
+				rejected: [
+					{
+						id: anchorUuid ?? "",
+						reason:
+							"the insertion anchor must name an existing sibling in the insertion parent.",
+					},
+				],
+			};
 		}
+		topLevelNextIndex = anchor.beforeFieldUuid ? i : i + 1;
 	}
 	// The anchor's start slot in the parent's DISPLAY order, captured BEFORE
 	// the placement loop advances `topLevelNextIndex` — the second-pass order
 	// minting keys the anchored block BETWEEN the neighbors at this slot.
 	const anchorStartIndex = topLevelNextIndex;
 
-	// `mintedByBareId` records only containers added earlier in this batch
-	// so a later item's `parentId` can resolve to them; `pendingByParent`
-	// carries the ids earlier items claimed per parent (they aren't in
-	// `doc` yet), so two new siblings can't land with the same id.
-	// `dupMintedIds` tracks a container id minted TWICE in this batch
-	// (legal — sibling uniqueness is per parent level, so two same-id
-	// groups under different parents both pass the verdict): a later
-	// `parentId` naming it is refused rather than silently resolved to
-	// whichever container the map happened to keep.
-	const mintedByBareId = new Map<string, Uuid>();
-	const dupMintedIds = new Set<string>();
+	// Assign final identities before assembling any item. This complete overlay
+	// lets expression references point forward while topology remains ordered.
+	const assigned = items.map((input) => {
+		const raw = prepareFlatFieldIdentities(input);
+		return {
+			raw,
+			// Catalog defaults may themselves mint inline-option UUIDs. Establish
+			// them before ANY collision/admission check, then carry this exact
+			// processed object through assembly unchanged.
+			processed: applyDefaults(stripEmpty(raw), doc.caseTypes),
+			uuid: input.fieldUuid ?? asUuid(crypto.randomUUID()),
+		};
+	});
+	const predeclared = new Map<Uuid, string>();
+	const identityRejections: Array<{ id: string; reason: string }> = [];
+	for (const { raw, processed, uuid } of assigned) {
+		const declarations: Array<{ uuid: Uuid; label: string }> = [
+			{ uuid, label: `field "${raw.id}"` },
+			...(processed.optionsSource?.kind === "inline"
+				? processed.optionsSource.options.map((option) => ({
+						uuid: option.uuid,
+						label: `option "${option.value}" on field "${raw.id}"`,
+					}))
+				: []),
+		];
+		for (const declaration of declarations) {
+			const prior = predeclared.get(declaration.uuid);
+			if (prior !== undefined) {
+				identityRejections.push({
+					id: raw.id,
+					reason: `UUID ${declaration.uuid} for ${declaration.label} is also declared by ${prior} in this call.`,
+				});
+				continue;
+			}
+			const existing = findAuthoredBlueprintIdentity(doc, declaration.uuid);
+			if (existing !== undefined || occupiedUuids?.has(declaration.uuid)) {
+				identityRejections.push({
+					id: raw.id,
+					reason: `UUID ${declaration.uuid} for ${declaration.label} already belongs to ${existing?.kind ?? "another authored object"} in this app or creation call.`,
+				});
+				continue;
+			}
+			predeclared.set(declaration.uuid, declaration.label);
+		}
+	}
+	if (identityRejections.length > 0) {
+		return { ok: false, rejected: identityRejections };
+	}
+
 	const mutations: Mutation[] = [];
 	const skipped: Array<{ id: string; reason: string }> = [];
 	const rejected: Array<{ id: string; reason: string }> = [];
 	const pendingByParent = new Map<Uuid, Set<string>>();
-	// Expression slots resolve in a SECOND pass against the whole
-	// batch's planned tree (a calculate may reference a field that lands
-	// later in the same call), so assembly first installs the authored
-	// text as opaque runs and `resolveBatchExpressions` re-parses each
-	// landed field's slots once every sibling is known.
-	const landed: Array<{ field: Field; processed: Partial<FlatField> }> = [];
+	const earlierFields = new Map<Uuid, Field>();
 
-	for (const raw of items) {
-		// `stripEmpty` narrows `parentId?: string | null` (sentinel empty
-		// string → null) and `applyDefaults` preserves that narrowing while
-		// merging case-type metadata onto the field.
-		const processed = applyDefaults(stripEmpty(raw), doc.caseTypes);
-
-		// Resolve parentUuid: the field's OWN `parentId` wins; if it didn't
-		// set one, fall back to the batch-level `parentId`; if neither is
+	for (const { raw, processed, uuid: fieldUuid } of assigned) {
+		// Resolve parentUuid: the field's OWN value wins; if it didn't
+		// set one, fall back to the batch-level value; if neither is
 		// set, the field lands at the form's top level.
-		let parentUuid: Uuid = formUuid;
-		const parentId = processed.parentId;
-		if (parentId && typeof parentId === "string") {
-			const minted = mintedByBareId.get(parentId);
-			if (minted) {
-				// A same-call parent ref must have exactly one viable
-				// construction-local referent.
-				if (dupMintedIds.has(parentId)) {
+		const parentUuid = processed.parentUuid ?? batchParentUuid ?? formUuid;
+		if (parentUuid !== formUuid) {
+			const earlier = earlierFields.get(parentUuid);
+			if (earlier) {
+				if (!isContainer(earlier)) {
 					rejected.push({
 						id: raw.id,
-						reason: `parentId "${parentId}": this call adds more than one container with that id — give the new containers distinct ids so the reference is unambiguous.`,
+						reason: `parentUuid ${parentUuid} names an earlier non-container field.`,
 					});
 					continue;
 				}
-				parentUuid = minted;
 			} else {
-				rejected.push({
-					id: raw.id,
-					reason: `parentId "${parentId}" is a construction-local handle, but this call did not create exactly one earlier group or repeat with that id. Use parentUuid for an existing container.`,
-				});
-				continue;
+				const existing = doc.fields[parentUuid];
+				if (
+					!existing ||
+					!isContainer(existing) ||
+					findContainingForm(doc, parentUuid) !== formUuid
+				) {
+					rejected.push({
+						id: raw.id,
+						reason: predeclared.has(parentUuid)
+							? `parentUuid ${parentUuid} names a field declared later in this call; topology parents must appear earlier.`
+							: `parentUuid ${parentUuid} must name a group/repeat in the addressed form.`,
+					});
+					continue;
+				}
 			}
-		} else if (batchParentUuid !== undefined) {
-			parentUuid = batchParentUuid;
 		}
 
-		const fieldUuid = asUuid(crypto.randomUUID());
-		const assembled = flatFieldToField(
-			processed,
-			fieldUuid,
-			opaqueXPathExpression,
-		);
+		const assembled = flatFieldToField(processed, fieldUuid);
 		if (!assembled.ok) {
 			// The payload didn't assemble into a valid Field for its kind.
 			// Carry the specific reason so the caller reports WHY each field
@@ -306,16 +283,10 @@ export function assembleFieldMutations(
 		if (pending) pending.add(field.id);
 		else pendingByParent.set(parentUuid, new Set([field.id]));
 
-		if (isContainer(field)) {
-			// Keep the FIRST minted uuid per id — once the id is marked
-			// duplicated, any later ref to it is refused, so which uuid the
-			// map holds no longer matters.
-			if (mintedByBareId.has(field.id)) dupMintedIds.add(field.id);
-			else mintedByBareId.set(field.id, fieldUuid);
-		}
+		earlierFields.set(fieldUuid, field);
 		// Top-level batch fields honor the anchor (a contiguous block at
 		// the resolved index, walking forward per field); everything else
-		// — fields nested under their own parentId, or any field when no
+		// — fields nested under their own parentUuid, or any field when no
 		// anchor was given — appends.
 		if (topLevelNextIndex !== undefined && parentUuid === batchInsertParent) {
 			// Placement is filled in below, once every field in the batch exists
@@ -325,14 +296,9 @@ export function assembleFieldMutations(
 		} else {
 			mutations.push({ kind: "addField", parentUuid, field });
 		}
-		landed.push({ field, processed });
 	}
 
 	if (rejected.length > 0) return { ok: false, rejected };
-	const overlay = buildBatchOverlay(doc, formUuid, mutations);
-	const resolve = fieldPathResolver(overlay, formUuid);
-	const resolveUserProperty = resolvableUserPropertySlug(overlay);
-	resolveBatchExpressions(resolve, resolveUserProperty, landed);
 	// Place every born field. An ANCHORED batch (a top-level block placed at
 	// `beforeFieldUuid` / `afterFieldUuid`) lands AT the anchor rather than at the
 	// end, so its first field follows the anchor's predecessor and each
@@ -349,7 +315,7 @@ export function assembleFieldMutations(
 			: (() => {
 					const siblings = orderedFieldUuids(doc, batchInsertParent);
 					const at = Math.max(0, Math.min(anchorStartIndex, siblings.length));
-					return at === 0 ? null : (siblings[at - 1] as Uuid);
+					return at === 0 ? null : (siblings[at - 1] ?? null);
 				})();
 	const lastPlacedByParent = new Map<string, Uuid | null | undefined>();
 	if (anchorAfter !== undefined) {
@@ -359,7 +325,7 @@ export function assembleFieldMutations(
 		if (mut.kind !== "addField") continue;
 		const after = lastPlacedByParent.get(mut.parentUuid);
 		if (after !== undefined) mut.after = after;
-		lastPlacedByParent.set(mut.parentUuid, mut.field.uuid as Uuid);
+		lastPlacedByParent.set(mut.parentUuid, asUuid(mut.field.uuid));
 	}
 	// Declaration chokepoint: a field writing to a type absent from the catalog
 	// declares it (granular `declareCaseType`) — the reducer no longer
@@ -370,133 +336,33 @@ export function assembleFieldMutations(
 	const declarations: Mutation[] = [];
 	for (const mut of mutations) {
 		if (mut.kind !== "addField") continue;
-		const caseType = fieldCasePropertyOn(mut.field);
-		if (caseType === undefined || declared.has(caseType)) continue;
-		declared.add(caseType);
-		declarations.push(...declareCaseTypeMutations(doc, caseType));
+		const write = fieldCaseWrite(mut.field);
+		if (write === undefined || declared.has(write.caseType)) continue;
+		declared.add(write.caseType);
+		declarations.push(...declareCaseTypeMutations(doc, write.caseType));
 	}
 	return {
 		ok: true,
 		mutations: [...declarations, ...mutations],
 		skipped,
-		parseExpression: (text) =>
-			parseXPathExpression(text, resolve, resolveUserProperty),
-		resolveFieldRef: (ref) => resolveCloseFieldRef(overlay, formUuid, ref),
+		created: mutations
+			.filter(
+				(mut): mut is Extract<Mutation, { kind: "addField" }> =>
+					mut.kind === "addField",
+			)
+			.map((mut) => ({
+				uuid: mut.field.uuid,
+				id: mut.field.id,
+				options:
+					"optionsSource" in mut.field &&
+					mut.field.optionsSource.kind === "inline"
+						? mut.field.optionsSource.options.map((option) => ({
+								uuid: option.uuid,
+								value: option.value,
+							}))
+						: [],
+			})),
 	};
-}
-
-/**
- * Reference resolver over the doc PLUS the whole batch's planned tree —
- * the overlay both second-pass consumers share: the landed fields' own
- * expression slots (`resolveBatchExpressions`) and the caller-facing
- * `parseExpression` for form-level XPath inputs riding the same batch.
- */
-function buildBatchOverlay(
-	doc: BlueprintDoc,
-	formUuid: Uuid,
-	mutations: readonly Mutation[],
-): XPathPrintableDoc & FieldRefResolvableDoc {
-	const fields: Record<string, Field | undefined> = { ...doc.fields };
-	const fieldOrder: Record<string, string[] | undefined> = {};
-	for (const [parent, order] of Object.entries(doc.fieldOrder)) {
-		fieldOrder[parent] = [...order];
-	}
-	// The insertion form may be minted by an earlier mutation in the same
-	// batch (createForm / createModule) — give it a resolution root.
-	const forms: Record<string, unknown> = doc.forms[formUuid]
-		? doc.forms
-		: { ...doc.forms, [formUuid]: {} };
-	for (const mut of mutations) {
-		if (mut.kind !== "addField") continue;
-		fields[mut.field.uuid] = mut.field;
-		fieldOrder[mut.parentUuid] = spliceAfter(
-			fieldOrder[mut.parentUuid] ?? [],
-			mut.field.uuid as Uuid,
-			mut.after,
-		);
-		if (mut.field.kind === "group" || mut.field.kind === "repeat") {
-			fieldOrder[mut.field.uuid] ??= [];
-		}
-	}
-	return {
-		forms,
-		fields,
-		fieldOrder,
-		userProperties: doc.userProperties,
-	};
-}
-
-/**
- * Second assembly pass: re-parse every landed field's expression slots
- * against the batch-aware resolver, so a reference to any field in the
- * same call — earlier or later — resolves to an identity leaf exactly
- * as it would once the batch has applied.
- */
-function resolveBatchExpressions(
-	resolve: ResolveFieldPath,
-	resolveUserProperty: ResolveUserPropertySlug,
-	landed: ReadonlyArray<{ field: Field; processed: Partial<FlatField> }>,
-): void {
-	for (const { field, processed } of landed) {
-		const carrier = field as unknown as Record<string, unknown>;
-		for (const slot of [
-			"relevant",
-			"calculate",
-			"default_value",
-			"required",
-		] as const) {
-			const text = processed[slot];
-			if (typeof text === "string" && text.length > 0 && slot in carrier) {
-				carrier[slot] = parseXPathExpression(
-					text,
-					resolve,
-					resolveUserProperty,
-				);
-			}
-		}
-		const validateExpr = processed.validate?.expr;
-		if (
-			typeof validateExpr === "string" &&
-			validateExpr.length > 0 &&
-			"validate" in carrier
-		) {
-			carrier.validate = parseXPathExpression(
-				unescapeXPath(validateExpr),
-				resolve,
-				resolveUserProperty,
-			);
-		}
-		const repeatConfig = processed.repeat;
-		const repeatCount =
-			repeatConfig?.mode === "count_bound" ? repeatConfig.count : undefined;
-		if (
-			typeof repeatCount === "string" &&
-			repeatCount.length > 0 &&
-			"repeat_count" in carrier
-		) {
-			carrier.repeat_count = parseXPathExpression(
-				unescapeXPath(repeatCount),
-				resolve,
-				resolveUserProperty,
-			);
-		}
-		const idsQuery =
-			repeatConfig?.mode === "query_bound" ? repeatConfig.ids_query : undefined;
-		const dataSource = carrier.data_source as
-			| { ids_query?: unknown }
-			| undefined;
-		if (
-			typeof idsQuery === "string" &&
-			idsQuery.length > 0 &&
-			dataSource !== undefined
-		) {
-			dataSource.ids_query = parseXPathExpression(
-				unescapeXPath(idsQuery),
-				resolve,
-				resolveUserProperty,
-			);
-		}
-	}
 }
 
 /**

@@ -1,5 +1,7 @@
+import type { Kysely } from "kysely";
 import { describe } from "vitest";
 import {
+	type Database,
 	expect,
 	makeCaseRow,
 	test,
@@ -9,10 +11,34 @@ import {
 	scanClosedStatusMismatches,
 } from "../lib/caseLifecycleStatus";
 
+async function seedOwningApps(
+	db: Kysely<Database>,
+	...appIds: readonly string[]
+): Promise<void> {
+	await db
+		.insertInto("apps")
+		.values(
+			appIds.map((appId) => ({
+				id: appId,
+				owner: "project-test",
+				project_id: "project-test",
+				app_name: appId,
+				app_name_lower: appId.toLowerCase(),
+				module_count: 0,
+				form_count: 0,
+				mutation_seq: 0,
+				status: "complete",
+				awaiting_input: false,
+			})),
+		)
+		.execute();
+}
+
 describe("case lifecycle status scan-then-migrate", () => {
 	test("finds only closed rows whose built-in status is stale", async ({
 		db,
 	}) => {
+		await seedOwningApps(db, "app-a");
 		await db
 			.insertInto("cases")
 			.values([
@@ -63,6 +89,7 @@ describe("case lifecycle status scan-then-migrate", () => {
 	test("repairs status while preserving the original lifecycle timestamps", async ({
 		db,
 	}) => {
+		await seedOwningApps(db, "app-a");
 		const closedOn = new Date("2026-04-03T10:30:00.000Z");
 		const modifiedOn = new Date("2026-04-03T10:31:00.000Z");
 		const row = makeCaseRow({
@@ -89,6 +116,7 @@ describe("case lifecycle status scan-then-migrate", () => {
 	test("supports an app-scoped repair without touching another app", async ({
 		db,
 	}) => {
+		await seedOwningApps(db, "app-a", "app-b");
 		await db
 			.insertInto("cases")
 			.values([

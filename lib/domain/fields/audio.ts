@@ -14,11 +14,15 @@
 import tablerMicrophone from "@iconify-icons/tabler/microphone";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
-import { fieldBaseSchema, xpathExpressionSchema } from "./base";
+import {
+	fieldBaseSchema,
+	proseTemplateSchema,
+	xpathExpressionSchema,
+} from "./base";
 
 export const audioFieldSchema = fieldBaseSchema.extend({
 	kind: z.literal("audio"),
-	hint: z.string().optional(),
+	hint: proseTemplateSchema.optional(),
 	required: xpathExpressionSchema.optional(),
 	relevant: xpathExpressionSchema.optional(),
 });

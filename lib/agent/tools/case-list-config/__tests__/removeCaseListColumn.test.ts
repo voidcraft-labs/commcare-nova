@@ -12,8 +12,9 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
-import { asUuid, type BlueprintDoc, plainColumn } from "@/lib/domain";
+import { type BlueprintDoc, plainColumn } from "@/lib/domain";
 import { removeCaseListColumnTool } from "../removeCaseListColumn";
 import { MOD_A, makeCaseListFixture } from "./fixtures";
 
@@ -22,15 +23,20 @@ vi.mock("@/lib/db/apps", () => ({
 }));
 
 vi.mock("@/lib/db/applyBlueprintChange", () => ({
-	applyBlueprintChange: vi.fn(() => Promise.resolve({ seq: 0 })),
+	applyBlueprintChange: vi.fn(async (args) => {
+		const { commitApplyBlueprintChangeTestBatch } = await import(
+			"@/lib/db/__tests__/applyBlueprintChangeTestWriter"
+		);
+		return commitApplyBlueprintChangeTestBatch(args);
+	}),
 }));
 
 beforeEach(() => {
 	vi.clearAllMocks();
 });
 
-const TARGET_UUID = asUuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
-const SIBLING_UUID = asUuid("cccccccc-cccc-cccc-cccc-cccccccccccc");
+const TARGET_UUID = testUuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+const SIBLING_UUID = testUuid("cccccccc-cccc-cccc-cccc-cccccccccccc");
 
 function fixtureWithColumns(): BlueprintDoc {
 	const { doc } = makeCaseListFixture();
@@ -82,14 +88,11 @@ describe("removeCaseListColumn", () => {
 		expect(result.result.message).toContain(String(TARGET_UUID));
 	});
 
-	it("returns an Elm-style error for an unknown module UUID", async () => {
+	it("returns the canonical UUID-address error for an unknown module", async () => {
 		const { ctx } = makeCaseListFixture();
 		const doc = fixtureWithColumns();
 		const result = await removeCaseListColumnTool.execute(
-			{
-				moduleUuid: asUuid("ffffffff-ffff-4fff-8fff-ffffffffffff"),
-				columnUuid: TARGET_UUID,
-			},
+			{ moduleUuid: testUuid("unknown-module"), columnUuid: TARGET_UUID },
 			ctx,
 			doc,
 		);
@@ -98,14 +101,13 @@ describe("removeCaseListColumn", () => {
 		if (!("error" in result.result)) {
 			throw new Error("expected error result");
 		}
-		expect(result.result.error).toContain("Tried to remove");
-		expect(result.result.error).toContain("No module with that uuid");
+		expect(result.result.error).toContain("No module with UUID");
 	});
 
 	it("returns an Elm-style error when the column uuid is unknown", async () => {
 		const { ctx } = makeCaseListFixture();
 		const doc = fixtureWithColumns();
-		const unknown = asUuid("dddddddd-dddd-dddd-dddd-dddddddddddd");
+		const unknown = testUuid("dddddddd-dddd-dddd-dddd-dddddddddddd");
 		const result = await removeCaseListColumnTool.execute(
 			{ moduleUuid: MOD_A, columnUuid: unknown },
 			ctx,

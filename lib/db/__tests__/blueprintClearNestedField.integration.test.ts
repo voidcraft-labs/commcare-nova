@@ -23,8 +23,14 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import type { Mutation } from "@/lib/doc/types";
-import type { BlueprintDoc, ConnectConfig } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	type ConnectConfig,
+	plainColumn,
+} from "@/lib/domain";
+import { commitGuardedBatchProposal as commitGuardedBatch } from "./admittedWriterTestHelpers";
 import { setupAppStateTestDb } from "./appStateTestDb";
 
 // Reauth reads the actor's role from `auth_member` via `projectRoleFor`; grant
@@ -41,8 +47,10 @@ const TEST_PROJECT = "project-blueprint-clear-test";
 const APP_ID = "app-blueprint-clear";
 const HOLDER_NONCE = "00000000-0000-4000-8000-000000000001";
 
-const MODULE_UUID = "11111111-1111-4111-8111-111111111111";
-const FORM_UUID = "22222222-2222-4222-8222-222222222222";
+const MODULE_UUID = testUuid("11111111-1111-4111-8111-111111111111");
+const FORM_UUID = testUuid("22222222-2222-4222-8222-222222222222");
+const FIELD_UUID = testUuid("33333333-3333-4333-8333-333333333333");
+const COLUMN_UUID = testUuid("44444444-4444-4444-8444-444444444444");
 
 /** A minimal legal Connect learn-module block. */
 const CONNECT: ConnectConfig = {
@@ -59,13 +67,20 @@ function populatedBlueprint(): BlueprintDoc {
 	const doc = {
 		appId: APP_ID,
 		appName: "Blueprint clear test app",
-		connectType: null,
-		caseTypes: null,
+		connectType: "learn" as const,
+		caseTypes: [{ name: "patient", properties: [] }],
 		modules: {
 			[MODULE_UUID]: {
 				uuid: MODULE_UUID,
 				id: "m_module1",
 				name: "Module 1",
+				caseType: "patient",
+				caseListConfig: {
+					columns: [plainColumn(COLUMN_UUID, "case_name", "Patient")],
+					listColumnOrder: [COLUMN_UUID],
+					detailColumnOrder: [COLUMN_UUID],
+					searchInputs: [],
+				},
 			},
 		},
 		forms: {
@@ -73,18 +88,25 @@ function populatedBlueprint(): BlueprintDoc {
 				uuid: FORM_UUID,
 				id: "f_form1",
 				name: "Form 1",
-				type: "survey" as const,
+				type: "close" as const,
 				connect: CONNECT,
-				closeCondition: { field: "done", answer: "yes" },
+				closeCondition: { field: FIELD_UUID, answer: "yes" },
 				postSubmit: "app_home",
 				purpose: "Captures intake data",
 			},
 		},
-		fields: {},
+		fields: {
+			[FIELD_UUID]: {
+				uuid: FIELD_UUID,
+				id: "done",
+				kind: "text" as const,
+				label: { parts: [{ kind: "text" as const, text: "Done" }] },
+			},
+		},
 		moduleOrder: [MODULE_UUID],
 		formOrder: { [MODULE_UUID]: [FORM_UUID] },
-		fieldOrder: {},
-		fieldParent: {},
+		fieldOrder: { [FORM_UUID]: [FIELD_UUID] },
+		fieldParent: { [FIELD_UUID]: FORM_UUID },
 	};
 	return doc as unknown as BlueprintDoc;
 }
@@ -120,12 +142,15 @@ describe("blueprint clear nested field", () => {
 	beforeEach(seedPopulatedApp);
 
 	it("the guarded writer clears every nested form field wholesale — no stale-key survivor", async () => {
-		const { commitGuardedBatch } = await import("../apps");
 		// One `updateForm` mutation clearing every nullable slot. Each clear carries
 		// an explicit `null` (the wire-safe delete signal); the reducer maps
 		// `null → undefined`, and the entity-row write's `JSON.stringify` drops the
 		// undefined keys, so they vanish from the stored `data`.
 		const clearMutations: Mutation[] = [
+			{
+				kind: "setConnectType",
+				connectType: null,
+			},
 			{
 				kind: "updateForm",
 				uuid: FORM_UUID,
@@ -158,11 +183,10 @@ describe("blueprint clear nested field", () => {
 		expect(form.uuid).toBe(FORM_UUID);
 		expect(form.id).toBe("f_form1");
 		expect(form.name).toBe("Form 1");
-		expect(form.type).toBe("survey");
+		expect(form.type).toBe("close");
 	});
 
 	it("outer app-row fields the writer does not pass survive the guarded commit", async () => {
-		const { commitGuardedBatch } = await import("../apps");
 		const before = await h.readAppRow(APP_ID);
 
 		await commitGuardedBatch({

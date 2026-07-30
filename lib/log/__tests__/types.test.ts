@@ -3,8 +3,11 @@
  * event variant and payload shape — the event log read path relies on
  * `eventSchema.parse()` to validate persisted data.
  */
+
 import { describe, expect, it } from "vitest";
-import { asUuid } from "@/lib/domain";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { proseText } from "@/lib/domain/prose";
+
 import {
 	type ConversationEvent,
 	type Event,
@@ -39,12 +42,12 @@ describe("eventSchema", () => {
 			actor: "user",
 			mutation: {
 				kind: "addField",
-				parentUuid: asUuid("form-1"),
+				parentUuid: testUuid("form-1"),
 				field: {
 					kind: "text",
-					uuid: asUuid("fld-1"),
+					uuid: testUuid("fld-1"),
 					id: "name",
-					label: "Name",
+					label: proseText("Name"),
 				},
 			},
 		};
@@ -63,7 +66,7 @@ describe("eventSchema", () => {
 			mutation: {
 				kind: "addModule",
 				module: {
-					uuid: asUuid("10000000-0000-4000-8000-000000000000"),
+					uuid: testUuid("10000000-0000-4000-8000-000000000000"),
 					id: "visits",
 					name: "Visits",
 					displayCondition: {
@@ -202,5 +205,40 @@ describe("eventSchema", () => {
 			payload: { type: "gossip", text: "…" },
 		};
 		expect(() => eventSchema.parse(bad)).toThrow();
+	});
+
+	it("rejects unknown envelope and payload keys", () => {
+		const base = {
+			kind: "conversation" as const,
+			runId: "r",
+			ts: 0,
+			seq: 0,
+			source: "chat" as const,
+			payload: { type: "assistant-text" as const, text: "done" },
+		};
+		expect(() =>
+			eventSchema.parse({ ...base, futureEnvelope: true }),
+		).toThrow();
+		expect(() =>
+			eventSchema.parse({
+				...base,
+				payload: { ...base.payload, futurePayload: true },
+			}),
+		).toThrow();
+	});
+
+	it("keeps archived bytes opaque while enforcing their envelope", () => {
+		const archived = {
+			kind: "archived-mutation" as const,
+			runId: "r",
+			ts: 0,
+			seq: 0,
+			source: "chat" as const,
+			archived: { any: ["pre-cutover", { shape: true }] },
+		};
+		expect(eventSchema.parse(archived)).toEqual(archived);
+		expect(() =>
+			eventSchema.parse({ ...archived, compatibilityHint: "ignore-me" }),
+		).toThrow();
 	});
 });

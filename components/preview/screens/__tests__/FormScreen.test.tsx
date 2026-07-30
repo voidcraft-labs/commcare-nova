@@ -36,10 +36,13 @@ import {
 	waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { xp } from "@/lib/__tests__/docHelpers";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
-import { asUuid, type Uuid } from "@/lib/doc/types";
+import type { Uuid } from "@/lib/doc/types";
+import { plainColumn } from "@/lib/domain/modules";
+import { proseText } from "@/lib/domain/prose";
 import type { SubmissionResult } from "@/lib/preview/engine/caseDataBindingTypes";
 import type { EngineController } from "@/lib/preview/engine/engineController";
 import { useBuilderFormEngine } from "@/lib/preview/engine/provider";
@@ -53,37 +56,46 @@ import {
 // ── Mocks ────────────────────────────────────────────────────────
 
 const APP_ID = "app-form-screen-test";
-const MODULE_UUID = asUuid("00000000-0000-0000-0000-000000000a01");
+const MODULE_UUID = testUuid("00000000-0000-0000-0000-000000000a01");
 /* One UUID per FormType — the test suite mounts a different form
  * arm per case under one BlueprintDocProvider seed, and `formUuid` is
  * the URL discriminator the screen reads. Distinct UUIDs keep each
  * test's mounted form independent. */
-const REG_FORM_UUID = asUuid("00000000-0000-0000-0000-000000000b01");
-const FOLLOWUP_FORM_UUID = asUuid("00000000-0000-0000-0000-000000000b02");
-const CLOSE_FORM_UUID = asUuid("00000000-0000-0000-0000-000000000b03");
-const SURVEY_FORM_UUID = asUuid("00000000-0000-0000-0000-000000000b04");
+const REG_FORM_UUID = testUuid("00000000-0000-0000-0000-000000000b01");
+const FOLLOWUP_FORM_UUID = testUuid("00000000-0000-0000-0000-000000000b02");
+const CLOSE_FORM_UUID = testUuid("00000000-0000-0000-0000-000000000b03");
+const SURVEY_FORM_UUID = testUuid("00000000-0000-0000-0000-000000000b04");
 /* The validate-fail test mounts this fifth form whose single field
  *  is required. With no user input the engine's `validateAll()`
  *  marks the field invalid and returns `false`, exercising the
  *  short-circuit branch of `handleSubmit` that scrolls to the
  *  first invalid field WITHOUT firing `submitFormAction`. */
-const REQUIRED_FORM_UUID = asUuid("00000000-0000-0000-0000-000000000b05");
-const STRUCTURE_FORM_UUID = asUuid("00000000-0000-0000-0000-000000000b06");
-const CAPTURE_REQUIRED_FORM_UUID = asUuid(
+const REQUIRED_FORM_UUID = testUuid("00000000-0000-0000-0000-000000000b05");
+const STRUCTURE_FORM_UUID = testUuid("00000000-0000-0000-0000-000000000b06");
+const CAPTURE_REQUIRED_FORM_UUID = testUuid(
 	"00000000-0000-0000-0000-000000000b07",
 );
-const FIELD_UUID = asUuid("00000000-0000-0000-0000-000000000c01");
-const FIELD_REQUIRED_UUID = asUuid("00000000-0000-0000-0000-000000000c02");
-const GROUP_ONE_UUID = asUuid("00000000-0000-0000-0000-000000000c11");
-const GROUP_TWO_UUID = asUuid("00000000-0000-0000-0000-000000000c12");
-const REPEAT_UUID = asUuid("00000000-0000-0000-0000-000000000c13");
-const GROUP_ONE_PHOTO_UUID = asUuid("00000000-0000-0000-0000-000000000c21");
-const GROUP_TWO_PHOTO_UUID = asUuid("00000000-0000-0000-0000-000000000c22");
-const REPEAT_PHOTO_UUID = asUuid("00000000-0000-0000-0000-000000000c23");
-const GROUP_TWO_SIGNATURE_UUID = asUuid("00000000-0000-0000-0000-000000000c24");
-const REQUIRED_PHOTO_UUID = asUuid("00000000-0000-0000-0000-000000000c31");
-const REQUIRED_SIGNATURE_UUID = asUuid("00000000-0000-0000-0000-000000000c32");
-const PERSONA_UUID = asUuid("00000000-0000-0000-0000-000000000d01");
+const CASE_NAME_COLUMN_UUID = testUuid("00000000-0000-0000-0000-000000000b08");
+const FIELD_UUID = testUuid("00000000-0000-0000-0000-000000000c01");
+const FIELD_REQUIRED_UUID = testUuid("00000000-0000-0000-0000-000000000c02");
+const FOLLOWUP_FIELD_UUID = testUuid("00000000-0000-0000-0000-000000000c03");
+const CLOSE_FIELD_UUID = testUuid("00000000-0000-0000-0000-000000000c04");
+const SURVEY_FIELD_UUID = testUuid("00000000-0000-0000-0000-000000000c05");
+const GROUP_ONE_UUID = testUuid("00000000-0000-0000-0000-000000000c11");
+const GROUP_TWO_UUID = testUuid("00000000-0000-0000-0000-000000000c12");
+const REPEAT_UUID = testUuid("00000000-0000-0000-0000-000000000c13");
+const GROUP_ONE_PHOTO_UUID = testUuid("00000000-0000-0000-0000-000000000c21");
+const GROUP_TWO_PHOTO_UUID = testUuid("00000000-0000-0000-0000-000000000c22");
+const REPEAT_PHOTO_UUID = testUuid("00000000-0000-0000-0000-000000000c23");
+const GROUP_TWO_SIGNATURE_UUID = testUuid(
+	"00000000-0000-0000-0000-000000000c24",
+);
+const REQUIRED_PHOTO_UUID = testUuid("00000000-0000-0000-0000-000000000c31");
+const REQUIRED_SIGNATURE_UUID = testUuid(
+	"00000000-0000-0000-0000-000000000c32",
+);
+const PERSONA_UUID = testUuid("00000000-0000-0000-0000-000000000d01");
+const PERSONA_REGION_UUID = testUuid("00000000-0000-0000-0000-000000000d02");
 
 /* The currentLocation is mutated per-test (one shared `Location`
  *  carrier the `useLocation` mock reads from) so each test can pin
@@ -119,8 +131,8 @@ let currentAppId: string | undefined = APP_ID;
 let currentAuthUser: { id: string; name: string; email: string } | null = null;
 let capturedSession: BuilderSessionStoreApi | undefined;
 let capturedController: EngineController | undefined;
-let updateCapturedPersona:
-	| ReturnType<typeof useBlueprintMutations>["inline"]["updatePersona"]
+let updateCapturedPersonaValue:
+	| ReturnType<typeof useBlueprintMutations>["inline"]["updatePersonaValue"]
 	| undefined;
 
 /* The screen mounts BuilderFormEngineProvider, which resolves "Preview
@@ -227,19 +239,20 @@ function deferred<T>() {
 function CaptureRuntimeHandles() {
 	capturedSession = useBuilderSessionApi();
 	capturedController = useBuilderFormEngine();
-	updateCapturedPersona = useBlueprintMutations().inline.updatePersona;
+	const mutations = useBlueprintMutations().inline;
+	updateCapturedPersonaValue = mutations.updatePersonaValue;
 	return null;
 }
 
-/* Mount FormScreen against a BlueprintDocProvider that carries
- *  every FormType arm under one module. Each form owns one text
- *  field — the four FormType forms share a non-required `name`
- *  field (so `validateAll()` returns true with empty values, letting
- *  per-FormType tests assert action-call shape without typing in
- *  values), and `REQUIRED_FORM_UUID` owns a required `name` field
- *  so the validate-fail test exercises the `valid === false`
- *  short-circuit. Engine value-walking has dedicated coverage in
- *  `formEngine.test.ts`. */
+/* Mount FormScreen against a BlueprintDocProvider that carries every
+ *  FormType arm under one module. The ordinary case forms share one
+ *  canonical `case_name` writer with a nonblank authored default so every
+ *  registration submission is valid by construction. Survey and the
+ *  special fixture forms leave that writer on Registration rather than
+ *  attaching a case-writing question to a form with no case action.
+ *  `REQUIRED_FORM_UUID` owns a separate required `case_name` field so the
+ *  validate-fail test still exercises the `valid === false` short-circuit.
+ *  Engine value-walking has dedicated coverage in `formEngine.test.ts`. */
 function renderFormScreen(opts: {
 	formUuid: typeof REG_FORM_UUID;
 	caseId?: string;
@@ -251,17 +264,6 @@ function renderFormScreen(opts: {
 		formUuid: opts.formUuid,
 		selectedUuid: opts.selectedUuid,
 	};
-	/* The required-form arm registers `FIELD_REQUIRED_UUID`; every
-	 *  other arm registers the non-required `FIELD_UUID`. The active
-	 *  form's `fieldOrder` is the only entry the engine reads on
-	 *  activation, so only the active form's list needs the entry. */
-	const isRequiredForm = opts.formUuid === REQUIRED_FORM_UUID;
-	const activeFieldUuids =
-		opts.formUuid === STRUCTURE_FORM_UUID
-			? [GROUP_ONE_UUID, GROUP_TWO_UUID, REPEAT_UUID]
-			: opts.formUuid === CAPTURE_REQUIRED_FORM_UUID
-				? [REQUIRED_PHOTO_UUID, REQUIRED_SIGNATURE_UUID]
-				: [isRequiredForm ? FIELD_REQUIRED_UUID : FIELD_UUID];
 	return render(
 		<BlueprintDocProvider
 			appId={APP_ID}
@@ -273,12 +275,22 @@ function renderFormScreen(opts: {
 					[PERSONA_UUID]: {
 						uuid: PERSONA_UUID,
 						name: "Persona B",
+						values: { [PERSONA_REGION_UUID]: "north" },
 					},
 				},
+				personaOrder: [PERSONA_UUID],
+				userProperties: {
+					[PERSONA_REGION_UUID]: {
+						uuid: PERSONA_REGION_UUID,
+						slug: "region",
+						label: "Region",
+					},
+				},
+				userPropertyOrder: [PERSONA_REGION_UUID],
 				caseTypes: [
 					{
 						name: CASE_TYPE,
-						properties: [{ name: "name", label: "Name", data_type: "text" }],
+						properties: [],
 					},
 				],
 				modules: {
@@ -287,6 +299,14 @@ function renderFormScreen(opts: {
 						id: "patient_module",
 						name: "Patients",
 						caseType: CASE_TYPE,
+						caseListConfig: {
+							columns: [
+								plainColumn(CASE_NAME_COLUMN_UUID, "case_name", "Case name"),
+							],
+							listColumnOrder: [CASE_NAME_COLUMN_UUID],
+							detailColumnOrder: [CASE_NAME_COLUMN_UUID],
+							searchInputs: [],
+						},
 					},
 				},
 				forms: {
@@ -334,11 +354,11 @@ function renderFormScreen(opts: {
 						uuid: CAPTURE_REQUIRED_FORM_UUID,
 						id: "required_captures",
 						name: "Required captures",
-						type: "registration",
+						type: "survey",
 					},
 				},
-				/* `FIELD_UUID` — non-required text bound to the case type's
-				 *  `name` property. `FIELD_REQUIRED_UUID` — same shape with
+				/* `FIELD_UUID` — non-required text bound to the standard
+				 *  `case_name` scalar. `FIELD_REQUIRED_UUID` — same shape with
 				 *  `required: "true()"` so the engine marks it invalid when
 				 *  the value is empty. */
 				fields: {
@@ -346,75 +366,94 @@ function renderFormScreen(opts: {
 						uuid: FIELD_UUID,
 						id: "name",
 						kind: "text",
-						label: "Name",
-						case_property_on: CASE_TYPE,
+						label: proseText("Name"),
+						caseWrite: { caseType: CASE_TYPE, property: "case_name" },
+						default_value: xp("'Test case'"),
 					},
 					[FIELD_REQUIRED_UUID]: {
 						uuid: FIELD_REQUIRED_UUID,
 						id: "name",
 						kind: "text",
-						label: "Name",
-						case_property_on: CASE_TYPE,
+						label: proseText("Name"),
+						caseWrite: { caseType: CASE_TYPE, property: "case_name" },
 						required: xp("true()"),
+					},
+					[FOLLOWUP_FIELD_UUID]: {
+						uuid: FOLLOWUP_FIELD_UUID,
+						id: "followup_note",
+						kind: "text",
+						label: proseText("Followup note"),
+					},
+					[CLOSE_FIELD_UUID]: {
+						uuid: CLOSE_FIELD_UUID,
+						id: "close_note",
+						kind: "text",
+						label: proseText("Close note"),
+					},
+					[SURVEY_FIELD_UUID]: {
+						uuid: SURVEY_FIELD_UUID,
+						id: "survey_note",
+						kind: "text",
+						label: proseText("Survey note"),
 					},
 					[GROUP_ONE_UUID]: {
 						uuid: GROUP_ONE_UUID,
 						id: "visit_one",
 						kind: "group",
-						label: "Visit",
+						label: proseText("Visit"),
 					},
 					[GROUP_TWO_UUID]: {
 						uuid: GROUP_TWO_UUID,
 						id: "visit_two",
 						kind: "group",
-						label: "Visit",
+						label: proseText("Visit"),
 					},
 					[REPEAT_UUID]: {
 						uuid: REPEAT_UUID,
 						id: "visits",
 						kind: "repeat",
-						label: "Visit",
+						label: proseText("Visit"),
 						repeat_mode: "user_controlled",
 					},
 					[GROUP_ONE_PHOTO_UUID]: {
 						uuid: GROUP_ONE_PHOTO_UUID,
 						id: "photo",
 						kind: "image",
-						label: "Photo",
+						label: proseText("Photo"),
 						required: xp("true()"),
 					},
 					[GROUP_TWO_PHOTO_UUID]: {
 						uuid: GROUP_TWO_PHOTO_UUID,
 						id: "photo",
 						kind: "image",
-						label: "Photo",
+						label: proseText("Photo"),
 					},
 					[REPEAT_PHOTO_UUID]: {
 						uuid: REPEAT_PHOTO_UUID,
 						id: "photo",
 						kind: "image",
-						label: "Photo",
+						label: proseText("Photo"),
 					},
 					[GROUP_TWO_SIGNATURE_UUID]: {
 						uuid: GROUP_TWO_SIGNATURE_UUID,
 						id: "consent",
 						kind: "signature",
-						label: "Signed consent",
+						label: proseText("Signed consent"),
 					},
 					[REQUIRED_PHOTO_UUID]: {
 						uuid: REQUIRED_PHOTO_UUID,
 						id: "photo",
 						kind: "image",
-						label: "Photo",
-						hint: "Attach a clear image.",
+						label: proseText("Photo"),
+						hint: proseText("Attach a clear image."),
 						required: xp("true()"),
 					},
 					[REQUIRED_SIGNATURE_UUID]: {
 						uuid: REQUIRED_SIGNATURE_UUID,
 						id: "consent",
 						kind: "signature",
-						label: "Signed consent",
-						hint: "Ask the participant to sign.",
+						label: proseText("Signed consent"),
+						hint: proseText("Ask the participant to sign."),
 						required: xp("true()"),
 					},
 				},
@@ -431,7 +470,16 @@ function renderFormScreen(opts: {
 					],
 				},
 				fieldOrder: {
-					[opts.formUuid]: activeFieldUuids,
+					[REG_FORM_UUID]: [FIELD_UUID],
+					[FOLLOWUP_FORM_UUID]: [FOLLOWUP_FIELD_UUID],
+					[CLOSE_FORM_UUID]: [CLOSE_FIELD_UUID],
+					[SURVEY_FORM_UUID]: [SURVEY_FIELD_UUID],
+					[REQUIRED_FORM_UUID]: [FIELD_REQUIRED_UUID],
+					[STRUCTURE_FORM_UUID]: [GROUP_ONE_UUID, GROUP_TWO_UUID, REPEAT_UUID],
+					[CAPTURE_REQUIRED_FORM_UUID]: [
+						REQUIRED_PHOTO_UUID,
+						REQUIRED_SIGNATURE_UUID,
+					],
 					[GROUP_ONE_UUID]: [GROUP_ONE_PHOTO_UUID],
 					[GROUP_TWO_UUID]: [GROUP_TWO_PHOTO_UUID, GROUP_TWO_SIGNATURE_UUID],
 					[REPEAT_UUID]: [REPEAT_PHOTO_UUID],
@@ -570,7 +618,7 @@ beforeEach(async () => {
 	};
 	capturedSession = undefined;
 	capturedController = undefined;
-	updateCapturedPersona = undefined;
+	updateCapturedPersonaValue = undefined;
 	await __resetAttachmentCoordinatorForTests();
 	vi.unstubAllGlobals();
 	/* Default `loadCaseDataAction` to `missing` so followup screens
@@ -583,7 +631,10 @@ beforeEach(async () => {
 	/* Default the case-list query (used by the auto-select path for a
 	 *  directly-previewed case-loading form) to an empty store; tests that
 	 *  exercise auto-selection override with rows. */
-	vi.mocked(loadCasesAction).mockResolvedValue({ kind: "empty" });
+	vi.mocked(loadCasesAction).mockResolvedValue({
+		constraintSource: "unconstrained",
+		kind: "empty",
+	});
 });
 
 afterEach(async () => {
@@ -1260,9 +1311,8 @@ describe("FormScreen — pending UX", () => {
 		const [mutation] = vi.mocked(submitFormAction).mock.calls[0];
 		expect(mutation.kind).toBe("registration");
 		if (mutation.kind === "registration") {
-			expect(mutation.primary.properties).toMatchObject({
-				name: "before submit",
-			});
+			expect(mutation.primary.caseName).toBe("before submit");
+			expect(mutation.primary.properties).toEqual({});
 		}
 	});
 
@@ -1295,9 +1345,7 @@ describe("FormScreen — pending UX", () => {
 				await release;
 			},
 		});
-		const uploadCanceled = expect(upload).rejects.toMatchObject({
-			name: "AbortError",
-		});
+		const uploadResult = upload.catch((error: unknown) => error);
 		await started;
 
 		fireEvent.click(submit);
@@ -1314,7 +1362,7 @@ describe("FormScreen — pending UX", () => {
 		});
 
 		releaseUpload();
-		await uploadCanceled;
+		expect(await uploadResult).toMatchObject({ name: "AbortError" });
 		await act(async () => {
 			await Promise.resolve();
 			await Promise.resolve();
@@ -1333,10 +1381,14 @@ describe("FormScreen — pending UX", () => {
 		};
 		const view = renderFormScreen({ formUuid: REG_FORM_UUID });
 		await waitFor(() => expect(capturedController?.entryKey).toBeDefined());
+		const memberEntryKey = capturedController?.entryKey;
+		if (!memberEntryKey) throw new Error("Expected the member entry");
 		act(() => {
 			capturedSession?.getState().setPreviewPersonaUuid(PERSONA_UUID);
 		});
-		await waitFor(() => expect(capturedController?.entryKey).toBeDefined());
+		await waitFor(() => {
+			expect(capturedController?.entryKey).not.toBe(memberEntryKey);
+		});
 		const initiatingEntryKey = capturedController?.entryKey;
 		if (!initiatingEntryKey) throw new Error("Expected persona entry");
 
@@ -1350,24 +1402,28 @@ describe("FormScreen — pending UX", () => {
 				await releaseBlocker.promise;
 			},
 		});
-		const blockerCanceled = expect(blocker).rejects.toMatchObject({
-			name: "AbortError",
-		});
+		const blockerResult = blocker.catch((error: unknown) => error);
 		await blockerStarted.promise;
 		fireEvent.click(screen.getByRole("button", { name: /^submit$/i }));
 		await screen.findByRole("button", { name: /submitting\.\.\./i });
 
+		let updateOutcome:
+			| ReturnType<NonNullable<typeof updateCapturedPersonaValue>>
+			| undefined;
 		act(() => {
-			updateCapturedPersona?.(PERSONA_UUID, {
-				name: "Persona B updated by a collaborator",
-			});
+			updateOutcome = updateCapturedPersonaValue?.(
+				PERSONA_UUID,
+				PERSONA_REGION_UUID,
+				"south",
+			);
 		});
+		expect(updateOutcome).toEqual({ ok: true });
 		await waitFor(() => {
 			expect(capturedController?.entryKey).not.toBe(initiatingEntryKey);
 		});
 
 		releaseBlocker.resolve();
-		await blockerCanceled;
+		expect(await blockerResult).toMatchObject({ name: "AbortError" });
 		await act(async () => {
 			await Promise.resolve();
 			await Promise.resolve();
@@ -1893,6 +1949,7 @@ describe("FormScreen — case-loading form previewed directly (no nav caseId)", 
 		 *  usable), not gate on navigation — same stance as the case list.
 		 *  The submit row renders against that bound case. */
 		vi.mocked(loadCasesAction).mockResolvedValue({
+			constraintSource: "unconstrained",
 			kind: "rows",
 			rows: [
 				{
@@ -1927,7 +1984,10 @@ describe("FormScreen — case-loading form previewed directly (no nav caseId)", 
 		 *  flipbook continuity, but Preview stays app-pure: it explains the
 		 *  normal Results → case-selection journey instead of exposing a
 		 *  builder-only sample-data action. */
-		vi.mocked(loadCasesAction).mockResolvedValue({ kind: "empty" });
+		vi.mocked(loadCasesAction).mockResolvedValue({
+			constraintSource: "unconstrained",
+			kind: "empty",
+		});
 		renderFormScreen({ formUuid: CLOSE_FORM_UUID });
 
 		/* The form itself renders — its field's textbox is present (an
@@ -2084,7 +2144,7 @@ describe("FormScreen — Clear form clears stale server error", () => {
 			`[data-field-uuid="${FIELD_UUID}"] input`,
 		) as HTMLInputElement;
 		expect(freshInput).not.toBe(oldInput);
-		expect(freshInput.value).toBe("");
+		expect(freshInput.value).toBe("Test case");
 		fireEvent.change(freshInput, { target: { value: "New answer" } });
 		expect(freshInput.value).toBe("New answer");
 		expect(capturedController?.entryKey).toBe(freshEntryKey);

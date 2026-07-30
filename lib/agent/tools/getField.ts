@@ -1,10 +1,10 @@
 /**
- * SA tool: `getField` — fetch a single field by stable uuid, with
+ * SA tool: `getField` — fetch a single field by id or uuid, with
  * children when the field is a container.
  *
- * Pure read — no mutations, no SSE emission. Resolves the field through
- * the stable `(moduleUuid, formUuid, fieldUuid)` address. Both the SA chat
- * factory and the MCP adapter call this the same way.
+ * Pure read — no mutations, no SSE emission. Resolves the stable
+ * `(moduleUuid, formUuid, fieldUuid)` address and proves parent membership.
+ * Both the SA chat factory and the MCP adapter call this the same way.
  *
  * Container-vs-leaf branching lives here: group / repeat fields carry a
  * `children` key populated with the ordered subtree so the SA sees one
@@ -43,8 +43,8 @@ export type ContainerFieldWithChildren = Field & {
 };
 
 /**
- * Two legal return shapes: `{ error }` when the UUID address doesn't resolve,
- * or the found-field payload carrying that immutable address plus the field
+ * Two legal return shapes: `{ error }` when the address doesn't resolve, or
+ * the found-field payload carrying canonical UUID context plus the field
  * itself (flat for leaves, with `children` for containers).
  */
 export type GetFieldResult =
@@ -61,7 +61,7 @@ export type GetFieldResult =
 	  };
 
 export const getFieldTool = {
-	description: "Get a single field by stable uuid within its form.",
+	description: "Get a single field by stable UUID within its form.",
 	inputSchema: getFieldInputSchema,
 	async execute(
 		input: GetFieldInput,
@@ -75,20 +75,20 @@ export const getFieldTool = {
 		// If the resolved field is a container, include its children so
 		// the SA sees the subtree in one call. Leaf fields return a plain
 		// `Field` with no `children` key.
-		const canonicalField = isContainer(resolved.field)
+		const field = isContainer(resolved.field)
 			? {
 					...resolved.field,
 					children: buildFieldTree(doc, resolved.field.uuid),
 				}
 			: resolved.field;
-		const reminder = unwrittenReadsReminder(doc, canonicalField);
+		const reminder = unwrittenReadsReminder(doc, field);
 		return {
 			kind: "read",
 			data: {
 				moduleUuid: resolved.moduleUuid,
 				formUuid: resolved.formUuid,
 				fieldUuid: resolved.fieldUuid,
-				field: canonicalField,
+				field,
 				...(reminder !== undefined ? { system_reminder: reminder } : {}),
 			},
 		};

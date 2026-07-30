@@ -17,7 +17,7 @@ import type { AssetManifest } from "./assetWirePath";
  * media entries. The same ZIP is what the JSON-export bundle ships for a
  * manual two-step import, so both paths speak one format.
  *
- * Dedupes by wire path: two distinct `AssetId`s can resolve to one
+ * Dedupes by wire path: two distinct `MediaAssetId`s can resolve to one
  * `(contentHash, extension)` — and so one wire path — when the storage
  * dedup probe races (concurrent uploads of identical bytes land two `ready`
  * rows). Same wire path = same bytes, so either entry is byte-equivalent;

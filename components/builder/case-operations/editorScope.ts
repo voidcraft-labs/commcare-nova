@@ -45,12 +45,17 @@ export function operationCaseDataScope(caseFirst: boolean): CaseDataScope {
  * Without the flag the value picker's "A value" choice seeds
  * `literal("")` and the gate refuses it the instant it is picked.
  *
- * The operation's own runtime target and a link's deliberately do NOT
- * use this: `validateTextExpression` is not applied to them, and a
- * blank case id there is a submission-time fact the running form
- * refuses inline, not an authoring error.
  */
 export function caseOperationTextConstraint(): SlotConstraint {
+	return { ...storageAssignmentConstraint(["text"]), nonEmpty: true };
+}
+
+/**
+ * A runtime case target is also required authored text. The incomplete empty
+ * literal used to open its editor remains local UI state; it cannot enter the
+ * document, because neither Nova nor CommCare can act on a blank case id.
+ */
+export function caseOperationRuntimeTargetConstraint(): SlotConstraint {
 	return { ...storageAssignmentConstraint(["text"]), nonEmpty: true };
 }
 
@@ -59,14 +64,20 @@ export function caseOperationTextConstraint(): SlotConstraint {
  * operation's own "which case to change" expression and a link's
  * "work out the id of the case at the other end".
  *
- * Empty `creates` is the load-bearing part: `caseOperations.ts`
- * refuses an `id-of` anywhere inside a runtime target tree
- * (`CASE_OPERATION_TARGET_INVALID` — an already-known create should be
- * targeted directly so type, order, and repeat correlation stay
- * explicit), and link targets route through the same check. An empty
- * create list is what makes `id-of` unauthorable while leaving the two
- * owner sentinels (`acting-user`, `unowned`) — which the gate does
- * admit there — exactly as available as they were.
+ * Empty `creates` is the load-bearing part, and `id-of` is the only
+ * thing it governs: `caseOperations.ts` refuses an `id-of` anywhere
+ * inside a runtime target tree (`CASE_OPERATION_TARGET_INVALID` — an
+ * already-known create should be targeted directly so type, order, and
+ * repeat correlation stay explicit), and link targets route through the
+ * same check. An empty create list is what makes `id-of` unauthorable.
+ *
+ * The owner sentinels (`acting-user`, `unowned`) are NOT governed here.
+ * They key on the separate `ownerValues` axis, which is set in exactly
+ * two places and both are the owner slot — the canvas's "Who owns the
+ * case" section and `caseOperations.ts`'s `operation.owner` facet. A
+ * runtime target mounts without it, so both sentinels are withheld by
+ * the editor and refused by the gate, which is the agreement that keeps
+ * the offered set and the accepted set identical.
  */
 export const RUNTIME_TARGET_OPERATION_SCOPE: OperationValueScope = {
 	creates: [],

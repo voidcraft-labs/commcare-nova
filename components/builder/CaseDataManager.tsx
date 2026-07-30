@@ -9,10 +9,12 @@
 import { Icon } from "@iconify/react/offline";
 import tablerArchive from "@iconify-icons/tabler/archive";
 import tablerDatabase from "@iconify-icons/tabler/database";
+import tablerEdit from "@iconify-icons/tabler/edit";
 import tablerLoader2 from "@iconify-icons/tabler/loader-2";
 import tablerRefresh from "@iconify-icons/tabler/refresh";
 import tablerSparkles from "@iconify-icons/tabler/sparkles";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { CasePropertyRenameDialog } from "@/components/builder/CasePropertyRenameDialog";
 import { heldCaseCount } from "@/components/builder/data-review/dataReviewModel";
 import { NameChip } from "@/components/builder/data-review/NameChip";
 import {
@@ -35,6 +37,13 @@ import {
 	PopoverTitle,
 	PopoverTrigger,
 } from "@/components/shadcn/popover";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/shadcn/select";
 import { useProjectToast } from "@/lib/collab/useProjectToast";
 import type { Uuid } from "@/lib/doc/types";
 import { type CaseType, humanizeId } from "@/lib/domain";
@@ -88,21 +97,58 @@ function caseLabel(count: number): string {
 
 export function CaseDataManager({
 	appId,
-	moduleUuid,
-	caseType,
+	caseTypes,
+	effectiveCaseTypes,
+	moduleUuidByCaseType,
+	initialCaseType,
 	canEdit,
-	hasLinkedChildren,
 }: {
 	readonly appId: string;
-	readonly moduleUuid: Uuid;
-	readonly caseType: CaseType;
+	readonly caseTypes: readonly CaseType[];
+	readonly effectiveCaseTypes: readonly CaseType[];
+	readonly moduleUuidByCaseType: Readonly<Record<string, Uuid>>;
+	readonly initialCaseType?: string;
 	readonly canEdit: boolean;
-	readonly hasLinkedChildren: boolean;
 }) {
 	const accessPhase = useAccessPhase();
+	const caseTypeSelectLabelId = useId();
 	const scopeEpoch = useProjectScopeEpoch();
 	const projectToast = useProjectToast();
 	const session = useBuilderSessionApi();
+	const [selectedCaseTypeName, setSelectedCaseTypeName] = useState(
+		() =>
+			caseTypes.find((candidate) => candidate.name === initialCaseType)?.name ??
+			caseTypes[0]?.name ??
+			"",
+	);
+	const previousInitialCaseTypeRef = useRef(initialCaseType);
+	useEffect(() => {
+		if (
+			previousInitialCaseTypeRef.current !== initialCaseType &&
+			initialCaseType !== undefined &&
+			caseTypes.some((candidate) => candidate.name === initialCaseType)
+		) {
+			previousInitialCaseTypeRef.current = initialCaseType;
+			setSelectedCaseTypeName(initialCaseType);
+			return;
+		}
+		previousInitialCaseTypeRef.current = initialCaseType;
+		if (
+			!caseTypes.some((candidate) => candidate.name === selectedCaseTypeName)
+		) {
+			setSelectedCaseTypeName(caseTypes[0]?.name ?? "");
+		}
+	}, [caseTypes, initialCaseType, selectedCaseTypeName]);
+	const caseType =
+		caseTypes.find((candidate) => candidate.name === selectedCaseTypeName) ??
+		caseTypes[0];
+	if (caseType === undefined) {
+		throw new Error("CaseDataManager requires at least one case type.");
+	}
+	const moduleUuid = moduleUuidByCaseType[caseType.name];
+	const hasLinkedChildren = caseTypes.some(
+		(candidate) => candidate.parent_type === caseType.name,
+	);
 	const {
 		state: countState,
 		fetching,
@@ -133,6 +179,7 @@ export function CaseDataManager({
 	const populate = usePopulateSampleCases({ appId, caseType });
 	const reset = useResetSampleCases({ appId, caseType });
 	const [popoverOpen, setPopoverOpen] = useState(false);
+	const [propertiesOpen, setPropertiesOpen] = useState(false);
 	const [confirmOpen, setConfirmOpen] = useState(false);
 	const [operation, setOperation] = useState<Operation>(null);
 	const [error, setError] = useState<string | null>(null);
@@ -151,6 +198,7 @@ export function CaseDataManager({
 		localScopeEpochRef.current = scopeEpoch;
 		cancelPendingFocusFrame();
 		setPopoverOpen(false);
+		setPropertiesOpen(false);
 		setConfirmOpen(false);
 		setOperation(null);
 		setError(null);
@@ -403,6 +451,35 @@ export function CaseDataManager({
 							<NameChip label={caseType.name} /> case type. They’re used
 							throughout your app and in Preview.
 						</PopoverDescription>
+						{caseTypes.length > 1 && (
+							<div className="grid gap-1.5 pt-2 text-xs font-medium text-nova-text-secondary">
+								<span id={caseTypeSelectLabelId}>Case type</span>
+								<Select
+									value={caseType.name}
+									onValueChange={(value) => {
+										if (value === null) return;
+										setSelectedCaseTypeName(value);
+										setError(null);
+									}}
+								>
+									<SelectTrigger
+										aria-labelledby={caseTypeSelectLabelId}
+										className="min-h-11 w-full"
+									>
+										<SelectValue>
+											{humanizeId(caseType.name) || caseType.name}
+										</SelectValue>
+									</SelectTrigger>
+									<SelectContent>
+										{caseTypes.map((candidate) => (
+											<SelectItem key={candidate.name} value={candidate.name}>
+												{humanizeId(candidate.name) || candidate.name}
+											</SelectItem>
+										))}
+									</SelectContent>
+								</Select>
+							</div>
+						)}
 					</PopoverHeader>
 					{operation === "create" && (
 						<p
@@ -418,7 +495,7 @@ export function CaseDataManager({
 					{/* Review section — news first, between the header and the
 					 * count block, so the popover's existing jobs stay
 					 * untouched. Renders only while undismissed entries exist. */}
-					{activeParked.length > 0 && (
+					{activeParked.length > 0 && moduleUuid !== undefined && (
 						<div className="mx-4 mb-4 rounded-lg border border-nova-amber/30 bg-nova-amber/[0.06] p-3">
 							<div className="flex items-start gap-2.5">
 								<Icon
@@ -456,6 +533,33 @@ export function CaseDataManager({
 							</Button>
 						</div>
 					)}
+
+					<div className="border-t border-nova-border px-4 py-4">
+						<div className="flex items-start gap-3">
+							<span className="grid size-10 shrink-0 place-items-center rounded-xl bg-nova-violet/[0.09] text-nova-violet-bright">
+								<Icon icon={tablerEdit} width="18" height="18" />
+							</span>
+							<div className="min-w-0 flex-1">
+								<p className="font-medium text-nova-text">Case properties</p>
+								<p className="mt-1 text-sm leading-relaxed text-nova-text-secondary">
+									{canEdit ? "View or rename" : "View"} the shared property
+									names used throughout this app
+								</p>
+							</div>
+						</div>
+						<Button
+							type="button"
+							variant="outline"
+							className="mt-3 min-h-11 w-full"
+							onClick={() => {
+								setPopoverOpen(false);
+								setPropertiesOpen(true);
+							}}
+						>
+							<Icon icon={tablerEdit} />
+							{canEdit ? "Manage case properties" : "View case properties"}
+						</Button>
+					</div>
 
 					<div className="border-t border-nova-border px-4 pb-4 pt-4">
 						<p className="sr-only" aria-live="polite" aria-atomic="true">
@@ -674,6 +778,18 @@ export function CaseDataManager({
 					</AlertDialogFooter>
 				</AlertDialogContent>
 			</AlertDialog>
+			{propertiesOpen && (
+				<CasePropertyRenameDialog
+					open={accessPhase === "authorized"}
+					onOpenChange={(nextOpen) => {
+						setPropertiesOpen(nextOpen);
+						if (!nextOpen) restoreTriggerFocus();
+					}}
+					caseTypes={effectiveCaseTypes}
+					canEdit={canEdit}
+					initialCaseType={caseType.name}
+				/>
+			)}
 		</>
 	);
 }

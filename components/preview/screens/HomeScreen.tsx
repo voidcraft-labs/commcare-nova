@@ -19,6 +19,7 @@ import {
 	useCaseFirstModuleUuids,
 	useOrderedModules,
 } from "@/lib/doc/hooks/useModuleIds";
+import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import { moduleDisplayVisibility } from "@/lib/preview/engine/displayConditionEvaluation";
 import { previewSessionValues } from "@/lib/preview/engine/identity";
 import { usePreviewLookupStatus } from "@/lib/preview/engine/useLookupPreviewData";
@@ -33,6 +34,7 @@ export function HomeScreen() {
 	 * `useAppStructure` returns a shallow-stable pair, so destructuring
 	 * one field keeps the reference cheap. */
 	const { formOrder } = useAppStructure();
+	const projectProse = useProseProjection();
 	const navigate = useNavigate();
 	const { inline } = useBlueprintMutations();
 	const isReady = useBuilderIsReady();
@@ -85,9 +87,10 @@ export function HomeScreen() {
 						...(mod.caseType !== undefined && {
 							currentCaseType: mod.caseType,
 						}),
+						projectProse,
 					}),
 				})),
-		[modules, moduleVisibility],
+		[modules, moduleVisibility, projectProse],
 	);
 
 	/* Forward the gated dispatch's outcome — a refused rename keeps the

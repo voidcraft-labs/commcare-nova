@@ -1,15 +1,15 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import { asUuid } from "@/lib/doc/types";
 import {
 	caseOperationSchema,
 	effectiveCaseTypes,
 	type Form,
-	MAX_CASE_OPERATION_TEXT_LENGTH,
+	MAX_CASE_SCALAR_TEXT_LENGTH,
 	materializableCaseTypes,
 	orderedCaseOperations,
 	planCaseRetype,
-	prepareCaseOperationTextValue,
+	prepareCaseScalarTextValue,
 } from "@/lib/domain";
 import {
 	actingUser,
@@ -18,39 +18,48 @@ import {
 	term,
 	unowned,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 
-const A = asUuid("11111111-1111-4111-8111-111111111111");
-const B = asUuid("22222222-2222-4222-8222-222222222222");
+const A = testUuid("11111111-1111-4111-8111-111111111111");
+const B = testUuid("22222222-2222-4222-8222-222222222222");
 
 describe("case-operation domain vocabulary", () => {
-	it("normalizes and bounds case name/owner facets with Java-compatible whitespace", () => {
-		expect(prepareCaseOperationTextValue("\t Alice  Smith \r\n")).toEqual({
+	it("normalizes and bounds fixed-column case text with Java String.trim semantics", () => {
+		expect(
+			prepareCaseScalarTextValue("\u0000\u001f Alice  Smith \r\n", "reject"),
+		).toEqual({
 			ok: true,
 			value: "Alice  Smith",
 		});
-		expect(prepareCaseOperationTextValue(" \t\n\v\f\r ")).toEqual({
+		expect(prepareCaseScalarTextValue(" \t\n\v\f\r ", "reject")).toEqual({
 			ok: false,
 			value: "",
 			reason: "blank",
 		});
 		expect(
-			prepareCaseOperationTextValue("x".repeat(MAX_CASE_OPERATION_TEXT_LENGTH)),
-		).toMatchObject({ ok: true });
-		expect(
-			prepareCaseOperationTextValue(
-				`  ${"x".repeat(MAX_CASE_OPERATION_TEXT_LENGTH)}  `,
+			prepareCaseScalarTextValue(
+				"x".repeat(MAX_CASE_SCALAR_TEXT_LENGTH),
+				"reject",
 			),
 		).toMatchObject({ ok: true });
 		expect(
-			prepareCaseOperationTextValue(
-				"x".repeat(MAX_CASE_OPERATION_TEXT_LENGTH + 1),
+			prepareCaseScalarTextValue(
+				`  ${"x".repeat(MAX_CASE_SCALAR_TEXT_LENGTH)}  `,
+				"reject",
+			),
+		).toMatchObject({ ok: true });
+		expect(
+			prepareCaseScalarTextValue(
+				"x".repeat(MAX_CASE_SCALAR_TEXT_LENGTH + 1),
+				"reject",
 			),
 		).toMatchObject({ ok: false, reason: "too-long" });
-		// Java regex's default `\\s` does not include NBSP. Keep that exact
-		// rather than silently adopting JavaScript's broader `\\s` semantics.
-		expect(prepareCaseOperationTextValue("\u00a0name\u00a0")).toMatchObject({
+		expect(
+			prepareCaseScalarTextValue("\u00a0name\u00a0", "reject"),
+		).toMatchObject({ ok: true, value: "\u00a0name\u00a0" });
+		expect(prepareCaseScalarTextValue("\u0000 \u001f", "allow")).toEqual({
 			ok: true,
-			value: "\u00a0name\u00a0",
+			value: "",
 		});
 	});
 
@@ -111,7 +120,7 @@ describe("case-operation domain vocabulary", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "score", label: "Score" }],
+					properties: [{ name: "score", label: proseText("Score") }],
 				},
 			],
 			modules: [
@@ -152,11 +161,13 @@ describe("case-operation domain vocabulary", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "score", label: "Score" }],
+					properties: [{ name: "score", label: proseText("Score") }],
 				},
 				{
 					name: "visit",
-					properties: [{ name: "patient_score", label: "Patient score" }],
+					properties: [
+						{ name: "patient_score", label: proseText("Patient score") },
+					],
 				},
 			],
 			modules: [
@@ -171,8 +182,8 @@ describe("case-operation domain vocabulary", () => {
 								f({
 									kind: "int",
 									id: "score",
-									label: "Score",
-									case_property_on: "patient",
+									label: proseText("Score"),
+									caseWrite: { caseType: "patient", property: "score" },
 								}),
 							],
 						},
@@ -217,8 +228,8 @@ describe("case-operation domain vocabulary", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "score", label: "Score" },
-						{ name: "score_copy", label: "Score copy" },
+						{ name: "score", label: proseText("Score") },
+						{ name: "score_copy", label: proseText("Score copy") },
 					],
 				},
 			],
@@ -276,8 +287,8 @@ describe("case-operation domain vocabulary", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "left", label: "Left" },
-						{ name: "right", label: "Right" },
+						{ name: "left", label: proseText("Left") },
+						{ name: "right", label: proseText("Right") },
 					],
 				},
 			],
@@ -293,7 +304,7 @@ describe("case-operation domain vocabulary", () => {
 		const formUuid = doc.formOrder[moduleUuid][0];
 		(doc.forms[formUuid] as Form).caseOperations = [
 			{
-				uuid: asUuid("33333333-3333-4333-8333-333333333333"),
+				uuid: testUuid("33333333-3333-4333-8333-333333333333"),
 				id: "copy_right_to_left",
 				action: "update",
 				caseType: "patient",
@@ -306,7 +317,7 @@ describe("case-operation domain vocabulary", () => {
 				],
 			},
 			{
-				uuid: asUuid("44444444-4444-4444-8444-444444444444"),
+				uuid: testUuid("44444444-4444-4444-8444-444444444444"),
 				id: "copy_left_to_right",
 				action: "update",
 				caseType: "patient",
@@ -337,18 +348,21 @@ describe("case retype planning", () => {
 				{
 					name: "lead",
 					properties: [
-						{ name: "shared", label: "Shared", data_type: "text" },
-						{ name: "legacy", label: "Legacy", data_type: "text" },
-						{ name: "case_name", label: "Legacy declared case name" },
+						{ name: "shared", label: proseText("Shared"), data_type: "text" },
+						{ name: "legacy", label: proseText("Legacy"), data_type: "text" },
+						{
+							name: "case_name",
+							label: proseText("Legacy declared case name"),
+						},
 					],
 				},
 				{
 					name: "client",
 					properties: [
-						{ name: "shared", label: "Shared", data_type: "int" },
+						{ name: "shared", label: proseText("Shared"), data_type: "int" },
 						{
 							name: "enrolled",
-							label: "Enrolled",
+							label: proseText("Enrolled"),
 							required: "true()",
 						},
 					],

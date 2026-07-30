@@ -3,7 +3,8 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { settleBaseUiTransitions } from "@/__tests__/helpers/baseUiInteractions";
-import { asUuid } from "@/lib/domain";
+import { testUuid } from "@/__tests__/helpers/uuid";
+
 import { PreviewIdentityMenu } from "../PreviewIdentityMenu";
 
 const { setSelectedMock, openAppSetupMock } = vi.hoisted(() => ({
@@ -11,7 +12,7 @@ const { setSelectedMock, openAppSetupMock } = vi.hoisted(() => ({
 	openAppSetupMock: vi.fn(),
 }));
 
-const ASHA = asUuid("persona-asha");
+const ASHA = testUuid("persona-asha");
 
 vi.mock("@/lib/doc/hooks/useUserCollections", () => ({
 	usePersonas: () => [{ uuid: ASHA, name: "Asha" }],

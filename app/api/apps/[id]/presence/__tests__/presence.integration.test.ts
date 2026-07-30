@@ -20,6 +20,7 @@
 import type { Kysely } from "kysely";
 import { Client } from "pg";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { createPerTestAppDb } from "@/lib/db/__tests__/perTestAppDb";
 import type { AppDatabase } from "@/lib/db/pg";
@@ -53,7 +54,24 @@ function sessionFor(userId: string) {
 
 async function freshAppId(): Promise<string> {
 	const appId = `presence-${crypto.randomUUID()}`;
-	await h.seedApp({ id: appId, owner: USER, project_id: PROJECT });
+	await h.seedAppWithBlueprint(
+		buildDoc({
+			appName: "Presence test",
+			modules: [
+				{
+					name: "Workflow",
+					forms: [
+						{
+							name: "Survey",
+							type: "survey",
+							fields: [f({ kind: "text", id: "note" })],
+						},
+					],
+				},
+			],
+		}),
+		{ id: appId, owner: USER, projectId: PROJECT },
+	);
 	await h.seedProjectMember(USER, PROJECT, "editor");
 	return appId;
 }
@@ -72,7 +90,6 @@ async function commitMove(
 				toProjectId: DESTINATION,
 				actorUserId: USER,
 				assetIdMap: new Map(),
-				attemptedRealIds: new Set(),
 			},
 			{
 				batchId: crypto.randomUUID(),

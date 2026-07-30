@@ -49,6 +49,7 @@
 import { Kysely, PostgresDialect, type PostgresPool } from "kysely";
 import { Pool } from "pg";
 import { beforeEach, describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import type {
 	BlueprintDoc,
 	CaseProperty,
@@ -56,6 +57,9 @@ import type {
 	CaseType,
 } from "@/lib/domain";
 import { casePropertyDataTypes } from "@/lib/domain";
+import { eq, literal, prop } from "@/lib/domain/predicate/builders";
+import { caseTypeToJsonSchema } from "@/lib/domain/predicate/jsonSchema";
+import { proseText } from "@/lib/domain/prose";
 import { buildSimpleBlueprint } from "../../__tests__/fixtures/simpleBlueprint";
 import { runStoreContract } from "../../__tests__/storeContract";
 import { CaseNotFoundError, CasePropertiesValidationError } from "../../errors";
@@ -127,6 +131,17 @@ const dbHandle = setupPerTestDatabase({
 
 beforeEach(async () => {
 	await runCaseStoreMigrations(dbHandle.db);
+	await dbHandle.pool.query(`
+		INSERT INTO apps (id, owner, project_id, app_name, app_name_lower)
+		VALUES
+			('app-contract', 'user-a', 'project-a', 'Contract', 'contract'),
+			('app-index-ddl', 'owner-a', 'owner-a', 'Index DDL', 'index ddl'),
+			('app-explain', 'owner-a', 'owner-a', 'Explain', 'explain'),
+			('app-cross-a', 'owner-a', 'owner-a', 'Cross A', 'cross a'),
+			('app-cross-b', 'owner-a', 'owner-a', 'Cross B', 'cross b'),
+			('app-synced-seq', 'app-synced-seq', 'app-synced-seq',
+			 'Synced sequence', 'synced sequence')
+	`);
 });
 
 // ---------------------------------------------------------------
@@ -241,7 +256,7 @@ function makeStore(
 }
 
 describe("PostgresCaseStore — standalone schema authorization fence", () => {
-	it("runs before apply, drop, and compensation unpark work in each transaction", async () => {
+	it("runs before apply, drop, and parked-value restore work in each transaction", async () => {
 		const observed: Array<{ appId: string; schemaPresent: boolean }> = [];
 		const store = new PostgresCaseStore({
 			projectId: null,
@@ -292,7 +307,9 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		const store = makeStore(OWNER_A);
 		const caseType: CaseType = {
 			name: "patient",
-			properties: [{ name: "name", label: "Name", data_type: "text" }],
+			properties: [
+				{ name: "name", label: proseText("Name"), data_type: "text" },
+			],
 		};
 		await store.applySchemaChange({
 			appId: APP_ID,
@@ -314,7 +331,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		const store = makeStore(OWNER_A);
 		const caseType: CaseType = {
 			name: "patient",
-			properties: [{ name: "age", label: "Age", data_type: "int" }],
+			properties: [{ name: "age", label: proseText("Age"), data_type: "int" }],
 		};
 		await store.applySchemaChange({
 			appId: APP_ID,
@@ -343,9 +360,13 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		const caseType: CaseType = {
 			name: "visit",
 			properties: [
-				{ name: "scheduled", label: "Scheduled", data_type: "date" },
-				{ name: "logged_at", label: "Logged at", data_type: "datetime" },
-				{ name: "started", label: "Started", data_type: "time" },
+				{ name: "scheduled", label: proseText("Scheduled"), data_type: "date" },
+				{
+					name: "logged_at",
+					label: proseText("Logged at"),
+					data_type: "datetime",
+				},
+				{ name: "started", label: proseText("Started"), data_type: "time" },
 			],
 		};
 		await store.applySchemaChange({
@@ -362,7 +383,9 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		const store = makeStore(OWNER_A);
 		const caseType: CaseType = {
 			name: "patient",
-			properties: [{ name: "weight", label: "Weight", data_type: "decimal" }],
+			properties: [
+				{ name: "weight", label: proseText("Weight"), data_type: "decimal" },
+			],
 		};
 		await store.applySchemaChange({
 			appId: APP_ID,
@@ -386,11 +409,11 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 			properties: [
 				{
 					name: "tags",
-					label: "Tags",
+					label: proseText("Tags"),
 					data_type: "multi_select",
 					options: [
-						{ value: "a", label: "A" },
-						{ value: "b", label: "B" },
+						{ value: "a", label: proseText("A") },
+						{ value: "b", label: proseText("B") },
 					],
 				},
 			],
@@ -437,7 +460,9 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		const store = makeStore(OWNER_A);
 		const caseType: CaseType = {
 			name: "patient",
-			properties: [{ name: "home", label: "Home", data_type: "geopoint" }],
+			properties: [
+				{ name: "home", label: proseText("Home"), data_type: "geopoint" },
+			],
 		};
 		await store.applySchemaChange({
 			appId: APP_ID,
@@ -459,11 +484,11 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 			properties: [
 				{
 					name: "color",
-					label: "Color",
+					label: proseText("Color"),
 					data_type: "single_select",
 					options: [
-						{ value: "red", label: "Red" },
-						{ value: "blue", label: "Blue" },
+						{ value: "red", label: proseText("Red") },
+						{ value: "blue", label: proseText("Blue") },
 					],
 				},
 			],
@@ -485,25 +510,25 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 	it("creates indexes for every indexable property in the desired set on first call", async () => {
 		const store = makeStore(OWNER_A);
 		const properties: CaseProperty[] = [
-			{ name: "name", label: "Name", data_type: "text" },
-			{ name: "age", label: "Age", data_type: "int" },
-			{ name: "weight", label: "Weight", data_type: "decimal" },
+			{ name: "name", label: proseText("Name"), data_type: "text" },
+			{ name: "age", label: proseText("Age"), data_type: "int" },
+			{ name: "weight", label: proseText("Weight"), data_type: "decimal" },
 			{
 				name: "tags",
-				label: "Tags",
+				label: proseText("Tags"),
 				data_type: "multi_select",
-				options: [{ value: "a", label: "A" }],
+				options: [{ value: "a", label: proseText("A") }],
 			},
 			// Mixed in non-indexable types — they pass through silently
 			// with no index emitted (single_select, date, geopoint).
 			{
 				name: "color",
-				label: "Color",
+				label: proseText("Color"),
 				data_type: "single_select",
-				options: [{ value: "red", label: "Red" }],
+				options: [{ value: "red", label: proseText("Red") }],
 			},
-			{ name: "scheduled", label: "Scheduled", data_type: "date" },
-			{ name: "home", label: "Home", data_type: "geopoint" },
+			{ name: "scheduled", label: proseText("Scheduled"), data_type: "date" },
+			{ name: "home", label: proseText("Home"), data_type: "geopoint" },
 		];
 		const caseType: CaseType = { name: "patient", properties };
 		await store.applySchemaChange({
@@ -531,7 +556,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 
 	it("admits hyphenated property names — name uses the property hash, expression keeps the hyphen", async () => {
 		// Property names follow `CASE_PROPERTY_PATTERN` — alphanumerics +
-		// underscores + hyphens (CommCare's `external-id`). The name's
+		// underscores + hyphens. The name's
 		// `propertyIndexTag` hashes the raw property, so a hyphen needs
 		// no transform; the JSONB key inside the indexed expression
 		// stays exactly as the blueprint declares it.
@@ -539,7 +564,11 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		const caseType: CaseType = {
 			name: "patient",
 			properties: [
-				{ name: "external-id", label: "External ID", data_type: "text" },
+				{
+					name: "external-field",
+					label: proseText("External field"),
+					data_type: "text",
+				},
 			],
 		};
 		await store.applySchemaChange({
@@ -550,24 +579,32 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 
 		const indexes = await readPropertyIndexes(dbHandle.pool, APP_ID, "patient");
 		expect(indexes).toHaveLength(1);
-		// Name is the hash of the raw `external-id`.
+		// Name is the hash of the raw `external-field`.
 		expect(indexes[0]?.name).toBe(
-			idxName(APP_ID, "patient", "external-id", "fuzzy"),
+			idxName(APP_ID, "patient", "external-field", "fuzzy"),
 		);
 		// Indexed expression preserves the literal hyphen.
-		expect(indexes[0]?.def).toMatch(/->>\s*'external-id'/);
+		expect(indexes[0]?.def).toMatch(/->>\s*'external-field'/);
 	});
 
-	it("gives `external-id` and `external_id` distinct indexes (hashing removes the old name collision)", async () => {
-		// The pre-hash naming transformed both to `..._external_id_...`
+	it("gives `external-field` and `external_field` distinct indexes (hashing removes the old name collision)", async () => {
+		// The pre-hash naming transformed both to `..._external_field_...`
 		// and collided; hashing the RAW property name keeps two distinct
 		// properties distinct, so both get their own index.
 		const store = makeStore(OWNER_A);
 		const caseType: CaseType = {
 			name: "patient",
 			properties: [
-				{ name: "external-id", label: "Hyphen", data_type: "text" },
-				{ name: "external_id", label: "Underscore", data_type: "text" },
+				{
+					name: "external-field",
+					label: proseText("Hyphen"),
+					data_type: "text",
+				},
+				{
+					name: "external_field",
+					label: proseText("Underscore"),
+					data_type: "text",
+				},
 			],
 		};
 		await store.applySchemaChange({
@@ -580,10 +617,126 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 			.sort();
 		expect(names).toEqual(
 			[
-				idxName(APP_ID, "patient", "external-id", "fuzzy"),
-				idxName(APP_ID, "patient", "external_id", "fuzzy"),
+				idxName(APP_ID, "patient", "external-field", "fuzzy"),
+				idxName(APP_ID, "patient", "external_field", "fuzzy"),
 			].sort(),
 		);
+	});
+
+	it("keeps explicit canonical scalars in the catalog while excluding them from JSONB schema and indexes", async () => {
+		const store = makeStore(OWNER_A);
+		const caseType: CaseType = {
+			name: "patient",
+			properties: [
+				{
+					name: "external_id",
+					label: proseText("External ID"),
+					data_type: "text",
+				},
+				{
+					name: "status",
+					label: proseText("Status"),
+					data_type: "text",
+				},
+			],
+		};
+		const caseTypeSchemas = buildSchemaMap(caseType);
+		expect(
+			caseTypeSchemas.get("patient")?.properties.map((p) => p.name),
+		).toEqual(["external_id", "status"]);
+
+		await store.applySchemaChange({
+			appId: APP_ID,
+			caseType: "patient",
+			caseTypeSchemas,
+		});
+
+		const stored = await dbHandle.pool.query<{
+			schema: { properties: Record<string, unknown> };
+		}>(
+			"SELECT schema FROM case_type_schemas WHERE app_id = $1 AND case_type = $2",
+			[APP_ID, "patient"],
+		);
+		expect(stored.rows[0]?.schema.properties).toEqual({});
+		expect(await readPropertyIndexes(dbHandle.pool, APP_ID, "patient")).toEqual(
+			[],
+		);
+
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_type: "patient",
+				case_name: "\u0000 Patient \u001f",
+				external_id: "\u001f PX-1 \u0000",
+				status: "open",
+				properties: {},
+			},
+		});
+
+		const byExternalId = await store.query({
+			appId: APP_ID,
+			caseType: "patient",
+			caseTypeSchemas,
+			predicate: eq(prop("patient", "external_id"), literal("PX-1")),
+		});
+		expect(byExternalId).toHaveLength(1);
+		expect(byExternalId[0]).toMatchObject({
+			case_name: "Patient",
+			external_id: "PX-1",
+			status: "open",
+			properties: {},
+		});
+		const caseId = byExternalId[0]?.case_id;
+		if (caseId === undefined) throw new Error("inserted scalar row is missing");
+		await store.update({
+			appId: APP_ID,
+			caseId,
+			patch: {
+				case_name: "\u001f Renamed \u0000",
+				external_id: "\t\r\n",
+			},
+		});
+		expect(
+			(
+				await store.query({
+					appId: APP_ID,
+					caseType: "patient",
+				})
+			).find((row) => row.case_id === caseId),
+		).toMatchObject({
+			case_name: "Renamed",
+			external_id: "",
+			properties: {},
+		});
+		const byStatus = await store.query({
+			appId: APP_ID,
+			caseType: "patient",
+			caseTypeSchemas,
+			predicate: eq(prop("patient", "status"), literal("open")),
+		});
+		expect(byStatus).toHaveLength(1);
+
+		expect(
+			await store.generateSampleData({
+				appId: APP_ID,
+				caseType,
+				count: 2,
+				seed: "explicit-standard-scalars",
+			}),
+		).toEqual({ inserted: 2 });
+		const withSamples = await store.query({
+			appId: APP_ID,
+			caseType: "patient",
+		});
+		expect(withSamples).toHaveLength(3);
+		expect(
+			withSamples.every(
+				(row) =>
+					row.status === "open" &&
+					row.external_id !== null &&
+					Object.keys(row.properties).length === 0,
+			),
+		).toBe(true);
 	});
 
 	it("drops the index for a removed property on subsequent call", async () => {
@@ -591,8 +744,8 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		const initial: CaseType = {
 			name: "patient",
 			properties: [
-				{ name: "name", label: "Name", data_type: "text" },
-				{ name: "age", label: "Age", data_type: "int" },
+				{ name: "name", label: proseText("Name"), data_type: "text" },
+				{ name: "age", label: proseText("Age"), data_type: "int" },
 			],
 		};
 		await store.applySchemaChange({
@@ -614,7 +767,9 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		// index for `name` stays.
 		const reduced: CaseType = {
 			name: "patient",
-			properties: [{ name: "name", label: "Name", data_type: "text" }],
+			properties: [
+				{ name: "name", label: proseText("Name"), data_type: "text" },
+			],
 		};
 		await store.applySchemaChange({
 			appId: APP_ID,
@@ -632,43 +787,11 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		]);
 	});
 
-	it("on rename: drops the old-name index and creates the new-name index", async () => {
-		const store = makeStore(OWNER_A);
-		const initial: CaseType = {
-			name: "patient",
-			properties: [{ name: "age", label: "Age", data_type: "int" }],
-		};
-		await store.applySchemaChange({
-			appId: APP_ID,
-			caseType: "patient",
-			caseTypeSchemas: buildSchemaMap(initial),
-		});
-
-		// Rename `age` → `years`. Same data type, so the diff drops
-		// `cases_patient_age_int` and creates
-		// `cases_patient_years_int`.
-		const renamed: CaseType = {
-			name: "patient",
-			properties: [{ name: "years", label: "Years", data_type: "int" }],
-		};
-		await store.applySchemaChange({
-			appId: APP_ID,
-			caseType: "patient",
-			caseTypeSchemas: buildSchemaMap(renamed),
-			change: { kind: "rename", renames: [{ from: "age", to: "years" }] },
-		});
-
-		const indexes = await readPropertyIndexes(dbHandle.pool, APP_ID, "patient");
-		expect(indexes.map((i) => i.name)).toEqual([
-			idxName(APP_ID, "patient", "years", "int"),
-		]);
-	});
-
 	it("on retype: drops the old-type index and creates the new-type index", async () => {
 		const store = makeStore(OWNER_A);
 		const initial: CaseType = {
 			name: "patient",
-			properties: [{ name: "age", label: "Age", data_type: "text" }],
+			properties: [{ name: "age", label: proseText("Age"), data_type: "text" }],
 		};
 		await store.applySchemaChange({
 			appId: APP_ID,
@@ -684,7 +807,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		// the btree expression index.
 		const retyped: CaseType = {
 			name: "patient",
-			properties: [{ name: "age", label: "Age", data_type: "int" }],
+			properties: [{ name: "age", label: proseText("Age"), data_type: "int" }],
 		};
 		await store.applySchemaChange({
 			appId: APP_ID,
@@ -715,7 +838,9 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		const store = makeStore(OWNER_A);
 		const initial: CaseType = {
 			name: "patient",
-			properties: [{ name: "weight", label: "Weight", data_type: "int" }],
+			properties: [
+				{ name: "weight", label: proseText("Weight"), data_type: "int" },
+			],
 		};
 		await store.applySchemaChange({
 			appId: APP_ID,
@@ -730,7 +855,9 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 
 		const retyped: CaseType = {
 			name: "patient",
-			properties: [{ name: "weight", label: "Weight", data_type: "decimal" }],
+			properties: [
+				{ name: "weight", label: proseText("Weight"), data_type: "decimal" },
+			],
 		};
 		await store.applySchemaChange({
 			appId: APP_ID,
@@ -784,7 +911,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		// is total and reads no database.
 		const property = (data_type: CasePropertyDataType): CaseProperty => ({
 			name: "p",
-			label: "P",
+			label: proseText("P"),
 			data_type,
 		});
 
@@ -830,7 +957,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		const store = makeStore(OWNER_A);
 		const initial: CaseType = {
 			name: "patient",
-			properties: [{ name: "age", label: "Age", data_type: "text" }],
+			properties: [{ name: "age", label: proseText("Age"), data_type: "text" }],
 		};
 		await store.applySchemaChange({
 			appId: APP_ID,
@@ -862,7 +989,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 
 		const retyped: CaseType = {
 			name: "patient",
-			properties: [{ name: "age", label: "Age", data_type: "int" }],
+			properties: [{ name: "age", label: proseText("Age"), data_type: "int" }],
 		};
 		const report = await store.applySchemaChange({
 			appId: APP_ID,
@@ -893,11 +1020,11 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 			properties: [
 				{
 					name: "languages",
-					label: "Languages",
+					label: proseText("Languages"),
 					data_type: "multi_select",
 					options: [
-						{ value: "en", label: "English" },
-						{ value: "fr", label: "French" },
+						{ value: "en", label: proseText("English") },
+						{ value: "fr", label: proseText("French") },
 					],
 				},
 			],
@@ -920,7 +1047,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		const retyped: CaseType = {
 			name: "patient",
 			properties: [
-				{ name: "languages", label: "Languages", data_type: "text" },
+				{ name: "languages", label: proseText("Languages"), data_type: "text" },
 			],
 		};
 		const report = await store.applySchemaChange({
@@ -954,7 +1081,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		const store = makeStore(OWNER_A);
 		const initial: CaseType = {
 			name: "patient",
-			properties: [{ name: "age", label: "Age", data_type: "text" }],
+			properties: [{ name: "age", label: proseText("Age"), data_type: "text" }],
 		};
 		await store.applySchemaChange({
 			appId: APP_ID,
@@ -978,7 +1105,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 
 		const retyped: CaseType = {
 			name: "patient",
-			properties: [{ name: "age", label: "Age", data_type: "int" }],
+			properties: [{ name: "age", label: proseText("Age"), data_type: "int" }],
 		};
 		await expect(
 			store.applySchemaChange({
@@ -1021,7 +1148,9 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		const store = makeStore(OWNER_A);
 		const caseType: CaseType = {
 			name: "patient",
-			properties: [{ name: "name", label: "Name", data_type: "text" }],
+			properties: [
+				{ name: "name", label: proseText("Name"), data_type: "text" },
+			],
 		};
 
 		const caseDb = dbHandle.db as unknown as Kysely<Database>;
@@ -1052,7 +1181,9 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		const store = makeStore(OWNER_A);
 		const caseType: CaseType = {
 			name: "patient",
-			properties: [{ name: "name", label: "Name", data_type: "text" }],
+			properties: [
+				{ name: "name", label: proseText("Name"), data_type: "text" },
+			],
 		};
 
 		const caseDb = dbHandle.db as unknown as Kysely<Database>;
@@ -1107,7 +1238,9 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		const badPropertyName = "has a space";
 		const caseType: CaseType = {
 			name: "patient",
-			properties: [{ name: badPropertyName, label: "X", data_type: "text" }],
+			properties: [
+				{ name: badPropertyName, label: proseText("X"), data_type: "text" },
+			],
 		};
 		await expect(
 			store.applySchemaChange({
@@ -1168,11 +1301,13 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		// new schema; Phase B's CREATE INDEX with `gin_trgm_ops`
 		// fails because the extension is gone. The throw is the
 		// typed Phase-B wrapper (its `cause` carries the engine
-		// fault) so compensating callers keep the committed
-		// Phase-A report — parked ids and all — across the failure.
+		// fault) so callers retain the committed Phase-A report —
+		// parked ids and all — across the failure.
 		const caseType: CaseType = {
 			name: "patient",
-			properties: [{ name: "name", label: "Name", data_type: "text" }],
+			properties: [
+				{ name: "name", label: proseText("Name"), data_type: "text" },
+			],
 		};
 		await expect(
 			store.applySchemaChange({
@@ -1264,7 +1399,9 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		// Establish a healthy text-fuzzy index for the `name` property.
 		const caseTypeSchemas = buildSchemaMap({
 			name: "patient",
-			properties: [{ name: "name", label: "Name", data_type: "text" }],
+			properties: [
+				{ name: "name", label: proseText("Name"), data_type: "text" },
+			],
 		});
 		await store.applySchemaChange({
 			appId: APP_ID,
@@ -1401,7 +1538,9 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 			caseType: "patient",
 			caseTypeSchemas: buildSchemaMap({
 				name: "patient",
-				properties: [{ name: "name", label: "Name", data_type: "text" }],
+				properties: [
+					{ name: "name", label: proseText("Name"), data_type: "text" },
+				],
 			}),
 		});
 
@@ -1414,8 +1553,8 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 			caseTypeSchemas: buildSchemaMap({
 				name: "patient",
 				properties: [
-					{ name: "name", label: "Name", data_type: "text" },
-					{ name: "age", label: "Age", data_type: "int" },
+					{ name: "name", label: proseText("Name"), data_type: "text" },
+					{ name: "age", label: proseText("Age"), data_type: "int" },
 				],
 			}),
 		});
@@ -1435,7 +1574,9 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 			caseType: "patient",
 			caseTypeSchemas: buildSchemaMap({
 				name: "patient",
-				properties: [{ name: "age", label: "Age", data_type: "int" }],
+				properties: [
+					{ name: "age", label: proseText("Age"), data_type: "int" },
+				],
 			}),
 		});
 		expect(
@@ -1460,7 +1601,9 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 			caseType: "patient",
 			caseTypeSchemas: buildSchemaMap({
 				name: "patient",
-				properties: [{ name: "name", label: "Name", data_type: "text" }],
+				properties: [
+					{ name: "name", label: proseText("Name"), data_type: "text" },
+				],
 			}),
 		});
 
@@ -1472,8 +1615,8 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 			caseTypeSchemas: buildSchemaMap({
 				name: "patient",
 				properties: [
-					{ name: "name", label: "Name", data_type: "text" },
-					{ name: "age", label: "Age", data_type: "int" },
+					{ name: "name", label: proseText("Name"), data_type: "text" },
+					{ name: "age", label: proseText("Age"), data_type: "int" },
 				],
 			}),
 		});
@@ -1503,7 +1646,11 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 				caseTypeSchemas: buildSchemaMap({
 					name: "patient",
 					properties: [
-						{ name: "name with space", label: "X", data_type: "text" },
+						{
+							name: "name with space",
+							label: proseText("X"),
+							data_type: "text",
+						},
 					],
 				}),
 			}),
@@ -1553,7 +1700,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		for (let i = 0; i < count; i++) {
 			const tags = i % 7 === 0 ? ["red", "blue"] : ["green"];
 			valueRows.push(
-				`($${p++}::uuid, 'app-explain', 'patient', 'owner-a', $${p++}, $${p++}::jsonb)`,
+				`($${p++}::uuid, 'app-explain', 'owner-a', 'patient', 'owner-a', $${p++}, $${p++}::jsonb)`,
 			);
 			// `case_name` is `text NOT NULL` with a `length > 0` CHECK
 			// — a synthetic per-row value satisfies the constraint
@@ -1571,7 +1718,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 			);
 		}
 		await dbHandle.pool.query(
-			`INSERT INTO cases (case_id, app_id, case_type, owner_id, case_name, properties) VALUES ${valueRows.join(", ")}`,
+			`INSERT INTO cases (case_id, app_id, project_id, case_type, owner_id, case_name, properties) VALUES ${valueRows.join(", ")}`,
 			params,
 		);
 		await dbHandle.pool.query("ANALYZE cases");
@@ -1613,7 +1760,9 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 					[
 						{
 							name: "patient",
-							properties: [{ name: "name", label: "Name", data_type: "text" }],
+							properties: [
+								{ name: "name", label: proseText("Name"), data_type: "text" },
+							],
 						},
 					],
 					"app-explain",
@@ -1647,7 +1796,9 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 					[
 						{
 							name: "patient",
-							properties: [{ name: "age", label: "Age", data_type: "int" }],
+							properties: [
+								{ name: "age", label: proseText("Age"), data_type: "int" },
+							],
 						},
 					],
 					"app-explain",
@@ -1680,7 +1831,11 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 						{
 							name: "patient",
 							properties: [
-								{ name: "weight", label: "Weight", data_type: "decimal" },
+								{
+									name: "weight",
+									label: proseText("Weight"),
+									data_type: "decimal",
+								},
 							],
 						},
 					],
@@ -1717,12 +1872,12 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 							properties: [
 								{
 									name: "tags",
-									label: "Tags",
+									label: proseText("Tags"),
 									data_type: "multi_select",
 									options: [
-										{ value: "red", label: "Red" },
-										{ value: "blue", label: "Blue" },
-										{ value: "green", label: "Green" },
+										{ value: "red", label: proseText("Red") },
+										{ value: "blue", label: proseText("Blue") },
+										{ value: "green", label: proseText("Green") },
 									],
 								},
 							],
@@ -1771,7 +1926,9 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 			caseType: "patient",
 			caseTypeSchemas: buildSchemaMap({
 				name: "patient",
-				properties: [{ name: "name", label: "Name", data_type: "text" }],
+				properties: [
+					{ name: "name", label: proseText("Name"), data_type: "text" },
+				],
 			}),
 		});
 
@@ -1789,7 +1946,9 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 			caseType: "patient",
 			caseTypeSchemas: buildSchemaMap({
 				name: "patient",
-				properties: [{ name: "name", label: "Name", data_type: "text" }],
+				properties: [
+					{ name: "name", label: proseText("Name"), data_type: "text" },
+				],
 			}),
 		});
 		const seenByB = await readPropertyIndexes(dbHandle.pool, APP_ID, "patient");
@@ -1820,7 +1979,9 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 			caseType: "patient",
 			caseTypeSchemas: buildSchemaMap({
 				name: "patient",
-				properties: [{ name: "weight", label: "Weight", data_type: "decimal" }],
+				properties: [
+					{ name: "weight", label: proseText("Weight"), data_type: "decimal" },
+				],
 			}),
 		});
 		await store.applySchemaChange({
@@ -1828,7 +1989,9 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 			caseType: "patient",
 			caseTypeSchemas: buildSchemaMap({
 				name: "patient",
-				properties: [{ name: "weight", label: "Weight", data_type: "int" }],
+				properties: [
+					{ name: "weight", label: proseText("Weight"), data_type: "int" },
+				],
 			}),
 		});
 
@@ -1885,7 +2048,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		const store = makeStore(OWNER_A);
 		const patientSchema = buildSchemaMap({
 			name: "patient",
-			properties: [{ name: "age", label: "Age", data_type: "int" }],
+			properties: [{ name: "age", label: proseText("Age"), data_type: "int" }],
 		});
 		await store.applySchemaChange({
 			appId: APP_ID,
@@ -1897,7 +2060,9 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 			caseType: "patient_visit",
 			caseTypeSchemas: buildSchemaMap({
 				name: "patient_visit",
-				properties: [{ name: "age", label: "Age", data_type: "int" }],
+				properties: [
+					{ name: "age", label: proseText("Age"), data_type: "int" },
+				],
 			}),
 		});
 
@@ -1942,6 +2107,63 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 // allow partial commits, and this test is the regression net.
 
 describe("PostgresCaseStore — bulk-insert rollback semantics", () => {
+	it("normalizes case_name and external_id for every row without copying scalars into JSONB", async () => {
+		const caseType: CaseType = { name: "patient", properties: [] };
+		const stubGenerator = {
+			generate: () =>
+				[
+					{
+						case_type: "patient",
+						case_name: "\u0000 Alice \u001f",
+						external_id: " EXT-1 ",
+						status: "open",
+						properties: {},
+					},
+					{
+						case_type: "patient",
+						case_name: "\t Bob \r\n",
+						external_id: "\t\r\n",
+						status: "open",
+						properties: {},
+					},
+				] as const,
+		};
+		const store = new PostgresCaseStore({
+			projectId: OWNER_A,
+			actorUserId: OWNER_A,
+			ownerId: OWNER_A,
+			db: dbHandle.db as unknown as Kysely<Database>,
+			sampleGenerator: stubGenerator,
+		});
+		await store.applySchemaChange({
+			appId: APP_ID,
+			caseType: "patient",
+			caseTypeSchemas: buildSchemaMap(caseType),
+		});
+
+		await expect(
+			store.generateSampleData({
+				appId: APP_ID,
+				caseType,
+				count: 2,
+				seed: "scalar-normalization",
+			}),
+		).resolves.toEqual({ inserted: 2 });
+		const rows = (
+			await store.query({ appId: APP_ID, caseType: "patient" })
+		).sort((left, right) => left.case_name.localeCompare(right.case_name));
+		expect(
+			rows.map(({ case_name, external_id, properties }) => ({
+				case_name,
+				external_id,
+				properties,
+			})),
+		).toEqual([
+			{ case_name: "Alice", external_id: "EXT-1", properties: {} },
+			{ case_name: "Bob", external_id: "", properties: {} },
+		]);
+	});
+
 	it("rolls back the entire batch when any row fails JSON Schema validation", async () => {
 		// Schema declares `age` as `int`; the stub generator emits
 		// three rows where the second one's `age` is the string
@@ -1949,8 +2171,8 @@ describe("PostgresCaseStore — bulk-insert rollback semantics", () => {
 		const caseType: CaseType = {
 			name: "patient",
 			properties: [
-				{ name: "case_name", label: "Name", data_type: "text" },
-				{ name: "age", label: "Age", data_type: "int" },
+				{ name: "case_name", label: proseText("Name"), data_type: "text" },
+				{ name: "age", label: proseText("Age"), data_type: "int" },
 			],
 		};
 		const caseTypeSchemas = buildSchemaMap(caseType);
@@ -2037,7 +2259,9 @@ describe("PostgresCaseStore — bulk-insert rollback semantics", () => {
 describe("PostgresCaseStore — creation stamps", () => {
 	const caseType: CaseType = {
 		name: "patient",
-		properties: [{ name: "case_name", label: "Name", data_type: "text" }],
+		properties: [
+			{ name: "case_name", label: proseText("Name"), data_type: "text" },
+		],
 	};
 
 	it("stamps opened_on and modified_on on per-row insert", async () => {
@@ -2066,7 +2290,9 @@ describe("PostgresCaseStore — creation stamps", () => {
 	it("stamps every row of a registration insert (primary + children)", async () => {
 		const childType: CaseType = {
 			name: "medication_order",
-			properties: [{ name: "case_name", label: "Name", data_type: "text" }],
+			properties: [
+				{ name: "case_name", label: proseText("Name"), data_type: "text" },
+			],
 		};
 		const schemas = buildCaseTypeMap(
 			buildSimpleBlueprint([caseType, childType], APP_ID),
@@ -2084,7 +2310,7 @@ describe("PostgresCaseStore — creation stamps", () => {
 			appId: APP_ID,
 			submissionReceipt: {
 				entryKey: "store-creation-stamp-entry",
-				formUuid: "66666666-6666-4666-8666-666666666666",
+				formUuid: testUuid("66666666-6666-4666-8666-666666666666"),
 				expectedAppMutationSeq: 0,
 				requestDigest: "store-creation-stamp-request",
 			},
@@ -2365,8 +2591,8 @@ describe("PostgresCaseStore — resetSampleData atomicity", () => {
 		const caseType: CaseType = {
 			name: "patient",
 			properties: [
-				{ name: "case_name", label: "Name", data_type: "text" },
-				{ name: "age", label: "Age", data_type: "int" },
+				{ name: "case_name", label: proseText("Name"), data_type: "text" },
+				{ name: "age", label: proseText("Age"), data_type: "int" },
 			],
 		};
 		const caseTypeSchemas = buildSchemaMap(caseType);
@@ -2471,7 +2697,7 @@ describe("PostgresCaseStore — int property range validation", () => {
 			caseType: "counter",
 			caseTypeSchemas: buildSchemaMap({
 				name: "counter",
-				properties: [{ name: "n", label: "N", data_type: "int" }],
+				properties: [{ name: "n", label: proseText("N"), data_type: "int" }],
 			}),
 		});
 
@@ -2543,11 +2769,56 @@ describe("PostgresCaseStore — applySchemaChange synced_seq gate", () => {
 			name: "patient",
 			properties: props.map((name) => ({
 				name,
-				label: name,
+				label: proseText(name),
 				data_type: "text" as const,
 			})),
 		};
 	}
+
+	it.each([-1, Number.MAX_SAFE_INTEGER + 1])(
+		"rejects the noncanonical synced sequence %s before writing",
+		async (syncedSeq) => {
+			const store = makeStore(SEQ_APP);
+			await expect(
+				store.applySchemaChange({
+					appId: SEQ_APP,
+					caseType: "patient",
+					caseTypeSchemas: buildCaseTypeMap(
+						buildSimpleBlueprint([patientWith(["name"])], SEQ_APP),
+					),
+					syncedSeq,
+				}),
+			).rejects.toThrow(/nonnegative safe integer/);
+			expect(await readRow("patient")).toEqual({
+				syncedSeq: null,
+				properties: [],
+			});
+		},
+	);
+
+	it("admits MAX_SAFE_INTEGER exactly and rejects an older safe sequence as stale", async () => {
+		const store = makeStore(SEQ_APP);
+		await store.applySchemaChange({
+			appId: SEQ_APP,
+			caseType: "patient",
+			caseTypeSchemas: buildCaseTypeMap(
+				buildSimpleBlueprint([patientWith(["name"])], SEQ_APP),
+			),
+			syncedSeq: Number.MAX_SAFE_INTEGER,
+		});
+		await store.applySchemaChange({
+			appId: SEQ_APP,
+			caseType: "patient",
+			caseTypeSchemas: buildCaseTypeMap(
+				buildSimpleBlueprint([patientWith(["name", "village"])], SEQ_APP),
+			),
+			syncedSeq: Number.MAX_SAFE_INTEGER - 1,
+		});
+		expect(await readRow("patient")).toEqual({
+			syncedSeq: Number.MAX_SAFE_INTEGER,
+			properties: ["name"],
+		});
+	});
 
 	it("records the incoming syncedSeq on a first sync and advances it on a forward sync", async () => {
 		const store = makeStore(SEQ_APP);
@@ -2737,114 +3008,100 @@ describe("PostgresCaseStore — applySchemaChange synced_seq gate", () => {
 				caseTypeSchemas: buildCaseTypeMap(
 					buildSimpleBlueprint([patientWith(["name"])], SEQ_APP),
 				),
-				change: { kind: "rename", renames: [{ from: "old", to: "name" }] },
+				change: {
+					kind: "retype",
+					fromType: "text",
+					toType: "int",
+				},
 				syncedSeq: 3,
 			}),
 		).rejects.toThrow(/mutually exclusive|change.*syncedSeq/i);
 	});
 });
 
-// ---------------------------------------------------------------
-// Pre-annotation stored select schemas — Postgres-specific
-// ---------------------------------------------------------------
-//
-// Lives here rather than in the contract harness because it must
-// rewrite the STORED `case_type_schemas` bytes to the shape the old
-// generator wrote before `x-novaDataType` existed — the contract
-// factory deliberately exposes no raw table access.
-
-describe("PostgresCaseStore — pre-annotation stored select schemas", () => {
-	it("never classifies the ambiguous text→single_select diff — a pre-annotation stored select can't phantom-restore a narrow-options flush", async () => {
+describe("PostgresCaseStore — canonical stored-schema boundary", () => {
+	it("fails closed on one noncanonical property schema across writes, transitions, and parked-value review", async () => {
 		const store = makeStore(OWNER_A);
-		const selectCaseType: CaseType = {
+		const textType: CaseType = {
 			name: "patient",
 			properties: [
 				{
-					name: "color",
-					label: "Color",
-					data_type: "single_select",
-					options: [
-						{ value: "red", label: "Red" },
-						{ value: "blue", label: "Blue" },
-					],
+					name: "measurement",
+					label: proseText("Measurement"),
+					data_type: "text",
+				},
+			],
+		};
+		const intType: CaseType = {
+			name: "patient",
+			properties: [
+				{
+					name: "measurement",
+					label: proseText("Measurement"),
+					data_type: "int",
 				},
 			],
 		};
 		await store.applySchemaChange({
 			appId: APP_ID,
 			caseType: "patient",
-			caseTypeSchemas: buildSchemaMap(selectCaseType),
+			caseTypeSchemas: buildSchemaMap(textType),
 		});
-		await store.insert({
+		const inserted = await store.insert({
 			appId: APP_ID,
 			row: {
-				case_id: "40000000-0000-0000-0000-000000000001",
 				case_type: "patient",
-				case_name: "test-case",
-				properties: { color: "red" },
+				case_name: "Patient",
+				properties: { measurement: "not-an-integer" },
 			},
 		});
-		// A deliberate flush: "red" leaves the option list, its value
-		// parks, and the row's key drops.
-		const narrowed: CaseType = {
-			name: "patient",
-			properties: [
-				{
-					name: "color",
-					label: "Color",
-					data_type: "single_select",
-					options: [{ value: "blue", label: "Blue" }],
-				},
-			],
-		};
-		await store.applySchemaChange({
-			appId: APP_ID,
-			caseType: "patient",
-			caseTypeSchemas: buildSchemaMap(narrowed),
-			property: "color",
-			change: { kind: "narrow-options", removedOptions: ["red"] },
-		});
 
-		// Rewrite the stored schema to its pre-annotation shape: the
-		// select's property schema as a bare unconstrained string.
-		const storedRow = await dbHandle.pool.query<{ schema: unknown }>(
-			"SELECT schema FROM case_type_schemas WHERE app_id = $1 AND case_type = $2",
-			[APP_ID, "patient"],
-		);
-		const raw = storedRow.rows[0]?.schema;
-		const schema = (typeof raw === "string" ? JSON.parse(raw) : raw) as {
-			properties: Record<string, Record<string, unknown>>;
-		};
-		delete schema.properties.color?.["x-novaDataType"];
+		const canonicalText = caseTypeToJsonSchema(textType);
+		const malformedText = structuredClone(canonicalText);
+		(
+			malformedText.properties.measurement as unknown as Record<string, unknown>
+		).unexpected = true;
 		await dbHandle.pool.query(
-			"UPDATE case_type_schemas SET schema = $1 WHERE app_id = $2 AND case_type = $3",
-			[JSON.stringify(schema), APP_ID, "patient"],
+			"UPDATE case_type_schemas SET schema = $1 WHERE app_id = $2 AND case_type = 'patient'",
+			[JSON.stringify(malformedText), APP_ID],
 		);
+		await expect(
+			store.update({
+				appId: APP_ID,
+				caseId: inserted.caseId,
+				patch: { case_name: "Still invalid" },
+			}),
+		).rejects.toThrow(/unknown or noncanonical property declaration/);
+		await expect(
+			store.applySchemaChange({
+				appId: APP_ID,
+				caseType: "patient",
+				caseTypeSchemas: buildSchemaMap(intType),
+			}),
+		).rejects.toThrow(/unknown or noncanonical property declaration/);
 
-		// The first sync after deploy re-derives the ANNOTATED schema.
-		// The stored bare string diffs as text→single_select — an
-		// ambiguity (a real text property stores the same bytes), never
-		// a transition — so the sync must NOT run the widening
-		// auto-restore and resurrect the flushed value.
-		const sync = await store.applySchemaChange({
+		await dbHandle.pool.query(
+			"UPDATE case_type_schemas SET schema = $1 WHERE app_id = $2 AND case_type = 'patient'",
+			[JSON.stringify(canonicalText), APP_ID],
+		);
+		const migrated = await store.applySchemaChange({
 			appId: APP_ID,
 			caseType: "patient",
-			caseTypeSchemas: buildSchemaMap(selectCaseType),
+			caseTypeSchemas: buildSchemaMap(intType),
 		});
-		expect(sync.restored).toBe(0);
-		// The park holds the case out of default reads — opt in to
-		// assert the stored row's shape.
-		const rows = await store.query({
-			appId: APP_ID,
-			caseType: "patient",
-			includeHeld: true,
-		});
-		expect(rows[0]?.properties).toEqual({});
-		const listed = await store.listParkedValues({
-			appId: APP_ID,
-			caseType: "patient",
-		});
-		expect(listed).toHaveLength(1);
-		expect(listed[0]?.originalValue).toBe("red");
+		expect(migrated.parkedIds).toHaveLength(1);
+
+		const canonicalInt = caseTypeToJsonSchema(intType);
+		const malformedInt = structuredClone(canonicalInt);
+		(
+			malformedInt.properties.measurement as unknown as Record<string, unknown>
+		).unexpected = true;
+		await dbHandle.pool.query(
+			"UPDATE case_type_schemas SET schema = $1 WHERE app_id = $2 AND case_type = 'patient'",
+			[JSON.stringify(malformedInt), APP_ID],
+		);
+		await expect(
+			store.listParkedValues({ appId: APP_ID, caseType: "patient" }),
+		).rejects.toThrow(/unknown or noncanonical property declaration/);
 	});
 });

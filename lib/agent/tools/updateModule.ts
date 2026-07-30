@@ -10,9 +10,8 @@
  * optional `case_list_columns` rides the SAME call (seeded only when the
  * module has none) — the rejection's findings stay satisfiable by
  * adjusting this call, the atomic-creation property. A case-type change
- * re-scopes what every form's references resolve to, so the gate
- * validates the batch under a full run (`scopeOfMutations` maps the
- * patch to `"full"`). Ongoing case list
+ * re-scopes what every form's references resolve to, so the absolute gate
+ * validates the complete candidate. Ongoing case list
  * authoring lives on the typed case-list-config tools (`addCaseListColumns` /
  * `updateCaseListColumn` / `removeCaseListColumn` /
  * `reorderCaseListColumns`, the matching search-input family, and the
@@ -21,15 +20,14 @@
  * authoring lives on the parallel case-search-config family
  * (`setCaseSearchDisplay` for the display cluster + `setCaseSearchAdvanced`
  * for the advanced cluster). Those tools accept complete cluster projections
- * at the model boundary but persist each changed Search setting independently;
- * their full config snapshot is only the rolling-deploy fallback.
+ * at the model boundary but persist each changed Search setting independently.
  *
  * Both the SA chat factory and the MCP adapter call this through the
  * shared `ToolExecutionContext` interface.
  *
  * Three exit branches:
  *
- *   1. Module UUID absent → `{ error }`, no mutations.
+ *   1. Module UUID is invalid or not found → `{ error }`, no mutations.
  *   2. Module disappeared between resolution and patch (shouldn't
  *      happen under normal flow) → `{ error }`.
  *   3. Success → human-readable summary listing the changed keys,
@@ -41,7 +39,12 @@ import { columnAddMutation } from "@/lib/doc/caseListColumnMutations";
 import { planCaseTypeRetirementOnRetype } from "@/lib/doc/caseTypeRetirement";
 import { setModuleDisplayConditionMutation } from "@/lib/doc/displayConditionMutations";
 import { caseTypeCatalogMutations } from "@/lib/doc/scaffolds";
-import type { BlueprintDoc } from "@/lib/domain";
+import {
+	asUuid,
+	type BlueprintDoc,
+	findAuthoredBlueprintIdentity,
+	type Uuid,
+} from "@/lib/domain";
 import { predicateSchema } from "@/lib/domain/predicate";
 import { updateModuleMutations } from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
@@ -96,7 +99,9 @@ export const updateModuleInputSchema = moduleAddressSchema
 export type UpdateModuleInput = z.infer<typeof updateModuleInputSchema>;
 
 /** Human-readable success string or an error record. */
-export type UpdateModuleResult = MutationSuccess | { error: string };
+export type UpdateModuleResult =
+	| (MutationSuccess & { columns: Array<{ uuid: Uuid }> })
+	| { error: string };
 
 export const updateModuleTool = {
 	description:
@@ -168,12 +173,31 @@ export const updateModuleTool = {
 			const seedColumns =
 				case_list_columns != null &&
 				(mod.caseListConfig?.columns ?? []).length === 0
-					? case_list_columns.map((c) => stampColumnUuid(c, newUuid()))
+					? case_list_columns.map((column) =>
+							stampColumnUuid(
+								column,
+								column.columnUuid === undefined
+									? newUuid()
+									: asUuid(column.columnUuid),
+							),
+						)
 					: undefined;
-			const resolvedDisplayCondition =
-				displayCondition === null || displayCondition === undefined
-					? undefined
-					: displayCondition;
+			const seedCollision = seedColumns?.find(
+				(column, index, all) =>
+					all.findIndex((candidate) => candidate.uuid === column.uuid) !==
+						index ||
+					findAuthoredBlueprintIdentity(doc, column.uuid) !== undefined,
+			);
+			if (seedCollision !== undefined) {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					newDoc: doc,
+					result: {
+						error: `Column UUID ${seedCollision.uuid} is duplicated in this call or already belongs to an authored object.`,
+					},
+				};
+			}
 			/* ONE catalog write covers both retiring the orphaned OLD type and
 			 * declaring a brand-NEW one. A brand-new type MUST be cataloged or
 			 * the seeded `Name` column can't resolve (`CASE_LIST_COLUMN_UNKNOWN_FIELD`)
@@ -188,6 +212,18 @@ export const updateModuleTool = {
 					...(name != null && { name }),
 					...(case_type != null && { caseType: case_type }),
 				}),
+				/* Omission keeps the current condition; an explicit null clears it.
+				 * The mutation spells the clear as null so it survives JSONB, SSE,
+				 * and replay — `undefined` would be dropped and the stale condition
+				 * would reappear on the next save. */
+				...(displayCondition === undefined
+					? []
+					: [
+							setModuleDisplayConditionMutation(
+								moduleUuid,
+								displayCondition ?? undefined,
+							),
+						]),
 				// Each column follows the one before it, so the seeded set lands in
 				// the order the SA wrote it.
 				...(seedColumns ?? []).map((column, index, all) =>
@@ -196,14 +232,6 @@ export const updateModuleTool = {
 						afterInDetail: index === 0 ? null : all[index - 1].uuid,
 					}),
 				),
-				...(displayCondition === undefined
-					? []
-					: [
-							setModuleDisplayConditionMutation(
-								moduleUuid,
-								resolvedDisplayCondition,
-							),
-						]),
 			];
 			const commit = await guardedMutate(
 				ctx,
@@ -228,19 +256,22 @@ export const updateModuleTool = {
 			if (!newMod) {
 				return {
 					kind: "mutate" as const,
-					mutations,
+					mutations: commit.mutations,
 					newDoc,
 					result: { error: `Module ${moduleUuid} not found after update` },
 				};
 			}
 			return {
 				kind: "mutate" as const,
-				mutations,
+				mutations: commit.mutations,
 				newDoc,
 				result: {
-					message: `Successfully updated module "${newMod.name}" (${moduleUuid})${
+					message: `Successfully updated module "${newMod.name}" (UUID ${moduleUuid})${
 						case_type != null ? ` — case type: ${newMod.caseType}` : ""
-					}${displayCondition === null ? " — display condition removed" : displayCondition === undefined ? "" : " — display condition updated"}.`,
+					}.`,
+					columns: (seedColumns ?? []).map((column) => ({
+						uuid: column.uuid,
+					})),
 					summary: { subject: newMod.name } satisfies ToolCallSummary,
 				},
 			};

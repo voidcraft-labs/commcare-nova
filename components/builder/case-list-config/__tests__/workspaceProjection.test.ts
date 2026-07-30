@@ -5,7 +5,8 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { asUuid, type Column, emptyCaseListConfig } from "@/lib/domain";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { type Column, emptyCaseListConfig } from "@/lib/domain";
 import {
 	projectCaseWorkspaceColumns,
 	pruneStoppedSortOrphans,
@@ -18,7 +19,7 @@ function column(
 	visibility: Pick<Column, "visibleInList" | "visibleInDetail"> = {},
 ): Column {
 	return {
-		uuid: asUuid(uuid),
+		uuid: testUuid(uuid),
 		kind: "plain",
 		field: uuid,
 		header: uuid,
@@ -57,22 +58,28 @@ describe("projectCaseWorkspaceColumns", () => {
 		});
 
 		expect(uuids(projection.ordered)).toEqual([
-			"list-only",
-			"both",
-			"detail-only",
-			"fully-hidden",
+			testUuid("list-only"),
+			testUuid("both"),
+			testUuid("detail-only"),
+			testUuid("fully-hidden"),
 		]);
-		expect(uuids(projection.listVisible)).toEqual(["list-only", "both"]);
+		expect(uuids(projection.listVisible)).toEqual([
+			testUuid("list-only"),
+			testUuid("both"),
+		]);
 		expect(uuids(projection.listHidden)).toEqual([
-			"detail-only",
-			"fully-hidden",
+			testUuid("detail-only"),
+			testUuid("fully-hidden"),
 		]);
-		expect(uuids(projection.detailVisible)).toEqual(["both", "detail-only"]);
+		expect(uuids(projection.detailVisible)).toEqual([
+			testUuid("both"),
+			testUuid("detail-only"),
+		]);
 		expect(uuids(projection.detailHidden)).toEqual([
-			"list-only",
-			"fully-hidden",
+			testUuid("list-only"),
+			testUuid("fully-hidden"),
 		]);
-		expect(uuids(projection.fullyHidden)).toEqual(["fully-hidden"]);
+		expect(uuids(projection.fullyHidden)).toEqual([testUuid("fully-hidden")]);
 
 		// An absent visibility slot is the domain's canonical `true`.
 		expect(projection.listVisible).toContain(both);
@@ -92,6 +99,20 @@ describe("projectCaseWorkspaceColumns", () => {
 		});
 
 		expect(storageOrder).toEqual([later, earlier]);
+	});
+
+	it("asserts the exact stored permutations instead of skipping unknown uuids", () => {
+		const saved = column("saved");
+		expect(() =>
+			projectCaseWorkspaceColumns({
+				...emptyCaseListConfig(),
+				columns: [saved],
+				listColumnOrder: [testUuid("unknown")],
+				detailColumnOrder: [saved.uuid],
+			}),
+		).toThrow(
+			"Invalid list case-list column permutation reached orderedColumns.",
+		);
 	});
 });
 
@@ -165,12 +186,12 @@ describe("pruneStoppedSortOrphans", () => {
 		expect(pruneStoppedSortOrphans([before], [after])).toEqual([after]);
 	});
 
-	it("preserves untouched legacy off-screen definitions", () => {
-		const legacy = column("legacy-search-only", {
+	it("preserves untouched dormant off-screen definitions", () => {
+		const dormant = column("saved-search-only", {
 			visibleInList: false,
 			visibleInDetail: false,
 		});
 
-		expect(pruneStoppedSortOrphans([legacy], [legacy])).toEqual([legacy]);
+		expect(pruneStoppedSortOrphans([dormant], [dormant])).toEqual([dormant]);
 	});
 });

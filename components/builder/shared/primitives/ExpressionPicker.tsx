@@ -27,11 +27,10 @@
 // sources the same way, so no sequence of picker choices can author a
 // type the checker would reject.
 //
-// Round-trip preservation is structural: every ValueExpression kind
-// has a card that round-trips its AST shape verbatim via the per-arm
-// cards in `cards/expression/`, and the kind-replace menu preserves
-// compatible operand carriers (the unary coercions and the two
-// ordered value lists) so a kind swap doesn't drop authored content.
+// Structure preservation is explicit: every current ValueExpression
+// kind has a card, and the kind-replace menu carries compatible
+// operands (the unary coercions and ordered value lists) so an
+// intentional kind swap does not drop authored content.
 //
 // Term values (a typed value, a property, a search field — the
 // overwhelmingly common case) render UNBOXED: no card shell, no slot
@@ -65,7 +64,7 @@ import {
 	DropdownMenuPositioner,
 	DropdownMenuTrigger,
 } from "@/components/shadcn/dropdown-menu";
-import { canonicalCasePropertyName, effectiveDataType } from "@/lib/domain";
+import { effectiveDataType } from "@/lib/domain";
 import {
 	ANY_CONSTRAINT,
 	acceptsType,
@@ -83,10 +82,12 @@ import {
 	sessionContext,
 	switchCase,
 	switchExpr,
+	tableColumn,
 	term,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
 import { hasCountableRelation } from "../cards/expression/CountCard";
+import { tableLookupDefault } from "../cards/expression/TableLookupCard";
 import {
 	TermCard,
 	termHasMeaningfulContent,
@@ -268,7 +269,10 @@ export function ExpressionPicker({
 			knownInputs: ctx.knownInputs,
 			userProperties: ctx.userProperties,
 			formFields: ctx.formFields,
+			lookupTables: ctx.lookupTables,
+			tableScope: ctx.tableScope,
 			operationScope: ctx.operationScope,
+			ownerValues: ctx.ownerValues,
 		};
 		const typeCtx = buildEditorTypeContext(ctx);
 		const pendingTermSourceLabel = termSourceLabel(
@@ -501,6 +505,15 @@ function termSeedForSlot(
 	}
 
 	if (presentation === "subject" || constraint.forbidDirectLiteral === true) {
+		const tableColumnDecl = ctx.tableScope?.columns.find(
+			(candidate) =>
+				constraint.accepts === "any" ||
+				acceptsType(constraint, candidate.dataType),
+		);
+		if (ctx.tableScope !== undefined && tableColumnDecl !== undefined) {
+			return term(tableColumn(ctx.tableScope.tableId, tableColumnDecl.id));
+		}
+
 		const caseType = ctx.caseTypes.find(
 			(candidate) => candidate.name === ctx.currentCaseType,
 		);
@@ -510,9 +523,7 @@ function termSeedForSlot(
 				acceptsType(constraint, effectiveDataType(candidate)),
 		);
 		if (property !== undefined) {
-			return term(
-				prop(ctx.currentCaseType, canonicalCasePropertyName(property.name)),
-			);
+			return term(prop(ctx.currentCaseType, property.name));
 		}
 
 		const searchInput = ctx.knownInputs.find(
@@ -548,6 +559,9 @@ export function defaultExpressionForSlot<K extends ValueExpression["kind"]>(
 ): ValueExpression {
 	if (schema.kind === "term") {
 		return termSeedForSlot(ctx, constraint, presentation);
+	}
+	if (schema.kind === "table-lookup") {
+		return tableLookupDefault(ctx, constraint);
 	}
 
 	const { forbidDirectLiteral: _forbidDirectLiteral, ...childConstraint } =
@@ -633,7 +647,10 @@ function KindReplaceMenu({
 		knownInputs: ctx.knownInputs,
 		userProperties: ctx.userProperties,
 		formFields: ctx.formFields,
+		lookupTables: ctx.lookupTables,
+		tableScope: ctx.tableScope,
 		operationScope: ctx.operationScope,
+		ownerValues: ctx.ownerValues,
 	};
 	const typeCtx = buildEditorTypeContext(ctx);
 	const currentKind = currentValue.kind;

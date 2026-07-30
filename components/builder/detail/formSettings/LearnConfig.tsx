@@ -12,7 +12,6 @@ import {
 	connectIdError,
 	deriveConnectId,
 } from "@/lib/commcare/connectSlugs";
-import { dedupeRestoredConnectIds } from "@/lib/doc/connectConfig";
 import {
 	connectIdsExcept,
 	useAppConnectIds,
@@ -23,7 +22,7 @@ import {
 	useXPathText,
 } from "@/lib/doc/hooks/useXPathSlots";
 import type { Uuid } from "@/lib/doc/types";
-import type { CommitOutcome, ConnectConfig } from "@/lib/domain";
+import type { CommitOutcome, ConnectLearnConfig } from "@/lib/domain";
 import { InlineField } from "./InlineField";
 import { LabeledXPathField } from "./LabeledXPathField";
 import { StagedCommitRow } from "./StagedCommitRow";
@@ -43,11 +42,11 @@ export const DEFAULT_LEARN_TIME_ESTIMATE = 5;
  * locate the owning doc entities for id derivation.
  */
 interface ConnectSubConfigProps {
-	connect: ConnectConfig;
+	connect: ConnectLearnConfig;
 	/** Persist the new config through the gated form update —
 	 *  returns the commit outcome so a refused edit keeps the
 	 *  inline editor's draft + finding on screen. */
-	save: (c: ConnectConfig) => CommitOutcome;
+	save: (c: ConnectLearnConfig | null) => CommitOutcome;
 	moduleUuid: Uuid;
 	formUuid: Uuid;
 }
@@ -103,7 +102,7 @@ export function LearnConfig({
 	 *  editors present their own outcomes and bypass this. */
 	const [saveRejection, setSaveRejection] = useState<string | null>(null);
 	const dispatchSave = useCallback(
-		(config: ConnectConfig) => {
+		(config: ConnectLearnConfig | null) => {
 			const outcome = save(config);
 			setSaveRejection(outcome.ok ? null : (outcome.messages[0] ?? null));
 			return outcome;
@@ -134,33 +133,19 @@ export function LearnConfig({
 		};
 	}, [mod, form, appWideExcept]);
 
-	// A ref holds each sub-block's last-seen value with its ORIGINAL id;
-	// while the block was toggled off, another form may have claimed that
-	// id. Route restores through the shared dedup path so a now-stale id
-	// can't be re-written as a duplicate.
-	const restoreConfig = useCallback(
-		(config: ConnectConfig): ConnectConfig =>
-			dedupeRestoredConnectIds(config, {
-				formUuid,
-				appConnectIds,
-				moduleName: mod?.name ?? "",
-				formName: form?.name ?? "",
-			}),
-		[formUuid, appConnectIds, mod, form],
-	);
+	// Refs preserve each sub-block's last-seen value exactly. A restore
+	// proposes that explicit id verbatim; if another form claimed it while
+	// inactive, the gate refuses the edit and the inline finding remains.
 
 	const updateLearnModule = useCallback(
 		(field: string, value: string | number) => {
-			const { learnId } = defaultIds();
-			const current = connect.learn_module ?? {
-				id: learnId,
-				name: "",
-				description: "",
-				time_estimate: DEFAULT_LEARN_TIME_ESTIMATE,
-			};
+			const current = connect.learn_module;
+			if (current === undefined) {
+				throw new Error("Learn-module edit reached a disabled block.");
+			}
 			return save({ ...connect, learn_module: { ...current, [field]: value } });
 		},
-		[connect, save, defaultIds],
+		[connect, save],
 	);
 
 	const toggleLearn = useCallback(() => {
@@ -171,11 +156,11 @@ export function LearnConfig({
 			setSaveRejection(null);
 		} else if (learnEnabled) {
 			const { learn_module: _removed, ...rest } = connect;
-			dispatchSave(rest as ConnectConfig);
+			dispatchSave(connect.assessment === undefined ? null : rest);
 		} else {
 			const restored = lastLearnRef.current;
 			if (restored?.name.trim()) {
-				dispatchSave(restoreConfig({ ...connect, learn_module: restored }));
+				dispatchSave({ ...connect, learn_module: restored });
 			} else {
 				/* No prior work to restore — stage the block and collect its
 				 * content from the user before anything commits. Only the
@@ -188,7 +173,7 @@ export function LearnConfig({
 				});
 			}
 		}
-	}, [stagedLearn, learnEnabled, connect, dispatchSave, restoreConfig]);
+	}, [stagedLearn, learnEnabled, connect, dispatchSave]);
 
 	const stagedLearnReady =
 		stagedLearn !== undefined &&
@@ -224,11 +209,11 @@ export function LearnConfig({
 	const toggleAssessment = useCallback(() => {
 		if (assessmentEnabled) {
 			const { assessment: _removed, ...rest } = connect;
-			dispatchSave(rest as ConnectConfig);
+			dispatchSave(connect.learn_module === undefined ? null : rest);
 		} else {
 			const restored = lastAssessmentRef.current;
 			if (restored) {
-				dispatchSave(restoreConfig({ ...connect, assessment: restored }));
+				dispatchSave({ ...connect, assessment: restored });
 			} else {
 				const { assessmentId } = defaultIds();
 				/* The block lands with its derived identifier alone —
@@ -238,7 +223,7 @@ export function LearnConfig({
 				dispatchSave({ ...connect, assessment: { id: assessmentId } });
 			}
 		}
-	}, [assessmentEnabled, connect, dispatchSave, defaultIds, restoreConfig]);
+	}, [assessmentEnabled, connect, dispatchSave, defaultIds]);
 
 	return (
 		<div className="space-y-2">
@@ -273,7 +258,7 @@ export function LearnConfig({
 											// practice. The commit guard rejects an invalid OR
 											// duplicate id (against every other connect id in the
 											// app), so a bad value can't be saved.
-											value={lm.id ?? ""}
+											value={lm.id}
 											onChange={(v) => updateLearnModule("id", v)}
 											validate={(v) =>
 												connectIdError(v) ??
@@ -382,7 +367,7 @@ export function LearnConfig({
 									// Real stored id (autofilled on enable); guard rejects an
 									// invalid or duplicate id (against every other connect id
 									// in the app).
-									value={assessment.id ?? ""}
+									value={assessment.id}
 									onChange={(v) =>
 										save({ ...connect, assessment: { ...assessment, id: v } })
 									}

@@ -5,21 +5,21 @@
  * which properties exist — see `toolSchemaGenerator.ts`). This tool runs
  * each through the three-step pipeline in `contentProcessing.ts` —
  * `stripEmpty` → `applyDefaults` → `flatFieldToField` — mints uuids,
- * resolves construction-local parent handles (including parents added earlier in the
+ * resolves stable parent UUIDs (including parents predeclared earlier in the
  * same batch), and emits one mutation batch tagged `form:M-F`.
  *
  * Appends to existing fields by default (the SA relies on that contract
  * when it splits a large add across multiple calls); an optional
  * `beforeFieldUuid` / `afterFieldUuid` anchor instead inserts the batch's
  * top-level fields as a contiguous block at that position (fields nested
- * under their own `parentId` are unaffected). This is the only field-add
+ * under their own `parentUuid` are unaffected). This is the only field-add
  * tool — one field is just a length-1 `fields` array.
  *
  * Both the SA chat factory and the MCP adapter call this through the
  * shared `ToolExecutionContext` interface. Five legal exit branches
  * all land on the `MutatingToolResult` shape:
  *
- *   1. UUID address miss (module / form) → `{ error }`, no
+ *   1. UUID address miss or parent-membership mismatch → `{ error }`, no
  *      mutations.
  *   2. Identifier guard rejection (any field id illegal / reserved /
  *      over-long / sibling-conflicting per the shared verdicts in
@@ -50,6 +50,7 @@ import {
 } from "./shared/entityAddresses";
 import {
 	assembleFieldMutations,
+	type CreatedFieldIdentity,
 	describeRejectedFieldIds,
 } from "./shared/fieldAssembly";
 import type {
@@ -60,26 +61,28 @@ import type {
 export const addFieldsInputSchema = formAddressSchema
 	.extend({
 		fields: z.array(addFieldsItemSchema),
+		// Default parent for the whole batch. A field's own `parentUuid`
+		// overrides this.
 		parentUuid: uuidSchema
 			.optional()
 			.describe(
-				"Stable uuid of an existing group/repeat to receive the batch. A field item's parentId is only a construction-local handle for a container created earlier in this same call.",
+				"Stable UUID of an existing group/repeat to receive the batch. A field item's own parentUuid overrides this.",
 			),
 		// Optional insertion anchor for the batch's top-level block. The
 		// fields that land in the batch's insertion parent (the form root, or
 		// the batch `parentUuid`) are inserted as a contiguous block at the
-		// anchor; fields carrying their own `parentId` nest under it and are
+		// anchor; fields carrying their own `parentUuid` nest under it and are
 		// unaffected. Omit both to append at the end (the common case during
 		// a build).
 		afterFieldUuid: uuidSchema
 			.optional()
 			.describe(
-				"Insert the batch's top-level fields after this existing sibling uuid. Omit to append at the end.",
+				"Insert the batch's top-level fields after this existing sibling UUID. Omit to append at the end.",
 			),
 		beforeFieldUuid: uuidSchema
 			.optional()
 			.describe(
-				"Insert the batch's top-level fields before this existing sibling uuid. Takes precedence over afterFieldUuid.",
+				"Insert the batch's top-level fields before this existing sibling UUID. Takes precedence over afterFieldUuid.",
 			),
 	})
 	.strict();
@@ -92,11 +95,13 @@ export type AddFieldsInput = z.infer<typeof addFieldsInputSchema>;
  * skipped-during-assembly entries — plus a UI-only `summary` for the chat
  * transcript; failure is an error record.
  */
-export type AddFieldsResult = MutationSuccess | { error: string };
+export type AddFieldsResult =
+	| (MutationSuccess & { fields: CreatedFieldIdentity[] })
+	| { error: string };
 
 export const addFieldsTool = {
 	description:
-		"Add fields to an existing form by UUID (a single field is a length-1 array). Appends by default; beforeFieldUuid/afterFieldUuid position the batch. parentUuid names an existing container; an item parentId may only name a container created earlier in this same call.",
+		"Add fields to an existing form (a single field is a length-1 array). Appends by default; beforeFieldUuid/afterFieldUuid position the batch. parentUuid names containers by stable identity.",
 	inputSchema: addFieldsInputSchema,
 	async execute(
 		input: AddFieldsInput,
@@ -165,7 +170,7 @@ export const addFieldsTool = {
 					},
 				};
 			}
-			const { mutations, skipped } = assembly;
+			const { mutations, skipped, created } = assembly;
 
 			// Compute the post-mutation doc once and persist via the shared
 			// context. The client applies via `applyMany` — no wire snapshot
@@ -207,17 +212,18 @@ export const addFieldsTool = {
 					: "";
 			return {
 				kind: "mutate" as const,
-				mutations,
+				mutations: commit.mutations,
 				newDoc,
 				result: {
-					message: `Successfully added ${mutations.length} field${mutations.length === 1 ? "" : "s"} to "${form.name}": ${addedIds}. Form now has ${totalCount} total field${totalCount === 1 ? "" : "s"}.${skippedNote}`,
+					message: `Successfully added ${created.length} field${created.length === 1 ? "" : "s"} to "${form.name}": ${addedIds}. Form now has ${totalCount} total field${totalCount === 1 ? "" : "s"}.${skippedNote}`,
+					fields: created,
 					// Bulk add — no single subject; the count drives the action
 					// ("Added 3 fields") and the form breadcrumb names the container.
 					// `mutations.length` is the count actually added (skipped items
 					// aren't in it), matching the message's own count.
 					summary: {
 						location: form.name,
-						count: mutations.length,
+						count: created.length,
 					} satisfies ToolCallSummary,
 				},
 			};

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import type { HqFormLink } from "@/lib/commcare";
 import {
 	deriveCaseListEntryDefinition,
@@ -11,10 +12,10 @@ import {
 	type StackOperation,
 	toHqWorkflow,
 } from "@/lib/commcare/session";
-import { asUuid } from "@/lib/domain";
 import {
 	concat as concatExpr,
 	eq,
+	input,
 	literal,
 	matchAll,
 	matchNone,
@@ -198,40 +199,11 @@ describe("derivePostSubmitStack", () => {
 		});
 	});
 
-	describe("root", () => {
-		it("produces root command for any form type", () => {
-			for (const formType of ["registration", "followup", "survey"] as const) {
-				const ops = derivePostSubmitStack("root", 0, formType);
-				expect(ops).toHaveLength(1);
-				expect(ops[0].op).toBe("create");
-				expect(ops[0].children).toEqual([{ type: "command", value: "'root'" }]);
-			}
-		});
-	});
-
 	describe("module", () => {
 		it("produces module command with correct index", () => {
 			const ops = derivePostSubmitStack("module", 2, "registration");
 			expect(ops).toHaveLength(1);
 			expect(ops[0].children).toEqual([{ type: "command", value: "'m2'" }]);
-		});
-	});
-
-	describe("parent_module (stub)", () => {
-		it("falls back to module behavior", () => {
-			const parentOps = derivePostSubmitStack(
-				"parent_module",
-				1,
-				"followup",
-				"patient",
-			);
-			const moduleOps = derivePostSubmitStack(
-				"module",
-				1,
-				"followup",
-				"patient",
-			);
-			expect(parentOps).toEqual(moduleOps);
 		});
 	});
 
@@ -398,13 +370,7 @@ describe("deriveEntryDefinition", () => {
 		// `search-input:results` instance would itself throw
 		// `XPathMissingInstanceException` in Core the moment the nodeset
 		// referenced it.
-		const filter = eq(
-			prop("patient", "city"),
-			term({
-				kind: "input",
-				searchInputUuid: asUuid("00000000-0000-4000-8000-0000000000c1"),
-			}),
-		);
+		const filter = eq(prop("patient", "city"), input(testUuid("city_q")));
 		const entry = deriveEntryDefinition(
 			"http://openrosa.org/formdesigner/abc",
 			0,
@@ -537,13 +503,7 @@ describe("deriveEntryDefinition", () => {
 	});
 
 	it("accumulates search-input:results when the search-button display condition references a search input", () => {
-		const displayCondition = eq(
-			term({
-				kind: "input",
-				searchInputUuid: asUuid("00000000-0000-4000-8000-0000000000c1"),
-			}),
-			literal("active"),
-		);
+		const displayCondition = eq(input(testUuid("city_q")), literal("active"));
 		const entry = deriveEntryDefinition(
 			"http://openrosa.org/formdesigner/abc",
 			0,
@@ -797,9 +757,7 @@ describe("renderEntryXml", () => {
 describe("toHqWorkflow", () => {
 	it("maps all destinations correctly", () => {
 		expect(toHqWorkflow("app_home")).toBe("default");
-		expect(toHqWorkflow("root")).toBe("root");
 		expect(toHqWorkflow("module")).toBe("module");
-		expect(toHqWorkflow("parent_module")).toBe("parent_module");
 		expect(toHqWorkflow("previous")).toBe("previous_screen");
 	});
 });

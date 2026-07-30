@@ -9,7 +9,8 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { asUuid } from "@/lib/doc/types";
+import { testUuid } from "@/__tests__/helpers/uuid";
+
 import {
 	isDraggableFieldData,
 	isUuidInSubtree,
@@ -21,9 +22,9 @@ import {
 	targetContainerUuidFor,
 } from "../dragData";
 
-const F = asUuid("form-0000-0000-0000-000000000000");
-const G = (n: number) => asUuid(`grp${n}-0000-0000-0000-000000000000`);
-const Q = (n: number) => asUuid(`qst${n}-0000-0000-0000-000000000000`);
+const F = testUuid("form-0000-0000-0000-000000000000");
+const G = (n: number) => testUuid(`grp${n}-0000-0000-0000-000000000000`);
+const Q = (n: number) => testUuid(`qst${n}-0000-0000-0000-000000000000`);
 
 describe("isDraggableFieldData", () => {
 	it("accepts payloads produced by the factory", () => {

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	authoredCaseIdNamespaceName,
 	authoredCaseIdPrefix,
@@ -6,10 +7,9 @@ import {
 	MAX_AUTHORED_CASE_ID_LENGTH,
 	MAX_AUTHORED_CASE_KEY_LENGTH,
 } from "../caseOperationIdentity";
-import { asUuid } from "../uuid";
 
-const FORM = asUuid("66666666-6666-4666-8666-666666666666");
-const OPERATION = asUuid("44444444-4444-4444-8444-444444444444");
+const FORM = testUuid("66666666-6666-4666-8666-666666666666");
+const OPERATION = testUuid("44444444-4444-4444-8444-444444444444");
 const SCOPE = {
 	appId: "test-app",
 	formUuid: FORM,
@@ -57,11 +57,11 @@ describe("authored case-operation identity", () => {
 			{ ...SCOPE, appId: "another-app" },
 			{
 				...SCOPE,
-				formUuid: asUuid("77777777-7777-4777-8777-777777777777"),
+				formUuid: testUuid("77777777-7777-4777-8777-777777777777"),
 			},
 			{
 				...SCOPE,
-				operationUuid: asUuid("88888888-8888-4888-8888-888888888888"),
+				operationUuid: testUuid("88888888-8888-4888-8888-888888888888"),
 			},
 			{ ...SCOPE, caseType: "patient" },
 		];

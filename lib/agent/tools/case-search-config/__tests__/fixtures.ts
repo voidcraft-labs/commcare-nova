@@ -11,8 +11,10 @@
  * same mutation batch on both surfaces.
  */
 
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
-import { asUuid, type BlueprintDoc, type Module } from "@/lib/domain";
+import type { BlueprintDoc, Module } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import {
 	type MakeMcpTestContextHandles,
 	makeMcpTestContext,
@@ -23,7 +25,7 @@ import {
 /* Stable uuid constant — imported by per-tool tests so each
  * assertion can reference the module by uuid against the post-
  * mutation doc. */
-export const MOD_A = asUuid("11111111-1111-1111-1111-111111111111");
+export const MOD_A = testUuid("11111111-1111-1111-1111-111111111111");
 
 /**
  * Minimal `BlueprintDoc` with one `patient` case-carrying module. No
@@ -33,7 +35,7 @@ export const MOD_A = asUuid("11111111-1111-1111-1111-111111111111");
  * without inventing one in every test. The case list carries one
  * search input: a `caseSearchConfig` is only committable when the
  * search screen has something to fill in or a filter to apply
- * (CASE_SEARCH_CONFIG_NO_SEARCHABLE_SURFACE gates the bare state).
+ * (the exact owner-only arm cannot carry Search action settings).
  */
 export function makeCaseSearchDoc(): BlueprintDoc {
 	const mod: Module = {
@@ -41,11 +43,19 @@ export function makeCaseSearchDoc(): BlueprintDoc {
 		id: "patient",
 		name: "Patient",
 		caseType: "patient",
+		caseListOnly: true,
 		caseListConfig: resolveCaseListConfig({
-			columns: [],
+			columns: [
+				{
+					uuid: testUuid("33333333-3333-3333-3333-333333333333"),
+					kind: "plain",
+					field: "case_name",
+					header: "Name",
+				},
+			],
 			searchInputs: [
 				{
-					uuid: asUuid("22222222-2222-2222-2222-222222222222"),
+					uuid: testUuid("22222222-2222-2222-2222-222222222222"),
 					kind: "simple",
 					name: "name_search",
 					label: "Name",
@@ -63,8 +73,8 @@ export function makeCaseSearchDoc(): BlueprintDoc {
 			{
 				name: "patient",
 				properties: [
-					{ name: "case_name", label: "Full name" },
-					{ name: "status", label: "Status" },
+					{ name: "case_name", label: proseText("Full name") },
+					{ name: "status", label: proseText("Status") },
 				],
 			},
 		],
@@ -105,6 +115,7 @@ export function makeCaseSearchFixture(): CaseSearchFixture {
  * structurally-identical mutation batches.
  */
 export function makeCaseSearchMcpFixture(): CaseSearchMcpFixture {
-	const handles = makeMcpTestContext();
-	return { ...handles, doc: makeCaseSearchDoc() };
+	const doc = makeCaseSearchDoc();
+	const handles = makeMcpTestContext({ initialDoc: doc });
+	return { ...handles, doc };
 }

@@ -2,14 +2,9 @@
  * `registerCreateApp` unit tests.
  *
  * Verifies the four load-bearing behaviors of the MCP-only create tool:
- *   - Happy path with a name: forwards `{ appName, status: "complete" }`
- *     to the DB helper (an empty app is at rest and valid — there is no
- *     draft window), surfaces the returned `app_id`, and emits the
- *     `stage: "app_created"` marker for progress clients.
- *   - Happy path without a name: normalizes the omitted optional to
- *     `undefined` so the DB helper's `""` default kicks in.
- *   - Whitespace-only name: normalized to `undefined` for the same
- *     reason — a blank row is strictly worse than an empty one.
+ *   - Name input is passed to the one canonical genesis owner.
+ *   - The full committed receipt — sequence, blueprint, and starter UUIDs —
+ *     is returned so MCP clients continue from exact identity.
  *   - A fresh server-minted run_id is persisted to the new app doc so
  *     the sliding-window derivation in subsequent MCP calls has an
  *     anchor to reuse (see `lib/mcp/runId.ts`).
@@ -21,7 +16,9 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createApp } from "@/lib/db/apps";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { type CreateAppReceipt, createApp } from "@/lib/db/apps";
+import { proseText } from "@/lib/domain/prose";
 import { registerCreateApp } from "../tools/createApp";
 import type { ToolContext } from "../types";
 import { makeFakeServer } from "./fakeServer";
@@ -50,6 +47,53 @@ const UUID_RE =
 	/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const toolCtx: ToolContext = { userId: "u1", scopes: [], authKind: "oauth" };
+const MODULE_UUID = testUuid("module00-0000-4000-8000-000000000001");
+const FORM_UUID = testUuid("form0000-0000-4000-8000-000000000002");
+const FIELD_UUID = testUuid("field000-0000-4000-8000-000000000003");
+
+function genesisReceipt(appId: string): CreateAppReceipt {
+	return {
+		appId,
+		baseSeq: 1,
+		blueprint: {
+			appId,
+			appName: "Untitled",
+			connectType: null,
+			caseTypes: null,
+			modules: {
+				[MODULE_UUID]: {
+					uuid: MODULE_UUID,
+					id: "survey",
+					name: "Survey",
+				},
+			},
+			forms: {
+				[FORM_UUID]: {
+					uuid: FORM_UUID,
+					id: "survey",
+					name: "Survey",
+					type: "survey",
+				},
+			},
+			fields: {
+				[FIELD_UUID]: {
+					uuid: FIELD_UUID,
+					id: "question_1",
+					kind: "text",
+					label: proseText("Question 1"),
+				},
+			},
+			moduleOrder: [MODULE_UUID],
+			formOrder: { [MODULE_UUID]: [FORM_UUID] },
+			fieldOrder: { [FORM_UUID]: [FIELD_UUID] },
+		},
+		starter: {
+			moduleUuid: MODULE_UUID,
+			formUuid: FORM_UUID,
+			fieldUuid: FIELD_UUID,
+		},
+	};
+}
 
 beforeEach(() => {
 	vi.mocked(createApp).mockReset();
@@ -59,7 +103,8 @@ beforeEach(() => {
 
 describe("registerCreateApp — happy path with name", () => {
 	it("forwards the name and 'complete' status, returns the minted app_id", async () => {
-		vi.mocked(createApp).mockResolvedValueOnce("app-123");
+		const receipt = genesisReceipt("app-123");
+		vi.mocked(createApp).mockResolvedValueOnce(receipt);
 
 		const { server, capture } = makeFakeServer();
 		registerCreateApp(server, toolCtx);
@@ -78,20 +123,27 @@ describe("registerCreateApp — happy path with name", () => {
 		 * we don't pin a specific value. */
 		expect(typeof runId).toBe("string");
 		expect(runId).toMatch(UUID_RE);
-		expect(opts).toEqual({ appName: "My App", status: "complete" });
+		expect(opts).toEqual({ name: "My App", status: "complete" });
 
 		/* Every structured signal rides in content JSON: the `stage`
 		 * marker the model branches on plus the minted `app_id`. */
 		expect(JSON.parse(out.content[0]?.text ?? "{}")).toEqual({
 			stage: "app_created",
 			app_id: "app-123",
+			base_seq: 1,
+			blueprint: receipt.blueprint,
+			starter: {
+				module_uuid: MODULE_UUID,
+				form_uuid: FORM_UUID,
+				field_uuid: FIELD_UUID,
+			},
 		});
 	});
 });
 
 describe("registerCreateApp — happy path without name", () => {
-	it("omits the appName (passes undefined) when no name is provided", async () => {
-		vi.mocked(createApp).mockResolvedValueOnce("app-abc");
+	it("leaves fallback naming to canonical genesis", async () => {
+		vi.mocked(createApp).mockResolvedValueOnce(genesisReceipt("app-abc"));
 
 		const { server, capture } = makeFakeServer();
 		registerCreateApp(server, toolCtx);
@@ -99,16 +151,13 @@ describe("registerCreateApp — happy path without name", () => {
 		await capture()({}, {});
 
 		const [, , , opts] = vi.mocked(createApp).mock.calls[0] ?? [];
-		/* The DB helper's default `""` kicks in only when `appName` is
-		 * undefined on the options object. Explicit presence with
-		 * `undefined` is the expected shape. */
-		expect(opts).toEqual({ appName: undefined, status: "complete" });
+		expect(opts).toEqual({ name: undefined, status: "complete" });
 	});
 });
 
 describe("registerCreateApp — whitespace-only name", () => {
-	it("normalizes a whitespace-only name to undefined", async () => {
-		vi.mocked(createApp).mockResolvedValueOnce("app-xyz");
+	it("passes whitespace to canonical genesis instead of owning a second fallback", async () => {
+		vi.mocked(createApp).mockResolvedValueOnce(genesisReceipt("app-xyz"));
 
 		const { server, capture } = makeFakeServer();
 		registerCreateApp(server, toolCtx);
@@ -116,7 +165,7 @@ describe("registerCreateApp — whitespace-only name", () => {
 		await capture()({ app_name: "   " }, {});
 
 		const [, , , opts] = vi.mocked(createApp).mock.calls[0] ?? [];
-		expect(opts).toEqual({ appName: undefined, status: "complete" });
+		expect(opts).toEqual({ name: "   ", status: "complete" });
 	});
 });
 
@@ -125,8 +174,8 @@ describe("registerCreateApp — run seed", () => {
 		/* Each create mints a fresh id — two back-to-back creates must
 		 * produce different seeds, since each is the anchor for its own
 		 * subsequent run. */
-		vi.mocked(createApp).mockResolvedValueOnce("app-1");
-		vi.mocked(createApp).mockResolvedValueOnce("app-2");
+		vi.mocked(createApp).mockResolvedValueOnce(genesisReceipt("app-1"));
+		vi.mocked(createApp).mockResolvedValueOnce(genesisReceipt("app-2"));
 
 		const { server, capture } = makeFakeServer();
 		registerCreateApp(server, toolCtx);
@@ -162,6 +211,10 @@ function typeCheckCreateAppOptions(): void {
 		void createApp("u1", "proj", "rid", { status: "error" });
 		// @ts-expect-error — "deleted" is not a valid creation status
 		void createApp("u1", "proj", "rid", { status: "deleted" });
+		// @ts-expect-error — callers cannot author the name outside genesis
+		void createApp("u1", "proj", "rid", { appName: "parallel scalar" });
+		// @ts-expect-error — canonical genesis is mandatory, never caller-seeded
+		void createApp("u1", "proj", "rid", { seedMutations: () => [] });
 	}
 }
 /* Reference the guard so lint doesn't flag it as unused — the

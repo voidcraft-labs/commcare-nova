@@ -16,10 +16,7 @@ import { predicateSchema, valueExpressionSchema } from "@/lib/domain/predicate";
 
 type JsonNode = Record<string, unknown>;
 
-const DISPLAY_TYPE_NAMES: Readonly<Record<string, string>> = {
-	__schema0: "Predicate",
-	__schema1: "ValueExpression",
-};
+const DISPLAY_TYPE_NAMES: Readonly<Record<string, string>> = {};
 
 function commentLines(text: unknown): string[] {
 	if (typeof text !== "string" || text.length === 0) return [];
@@ -97,8 +94,8 @@ function tsType(node: JsonNode | undefined, indent: string): string {
 
 /**
  * The full grammar as named TypeScript types (`type Predicate = …`,
- * `type ValueExpression = …`, plus the leaf types they reference), one
- * authoritative statement for the prompt.
+ * `type ValueExpression = …`, `type Term = …`, plus the leaf types they
+ * reference), one authoritative statement for the prompt.
  */
 export function buildExpressionReference(): string {
 	const json = z.toJSONSchema(
@@ -112,9 +109,12 @@ export function buildExpressionReference(): string {
 	// Stable presentation order: the two grammar roots first, Term next,
 	// then every remaining referenced type in emission order.
 	const order = [
-		"__schema0",
-		"__schema1",
-		...Object.keys(defs).filter((k) => !["__schema0", "__schema1"].includes(k)),
+		"Predicate",
+		"ValueExpression",
+		"Term",
+		...Object.keys(defs).filter(
+			(k) => !["Predicate", "ValueExpression", "Term"].includes(k),
+		),
 	].filter((k) => defs[k]);
 	const blocks = order.map((name) => {
 		const def = defs[name] as JsonNode;

@@ -39,9 +39,9 @@ import {
 	SchemaNotSyncedError,
 	SubmissionRejectedError,
 } from "@/lib/case-store/errors";
-// Leaf module for the same client-bundle reason as `errors` above:
-// the alias table is pure data (type-only imports), and the barrel
-// would drag the connection layer in.
+// Leaf module for the same client-bundle reason as `errors` above: the
+// canonical scalar-name map is pure data, while the case-store barrel would
+// pull connection code into this client boundary.
 import { RESERVED_SCALAR_COLUMN_BY_PROPERTY } from "@/lib/case-store/sql/dataTypeTokens";
 import type { BlueprintDoc } from "@/lib/domain";
 import { pickByKeys } from "@/lib/domain";
@@ -109,9 +109,8 @@ export function pickBlueprintDoc<T extends BlueprintDoc>(
  * one case's `Map<string, string>` property bag — the inner map of the
  * per-case-type `CaseDataByType` shape `caseRowsToFormPreloads`
  * assembles for the form engine. The scalar columns fold in under
- * their standard names (both spellings where CCHQ admits two) so the
- * form engine sees one source — mirrors the runtime path where the
- * term compiler reads them via `RESERVED_SCALAR_COLUMN_BY_PROPERTY`.
+ * their one canonical Nova name so the form engine sees one source — the same
+ * source the SQL compilers use.
  *
  * `null` values become `""` — the form engine treats missing
  * case-data the same as empty, and JSONB `null` is the same
@@ -133,17 +132,11 @@ export function caseRowToFormPreload(row: CaseRow): Map<string, string> {
 				: jsonValueToString(value),
 		);
 	}
-	// The standard-name aliases every case carries implicitly, mirroring
-	// what the device's casedb exposes on a loaded `<case>` — so a form
-	// expression reading `#<type>/date_opened` or `#<type>/last_modified`
-	// resolves in preview exactly as it would on-device. The key set comes
-	// from the SQL compiler's own alias table and the values from
-	// `caseRowDisplayValue`, so the preload can't drift from how the same
-	// names query, filter, and display. Written LAST because the scalar
-	// columns shadow same-named JSONB keys, exactly as the device shadows
-	// them; `case_type` and `case_id` also resolve through the table.
-	for (const alias of RESERVED_SCALAR_COLUMN_BY_PROPERTY.keys()) {
-		preload.set(alias, caseRowDisplayValue(row, alias));
+	// Written LAST so the scalar columns shadow impossible same-named JSONB
+	// keys. CommCare-private output spellings never enter Preview's accepted
+	// or evaluated vocabulary.
+	for (const property of RESERVED_SCALAR_COLUMN_BY_PROPERTY.keys()) {
+		preload.set(property, caseRowDisplayValue(row, property));
 	}
 	return preload;
 }
@@ -217,12 +210,9 @@ function timestampDisplayValue(value: Date | string | null): string {
 
 /**
  * Read a column's display value off a `CaseRow`. Resolves the
- * standard case-metadata names onto their scalar columns first —
- * the SAME name→column map the SQL term compiler reads
- * (`RESERVED_SCALAR_COLUMN_BY_PROPERTY`), so a column the filter
- * can query always displays the value it queried — then falls
- * through to `row.properties`, `""` for absent. Lives here so
- * every render surface uses the same coercion.
+ * canonical case-metadata names onto their scalar columns first, then falls
+ * through to `row.properties`, `""` for absent. Lives here so every render
+ * surface uses the same coercion.
  */
 export function caseRowDisplaySourceValue(
 	row: CaseRow,
@@ -230,7 +220,6 @@ export function caseRowDisplaySourceValue(
 ): JsonValue | Date | string | null | undefined {
 	switch (field) {
 		case "case_name":
-		case "name":
 			return row.case_name;
 		case "case_id":
 			return row.case_id;
@@ -241,10 +230,8 @@ export function caseRowDisplaySourceValue(
 		case "status":
 			return row.status ?? "";
 		case "external_id":
-		case "external-id":
 			return row.external_id ?? "";
 		case "date_opened":
-		case "date-opened":
 			return row.opened_on;
 		case "last_modified":
 			return row.modified_on;

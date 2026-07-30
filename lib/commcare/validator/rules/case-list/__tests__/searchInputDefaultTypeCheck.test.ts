@@ -1,4 +1,6 @@
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { proseText } from "@/lib/domain/prose";
 /**
  * Tests for the `searchInputDefaultTypeCheck` rule. One invariant
  * per `it(...)` block.
@@ -8,7 +10,6 @@ import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import {
 	advancedSearchInputDef,
-	asUuid,
 	plainColumn,
 	simpleSearchInputDef,
 } from "@/lib/domain";
@@ -29,12 +30,12 @@ describe("searchInputDefaultTypeCheck", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
-						listColumnOrder: [asUuid("col-name")],
-						detailColumnOrder: [asUuid("col-name")],
+						columns: [plainColumn(testUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [testUuid("col-name")],
+						detailColumnOrder: [testUuid("col-name")],
 						searchInputs: [
 							simpleSearchInputDef(
-								asUuid("si-region"),
+								testUuid("si-region"),
 								"region_search",
 								"Region",
 								"text",
@@ -56,14 +57,14 @@ describe("searchInputDefaultTypeCheck", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 								f({
 									kind: "text",
 									id: "region",
-									label: "Region",
-									case_property_on: "patient",
+									label: proseText("Region"),
+									caseWrite: { caseType: "patient", property: "region" },
 								}),
 							],
 						},
@@ -74,8 +75,8 @@ describe("searchInputDefaultTypeCheck", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name", data_type: "text" },
-						{ name: "region", label: "Region", data_type: "text" },
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+						{ name: "region", label: proseText("Region"), data_type: "text" },
 					],
 				},
 			],
@@ -89,7 +90,7 @@ describe("searchInputDefaultTypeCheck", () => {
 		expect(hits[0].message).toContain("before any case is selected");
 		expect(hits[0].details).toMatchObject({
 			inputName: "region_search",
-			inputUuid: asUuid("si-region"),
+			inputUuid: testUuid("si-region"),
 		});
 		expect(
 			results.some(
@@ -108,12 +109,12 @@ describe("searchInputDefaultTypeCheck", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
-						listColumnOrder: [asUuid("col-name")],
-						detailColumnOrder: [asUuid("col-name")],
+						columns: [plainColumn(testUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [testUuid("col-name")],
+						detailColumnOrder: [testUuid("col-name")],
 						searchInputs: [
 							advancedSearchInputDef(
-								asUuid("si-adv"),
+								testUuid("si-adv"),
 								"adv_search",
 								"Advanced",
 								"text",
@@ -135,8 +136,8 @@ describe("searchInputDefaultTypeCheck", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},
@@ -146,7 +147,9 @@ describe("searchInputDefaultTypeCheck", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "case_name", label: "Name", data_type: "text" }],
+					properties: [
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+					],
 				},
 			],
 		});
@@ -169,12 +172,12 @@ describe("searchInputDefaultTypeCheck", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
-						listColumnOrder: [asUuid("col-name")],
-						detailColumnOrder: [asUuid("col-name")],
+						columns: [plainColumn(testUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [testUuid("col-name")],
+						detailColumnOrder: [testUuid("col-name")],
 						searchInputs: [
 							simpleSearchInputDef(
-								asUuid("si-text"),
+								testUuid("si-text"),
 								"text_search",
 								"Text",
 								"text",
@@ -191,8 +194,8 @@ describe("searchInputDefaultTypeCheck", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},
@@ -202,7 +205,9 @@ describe("searchInputDefaultTypeCheck", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "case_name", label: "Name", data_type: "text" }],
+					properties: [
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+					],
 				},
 			],
 		});
@@ -229,12 +234,12 @@ describe("searchInputDefaultTypeCheck", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
-						listColumnOrder: [asUuid("col-name")],
-						detailColumnOrder: [asUuid("col-name")],
+						columns: [plainColumn(testUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [testUuid("col-name")],
+						detailColumnOrder: [testUuid("col-name")],
 						searchInputs: [
 							simpleSearchInputDef(
-								asUuid("si-date"),
+								testUuid("si-date"),
 								"date_search",
 								"Date",
 								"date",
@@ -251,60 +256,8 @@ describe("searchInputDefaultTypeCheck", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
-								}),
-							],
-						},
-					],
-				},
-			],
-			caseTypes: [
-				{
-					name: "patient",
-					properties: [{ name: "case_name", label: "Name", data_type: "text" }],
-				},
-			],
-		});
-		expect(
-			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
-				(e) => e.code === "CASE_LIST_SEARCH_INPUT_DEFAULT_TYPE_ERROR",
-			),
-		).toBe(false);
-	});
-
-	it("rejects a legacy scalar default on a date-range input with one repair", () => {
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: {
-						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
-						listColumnOrder: [asUuid("col-name")],
-						detailColumnOrder: [asUuid("col-name")],
-						searchInputs: [
-							simpleSearchInputDef(
-								asUuid("si-range"),
-								"visit_window",
-								"Visit window",
-								"date-range",
-								"visit_date",
-								{ default: today() },
-							),
-						],
-					},
-					forms: [
-						{
-							name: "Reg",
-							type: "registration",
-							fields: [
-								f({
-									kind: "text",
-									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},
@@ -315,23 +268,16 @@ describe("searchInputDefaultTypeCheck", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name", data_type: "text" },
-						{ name: "visit_date", label: "Visit", data_type: "date" },
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
 					],
 				},
 			],
 		});
-
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(error) => error.code === "CASE_LIST_SEARCH_INPUT_DEFAULT_TYPE_ERROR",
-		);
-		expect(hits).toHaveLength(1);
-		expect(hits[0].details).toMatchObject({
-			inputName: "visit_window",
-			reason: "date-range-default-unsupported",
-		});
-		expect(hits[0].message).toContain("needs both a start and an end");
-		expect(hits[0].message).toContain("Remove the starting value");
+		expect(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
+				(e) => e.code === "CASE_LIST_SEARCH_INPUT_DEFAULT_TYPE_ERROR",
+			),
+		).toBe(false);
 	});
 
 	it("short-circuits per-input when the `default` slot is absent", () => {
@@ -343,12 +289,12 @@ describe("searchInputDefaultTypeCheck", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
-						listColumnOrder: [asUuid("col-name")],
-						detailColumnOrder: [asUuid("col-name")],
+						columns: [plainColumn(testUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [testUuid("col-name")],
+						detailColumnOrder: [testUuid("col-name")],
 						searchInputs: [
 							simpleSearchInputDef(
-								asUuid("si-name"),
+								testUuid("si-name"),
 								"name_search",
 								"Name",
 								"text",
@@ -364,8 +310,8 @@ describe("searchInputDefaultTypeCheck", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},
@@ -375,7 +321,9 @@ describe("searchInputDefaultTypeCheck", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "case_name", label: "Name", data_type: "text" }],
+					properties: [
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+					],
 				},
 			],
 		});
@@ -398,12 +346,12 @@ describe("searchInputDefaultTypeCheck", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
-						listColumnOrder: [asUuid("col-name")],
-						detailColumnOrder: [asUuid("col-name")],
+						columns: [plainColumn(testUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [testUuid("col-name")],
+						detailColumnOrder: [testUuid("col-name")],
 						searchInputs: [
 							simpleSearchInputDef(
-								asUuid("si-1"),
+								testUuid("si-1"),
 								"first",
 								"First",
 								"text",
@@ -411,7 +359,7 @@ describe("searchInputDefaultTypeCheck", () => {
 								{ default: today() },
 							),
 							simpleSearchInputDef(
-								asUuid("si-2"),
+								testUuid("si-2"),
 								"second",
 								"Second",
 								"text",
@@ -428,8 +376,8 @@ describe("searchInputDefaultTypeCheck", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},
@@ -439,7 +387,9 @@ describe("searchInputDefaultTypeCheck", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "case_name", label: "Name", data_type: "text" }],
+					properties: [
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+					],
 				},
 			],
 		});

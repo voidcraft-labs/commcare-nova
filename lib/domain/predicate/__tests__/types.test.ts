@@ -13,6 +13,7 @@
 
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	CASE_PROPERTY_REGEX,
 	CASE_TYPE_REGEX,
@@ -55,14 +56,15 @@ describe("term schema", () => {
 	});
 
 	it("parses a custom session-user property by stable identity", () => {
+		const userPropertyUuid = testUuid("worker-property-region");
 		expect(
 			termSchema.parse({
 				kind: "session-user-property",
-				userPropertyUuid: "worker-property-region",
+				userPropertyUuid,
 			}),
 		).toEqual({
 			kind: "session-user-property",
-			userPropertyUuid: "worker-property-region",
+			userPropertyUuid,
 		});
 	});
 
@@ -164,7 +166,10 @@ describe("predicate schema", () => {
 		const result = predicateSchema.parse({
 			kind: "within-distance",
 			property: { kind: "prop", caseType: "clinic", property: "location" },
-			center: asValueExpr({ kind: "input", searchInputUuid: "user_location" }),
+			center: asValueExpr({
+				kind: "input",
+				searchInputUuid: testUuid("user_location"),
+			}),
 			distance: 50,
 			unit: "miles",
 		});
@@ -214,7 +219,7 @@ describe("predicate schema", () => {
 	it("parses a when-input-present(...) wrapping a comparison", () => {
 		const result = predicateSchema.parse({
 			kind: "when-input-present",
-			input: { kind: "input", searchInputUuid: "phone" },
+			input: { kind: "input", searchInputUuid: testUuid("phone") },
 			clause: {
 				kind: "eq",
 				left: asValueExpr({
@@ -222,7 +227,10 @@ describe("predicate schema", () => {
 					caseType: "patient",
 					property: "phone",
 				}),
-				right: asValueExpr({ kind: "input", searchInputUuid: "phone" }),
+				right: asValueExpr({
+					kind: "input",
+					searchInputUuid: testUuid("phone"),
+				}),
 			},
 		});
 		expect(result.kind).toBe("when-input-present");
@@ -260,11 +268,9 @@ describe("predicate schema", () => {
 	});
 
 	// `in(...)` with all-null values is a structural degenerate: every
-	// wire emission collapses to "is absent OR is absent OR …", which
-	// duplicates an absence check rather than expressing real set
-	// membership. The canonical authoring shapes for the absence-check
-	// intent are `is-null(prop)` (strict-absent, Postgres-only) and
-	// `is-blank(prop)` (absent-or-empty, the CCHQ-portable form).
+	// wire emission collapses to repeated absence checks rather than
+	// expressing real set membership. The canonical absence-check
+	// intent is `is-blank(prop)` (absent or empty on every target).
 	// Reject at the AST layer so downstream compilers don't have to
 	// encode the policy. Mixed null + non-null lists are accepted
 	// because they encode the meaningful "absent OR equals one of
@@ -276,7 +282,7 @@ describe("predicate schema", () => {
 				left: asValueExpr({
 					kind: "prop",
 					caseType: "patient",
-					property: "name",
+					property: "case_name",
 				}),
 				values: [
 					{ kind: "literal", value: null },
@@ -292,7 +298,7 @@ describe("predicate schema", () => {
 			left: asValueExpr({
 				kind: "prop",
 				caseType: "patient",
-				property: "name",
+				property: "case_name",
 			}),
 			values: [
 				{ kind: "literal", value: null },
@@ -313,7 +319,7 @@ describe("predicate schema", () => {
 				property: { kind: "prop", caseType: "clinic", property: "location" },
 				center: asValueExpr({
 					kind: "input",
-					searchInputUuid: "user_location",
+					searchInputUuid: testUuid("user_location"),
 				}),
 				distance: -10,
 				unit: "miles",
@@ -328,7 +334,7 @@ describe("predicate schema", () => {
 				property: { kind: "prop", caseType: "clinic", property: "location" },
 				center: asValueExpr({
 					kind: "input",
-					searchInputUuid: "user_location",
+					searchInputUuid: testUuid("user_location"),
 				}),
 				distance: 0,
 				unit: "miles",
@@ -349,7 +355,7 @@ describe("predicate schema", () => {
 					},
 					center: asValueExpr({
 						kind: "input",
-						searchInputUuid: "user_location",
+						searchInputUuid: testUuid("user_location"),
 					}),
 					distance: Number.MAX_VALUE,
 					unit,
@@ -372,7 +378,7 @@ describe("predicate schema", () => {
 				property: { kind: "literal", value: "40.7,-74.0" },
 				center: asValueExpr({
 					kind: "input",
-					searchInputUuid: "user_location",
+					searchInputUuid: testUuid("user_location"),
 				}),
 				distance: 50,
 				unit: "miles",
@@ -387,7 +393,7 @@ describe("predicate schema", () => {
 				property: { kind: "prop", caseType: "clinic", property: "location" },
 				center: asValueExpr({
 					kind: "input",
-					searchInputUuid: "user_location",
+					searchInputUuid: testUuid("user_location"),
 				}),
 				distance: 50,
 				unit: "meters",
@@ -399,7 +405,10 @@ describe("predicate schema", () => {
 		expect(() =>
 			predicateSchema.parse({
 				kind: "match",
-				property: { kind: "input", searchInputUuid: "name_query" },
+				property: {
+					kind: "input",
+					searchInputUuid: testUuid("name_query"),
+				},
 				value: "alice",
 				mode: "fuzzy",
 			}),
@@ -439,7 +448,7 @@ describe("predicate schema", () => {
 		expect(() =>
 			predicateSchema.parse({
 				kind: "when-input-present",
-				input: { kind: "input", searchInputUuid: "phone" },
+				input: { kind: "input", searchInputUuid: testUuid("phone") },
 			}),
 		).toThrow();
 	});
@@ -600,7 +609,7 @@ describe("predicate schema", () => {
 	it("parses a match(...) predicate with mode: fuzzy", () => {
 		const result = predicateSchema.parse({
 			kind: "match",
-			property: { kind: "prop", caseType: "patient", property: "name" },
+			property: { kind: "prop", caseType: "patient", property: "case_name" },
 			value: { kind: "term", term: { kind: "literal", value: "alice" } },
 			mode: "fuzzy",
 		});
@@ -628,7 +637,7 @@ describe("predicate schema", () => {
 	it.each(MATCH_MODES)("parses a match(...) with mode: %s", (mode) => {
 		const result = predicateSchema.parse({
 			kind: "match",
-			property: { kind: "prop", caseType: "patient", property: "name" },
+			property: { kind: "prop", caseType: "patient", property: "case_name" },
 			value: { kind: "term", term: { kind: "literal", value: "alice" } },
 			mode,
 		});
@@ -645,7 +654,7 @@ describe("predicate schema", () => {
 		expect(() =>
 			predicateSchema.parse({
 				kind: "match",
-				property: { kind: "prop", caseType: "patient", property: "name" },
+				property: { kind: "prop", caseType: "patient", property: "case_name" },
 				value: "alice",
 				mode: "regex",
 			}),
@@ -660,7 +669,7 @@ describe("predicate schema", () => {
 		expect(() =>
 			predicateSchema.parse({
 				kind: "match",
-				property: { kind: "prop", caseType: "patient", property: "name" },
+				property: { kind: "prop", caseType: "patient", property: "case_name" },
 				value: "",
 				mode: "fuzzy",
 			}),
@@ -671,7 +680,7 @@ describe("predicate schema", () => {
 		expect(() =>
 			predicateSchema.parse({
 				kind: "match",
-				property: { kind: "prop", caseType: "patient", property: "name" },
+				property: { kind: "prop", caseType: "patient", property: "case_name" },
 				value: "alice",
 			}),
 		).toThrow();
@@ -748,7 +757,10 @@ describe("predicate schema", () => {
 		expect(() =>
 			predicateSchema.parse({
 				kind: "multi-select-contains",
-				property: { kind: "input", searchInputUuid: "tag_filter" },
+				property: {
+					kind: "input",
+					searchInputUuid: testUuid("tag_filter"),
+				},
 				values: [{ kind: "literal", value: "vip" }],
 				quantifier: "any",
 			}),
@@ -818,7 +830,10 @@ describe("predicate schema", () => {
 							kind: "not",
 							clause: {
 								kind: "when-input-present",
-								input: { kind: "input", searchInputUuid: "x" },
+								input: {
+									kind: "input",
+									searchInputUuid: testUuid("x"),
+								},
 								clause: {
 									kind: "exists",
 									via: { kind: "subcase", identifier: "parent" },
@@ -827,7 +842,7 @@ describe("predicate schema", () => {
 										left: asValueExpr({
 											kind: "prop",
 											caseType: "patient",
-											property: "name",
+											property: "case_name",
 										}),
 										right: asValueExpr({
 											kind: "literal",
@@ -848,7 +863,7 @@ describe("predicate schema", () => {
 								left: asValueExpr({
 									kind: "prop",
 									caseType: "patient",
-									property: "name",
+									property: "case_name",
 								}),
 								right: asValueExpr({ kind: "literal", value: "Bob" }),
 							},
@@ -895,7 +910,7 @@ describe("predicate schema", () => {
 				left: asValueExpr({
 					kind: "prop",
 					caseType: "patient' or 1=1",
-					property: "name",
+					property: "case_name",
 				}),
 				right: asValueExpr({ kind: "literal", value: "x" }),
 			}),
@@ -909,7 +924,7 @@ describe("predicate schema", () => {
 				left: asValueExpr({
 					kind: "prop",
 					caseType: "patient",
-					property: "name",
+					property: "case_name",
 				}),
 				right: asValueExpr({
 					kind: "input",
@@ -931,7 +946,7 @@ describe("predicate schema", () => {
 				left: asValueExpr({
 					kind: "prop",
 					caseType: "patient",
-					property: "name",
+					property: "case_name",
 				}),
 				right: asValueExpr({
 					kind: "session-user",
@@ -948,7 +963,7 @@ describe("predicate schema", () => {
 				left: asValueExpr({
 					kind: "prop",
 					caseType: "patient",
-					property: "name",
+					property: "case_name",
 				}),
 				right: asValueExpr({
 					kind: "session-user",
@@ -981,27 +996,32 @@ describe("predicate schema", () => {
 		).toThrow();
 	});
 
-	it("rejects the legacy mutable-name Search-input reference", () => {
-		// Search input names remain emitted wire values, but the AST stores
-		// immutable identity. A name-backed leaf must fail instead of silently
-		// becoming a second reference vocabulary.
+	it("rejects a mutable Search-input name beside the UUID identity", () => {
+		// The Search-input definition owns and validates the current wire name.
+		// A predicate stores only immutable identity, so a stale or conflicting
+		// name cannot survive beside it as a second source of truth.
 		expect(() =>
 			predicateSchema.parse({
 				kind: "eq",
 				left: asValueExpr({
 					kind: "prop",
 					caseType: "patient",
-					property: "name",
+					property: "case_name",
 				}),
-				right: asValueExpr({ kind: "input", name: "name_query" }),
+				right: asValueExpr({
+					kind: "input",
+					searchInputUuid: testUuid("name-with-hyphen"),
+					name: "name-with-hyphen",
+				}),
 			}),
 		).toThrow();
 	});
 
 	it("accepts prop with a hyphenated property name", () => {
-		// Property names mirror `CASE_PROPERTY_REGEX` and admit
-		// hyphens — existing CommCare deployments routinely store
-		// properties like `external-id`. Pin the positive case so a
+		// Authored property names admit hyphens after the first character.
+		// Pin an ordinary custom name so the retired standard spellings do not
+		// become the accidental reason this grammar remains covered.
+		// This positive case ensures a
 		// future tightening that aligned property names with the
 		// stricter XML-element-name rules trips this test.
 		const result = predicateSchema.parse({
@@ -1009,7 +1029,7 @@ describe("predicate schema", () => {
 			left: asValueExpr({
 				kind: "prop",
 				caseType: "patient",
-				property: "external-id",
+				property: "client-code",
 			}),
 			right: asValueExpr({ kind: "literal", value: "abc" }),
 		});
@@ -1405,98 +1425,23 @@ describe("sentinel predicates", () => {
 	});
 });
 
-// `is-null` is the strict-absent predicate — the canonical form a UI
-// surface or compiler reaches for to ask "is `left` resolved to absent
-// (key not present in the JSONB / Map)?" Strict absence is the
-// Postgres / in-memory semantic: `Map<string, string>` distinguishes
-// "key not in map" from "key present with empty-string value" by
-// construction, and JSONB does the same. The Predicate AST is
-// Postgres-strict family-wide; CCHQ's wire collapse (where `prop = ''`
-// matches absent / cleared / empty alike) is a per-dialect emitter
-// concern + representability checker error, not an AST design
-// constraint. The dialects diverge on representability — `is-null`
-// is unrepresentable on every CCHQ wire target, while the parallel
-// `is-blank` operator is portable.
-//
-// The `left` slot is `termSchema`, not `propertyRefSchema`, so authors
-// can ask "is the input X absent" or "is the user's region absent"
-// alongside the canonical "is the property absent" shape. The schema
-// is intentionally structural-only: it admits every Term variant in
-// `left` (including the meaningless `is-null(literal(...))` shape,
-// which is a category error — a literal can't be "absent" by
-// definition). Whether a checker rejects the literal shape is a
-// type-checker concern, not a schema concern.
-describe("is-null predicate", () => {
-	it("parses is-null with a property reference", () => {
-		const result = predicateSchema.parse({
-			kind: "is-null",
-			left: asValueExpr({
-				kind: "prop",
-				caseType: "patient",
-				property: "status",
-			}),
-		});
-		expect(result.kind).toBe("is-null");
-	});
-
-	it("parses is-null with a search-input reference", () => {
-		const result = predicateSchema.parse({
-			kind: "is-null",
-			left: asValueExpr({ kind: "input", searchInputUuid: "phone" }),
-		});
-		expect(result.kind).toBe("is-null");
-	});
-
-	it("parses is-null with a session-user reference", () => {
-		// `is-null(sessionUser(...))` asks "is the user-data field
-		// unset" — a meaningful predicate at every wire target. The
-		// schema accepts the open-namespace shape; the type checker's
-		// per-arm rule decides whether the AST has authoring semantics.
-		const result = predicateSchema.parse({
-			kind: "is-null",
-			left: asValueExpr({ kind: "session-user", field: "assigned_region" }),
-		});
-		expect(result.kind).toBe("is-null");
-	});
-
-	it("parses is-null with a session-context reference", () => {
-		// Symmetric with the `session-user` case above. `userid` is a
-		// closed-enum member; pinning its acceptance here locks the
-		// `Term`-discriminated-union path through `is-null` for the
-		// closed-namespace arm too.
-		const result = predicateSchema.parse({
-			kind: "is-null",
-			left: asValueExpr({ kind: "session-context", field: "userid" }),
-		});
-		expect(result.kind).toBe("is-null");
-	});
-
-	it("parses is-null with a literal (schema is structurally permissive)", () => {
-		// The schema accepts every Term variant in `left` (lifted
-		// through the `term` arm of `ValueExpression`), including
-		// literals. `is-null(literal(...))` is meaningless (literals
-		// can't be "unset" by definition) but parses cleanly here;
-		// rejecting the literal shape is a type-checker concern, not
-		// a schema concern. Pinning the schema-side acceptance keeps
-		// the layering explicit — a refactor that tightened the schema
-		// to reject literal `left` would trip this test.
-		const result = predicateSchema.parse({
-			kind: "is-null",
-			left: asValueExpr({ kind: "literal", value: "x" }),
-		});
-		expect(result.kind).toBe("is-null");
-	});
-
-	it("rejects is-null with no left", () => {
-		expect(() => predicateSchema.parse({ kind: "is-null" })).toThrow();
+describe("removed predicate discriminators", () => {
+	it("rejects is-null at the stored schema boundary", () => {
+		expect(
+			predicateSchema.safeParse({
+				kind: "is-null",
+				left: asValueExpr({
+					kind: "prop",
+					caseType: "patient",
+					property: "status",
+				}),
+			}).success,
+		).toBe(false);
 	});
 });
 
 // `is-blank` is the portable absent-or-empty-string predicate — the
-// canonical form for "left resolves to absent OR empty" semantics.
-// Where `is-null` is strict (matches only the absent state),
-// `is-blank` widens the match set to include the empty-string value
-// too. The widening is the operator's purpose: `is-blank` is
+// canonical form for "left resolves to absent OR empty" semantics. It is
 // representable on every CCHQ wire target — wire form `prop = ''`
 // (the on-device idiom for absent-or-empty; CSQL server-side
 // `case_property_query()` short-circuits empty-value queries to
@@ -1527,7 +1472,10 @@ describe("is-blank predicate", () => {
 	it("parses is-blank with a search-input reference", () => {
 		const result = predicateSchema.parse({
 			kind: "is-blank",
-			left: asValueExpr({ kind: "input", searchInputUuid: "phone" }),
+			left: asValueExpr({
+				kind: "input",
+				searchInputUuid: testUuid("phone"),
+			}),
 		});
 		expect(result.kind).toBe("is-blank");
 	});
@@ -1680,8 +1628,14 @@ describe("between predicate", () => {
 				caseType: "patient",
 				property: "age",
 			}),
-			lower: asValueExpr({ kind: "input", searchInputUuid: "min_age" }),
-			upper: asValueExpr({ kind: "input", searchInputUuid: "max_age" }),
+			lower: asValueExpr({
+				kind: "input",
+				searchInputUuid: testUuid("min_age"),
+			}),
+			upper: asValueExpr({
+				kind: "input",
+				searchInputUuid: testUuid("max_age"),
+			}),
 			lowerInclusive: true,
 			upperInclusive: true,
 		});
@@ -1974,8 +1928,22 @@ describe("inlined identifier patterns match lib/commcare/constants source-of-tru
 		expect(CASE_TYPE_PATTERN.source).toBe(CASE_TYPE_REGEX.source);
 	});
 
-	it("CASE_PROPERTY_PATTERN matches CASE_PROPERTY_REGEX", () => {
-		expect(CASE_PROPERTY_PATTERN.source).toBe(CASE_PROPERTY_REGEX.source);
+	it("CASE_PROPERTY_PATTERN accepts the same identifier language as CASE_PROPERTY_REGEX", () => {
+		for (const candidate of [
+			"case_name",
+			"A",
+			"a-b",
+			"a_b9",
+			"",
+			"_name",
+			"9name",
+			"name space",
+			"name/slash",
+		]) {
+			expect(CASE_PROPERTY_PATTERN.test(candidate), candidate).toBe(
+				CASE_PROPERTY_REGEX.test(candidate),
+			);
+		}
 	});
 
 	it("XML_ELEMENT_NAME_PATTERN matches XML_ELEMENT_NAME_REGEX", () => {
@@ -2265,17 +2233,18 @@ describe("valueExpression schema — conditional + aggregation arms", () => {
 	});
 });
 
-describe("valueExpression schema — unwrap-list + format-date", () => {
-	it("parses unwrap-list with a text-shaped operand", () => {
-		const result = valueExpressionSchema.parse({
-			kind: "unwrap-list",
-			value: asValueExpr({
-				kind: "prop",
-				caseType: "patient",
-				property: "tags",
-			}),
-		});
-		expect(result.kind).toBe("unwrap-list");
+describe("valueExpression schema — removed discriminators + format-date", () => {
+	it("rejects unwrap-list at the stored schema boundary", () => {
+		expect(
+			valueExpressionSchema.safeParse({
+				kind: "unwrap-list",
+				value: asValueExpr({
+					kind: "prop",
+					caseType: "patient",
+					property: "tags",
+				}),
+			}).success,
+		).toBe(false);
 	});
 
 	it.each(FORMAT_DATE_PRESETS)(
@@ -2345,7 +2314,7 @@ describe("valueExpression schema — cross-family cycle through predicate operan
 					left: asValueExpr({
 						kind: "prop",
 						caseType: "patient",
-						property: "name",
+						property: "case_name",
 					}),
 				},
 				// biome-ignore lint/suspicious/noThenProperty: AST shape mirrors `ifSchema`; see types.ts for thenable-hazard analysis.
@@ -2353,7 +2322,7 @@ describe("valueExpression schema — cross-family cycle through predicate operan
 				else: asValueExpr({
 					kind: "prop",
 					caseType: "patient",
-					property: "name",
+					property: "case_name",
 				}),
 			},
 			right: asValueExpr({ kind: "literal", value: "(empty)" }),

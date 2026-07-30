@@ -8,7 +8,7 @@
 > case-attachment gap there is the product decision this unit implements.
 
 Lift the `MEDIA_CASE_PROPERTY` rejection for exactly the save-to-case shapes —
-keeping it for a media kind with `case_property_on` and no mode — and ship that
+keeping it for a media kind with `caseWrite` and no mode — and ship that
 constructibility together with the emission it needs, so save-to-case is never
 authorable without a wire spelling.
 

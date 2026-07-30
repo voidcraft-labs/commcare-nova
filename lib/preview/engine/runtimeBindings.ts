@@ -19,11 +19,11 @@ import {
 	type SearchInputDef,
 	type SearchInputMode,
 	type SearchInputType,
+	type Uuid,
 } from "@/lib/domain";
 import type {
 	AstMapHooks,
 	Predicate,
-	PropertyRef,
 	ValueExpression,
 } from "@/lib/domain/predicate";
 import {
@@ -35,8 +35,6 @@ import {
 	mapExpressionAst,
 	mapPredicateAst,
 	match,
-	multiSelectAll,
-	multiSelectAny,
 	prop,
 	qualifiedLiteral,
 	reduceAnd,
@@ -72,7 +70,7 @@ type SearchInputRuntimeValueType =
 	(typeof SEARCH_INPUT_RUNTIME_VALUE_TYPES)[SearchInputDef["type"]];
 
 interface RuntimeInputBinding {
-	readonly uuid: SearchInputDef["uuid"];
+	readonly uuid: Uuid;
 	readonly name: string;
 	readonly runtimeValueType?: SearchInputRuntimeValueType;
 }
@@ -136,36 +134,32 @@ export function withSearchInputExpressionValues(
 }
 
 /**
- * Bind every UUID-linked Search-input leaf in a ValueExpression to the current
- * running value under that definition's current name. The preview XPath
- * evaluator is scalar and intentionally does not model the search-input XML
- * nodeset, so substitution happens while the expression is still a typed AST.
- * Missing inputs become the empty string — the same value CommCare's virtual
- * search-input instance exposes for an unanswered prompt.
+ * Bind every `input(name)` leaf in a ValueExpression to the current running
+ * search value. The preview XPath evaluator is scalar and intentionally does
+ * not model the search-input XML nodeset, so substitution happens while the
+ * expression is still a typed AST. Missing inputs become the empty string —
+ * the same value CommCare's virtual search-input instance exposes for an
+ * unanswered prompt.
  */
 export function bindSearchInputValuesInExpression(
 	expression: ValueExpression,
 	inputValues: SearchInputValues,
 	searchInputs: readonly SearchInputDef[] = [],
 ): ValueExpression {
-	const runtimeValueTypes = searchInputRuntimeValueTypes(searchInputs);
-	const uuids = new Set<SearchInputDef["uuid"]>();
+	const runtimeBindings = searchInputRuntimeBindings(searchInputs);
+	const uuids = new Set<Uuid>();
 	walkExpressionTerms(expression, (term) => {
 		if (term.kind === "input") uuids.add(term.searchInputUuid);
 	});
 
 	let bound = expression;
 	for (const uuid of uuids) {
-		const definition = searchInputs.find((input) => input.uuid === uuid);
-		if (definition === undefined) continue;
+		const input = runtimeBindings.get(uuid);
+		if (input === undefined) continue;
 		bound = substituteInputInExpression(
 			bound,
-			{
-				uuid,
-				name: definition.name,
-				runtimeValueType: runtimeValueTypes.get(uuid),
-			},
-			inputValues.get(definition.name) ?? "",
+			input,
+			inputValues.get(input.name) ?? "",
 			true,
 		);
 	}
@@ -193,30 +187,24 @@ export function bindSearchInputValuesInExpression(
 export function bindSearchInputValuesInPredicate(
 	predicate: Predicate,
 	inputValues: SearchInputValues,
-	knownInputUuids: ReadonlySet<string>,
+	knownInputUuids: ReadonlySet<Uuid>,
 	searchInputs: readonly SearchInputDef[] = [],
 ): Predicate {
-	const runtimeValueTypes = searchInputRuntimeValueTypes(searchInputs);
-	const referencedUuids = new Set<SearchInputDef["uuid"]>();
+	const runtimeBindings = searchInputRuntimeBindings(searchInputs);
+	const referencedUuids = new Set<Uuid>();
 	walkTerms(predicate, (term) => {
-		if (term.kind === "input") {
-			referencedUuids.add(term.searchInputUuid);
-		}
+		if (term.kind === "input") referencedUuids.add(term.searchInputUuid);
 	});
 
 	let bound = predicate;
 	for (const uuid of referencedUuids) {
 		if (!knownInputUuids.has(uuid)) continue;
-		const definition = searchInputs.find((input) => input.uuid === uuid);
-		if (definition === undefined) continue;
+		const input = runtimeBindings.get(uuid);
+		if (input === undefined) continue;
 		bound = substituteInputInPredicate(
 			bound,
-			{
-				uuid,
-				name: definition.name,
-				runtimeValueType: runtimeValueTypes.get(uuid),
-			},
-			inputValues.get(definition.name) ?? "",
+			input,
+			inputValues.get(input.name) ?? "",
 			true,
 		);
 	}
@@ -271,7 +259,7 @@ function clauseForInput(
 	input: SearchInputDef,
 	inputValues: SearchInputValues,
 	caseType: string,
-	knownInputUuids: ReadonlySet<string>,
+	knownInputUuids: ReadonlySet<Uuid>,
 	searchInputs: readonly SearchInputDef[],
 	caseTypeSchemas?: ReadonlyMap<string, CaseType>,
 ): Predicate | undefined {
@@ -306,10 +294,8 @@ function clauseForInput(
 
 /**
  * Simple-arm dispatch: `(property, mode, via)` → per-mode comparison.
- * The full `SearchInputMode` object (not just `kind`) drives the
- * switch so the multi-select arm's `quantifier` slot narrows
- * naturally. Range mode reads `:from` / `:to` keys; every other mode
- * reads the bare `<input.name>` key.
+ * Range mode reads `:from` / `:to` keys; every other mode reads the bare
+ * `<input.name>` key.
  */
 function buildSimpleArmClause(
 	input: Extract<SearchInputDef, { kind: "simple" }>,
@@ -364,8 +350,6 @@ function buildSimpleArmClause(
 			return match(property, literal(value), "phonetic");
 		case "fuzzy-date":
 			return match(property, literal(value), "fuzzy-date");
-		case "multi-select-contains":
-			return buildMultiSelectClause(mode, property, value);
 		default: {
 			const _exhaustive: never = mode;
 			throw new Error(
@@ -380,33 +364,11 @@ function buildSimpleArmClause(
 						"phonetic",
 						"fuzzy-date",
 						"range",
-						"multi-select-contains",
 					],
 				}),
 			);
 		}
 	}
-}
-
-function buildMultiSelectClause(
-	mode: Extract<SearchInputMode, { kind: "multi-select-contains" }>,
-	property: PropertyRef,
-	rawValue: string,
-): Predicate | undefined {
-	const tokens = rawValue
-		.split(",")
-		.map((token) => token.trim())
-		.filter((token) => token.length > 0);
-	if (tokens.length === 0) return undefined;
-	// Explicit arrow defends against `Array.prototype.map`'s
-	// `(value, index, array)` callback contract: `tokens.map(literal)`
-	// would silently bind the per-token index to any second parameter
-	// `literal` ever grows.
-	const [first, ...rest] = tokens.map((token) => literal(token));
-	if (mode.quantifier === "all") {
-		return multiSelectAll(property, first, ...rest);
-	}
-	return multiSelectAny(property, first, ...rest);
 }
 
 function buildRangeClause(
@@ -477,7 +439,7 @@ function defaultModeFor(type: SearchInputType): SearchInputMode {
 function buildAdvancedArmClause(
 	input: Extract<SearchInputDef, { kind: "advanced" }>,
 	inputValues: SearchInputValues,
-	knownInputUuids: ReadonlySet<string>,
+	knownInputUuids: ReadonlySet<Uuid>,
 	searchInputs: readonly SearchInputDef[],
 ): Predicate {
 	return bindSearchInputValuesInPredicate(
@@ -489,21 +451,24 @@ function buildAdvancedArmClause(
 }
 
 /**
- * Resolve the semantic scalar a prompt contributes when its UUID-linked input
- * leaf is replaced with the submitted value under the current saved name. The
- * widget is the authority: a date
+ * Resolve the semantic scalar a prompt contributes when an `input(name)` leaf
+ * is replaced with its submitted value. The widget is the authority: a date
  * prompt still binds a date when its simple arm targets a datetime property,
  * while a date-range prompt binds CCHQ's encoded range string. Keeping this
  * projection beside substitution prevents the SQL compiler from having to
  * guess a temporal type from a string after the input leaf has disappeared.
  */
-function searchInputRuntimeValueTypes(
+function searchInputRuntimeBindings(
 	searchInputs: readonly SearchInputDef[],
-): ReadonlyMap<SearchInputDef["uuid"], SearchInputRuntimeValueType> {
+): ReadonlyMap<Uuid, RuntimeInputBinding> {
 	return new Map(
 		searchInputs.map((input) => [
 			input.uuid,
-			SEARCH_INPUT_RUNTIME_VALUE_TYPES[input.type],
+			{
+				uuid: input.uuid,
+				name: input.name,
+				runtimeValueType: SEARCH_INPUT_RUNTIME_VALUE_TYPES[input.type],
+			},
 		]),
 	);
 }

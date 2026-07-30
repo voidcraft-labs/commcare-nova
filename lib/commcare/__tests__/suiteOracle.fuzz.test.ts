@@ -47,7 +47,7 @@ import { runValidation } from "@/lib/commcare/validator/runner";
 import { validateSuite } from "@/lib/commcare/validator/suiteOracle";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc } from "@/lib/domain";
-import type { AssetId } from "@/lib/domain/multimedia";
+import type { MediaAssetId } from "@/lib/domain/multimedia";
 import {
 	hasCaseSearch,
 	hasChildCase,
@@ -158,10 +158,10 @@ function extractSuite(ccz: Buffer): {
  * aren't a suite-oracle concern — empty buffers are fine).
  */
 function toAssetManifest(
-	fuzzManifest: ReadonlyMap<AssetId, FuzzMediaAsset>,
+	fuzzManifest: ReadonlyMap<MediaAssetId, FuzzMediaAsset>,
 ): AssetManifest {
 	const placeholderBytes = Buffer.alloc(0);
-	const m = new Map<AssetId, ResolvedMediaAsset>();
+	const m = new Map<MediaAssetId, ResolvedMediaAsset>();
 	for (const [id, fuzz] of fuzzManifest) {
 		m.set(id, {
 			assetId: fuzz.assetId,

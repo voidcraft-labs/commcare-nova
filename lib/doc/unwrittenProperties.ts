@@ -56,6 +56,7 @@ import type {
 	Uuid,
 } from "@/lib/domain";
 import {
+	asUuid,
 	casePropertyTargetKey,
 	isStandardCaseListProperty,
 } from "@/lib/domain";
@@ -149,7 +150,7 @@ function readsOf(
 					: undefined;
 		if (entity === undefined) continue;
 		for (const slot of slots) {
-			reads.push({ carrier: carrier as Uuid, entity, slot });
+			reads.push({ carrier: asUuid(carrier), entity, slot });
 		}
 	}
 	reads.sort(

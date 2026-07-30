@@ -4,11 +4,13 @@ import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { useContext } from "react";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { BlueprintDocContext, BlueprintDocProvider } from "@/lib/doc/provider";
-import { asUuid, simpleSearchInputDef } from "@/lib/domain";
+import { simpleSearchInputDef } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 
 describe("useBlueprintMutations.moveColumnOnSurface", () => {
 	it("one gesture commits exactly one moved column", () => {
@@ -17,9 +19,9 @@ describe("useBlueprintMutations.moveColumnOnSurface", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name" },
-						{ name: "age", label: "Age", data_type: "int" },
-						{ name: "status", label: "Status" },
+						{ name: "case_name", label: proseText("Name") },
+						{ name: "age", label: proseText("Age"), data_type: "int" },
+						{ name: "status", label: proseText("Status") },
 					],
 				},
 			],
@@ -40,8 +42,11 @@ describe("useBlueprintMutations.moveColumnOnSurface", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: {
+										caseType: "patient",
+										property: "case_name",
+									},
 								}),
 							],
 						},
@@ -103,14 +108,14 @@ describe("useBlueprintMutations.moveColumnOnSurface", () => {
 describe("useBlueprintMutations.moveSearchInputToIndex", () => {
 	it("one gesture commits exactly one moved search field", () => {
 		const first = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000331"),
+			testUuid("00000000-0000-4000-8000-000000000331"),
 			"case_name",
 			"Patient name",
 			"text",
 			"case_name",
 		);
 		const second = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000332"),
+			testUuid("00000000-0000-4000-8000-000000000332"),
 			"external_id",
 			"External ID",
 			"text",
@@ -123,8 +128,8 @@ describe("useBlueprintMutations.moveSearchInputToIndex", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name" },
-						{ name: "external_id", label: "External ID" },
+						{ name: "case_name", label: proseText("Name") },
+						{ name: "external_id", label: proseText("External ID") },
 					],
 				},
 			],
@@ -132,7 +137,9 @@ describe("useBlueprintMutations.moveSearchInputToIndex", () => {
 				{
 					name: "Patients",
 					caseType: "patient",
+					caseListOnly: true,
 					caseListConfig: config,
+					caseSearchConfig: {},
 				},
 			],
 		});
@@ -152,13 +159,17 @@ describe("useBlueprintMutations.moveSearchInputToIndex", () => {
 		const before = result.current.store?.getState();
 		if (before === undefined) throw new Error("store missing");
 
+		let outcome:
+			| ReturnType<typeof result.current.mutations.moveSearchInputToIndex>
+			| undefined;
 		act(() => {
-			result.current.mutations.moveSearchInputToIndex(
+			outcome = result.current.mutations.moveSearchInputToIndex(
 				moduleUuid,
 				first.uuid,
 				1,
 			);
 		});
+		expect(outcome).toEqual({ ok: true });
 
 		const after = result.current.store?.getState();
 		if (after === undefined) throw new Error("store missing after move");

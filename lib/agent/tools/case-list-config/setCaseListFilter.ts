@@ -28,14 +28,14 @@
  * Both the SA chat factory and the MCP adapter call this through the
  * shared `ToolExecutionContext` interface. Two exit branches:
  *
- *   1. Module index out of range → `{ error }`, no mutations.
+ *   1. Module UUID address does not resolve → `{ error }`, no mutations.
  *   2. Success → `{ message, kind }` plus the persisted mutation,
  *      tagged `module:M:filter`.
  */
 
-import { z } from "zod";
+import type { z } from "zod";
 import type { Mutation } from "@/lib/doc/types";
-import { asUuid, type BlueprintDoc } from "@/lib/domain";
+import type { BlueprintDoc } from "@/lib/domain";
 import { type Predicate, predicateSchema } from "@/lib/domain/predicate";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import {
@@ -43,19 +43,15 @@ import {
 	type MutatingToolResult,
 	toToolErrorResult,
 } from "../common";
-import { canonicalizePredicateCaseProperties } from "../shared/canonicalCaseProperties";
+import {
+	moduleAddressSchema,
+	resolveModuleAddress,
+} from "../shared/entityAddresses";
 import type { ToolCallSummary } from "../shared/toolCallSummary";
-import { moduleNotFoundResult, uuidInputSchema } from "./shared";
 
-// Preserve the canonical recursive union at the tool boundary.
-const predicateInputSchema = predicateSchema as z.ZodType<Predicate>;
-
-export const setCaseListFilterInputSchema = z
-	.object({
-		moduleUuid: uuidInputSchema.describe(
-			"Stable uuid of the module whose case list filter is set",
-		),
-		filter: predicateInputSchema
+export const setCaseListFilterInputSchema = moduleAddressSchema
+	.extend({
+		filter: predicateSchema
 			.nullable()
 			.describe(
 				"Replacement Predicate, or null to clear the filter and show every case of the module's type.",
@@ -102,29 +98,29 @@ export const setCaseListFilterTool = {
 		ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<SetCaseListFilterResult>> {
-		const { moduleUuid: rawModuleUuid, filter } = input;
-		const moduleUuid = asUuid(rawModuleUuid);
+		const { filter } = input;
 		try {
-			const mod = doc.modules[moduleUuid];
-			if (!mod)
-				return moduleNotFoundResult<SetCaseListFilterSuccess>(
-					doc,
-					rawModuleUuid,
-					"set the case list filter",
-				);
+			const address = resolveModuleAddress(doc, input);
+			if (!address.ok) {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					newDoc: doc,
+					result: { error: address.error },
+				};
+			}
+			const { moduleUuid, module: mod } = address;
 
 			// The filter rides the GRANULAR `setCaseListMeta` kind (not a
 			// wholesale `updateModule{caseListConfig}` that would clobber a
 			// concurrent column edit on the guarded re-apply): `null` clears the
 			// slot, a Predicate sets it. The reducer maps `null → delete`, so a
 			// clear crosses the JSON wire intact.
-			const canonicalFilter =
-				filter === null ? null : canonicalizePredicateCaseProperties(filter);
 			const mutations: Mutation[] = [
 				{
 					kind: "setCaseListMeta",
 					uuid: mod.uuid,
-					patch: { filter: canonicalFilter },
+					patch: { filter },
 				},
 			];
 			// Cases available and Search intent are independent. An empty
@@ -149,17 +145,17 @@ export const setCaseListFilterTool = {
 
 			return {
 				kind: "mutate" as const,
-				mutations,
+				mutations: commit.mutations,
 				newDoc,
 				result:
 					filter === null
 						? {
-								message: `Cleared case list filter on module "${mod.name}".`,
+								message: `Cleared case list filter on module "${mod.name}" (${moduleUuid}).`,
 								kind: "cleared",
 								summary: { location: mod.name },
 							}
 						: {
-								message: `Set case list filter (kind: ${filter.kind}) on module "${mod.name}".`,
+								message: `Set case list filter (kind: ${filter.kind}) on module "${mod.name}" (${moduleUuid}).`,
 								kind: filter.kind,
 								summary: { location: mod.name },
 							},

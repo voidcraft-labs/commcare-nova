@@ -2,8 +2,8 @@
  * Client-safe runtime contract for `event: lookup-revision` frames.
  *
  * The app stream carries the authoritative full Project lookup manifest, not a
- * delta. Keep the parser beside the browser transport so an invalid frame can
- * be skipped before it reaches future S02/S09 consumers without importing any
+ * delta. Keep the parser beside the browser transport so an invalid frame
+ * becomes a recovery signal before it reaches consumers, without importing
  * server persistence code into the client bundle.
  */
 
@@ -95,8 +95,8 @@ export const lookupManifestFrameSchema: z.ZodType<LookupManifest> = z
 		}
 	});
 
-/** Parse one SSE data payload. Malformed transport input is best-effort and
- * intentionally returns `null` rather than disturbing blueprint collaboration. */
+/** Parse one SSE data payload. `null` is a protocol-failure signal; callers
+ * must clear the retained current page and fetch an authoritative replacement. */
 export function parseLookupManifestFrame(data: string): LookupManifest | null {
 	try {
 		const parsed = lookupManifestFrameSchema.safeParse(JSON.parse(data));
@@ -107,8 +107,13 @@ export function parseLookupManifestFrame(data: string): LookupManifest | null {
 }
 
 export interface LookupManifestBroker {
-	/** Validate, retain, and fan out one full-manifest SSE payload. */
-	dispatch: (data: string) => void;
+	/** Validate, retain, and fan out one full-manifest SSE payload. `false`
+	 * means the frame could not advance the current lineage and requires reset
+	 * plus authoritative refetch. */
+	dispatch: (data: string) => boolean;
+	/** Install an already-decoded authoritative refetch result through the same
+	 * exact grammar and lineage checks as an SSE frame. */
+	install: (manifest: unknown) => boolean;
 	/** Clear the retained tenant snapshot. Current subscribers receive `null`; a
 	 * later valid frame may latch a different Project and revision lineage. */
 	reset: () => void;
@@ -139,31 +144,36 @@ export function createLookupManifestBroker(): LookupManifestBroker {
 		}
 	}
 
+	function install(manifestInput: unknown): boolean {
+		const parsed = lookupManifestFrameSchema.safeParse(manifestInput);
+		if (!parsed.success) return false;
+		const manifest = parsed.data;
+		if (latest !== null) {
+			if (manifest.projectId !== latest.projectId) return false;
+			const ordering = compareLookupRevisions(
+				manifest.projectRevision,
+				latest.projectRevision,
+			);
+			if (ordering < 0) return false;
+			if (ordering === 0) {
+				/* Equal revisions identify one immutable Project snapshot. Different
+				 * bytes at the same revision are protocol corruption, not a new page. */
+				return JSON.stringify(manifest) === JSON.stringify(latest);
+			}
+		}
+		latest = manifest;
+		for (const subscriber of [...subscribers]) {
+			callSubscriber(subscriber, manifest);
+		}
+		return true;
+	}
+
 	return {
 		dispatch(data) {
 			const manifest = parseLookupManifestFrame(data);
-			if (manifest === null) return;
-			if (latest !== null) {
-				/* One provider runtime belongs to one app Project. A superseded
-				 * EventSource callback or misrouted frame cannot silently re-tenant it;
-				 * future admitted cross-Project moves must explicitly reset/remount the
-				 * runtime. Likewise, level-triggered snapshots only move forward. */
-				if (manifest.projectId !== latest.projectId) return;
-				if (
-					compareLookupRevisions(
-						manifest.projectRevision,
-						latest.projectRevision,
-					) < 0
-				)
-					return;
-			}
-			latest = manifest;
-			// Snapshot iteration keeps subscription mutations inside a callback from
-			// changing which consumers receive this already-started dispatch.
-			for (const subscriber of [...subscribers]) {
-				callSubscriber(subscriber, manifest);
-			}
+			return manifest !== null && install(manifest);
 		},
+		install,
 		reset() {
 			if (latest === null) return;
 			latest = null;

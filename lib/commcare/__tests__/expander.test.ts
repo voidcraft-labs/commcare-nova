@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	buildDoc,
 	type CaseListConfigSpec,
@@ -8,19 +9,19 @@ import {
 	xp,
 } from "@/lib/__tests__/docHelpers";
 import { expandDoc } from "@/lib/commcare/expander";
-import { expandHashtags } from "@/lib/commcare/hashtags";
+import { expandCaseToWire } from "@/lib/commcare/hashtags";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { validateXForm } from "@/lib/commcare/validator/xformOracle";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
 	advancedSearchInputDef,
-	asUuid,
 	calculatedColumn,
 	dateColumn,
 	idMappingColumn,
 	idMappingEntry,
 	intervalColumn,
 	type Module,
+	type ProseTemplate,
 	phoneColumn,
 	plainColumn,
 	simpleSearchInputDef,
@@ -38,6 +39,11 @@ import {
 	today,
 	toValueExpression,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
+
+function prose(...parts: ProseTemplate["parts"]): ProseTemplate {
+	return { parts };
+}
 
 describe("display-condition HQ projection", () => {
 	it("projects typed module/form conditions and selects the menu-instance build", () => {
@@ -60,7 +66,7 @@ describe("display-condition HQ projection", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "status", label: "Status" }],
+					properties: [{ name: "status", label: proseText("Status") }],
 				},
 			],
 		});
@@ -112,23 +118,23 @@ const followupDoc = buildDoc({
 						f({
 							kind: "group",
 							id: "client_info",
-							label: "Client Info",
+							label: proseText("Client Info"),
 							children: [
 								f({
 									kind: "text",
 									id: "full_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "full_name" },
 								}),
 							],
 						}),
 						f({
 							kind: "hidden",
 							id: "total_visits",
-							calculate: "#case/total_visits + 1",
-							case_property_on: "patient",
+							calculate: "#patient/total_visits + 1",
+							caseWrite: { caseType: "patient", property: "total_visits" },
 						}),
-						f({ kind: "text", id: "notes", label: "Notes" }),
+						f({ kind: "text", id: "notes", label: proseText("Notes") }),
 					],
 				},
 			],
@@ -138,8 +144,8 @@ const followupDoc = buildDoc({
 		{
 			name: "patient",
 			properties: [
-				{ name: "full_name", label: "Full Name" },
-				{ name: "total_visits", label: "Total Visits" },
+				{ name: "full_name", label: proseText("Full Name") },
+				{ name: "total_visits", label: proseText("Total Visits") },
 			],
 		},
 	],
@@ -163,16 +169,16 @@ const registrationDoc = buildDoc({
 						f({
 							kind: "text",
 							id: "case_name",
-							label: "Full Name",
+							label: proseText("Full Name"),
 							required: "true()",
-							case_property_on: "patient",
+							caseWrite: { caseType: "patient", property: "case_name" },
 						}),
 						f({
 							kind: "int",
 							id: "age",
-							label: "Age",
+							label: proseText("Age"),
 							validate: ". > 0 and . < 150",
-							case_property_on: "patient",
+							caseWrite: { caseType: "patient", property: "age" },
 						}),
 						f({
 							kind: "hidden",
@@ -188,15 +194,15 @@ const registrationDoc = buildDoc({
 		{
 			name: "patient",
 			properties: [
-				{ name: "case_name", label: "Full Name" },
-				{ name: "age", label: "Age" },
+				{ name: "case_name", label: proseText("Full Name") },
+				{ name: "age", label: proseText("Age") },
 			],
 		},
 	],
 });
 
 describe("expandDoc", () => {
-	it("populates case_references_data.load with #case/ hashtag references", () => {
+	it("projects typed case refs into HQ's private #case load vocabulary", () => {
 		const hq = expandDoc(followupDoc);
 		const form = hq.modules[0].forms[0];
 		const load = form.case_references_data.load;
@@ -219,7 +225,7 @@ describe("expandDoc", () => {
 			modules: [
 				{
 					name: "M",
-					caseType: "case",
+					caseType: "patient",
 					forms: [
 						{
 							name: "F",
@@ -228,13 +234,16 @@ describe("expandDoc", () => {
 								f({
 									kind: "group",
 									id: "grp",
-									label: "G",
+									label: proseText("G"),
 									children: [
 										f({
 											kind: "hidden",
 											id: "some_prop",
-											calculate: "#case/some_prop + #user/role",
-											case_property_on: "case",
+											calculate: "#patient/some_prop + #user/role",
+											caseWrite: {
+												caseType: "patient",
+												property: "some_prop",
+											},
 										}),
 									],
 								}),
@@ -245,8 +254,8 @@ describe("expandDoc", () => {
 			],
 			caseTypes: [
 				{
-					name: "case",
-					properties: [{ name: "some_prop", label: "Some Prop" }],
+					name: "patient",
+					properties: [{ name: "some_prop", label: proseText("Some Prop") }],
 				},
 			],
 		});
@@ -256,7 +265,7 @@ describe("expandDoc", () => {
 		);
 	});
 
-	it("expands #case/ to full XPath in calculate, keeps shorthand in vellum:calculate", () => {
+	it("expands a typed case ref and emits private HQ editor shorthand", () => {
 		const hq = expandDoc(followupDoc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
 
@@ -332,7 +341,7 @@ describe("expandDoc", () => {
 		expect(xform).not.toContain("vellum:value=");
 	});
 
-	it("expands #case/ in setvalue default_value, keeps shorthand in vellum:value", () => {
+	it("expands a typed case ref in default_value and emits HQ editor shorthand", () => {
 		const doc = buildDoc({
 			appName: "DV",
 			modules: [
@@ -347,9 +356,9 @@ describe("expandDoc", () => {
 								f({
 									kind: "text",
 									id: "full_name",
-									label: "Name",
-									default_value: "#case/full_name",
-									case_property_on: "c",
+									label: proseText("Name"),
+									default_value: "#c/full_name",
+									caseWrite: { caseType: "c", property: "full_name" },
 								}),
 							],
 						},
@@ -357,7 +366,10 @@ describe("expandDoc", () => {
 				},
 			],
 			caseTypes: [
-				{ name: "c", properties: [{ name: "full_name", label: "Full Name" }] },
+				{
+					name: "c",
+					properties: [{ name: "full_name", label: proseText("Full Name") }],
+				},
 			],
 		});
 		const hq = expandDoc(doc);
@@ -394,35 +406,29 @@ describe("expandDoc", () => {
 								f({
 									kind: "single_select",
 									id: "confirm",
-									label: "Close?",
-									optionsSource: {
-										kind: "inline",
-										options: [
-											{
-												uuid: asUuid("cbc2017b-e0bc-4b9d-aa16-10d69884366f"),
-												value: "yes",
-												label: "Yes",
-											},
-											{
-												uuid: asUuid("fe95a7db-0882-46cb-ab37-5b896c8d7528"),
-												value: "no",
-												label: "No",
-											},
-										],
-									},
+									label: proseText("Close?"),
+									options: [
+										{ value: "yes", label: "Yes" },
+										{ value: "no", label: "No" },
+									],
 								}),
 							],
 						},
 						{
 							name: "Always Close",
 							type: "close",
-							fields: [f({ kind: "text", id: "note", label: "Note" })],
+							fields: [
+								f({ kind: "text", id: "note", label: proseText("Note") }),
+							],
 						},
 					],
 				},
 			],
 			caseTypes: [
-				{ name: "case", properties: [{ name: "name", label: "Name" }] },
+				{
+					name: "case",
+					properties: [{ name: "name", label: proseText("Name") }],
+				},
 			],
 		});
 		const hq = expandDoc(doc);
@@ -460,8 +466,8 @@ describe("case_name in case list columns", () => {
 							f({
 								kind: "text",
 								id: "case_name",
-								label: "Name",
-								case_property_on: "patient",
+								label: proseText("Name"),
+								caseWrite: { caseType: "patient", property: "case_name" },
 							}),
 						],
 					},
@@ -469,7 +475,10 @@ describe("case_name in case list columns", () => {
 			},
 		],
 		caseTypes: [
-			{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+			{
+				name: "patient",
+				properties: [{ name: "case_name", label: proseText("Name") }],
+			},
 		],
 	});
 
@@ -509,8 +518,8 @@ describe("runValidation", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Q",
-									case_property_on: "patient",
+									label: proseText("Q"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},
@@ -540,15 +549,17 @@ describe("runValidation", () => {
 								f({
 									kind: "text",
 									id: "name",
-									label: "Q",
-									case_property_on: "c",
+									label: proseText("Q"),
+									caseWrite: { caseType: "c", property: "name" },
 								}),
 							],
 						},
 					],
 				},
 			],
-			caseTypes: [{ name: "c", properties: [{ name: "name", label: "Q" }] }],
+			caseTypes: [
+				{ name: "c", properties: [{ name: "name", label: proseText("Q") }] },
+			],
 		});
 		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(errors.some((e) => e.code === "RESERVED_CASE_PROPERTY")).toBe(true);
@@ -568,23 +579,28 @@ describe("runValidation", () => {
 						{
 							name: "F",
 							type: "registration",
-							fields: [f({ kind: "text", id: "q", label: "Q" })],
+							fields: [f({ kind: "text", id: "q", label: proseText("Q") })],
 						},
 					],
 				},
 			],
-			caseTypes: [{ name: "c", properties: [{ name: "q", label: "Q" }] }],
+			caseTypes: [
+				{ name: "c", properties: [{ name: "q", label: proseText("Q") }] },
+			],
 		});
 		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
-		expect(errors.some((e) => e.code === "NO_CASE_NAME_FIELD")).toBe(true);
+		expect(errors.some((e) => e.code === "CASE_CREATE_NAME_MISSING")).toBe(
+			true,
+		);
 	});
 });
 
 // ── Feature 1: Output References in Labels ──────────────────────────────
 
 describe("output references in labels", () => {
-	// Authors reference fields in prose with hashtags (`#form/name`,
-	// `#case/prop`); the emitter lowers those into `<output>` elements.
+	// Authoring surfaces turn friendly hashtags (`#form/name`,
+	// `#patient/prop`) into typed prose refs; the emitter lowers those refs into
+	// `<output>` elements.
 	// Raw `<output ...>` markup is NOT a supported authoring input — a label
 	// that literally contains it is prose and serializes as escaped text.
 	it("escapes author-written <output> markup as literal label text", () => {
@@ -598,11 +614,13 @@ describe("output references in labels", () => {
 							name: "F",
 							type: "survey",
 							fields: [
-								f({ kind: "text", id: "name", label: "Name" }),
+								f({ kind: "text", id: "name", label: proseText("Name") }),
 								f({
 									kind: "label",
 									id: "greeting",
-									label: 'Hello <output value="/data/name"/>, welcome!',
+									label: proseText(
+										'Hello <output value="/data/name"/>, welcome!',
+									),
 								}),
 							],
 						},
@@ -620,7 +638,7 @@ describe("output references in labels", () => {
 		expect(xform).not.toContain('<output value="/data/name"');
 	});
 
-	it("expands a #case/ hashtag ref in label prose into an <output>", () => {
+	it("expands a typed current-case ref in label prose into an <output>", () => {
 		const doc = buildDoc({
 			appName: "Output",
 			modules: [
@@ -635,13 +653,20 @@ describe("output references in labels", () => {
 								f({
 									kind: "text",
 									id: "full_name",
-									label: "Name",
-									case_property_on: "c",
+									label: proseText("Name"),
+									caseWrite: { caseType: "c", property: "full_name" },
 								}),
 								f({
 									kind: "label",
 									id: "msg",
-									label: "Patient: #case/full_name",
+									label: prose(
+										{ kind: "text", text: "Patient: " },
+										{
+											kind: "case-ref",
+											caseType: "c",
+											property: "full_name",
+										},
+									),
 								}),
 							],
 						},
@@ -649,7 +674,10 @@ describe("output references in labels", () => {
 				},
 			],
 			caseTypes: [
-				{ name: "c", properties: [{ name: "full_name", label: "Full Name" }] },
+				{
+					name: "c",
+					properties: [{ name: "full_name", label: proseText("Full Name") }],
+				},
 			],
 		});
 		const hq = expandDoc(doc);
@@ -659,7 +687,7 @@ describe("output references in labels", () => {
 		expect(xform).toContain('vellum:value="#case/full_name"');
 	});
 
-	it("wraps bare #case/ in label text as <output> tags with expanded XPath", () => {
+	it("lowers several typed current-case refs with expanded XPath", () => {
 		const doc = buildDoc({
 			appName: "BareRef",
 			modules: [
@@ -674,26 +702,44 @@ describe("output references in labels", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "c",
+									label: proseText("Name"),
+									caseWrite: { caseType: "c", property: "case_name" },
 								}),
 								f({
 									kind: "date",
 									id: "start_date",
-									label: "Start",
-									case_property_on: "c",
+									label: proseText("Start"),
+									caseWrite: { caseType: "c", property: "start_date" },
 								}),
 								f({
 									kind: "date",
 									id: "end_date",
-									label: "End",
-									case_property_on: "c",
+									label: proseText("End"),
+									caseWrite: { caseType: "c", property: "end_date" },
 								}),
 								f({
 									kind: "label",
 									id: "summary",
-									label:
-										"Plan: **#case/case_name**, from #case/start_date to #case/end_date",
+									label: prose(
+										{ kind: "text", text: "Plan: **" },
+										{
+											kind: "case-ref",
+											caseType: "c",
+											property: "case_name",
+										},
+										{ kind: "text", text: "**, from " },
+										{
+											kind: "case-ref",
+											caseType: "c",
+											property: "start_date",
+										},
+										{ kind: "text", text: " to " },
+										{
+											kind: "case-ref",
+											caseType: "c",
+											property: "end_date",
+										},
+									),
 								}),
 							],
 						},
@@ -704,16 +750,16 @@ describe("output references in labels", () => {
 				{
 					name: "c",
 					properties: [
-						{ name: "case_name", label: "Name" },
-						{ name: "start_date", label: "Start" },
-						{ name: "end_date", label: "End" },
+						{ name: "case_name", label: proseText("Name") },
+						{ name: "start_date", label: proseText("Start") },
+						{ name: "end_date", label: proseText("End") },
 					],
 				},
 			],
 		});
 		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
-		// Bare #case/ text should not appear in label content
+		// HQ's private #case spelling should not appear as literal label text.
 		expect(xform).not.toContain("#case/case_name**");
 		expect(xform).not.toContain("to #case/end_date");
 		// Shorthand preserved in vellum:value attributes on output tags
@@ -727,7 +773,8 @@ describe("output references in labels", () => {
 		expect(outputCount).toBe(6);
 	});
 
-	it("wraps bare #form/ in label text as <output> tags", () => {
+	it("lowers a typed form-field ref in label text", () => {
+		const userNameUuid = testUuid("bare-form.user-name");
 		const doc = buildDoc({
 			appName: "BareForm",
 			modules: [
@@ -738,11 +785,20 @@ describe("output references in labels", () => {
 							name: "F",
 							type: "survey",
 							fields: [
-								f({ kind: "text", id: "user_name", label: "Your name" }),
+								f({
+									kind: "text",
+									id: "user_name",
+									uuid: userNameUuid,
+									label: proseText("Your name"),
+								}),
 								f({
 									kind: "label",
 									id: "greeting",
-									label: "Hello #form/user_name!",
+									label: prose(
+										{ kind: "text", text: "Hello " },
+										{ kind: "field-ref", uuid: userNameUuid },
+										{ kind: "text", text: "!" },
+									),
 								}),
 							],
 						},
@@ -758,7 +814,7 @@ describe("output references in labels", () => {
 		);
 	});
 
-	it("handles mixed bare hashtags and existing <output> tags in one label", () => {
+	it("lowers multiple typed current-case refs in one label", () => {
 		const doc = buildDoc({
 			appName: "Mixed",
 			modules: [
@@ -773,20 +829,35 @@ describe("output references in labels", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "c",
+									label: proseText("Name"),
+									caseWrite: { caseType: "c", property: "case_name" },
 								}),
 								f({
 									kind: "text",
 									id: "status",
-									label: "Status",
-									case_property_on: "c",
+									label: proseText("Status"),
+									caseWrite: {
+										caseType: "c",
+										property: "workflow_status",
+									},
 								}),
 								f({
 									kind: "label",
 									id: "info",
-									label:
-										'Hello <output value="#case/case_name"/>, status: #case/status',
+									label: prose(
+										{ kind: "text", text: "Hello " },
+										{
+											kind: "case-ref",
+											caseType: "c",
+											property: "case_name",
+										},
+										{ kind: "text", text: ", status: " },
+										{
+											kind: "case-ref",
+											caseType: "c",
+											property: "workflow_status",
+										},
+									),
 								}),
 							],
 						},
@@ -797,21 +868,20 @@ describe("output references in labels", () => {
 				{
 					name: "c",
 					properties: [
-						{ name: "case_name", label: "Name" },
-						{ name: "status", label: "Status" },
+						{ name: "case_name", label: proseText("Name") },
+						{ name: "workflow_status", label: proseText("Status") },
 					],
 				},
 			],
 		});
 		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
-		// The bare #case/status from the label should be wrapped and expanded
+		// Both typed refs are lowered with their friendly current-case shadows.
 		const infoLabel =
 			xform.match(/<text id="info-label">.*?<\/text>/s)?.[0] || "";
-		expect(infoLabel).not.toContain("status: #case/status");
-		// Both existing <output> and bare ref should be expanded with vellum:value
+		expect(infoLabel).not.toContain("status: #case/workflow_status");
 		expect(infoLabel).toContain('vellum:value="#case/case_name"');
-		expect(infoLabel).toContain('vellum:value="#case/status"');
+		expect(infoLabel).toContain('vellum:value="#case/workflow_status"');
 	});
 });
 
@@ -875,7 +945,7 @@ describe("label/hint prose entity escaping", () => {
 		expect(xml).toContain("<value>Rating &lt; 100 and &gt; 50</value>");
 	});
 
-	it("expands a hashtag ref in mixed prose while escaping surrounding `<`", () => {
+	it("expands a typed case ref in mixed prose while escaping surrounding `<`", () => {
 		// Issue #15: a label combining prose with a `<` AND a hashtag ref must
 		// escape the prose `<` (no bogus tag / no itext corruption) while
 		// lowering the hashtag into a real <output> element with the expanded
@@ -894,13 +964,20 @@ describe("label/hint prose entity escaping", () => {
 								f({
 									kind: "text",
 									id: "full_name",
-									label: "Name",
-									case_property_on: "c",
+									label: proseText("Name"),
+									caseWrite: { caseType: "c", property: "full_name" },
 								}),
 								f({
 									kind: "label",
 									id: "msg",
-									label: "Weight < 5kg for #case/full_name",
+									label: prose(
+										{ kind: "text", text: "Weight < 5kg for " },
+										{
+											kind: "case-ref",
+											caseType: "c",
+											property: "full_name",
+										},
+									),
 								}),
 							],
 						},
@@ -908,7 +985,10 @@ describe("label/hint prose entity escaping", () => {
 				},
 			],
 			caseTypes: [
-				{ name: "c", properties: [{ name: "full_name", label: "Full Name" }] },
+				{
+					name: "c",
+					properties: [{ name: "full_name", label: proseText("Full Name") }],
+				},
 			],
 		});
 		const xml = firstFormXml(doc);
@@ -932,7 +1012,7 @@ describe("label/hint prose entity escaping", () => {
 		expect(xml).not.toContain('<output value="x"');
 	});
 
-	it("still expands a bare hashtag in prose (regression)", () => {
+	it("still expands a typed case ref in prose (regression)", () => {
 		const doc = buildDoc({
 			appName: "Bare in prose",
 			modules: [
@@ -947,20 +1027,36 @@ describe("label/hint prose entity escaping", () => {
 								f({
 									kind: "text",
 									id: "name",
-									label: "Name",
-									case_property_on: "c",
+									label: proseText("Name"),
+									caseWrite: { caseType: "c", property: "display_name" },
 								}),
-								f({ kind: "label", id: "hi", label: "Hello #case/name" }),
+								f({
+									kind: "label",
+									id: "hi",
+									label: prose(
+										{ kind: "text", text: "Hello " },
+										{
+											kind: "case-ref",
+											caseType: "c",
+											property: "display_name",
+										},
+									),
+								}),
 							],
 						},
 					],
 				},
 			],
-			caseTypes: [{ name: "c", properties: [{ name: "name", label: "Name" }] }],
+			caseTypes: [
+				{
+					name: "c",
+					properties: [{ name: "display_name", label: proseText("Name") }],
+				},
+			],
 		});
 		const xml = firstFormXml(doc);
-		expect(xml).not.toContain("Hello #case/name<");
-		expect(xml).toContain('vellum:value="#case/name"');
+		expect(xml).not.toContain("Hello #case/display_name<");
+		expect(xml).toContain('vellum:value="#case/display_name"');
 		expect(xml).toContain('<output value="instance(');
 	});
 
@@ -1008,23 +1104,12 @@ describe("select option itext ids — index-keyed (issue #10)", () => {
 								f({
 									kind: "single_select",
 									id: "rating",
-									label: "Rating",
+									label: proseText("Rating"),
 									// Both options carry value "3" — the bug trigger.
-									optionsSource: {
-										kind: "inline",
-										options: [
-											{
-												uuid: asUuid("317725f7-10c0-4d87-a552-74ba108bee41"),
-												value: "3",
-												label: "Three (low scale)",
-											},
-											{
-												uuid: asUuid("cd1afe3a-3b2f-4b69-a243-85e6c7eb7ed3"),
-												value: "3",
-												label: "Three (high scale)",
-											},
-										],
-									},
+									options: [
+										{ value: "3", label: "Three (low scale)" },
+										{ value: "3", label: "Three (high scale)" },
+									],
 								}),
 							],
 						},
@@ -1070,22 +1155,11 @@ describe("select option itext ids — index-keyed (issue #10)", () => {
 								f({
 									kind: "multi_select",
 									id: "tags",
-									label: "Tags",
-									optionsSource: {
-										kind: "inline",
-										options: [
-											{
-												uuid: asUuid("eb74327e-8ae2-4368-a500-ea2cad47edb0"),
-												value: "x",
-												label: "First X",
-											},
-											{
-												uuid: asUuid("187ff41e-3d8d-4e98-aaab-a643d2712367"),
-												value: "x",
-												label: "Second X",
-											},
-										],
-									},
+									label: proseText("Tags"),
+									options: [
+										{ value: "x", label: "First X" },
+										{ value: "x", label: "Second X" },
+									],
 								}),
 							],
 						},
@@ -1119,22 +1193,11 @@ describe("select option itext ids — index-keyed (issue #10)", () => {
 								f({
 									kind: "single_select",
 									id: "confirm",
-									label: "Confirm?",
-									optionsSource: {
-										kind: "inline",
-										options: [
-											{
-												uuid: asUuid("51ca1dbb-e08b-4f60-a49f-41ba5f668d7a"),
-												value: "yes",
-												label: "Yes",
-											},
-											{
-												uuid: asUuid("c45d52dc-2511-4934-a0d2-f7e65de71cc6"),
-												value: "no",
-												label: "No",
-											},
-										],
-									},
+									label: proseText("Confirm?"),
+									options: [
+										{ value: "yes", label: "Yes" },
+										{ value: "no", label: "No" },
+									],
 								}),
 							],
 						},
@@ -1177,7 +1240,7 @@ describe("markdown itext for all field kinds", () => {
 								f({
 									kind: "text",
 									id: "name",
-									label: "Enter your **full name**",
+									label: proseText("Enter your **full name**"),
 								}),
 							],
 						},
@@ -1209,22 +1272,14 @@ describe("markdown itext for all field kinds", () => {
 								f({
 									kind: "single_select",
 									id: "status",
-									label: "Current **status**",
-									optionsSource: {
-										kind: "inline",
-										options: [
-											{
-												uuid: asUuid("40dd614d-526c-4586-a2af-1b69d1a389a9"),
-												value: "active",
-												label: "**Active** — currently enrolled",
-											},
-											{
-												uuid: asUuid("a2e905f9-3034-435e-a867-7ac0b5254527"),
-												value: "inactive",
-												label: "_Inactive_",
-											},
-										],
-									},
+									label: proseText("Current **status**"),
+									options: [
+										{
+											value: "active",
+											label: "**Active** — currently enrolled",
+										},
+										{ value: "inactive", label: "_Inactive_" },
+									],
 								}),
 							],
 						},
@@ -1264,8 +1319,8 @@ describe("markdown itext for all field kinds", () => {
 								f({
 									kind: "int",
 									id: "age",
-									label: "Age",
-									hint: "Enter age in **years**",
+									label: proseText("Age"),
+									hint: proseText("Enter age in **years**"),
 								}),
 							],
 						},
@@ -1296,8 +1351,10 @@ describe("markdown itext for all field kinds", () => {
 								f({
 									kind: "group",
 									id: "demographics",
-									label: "## Demographics",
-									children: [f({ kind: "text", id: "name", label: "Name" })],
+									label: proseText("## Demographics"),
+									children: [
+										f({ kind: "text", id: "name", label: proseText("Name") }),
+									],
 								}),
 							],
 						},
@@ -1327,9 +1384,13 @@ describe("markdown itext for all field kinds", () => {
 								f({
 									kind: "repeat",
 									id: "children",
-									label: "Add **child** details",
+									label: proseText("Add **child** details"),
 									children: [
-										f({ kind: "text", id: "child_name", label: "Child name" }),
+										f({
+											kind: "text",
+											id: "child_name",
+											label: proseText("Child name"),
+										}),
 									],
 								}),
 							],
@@ -1361,10 +1422,18 @@ describe("markdown itext for all field kinds", () => {
 								f({
 									kind: "date",
 									id: "visit_date",
-									label: "Date of **visit**",
+									label: proseText("Date of **visit**"),
 								}),
-								f({ kind: "decimal", id: "weight", label: "Weight _(kg)_" }),
-								f({ kind: "image", id: "photo", label: "Take a **photo**" }),
+								f({
+									kind: "decimal",
+									id: "weight",
+									label: proseText("Weight _(kg)_"),
+								}),
+								f({
+									kind: "image",
+									id: "photo",
+									label: proseText("Take a **photo**"),
+								}),
 							],
 						},
 					],
@@ -1400,8 +1469,12 @@ describe("#form/ hashtag expansion", () => {
 							name: "F",
 							type: "survey",
 							fields: [
-								f({ kind: "text", id: "first_name", label: "First" }),
-								f({ kind: "text", id: "last_name", label: "Last" }),
+								f({
+									kind: "text",
+									id: "first_name",
+									label: proseText("First"),
+								}),
+								f({ kind: "text", id: "last_name", label: proseText("Last") }),
 								f({
 									kind: "hidden",
 									id: "full_name",
@@ -1437,27 +1510,16 @@ describe("#form/ hashtag expansion", () => {
 								f({
 									kind: "single_select",
 									id: "consent",
-									label: "Consent?",
-									optionsSource: {
-										kind: "inline",
-										options: [
-											{
-												uuid: asUuid("49dae0db-31d6-41e0-ab1b-4dd18f0772be"),
-												value: "yes",
-												label: "Yes",
-											},
-											{
-												uuid: asUuid("21a25ef4-9ad8-4e8f-ad6d-61356498efd6"),
-												value: "no",
-												label: "No",
-											},
-										],
-									},
+									label: proseText("Consent?"),
+									options: [
+										{ value: "yes", label: "Yes" },
+										{ value: "no", label: "No" },
+									],
 								}),
 								f({
 									kind: "text",
 									id: "details",
-									label: "Details",
+									label: proseText("Details"),
 									relevant: "#form/consent = 'yes'",
 								}),
 							],
@@ -1485,11 +1547,15 @@ describe("#form/ hashtag expansion", () => {
 							name: "F",
 							type: "survey",
 							fields: [
-								f({ kind: "date", id: "start_date", label: "Start" }),
+								f({
+									kind: "date",
+									id: "start_date",
+									label: proseText("Start"),
+								}),
 								f({
 									kind: "date",
 									id: "end_date",
-									label: "End",
+									label: proseText("End"),
 									validate: ". >= #form/start_date",
 								}),
 							],
@@ -1530,9 +1596,9 @@ describe("#form/ hashtag expansion", () => {
 								f({
 									kind: "int",
 									id: "age",
-									label: "Age",
+									label: proseText("Age"),
 									validate: ". > 0 and . < 150",
-									validate_msg: "Age must be between 1 and 149",
+									validate_msg: proseText("Age must be between 1 and 149"),
 								}),
 							],
 						},
@@ -1592,7 +1658,7 @@ describe("#form/ hashtag expansion", () => {
 									id: "risk",
 									calculate: "if(/data/age > 65, 'high', 'low')",
 									validate: ". != 'unknown'",
-									validate_msg: "Risk must resolve",
+									validate_msg: proseText("Risk must resolve"),
 								},
 							],
 						},
@@ -1624,15 +1690,17 @@ describe("#form/ hashtag expansion", () => {
 								{
 									kind: "label",
 									id: "section_header",
-									label: "Demographics",
-									validate_msg: "should never appear",
+									label: proseText("Demographics"),
+									validate_msg: proseText("should never appear"),
 								},
 								{
 									kind: "group",
 									id: "demographics",
-									label: "Demographics",
-									validate_msg: "should never appear either",
-									children: [f({ kind: "text", id: "name", label: "Name" })],
+									label: proseText("Demographics"),
+									validate_msg: proseText("should never appear either"),
+									children: [
+										f({ kind: "text", id: "name", label: proseText("Name") }),
+									],
 								},
 							],
 						},
@@ -1664,27 +1732,16 @@ describe("#form/ hashtag expansion", () => {
 								f({
 									kind: "single_select",
 									id: "has_issue",
-									label: "Issue?",
-									optionsSource: {
-										kind: "inline",
-										options: [
-											{
-												uuid: asUuid("1dd4cd1b-283b-49a2-aa2f-1dc5a4d17782"),
-												value: "yes",
-												label: "Yes",
-											},
-											{
-												uuid: asUuid("56e4904a-9035-4686-a3f3-52eb6835a237"),
-												value: "no",
-												label: "No",
-											},
-										],
-									},
+									label: proseText("Issue?"),
+									options: [
+										{ value: "yes", label: "Yes" },
+										{ value: "no", label: "No" },
+									],
 								}),
 								f({
 									kind: "text",
 									id: "details",
-									label: "Details",
+									label: proseText("Details"),
 									required: "#form/has_issue = 'yes'",
 								}),
 							],
@@ -1704,7 +1761,8 @@ describe("#form/ hashtag expansion", () => {
 		expect(xform).not.toContain("vellum:required=");
 	});
 
-	it("expands #form/ in <output> tags with vellum:value", () => {
+	it("lowers a typed form-field prose ref with vellum:value", () => {
+		const textValueUuid = testUuid("form-ref.text-value");
 		const doc = buildDoc({
 			appName: "FormRef",
 			modules: [
@@ -1718,13 +1776,17 @@ describe("#form/ hashtag expansion", () => {
 								f({
 									kind: "hidden",
 									id: "text_value",
+									uuid: textValueUuid,
 									calculate: "'Text'",
 									default_value: "'Text'",
 								}),
 								f({
 									kind: "label",
 									id: "here",
-									label: 'Here <output value="#form/text_value"/>',
+									label: prose(
+										{ kind: "text", text: "Here " },
+										{ kind: "field-ref", uuid: textValueUuid },
+									),
 								}),
 							],
 						},
@@ -1750,8 +1812,8 @@ describe("#form/ hashtag expansion", () => {
 							name: "F",
 							type: "survey",
 							fields: [
-								f({ kind: "int", id: "score_a", label: "Score A" }),
-								f({ kind: "int", id: "score_b", label: "Score B" }),
+								f({ kind: "int", id: "score_a", label: proseText("Score A") }),
+								f({ kind: "int", id: "score_b", label: proseText("Score B") }),
 								f({
 									kind: "hidden",
 									id: "total",
@@ -1781,8 +1843,8 @@ describe("#form/ hashtag expansion", () => {
 							name: "F",
 							type: "survey",
 							fields: [
-								f({ kind: "text", id: "name", label: "Name" }),
-								f({ kind: "int", id: "age", label: "Age" }),
+								f({ kind: "text", id: "name", label: proseText("Name") }),
+								f({ kind: "int", id: "age", label: proseText("Age") }),
 							],
 						},
 					],
@@ -1809,8 +1871,10 @@ describe("#form/ hashtag expansion", () => {
 								f({
 									kind: "group",
 									id: "grp",
-									label: "Group",
-									children: [f({ kind: "text", id: "inner", label: "Inner" })],
+									label: proseText("Group"),
+									children: [
+										f({ kind: "text", id: "inner", label: proseText("Inner") }),
+									],
 								}),
 							],
 						},
@@ -1867,29 +1931,20 @@ describe("#form/ hashtag expansion", () => {
 								f({
 									kind: "single_select",
 									id: "show",
-									label: "Show?",
-									optionsSource: {
-										kind: "inline",
-										options: [
-											{
-												uuid: asUuid("437eb976-272e-4bb9-a44d-f7510090eecc"),
-												value: "yes",
-												label: "Yes",
-											},
-											{
-												uuid: asUuid("c3c7c9c8-460e-4600-ae84-2d788263766f"),
-												value: "no",
-												label: "No",
-											},
-										],
-									},
+									label: proseText("Show?"),
+									options: [
+										{ value: "yes", label: "Yes" },
+										{ value: "no", label: "No" },
+									],
 								}),
 								f({
 									kind: "group",
 									id: "details",
-									label: "Details",
+									label: proseText("Details"),
 									relevant: "#form/show = 'yes'",
-									children: [f({ kind: "text", id: "info", label: "Info" })],
+									children: [
+										f({ kind: "text", id: "info", label: proseText("Info") }),
+									],
 								}),
 							],
 						},
@@ -1915,7 +1970,7 @@ describe("#form/ hashtag expansion", () => {
 							name: "F",
 							type: "survey",
 							fields: [
-								f({ kind: "int", id: "a", label: "A" }),
+								f({ kind: "int", id: "a", label: proseText("A") }),
 								f({
 									kind: "hidden",
 									id: "b",
@@ -1938,12 +1993,13 @@ describe("#form/ hashtag expansion", () => {
 		expect(xform).toContain('calculate="/data/a * 2"');
 	});
 
-	it("resolves a #<case_type>/<prop> ref to the same parent-index walk as #case/", () => {
+	it("resolves a typed case ref to the private HQ parent-index wire walk", () => {
 		// `pregnancy` (own, depth 0) → `mother` (parent, depth 1). A field's
 		// calculate reads the mother's household_code via the per-type namespace;
 		// the wire XPath must be the depth-1 parent-index walk, byte-identical to
-		// what `#case/parent/household_code` emits. This is also the casedb-instance
-		// guard: the ONLY case reference here is `#mother/...` (no `#case/`), so a
+		// the private HQ `#case/parent/household_code` projection names. This is
+		// also the casedb-instance guard: the only authored case reference here
+		// is `#mother/...`, so a
 		// missing instance declaration would emit a casedb lookup with no source.
 		const doc = buildDoc({
 			appName: "CaseTypeRefs",
@@ -1971,21 +2027,25 @@ describe("#form/ hashtag expansion", () => {
 				{
 					name: "pregnancy",
 					parent_type: "mother",
-					properties: [{ name: "ga", label: "GA" }],
+					properties: [{ name: "ga", label: proseText("GA") }],
 				},
 				{
 					name: "mother",
-					properties: [{ name: "household_code", label: "Household Code" }],
+					properties: [
+						{ name: "household_code", label: proseText("Household Code") },
+					],
 				},
 			],
 		});
 		const hq = expandDoc(doc);
 		const xform = Object.values(hq._attachments)[0] as string;
-		// The resolved `calculate` is byte-identical to the legacy `#case/parent`
+		// The resolved `calculate` is byte-identical to the established
+		// `#case/parent`
 		// walk (apostrophes XML-escaped by the serializer in the attribute value).
-		const escapedWalk = expandHashtags(
-			"#case/parent/household_code",
-		).replaceAll("'", "&apos;");
+		const escapedWalk = expandCaseToWire(1, "household_code").replaceAll(
+			"'",
+			"&apos;",
+		);
 		expect(xform).toContain(`calculate="${escapedWalk}"`);
 		// No shadow at all for an ancestor ref: HQ's editor has no `#mother`
 		// namespace, and even `#case/parent/` is only present when the app's own
@@ -2019,7 +2079,14 @@ describe("#form/ hashtag expansion", () => {
 								f({
 									kind: "text",
 									id: "code_note",
-									label: "Code: #mother/household_code",
+									label: prose(
+										{ kind: "text", text: "Code: " },
+										{
+											kind: "case-ref",
+											caseType: "mother",
+											property: "household_code",
+										},
+									),
 								}),
 							],
 						},
@@ -2030,19 +2097,22 @@ describe("#form/ hashtag expansion", () => {
 				{
 					name: "pregnancy",
 					parent_type: "mother",
-					properties: [{ name: "ga", label: "GA" }],
+					properties: [{ name: "ga", label: proseText("GA") }],
 				},
 				{
 					name: "mother",
-					properties: [{ name: "household_code", label: "Household Code" }],
+					properties: [
+						{ name: "household_code", label: proseText("Household Code") },
+					],
 				},
 			],
 		});
 		const hq = expandDoc(doc);
 		const xform = Object.values(hq._attachments)[0] as string;
-		const escapedWalk = expandHashtags(
-			"#case/parent/household_code",
-		).replaceAll("'", "&apos;");
+		const escapedWalk = expandCaseToWire(1, "household_code").replaceAll(
+			"'",
+			"&apos;",
+		);
 		// Prose lowers to an `<output>` carrying the resolved parent-index walk.
 		// No `vellum:value` shadow: an ancestor generation isn't guaranteed
 		// vocabulary in HQ's editor (see the calculate variant of this test), and
@@ -2078,12 +2148,12 @@ describe("#form/ hashtag expansion", () => {
 								f({
 									kind: "text",
 									id: "selected_medication",
-									label: "Medication",
+									label: proseText("Medication"),
 								}),
 								f({
 									kind: "label",
 									id: "penicillin_allergy_alert",
-									label: "Allergy alert!",
+									label: proseText("Allergy alert!"),
 									relevant:
 										"#form/selected_medication != '' and contains(lower-case(#patient/allergen), 'penicillin')",
 								}),
@@ -2096,8 +2166,8 @@ describe("#form/ hashtag expansion", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "name", label: "Name" },
-						{ name: "allergen", label: "Allergen" },
+						{ name: "name", label: proseText("Name") },
+						{ name: "allergen", label: proseText("Allergen") },
 					],
 				},
 			],
@@ -2106,9 +2176,11 @@ describe("#form/ hashtag expansion", () => {
 		const xform = Object.values(hq._attachments)[0] as string;
 
 		// Real attribute: fully expanded XPath, no hashtags.
-		const expanded = expandHashtags(
-			"/data/selected_medication != '' and contains(lower-case(#case/allergen), 'penicillin')",
-		).replaceAll("'", "&apos;");
+		const expanded =
+			`/data/selected_medication != '' and contains(lower-case(${expandCaseToWire(
+				0,
+				"allergen",
+			)}), 'penicillin')`.replaceAll("'", "&apos;");
 		expect(xform).toContain(`relevant="${expanded}"`);
 		// Shadow attribute: the editor's vocabulary, not Nova's per-type namespace.
 		expect(xform).toContain(
@@ -2123,14 +2195,16 @@ describe("#form/ hashtag expansion", () => {
 			s.replaceAll('"', "&quot;").replaceAll("'", "&apos;");
 		expect(xform).toContain(
 			`<vellum:hashtags>${xmlEscape(
-				JSON.stringify({ "#case/allergen": expandHashtags("#case/allergen") }),
+				JSON.stringify({
+					"#case/allergen": expandCaseToWire(0, "allergen"),
+				}),
 			)}</vellum:hashtags>`,
 		);
 		expect(xform).toContain(
 			`<vellum:hashtagTransforms>${xmlEscape(
 				JSON.stringify({
 					prefixes: {
-						"#case/": expandHashtags("#case/allergen").slice(
+						"#case/": expandCaseToWire(0, "allergen").slice(
 							0,
 							-"allergen".length,
 						),
@@ -2164,8 +2238,8 @@ describe("#form/ hashtag expansion", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 								f({
 									kind: "hidden",
@@ -2178,7 +2252,10 @@ describe("#form/ hashtag expansion", () => {
 				},
 			],
 			caseTypes: [
-				{ name: "patient", properties: [{ name: "name", label: "Name" }] },
+				{
+					name: "patient",
+					properties: [{ name: "name", label: proseText("Name") }],
+				},
 			],
 		});
 		const hq = expandDoc(doc);
@@ -2194,15 +2271,9 @@ describe("#form/ hashtag expansion", () => {
 	});
 
 	it("keeps an unresolvable prose token literal — no <output>, no casedb", () => {
-		// The broad `BARE_HASHTAG_RE` matches innocent prose tokens too: an
-		// unreachable namespace (`#section/intro`), a junk token (`#N/A`), or a
-		// CHILD case type (`#child/name` — a write target, absent from the form's
-		// reachable read set). `expand` returns each verbatim, and prose lowering is
-		// gated on a CHANGED string, so none lower to `<output>` (a verbatim
-		// `<output value="#N/A">` would be broken XPath on device). They stay
-		// literal escaped text, exactly as before the regex was broadened —
-		// authoring-time flagging of a misdirected per-type prose ref is a separate
-		// validator job.
+		// Plain prose has no implicit reference syntax. An unreachable namespace
+		// (`#section/intro`), junk token (`#N/A`), or child case-looking token
+		// remains literal text and never lowers to `<output>` or a casedb read.
 		const doc = buildDoc({
 			appName: "JunkProse",
 			modules: [
@@ -2218,7 +2289,9 @@ describe("#form/ hashtag expansion", () => {
 								f({
 									kind: "text",
 									id: "junk_note",
-									label: "Codes #N/A and #child/name and #section/intro",
+									label: proseText(
+										"Codes #N/A and #child/name and #section/intro",
+									),
 								}),
 							],
 						},
@@ -2226,7 +2299,10 @@ describe("#form/ hashtag expansion", () => {
 				},
 			],
 			caseTypes: [
-				{ name: "pregnancy", properties: [{ name: "ga", label: "GA" }] },
+				{
+					name: "pregnancy",
+					properties: [{ name: "ga", label: proseText("GA") }],
+				},
 			],
 		});
 		const hq = expandDoc(doc);
@@ -2259,9 +2335,16 @@ describe("#form/ hashtag expansion", () => {
 								f({
 									kind: "text",
 									id: "code",
-									label: "Code",
+									label: proseText("Code"),
 									validate: "string-length(.) > 0",
-									validate_msg: "Must match #mother/household_code",
+									validate_msg: prose(
+										{ kind: "text", text: "Must match " },
+										{
+											kind: "case-ref",
+											caseType: "mother",
+											property: "household_code",
+										},
+									),
 								}),
 							],
 						},
@@ -2272,19 +2355,22 @@ describe("#form/ hashtag expansion", () => {
 				{
 					name: "pregnancy",
 					parent_type: "mother",
-					properties: [{ name: "ga", label: "GA" }],
+					properties: [{ name: "ga", label: proseText("GA") }],
 				},
 				{
 					name: "mother",
-					properties: [{ name: "household_code", label: "Household Code" }],
+					properties: [
+						{ name: "household_code", label: proseText("Household Code") },
+					],
 				},
 			],
 		});
 		const hq = expandDoc(doc);
 		const xform = Object.values(hq._attachments)[0] as string;
-		const escapedWalk = expandHashtags(
-			"#case/parent/household_code",
-		).replaceAll("'", "&apos;");
+		const escapedWalk = expandCaseToWire(1, "household_code").replaceAll(
+			"'",
+			"&apos;",
+		);
 		// The validate_msg prose lowered to an <output> carrying the resolved walk…
 		expect(xform).toContain(`<output value="${escapedWalk}"`);
 		// …and the casedb instance is declared (the bug this guards against).
@@ -2309,7 +2395,7 @@ describe("#form/ hashtag expansion", () => {
 							name: "F",
 							type: "survey",
 							fields: [
-								f({ kind: "int", id: "a", label: "A" }),
+								f({ kind: "int", id: "a", label: proseText("A") }),
 								f({
 									kind: "hidden",
 									id: "b",
@@ -2342,7 +2428,12 @@ describe("conditional required", () => {
 							name: "F",
 							type: "survey",
 							fields: [
-								f({ kind: "text", id: "q", label: "Q", required: "true()" }),
+								f({
+									kind: "text",
+									id: "q",
+									label: proseText("Q"),
+									required: "true()",
+								}),
 							],
 						},
 					],
@@ -2368,27 +2459,16 @@ describe("conditional required", () => {
 								f({
 									kind: "single_select",
 									id: "consent",
-									label: "Consent?",
-									optionsSource: {
-										kind: "inline",
-										options: [
-											{
-												uuid: asUuid("0fc0ae25-289d-4b93-af9d-a4c189b1f5cc"),
-												value: "yes",
-												label: "Yes",
-											},
-											{
-												uuid: asUuid("037f8ef2-116a-41af-a208-ae53a405bf3a"),
-												value: "no",
-												label: "No",
-											},
-										],
-									},
+									label: proseText("Consent?"),
+									options: [
+										{ value: "yes", label: "Yes" },
+										{ value: "no", label: "No" },
+									],
 								}),
 								f({
 									kind: "text",
 									id: "details",
-									label: "Details",
+									label: proseText("Details"),
 									required: "/data/consent = 'yes'",
 								}),
 							],
@@ -2403,7 +2483,7 @@ describe("conditional required", () => {
 		expect(xform).not.toContain('required="true()"');
 	});
 
-	it("expands #case/ hashtags in required XPath and adds vellum:requiredCondition", () => {
+	it("expands a typed case ref in required XPath and emits HQ shorthand", () => {
 		const doc = buildDoc({
 			appName: "R",
 			modules: [
@@ -2418,21 +2498,23 @@ describe("conditional required", () => {
 								f({
 									kind: "text",
 									id: "risk",
-									label: "Q",
-									case_property_on: "c",
+									label: proseText("Q"),
+									caseWrite: { caseType: "c", property: "risk" },
 								}),
 								f({
 									kind: "text",
 									id: "notes",
-									label: "Notes",
-									required: "#case/risk = 'high'",
+									label: proseText("Notes"),
+									required: "#c/risk = 'high'",
 								}),
 							],
 						},
 					],
 				},
 			],
-			caseTypes: [{ name: "c", properties: [{ name: "risk", label: "Risk" }] }],
+			caseTypes: [
+				{ name: "c", properties: [{ name: "risk", label: proseText("Risk") }] },
+			],
 		});
 		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
@@ -2465,8 +2547,8 @@ describe("case detail (long) view", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "c",
+									label: proseText("Name"),
+									caseWrite: { caseType: "c", property: "case_name" },
 								}),
 							],
 						},
@@ -2474,7 +2556,10 @@ describe("case detail (long) view", () => {
 				},
 			],
 			caseTypes: [
-				{ name: "c", properties: [{ name: "case_name", label: "Name" }] },
+				{
+					name: "c",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
 			],
 		});
 		const hq = expandDoc(doc);
@@ -2493,18 +2578,18 @@ describe("case detail (long) view", () => {
 		// `plain` format because `visibleInDetail` is unset (default
 		// true).
 		const caseNameCol = plainColumn(
-			asUuid("00000000-0000-4000-8000-000000000001"),
+			testUuid("00000000-0000-4000-8000-000000000001"),
 			"case_name",
 			"Name",
 		);
 		const ageCol = plainColumn(
-			asUuid("00000000-0000-4000-8000-000000000002"),
+			testUuid("00000000-0000-4000-8000-000000000002"),
 			"age",
 			"Age",
 			{ visibleInList: false },
 		);
 		const dobCol = plainColumn(
-			asUuid("00000000-0000-4000-8000-000000000003"),
+			testUuid("00000000-0000-4000-8000-000000000003"),
 			"dob",
 			"Date of Birth",
 			{ visibleInList: false },
@@ -2527,8 +2612,8 @@ describe("case detail (long) view", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "c",
+									label: proseText("Name"),
+									caseWrite: { caseType: "c", property: "case_name" },
 								}),
 							],
 						},
@@ -2536,7 +2621,10 @@ describe("case detail (long) view", () => {
 				},
 			],
 			caseTypes: [
-				{ name: "c", properties: [{ name: "case_name", label: "Name" }] },
+				{
+					name: "c",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
 			],
 		});
 		const hq = expandDoc(doc);
@@ -2572,7 +2660,13 @@ describe("single language itext", () => {
 						{
 							name: "F",
 							type: "survey",
-							fields: [f({ kind: "text", id: "name", label: "Patient Name" })],
+							fields: [
+								f({
+									kind: "text",
+									id: "name",
+									label: proseText("Patient Name"),
+								}),
+							],
 						},
 					],
 				},
@@ -2603,7 +2697,7 @@ describe("jr-insert for repeat defaults", () => {
 								f({
 									kind: "repeat",
 									id: "items",
-									label: "Items",
+									label: proseText("Items"),
 									children: [
 										f({
 											kind: "hidden",
@@ -2676,9 +2770,13 @@ describe("jr-insert for repeat defaults", () => {
 								f({
 									kind: "repeat",
 									id: "items",
-									label: "Items",
+									label: proseText("Items"),
 									children: [
-										f({ kind: "text", id: "item_name", label: "Item" }),
+										f({
+											kind: "text",
+											id: "item_name",
+											label: proseText("Item"),
+										}),
 									],
 								}),
 							],
@@ -2711,14 +2809,14 @@ describe("expansion with complete fields", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Patient Name",
-									case_property_on: "patient",
+									label: proseText("Patient Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 								f({
 									kind: "int",
 									id: "age",
-									label: "Age",
-									case_property_on: "patient",
+									label: proseText("Age"),
+									caseWrite: { caseType: "patient", property: "age" },
 								}),
 							],
 						},
@@ -2726,7 +2824,10 @@ describe("expansion with complete fields", () => {
 				},
 			],
 			caseTypes: [
-				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
 			],
 		});
 		const hq = expandDoc(doc);
@@ -2750,8 +2851,8 @@ describe("expansion with complete fields", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Patient Name",
-									case_property_on: "patient",
+									label: proseText("Patient Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},
@@ -2761,7 +2862,7 @@ describe("expansion with complete fields", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "case_name", label: "WRONG" }],
+					properties: [{ name: "case_name", label: proseText("WRONG") }],
 				},
 			],
 		});
@@ -2798,7 +2899,7 @@ describe("unquoted string literal detection", () => {
 								{
 									kind: "text",
 									id: "q",
-									label: "Q",
+									label: proseText("Q"),
 									...overrides,
 								} as unknown as Parameters<typeof f>[0],
 							],
@@ -2882,7 +2983,7 @@ describe("unquoted string literal detection", () => {
 
 	it("allows hashtag references", () => {
 		const errors = runValidation(
-			makeDoc({ kind: "hidden", calculate: "#case/status" }),
+			makeDoc({ kind: "hidden", calculate: "#patient/status" }),
 			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		expect(errors.some((e) => e.code === "UNQUOTED_STRING_LITERAL")).toBe(
@@ -2934,7 +3035,7 @@ describe("unquoted string literal detection", () => {
 								f({
 									kind: "group",
 									id: "grp",
-									label: "Group",
+									label: proseText("Group"),
 									children: [
 										f({
 											kind: "hidden",
@@ -2966,7 +3067,7 @@ describe("unquoted string literal detection", () => {
 describe("child case type module requirement", () => {
 	it("errors when forms create cases of a type that has no module", () => {
 		// The finding keys on WRITERS: the parent form registers `service`
-		// child cases (a `case_property_on: service` bucket), but no module
+		// child cases (a `caseWrite: service.case_name` bucket), but no module
 		// owns `service` — the created cases would be invisible. A record
 		// alone (no writers) is a legal plan and stays clean.
 		const doc = buildDoc({
@@ -2986,14 +3087,14 @@ describe("child case type module requirement", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Plan Name",
-									case_property_on: "plan",
+									label: proseText("Plan Name"),
+									caseWrite: { caseType: "plan", property: "case_name" },
 								}),
 								f({
 									kind: "text",
 									id: "service_note",
-									label: "Service note",
-									case_property_on: "service",
+									label: proseText("Service note"),
+									caseWrite: { caseType: "service", property: "service_note" },
 								}),
 							],
 						},
@@ -3003,12 +3104,12 @@ describe("child case type module requirement", () => {
 			caseTypes: [
 				{
 					name: "plan",
-					properties: [{ name: "case_name", label: "Plan Name" }],
+					properties: [{ name: "case_name", label: proseText("Plan Name") }],
 				},
 				{
 					name: "service",
 					parent_type: "plan",
-					properties: [{ name: "case_name", label: "Service Name" }],
+					properties: [{ name: "case_name", label: proseText("Service Name") }],
 				},
 			],
 		});
@@ -3036,8 +3137,8 @@ describe("child case type module requirement", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Plan Name",
-									case_property_on: "plan",
+									label: proseText("Plan Name"),
+									caseWrite: { caseType: "plan", property: "case_name" },
 								}),
 							],
 						},
@@ -3056,12 +3157,12 @@ describe("child case type module requirement", () => {
 			caseTypes: [
 				{
 					name: "plan",
-					properties: [{ name: "case_name", label: "Plan Name" }],
+					properties: [{ name: "case_name", label: proseText("Plan Name") }],
 				},
 				{
 					name: "service",
 					parent_type: "plan",
-					properties: [{ name: "case_name", label: "Service Name" }],
+					properties: [{ name: "case_name", label: proseText("Service Name") }],
 				},
 			],
 		});
@@ -3097,7 +3198,7 @@ describe("case_list_only validation", () => {
 						{
 							name: "F",
 							type: "followup",
-							fields: [f({ kind: "text", id: "q", label: "Q" })],
+							fields: [f({ kind: "text", id: "q", label: proseText("Q") })],
 						},
 					],
 				},
@@ -3162,8 +3263,8 @@ describe("case_list_only expansion", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Plan Name",
-									case_property_on: "plan",
+									label: proseText("Plan Name"),
+									caseWrite: { caseType: "plan", property: "case_name" },
 								}),
 							],
 						},
@@ -3182,12 +3283,12 @@ describe("case_list_only expansion", () => {
 			caseTypes: [
 				{
 					name: "plan",
-					properties: [{ name: "case_name", label: "Plan Name" }],
+					properties: [{ name: "case_name", label: proseText("Plan Name") }],
 				},
 				{
 					name: "service",
 					parent_type: "plan",
-					properties: [{ name: "case_name", label: "Service Name" }],
+					properties: [{ name: "case_name", label: proseText("Service Name") }],
 				},
 			],
 		});
@@ -3212,7 +3313,10 @@ describe("case_list_only expansion", () => {
 				},
 			],
 			caseTypes: [
-				{ name: "service", properties: [{ name: "case_name", label: "Name" }] },
+				{
+					name: "service",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
 			],
 		});
 		const hq = expandDoc(doc);
@@ -3234,8 +3338,8 @@ describe("case_list_only expansion", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Plan Name",
-									case_property_on: "plan",
+									label: proseText("Plan Name"),
+									caseWrite: { caseType: "plan", property: "case_name" },
 								}),
 							],
 						},
@@ -3254,12 +3358,12 @@ describe("case_list_only expansion", () => {
 			caseTypes: [
 				{
 					name: "plan",
-					properties: [{ name: "case_name", label: "Plan Name" }],
+					properties: [{ name: "case_name", label: proseText("Plan Name") }],
 				},
 				{
 					name: "service",
 					parent_type: "plan",
-					properties: [{ name: "case_name", label: "Service Name" }],
+					properties: [{ name: "case_name", label: proseText("Service Name") }],
 				},
 			],
 		});
@@ -3333,7 +3437,7 @@ describe("empty container expansion", () => {
 								f({
 									kind: "group",
 									id: "demographics",
-									label: "Demographics",
+									label: proseText("Demographics"),
 									children: [],
 								}),
 							],
@@ -3378,22 +3482,22 @@ describe("nested container expansion", () => {
 								f({
 									kind: "repeat",
 									id: "visits",
-									label: "Visits",
+									label: proseText("Visits"),
 									children: [
 										f({
 											kind: "group",
 											id: "vitals",
-											label: "Vitals",
+											label: proseText("Vitals"),
 											children: [
 												f({
 													kind: "int",
 													id: "temperature",
-													label: "Temperature",
+													label: proseText("Temperature"),
 												}),
 												f({
 													kind: "int",
 													id: "heart_rate",
-													label: "Heart Rate",
+													label: proseText("Heart Rate"),
 												}),
 											],
 										}),
@@ -3453,7 +3557,9 @@ describe("Connect learn-only expansion", () => {
 								time_estimate: 30,
 							},
 						},
-						fields: [f({ kind: "text", id: "feedback", label: "Feedback" })],
+						fields: [
+							f({ kind: "text", id: "feedback", label: proseText("Feedback") }),
+						],
 					},
 				],
 			},
@@ -3480,17 +3586,6 @@ describe("Connect learn-only expansion", () => {
 		expect(xml).not.toContain('vellum:role="ConnectDeliverUnit"');
 		expect(xml).not.toContain('vellum:role="ConnectAssessment"');
 		expect(xml).not.toContain('vellum:role="ConnectTask"');
-	});
-
-	it("passes validation when a learn-app form carries only a learn module", () => {
-		// CONNECT_MISSING_LEARN fires only when a learn form has *neither*
-		// a learn_module nor an assessment — the learn-only config here
-		// satisfies the requirement.
-		expect(
-			runValidation(learnOnlyDoc, LOOKUP_CONTEXT_UNAVAILABLE).some(
-				(e) => e.code === "CONNECT_MISSING_LEARN",
-			),
-		).toBe(false);
 	});
 });
 
@@ -3522,7 +3617,9 @@ describe("Connect deliver_unit entity defaults", () => {
 								// wire-time fallback.
 							},
 						},
-						fields: [f({ kind: "text", id: "vendor", label: "Vendor" })],
+						fields: [
+							f({ kind: "text", id: "vendor", label: proseText("Vendor") }),
+						],
 					},
 				],
 			},
@@ -3538,8 +3635,7 @@ describe("Connect deliver_unit entity defaults", () => {
 		// canonical defaults — `today()` for entity_id (from
 		// `concat(#user/username, '-', today())`) and the `#user/...`
 		// expansion for entity_name. We don't pin the full expanded
-		// XPath because `expandHashtags` is allowed to evolve (it
-		// already differs for case-loading vs survey contexts); the
+		// XPath because the private projection may evolve by form context; the
 		// load-bearing assertion is "the calculate is non-empty and
 		// derived from the SA-invisible defaults".
 		const idBindMatch = xml.match(
@@ -3575,7 +3671,9 @@ describe("Connect deliver_unit entity defaults", () => {
 									entity_name: xp("'manual override'"),
 								},
 							},
-							fields: [f({ kind: "text", id: "vendor", label: "Vendor" })],
+							fields: [
+								f({ kind: "text", id: "vendor", label: proseText("Vendor") }),
+							],
 						},
 					],
 				},
@@ -3599,12 +3697,13 @@ describe("Connect deliver_unit entity defaults", () => {
 
 // ── Case-property rename pipeline regression ──────────────────────────
 //
-// `renameField` cascades through sibling fields' XPath references — the
+// A case-bound `updateField.patch.id` cascades through sibling fields'
+// XPath references — the
 // unit coverage lives in `lib/doc/__tests__/mutations-pathRewrite.test.ts`
 // and `mutations-fields.test.ts`. The pipeline-level invariant: the
 // emitted XForm's bind/calculate attributes must reference the renamed
 // id everywhere the original reference stood. Without this assertion, a
-// refactor of the rename reducer could silently break downstream
+// refactor of the field-ID cascade could silently break downstream
 // expression rewriting — validation would still pass because references
 // remain syntactically well-formed, but they would point at nothing.
 
@@ -3624,7 +3723,7 @@ describe("case-property rename cascade — pipeline regression", () => {
 							name: "F",
 							type: "survey",
 							fields: [
-								f({ kind: "int", id: "patient_age", label: "Age" }),
+								f({ kind: "int", id: "patient_age", label: proseText("Age") }),
 								f({
 									kind: "hidden",
 									id: "risk_label",
@@ -3683,8 +3782,8 @@ describe("form_links emission", () => {
 									condition: "/data/outcome = 'yes'",
 									target: {
 										type: "form",
-										moduleUuid: asUuid(moduleUuid),
-										formUuid: asUuid(followupUuid),
+										moduleUuid: testUuid(moduleUuid),
+										formUuid: testUuid(followupUuid),
 									},
 								},
 							],
@@ -3692,22 +3791,11 @@ describe("form_links emission", () => {
 								f({
 									kind: "single_select",
 									id: "outcome",
-									label: "Outcome",
-									optionsSource: {
-										kind: "inline",
-										options: [
-											{
-												uuid: asUuid("eac8d390-60ab-4163-a9a9-5b8a99e32e0e"),
-												value: "yes",
-												label: "Yes",
-											},
-											{
-												uuid: asUuid("183a8b66-21d3-4950-acf7-fd19761c1462"),
-												value: "no",
-												label: "No",
-											},
-										],
-									},
+									label: proseText("Outcome"),
+									options: [
+										{ value: "yes", label: "Yes" },
+										{ value: "no", label: "No" },
+									],
 								}),
 							],
 						},
@@ -3715,7 +3803,9 @@ describe("form_links emission", () => {
 							uuid: followupUuid,
 							name: "Followup",
 							type: "survey",
-							fields: [f({ kind: "text", id: "notes", label: "Notes" })],
+							fields: [
+								f({ kind: "text", id: "notes", label: proseText("Notes") }),
+							],
 						},
 					],
 				},
@@ -3758,10 +3848,10 @@ describe("form_links emission", () => {
 							type: "survey",
 							formLinks: [
 								{
-									target: { type: "module", moduleUuid: asUuid(modB) },
+									target: { type: "module", moduleUuid: testUuid(modB) },
 								},
 							],
-							fields: [f({ kind: "text", id: "x", label: "X" })],
+							fields: [f({ kind: "text", id: "x", label: proseText("X") })],
 						},
 					],
 				},
@@ -3772,7 +3862,7 @@ describe("form_links emission", () => {
 						{
 							name: "FB",
 							type: "survey",
-							fields: [f({ kind: "text", id: "y", label: "Y" })],
+							fields: [f({ kind: "text", id: "y", label: proseText("Y") })],
 						},
 					],
 				},
@@ -3807,19 +3897,27 @@ describe("form_links emission", () => {
 									condition: "/data/severity = 'high'",
 									target: {
 										type: "form",
-										moduleUuid: asUuid(moduleUuid),
-										formUuid: asUuid(triageUuid),
+										moduleUuid: testUuid(moduleUuid),
+										formUuid: testUuid(triageUuid),
 									},
 									datums: [{ name: "case_id", xpath: "/data/patient_id" }],
 								},
 							],
-							fields: [f({ kind: "text", id: "severity", label: "Severity" })],
+							fields: [
+								f({
+									kind: "text",
+									id: "severity",
+									label: proseText("Severity"),
+								}),
+							],
 						},
 						{
 							uuid: triageUuid,
 							name: "Triage",
 							type: "survey",
-							fields: [f({ kind: "text", id: "notes", label: "Notes" })],
+							fields: [
+								f({ kind: "text", id: "notes", label: proseText("Notes") }),
+							],
 						},
 					],
 				},
@@ -3846,7 +3944,7 @@ describe("form_links emission", () => {
 						{
 							name: "F",
 							type: "survey",
-							fields: [f({ kind: "text", id: "x", label: "X" })],
+							fields: [f({ kind: "text", id: "x", label: proseText("X") })],
 						},
 					],
 				},
@@ -3855,15 +3953,11 @@ describe("form_links emission", () => {
 		expect(expandDoc(doc).modules[0].forms[0].form_links).toEqual([]);
 	});
 
-	// Defense-in-depth: the validator (FORM_LINK_TARGET_NOT_FOUND) blocks
-	// dangling targets before they ever reach the expander in production,
-	// but `translateFormLinks` drops them anyway so an unchecked caller
-	// (e.g. a test bypass or a future codepath) never produces HQ JSON
-	// with an unresolvable index. Pinning the drop prevents a future
-	// refactor from silently switching to "throw" — every current
-	// assertion would still pass, but an upload path would suddenly
-	// start 500-ing on a formerly-tolerable input.
-	it("drops form-link entries whose target uuid isn't registered", () => {
+	// The validator blocks dangling targets before they reach the expander.
+	// The wire boundary must also fail closed if an unchecked caller violates
+	// that invariant; silently dropping authored behavior would turn an
+	// invalid document into a different export.
+	it("refuses a form-link target whose uuid isn't registered", () => {
 		const moduleUuid = "mod-dangling";
 		const formUuid = "frm-dangling";
 		const doc = buildDoc({
@@ -3886,61 +3980,59 @@ describe("form_links emission", () => {
 									// the expander must still render it harmless.
 									target: {
 										type: "module",
-										moduleUuid: asUuid("mod-never-registered"),
+										moduleUuid: testUuid("mod-never-registered"),
 									},
 								},
 							],
-							fields: [f({ kind: "text", id: "notes", label: "Notes" })],
+							fields: [
+								f({ kind: "text", id: "notes", label: proseText("Notes") }),
+							],
 						},
 					],
 				},
 			],
 		});
 
-		const hq = expandDoc(doc);
-		expect(hq.modules[0].forms[0].form_links).toEqual([]);
+		expect(() => expandDoc(doc)).toThrowError(
+			"Cannot emit form link: target module",
+		);
 	});
 });
 
 // ── Connect mode gate ──────────────────────────────────────────────────
 //
-// `expandDoc` strips `form.connect` when `doc.connectType` is unset —
-// the builder stashes per-form Connect configs so mode toggles don't
-// lose work, but the emit path must see them as absent when the app is
-// out of Connect mode. Without this gate, a stashed learn module would
-// leak into a non-Connect export as a spurious data block + bind.
+// Connect content and the app's Connect mode are one exact topology. There is
+// no dormant/stashed form arm for the emitter to strip.
 
 describe("Connect mode gate", () => {
-	it("strips form.connect when doc.connectType is unset", () => {
-		const doc = buildDoc({
-			appName: "Stashed",
-			// connectType intentionally omitted — app is not in Connect mode.
-			modules: [
-				{
-					name: "Quiz",
-					forms: [
-						{
-							name: "Take Quiz",
-							type: "survey",
-							connect: {
-								learn_module: {
-									id: "stashed",
-									name: "Stashed",
-									description: "Hidden behind mode toggle",
-									time_estimate: 10,
+	it("refuses form.connect when doc.connectType is unset", () => {
+		expect(() =>
+			buildDoc({
+				appName: "Invalid Connect topology",
+				modules: [
+					{
+						name: "Quiz",
+						forms: [
+							{
+								name: "Take Quiz",
+								type: "survey",
+								connect: {
+									learn_module: {
+										id: "invalid",
+										name: "Invalid",
+										description: "Cannot exist outside Connect mode",
+										time_estimate: 10,
+									},
 								},
+								fields: [f({ kind: "text", id: "q1", label: proseText("Q1") })],
 							},
-							fields: [f({ kind: "text", id: "q1", label: "Q1" })],
-						},
-					],
-				},
-			],
-		});
-		const hq = expandDoc(doc);
-		const xml: string = Object.values(hq._attachments)[0] as string;
-
-		// No Connect role attributes appear anywhere in the XForm.
-		expect(xml).not.toMatch(/vellum:role="Connect/);
+						],
+					},
+				],
+			}),
+		).toThrowError(
+			"Form Connect configuration must match the app Connect mode",
+		);
 	});
 });
 
@@ -3968,7 +4060,7 @@ describe("Connect mode gate", () => {
 //      suppress Core's implicit property matcher while their predicates
 //      + filter AND-compose into `_xpath_query` on `default_properties`.
 
-const HQ_PROJECTION_MODULE_UUID = asUuid(
+const HQ_PROJECTION_MODULE_UUID = testUuid(
 	"77777777-7777-4777-8777-777777777771",
 );
 
@@ -4020,8 +4112,8 @@ function buildHqProjectionDoc(
 							f({
 								kind: "text",
 								id: "case_name",
-								label: "Name",
-								case_property_on: "patient",
+								label: proseText("Name"),
+								caseWrite: { caseType: "patient", property: "case_name" },
 							}),
 						],
 					},
@@ -4041,7 +4133,7 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 		const doc = buildHqProjectionDoc({
 			columns: [
 				plainColumn(
-					asUuid("00000000-0000-4000-8000-000000010001"),
+					testUuid("00000000-0000-4000-8000-000000010001"),
 					"case_name",
 					"Name",
 				),
@@ -4059,7 +4151,7 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 		const doc = buildHqProjectionDoc({
 			columns: [
 				plainColumn(
-					asUuid("00000000-0000-4000-8000-000000010013"),
+					testUuid("00000000-0000-4000-8000-000000010013"),
 					"tags",
 					"Tags",
 				),
@@ -4083,7 +4175,7 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 			resolveCaseListConfig({
 				columns: [
 					dateColumn(
-						asUuid("00000000-0000-4000-8000-000000010002"),
+						testUuid("00000000-0000-4000-8000-000000010002"),
 						"last_visit",
 						"Last Visit",
 						"%Y-%m-%d",
@@ -4099,12 +4191,12 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 		expect(shortCols[0].field).toBe("last_visit");
 	});
 
-	it("lowers semantic date presets before HQ JSON emission", () => {
+	it("emits an authored literal pattern without semantic reinterpretation", () => {
 		const doc = buildHqProjectionDoc(
 			resolveCaseListConfig({
 				columns: [
 					dateColumn(
-						asUuid("00000000-0000-4000-8000-000000010012"),
+						testUuid("00000000-0000-4000-8000-000000010012"),
 						"last_visit",
 						"Last Visit",
 						"long",
@@ -4115,7 +4207,7 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 		);
 		const [column] = expandDoc(doc).modules[0].case_details.short.columns;
 		expect(column.format).toBe("date");
-		expect(column.date_format).toBe("%B %e, %Y");
+		expect(column.date_format).toBe("long");
 	});
 
 	it("projects phone columns with `phone` format and the bare property reference", () => {
@@ -4128,7 +4220,7 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 			resolveCaseListConfig({
 				columns: [
 					phoneColumn(
-						asUuid("00000000-0000-4000-8000-000000010003"),
+						testUuid("00000000-0000-4000-8000-000000010003"),
 						"phone",
 						"Phone",
 					),
@@ -4150,7 +4242,7 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 			resolveCaseListConfig({
 				columns: [
 					idMappingColumn(
-						asUuid("00000000-0000-4000-8000-000000010004"),
+						testUuid("00000000-0000-4000-8000-000000010004"),
 						"region",
 						"Region",
 						[idMappingEntry("N", "North"), idMappingEntry("S", "South")],
@@ -4173,7 +4265,7 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 			resolveCaseListConfig({
 				columns: [
 					intervalColumn(
-						asUuid("00000000-0000-4000-8000-000000010005"),
+						testUuid("00000000-0000-4000-8000-000000010005"),
 						"last_visit",
 						"Days since visit",
 						3,
@@ -4198,7 +4290,7 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 			resolveCaseListConfig({
 				columns: [
 					intervalColumn(
-						asUuid("00000000-0000-4000-8000-000000010006"),
+						testUuid("00000000-0000-4000-8000-000000010006"),
 						"last_visit",
 						"Overdue",
 						2,
@@ -4228,7 +4320,7 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 			resolveCaseListConfig({
 				columns: [
 					calculatedColumn(
-						asUuid("00000000-0000-4000-8000-000000010007"),
+						testUuid("00000000-0000-4000-8000-000000010007"),
 						"Age Next Year",
 						toValueExpression(prop("patient", "age")),
 					),
@@ -4251,7 +4343,7 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 		const doc = buildHqProjectionDoc({
 			columns: [
 				plainColumn(
-					asUuid("00000000-0000-4000-8000-000000010008"),
+					testUuid("00000000-0000-4000-8000-000000010008"),
 					"phone",
 					"Phone",
 					{ visibleInList: false },
@@ -4273,13 +4365,13 @@ describe("expandDoc HQ JSON projection — sort_elements", () => {
 		const doc = buildHqProjectionDoc({
 			columns: [
 				plainColumn(
-					asUuid("00000000-0000-4000-8000-000000020001"),
+					testUuid("00000000-0000-4000-8000-000000020001"),
 					"case_name",
 					"Name",
 					{ sort: { direction: "asc", priority: 1 } },
 				),
 				plainColumn(
-					asUuid("00000000-0000-4000-8000-000000020002"),
+					testUuid("00000000-0000-4000-8000-000000020002"),
 					"age",
 					"Age",
 					{ sort: { direction: "desc", priority: 0 } },
@@ -4313,7 +4405,7 @@ describe("expandDoc HQ JSON projection — sort_elements", () => {
 			resolveCaseListConfig({
 				columns: [
 					calculatedColumn(
-						asUuid("00000000-0000-4000-8000-000000020003"),
+						testUuid("00000000-0000-4000-8000-000000020003"),
 						"Age Next Year",
 						toValueExpression(prop("patient", "age")),
 						{ sort: { direction: "asc", priority: 0 } },
@@ -4341,13 +4433,13 @@ describe("expandDoc HQ JSON projection — sort_elements", () => {
 			resolveCaseListConfig({
 				columns: [
 					calculatedColumn(
-						asUuid("00000000-0000-4000-8000-000000020003"),
+						testUuid("00000000-0000-4000-8000-000000020003"),
 						"Age Next Year",
 						toValueExpression(prop("patient", "age")),
 						{ sort: { direction: "asc", priority: 0 } },
 					),
 					calculatedColumn(
-						asUuid("00000000-0000-4000-8000-000000020004"),
+						testUuid("00000000-0000-4000-8000-000000020004"),
 						"Visits Doubled",
 						toValueExpression(prop("patient", "visit_count")),
 						{ sort: { direction: "desc", priority: 1 } },
@@ -4382,12 +4474,12 @@ describe("expandDoc HQ JSON projection — sort_elements", () => {
 		const doc = buildHqProjectionDoc({
 			columns: [
 				plainColumn(
-					asUuid("00000000-0000-4000-8000-000000020005"),
+					testUuid("00000000-0000-4000-8000-000000020005"),
 					"case_name",
 					"Name",
 				),
 				plainColumn(
-					asUuid("00000000-0000-4000-8000-000000020006"),
+					testUuid("00000000-0000-4000-8000-000000020006"),
 					"tags",
 					"Tags",
 					{ sort: { direction: "asc", priority: 0 } },
@@ -4411,7 +4503,7 @@ describe("expandDoc HQ JSON projection — sort_elements", () => {
 			resolveCaseListConfig({
 				columns: [
 					intervalColumn(
-						asUuid("00000000-0000-4000-8000-000000020007"),
+						testUuid("00000000-0000-4000-8000-000000020007"),
 						"last_visit",
 						"Since Visit",
 						30,
@@ -4445,7 +4537,7 @@ describe("expandDoc HQ JSON projection — sort_elements", () => {
 		const doc = buildHqProjectionDoc({
 			columns: [
 				plainColumn(
-					asUuid("00000000-0000-4000-8000-000000020008"),
+					testUuid("00000000-0000-4000-8000-000000020008"),
 					"tags",
 					"Tags",
 					{ visibleInList: false, sort: { direction: "asc", priority: 0 } },
@@ -4465,7 +4557,7 @@ describe("expandDoc HQ JSON projection — sort_elements", () => {
 		const doc = buildHqProjectionDoc({
 			columns: [
 				plainColumn(
-					asUuid("00000000-0000-4000-8000-000000020004"),
+					testUuid("00000000-0000-4000-8000-000000020004"),
 					"case_name",
 					"Name",
 				),
@@ -4490,7 +4582,7 @@ describe("expandDoc HQ JSON projection — case_list_filter", () => {
 		const doc = buildHqProjectionDoc({
 			columns: [
 				plainColumn(
-					asUuid("00000000-0000-4000-8000-000000030001"),
+					testUuid("00000000-0000-4000-8000-000000030001"),
 					"case_name",
 					"Name",
 				),
@@ -4506,7 +4598,7 @@ describe("expandDoc HQ JSON projection — case_list_filter", () => {
 		const doc = buildHqProjectionDoc({
 			columns: [
 				plainColumn(
-					asUuid("00000000-0000-4000-8000-000000030002"),
+					testUuid("00000000-0000-4000-8000-000000030002"),
 					"case_name",
 					"Name",
 				),
@@ -4521,7 +4613,7 @@ describe("expandDoc HQ JSON projection — case_list_filter", () => {
 			{
 				columns: [
 					plainColumn(
-						asUuid("00000000-0000-4000-8000-000000030003"),
+						testUuid("00000000-0000-4000-8000-000000030003"),
 						"case_name",
 						"Name",
 					),
@@ -4550,7 +4642,7 @@ describe("expandDoc HQ JSON projection — case_list_filter", () => {
 			{
 				columns: [
 					plainColumn(
-						asUuid("00000000-0000-4000-8000-000000030004"),
+						testUuid("00000000-0000-4000-8000-000000030004"),
 						"case_name",
 						"Name",
 					),
@@ -4576,7 +4668,7 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 			{
 				columns: [
 					plainColumn(
-						asUuid("00000000-0000-4000-8000-000000040099"),
+						testUuid("00000000-0000-4000-8000-000000040099"),
 						"case_name",
 						"Name",
 					),
@@ -4603,7 +4695,7 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 		const doc = buildHqProjectionDoc({
 			columns: [
 				plainColumn(
-					asUuid("00000000-0000-4000-8000-000000040000"),
+					testUuid("00000000-0000-4000-8000-000000040000"),
 					"case_name",
 					"Name",
 				),
@@ -4630,7 +4722,7 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 			{
 				columns: [
 					plainColumn(
-						asUuid("00000000-0000-4000-8000-000000040001"),
+						testUuid("00000000-0000-4000-8000-000000040001"),
 						"case_name",
 						"Name",
 					),
@@ -4670,7 +4762,7 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 			{
 				columns: [
 					plainColumn(
-						asUuid("00000000-0000-4000-8000-000000040002"),
+						testUuid("00000000-0000-4000-8000-000000040002"),
 						"case_name",
 						"Name",
 					),
@@ -4696,28 +4788,28 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 		const doc = buildHqProjectionDoc({
 			columns: [
 				plainColumn(
-					asUuid("00000000-0000-4000-8000-000000040003"),
+					testUuid("00000000-0000-4000-8000-000000040003"),
 					"case_name",
 					"Name",
 				),
 			],
 			searchInputs: [
 				simpleSearchInputDef(
-					asUuid("00000000-0000-4000-8000-000000040011"),
+					testUuid("00000000-0000-4000-8000-000000040011"),
 					"name_search",
 					"Name",
 					"text",
 					"case_name",
 				),
 				simpleSearchInputDef(
-					asUuid("00000000-0000-4000-8000-000000040012"),
+					testUuid("00000000-0000-4000-8000-000000040012"),
 					"dob_search",
 					"DOB",
 					"date",
 					"dob",
 				),
 				simpleSearchInputDef(
-					asUuid("00000000-0000-4000-8000-000000040013"),
+					testUuid("00000000-0000-4000-8000-000000040013"),
 					"scan_search",
 					"Scan",
 					"barcode",
@@ -4739,60 +4831,45 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 		expect(properties[2].appearance).toBe("barcode_scan");
 	});
 
-	it("omits an imported scalar default from a paired date-range property", () => {
-		const doc = buildHqProjectionDoc({
-			columns: [
-				plainColumn(
-					asUuid("00000000-0000-4000-8000-000000040014"),
-					"case_name",
-					"Name",
-				),
-			],
-			searchInputs: [
-				simpleSearchInputDef(
-					asUuid("00000000-0000-4000-8000-000000040015"),
-					"last_visit",
-					"Visit window",
-					"date-range",
-					"last_visit",
-					{ default: today() },
-				),
-			],
-		});
-
-		const [property] = expandDoc(doc).modules[0].search_config.properties;
-		expect(property).toEqual(
-			expect.objectContaining({ name: "last_visit", input_: "daterange" }),
-		);
-		expect(property.default_value).toBeUndefined();
+	it("refuses a scalar default on a paired date-range property", () => {
+		expect(() =>
+			simpleSearchInputDef(
+				testUuid("00000000-0000-4000-8000-000000040015"),
+				"last_visit",
+				"Visit window",
+				"date-range",
+				"last_visit",
+				{ default: today() },
+			),
+		).toThrow();
 	});
 
 	it("keeps mixed simple and advanced prompt bindings with shared widget/default metadata", () => {
 		const doc = buildHqProjectionDoc({
 			columns: [
 				plainColumn(
-					asUuid("00000000-0000-4000-8000-0000000400a1"),
+					testUuid("00000000-0000-4000-8000-0000000400a1"),
 					"case_name",
 					"Name",
 				),
 			],
 			searchInputs: [
 				simpleSearchInputDef(
-					asUuid("00000000-0000-4000-8000-0000000400a2"),
+					testUuid("00000000-0000-4000-8000-0000000400a2"),
 					"case_name",
 					"Name",
 					"text",
 					"case_name",
 				),
 				advancedSearchInputDef(
-					asUuid("00000000-0000-4000-8000-0000000400a3"),
+					testUuid("00000000-0000-4000-8000-0000000400a3"),
 					"status",
 					"Status rule",
 					"text",
 					eq(prop("patient", "status"), literal("open")),
 				),
 				advancedSearchInputDef(
-					asUuid("00000000-0000-4000-8000-0000000400a4"),
+					testUuid("00000000-0000-4000-8000-0000000400a4"),
 					"visited_after",
 					"",
 					"date",
@@ -4842,14 +4919,14 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 		const doc = buildHqProjectionDoc({
 			columns: [
 				plainColumn(
-					asUuid("00000000-0000-4000-8000-0000000400f1"),
+					testUuid("00000000-0000-4000-8000-0000000400f1"),
 					"case_name",
 					"Name",
 				),
 			],
 			searchInputs: [
 				simpleSearchInputDef(
-					asUuid("00000000-0000-4000-8000-0000000400f2"),
+					testUuid("00000000-0000-4000-8000-0000000400f2"),
 					"name_fuzzy",
 					"Name",
 					"text",
@@ -4857,7 +4934,7 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 					{ mode: { kind: "fuzzy" } },
 				),
 				simpleSearchInputDef(
-					asUuid("00000000-0000-4000-8000-0000000400f3"),
+					testUuid("00000000-0000-4000-8000-0000000400f3"),
 					"name_starts",
 					"Starts",
 					"text",
@@ -4890,7 +4967,7 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 		const doc = buildHqProjectionDoc({
 			columns: [
 				plainColumn(
-					asUuid("00000000-0000-4000-8000-000000040004"),
+					testUuid("00000000-0000-4000-8000-000000040004"),
 					"case_name",
 					"Name",
 				),
@@ -4900,7 +4977,7 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 			filter: eq(prop("patient", "region"), literal("North")),
 			searchInputs: [
 				advancedSearchInputDef(
-					asUuid("00000000-0000-4000-8000-000000040014"),
+					testUuid("00000000-0000-4000-8000-000000040014"),
 					"status_search",
 					"Status",
 					"text",
@@ -4935,7 +5012,7 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 		const doc = buildHqProjectionDoc({
 			columns: [
 				plainColumn(
-					asUuid("00000000-0000-4000-8000-000000040005"),
+					testUuid("00000000-0000-4000-8000-000000040005"),
 					"case_name",
 					"Name",
 				),
@@ -4963,14 +5040,14 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 		const doc = buildHqProjectionDoc({
 			columns: [
 				plainColumn(
-					asUuid("00000000-0000-4000-8000-000000040006"),
+					testUuid("00000000-0000-4000-8000-000000040006"),
 					"case_name",
 					"Name",
 				),
 			],
 			searchInputs: [
 				advancedSearchInputDef(
-					asUuid("00000000-0000-4000-8000-000000040016"),
+					testUuid("00000000-0000-4000-8000-000000040016"),
 					"age_filter",
 					"Age",
 					"text",
@@ -5029,7 +5106,7 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 					caseListConfig: {
 						columns: [
 							plainColumn(
-								asUuid("00000000-0000-4000-8000-000000040007"),
+								testUuid("00000000-0000-4000-8000-000000040007"),
 								"case_name",
 								"Name",
 							),
@@ -5060,8 +5137,8 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},
@@ -5073,15 +5150,15 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 					name: "patient",
 					parent_type: "household",
 					properties: [
-						{ name: "case_name", label: "Name", data_type: "text" },
-						{ name: "region", label: "Region", data_type: "text" },
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+						{ name: "region", label: proseText("Region"), data_type: "text" },
 					],
 				},
 				{
 					name: "household",
 					properties: [
-						{ name: "case_name", label: "Name", data_type: "text" },
-						{ name: "region", label: "Region", data_type: "text" },
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+						{ name: "region", label: proseText("Region"), data_type: "text" },
 					],
 				},
 			],
@@ -5122,12 +5199,12 @@ describe("expandDoc HQ JSON projection — case-search integration", () => {
 			{
 				columns: [
 					plainColumn(
-						asUuid("00000000-0000-4000-8000-000000050001"),
+						testUuid("00000000-0000-4000-8000-000000050001"),
 						"case_name",
 						"Name",
 					),
 					dateColumn(
-						asUuid("00000000-0000-4000-8000-000000050002"),
+						testUuid("00000000-0000-4000-8000-000000050002"),
 						"last_visit",
 						"Last Visit",
 						"%Y-%m-%d",
@@ -5137,14 +5214,14 @@ describe("expandDoc HQ JSON projection — case-search integration", () => {
 				filter: eq(prop("patient", "region"), literal("North")),
 				searchInputs: [
 					simpleSearchInputDef(
-						asUuid("00000000-0000-4000-8000-000000050011"),
+						testUuid("00000000-0000-4000-8000-000000050011"),
 						"name_search",
 						"Name",
 						"text",
 						"case_name",
 					),
 					advancedSearchInputDef(
-						asUuid("00000000-0000-4000-8000-000000050012"),
+						testUuid("00000000-0000-4000-8000-000000050012"),
 						"age_filter",
 						"Age",
 						"text",
@@ -5220,14 +5297,14 @@ describe("expandDoc HQ JSON projection — case-search integration", () => {
 		const doc = buildHqProjectionDoc({
 			columns: [
 				plainColumn(
-					asUuid("00000000-0000-4000-8000-000000060001"),
+					testUuid("00000000-0000-4000-8000-000000060001"),
 					"case_name",
 					"Name",
 				),
 			],
 			searchInputs: [
 				simpleSearchInputDef(
-					asUuid("00000000-0000-4000-8000-000000060011"),
+					testUuid("00000000-0000-4000-8000-000000060011"),
 					"parent_region",
 					"Parent region",
 					"text",
@@ -5275,21 +5352,21 @@ describe("expandDoc HQ JSON projection — case-search integration", () => {
 		const doc = buildHqProjectionDoc({
 			columns: [
 				plainColumn(
-					asUuid("00000000-0000-4000-8000-000000060002"),
+					testUuid("00000000-0000-4000-8000-000000060002"),
 					"case_name",
 					"Name",
 				),
 			],
 			searchInputs: [
 				simpleSearchInputDef(
-					asUuid("00000000-0000-4000-8000-000000060021"),
+					testUuid("00000000-0000-4000-8000-000000060021"),
 					"case_name",
 					"Self name",
 					"text",
 					"case_name",
 				),
 				simpleSearchInputDef(
-					asUuid("00000000-0000-4000-8000-000000060022"),
+					testUuid("00000000-0000-4000-8000-000000060022"),
 					"parent_region",
 					"Parent region",
 					"text",
@@ -5340,14 +5417,14 @@ describe("expandDoc HQ JSON projection — case-search integration", () => {
 		const doc = buildHqProjectionDoc({
 			columns: [
 				plainColumn(
-					asUuid("00000000-0000-4000-8000-000000060030"),
+					testUuid("00000000-0000-4000-8000-000000060030"),
 					"case_name",
 					"Name",
 				),
 			],
 			searchInputs: [
 				simpleSearchInputDef(
-					asUuid("00000000-0000-4000-8000-000000060031"),
+					testUuid("00000000-0000-4000-8000-000000060031"),
 					"name_search",
 					"Name",
 					"text",
@@ -5381,14 +5458,14 @@ describe("expandDoc HQ JSON projection — case-search integration", () => {
 		const doc = buildHqProjectionDoc({
 			columns: [
 				plainColumn(
-					asUuid("00000000-0000-4000-8000-000000060040"),
+					testUuid("00000000-0000-4000-8000-000000060040"),
 					"case_name",
 					"Name",
 				),
 			],
 			searchInputs: [
 				simpleSearchInputDef(
-					asUuid("00000000-0000-4000-8000-000000060041"),
+					testUuid("00000000-0000-4000-8000-000000060041"),
 					"case_name",
 					"Name",
 					"text",

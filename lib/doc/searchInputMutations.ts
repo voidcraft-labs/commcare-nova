@@ -1,4 +1,4 @@
-/** Stable-identity planners for Search-input row edits. */
+/** Planners for Search-input row edits. */
 
 import type { Mutation } from "@/lib/doc/types";
 import type {
@@ -7,6 +7,7 @@ import type {
 	SearchInputDef,
 	Uuid,
 } from "@/lib/domain";
+import { isOwnerOnlyCaseSearchConfig, searchInputDefault } from "@/lib/domain";
 import {
 	type PredicateAstPath,
 	walkExpressionInputRefsWithPaths,
@@ -128,11 +129,12 @@ export function searchInputRemovalDependencies(
 	// the condition slots do). The target's own default leaves with the
 	// row, so only siblings count.
 	for (const input of config.searchInputs) {
-		if (input.uuid === target.uuid || input.default === undefined) {
+		const defaultValue = searchInputDefault(input);
+		if (input.uuid === target.uuid || defaultValue === undefined) {
 			continue;
 		}
 		const paths = nonEmptyPaths(
-			expressionInputPaths(input.default, target.uuid),
+			expressionInputPaths(defaultValue, target.uuid),
 		);
 		if (paths === undefined) continue;
 		dependencies.push({
@@ -142,10 +144,8 @@ export function searchInputRemovalDependencies(
 			paths,
 		});
 	}
-	// Calculated-column formulas are a reference-bearing surface too — the
-	// rename path (`rewriteModuleSearchInputRefs`) keeps `input(...)` refs
-	// there coherent, and a stored pre-gate doc can carry one while its
-	// repair is owner-tier pending. Without this walk the review dialog
+	// Calculated-column formulas are a reference-bearing surface too.
+	// Without this walk the review dialog
 	// reports "zero uses" for a doc where a use exists, and the removal
 	// strands the formula against a field that no longer exists.
 	for (const column of config.columns) {
@@ -177,7 +177,11 @@ export function searchInputRemovalDependencies(
 	// declared inputs (`searchButtonDisplayConditionTypeCheck`), so a
 	// removal that orphans a ref here would bounce off the commit gate
 	// without this entry.
-	if (searchConfig?.searchButtonDisplayCondition !== undefined) {
+	if (
+		searchConfig !== undefined &&
+		!isOwnerOnlyCaseSearchConfig(searchConfig) &&
+		searchConfig.searchButtonDisplayCondition !== undefined
+	) {
 		const paths = nonEmptyPaths(
 			predicateInputPaths(
 				searchConfig.searchButtonDisplayCondition,
@@ -195,13 +199,13 @@ export function searchInputRemovalDependencies(
 	return dependencies;
 }
 
-/** Replace one Search field by stable identity. A rename rewrites no AST. */
+/** Replace one Search field; UUID-backed references need no rename rewrite. */
 export function searchInputUpdateMutation(
 	moduleUuid: Uuid,
 	current: SearchInputDef,
 	replacement: SearchInputDef,
 ): UpdateSearchInputMutation {
-	const desired = {
+	const { uuid: _uuid, ...searchInput } = {
 		...structuredClone(replacement),
 		uuid: current.uuid,
 	};
@@ -209,6 +213,6 @@ export function searchInputUpdateMutation(
 		kind: "updateSearchInput",
 		moduleUuid,
 		uuid: current.uuid,
-		searchInput: desired,
+		searchInput,
 	};
 }

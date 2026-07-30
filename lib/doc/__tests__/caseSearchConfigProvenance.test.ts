@@ -1,24 +1,22 @@
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	enableCaseSearchMutation,
-	legacyCompatibleCaseSearchConfig,
 	setOwnerOnlyCaseSearchMutation,
 } from "@/lib/doc/caseSearchConfigMutations";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation } from "@/lib/doc/types";
 import {
-	asUuid,
 	type BlueprintDoc,
 	type CaseSearchConfig,
 	effectiveCaseSearchConfig,
 	emptyCaseListConfig,
 	isOwnerOnlyCaseSearchConfig,
-	normalizeOwnerOnlyCaseSearchConfig,
 } from "@/lib/domain";
 
-const MODULE = asUuid("10000000-0000-4000-8000-000000000001");
-const INPUT = asUuid("20000000-0000-4000-8000-000000000001");
+const MODULE = testUuid("10000000-0000-4000-8000-000000000001");
+const INPUT = testUuid("20000000-0000-4000-8000-000000000001");
 const OWNER_EXPRESSION = {
 	kind: "term" as const,
 	term: { kind: "literal" as const, value: "owner-a" },
@@ -65,23 +63,13 @@ function apply(
 describe("case-search owner-only provenance", () => {
 	it("does not infer private provenance from an authored Never condition", () => {
 		expect(isOwnerOnlyCaseSearchConfig(AUTHORED_NEVER)).toBe(false);
-		expect(normalizeOwnerOnlyCaseSearchConfig(AUTHORED_NEVER)).toBe(
+	});
+
+	it("keeps an authored Never condition active with zero inputs without rewriting it", () => {
+		const doc = docWith(AUTHORED_NEVER);
+		expect(effectiveCaseSearchConfig(doc.modules[MODULE])).toEqual(
 			AUTHORED_NEVER,
 		);
-	});
-
-	it("uses an old-schema Never projection without placing the private bit in the fallback", () => {
-		expect(
-			legacyCompatibleCaseSearchConfig({
-				searchActionEnabled: false,
-				excludedOwnerIds: OWNER_EXPRESSION,
-			}),
-		).toEqual(AUTHORED_NEVER);
-	});
-
-	it("keeps an origin-compatible Never projection inert with zero inputs without rewriting it", () => {
-		const doc = docWith(AUTHORED_NEVER);
-		expect(effectiveCaseSearchConfig(doc.modules[MODULE])).toBeUndefined();
 		expect(doc.modules[MODULE].caseSearchConfig).toEqual(AUTHORED_NEVER);
 	});
 

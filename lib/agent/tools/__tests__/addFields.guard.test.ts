@@ -17,13 +17,9 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import {
-	asUuid,
-	type BlueprintDoc,
-	type Field,
-	type Form,
-	type Module,
-} from "@/lib/domain";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import type { BlueprintDoc, Field, Form, Module, Uuid } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import {
 	makeMcpTestContext,
 	makeStubToolContext,
@@ -34,14 +30,19 @@ vi.mock("@/lib/db/apps", () => ({
 	completeApp: vi.fn(() => Promise.resolve()),
 }));
 vi.mock("@/lib/db/applyBlueprintChange", () => ({
-	applyBlueprintChange: vi.fn(() => Promise.resolve({ seq: 0 })),
+	applyBlueprintChange: vi.fn(async (args) => {
+		const { commitApplyBlueprintChangeTestBatch } = await import(
+			"@/lib/db/__tests__/applyBlueprintChangeTestWriter"
+		);
+		return commitApplyBlueprintChangeTestBatch(args);
+	}),
 }));
 
-const MOD = asUuid("11111111-1111-1111-1111-111111111111");
-const FORM = asUuid("22222222-2222-2222-2222-222222222222");
-const AGE = asUuid("33333333-3333-3333-3333-333333333333");
-const GRP = asUuid("44444444-4444-4444-4444-444444444444");
-const NOTE = asUuid("55555555-5555-5555-5555-555555555555");
+const MOD = testUuid("11111111-1111-1111-1111-111111111111");
+const FORM = testUuid("22222222-2222-2222-2222-222222222222");
+const AGE = testUuid("33333333-3333-3333-3333-333333333333");
+const GRP = testUuid("44444444-4444-4444-4444-444444444444");
+const NOTE = testUuid("55555555-5555-5555-5555-555555555555");
 
 /** One form holding a top-level `age` field and a group `grp` with a
  *  child `note` — enough structure to exercise sibling vs cousin scope. */
@@ -50,26 +51,30 @@ function makeDoc(): BlueprintDoc {
 		uuid: MOD,
 		id: "patients",
 		name: "Patients",
-		caseType: "patient",
 	};
 	const form: Form = {
 		uuid: FORM,
 		id: "register",
 		name: "Register",
-		type: "registration",
+		type: "survey",
 	};
 	const age = {
 		uuid: AGE,
 		id: "age",
 		kind: "int",
-		label: "Age",
+		label: proseText("Age"),
 	} as Field;
-	const grp = { uuid: GRP, id: "grp", kind: "group", label: "Group" } as Field;
+	const grp = {
+		uuid: GRP,
+		id: "grp",
+		kind: "group",
+		label: proseText("Group"),
+	} as Field;
 	const note = {
 		uuid: NOTE,
 		id: "note",
 		kind: "text",
-		label: "Note",
+		label: proseText("Note"),
 	} as Field;
 	return {
 		appId: "test-app",
@@ -87,14 +92,16 @@ function makeDoc(): BlueprintDoc {
 }
 
 /** Shorthand for the minimal valid text item the add pipeline accepts. */
-function textItem(id: string, parentId?: string) {
+function textItem(id: string, parentUuid?: Uuid) {
 	return {
 		id,
 		kind: "text" as const,
-		label: id,
-		...(parentId && { parentId }),
+		label: proseText(id),
+		...(parentUuid && { parentUuid }),
 	};
 }
+
+const ADDRESS = { moduleUuid: MOD, formUuid: FORM };
 
 beforeEach(() => {
 	vi.clearAllMocks();
@@ -105,7 +112,7 @@ describe("addFields — identifier guard (chat surface)", () => {
 		const { ctx } = makeStubToolContext();
 		const recordSpy = vi.spyOn(ctx, "recordMutations");
 		const result = await addFieldsTool.execute(
-			{ moduleUuid: MOD, formUuid: FORM, fields: [textItem("age")] },
+			{ ...ADDRESS, fields: [textItem("age")] },
 			ctx,
 			makeDoc(),
 		);
@@ -121,8 +128,7 @@ describe("addFields — identifier guard (chat surface)", () => {
 		const { ctx } = makeStubToolContext();
 		const result = await addFieldsTool.execute(
 			{
-				moduleUuid: MOD,
-				formUuid: FORM,
+				...ADDRESS,
 				fields: [textItem("age"), textItem("bad name"), textItem("__nova_x")],
 			},
 			ctx,
@@ -140,8 +146,7 @@ describe("addFields — identifier guard (chat surface)", () => {
 		const recordSpy = vi.spyOn(ctx, "recordMutations");
 		const result = await addFieldsTool.execute(
 			{
-				moduleUuid: MOD,
-				formUuid: FORM,
+				...ADDRESS,
 				fields: [textItem("dup"), textItem("dup")],
 			},
 			ctx,
@@ -157,10 +162,8 @@ describe("addFields — identifier guard (chat surface)", () => {
 		const { ctx } = makeStubToolContext();
 		const result = await addFieldsTool.execute(
 			{
-				moduleUuid: MOD,
-				formUuid: FORM,
-				parentUuid: GRP,
-				fields: [textItem("note")],
+				...ADDRESS,
+				fields: [textItem("note", GRP)],
 			},
 			ctx,
 			makeDoc(),
@@ -174,10 +177,8 @@ describe("addFields — identifier guard (chat surface)", () => {
 		const recordSpy = vi.spyOn(ctx, "recordMutations");
 		const result = await addFieldsTool.execute(
 			{
-				moduleUuid: MOD,
-				formUuid: FORM,
-				parentUuid: GRP,
-				fields: [textItem("age")],
+				...ADDRESS,
+				fields: [textItem("age", GRP)],
 			},
 			ctx,
 			makeDoc(),
@@ -193,8 +194,7 @@ describe("addFields — identifier guard (chat surface)", () => {
 		const recordSpy = vi.spyOn(ctx, "recordMutations");
 		const result = await addFieldsTool.execute(
 			{
-				moduleUuid: MOD,
-				formUuid: FORM,
+				...ADDRESS,
 				fields: [textItem("weight"), textItem("height")],
 			},
 			ctx,
@@ -212,12 +212,13 @@ describe("addFields — identifier guard (chat surface)", () => {
 
 describe("addFields — identifier guard (MCP surface, same tool body)", () => {
 	it("rejects the same duplicate sibling id through an McpContext", async () => {
-		const { ctx } = makeMcpTestContext();
+		const doc = makeDoc();
+		const { ctx } = makeMcpTestContext({ initialDoc: doc });
 		const recordSpy = vi.spyOn(ctx, "recordMutations");
 		const result = await addFieldsTool.execute(
-			{ moduleUuid: MOD, formUuid: FORM, fields: [textItem("age")] },
+			{ ...ADDRESS, fields: [textItem("age")] },
 			ctx,
-			makeDoc(),
+			doc,
 		);
 
 		const error = (result.result as { error: string }).error;

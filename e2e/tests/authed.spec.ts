@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import type { Page, Response } from "@playwright/test";
+import type { Page } from "@playwright/test";
 import { CROSS_PROJECT_MOVE_DISCLOSURE } from "../../lib/projects/moveTargets";
 import {
 	CASE_CHANGES_ROUTINE,
@@ -64,6 +64,7 @@ interface SeedManifest {
 	caseChanges: {
 		appId: string;
 		route: string;
+		identityProjectionRoute: string;
 		caseId: string;
 		viewerStateFile: string;
 	}[];
@@ -76,81 +77,6 @@ type SecondaryHeaderName =
 	| "chat"
 	| "chat-rail"
 	| "inspector";
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null;
-}
-
-function isBlankExpressionTarget(value: unknown): boolean {
-	if (!isRecord(value) || value.kind !== "expression") return false;
-	const expr = value.expr;
-	if (!isRecord(expr) || expr.kind !== "term") return false;
-	const expressionTerm = expr.term;
-	return (
-		isRecord(expressionTerm) &&
-		expressionTerm.kind === "literal" &&
-		expressionTerm.value === ""
-	);
-}
-
-/**
- * A generic PUT response can belong to any earlier leading/trailing autosave.
- * Match the exact semantic delta introduced by choosing the blank calculated
- * link target. The granular intent is normally `update-link`, but it can be
- * `add-link` (or only the deployed full-operation fallback) when the new link
- * and this edit share one throttled batch.
- */
-function isBlankExpressionTargetAutosave(
-	response: Response,
-	appId: string,
-): boolean {
-	if (
-		response.request().method() !== "PUT" ||
-		new URL(response.url()).pathname !== `/api/apps/${appId}`
-	) {
-		return false;
-	}
-	let body: unknown;
-	try {
-		body = response.request().postDataJSON();
-	} catch {
-		return false;
-	}
-	if (!isRecord(body) || !Array.isArray(body.mutations)) return false;
-	return body.mutations.some((mutation) => {
-		if (!isRecord(mutation)) return false;
-		const semantic = mutation.caseOperationPatch;
-		if (isRecord(semantic)) {
-			if (
-				semantic.operation === "update-link" &&
-				isRecord(semantic.patch) &&
-				isBlankExpressionTarget(semantic.patch.target)
-			) {
-				return true;
-			}
-			if (
-				semantic.operation === "add-link" &&
-				isRecord(semantic.value) &&
-				isBlankExpressionTarget(semantic.value.target)
-			) {
-				return true;
-			}
-			return false;
-		}
-		const fallback = mutation.caseOperationChange;
-		if (
-			!isRecord(fallback) ||
-			(fallback.operation !== "add" && fallback.operation !== "update") ||
-			!isRecord(fallback.value) ||
-			!Array.isArray(fallback.value.links)
-		) {
-			return false;
-		}
-		return fallback.value.links.some(
-			(link) => isRecord(link) && isBlankExpressionTarget(link.target),
-		);
-	});
-}
 
 /**
  * The conversation's true scroll element. use-stick-to-bottom scrolls an
@@ -391,10 +317,10 @@ test.describe("authenticated builder", () => {
 		await page.getByRole("link", { name: `Open ${seed.openAppName}` }).click();
 		await page.waitForURL(new RegExp(`/build/${seed.openAppId}`));
 
-		// An empty app opens into the chat-first builder (the structural
-		// canvas/sidebar only appears once it has content). Assert the builder
-		// chrome (Account menu) AND the page content (the chat composer) mounted —
-		// the latter proves we rendered the page, not the error boundary.
+		// A born-valid canonical starter opens in the builder with chat available
+		// for refinement. Assert the builder chrome (Account menu) AND the page
+		// content (the chat composer) mounted — the latter proves we rendered the
+		// page, not the error boundary.
 		await expect(
 			page.getByRole("button", { name: "Account menu" }),
 		).toBeVisible({ timeout: 20_000 });
@@ -1772,7 +1698,121 @@ test.describe("authenticated builder", () => {
 		});
 	});
 
-	test("case changes add, retarget, preserve dormant logic, and stay navigable to viewers", async ({
+	test("a close condition keeps its friendly field projection through rename and move", async ({
+		page,
+	}, testInfo) => {
+		test.setTimeout(120_000);
+		const fixture = seed.caseChanges[testInfo.retry];
+		if (fixture === undefined) {
+			throw new Error(
+				`Identity-projection fixture missing for Playwright attempt ${testInfo.retry}`,
+			);
+		}
+		const identity = CASE_CHANGES_SEED.identityProjection;
+		const waitForSavedMutation = async (
+			bodyNeedle: string,
+			mutate: () => Promise<void>,
+		) => {
+			const responsePromise = page.waitForResponse((response) => {
+				const request = response.request();
+				return (
+					new URL(response.url()).pathname === `/api/apps/${fixture.appId}` &&
+					request.method() === "PUT" &&
+					(request.postData() ?? "").includes(bodyNeedle)
+				);
+			});
+			await mutate();
+			const response = await responsePromise;
+			expect(response.ok()).toBe(true);
+		};
+		await page.goto(fixture.identityProjectionRoute);
+		await expect(
+			page.getByRole("button", { name: "Form settings" }),
+		).toBeVisible({ timeout: 20_000 });
+
+		await test.step("Always becomes a complete conditional reference without an empty saved identity", async () => {
+			await page.getByRole("button", { name: "Form settings" }).click();
+			await page.getByRole("button", { name: "Close Behavior" }).click();
+			await page
+				.getByRole("menuitem", { name: "When condition is met" })
+				.click();
+
+			const field = page.getByPlaceholder("Search fields...");
+			await expect(field).toHaveValue("");
+			await field.click();
+			await page
+				.getByRole("option", { name: /First name.*first_name/ })
+				.click();
+			await expect(field).toHaveValue("first_name");
+
+			const answer = page.getByPlaceholder("Plain text value");
+			await waitForSavedMutation('"answer":"Ada"', async () => {
+				await answer.fill("Ada");
+				await answer.blur();
+			});
+			await expect(answer).toHaveValue("Ada");
+		});
+
+		await test.step("renaming and moving the field preserve the reference", async () => {
+			await page.goto(
+				`${fixture.identityProjectionRoute}/${identity.firstNameUuid}`,
+			);
+			const idInput = page.locator('[data-field-id="id"] input:visible');
+			await expect(idInput).toHaveValue("first_name", { timeout: 20_000 });
+			await waitForSavedMutation('"newId":"given_name"', async () => {
+				await idInput.fill("given_name");
+				await idInput.press("Enter");
+			});
+			await expect(idInput).toHaveValue("given_name");
+
+			await page.getByRole("button", { name: "Field actions" }).click();
+			await waitForSavedMutation('"kind":"moveField"', async () => {
+				await page.getByRole("menuitem", { name: "Move Down" }).click();
+			});
+			await expect(
+				page.locator("main [data-field-uuid]").first(),
+			).toHaveAttribute("data-field-uuid", identity.noteUuid);
+		});
+
+		await test.step("reopening and Preview show names, never UUID-shaped XPath", async () => {
+			await page.goto(fixture.identityProjectionRoute);
+			await page.getByRole("button", { name: "Form settings" }).click();
+			const field = page.getByPlaceholder("Search fields...");
+			await expect(field).toHaveValue("given_name", { timeout: 20_000 });
+			const settings = page
+				.getByRole("dialog")
+				.filter({ hasText: "Form Settings" });
+			await expect(settings).toHaveCount(1);
+			await expect(settings).not.toContainText(identity.firstNameUuid);
+			await expect(settings).not.toContainText(
+				`#form/${identity.firstNameUuid}`,
+			);
+
+			await page.getByRole("button", { name: "Form settings" }).click();
+			await page.getByRole("button", { name: "Preview", exact: true }).click();
+			await expect(
+				page.getByRole("textbox", { name: "First name" }),
+			).toBeVisible({ timeout: 20_000 });
+			const previewOrder = await page
+				.locator("main [data-field-uuid]")
+				.evaluateAll((elements) =>
+					elements.map((element) => (element as HTMLElement).dataset.fieldUuid),
+				);
+			expect(previewOrder).toEqual([identity.noteUuid, identity.firstNameUuid]);
+		});
+
+		await test.step("returning to Always clears the reference cleanly", async () => {
+			await page.getByRole("button", { name: "Back to edit" }).click();
+			await page.getByRole("button", { name: "Form settings" }).click();
+			await page.getByRole("button", { name: "Close Behavior" }).click();
+			await waitForSavedMutation('"closeCondition":null', async () => {
+				await page.getByRole("menuitem", { name: "Always" }).click();
+			});
+			await expect(page.getByPlaceholder("Search fields...")).toHaveCount(0);
+		});
+	});
+
+	test("case changes add, retarget, preserve table lookups, and stay navigable to viewers", async ({
 		page,
 		browser,
 		baseURL,
@@ -1876,7 +1916,7 @@ test.describe("authenticated builder", () => {
 				page.getByText(beforeDeep.id, { exact: true }),
 			).toBeVisible();
 
-			// Two forward lands on the dormant change, which is last — so the
+			// Two forward lands on the table-lookup change, which is last — so the
 			// traversal ends rather than wrapping, and says so by going dead.
 			const next = page.getByRole("button", { name: "Next change" });
 			await next.click();
@@ -1956,7 +1996,7 @@ test.describe("authenticated builder", () => {
 			await page.getByRole("button", { name: "All case changes" }).click();
 			await page
 				.locator(
-					`[data-case-operation-select="${CASE_CHANGES_SEED.operations.dormant}"]`,
+					`[data-case-operation-select="${CASE_CHANGES_SEED.operations.tableLookup}"]`,
 				)
 				.click();
 			const notes = page
@@ -1976,7 +2016,7 @@ test.describe("authenticated builder", () => {
 			await expect(
 				page.getByRole("button", {
 					name: new RegExp(
-						`^Move ${CASE_CHANGES_SEED.ids.dormant}\\. Runs ${CASE_CHANGES_SEQUENCE_LENGTH} of ${CASE_CHANGES_SEQUENCE_LENGTH}`,
+						`^Move ${CASE_CHANGES_SEED.ids.tableLookup}\\. Runs ${CASE_CHANGES_SEQUENCE_LENGTH} of ${CASE_CHANGES_SEQUENCE_LENGTH}`,
 					),
 				}),
 			).toBeVisible();
@@ -2029,8 +2069,9 @@ test.describe("authenticated builder", () => {
 				}),
 			).toBeVisible();
 
-			// Keep a blank runtime target for the first Preview submit. It is
-			// editable immediately and the submission must refuse atomically.
+			// A calculated target has no honest persisted seed. Selecting it
+			// opens a local draft in place while the stored link remains on the
+			// prior create until the calculation becomes complete.
 			await page
 				.getByRole("button", {
 					name: new RegExp(
@@ -2038,45 +2079,35 @@ test.describe("authenticated builder", () => {
 					),
 				})
 				.click();
-			const blankTargetSaved = page.waitForResponse((response) =>
-				isBlankExpressionTargetAutosave(response, caseChanges.appId),
-			);
-			await page
-				.getByRole("menuitem", {
-					name: /^A case found by a calculation/,
-				})
-				.click();
-			expect((await blankTargetSaved).ok()).toBe(true);
+			const calculatedTarget = page.getByRole("menuitem", {
+				name: /^A case found by a calculation/,
+			});
+			await expect(calculatedTarget).toBeEnabled();
+			await calculatedTarget.click();
 			await expect(
 				page.getByText("Work out the id of the case at the other end."),
 			).toBeVisible();
-		});
-
-		await test.step("running Preview refuses a blank link target with no partial case effects", async () => {
-			await page.getByRole("button", { name: "Preview", exact: true }).click();
 			await expect(
-				page.getByRole("button", { name: "Back to edit", exact: true }),
+				page.getByRole("button", {
+					name: new RegExp(
+						`Connect to: The case from .${CASE_CHANGES_SEED.ids.create}.`,
+					),
+				}),
 			).toBeVisible();
-			const relatedPatientCaseId = page.getByRole("textbox", {
-				name: "Related patient case id",
-			});
-			await expect(relatedPatientCaseId).toBeVisible();
-			const submit = page
-				.locator("main")
-				.getByRole("button", { name: "Submit", exact: true });
-			await expect(submit).toBeEnabled();
-			await relatedPatientCaseId.fill(caseChanges.caseId);
-			await expect(relatedPatientCaseId).toHaveValue(caseChanges.caseId);
-			await submit.click();
+			await page.getByRole("button", { name: "Cancel", exact: true }).click();
 			await expect(
-				page.getByRole("alert").filter({ hasText: "Nothing was saved" }),
-			).toContainText(
-				"a case automation points at a case that no longer exists or moved out of reach",
-			);
+				page.getByText("Work out the id of the case at the other end."),
+			).not.toBeVisible();
+			await expect(
+				page.getByRole("button", {
+					name: new RegExp(
+						`Connect to: The case from .${CASE_CHANGES_SEED.ids.create}.`,
+					),
+				}),
+			).toBeVisible();
 		});
 
 		await test.step("repairing the target submits real effects and the linked rows are visible", async () => {
-			await page.getByRole("button", { name: "Back to edit" }).click();
 			const removalSaved = page.waitForResponse(
 				(response) =>
 					response.request().method() === "PUT" &&
@@ -2220,15 +2251,15 @@ test.describe("authenticated builder", () => {
 		).toBeVisible();
 	});
 
-	test("the blank-app escape hatch mints a real app and opens it (no LLM)", async ({
+	test("the from-scratch escape hatch mints the canonical starter and opens it (no LLM)", async ({
 		page,
 	}) => {
 		await page.goto("/build/new");
 
-		const startBlank = page.getByRole("button", {
-			name: "Start with a blank app",
+		const startFromScratch = page.getByRole("button", {
+			name: "Start from scratch",
 		});
-		await expect(startBlank).toBeVisible({ timeout: 20_000 });
+		await expect(startFromScratch).toBeVisible({ timeout: 20_000 });
 
 		// The chat owns the screen until an app exists, so the sidebar chrome is
 		// absent here — this is the "centered, phase = Idle" state.
@@ -2236,19 +2267,18 @@ test.describe("authenticated builder", () => {
 			page.getByRole("button", { name: "Collapse chat sidebar" }),
 		).toHaveCount(0);
 
-		await startBlank.click();
+		await startFromScratch.click();
 
-		// The real createBlankApp Server Action → createApp → router.replace.
+		// The real createStarterApp Server Action → createApp → router.replace.
 		await page.waitForURL(/\/build\/(?!new)[\w-]+$/, { timeout: 30_000 });
 
 		// The chat DOCKED, which only happens once `docHasData` (moduleOrder is
-		// non-empty). That is the load-bearing assertion: a blank app that shipped
-		// with zero modules would render the centered chat again — and would fail
-		// the export validator with NO_MODULES.
+		// non-empty). That is the load-bearing assertion: the from-scratch path
+		// opens the canonical starter rather than reconstructing a zero-module app.
 		await expect(
 			page.getByRole("button", { name: "Collapse chat sidebar" }),
 		).toBeVisible({ timeout: 20_000 });
-		await expect(startBlank).toHaveCount(0);
+		await expect(startFromScratch).toHaveCount(0);
 	});
 
 	test("conversations open at the bottom and switch without exposing the prior transcript", async ({

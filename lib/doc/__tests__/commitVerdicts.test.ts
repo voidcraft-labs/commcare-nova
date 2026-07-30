@@ -1,26 +1,28 @@
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { proseText } from "@/lib/domain/prose";
 /**
  * `mutationCommitVerdict` — the shared pre-dispatch gate every commit
  * surface (SA/MCP tool layer, builder dispatch hook) consults. These
  * tests pin the wiring, not the gate semantics themselves —
- * introduced-error diffing and identity stability are
- * `evaluateCommit`'s contract, proven in
+ * whole-candidate validation is `evaluateCommit`'s contract, proven in
  * `lib/commcare/validator/__tests__/gate.test.ts`. What must hold HERE:
  * the candidate doc comes from the same reducer a committed batch runs
- * through, the scope comes from `scopeOfMutations`, rejection carries
- * the introduced findings, and the prose renderer frames them
- * person-to-person.
+ * through, every candidate (including an empty batch) passes the absolute
+ * gate, rejection carries every gating finding, and the prose renderer
+ * frames them person-to-person.
  */
 
 import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
 import { validationError } from "@/lib/commcare/validator/errors";
 import {
-	describeIntroducedErrors,
+	describeCommitFindings,
 	mutationCommitVerdict,
 } from "@/lib/doc/commitVerdicts";
+import { parseXPathForField } from "@/lib/doc/expressionText";
 import type { Mutation } from "@/lib/doc/types";
-import { asUuid, type BlueprintDoc } from "@/lib/domain";
+import type { BlueprintDoc } from "@/lib/domain";
 
 /** Minimal valid doc: one registration module/form writing two properties. */
 function minDoc(): BlueprintDoc {
@@ -41,14 +43,17 @@ function minDoc(): BlueprintDoc {
 							f({
 								kind: "text",
 								id: "case_name",
-								label: "Name",
-								case_property_on: "patient",
+								label: proseText("Name"),
+								caseWrite: {
+									caseType: "patient",
+									property: "case_name",
+								},
 							}),
 							f({
 								kind: "text",
 								id: "village",
-								label: "Village",
-								case_property_on: "patient",
+								label: proseText("Village"),
+								caseWrite: { caseType: "patient", property: "village" },
 							}),
 						],
 					},
@@ -59,8 +64,8 @@ function minDoc(): BlueprintDoc {
 			{
 				name: "patient",
 				properties: [
-					{ name: "case_name", label: "Name" },
-					{ name: "village", label: "Village" },
+					{ name: "case_name", label: proseText("Name") },
+					{ name: "village", label: proseText("Village") },
 				],
 			},
 		],
@@ -76,13 +81,14 @@ describe("mutationCommitVerdict", () => {
 	it("accepts a clean edit and returns the post-batch doc", () => {
 		const doc = minDoc();
 		const target = Object.values(doc.fields).find((fl) => fl.id === "village");
+		if (!target) throw new Error("fixture must have a village field");
 		const mutations: Mutation[] = [
 			{
 				kind: "updateField",
-				uuid: target?.uuid as never,
+				uuid: target.uuid,
 				targetKind: "text",
-				patch: { label: "Home village" },
-			} as Mutation,
+				patch: { label: proseText("Home village") },
+			},
 		];
 
 		const verdict = mutationCommitVerdict(
@@ -94,7 +100,40 @@ describe("mutationCommitVerdict", () => {
 		const updated = Object.values(verdict.nextDoc.fields).find(
 			(fl) => fl.id === "village",
 		);
-		expect(updated && "label" in updated && updated.label).toBe("Home village");
+		expect(updated && "label" in updated && updated.label).toEqual(
+			proseText("Home village"),
+		);
+	});
+
+	it("rejects raw #case text parsed by the builder before it reaches storage", () => {
+		const doc = minDoc();
+		const target = Object.values(doc.fields).find(
+			(field) => field.id === "village",
+		);
+		if (!target) throw new Error("fixture must have a village field");
+		const parsed = parseXPathForField(doc, target.uuid, "#case/age > 0");
+		expect(parsed.parts).toEqual([{ kind: "text", text: "#case/age > 0" }]);
+
+		const verdict = mutationCommitVerdict(
+			doc,
+			[
+				{
+					kind: "updateField",
+					uuid: target.uuid,
+					targetKind: "text",
+					patch: { relevant: parsed },
+				},
+			],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(verdict.ok).toBe(false);
+		if (!verdict.ok) {
+			expect(verdict.findings.length).toBeGreaterThan(0);
+			expect(describeCommitFindings(verdict.findings)).toMatch(
+				/XPath|expression|reference/i,
+			);
+		}
+		expect(doc.fields[target.uuid].relevant).toBeUndefined();
 	});
 
 	it("rejects removing the final Results field but allows empty Details", () => {
@@ -110,7 +149,6 @@ describe("mutationCommitVerdict", () => {
 					kind: "updateColumn",
 					moduleUuid,
 					uuid: column.uuid,
-					column: { ...column, visibleInList: false },
 					visibilityPatch: { surface: "list", visible: false },
 				},
 			],
@@ -118,7 +156,7 @@ describe("mutationCommitVerdict", () => {
 		);
 		expect(noResults.ok).toBe(false);
 		if (!noResults.ok) {
-			expect(noResults.introduced.map((finding) => finding.code)).toContain(
+			expect(noResults.findings.map((finding) => finding.code)).toContain(
 				"MISSING_CASE_LIST_COLUMNS",
 			);
 		}
@@ -130,7 +168,6 @@ describe("mutationCommitVerdict", () => {
 					kind: "updateColumn",
 					moduleUuid,
 					uuid: column.uuid,
-					column: { ...column, visibleInDetail: false },
 					visibilityPatch: { surface: "detail", visible: false },
 				},
 			],
@@ -139,7 +176,7 @@ describe("mutationCommitVerdict", () => {
 		expect(noDetails.ok).toBe(true);
 	});
 
-	it("rejects a soundness introduction, with the finding attached", () => {
+	it("rejects a soundness finding, with the finding attached", () => {
 		const doc = minDoc();
 		const target = Object.values(doc.fields).find((fl) => fl.id === "village");
 		const mutations: Mutation[] = [
@@ -150,7 +187,7 @@ describe("mutationCommitVerdict", () => {
 				// An unparseable XPath — XPATH_SYNTAX, soundness class.
 				// (`relevant`, not `calculate`: text fields carry no
 				// `calculate` slot, so that patch key would be dropped by the
-				// reducer's schema parse and nothing would be introduced.)
+				// reducer's schema parse and the candidate would stay valid.)
 				patch: { relevant: xp("if(") },
 			} as Mutation,
 		];
@@ -162,21 +199,21 @@ describe("mutationCommitVerdict", () => {
 		);
 		expect(verdict.ok).toBe(false);
 		if (!verdict.ok) {
-			expect(verdict.introduced.length).toBeGreaterThan(0);
-			expect(
-				verdict.introduced.every((e) => typeof e.message === "string"),
-			).toBe(true);
+			expect(verdict.findings.length).toBeGreaterThan(0);
+			expect(verdict.findings.every((e) => typeof e.message === "string")).toBe(
+				true,
+			);
 		}
 	});
 
-	it("rejects a completeness introduction — an entity lands with what makes it complete", () => {
+	it("rejects a completeness finding — an entity lands with what makes it complete", () => {
 		const doc = minDoc();
 		const mutations: Mutation[] = [
 			{
 				kind: "addForm",
 				moduleUuid: doc.moduleOrder[0],
 				form: {
-					uuid: asUuid("form-new"),
+					uuid: testUuid("form-new"),
 					id: "form_new",
 					name: "Empty survey",
 					type: "survey",
@@ -191,16 +228,65 @@ describe("mutationCommitVerdict", () => {
 		);
 		expect(verdict.ok).toBe(false);
 		if (!verdict.ok) {
-			expect(verdict.introduced.map((e) => e.code)).toContain("EMPTY_FORM");
+			expect(verdict.findings.map((e) => e.code)).toContain("EMPTY_FORM");
 		}
 	});
 
-	it("tolerates a pre-existing error when the edit doesn't introduce a new one (legacy safety)", () => {
-		// A doc that ALREADY carries an empty form (e.g. persisted before the
-		// gates existed). Renaming the other form is a strict non-worsening
-		// edit — it must pass.
+	it("rejects a missing reducer target before candidate reduction", () => {
+		const doc = minDoc();
+		const verdict = mutationCommitVerdict(
+			doc,
+			[
+				{
+					kind: "updateField",
+					uuid: testUuid("missing-field"),
+					targetKind: "text",
+					patch: { label: proseText("Never applied") },
+				},
+			],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(verdict.ok).toBe(false);
+		if (!verdict.ok) {
+			expect(verdict.nextDoc).toBe(doc);
+			expect(verdict.findings.map((finding) => finding.code)).toEqual([
+				"MUTATION_TARGET_INVALID",
+			]);
+		}
+	});
+
+	it("rejects a wrong-kind reducer target before candidate reduction", () => {
+		const doc = minDoc();
+		const target = Object.values(doc.fields).find(
+			(field) => field.id === "village",
+		);
+		if (target === undefined) throw new Error("fixture must have village");
+		const verdict = mutationCommitVerdict(
+			doc,
+			[
+				{
+					kind: "updateField",
+					uuid: target.uuid,
+					targetKind: "date",
+					patch: { label: proseText("Never applied") },
+				},
+			],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(verdict.ok).toBe(false);
+		if (!verdict.ok) {
+			expect(verdict.nextDoc).toBe(doc);
+			expect(verdict.findings.map((finding) => finding.code)).toEqual([
+				"MUTATION_TARGET_INVALID",
+			]);
+		}
+	});
+
+	it("rejects an already-invalid candidate even when the mutation is unrelated", () => {
+		// The gate owns the complete resulting document. It has no prior-state
+		// exception, so an unrelated edit cannot carry an invalid form forward.
 		const broken = buildDoc({
-			appName: "Test legacy",
+			appName: "Test broken",
 			modules: [
 				{
 					name: "Mod",
@@ -216,18 +302,24 @@ describe("mutationCommitVerdict", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: {
+										caseType: "patient",
+										property: "case_name",
+									},
 								}),
 							],
 						},
-						// The pre-existing breakage: an empty survey form.
+						// The starting document is invalid: this survey form is empty.
 						{ name: "Old empty", type: "survey", fields: [] },
 					],
 				},
 			],
 			caseTypes: [
-				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
 			],
 		});
 
@@ -236,19 +328,44 @@ describe("mutationCommitVerdict", () => {
 			[{ kind: "renameForm", uuid: formUuid(broken), newId: "form_two" }],
 			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
-		expect(verdict.ok).toBe(true);
+		expect(verdict.ok).toBe(false);
+		if (!verdict.ok) {
+			expect(verdict.findings.map((finding) => finding.code)).toContain(
+				"EMPTY_FORM",
+			);
+		}
 	});
 
-	it("passes an empty batch through without validating", () => {
+	it("validates an empty batch and preserves a valid document by reference", () => {
 		const doc = minDoc();
 		const verdict = mutationCommitVerdict(doc, [], LOOKUP_CONTEXT_UNAVAILABLE);
-		expect(verdict).toEqual({ ok: true, nextDoc: doc, results: [] });
-		// Reference equality — no candidate apply ran.
+		expect(verdict).toMatchObject({ ok: true, nextDoc: doc, results: [] });
+		if (!verdict.ok) throw new Error("empty batch rejected");
+		expect(verdict.mutations).toEqual([]);
 		expect(verdict.nextDoc).toBe(doc);
 	});
 
+	it("rejects an empty batch over an invalid document", () => {
+		const broken = buildDoc({
+			appName: "Invalid",
+			modules: [],
+			caseTypes: [],
+		});
+		const verdict = mutationCommitVerdict(
+			broken,
+			[],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(verdict.ok).toBe(false);
+		if (!verdict.ok) {
+			expect(verdict.findings.map((finding) => finding.code)).toContain(
+				"NO_MODULES",
+			);
+		}
+	});
+
 	it("frames the findings person-to-person, one line each, nothing-was-changed", () => {
-		const message = describeIntroducedErrors([
+		const message = describeCommitFindings([
 			validationError("EMPTY_FORM", "form", '"Visit" has no fields.', {}),
 			validationError(
 				"NO_CASE_TYPE",
@@ -268,10 +385,10 @@ describe("mutationCommitVerdict", () => {
 	});
 
 	it("uses singular phrasing for one finding", () => {
-		const message = describeIntroducedErrors([
+		const message = describeCommitFindings([
 			validationError("EMPTY_FORM", "form", '"Visit" has no fields.', {}),
 		]);
-		expect(message).toContain("a new problem");
+		expect(message).toContain("a problem");
 		expect(message).toContain("this problem");
 	});
 });
@@ -279,11 +396,9 @@ describe("mutationCommitVerdict", () => {
 // ── Stored-reference bounces — the repair the prose must name ────────
 
 describe("stored-reference bounce prose", () => {
-	/** minDoc plus a hidden total whose calculate references `village`.
-	 *  `raw` keeps the reference as plain text (the never-re-resolved
-	 *  legacy shape); otherwise it resolves to an identity leaf — the two
-	 *  storage shapes whose bounces need different repairs. */
-	function docWithReference(raw: boolean): BlueprintDoc {
+	/** minDoc plus a hidden total whose calculate references `village` by
+	 * stable identity after the fixture's authoring boundary resolves it. */
+	function docWithReference(): BlueprintDoc {
 		return buildDoc({
 			appName: "Test",
 			modules: [
@@ -301,19 +416,25 @@ describe("stored-reference bounce prose", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: {
+										caseType: "patient",
+										property: "case_name",
+									},
 								}),
 								f({
 									kind: "text",
 									id: "village",
-									label: "Village",
-									case_property_on: "patient",
+									label: proseText("Village"),
+									caseWrite: {
+										caseType: "patient",
+										property: "village",
+									},
 								}),
 								f({
 									kind: "hidden",
 									id: "total",
-									calculate: raw ? xp("#form/village") : "#form/village",
+									calculate: "#form/village",
 								}),
 							],
 						},
@@ -324,39 +445,16 @@ describe("stored-reference bounce prose", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name" },
-						{ name: "village", label: "Village" },
+						{ name: "case_name", label: proseText("Name") },
+						{ name: "village", label: proseText("Village") },
 					],
 				},
 			],
 		});
 	}
 
-	it("rename bounce on a plain-text leaf names the carrier and the re-commit repair", () => {
-		const doc = docWithReference(true);
-		// Valid as it stands — the raw leaf's target exists.
-		expect(mutationCommitVerdict(doc, [], LOOKUP_CONTEXT_UNAVAILABLE).ok).toBe(
-			true,
-		);
-		const village = Object.values(doc.fields).find((fl) => fl.id === "village");
-		const verdict = mutationCommitVerdict(
-			doc,
-			[{ kind: "renameField", uuid: village?.uuid as never, newId: "town" }],
-			LOOKUP_CONTEXT_UNAVAILABLE,
-		);
-		expect(verdict.ok).toBe(false);
-		if (verdict.ok) return;
-		const message = describeIntroducedErrors(verdict.introduced);
-		// The repair is performable: the carrier expression is named, and
-		// the user is told to re-commit it before the rename can land.
-		expect(message).toContain('Field "total"');
-		expect(message).toContain("calculated value");
-		expect(message).toContain("plain text");
-		expect(message).toContain("re-commit");
-	});
-
 	it("delete bounce on an identity reference names the carrier, never the bare uuid", () => {
-		const doc = docWithReference(false);
+		const doc = docWithReference();
 		const village = Object.values(doc.fields).find((fl) => fl.id === "village");
 		const verdict = mutationCommitVerdict(
 			doc,
@@ -365,7 +463,7 @@ describe("stored-reference bounce prose", () => {
 		);
 		expect(verdict.ok).toBe(false);
 		if (verdict.ok) return;
-		const message = describeIntroducedErrors(verdict.introduced);
+		const message = describeCommitFindings(verdict.findings);
 		expect(message).toContain('Field "total"');
 		expect(message).toContain("calculated value");
 		expect(message).toContain("no longer exists");
@@ -374,12 +472,19 @@ describe("stored-reference bounce prose", () => {
 		expect(message).not.toContain(village?.uuid as string);
 	});
 
-	it("a same-batch rename of a resolved reference still lands (identity needs no repair)", () => {
-		const doc = docWithReference(false);
+	it("a same-batch field-ID update of a resolved reference still lands (identity needs no repair)", () => {
+		const doc = docWithReference();
 		const village = Object.values(doc.fields).find((fl) => fl.id === "village");
 		const verdict = mutationCommitVerdict(
 			doc,
-			[{ kind: "renameField", uuid: village?.uuid as never, newId: "town" }],
+			[
+				{
+					kind: "updateField",
+					uuid: village?.uuid as never,
+					targetKind: "text",
+					patch: { id: "town" },
+				},
+			],
 			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		// The identity leaf re-prints under the new name — nothing dangles.

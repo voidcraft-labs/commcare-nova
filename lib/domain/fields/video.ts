@@ -11,11 +11,15 @@
 import tablerDeviceTv from "@iconify-icons/tabler/device-tv";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
-import { fieldBaseSchema, xpathExpressionSchema } from "./base";
+import {
+	fieldBaseSchema,
+	proseTemplateSchema,
+	xpathExpressionSchema,
+} from "./base";
 
 export const videoFieldSchema = fieldBaseSchema.extend({
 	kind: z.literal("video"),
-	hint: z.string().optional(),
+	hint: proseTemplateSchema.optional(),
 	required: xpathExpressionSchema.optional(),
 	relevant: xpathExpressionSchema.optional(),
 });

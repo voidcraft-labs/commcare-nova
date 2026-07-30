@@ -72,6 +72,7 @@ import {
 	useOrderedForms,
 	useOrderedModules,
 } from "@/lib/doc/hooks/useModuleIds";
+import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import type { Uuid } from "@/lib/doc/types";
 import {
 	CASE_LOADING_FORM_TYPES,
@@ -190,7 +191,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	 *
 	 * A module with no case-loading form has nowhere to continue, so the
 	 * list reads as informational. */
-	const orderedForms = useOrderedForms((moduleUuid ?? "") as Uuid);
+	const orderedForms = useOrderedForms(moduleUuid);
 	const previewCaseTarget = usePreviewCaseTarget();
 	const setPreviewCaseTarget = useSetPreviewCaseTarget();
 	const caseLoadingForms = useMemo(
@@ -218,6 +219,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		mod?.caseType,
 		caseType?.properties ?? NO_CASE_PROPERTIES,
 	);
+	const projectProse = useProseProjection();
 	const { signIn } = useAuth();
 	/* Whoever Preview is running as — the member, or the persona they
 	 * picked. The hook owns the hydration rule, so search defaults and the
@@ -988,7 +990,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 				className="@container/detail overflow-hidden rounded-lg border border-pv-input-border bg-pv-surface"
 			>
 				{detailColumns.map((col, i) => {
-					const label = caseColumnLabel(col, caseType.properties);
+					const label = caseColumnLabel(col, caseType.properties, projectProse);
 					return (
 						<div
 							key={col.uuid}
@@ -1084,6 +1086,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			name: entry.form.name,
 			summary: summarizeFilter(entry.form.displayCondition, {
 				...(caseType !== undefined && { currentCaseType: caseType.name }),
+				projectProse,
 			}),
 		}));
 	const formMenuPane = displayedFormMenuCase !== null && (
@@ -1510,9 +1513,6 @@ function ResultsBody({
 		if (emptyResultContext === "authored-rules") {
 			return <AvailabilityConditionsEmptyNotice canEdit={canEdit} />;
 		}
-		if (emptyResultContext === "unknown") {
-			return <UnavailableCasesNotice onRetry={onRetryCases} />;
-		}
 		return <NoCaseDataNotice canEdit={canEdit} />;
 	}
 
@@ -1538,9 +1538,6 @@ function ResultsBody({
 		}
 		if (emptyResultContext === "authored-rules") {
 			return <AvailabilityConditionsEmptyNotice canEdit={canEdit} />;
-		}
-		if (emptyResultContext === "unknown") {
-			return <UnavailableCasesNotice onRetry={onRetryCases} />;
 		}
 		return (
 			<CaseListEmptyNotice
@@ -1676,23 +1673,6 @@ function AvailabilityConditionsEmptyNotice({
 					? "To show cases, update Cases available in Results or create a matching case"
 					: "Ask an app editor to review Cases available or create a matching case"
 			}
-		/>
-	);
-}
-
-/** Neutral compatibility copy for an older action response that cannot tell
- * the new client whether the settled query was narrowed. */
-function UnavailableCasesNotice({
-	onRetry,
-}: {
-	readonly onRetry: () => Promise<void>;
-}) {
-	return (
-		<CaseListEmptyNotice
-			title="Cases aren’t available right now"
-			description="Try again to view cases"
-			tone="error"
-			action={{ label: "Try again", onClick: () => void onRetry() }}
 		/>
 	);
 }
@@ -1867,7 +1847,11 @@ function ResultsTable({
 						key={col.uuid}
 						className="min-w-0 px-3.5 py-2.5 text-[13px] font-semibold text-nova-text break-words"
 					>
-						{caseColumnLabel(col, caseProperties)}
+						{caseColumnLabel(
+							col,
+							caseProperties,
+							columnDisplayContext.projectProse,
+						)}
 					</div>
 				))}
 				<div aria-hidden="true" />
@@ -1885,7 +1869,11 @@ function ResultsTable({
 									<span
 										className={`text-xs font-medium text-nova-text-muted ${layout.label}`}
 									>
-										{caseColumnLabel(col, caseProperties)}
+										{caseColumnLabel(
+											col,
+											caseProperties,
+											columnDisplayContext.projectProse,
+										)}
 									</span>
 									<span
 										className={`min-w-0 break-words [overflow-wrap:anywhere] ${index === 0 ? "font-medium text-nova-text" : "text-nova-text-secondary"}`}

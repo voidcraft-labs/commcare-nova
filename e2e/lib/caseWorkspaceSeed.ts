@@ -23,6 +23,7 @@ import {
 	startsWithMode,
 	tileCell,
 } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import { buildUrl } from "@/lib/routing/location";
 
 export const CASE_WORKSPACE_SEED = {
@@ -97,30 +98,30 @@ export function buildCaseWorkspaceBlueprint(appId: string): BlueprintDoc {
 			{
 				name: ids.caseType,
 				properties: [
-					{ name: "village", label: "Village", data_type: "text" },
+					{ name: "village", label: proseText("Village"), data_type: "text" },
 					{
 						name: "last_visit",
-						label: "Last visit",
+						label: proseText("Last visit"),
 						data_type: "date",
 					},
 					{
 						name: "care_priority",
-						label: "Care priority",
+						label: proseText("Care priority"),
 						data_type: "text",
 						options: [
-							{ value: "routine", label: "Routine" },
-							{ value: "priority", label: "Priority" },
-							{ value: "urgent", label: "Urgent" },
+							{ value: "routine", label: proseText("Routine") },
+							{ value: "priority", label: proseText("Priority") },
+							{ value: "urgent", label: proseText("Urgent") },
 						],
 					},
 					{
 						name: "phone_number",
-						label: "Phone number",
+						label: proseText("Phone number"),
 						data_type: "text",
 					},
 					{
 						name: "date_of_birth",
-						label: "Date of birth",
+						label: proseText("Date of birth"),
 						data_type: "date",
 					},
 				],
@@ -340,8 +341,8 @@ export function buildCaseWorkspaceBlueprint(appId: string): BlueprintDoc {
 							f({
 								kind: "text",
 								id: "visit_note",
-								label: "Visit note",
-								case_property_on: ids.caseType,
+								label: proseText("Visit note"),
+								caseWrite: { caseType: ids.caseType, property: "visit_note" },
 							}),
 							/* The binding target for the Project data smoke path. It ships
 							 * with typed-in options precisely because those are what the
@@ -376,14 +377,17 @@ export function buildCaseWorkspaceBlueprint(appId: string): BlueprintDoc {
 							f({
 								kind: "datetime",
 								id: "visit_started",
-								label: "Visit started",
-								case_property_on: ids.caseType,
+								label: proseText("Visit started"),
+								caseWrite: {
+									caseType: ids.caseType,
+									property: "visit_started",
+								},
 							}),
 							f({
 								kind: "time",
 								id: "next_dose",
-								label: "Next dose",
-								case_property_on: ids.caseType,
+								label: proseText("Next dose"),
+								caseWrite: { caseType: ids.caseType, property: "next_dose" },
 							}),
 						],
 					},

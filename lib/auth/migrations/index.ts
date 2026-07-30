@@ -10,11 +10,13 @@ import type { Migration, MigrationProvider } from "kysely/migration";
 import * as oauthGrantRevocation from "./20260626000000_oauth_grant_revocation";
 import * as authMemberUnique from "./20260627000000_auth_member_unique";
 import * as authMemberSerialization from "./20260722070000_auth_member_serialization";
+import * as appsProjectTenancy from "./20260728010000_apps_project_tenancy";
 
 export const authAppMigrations: Record<string, Migration> = {
 	"20260626000000_oauth_grant_revocation": oauthGrantRevocation,
 	"20260627000000_auth_member_unique": authMemberUnique,
 	"20260722070000_auth_member_serialization": authMemberSerialization,
+	"20260728010000_apps_project_tenancy": appsProjectTenancy,
 };
 
 export const authAppMigrationProvider: MigrationProvider = {

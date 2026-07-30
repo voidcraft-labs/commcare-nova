@@ -5,13 +5,14 @@
  * Each select option carries its own optional `media` bundle (image +
  * audio + video) so a visual-pick UI can show a picture or play audio
  * beside each choice. Every attachment in the batch locates a field,
- * finds the inline option by immutable UUID, and replaces that option's
+ * finds the option by its stable UUID, and replaces that option's
  * `media` bundle; an empty bundle
  * (`{}`) clears it. A whole picture-choice field — or several fields —
  * authors in one call; one attachment is a length-1 `attachments` array.
  *
- * Only an inline `single_select` / `multi_select` source carries authored
- * option media. Other field kinds and lookup sources fail before mutation.
+ * Only `single_select` / `multi_select` fields carry options; any other
+ * kind fails with an Elm-shape error. An option UUID that isn't among the
+ * field's options likewise fails.
  *
  * The batch is all-or-nothing (`commitMediaBatch`): every attachment must
  * resolve and every set slot must pass the at-source asset verdict
@@ -34,7 +35,6 @@ import {
 } from "../shared/entityAddresses";
 import type { MutationSuccess } from "../shared/toolCallSummary";
 import {
-	brandMediaBundle,
 	bundleExpectations,
 	commitMediaBatch,
 	joinBatchLines,
@@ -45,7 +45,7 @@ import {
 const optionMediaAttachmentSchema = fieldAddressSchema
 	.extend({
 		optionUuid: uuidSchema.describe(
-			"The stable uuid of the option to attach media to.",
+			"The stable UUID of the option to attach media to.",
 		),
 		media: mediaBundleInput(
 			"The image/audio/video to attach to this option. Supply any subset " +
@@ -111,17 +111,17 @@ export const attachOptionMediaTool = {
 				}
 				if (field.optionsSource.kind !== "inline") {
 					failures.push(
-						`attachments[${i}]: field "${field.id}" gets its choices from a Project data table, so it has no inline option to attach media to. Switch the field to inline choices first.`,
+						`attachments[${i}]: field "${field.id}" uses lookup choices, which do not have authored option UUIDs or per-option media.`,
 					);
 					continue;
 				}
 
 				const index = field.optionsSource.options.findIndex(
-					(option) => option.uuid === optionUuid,
+					(o) => o.uuid === optionUuid,
 				);
 				if (index < 0) {
 					failures.push(
-						`attachments[${i}]: field "${field.id}" has no option with uuid "${optionUuid}". Re-read the field for current option uuids.`,
+						`attachments[${i}]: field "${field.id}" has no option with UUID "${optionUuid}".`,
 					);
 					continue;
 				}
@@ -130,38 +130,36 @@ export const attachOptionMediaTool = {
 				// sets it. An all-empty bundle resolves to `undefined` so the
 				// option drops its `media` key rather than storing an empty
 				// object.
-				const branded = brandMediaBundle(media);
-				const setKinds = Object.entries(branded)
+				const setKinds = Object.entries(media)
 					.filter(([, v]) => v !== undefined)
 					.map(([k]) => k);
 
 				// Swap the one option's media via a granular `updateOption` keyed by
-				// the option's uuid, so a concurrent edit to a DIFFERENT option of the
-				// same field merges. The reducer preserves the option's canonical
-				// identity while replacing only the requested media bundle.
+				// the option's UUID, so a concurrent edit to a DIFFERENT option of the
+				// same field merges. The reducer preserves the option's current
+				// `order`; canonical docs always carry the option UUID.
 				const targetOption = field.optionsSource.options[index];
-				const stableOptionUuid = targetOption.uuid;
 				const updated = withMedia(
 					targetOption,
-					setKinds.length > 0 ? branded : undefined,
+					setKinds.length > 0 ? media : undefined,
 				);
 				resolved.push({
 					mutations: [
 						{
 							kind: "updateOption",
 							fieldUuid: field.uuid,
-							uuid: stableOptionUuid,
+							uuid: optionUuid,
 							option: updated,
 						},
 					],
 					expectations: bundleExpectations(
-						branded,
-						`option "${targetOption.value}" of field "${field.id}"`,
+						media,
+						`option "${optionUuid}" of field "${field.id}"`,
 					),
 					line:
 						setKinds.length > 0
-							? `attached ${setKinds.join(", ")} media on option "${targetOption.value}" of field "${field.id}"`
-							: `cleared media on option "${targetOption.value}" of field "${field.id}"`,
+							? `attached ${setKinds.join(", ")} media on option "${optionUuid}" of field "${field.id}"`
+							: `cleared media on option "${optionUuid}" of field "${field.id}"`,
 				});
 			}
 

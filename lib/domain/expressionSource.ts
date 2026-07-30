@@ -16,20 +16,25 @@
 // (`predicate-ast`) or a bare name ref, so there is no expression
 // source text to read.
 //
-// Reads are TOTAL over the stored value and SHAPE-DRIVEN: a string
-// slot returns its stored text; an AST slot (`lib/domain/xpath`)
-// returns its PRINTED projection — identity leaves resolve against
-// the doc at read time, which is how a renamed field's new name
-// reaches every expression with no slot rewrite. Anything else
-// (including a string parked in a slot a degenerate doc never
-// migrated) reads as the string it is, so hand-built or partial docs
-// that bypass Zod behave exactly as before. Applicability gating
-// lives only in the registry-projection iterator
+// Reads are TOTAL over the stored value and SHAPE-DRIVEN. XPath slots
+// accept only `XPathExpression`; prose slots accept only
+// `ProseTemplate`. Each prints its current source projection —
+// identity leaves resolve against the doc at read time, which is how
+// a renamed field's new name reaches every expression with no slot
+// rewrite. Any other stored shape reads as absent, so a hand-built
+// string can never become a second live expression representation.
+// Applicability gating lives only in the registry-projection iterator
 // (`expressionSurfaceReads`), whose callers want "the slots a field
 // of this kind carries".
 
 import type { Field } from "./fields";
 import type { Form } from "./forms";
+import {
+	isProseTemplate,
+	type ProseTemplate,
+	printProseTemplate,
+	projectProseTemplate,
+} from "./prose";
 import {
 	FIELD_REFERENCE_SLOTS,
 	type FieldProseSlotId,
@@ -44,6 +49,7 @@ import {
 import { isXPathExpression, type XPathExpression } from "./xpath/ast";
 import {
 	printXPath,
+	projectXPath,
 	type XPathPrintableDoc,
 	xpathPrintContext,
 } from "./xpath/print";
@@ -106,21 +112,25 @@ function isFormExpressionEntry(
 const FIELD_EXPRESSION_SLOT_ENTRIES: readonly FieldExpressionSlotEntry[] =
 	FIELD_REFERENCE_SLOTS.filter(isFieldExpressionEntry);
 
-const FIELD_SLOT_PATHS: Record<FieldExpressionSlotId, string> = (() => {
-	const paths = {} as Record<FieldExpressionSlotId, string>;
+const FIELD_SLOT_ENTRIES: Record<
+	FieldExpressionSlotId,
+	FieldExpressionSlotEntry
+> = (() => {
+	const entries = {} as Record<FieldExpressionSlotId, FieldExpressionSlotEntry>;
 	for (const entry of FIELD_EXPRESSION_SLOT_ENTRIES) {
-		paths[entry.slot] = entry.path;
+		entries[entry.slot] = entry;
 	}
-	return paths;
+	return entries;
 })();
 
-const FORM_SLOT_PATHS: Record<FormExpressionSlotId, string> = (() => {
-	const paths = {} as Record<FormExpressionSlotId, string>;
-	for (const entry of FORM_REFERENCE_SLOTS) {
-		if (isFormExpressionEntry(entry)) paths[entry.slot] = entry.path;
-	}
-	return paths;
-})();
+const FORM_SLOT_ENTRIES: Record<FormExpressionSlotId, FormExpressionSlotEntry> =
+	(() => {
+		const entries = {} as Record<FormExpressionSlotId, FormExpressionSlotEntry>;
+		for (const entry of FORM_REFERENCE_SLOTS) {
+			if (isFormExpressionEntry(entry)) entries[entry.slot] = entry;
+		}
+		return entries;
+	})();
 
 const SCALAR_FIELD_EXPRESSION_SLOT_IDS: ReadonlySet<string> = new Set(
 	FIELD_EXPRESSION_SLOT_ENTRIES.filter((e) => !e.path.includes("[]")).map(
@@ -142,7 +152,7 @@ export const CONNECT_XPATH_SLOT_IDS: readonly ScalarFormExpressionSlotId[] =
  * Is `key` the id of a scalar field expression slot? The narrowing
  * `readFieldString` (the emitters' shared accessor) uses to decide
  * whether a requested key delegates here or stays a plain
- * non-expression property read (`case_property_on`, ids).
+ * non-expression property read (`caseWrite`, ids).
  */
 export function isScalarFieldExpressionSlotId(
 	key: string,
@@ -150,23 +160,45 @@ export function isScalarFieldExpressionSlotId(
 	return SCALAR_FIELD_EXPRESSION_SLOT_IDS.has(key);
 }
 
-/** Project one stored slot value to source text: strings verbatim,
- *  expression ASTs printed against `doc`, anything else absent. */
+/** Project one canonical stored slot value to source text. Expression slots
+ * are AST-only; an unexpected non-AST shape is absent rather than becoming a
+ * second live string representation. */
 function projectSlotValue(
 	value: unknown,
 	doc: XPathPrintableDoc,
+	kind: FieldExpressionSlotEntry["kind"],
 ): string | undefined {
-	if (typeof value === "string") return value;
-	if (isXPathExpression(value)) {
+	if (kind === "prose" && isProseTemplate(value)) {
+		return printProseTemplate(value, doc);
+	}
+	if (kind === "xpath-ast" && isXPathExpression(value)) {
 		return printXPath(value, xpathPrintContext(doc));
+	}
+	return undefined;
+}
+
+/** Human/validator projection of one slot. Unlike the strict runtime/wire
+ * accessor above, an unresolved identity returns ephemeral repair text so the
+ * editor and validator can identify the dangling carrier. That text is never
+ * stored or emitted. */
+function projectSlotValueForInspection(
+	value: unknown,
+	doc: XPathPrintableDoc,
+	kind: FieldExpressionSlotEntry["kind"],
+): string | undefined {
+	if (kind === "prose" && isProseTemplate(value)) {
+		return projectProseTemplate(value, doc).text;
+	}
+	if (kind === "xpath-ast" && isXPathExpression(value)) {
+		return projectXPath(value, xpathPrintContext(doc)).text;
 	}
 	return undefined;
 }
 
 /**
  * The source text a scalar expression slot reads as, or `undefined`
- * when the slot is absent. String slots read verbatim; AST slots
- * print against `doc` (identity leaves resolve to current names).
+ * when the slot is absent. AST slots print against `doc` (identity
+ * leaves resolve to current names).
  * The empty string / empty expression is a real stored value and is
  * returned as-is — blank-skip policy belongs to callers.
  */
@@ -175,8 +207,22 @@ export function expressionSource(
 	slot: ScalarFieldExpressionSlotId,
 	doc: XPathPrintableDoc,
 ): string | undefined {
-	const value = readSlotValues(field, FIELD_SLOT_PATHS[slot])[0]?.value;
-	return projectSlotValue(value, doc);
+	const entry = FIELD_SLOT_ENTRIES[slot];
+	const value = readSlotValues(field, entry.path)[0]?.value;
+	return projectSlotValue(value, doc, entry.kind);
+}
+
+/** Inspection-only twin of {@link expressionSource}. Wire/runtime consumers
+ * must use the strict accessor; validators and editors use this total
+ * projection to surface a repair state. */
+export function expressionInspectionSource(
+	field: Field,
+	slot: ScalarFieldExpressionSlotId,
+	doc: XPathPrintableDoc,
+): string | undefined {
+	const entry = FIELD_SLOT_ENTRIES[slot];
+	const value = readSlotValues(field, entry.path)[0]?.value;
+	return projectSlotValueForInspection(value, doc, entry.kind);
 }
 
 /**
@@ -193,40 +239,50 @@ export function expressionSourceEntries(
 	const entries: SlotStringEntry[] = [];
 	for (const { indices, value } of readSlotValues(
 		field,
-		FIELD_SLOT_PATHS[slot],
+		FIELD_SLOT_ENTRIES[slot].path,
 	)) {
-		const text = projectSlotValue(value, doc);
+		const text = projectSlotValue(value, doc, FIELD_SLOT_ENTRIES[slot].kind);
 		if (text !== undefined) entries.push({ indices, text });
 	}
 	return entries;
 }
 
+/** The canonical stored template behind a scalar prose slot. */
+export function fieldProseTemplate(
+	field: Field,
+	slot: Exclude<FieldProseSlotId, "option_label">,
+): ProseTemplate | undefined {
+	const value = readSlotValues(field, FIELD_SLOT_ENTRIES[slot].path)[0]?.value;
+	return isProseTemplate(value) ? value : undefined;
+}
+
 /**
  * The source text a scalar form expression slot (the Connect-block
- * bindings) reads as, or `undefined` when absent. AST-stored values
- * print against `doc`; legacy strings read verbatim.
+ * bindings) reads as, or `undefined` when absent. Stored AST values
+ * print against `doc`.
  */
 export function formExpressionSource(
 	form: Form,
 	slot: ScalarFormExpressionSlotId,
 	doc: XPathPrintableDoc,
 ): string | undefined {
-	const value = readSlotValues(form, FORM_SLOT_PATHS[slot])[0]?.value;
-	return projectSlotValue(value, doc);
+	const entry = FORM_SLOT_ENTRIES[slot];
+	const value = readSlotValues(form, entry.path)[0]?.value;
+	return projectSlotValue(value, doc, entry.kind);
 }
 
 /**
  * The stored expression AST behind a scalar form expression slot, when
  * the slot is AST-stored — the structural twin of
  * `formExpressionSource` for consumers that classify the stored shape
- * (the deep validator's stored-reference diagnosis). A prose/legacy
- * string has no AST and reads as `undefined`.
+ * (the deep validator's stored-reference diagnosis). A prose slot has
+ * no XPath AST and reads as `undefined`.
  */
 export function formExpressionValue(
 	form: Form,
 	slot: ScalarFormExpressionSlotId,
 ): XPathExpression | undefined {
-	const value = readSlotValues(form, FORM_SLOT_PATHS[slot])[0]?.value;
+	const value = readSlotValues(form, FORM_SLOT_ENTRIES[slot].path)[0]?.value;
 	return isXPathExpression(value) ? value : undefined;
 }
 
@@ -242,12 +298,13 @@ export interface ExpressionRead<
 	readonly indices: readonly number[];
 	/**
 	 * The stored expression AST when the slot is AST-stored — `text` is
-	 * its printed projection. Absent for prose slots and for legacy
-	 * strings a degenerate doc never migrated. Consumers that classify
+	 * its printed projection. Absent for prose slots. Consumers that classify
 	 * how a reference is STORED (the deep validator's stored-reference
 	 * diagnosis) read this; text-only consumers ignore it.
 	 */
 	readonly expr?: XPathExpression;
+	/** The canonical stored template for a prose slot. */
+	readonly template?: ProseTemplate;
 }
 
 /**
@@ -288,13 +345,21 @@ export function expressionSurfaceReads(
 		const slot: FieldReferenceSlot = entry;
 		if (!fieldSlotApplies(slot, field.kind, repeatMode)) continue;
 		for (const { value, indices } of readSlotValues(field, entry.path)) {
-			const text = projectSlotValue(value, doc);
+			const text =
+				entry.kind === "xpath-ast" && isXPathExpression(value)
+					? projectXPath(value, xpathPrintContext(doc)).text
+					: entry.kind === "prose" && isProseTemplate(value)
+						? projectProseTemplate(value, doc).text
+						: undefined;
 			if (text !== undefined) {
 				reads.push({
 					slot: entry.slot,
 					text,
 					indices,
-					...(isXPathExpression(value) && { expr: value }),
+					...(entry.kind === "xpath-ast" &&
+						isXPathExpression(value) && { expr: value }),
+					...(entry.kind === "prose" &&
+						isProseTemplate(value) && { template: value }),
 				});
 			}
 		}

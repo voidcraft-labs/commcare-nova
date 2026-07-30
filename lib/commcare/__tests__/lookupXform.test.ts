@@ -2,11 +2,12 @@ import { type Element, isTag } from "domhandler";
 import { findAll, getAttributeValue, getChildren } from "domutils";
 import { parseDocument } from "htmlparser2";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { lookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { validateXForm } from "@/lib/commcare/validator/xformOracle";
 import { buildXForm } from "@/lib/commcare/xform";
-import { asUuid, type Uuid } from "@/lib/domain";
+import type { Uuid } from "@/lib/domain";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import {
 	eq,
@@ -14,6 +15,7 @@ import {
 	sessionUser,
 	tableColumn,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import type { LookupRevision } from "@/lib/lookup/types";
 
 const REGIONS = "018f3e8a-7b2c-7def-8abc-0000000000a1" as LookupTableId;
@@ -72,10 +74,6 @@ function selectForm(
 								kind,
 								id: "region",
 								label: "Region",
-								options: [
-									{ value: "manual", label: "Manual" },
-									{ value: "other", label: "Other" },
-								],
 								optionsSource,
 							}),
 						],
@@ -109,7 +107,7 @@ describe("buildXForm — lookup-backed select itemset", () => {
 
 		const [itemset] = directChildren(select, "itemset");
 		const nodeset = getAttributeValue(itemset, "nodeset");
-		expect(nodeset).toBe("instance('item-list:regions')/regions_list/regions");
+		expect(nodeset).toBe("instance('regions')/regions_list/regions");
 		expect(nodeset).not.toContain("[");
 		expect(getAttributeValue(directChildren(itemset, "label")[0], "ref")).toBe(
 			"label",
@@ -119,7 +117,7 @@ describe("buildXForm — lookup-backed select itemset", () => {
 		);
 	});
 
-	it("declares the fixture instance without emitting inline option itext", () => {
+	it("declares the fixture instance and drops the inline option itext", () => {
 		const { xml } = selectForm("single_select", {
 			kind: "lookup",
 			tableId: REGIONS,
@@ -128,14 +126,14 @@ describe("buildXForm — lookup-backed select itemset", () => {
 		});
 
 		const fixtureInstances = allNamed(xml, "instance").filter(
-			(instance) => getAttributeValue(instance, "id") === "item-list:regions",
+			(instance) => getAttributeValue(instance, "id") === "regions",
 		);
 		expect(fixtureInstances).toHaveLength(1);
 		expect(getAttributeValue(fixtureInstances[0], "src")).toBe(
 			"jr://fixture/item-list:regions",
 		);
 
-		// A lookup source has no inline option body to register as `-optN-label`.
+		// The inline fallback options register no `-optN-label` itext.
 		const optionItext = allNamed(xml, "text").filter((textEl) =>
 			(getAttributeValue(textEl, "id") ?? "").includes("-opt"),
 		);
@@ -169,7 +167,7 @@ describe("buildXForm — lookup-backed select itemset", () => {
 
 describe("buildXForm — lookup itemset filters", () => {
 	it("prints a root form-field filter as an absolute /data path", () => {
-		const province = asUuid("018f3e8a-7b2c-7def-8abc-0000000000c1");
+		const province = testUuid("018f3e8a-7b2c-7def-8abc-0000000000c1");
 		const doc = buildDoc({
 			appName: "Filtered lookup",
 			modules: [
@@ -183,13 +181,13 @@ describe("buildXForm — lookup itemset filters", () => {
 								f({
 									kind: "text",
 									id: "province",
-									label: "Province",
+									label: proseText("Province"),
 									uuid: province,
 								}),
 								f({
 									kind: "single_select",
 									id: "region",
-									label: "Region",
+									label: proseText("Region"),
 									optionsSource: {
 										kind: "lookup",
 										tableId: REGIONS,
@@ -213,7 +211,7 @@ describe("buildXForm — lookup itemset filters", () => {
 		});
 		const [itemset] = allNamed(xml, "itemset");
 		expect(getAttributeValue(itemset, "nodeset")).toBe(
-			"instance('item-list:regions')/regions_list/regions[value = /data/province]",
+			"instance('regions')/regions_list/regions[value = /data/province]",
 		);
 		/* The predicated nodeset must satisfy the itemset oracle contract —
 		 * predicates are allowed in the nodeset, and only there. */
@@ -221,7 +219,7 @@ describe("buildXForm — lookup itemset filters", () => {
 	});
 
 	it("prints a same-repeat form-field filter through current()/..", () => {
-		const zone = asUuid("018f3e8a-7b2c-7def-8abc-0000000000c2");
+		const zone = testUuid("018f3e8a-7b2c-7def-8abc-0000000000c2");
 		const doc = buildDoc({
 			appName: "Repeated lookup",
 			modules: [
@@ -235,13 +233,18 @@ describe("buildXForm — lookup itemset filters", () => {
 								f({
 									kind: "repeat",
 									id: "visits",
-									label: "Visits",
+									label: proseText("Visits"),
 									children: [
-										f({ kind: "text", id: "zone", label: "Zone", uuid: zone }),
+										f({
+											kind: "text",
+											id: "zone",
+											label: proseText("Zone"),
+											uuid: zone,
+										}),
 										f({
 											kind: "single_select",
 											id: "region",
-											label: "Region",
+											label: proseText("Region"),
 											optionsSource: {
 												kind: "lookup",
 												tableId: REGIONS,
@@ -267,7 +270,7 @@ describe("buildXForm — lookup itemset filters", () => {
 		});
 		const [itemset] = allNamed(xml, "itemset");
 		expect(getAttributeValue(itemset, "nodeset")).toBe(
-			"instance('item-list:regions')/regions_list/regions[value = current()/../zone]",
+			"instance('regions')/regions_list/regions[value = current()/../zone]",
 		);
 	});
 
@@ -281,7 +284,7 @@ describe("buildXForm — lookup itemset filters", () => {
 		});
 		const [itemset] = allNamed(xml, "itemset");
 		expect(getAttributeValue(itemset, "nodeset")).toBe(
-			"instance('item-list:regions')/regions_list/regions[value = instance('commcaresession')/session/user/data/region]",
+			"instance('regions')/regions_list/regions[value = instance('commcaresession')/session/user/data/region]",
 		);
 		const sessionInstances = allNamed(xml, "instance").filter(
 			(instance) => getAttributeValue(instance, "id") === "commcaresession",

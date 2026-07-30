@@ -28,27 +28,42 @@
 
 import { type ReactNode, useContext, useEffect, useMemo, useRef } from "react";
 import { reportClientError } from "@/lib/clientErrorReporter";
+import { parseAppReadSnapshot } from "@/lib/collab/appReadSnapshot";
 import { ReconcilerContext } from "@/lib/collab/context";
 import {
 	createLookupManifestBroker,
 	type LookupManifestBroker,
+	lookupManifestFrameSchema,
 } from "@/lib/collab/lookupManifestFrame";
-import type { PresenceFrame } from "@/lib/collab/presenceTypes";
+import {
+	type MutationFrame,
+	parseMutationFrame,
+} from "@/lib/collab/mutationFrame";
+import {
+	type PresenceFrame,
+	parsePresenceFrame,
+	presenceFrameSchema,
+} from "@/lib/collab/presenceTypes";
 import {
 	createProjectScopeResetRegistry,
 	type ProjectScopeResetRegistry,
 } from "@/lib/collab/projectScopeReset";
 import {
 	createReconciler,
-	type MutationFrame,
 	type PutOutcome,
 	type Reconciler,
 	type ReconcilerDeps,
 } from "@/lib/collab/reconciler";
+import { parseRevocationFrame } from "@/lib/collab/revocationFrame";
+import {
+	type AdmittedMutationBatch,
+	encodeAdmittedMutationEnvelope,
+	isMutationWireCanonicalityReason,
+} from "@/lib/doc/mutationAdmission";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import type { BlueprintDocStoreApi } from "@/lib/doc/store";
-import type { Mutation, Uuid } from "@/lib/doc/types";
-import { blueprintDocSchema } from "@/lib/domain";
+import { uuidSchema } from "@/lib/domain";
+import { getLookupManifestAction } from "@/lib/lookup/actions";
 import type { LookupManifest } from "@/lib/lookup/types";
 import { invalidateCaseData } from "@/lib/preview/hooks/caseDataInvalidation";
 import { buildUrl } from "@/lib/routing/location";
@@ -131,8 +146,8 @@ export function createReconcilerRuntime(
 	/** Clear data whose authorization follows the app's current Project. Lookup
 	 * subscribers receive the broker's explicit loading sentinel; presence has no
 	 * retained broker, so push an empty roster directly to mounted consumers. */
-	function clearPresenceState(): void {
-		if (!presenceMayBeRetained) return;
+	function clearPresenceState(force = false): void {
+		if (!presenceMayBeRetained && !force) return;
 		presenceMayBeRetained = false;
 		const failures: unknown[] = [];
 		for (const subscriber of [...presenceSubs]) {
@@ -165,8 +180,10 @@ export function createReconcilerRuntime(
 		activateBuilderHistoryScope(projectScopeId, appIdBox.current, scopeEpoch),
 	);
 	projectScopeResetRegistry.subscribe(() => lookupManifestBroker.reset());
-	projectScopeResetRegistry.subscribe(clearPresenceState);
+	projectScopeResetRegistry.subscribe(() => clearPresenceState());
 	const retryTimers = new Set<ReturnType<typeof setTimeout>>();
+	let presenceRecoveryGeneration = 0;
+	let lookupRecoveryGeneration = 0;
 	let eventSource: EventSource | null = null;
 	/* True between the mount effect's `start` and its `suspend` cleanup. Gates
 	 * every side-effect entry point (openStream, scheduleRetry, the reopen
@@ -187,11 +204,17 @@ export function createReconcilerRuntime(
 		previousStream?.close();
 	}
 
+	function cancelCurrentFrameRecoveries(): void {
+		presenceRecoveryGeneration += 1;
+		lookupRecoveryGeneration += 1;
+	}
+
 	/** Start (or coalesce) one Project/access boundary. Editing pauses in the
 	 *  same Zustand write that advances the epoch; all registered tenant caches
 	 *  clear synchronously before the GET. A reset failure is reported and
 	 *  returned to the reconciler, which enters its fail-closed revoked state. */
 	function beginAccessRefresh(): boolean {
+		cancelCurrentFrameRecoveries();
 		closeOwnedStream();
 		const scopeEpoch = sessionStore.getState().beginAccessRefresh();
 		try {
@@ -219,6 +242,160 @@ export function createReconcilerRuntime(
 	// Forward reference so the deps' `resubscribe` and the mount effect share
 	// one `openStream`; assigned just below.
 	let reconciler: Reconciler;
+
+	function reportCurrentFrameFailure(message: string, error?: unknown): void {
+		reportClientError({
+			message,
+			...(error === undefined
+				? {}
+				: {
+						stack:
+							error instanceof Error
+								? (error.stack ?? error.message)
+								: String(error),
+					}),
+			source: "manual",
+			url: typeof window === "undefined" ? "" : window.location.href,
+		});
+	}
+
+	function failClosedAfterCurrentFrameReset(error: unknown): void {
+		reportCurrentFrameFailure(
+			`Current-frame state reset failed (app ${appIdBox.current})`,
+			error,
+		);
+		closeOwnedStream();
+		reconciler.onRevoked();
+	}
+
+	function scheduleCurrentFrameRetry(attempt: number, run: () => void): void {
+		if (!active) return;
+		const timer = setTimeout(() => {
+			retryTimers.delete(timer);
+			run();
+		}, retryDelayMs(attempt));
+		retryTimers.add(timer);
+	}
+
+	function startPresenceRecovery(): void {
+		reportCurrentFrameFailure("Reconciler: malformed presence frame");
+		const generation = ++presenceRecoveryGeneration;
+		const scopeEpoch = sessionStore.getState().scopeEpoch;
+		try {
+			clearPresenceState(true);
+		} catch (error) {
+			failClosedAfterCurrentFrameReset(error);
+			return;
+		}
+
+		const run = (attempt: number): void => {
+			const id = appIdBox.current;
+			if (
+				!active ||
+				!id ||
+				generation !== presenceRecoveryGeneration ||
+				scopeEpoch !== sessionStore.getState().scopeEpoch
+			)
+				return;
+			void fetch(`/api/apps/${id}/presence`, { cache: "no-store" })
+				.then(async (response) => {
+					if (response.status === 404) {
+						cancelCurrentFrameRecoveries();
+						reconciler.onReloadEvent();
+						return;
+					}
+					if (!response.ok) {
+						throw new Error(`presence refetch failed: HTTP ${response.status}`);
+					}
+					const roster = presenceFrameSchema.parse(await response.json());
+					if (
+						!active ||
+						generation !== presenceRecoveryGeneration ||
+						scopeEpoch !== sessionStore.getState().scopeEpoch
+					)
+						return;
+					presenceMayBeRetained = roster.length > 0;
+					for (const subscriber of [...presenceSubs]) subscriber(roster);
+				})
+				.catch((error) => {
+					if (
+						!active ||
+						generation !== presenceRecoveryGeneration ||
+						scopeEpoch !== sessionStore.getState().scopeEpoch
+					)
+						return;
+					reportCurrentFrameFailure(
+						`Presence refetch failed (app ${id})`,
+						error,
+					);
+					scheduleCurrentFrameRetry(attempt + 1, () => run(attempt + 1));
+				});
+		};
+		run(0);
+	}
+
+	function startLookupManifestRecovery(): void {
+		reportCurrentFrameFailure("Reconciler: malformed lookup manifest frame");
+		const generation = ++lookupRecoveryGeneration;
+		const { projectId, scopeEpoch } = sessionStore.getState();
+		try {
+			lookupManifestBroker.reset();
+		} catch (error) {
+			failClosedAfterCurrentFrameReset(error);
+			return;
+		}
+		if (!projectId) {
+			reconciler.onReloadEvent();
+			return;
+		}
+
+		const run = (attempt: number): void => {
+			if (
+				!active ||
+				generation !== lookupRecoveryGeneration ||
+				scopeEpoch !== sessionStore.getState().scopeEpoch
+			)
+				return;
+			void getLookupManifestAction(projectId)
+				.then((result) => {
+					if (
+						!active ||
+						generation !== lookupRecoveryGeneration ||
+						scopeEpoch !== sessionStore.getState().scopeEpoch
+					)
+						return;
+					if (!result.success) {
+						if (result.code === "not_found") {
+							cancelCurrentFrameRecoveries();
+							reconciler.onReloadEvent();
+							return;
+						}
+						throw new Error(`lookup manifest refetch failed: ${result.code}`);
+					}
+					const manifest = lookupManifestFrameSchema.parse(result.value);
+					if (
+						manifest.projectId !== projectId ||
+						!lookupManifestBroker.install(manifest)
+					) {
+						throw new Error("lookup manifest refetch changed Project lineage");
+					}
+				})
+				.catch((error) => {
+					if (
+						!active ||
+						generation !== lookupRecoveryGeneration ||
+						scopeEpoch !== sessionStore.getState().scopeEpoch
+					)
+						return;
+					reportCurrentFrameFailure(
+						`Lookup manifest refetch failed (app ${appIdBox.current})`,
+						error,
+					);
+					scheduleCurrentFrameRetry(attempt + 1, () => run(attempt + 1));
+				});
+		};
+		run(0);
+	}
 
 	/** Bump the shared case-data revision for every case type the (post-
 	 *  apply) doc declares. Case rows are keyed per type; a commit can
@@ -261,30 +438,42 @@ export function createReconcilerRuntime(
 		});
 		const es = new EventSource(`/api/apps/${id}/stream?${query}`);
 		eventSource = es;
+
+		function reloadAfterProtocolFailure(): void {
+			/* Disown the malformed source before the serialized authoritative GET.
+			 * The reconciler has not seen the frame, so its cursor remains at the
+			 * last canonical frame and the reload cannot skip the bad suffix. */
+			closeOwnedStream();
+			reconciler.onReloadEvent();
+		}
+
 		es.addEventListener("mutation", (ev) => {
 			if (es !== eventSource) return;
-			try {
-				const frame = JSON.parse((ev as MessageEvent).data) as MutationFrame;
-				reconciler.onFrame(frame);
-				// Blueprint commits can change CASE DATA now (write-time
-				// migrations park/restore/reshape rows), and the stream is the
-				// one channel every commit path reaches this tab through —
-				// its own autosave echo, its own chat run's echo, a same-user
-				// MCP edit, and every teammate's commit. Bumping the shared
-				// per-type revision here is what keeps the data-review surfaces
-				// (and every other case-data representation) honest without a
-				// per-path invalidation. Filtered so a peer's label-typing
-				// stream doesn't refetch case data per keystroke-batch.
-				if (frameMayTouchCaseData(frame)) invalidateDocCaseTypes();
-			} catch (err) {
+			const frame = parseMutationFrame((ev as MessageEvent).data);
+			if (frame === null) {
 				reportClientError({
-					message: `Reconciler: malformed mutation frame — ${
-						err instanceof Error ? err.message : String(err)
-					}`,
+					message: "Reconciler: malformed mutation frame",
 					source: "manual",
 					url: window.location.href,
 				});
+				reloadAfterProtocolFailure();
+				return;
 			}
+			reconciler.onFrame(frame);
+			// Blueprint commits can change CASE DATA now (write-time
+			// migrations park/restore/reshape rows), and the stream is the
+			// one channel every commit path reaches this tab through —
+			// its own autosave echo, its own chat run's echo, a same-user
+			// MCP edit, and every teammate's commit. Bumping the shared
+			// per-type revision here is what keeps the data-review surfaces
+			// (and every other case-data representation) honest without a
+			// per-path invalidation. Filtered so a peer's label-typing
+			// stream doesn't refetch case data per keystroke-batch.
+			if (frameMayTouchCaseData(frame)) invalidateDocCaseTypes();
+		});
+		es.addEventListener("protocol-failure", () => {
+			if (es !== eventSource) return;
+			reloadAfterProtocolFailure();
 		});
 		es.addEventListener("reload", () => {
 			if (es !== eventSource) return;
@@ -294,17 +483,21 @@ export function createReconcilerRuntime(
 		});
 		es.addEventListener("revoked", (ev) => {
 			if (es !== eventSource) return;
-			let reason: string | undefined;
-			try {
-				const payload = JSON.parse((ev as MessageEvent).data) as {
-					reason?: unknown;
-				};
-				if (typeof payload.reason === "string") reason = payload.reason;
-			} catch {
-				/* Legacy revoked frames had no structured payload. */
+			const frame = parseRevocationFrame((ev as MessageEvent).data);
+			if (frame === null) {
+				/* An unparseable control frame is not proof of revocation. Disown
+				 * its source, clear authorization-bound state, and serialize one
+				 * authoritative reauthorization/reload from the unchanged cursor. */
+				reportClientError({
+					message: "Reconciler: malformed revocation frame",
+					source: "manual",
+					url: window.location.href,
+				});
+				reloadAfterProtocolFailure();
+				return;
 			}
 			closeOwnedStream();
-			if (reason === "client-upgrade-required") {
+			if (frame.reason === "client-upgrade-required") {
 				/* Mask + clear tenant state before navigation. If this is the second
 				 * rejection for the compiled receiver, stop looping and render the
 				 * explicit refresh-required state. */
@@ -319,17 +512,22 @@ export function createReconcilerRuntime(
 		});
 		es.addEventListener("presence", (ev) => {
 			if (es !== eventSource) return;
-			try {
-				const roster = JSON.parse((ev as MessageEvent).data) as PresenceFrame;
-				presenceMayBeRetained = roster.length > 0;
-				for (const cb of presenceSubs) cb(roster);
-			} catch {
-				/* a malformed presence frame is best-effort — skip it. */
+			const roster = parsePresenceFrame((ev as MessageEvent).data);
+			if (roster === null) {
+				startPresenceRecovery();
+				return;
 			}
+			presenceRecoveryGeneration += 1;
+			presenceMayBeRetained = roster.length > 0;
+			for (const cb of [...presenceSubs]) cb(roster);
 		});
 		es.addEventListener("lookup-revision", (ev) => {
 			if (es !== eventSource) return;
-			lookupManifestBroker.dispatch((ev as MessageEvent).data);
+			if (!lookupManifestBroker.dispatch((ev as MessageEvent).data)) {
+				startLookupManifestRecovery();
+				return;
+			}
+			lookupRecoveryGeneration += 1;
 		});
 		es.addEventListener("open", () => {
 			if (es !== eventSource) return;
@@ -420,7 +618,7 @@ export function createReconcilerRuntime(
 
 	const put = async (
 		batchId: string,
-		mutations: Mutation[],
+		mutations: AdmittedMutationBatch,
 	): Promise<PutOutcome> => {
 		const id = appIdBox.current;
 		if (!id) return { ok: false, kind: "network" };
@@ -428,10 +626,14 @@ export function createReconcilerRuntime(
 			scopeId: projectScopeId,
 			epoch: sessionStore.getState().scopeEpoch,
 		};
+		const requestBody = encodeAdmittedMutationEnvelope({
+			mutations,
+			batchId,
+		});
 		const res = await fetch(`/api/apps/${id}`, {
 			method: "PUT",
 			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ mutations, batchId }),
+			body: requestBody.json,
 		});
 		if (res.ok) {
 			const body = (await res.json().catch(() => ({}))) as {
@@ -507,7 +709,7 @@ export function createReconcilerRuntime(
 										exitPreview();
 										const url = buildUrl(`/build/${id}`, {
 											kind: "data-review",
-											moduleUuid: moduleEntry[0] as Uuid,
+											moduleUuid: uuidSchema.parse(moduleEntry[0]),
 										});
 										// The toast outlives the builder (ToastContainer is
 										// app-wide), and pushState + notifyPathChange render
@@ -537,6 +739,40 @@ export function createReconcilerRuntime(
 		}
 		if (res.status === 403) return { ok: false, kind: "reauth" };
 		if (res.status === 404) return { ok: false, kind: "notFound" };
+		if (res.status === 400) {
+			const body = (await res.json().catch(() => ({}))) as {
+				type?: unknown;
+				details?: unknown;
+			};
+			if (
+				body.type === "mutation_wire_canonicality_invalid" &&
+				typeof body.details === "object" &&
+				body.details !== null
+			) {
+				const details = body.details as Record<string, unknown>;
+				const mutationIndex = details.mutationIndex;
+				const pointer = details.pointer;
+				const reason = details.reason;
+				if (
+					(mutationIndex === null ||
+						(typeof mutationIndex === "number" &&
+							Number.isSafeInteger(mutationIndex) &&
+							mutationIndex >= 0)) &&
+					typeof pointer === "string" &&
+					isMutationWireCanonicalityReason(reason)
+				) {
+					return {
+						ok: false,
+						kind: "canonicality",
+						details: { mutationIndex, pointer, reason },
+					};
+				}
+			}
+			if (body.type === "mutation_batch_id_collision") {
+				return { ok: false, kind: "batchCollision" };
+			}
+			return { ok: false, kind: "network", detail: "HTTP 400" };
+		}
 		// Fine-grained 4xx taxonomy — the terminal-freeze `permanent` is narrowed
 		// to ONLY a 400 "Invalid mutations" (the genuine client↔server commit-gate
 		// DISAGREEMENT the freeze was designed for). The other 4xx are recoverable
@@ -550,7 +786,6 @@ export function createReconcilerRuntime(
 		//   - any OTHER 4xx → transient (retry), never discard.
 		//   - 5xx → transient (retry).
 		const detail = `HTTP ${res.status}`;
-		if (res.status === 400) return { ok: false, kind: "permanent", detail };
 		if (res.status === 413) return { ok: false, kind: "tooLarge", detail };
 		return { ok: false, kind: "network", detail };
 	};
@@ -561,27 +796,13 @@ export function createReconcilerRuntime(
 		const res = await fetch(`/api/apps/${id}`, { cache: "no-store" });
 		if (res.status === 404) return { kind: "revoked" as const };
 		if (!res.ok) throw new Error(`reload failed: HTTP ${res.status}`);
-		const raw = (await res.json()) as unknown;
-		if (typeof raw !== "object" || raw === null) {
-			throw new Error("reload returned a malformed snapshot");
-		}
-		const data = raw as Record<string, unknown>;
-		if (
-			typeof data.projectId !== "string" ||
-			typeof data.role !== "string" ||
-			typeof data.canEdit !== "boolean" ||
-			typeof data.baseSeq !== "number" ||
-			!Number.isSafeInteger(data.baseSeq) ||
-			data.baseSeq < 0
-		) {
-			throw new Error("reload returned an incomplete access snapshot");
-		}
+		const data = parseAppReadSnapshot(await res.json());
 		return {
 			kind: "authorized" as const,
 			projectId: data.projectId,
 			role: data.role,
 			canEdit: data.canEdit,
-			blueprint: blueprintDocSchema.parse(data.blueprint),
+			blueprint: data.blueprint,
 			seq: data.baseSeq,
 		};
 	};
@@ -615,7 +836,7 @@ export function createReconcilerRuntime(
 		onClientUpgradeRequired: () =>
 			sessionStore.getState().requireClientUpgrade(),
 		resubscribe: (cursor) => {
-			/* Every reconciler reload path (gap, conflict, migration sentinel) lands
+			/* Every reconciler reload path (gap, conflict, server-only app change) lands
 			 * here. Idempotent with the SSE reload handler and required for paths
 			 * whose trigger was not itself an SSE `reload` frame. */
 			openStream(cursor);
@@ -692,6 +913,7 @@ export function createReconcilerRuntime(
 
 	function suspend(): void {
 		active = false;
+		cancelCurrentFrameRecoveries();
 		toastStore.deactivateProjectScope(projectScopeId);
 		deactivateBuilderHistoryScope(projectScopeId);
 		closeOwnedStream();

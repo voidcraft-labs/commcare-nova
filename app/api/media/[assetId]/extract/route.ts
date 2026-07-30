@@ -46,7 +46,7 @@ import { COST_BACKSTOP_USD } from "@/lib/db/creditPolicy";
 import { loadAssetById } from "@/lib/db/mediaAssets";
 import { getMonthlyUsage } from "@/lib/db/usage";
 import {
-	asAssetId,
+	asMediaAssetId,
 	EXTRACTOR_VERSION,
 	extractGcsObjectKeyFor,
 	isDocumentKind,
@@ -72,7 +72,7 @@ async function loadExtractableDocument(
 	capability: "view" | "edit",
 ) {
 	const session = await requireSession(req);
-	const assetId = asAssetId(rawAssetId);
+	const assetId = asMediaAssetId(rawAssetId);
 	const asset = await loadAssetById(assetId);
 	// A missing row OR a non-member both read as not-found so asset ids can't be
 	// enumerated.

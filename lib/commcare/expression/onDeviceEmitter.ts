@@ -80,9 +80,8 @@
 //     admits this lowering only for date-typed bases and rejects datetimes
 //     (Core's numeric coercion discards their time-of-day) plus calendar-based
 //     months/years. The emitter repeats those context-free guards defensively.
-//   - `unwrap-list(value)` — rejected defensively. CCHQ recognizes it only
-//     while parsing server-side CSQL; CommCare Core does not register an
-//     on-device XPath function by that name.
+//   - `table-lookup` — resolves stable table/column identities through the
+//     supplied lookup naming catalog and selects the first matching fixture row.
 //   - `term(t)` → delegate to the shared on-device term emitter at
 //     `../predicate/termEmitter:emitTerm`. The structural lifter for
 //     `Term` flavors (property, input, session-user, session-context,
@@ -165,22 +164,29 @@ export function emitOnDeviceExpression(
 	termContext: OnDeviceTermEmissionContext = {},
 ): string {
 	const resolvedTermContext =
-		termContext.userPropertySlugs === undefined &&
-		relationContext.userPropertySlugs !== undefined
+		termContext.userPropertySlugs === undefined ||
+		termContext.searchInputNames === undefined
 			? {
 					...termContext,
-					userPropertySlugs: relationContext.userPropertySlugs,
+					...(termContext.userPropertySlugs === undefined &&
+						relationContext.userPropertySlugs !== undefined && {
+							userPropertySlugs: relationContext.userPropertySlugs,
+						}),
+					...(termContext.searchInputNames === undefined &&
+						relationContext.knownInputs !== undefined && {
+							searchInputNames: new Map(
+								relationContext.knownInputs.map((input) => [
+									input.uuid,
+									input.name,
+								]),
+							),
+						}),
 				}
 			: termContext;
 	const compatibilityIssue = findOnDeviceScalarExpressionIssue(
 		expr,
 		relationContext,
 	);
-	if (compatibilityIssue?.reason === "unwrap-list") {
-		throw new Error(
-			"emitOnDeviceExpression: unwrap-list is a server-side case-search function and is not registered by CommCare Core's on-device XPath evaluator. Validation should reject it before wire emission.",
-		);
-	}
 	if (compatibilityIssue?.reason === "multi-valued-relation-read") {
 		const { property } = compatibilityIssue;
 		throw new Error(
@@ -338,37 +344,37 @@ export function emitOnDeviceExpression(
 				);
 			}
 			return `date(floor(${emitOnDeviceExpression(expr.date, root, relationContext, anchor, termContext)} + ${emitDateAddQuantityInDays(expr, root, relationContext, anchor, termContext)}))`;
-		case "unwrap-list":
-			// Guarded before dispatch. Keep the arm as an explicit tripwire so a
-			// future refactor cannot silently reintroduce the unknown Core call.
-			throw new Error(
-				"emitOnDeviceExpression: unwrap-list cannot run in CommCare Core's on-device XPath evaluator",
-			);
 		case "table-lookup": {
 			// First match by authored row order: the fixture emits rows in
 			// `(order_key, row UUID)` order, so document order IS the authored
 			// order and the explicit positional `[1]` selects the first
 			// matching row. No match yields an empty node-set — the standard
 			// absent-node semantics, never manufactured empty text.
-			const naming = termContext.lookup?.naming;
-			if (naming === undefined) {
+			const lookup = termContext.lookup;
+			if (lookup === undefined) {
 				throw new Error(
-					"emitOnDeviceExpression: a lookup-table expression reached an emission surface with no lookup wire naming. The local-CCZ compile boundary supplies naming; every other surface should reject lookup carriers before emission.",
+					"emitOnDeviceExpression: a lookup-table expression reached an emission surface with no lookup wire naming. Every XForm, suite, HQ JSON, and local CCZ boundary that admits table lookups must supply the coherent Project lookup catalog.",
 				);
 			}
+			const naming = lookup.naming;
 			const table = naming.tableFor(expr.tableId);
 			const where = simplifyForEmission(expr.where);
 			const whereContext: OnDeviceTermEmissionContext = {
 				...termContext,
 				lookup: {
 					naming,
+					instanceScope: lookup.instanceScope,
 					rowScope: { tableId: expr.tableId, caseAnchor: anchor },
 				},
 			};
 			const filterText = isMatchAll(where)
 				? ""
 				: `[${emitCaseListFilter(where, root, relationContext, anchor, whereContext)}]`;
-			return `instance('${table.instanceId}')/${table.listElementName}/${table.rowElementName}${filterText}[1]/${table.wireNameFor(expr.resultColumnId)}`;
+			const instanceId =
+				lookup.instanceScope === "xform"
+					? table.xformInstanceId
+					: table.fixtureId;
+			return `instance('${instanceId}')/${table.listElementName}/${table.rowElementName}${filterText}[1]/${table.wireNameFor(expr.resultColumnId)}`;
 		}
 		default: {
 			const _exhaustive: never = expr;

@@ -1,5 +1,6 @@
 "use client";
 import { MediaDisplay } from "@/components/builder/media/MediaDisplay";
+import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import type { SelectOption, SingleSelectField } from "@/lib/domain";
 import { PreviewMarkdown } from "@/lib/markdown";
 import type { FieldState } from "@/lib/preview/engine/types";
@@ -30,14 +31,17 @@ export function SelectOneField({
 	onChange,
 	onBlur,
 }: SelectOneFieldProps) {
-	// Static options render in DISPLAY order (`sort-by-(order, uuid)`, the
-	// same sequence the wire XForm emits its `<item>`s in), never `options`
-	// array position. A lookup-backed select instead reads the ENGINE's
+	// Static options render in their authored array sequence, the same sequence
+	// the wire XForm emits its `<item>`s in. A lookup-backed select reads the ENGINE's
 	// live filtered choices (already in authored row order); while the
 	// fixture snapshot is still loading they are undefined and the list
 	// shows its loading state.
-	const source = field.optionsSource;
-	const lookupBacked = source.kind === "lookup";
+	const lookupBacked = field.optionsSource.kind === "lookup";
+	// The engine only resolves option labels for a field whose label or hint
+	// already carries a reference, so an option that references something on a
+	// plainly-labelled question arrives here unresolved — spell it against the
+	// document rather than showing repair text for a healthy reference.
+	const projectProse = useProseProjection();
 	// `key` is display identity: static options are validator-unique by
 	// value; lookup rows guarantee neither unique nor non-blank values,
 	// so their choices carry the source row id.
@@ -48,10 +52,12 @@ export function SelectOneField({
 		media?: SelectOption["media"];
 	}> = lookupBacked
 		? (state.choices ?? [])
-		: source.kind === "inline"
-			? source.options.map((option) => ({
-					...option,
-					key: option.uuid,
+		: field.optionsSource.kind === "inline"
+			? field.optionsSource.options.map((opt) => ({
+					...opt,
+					key: opt.value,
+					label:
+						state.resolvedOptionLabels?.[opt.uuid] ?? projectProse(opt.label),
 				}))
 			: [];
 	const showError = state.touched && !state.valid;

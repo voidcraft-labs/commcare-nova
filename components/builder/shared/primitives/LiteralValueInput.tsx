@@ -38,6 +38,7 @@ import {
 } from "@/components/shadcn/dropdown-menu";
 import { FieldError } from "@/components/shadcn/field";
 import { Input } from "@/components/shadcn/input";
+import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import {
 	type CaseProperty,
 	type CaseType,
@@ -144,6 +145,7 @@ export function LiteralValueInput({
 	ariaLabel = "Value",
 }: LiteralValueInputProps) {
 	const ctx = usePredicateEditContext();
+	const projectProse = useProseProjection();
 	const property = useMemo<CaseProperty | undefined>(() => {
 		if (propertyName === undefined) return undefined;
 		const ct: CaseType | undefined = ctx.caseTypes.find(
@@ -180,16 +182,14 @@ export function LiteralValueInput({
 	// No property / override anchors a widget type, and the slot's
 	// accept-set names no type a typed widget can author (a geopoint-only
 	// set). The only literal compatible with such a slot is `null`, so
-	// render the null-only control rather than a free text input. A
-	// pre-existing non-null literal (legacy) still renders read-only so it
-	// round-trips — the same current-value exemption the shape menus make.
+	// render the null-only control rather than a free text input.
 	if (
 		property === undefined &&
 		overrideDataType === undefined &&
 		accepts !== undefined &&
 		!hasWidgetableType(accepts)
 	) {
-		return <NullOnlyLiteral value={value} />;
+		return <NullOnlyLiteral />;
 	}
 
 	switch (dataType) {
@@ -249,7 +249,12 @@ export function LiteralValueInput({
 				<SelectOptionInput
 					value={value}
 					onChange={onChange}
-					options={property?.options ?? []}
+					options={
+						property?.options?.map((option) => ({
+							value: option.value,
+							label: projectProse(option.label),
+						})) ?? []
+					}
 					invalid={invalid}
 					ariaLabel={ariaLabel}
 				/>
@@ -257,10 +262,9 @@ export function LiteralValueInput({
 		case "geopoint":
 			// A geopoint property has no literal widget — the only literal
 			// compatible with a place is `null`. Render the null-only
-			// control (legacy non-null values still show read-only) rather
-			// than a free text input that could commit a text coordinate the
-			// checker rejects.
-			return <NullOnlyLiteral value={value} />;
+			// control rather than a free text input that could commit a text
+			// coordinate the checker rejects.
+			return <NullOnlyLiteral />;
 		default:
 			return (
 				<TextInput
@@ -590,25 +594,17 @@ function RequiredValueError({ id }: { readonly id: string }) {
  * Null-only literal control for a slot whose accept-set names no
  * widget-able type (a geopoint membership / discriminator value — no
  * geopoint literal widget exists, and the only literal compatible with
- * a place is the universally-compatible `null`). A pre-existing non-null
- * literal renders read-only (best-effort) so a saved doc still opens and
- * round-trips, exempting the current value the way the shape menus
- * exempt the active shape.
+ * a place is the universally-compatible `null`). The control has no
+ * current-value exception: stored predicates are valid by construction, so a
+ * non-null place literal cannot reach this editor through a committed doc.
  */
-function NullOnlyLiteral({ value }: { readonly value: Literal | undefined }) {
-	const nonNull = value !== undefined && value.value !== null;
-	// No `aria-label` — the visible text (the value / "null" + the hint)
-	// is the accessible name; a label on a non-interactive div isn't
-	// supported by its role.
+function NullOnlyLiteral() {
+	// No `aria-label` — the visible instruction is the accessible name; a
+	// label on a non-interactive div isn't supported by its role.
 	return (
 		<div className="flex min-h-11 flex-wrap items-center gap-x-2 gap-y-0.5 rounded-md border border-dashed border-white/[0.08] bg-nova-deep/30 px-3 py-2 text-[13px]">
-			{nonNull && (
-				<span className="text-nova-text-secondary">{String(value.value)}</span>
-			)}
 			<span className="text-[13px] leading-relaxed text-nova-text-muted">
-				{nonNull
-					? "This saved value can't be used as a place. Choose other case information"
-					: "Compare this place with other case information"}
+				Compare this place with other case information
 			</span>
 		</div>
 	);

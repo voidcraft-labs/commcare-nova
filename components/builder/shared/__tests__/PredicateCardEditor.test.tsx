@@ -10,8 +10,15 @@
 // `onChange` / `onValidityChange`, and how nested errors land on
 // the right card.
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+	fireEvent,
+	render as rtlRender,
+	screen,
+	waitFor,
+} from "@testing-library/react";
+import type { ReactElement, ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
+import { BlueprintDocProvider } from "@/lib/doc/provider";
 import type { CaseType } from "@/lib/domain";
 import {
 	ancestorPath,
@@ -26,22 +33,38 @@ import {
 	prop,
 	relationStep,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { presentCheckErrorForEditor } from "../checkErrorPresentation";
 import { PredicateCardEditor } from "../PredicateCardEditor";
+
+// The surfaces here spell authored prose against the document; every production
+// mount sits inside the builder's provider. Wrapping at `render` reproduces it
+// and carries through each `rerender`.
+function DocumentProvider({ children }: { readonly children: ReactNode }) {
+	return (
+		<BlueprintDocProvider appId="test-app">{children}</BlueprintDocProvider>
+	);
+}
+
+function render(ui: ReactElement) {
+	return rtlRender(ui, { wrapper: DocumentProvider });
+}
 
 // ── Fixtures ───────────────────────────────────────────────────────────
 
 const HOUSEHOLD: CaseType = {
 	name: "household",
-	properties: [{ name: "region", label: "Region", data_type: "text" }],
+	properties: [
+		{ name: "region", label: proseText("Region"), data_type: "text" },
+	],
 };
 const PATIENT: CaseType = {
 	name: "patient",
 	parent_type: "household",
 	properties: [
-		{ name: "age", label: "Age", data_type: "int" },
-		{ name: "status", label: "Status", data_type: "text" },
-		{ name: "last_seen", label: "Last seen", data_type: "datetime" },
+		{ name: "age", label: proseText("Age"), data_type: "int" },
+		{ name: "status", label: proseText("Status"), data_type: "text" },
+		{ name: "last_seen", label: proseText("Last seen"), data_type: "datetime" },
 	],
 };
 const CASE_TYPES = [HOUSEHOLD, PATIENT];

@@ -18,7 +18,7 @@
  *   events                           → Event            (unified mutation+conversation log — lib/log/types)
  *   run_summaries(app_id, run_id)    → RunSummaryDoc    (per-run cost/behavior summary)
  *   threads(thread_id)               → ThreadDoc        (full conversation transcripts)
- *   accepted_mutations(app_id, seq)  → AcceptedMutationDoc (the durable, PERMANENT batch stream)
+ *   app_changes(app_id, seq)         → AppChangeDoc     (the durable, PERMANENT change stream)
  *   presence(app_id, user, session)  → PresenceDoc      (live roster; expire_at-swept)
  *   media_assets / media_asset_refs  → MediaAssetDoc    (Project-scoped media metadata)
  *
@@ -184,14 +184,30 @@ export interface AppRunLock {
  *
  * `status` is run-liveness only (never feeds the validity gate):
  * `generating` = a build run in flight (liveness off `updated_at` inside
- * `MAX_GENERATION_MINUTES`); `complete` = at rest; `error` = a build failed;
- * `deleted` = legacy marker retained for rows soft-deleted before the marker
- * moved to `deleted_at`. Soft-delete (`deleted_at != null`) is an independent
- * axis.
+ * `MAX_GENERATION_MINUTES`); `complete` = at rest; `error` = a build failed.
+ * Soft-delete is represented exclusively by `deleted_at` /
+ * `recoverable_until`, never by lifecycle status.
  */
+export const APP_LIFECYCLE_STATUSES = [
+	"generating",
+	"complete",
+	"error",
+] as const;
+export type AppLifecycleStatus = (typeof APP_LIFECYCLE_STATUSES)[number];
+
+/** Strict database-text admission for the closed run-lifecycle vocabulary. */
+export function parsePersistedAppLifecycleStatus(
+	value: string,
+): AppLifecycleStatus {
+	if (value === "generating" || value === "complete" || value === "error") {
+		return value;
+	}
+	throw new Error("Persisted app lifecycle status is invalid.");
+}
+
 export interface AppDoc {
 	owner: string;
-	project_id: string | null;
+	project_id: string;
 	app_name: string;
 	blueprint: PersistableDoc;
 	/** Monotonic per-app counter, advanced by exactly one on every committed
@@ -201,7 +217,7 @@ export interface AppDoc {
 	connect_type: "learn" | "deliver" | null;
 	module_count: number;
 	form_count: number;
-	status: "generating" | "complete" | "error" | "deleted";
+	status: AppLifecycleStatus;
 	/** True while a run is PAUSED on an `askQuestions` round — alive with no
 	 *  process. The reapers key on the lapsed lease, not this flag. */
 	awaiting_input?: boolean;
@@ -225,25 +241,65 @@ export interface AppDoc {
 // ── Multiplayer stream ──────────────────────────────────────────────
 
 /**
- * One committed mutation batch in the durable stream (`accepted_mutations`).
- * Entries store the DELTA; the log is PERMANENT (no TTL, no prune) — it is
- * both the realtime catch-up stream and the app's durable edit history, so
- * folding every batch from an app's first seq reproduces its entity rows.
- * `UNIQUE (app_id, batch_id)` is the idempotency latch a retried PUT keys on.
- * A `kind: 'migration'` entry tells a live client to reload rather than replay.
- * Blueprint-changing repairs/migrations still carry their real deterministic
- * mutations for durable history; the array may be empty only when the atomic
- * change is outside the blueprint itself (for example, a Project-only move).
+ * The final durable app-change vocabulary. Browser reconciliation accepts only
+ * the first three kinds; the remaining kinds are server-only state
+ * transitions that force clients to reauthorize and reload.
  */
-export interface AcceptedMutationDoc {
+export const APP_CHANGE_KINDS = [
+	"autosave",
+	"mcp",
+	"chat",
+	"blueprint-migration",
+	"fold-baseline",
+	"project-move",
+] as const;
+export type AppChangeKind = (typeof APP_CHANGE_KINDS)[number];
+
+export const CLIENT_APP_CHANGE_KINDS = ["autosave", "mcp", "chat"] as const;
+export type ClientAppChangeKind = (typeof CLIENT_APP_CHANGE_KINDS)[number];
+
+export type BlueprintMutationAppChangeKind =
+	| ClientAppChangeKind
+	| "blueprint-migration";
+
+interface AppChangeDocBase {
 	seq: number;
 	batchId: string;
 	runId?: string;
-	mutations: Mutation[];
 	actorId: string;
-	kind: "autosave" | "mcp" | "chat" | "migration";
 	ts: Date;
 }
+
+/**
+ * One committed transition in the durable stream (`app_changes`). Entries
+ * store the DELTA; the log is PERMANENT (no TTL, no prune) — it is both the
+ * realtime catch-up stream and the app's durable edit history.
+ *
+ * `UNIQUE (app_id, batch_id)` is the idempotency latch a retried PUT keys on.
+ * `project-move` is the only transition that changes Project scope and carries
+ * its exact source and destination identities. `fold-baseline` is the only
+ * other kind whose mutation batch may be empty, and its immutable
+ * `app_change_fold_baselines` row supplies the fold start.
+ */
+export type AppChangeDoc =
+	| (AppChangeDocBase & {
+			kind: BlueprintMutationAppChangeKind;
+			mutations: Mutation[];
+			fromProjectId?: never;
+			toProjectId?: never;
+	  })
+	| (AppChangeDocBase & {
+			kind: "fold-baseline";
+			mutations: [];
+			fromProjectId?: never;
+			toProjectId?: never;
+	  })
+	| (AppChangeDocBase & {
+			kind: "project-move";
+			mutations: Mutation[];
+			fromProjectId: string;
+			toProjectId: string;
+	  });
 
 /**
  * One collaborator's live presence (`presence`, keyed per browser session so
@@ -336,10 +392,9 @@ export type MediaAssetExtract = z.infer<typeof mediaAssetExtractSchema>;
  * Project-scoped, content-hash-deduped media metadata (`media_assets`; bytes
  * live in GCS). `project_id` is the tenant and the ONLY access gate — set
  * authoritatively at upload, never self-asserted; `owner` is upload
- * provenance only. The referencing-apps reverse index lives in
- * `media_asset_refs` (one row per (asset, app) candidate edge — append-only;
- * the deletion guard re-walks each candidate to confirm, so a stale edge
- * costs one extra app load, never a wrong block).
+ * provenance only. `media_asset_refs` is the exact, Project-scoped derived
+ * set of every authored Blueprint and canonical thread attachment reference.
+ * Authoritative app/thread writes replace the whole set transactionally.
  */
 export interface MediaAssetDoc {
 	project_id: string;

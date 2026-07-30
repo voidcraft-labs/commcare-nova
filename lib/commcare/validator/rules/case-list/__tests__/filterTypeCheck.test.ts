@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import { asUuid, plainColumn } from "@/lib/domain";
+import { plainColumn } from "@/lib/domain";
 import { eq, gt, literal, prop } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { runValidation } from "../../../runner";
 
 describe("filterTypeCheck", () => {
@@ -16,11 +18,11 @@ describe("filterTypeCheck", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
-						listColumnOrder: [asUuid("col-name")],
-						detailColumnOrder: [asUuid("col-name")],
+						columns: [plainColumn(testUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [testUuid("col-name")],
+						detailColumnOrder: [testUuid("col-name")],
 						searchInputs: [],
-						filter: gt(prop("patient", "name"), literal("M")),
+						filter: gt(prop("patient", "full_name"), literal("M")),
 					},
 					forms: [
 						{
@@ -30,14 +32,14 @@ describe("filterTypeCheck", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 								f({
 									kind: "text",
 									id: "name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "full_name" },
 								}),
 							],
 						},
@@ -48,8 +50,8 @@ describe("filterTypeCheck", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name", data_type: "text" },
-						{ name: "name", label: "Name", data_type: "text" },
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+						{ name: "full_name", label: proseText("Name"), data_type: "text" },
 					],
 				},
 			],
@@ -68,13 +70,13 @@ describe("filterTypeCheck", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
-						listColumnOrder: [asUuid("col-name")],
-						detailColumnOrder: [asUuid("col-name")],
+						columns: [plainColumn(testUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [testUuid("col-name")],
+						detailColumnOrder: [testUuid("col-name")],
 						searchInputs: [],
 						// `eq(prop, literal)` — text vs string literal is structurally
 						// compatible.
-						filter: eq(prop("patient", "name"), literal("Alice")),
+						filter: eq(prop("patient", "full_name"), literal("Alice")),
 					},
 					forms: [
 						{
@@ -84,14 +86,14 @@ describe("filterTypeCheck", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 								f({
 									kind: "text",
 									id: "name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "full_name" },
 								}),
 							],
 						},
@@ -102,8 +104,8 @@ describe("filterTypeCheck", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name", data_type: "text" },
-						{ name: "name", label: "Name", data_type: "text" },
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+						{ name: "full_name", label: proseText("Name"), data_type: "text" },
 					],
 				},
 			],
@@ -123,9 +125,9 @@ describe("filterTypeCheck", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
-						listColumnOrder: [asUuid("col-name")],
-						detailColumnOrder: [asUuid("col-name")],
+						columns: [plainColumn(testUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [testUuid("col-name")],
+						detailColumnOrder: [testUuid("col-name")],
 						searchInputs: [],
 						filter: eq(prop("patient", "ghost"), literal("x")),
 					},
@@ -137,8 +139,8 @@ describe("filterTypeCheck", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},
@@ -168,7 +170,7 @@ describe("filterTypeCheck", () => {
 	// turn, which is the regression these pins exist to catch.
 
 	it("admits a writer-derived-only property in a filter (no spurious unknown)", () => {
-		// `nickname` is written via `case_property_on` but NOT declared
+		// `nickname` is written via `caseWrite` but NOT declared
 		// on `ct.properties[]`. The augmented case-type list adds it as
 		// `text`, so `eq(prop("patient", "nickname"), literal("Al"))`
 		// type-checks cleanly.
@@ -179,9 +181,9 @@ describe("filterTypeCheck", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
-						listColumnOrder: [asUuid("col-name")],
-						detailColumnOrder: [asUuid("col-name")],
+						columns: [plainColumn(testUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [testUuid("col-name")],
+						detailColumnOrder: [testUuid("col-name")],
 						searchInputs: [],
 						filter: eq(prop("patient", "nickname"), literal("Al")),
 					},
@@ -193,14 +195,14 @@ describe("filterTypeCheck", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 								f({
 									kind: "text",
 									id: "nickname",
-									label: "Nickname",
-									case_property_on: "patient",
+									label: proseText("Nickname"),
+									caseWrite: { caseType: "patient", property: "nickname" },
 								}),
 							],
 						},
@@ -210,7 +212,9 @@ describe("filterTypeCheck", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "case_name", label: "Name", data_type: "text" }],
+					properties: [
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+					],
 				},
 			],
 		});
@@ -232,9 +236,9 @@ describe("filterTypeCheck", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
-						listColumnOrder: [asUuid("col-name")],
-						detailColumnOrder: [asUuid("col-name")],
+						columns: [plainColumn(testUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [testUuid("col-name")],
+						detailColumnOrder: [testUuid("col-name")],
 						searchInputs: [],
 						filter: eq(prop("patient", "case_name"), literal("Alice")),
 					},
@@ -246,8 +250,8 @@ describe("filterTypeCheck", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},
@@ -276,9 +280,9 @@ describe("filterTypeCheck", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
-						listColumnOrder: [asUuid("col-name")],
-						detailColumnOrder: [asUuid("col-name")],
+						columns: [plainColumn(testUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [testUuid("col-name")],
+						detailColumnOrder: [testUuid("col-name")],
 						searchInputs: [],
 						filter: eq(prop("patient", "date_opened"), literal("not-a-date")),
 					},
@@ -290,8 +294,8 @@ describe("filterTypeCheck", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},
@@ -327,8 +331,8 @@ describe("filterTypeCheck", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},

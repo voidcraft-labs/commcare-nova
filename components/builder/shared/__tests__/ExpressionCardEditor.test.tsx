@@ -10,8 +10,10 @@
 // reaches the parent's `onChange` / `onValidityChange`, and how
 // nested errors land on the right card.
 
-import { render } from "@testing-library/react";
+import { render as rtlRender } from "@testing-library/react";
+import type { ReactElement, ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
+import { BlueprintDocProvider } from "@/lib/doc/provider";
 import type { CaseType } from "@/lib/domain";
 import {
 	arith,
@@ -27,27 +29,43 @@ import {
 	today,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { ExpressionCardEditor } from "../ExpressionCardEditor";
+
+// The surfaces here spell authored prose against the document; every production
+// mount sits inside the builder's provider. Wrapping at `render` reproduces it
+// and carries through each `rerender`.
+function DocumentProvider({ children }: { readonly children: ReactNode }) {
+	return (
+		<BlueprintDocProvider appId="test-app">{children}</BlueprintDocProvider>
+	);
+}
+
+function render(ui: ReactElement) {
+	return rtlRender(ui, { wrapper: DocumentProvider });
+}
 
 // ── Fixtures ───────────────────────────────────────────────────────────
 
 const HOUSEHOLD: CaseType = {
 	name: "household",
-	properties: [{ name: "region", label: "Region", data_type: "text" }],
+	properties: [
+		{ name: "region", label: proseText("Region"), data_type: "text" },
+	],
 };
 const PATIENT: CaseType = {
 	name: "patient",
 	parent_type: "household",
 	properties: [
-		{ name: "age", label: "Age", data_type: "int" },
-		{ name: "name", label: "Name", data_type: "text" },
-		{ name: "dob", label: "Date of birth", data_type: "date" },
+		{ name: "age", label: proseText("Age"), data_type: "int" },
+		{ name: "case_name", label: proseText("Case name"), data_type: "text" },
+		{ name: "dob", label: proseText("Date of birth"), data_type: "date" },
 	],
 };
 const VISIT: CaseType = {
 	name: "visit",
 	parent_type: "patient",
-	properties: [{ name: "kind", label: "Kind", data_type: "text" }],
+	properties: [{ name: "kind", label: proseText("Kind"), data_type: "text" }],
 };
 const CASE_TYPES = [HOUSEHOLD, PATIENT, VISIT];
 
@@ -146,7 +164,7 @@ describe("ExpressionCardEditor — recursive nesting", () => {
 	it("renders an `if` card with a Predicate cond and ValueExpression branches", () => {
 		const value = ifExpr(
 			matchAll(),
-			term(prop("patient", "name")),
+			term(prop("patient", "case_name")),
 			term(literal("default")),
 		);
 		const onValidityChange = vi.fn();

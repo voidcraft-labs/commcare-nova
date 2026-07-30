@@ -139,7 +139,7 @@ name {
   // One hashtag segment (namespace or path segment) — the ASCII charset
   // shared with lib/domain/hashtagSegments.ts::HASHTAG_SEGMENT_SOURCE
   // (`[A-Za-z_][A-Za-z0-9_-]*`). Deliberately narrower than `localName`:
-  // the three hashtag matchers must agree on a segment's extent.
+  // the editor matcher and parser must agree on a segment's extent.
   hashtagIdentStart { @asciiLetter | "_" }
 
   hashtagName {

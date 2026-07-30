@@ -1,4 +1,3 @@
-import { asUuid } from "@/lib/domain";
 // lib/case-store/sql/__tests__/compilePredicate.test.ts
 //
 // Compile-only acceptance tests for the Predicate compiler.
@@ -50,6 +49,7 @@ import {
 	PostgresQueryCompiler,
 } from "kysely";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import type { CaseType } from "@/lib/domain";
 import {
 	ancestorPath,
@@ -67,7 +67,6 @@ import {
 	input,
 	isBlank,
 	isIn,
-	isNull,
 	literal,
 	lt,
 	lte,
@@ -88,6 +87,7 @@ import {
 	whenInput,
 	within,
 } from "@/lib/domain/predicate/builders";
+import { proseText } from "@/lib/domain/prose";
 import {
 	compilePredicate,
 	type PredicateCompileContext,
@@ -117,21 +117,21 @@ const PATIENT_SCHEMA: CaseType = {
 	name: "patient",
 	parent_type: "household",
 	properties: [
-		{ name: "nickname", label: "Nickname", data_type: "text" },
-		{ name: "age", label: "Age", data_type: "int" },
-		{ name: "bmi", label: "BMI", data_type: "decimal" },
-		{ name: "dob", label: "DOB", data_type: "date" },
-		{ name: "color", label: "Color", data_type: "single_select" },
-		{ name: "tags", label: "Tags", data_type: "multi_select" },
-		{ name: "loc", label: "Location", data_type: "geopoint" },
+		{ name: "nickname", label: proseText("Nickname"), data_type: "text" },
+		{ name: "age", label: proseText("Age"), data_type: "int" },
+		{ name: "bmi", label: proseText("BMI"), data_type: "decimal" },
+		{ name: "dob", label: proseText("DOB"), data_type: "date" },
+		{ name: "color", label: proseText("Color"), data_type: "single_select" },
+		{ name: "tags", label: proseText("Tags"), data_type: "multi_select" },
+		{ name: "loc", label: proseText("Location"), data_type: "geopoint" },
 	],
 };
 
 const HOUSEHOLD_SCHEMA: CaseType = {
 	name: "household",
 	properties: [
-		{ name: "size", label: "Size", data_type: "int" },
-		{ name: "region", label: "Region", data_type: "text" },
+		{ name: "size", label: proseText("Size"), data_type: "int" },
+		{ name: "region", label: proseText("Region"), data_type: "text" },
 	],
 };
 
@@ -710,9 +710,8 @@ describe("compilePredicate — exists / missing", () => {
 
 describe("compilePredicate — when-input-present", () => {
 	it("compiles the inner clause when the input is bound", () => {
-		const searchInputUuid = asUuid("3657244b-1bb6-4078-83e7-16dbfeda6cb6");
 		const pred = whenInput(
-			input(searchInputUuid),
+			input(testUuid("region_filter")),
 			eq(prop("patient", "nickname"), literal("Alice")),
 		);
 		const compiled = compileWith(
@@ -720,7 +719,7 @@ describe("compilePredicate — when-input-present", () => {
 				pred,
 				makeCtx({
 					bindings: {
-						searchInputs: new Map([[searchInputUuid, "north"]]),
+						searchInputs: new Map([[testUuid("region_filter"), "north"]]),
 					},
 				}),
 			),
@@ -732,7 +731,7 @@ describe("compilePredicate — when-input-present", () => {
 
 	it("collapses to true when the input is unbound", () => {
 		const pred = whenInput(
-			input(asUuid("3657244b-1bb6-4078-83e7-16dbfeda6cb6")),
+			input(testUuid("region_filter")),
 			eq(prop("patient", "nickname"), literal("Alice")),
 		);
 		const compiled = compileWith(compilePredicate(pred, makeCtx()));
@@ -744,57 +743,11 @@ describe("compilePredicate — when-input-present", () => {
 });
 
 // ---------------------------------------------------------------
-// `is-null` and `is-blank` — Postgres-strict null semantics
+// `is-blank` — absent-or-empty semantics
 // ---------------------------------------------------------------
 
 describe("compilePredicate — Postgres-strict null semantics", () => {
-	// is-null: strict-absent. JSONB `?` (key-exists) negation for
-	// property refs.
-	it("emits NOT (... ? key) for is-null on a JSONB-document property", () => {
-		const pred = isNull(prop("patient", "nickname"));
-		const compiled = compileWith(compilePredicate(pred, makeCtx()));
-		// The `?` is the JSONB key-exists operator; the negation
-		// wraps the test.
-		expect(compiled.sql).toContain("?");
-		expect(compiled.sql.toLowerCase()).toContain("not");
-		// The key is parameter-bound, not inlined.
-		expect(compiled.parameters).toContain("nickname");
-	});
-
-	it("emits IS NULL for is-null on a reserved scalar column", () => {
-		const pred = isNull(prop("patient", "case_id"));
-		const compiled = compileWith(compilePredicate(pred, makeCtx()));
-		// Reserved-column dispatch: read off the column directly,
-		// `IS NULL` rather than JSONB `?`.
-		expect(compiled.sql.toLowerCase()).toContain("is null");
-		expect(compiled.sql).toContain('"c"."case_id"');
-		// JSONB `?` operator is NOT in the SQL because the property
-		// routes through the scalar-column branch.
-		expect(compiled.sql).not.toContain('"properties" ?');
-	});
-
-	it("emits IS NULL for is-null on a non-property term", () => {
-		// `compileTerm` parameter-binds `input` / `session-user` /
-		// `session-context` as scalars, so the strict-absent JSONB
-		// semantic doesn't apply — the standard SQL `IS NULL` is the
-		// right shape.
-		const searchInputUuid = asUuid("3657244b-1bb6-4078-83e7-16dbfeda6cb6");
-		const pred = isNull(input(searchInputUuid));
-		const compiled = compileWith(
-			compilePredicate(
-				pred,
-				makeCtx({
-					bindings: {
-						searchInputs: new Map([[searchInputUuid, "north"]]),
-					},
-				}),
-			),
-		);
-		expect(compiled.sql.toLowerCase()).toContain("is null");
-	});
-
-	// is-blank: absent-or-empty. Adds the empty-string disjunction
-	// to the is-null shape.
+	// is-blank matches an absent key or an empty string.
 	it("emits OR =-empty disjunction for is-blank on a JSONB-document property", () => {
 		const pred = isBlank(prop("patient", "nickname"));
 		const compiled = compileWith(compilePredicate(pred, makeCtx()));
@@ -822,14 +775,6 @@ describe("compilePredicate — Postgres-strict null semantics", () => {
 		expect(compiled.parameters).toContain("");
 	});
 
-	it("maps a standard name to its scalar column for is-null (date_opened → opened_on)", () => {
-		const pred = isNull(prop("patient", "date_opened"));
-		const compiled = compileWith(compilePredicate(pred, makeCtx()));
-		expect(compiled.sql).toContain('"c"."opened_on"');
-		expect(compiled.sql.toLowerCase()).toContain("is null");
-		expect(compiled.sql).not.toContain('"properties" ?');
-	});
-
 	it("collapses is-blank to plain IS NULL on a timestamp scalar (last_modified)", () => {
 		// `''` is not a value a timestamptz column can hold, and
 		// comparing one to `''` is a Postgres type ERROR — the
@@ -854,8 +799,7 @@ describe("compilePredicate — Postgres-strict null semantics", () => {
 		// right. NOT routed through the absence-check shape.
 		expect(compiled.sql).toContain("->>");
 		expect(compiled.parameters).toContain("");
-		// Confirm no JSONB-key-exists check leaked in — that's
-		// is-null's shape, not compare's.
+		// Confirm no JSONB-key-exists check leaked in.
 		expect(compiled.sql).not.toContain("not (");
 	});
 
@@ -966,26 +910,8 @@ describe("compilePredicate — non-term ValueExpression operand dispatch", () =>
 		expect(compiled.parameters).toContain(100);
 	});
 
-	it("dispatches arith on is-null.left as a scalar IS NULL check", () => {
-		// `isNull(prop.age + 1)` — the strict-absent semantic on a
-		// scalar arithmetic expression. The dispatch routes through
-		// compileExpression; the result is a scalar `IS NULL` check
-		// (NOT a JSONB key-existence test, which is reserved for
-		// property-ref operands).
-		const pred = isNull(
-			arith("+", term(prop("patient", "age")), term(literal(1))),
-		);
-		const compiled = compileWith(compilePredicate(pred, makeCtx()));
-		expect(compiled.sql.toLowerCase()).toContain("is null");
-		// The JSONB `?` key-existence operator is property-ref
-		// specific; arithmetic operands route through scalar IS
-		// NULL.
-		expect(compiled.sql).not.toMatch(/\bnot\b\s*\([^)]*\?[^)]*\)/);
-	});
-
 	it("dispatches arith on is-blank.left as a scalar IS NULL OR =-empty check", () => {
-		// `isBlank(prop.age + 1)` — same dispatch as is-null on the
-		// arith arm, with the empty-string disjunction added.
+		// Arithmetic operands route through a scalar null-or-empty check.
 		const pred = isBlank(
 			arith("+", term(prop("patient", "age")), term(literal(1))),
 		);

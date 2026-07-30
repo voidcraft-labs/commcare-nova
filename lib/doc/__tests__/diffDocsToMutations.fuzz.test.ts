@@ -19,8 +19,8 @@
  *
  * `prev` is one random valid mutation batch off a seed doc; `next` is
  * ANOTHER random batch off `prev`. The two batches independently exercise
- * every diffable shape — add/remove/rename/convert/update/move at module,
- * form, and field level, plus app-name / connect / logo / case-types /
+ * every diffable shape — add/remove/identity-change/convert/update/move at
+ * module, form, and field level, plus app-name / connect / logo / case-types /
  * media — and deliberately SET-then-CLEAR optional slots
  * (`relevant`, a form's `purpose`, a module's `caseType`, every media
  * slot, the logo) so the clear path is exercised, not just the set path.
@@ -37,6 +37,7 @@
 import * as fc from "fast-check";
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
+import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
 import {
@@ -54,6 +55,7 @@ import { findContainingForm } from "@/lib/doc/mutations/helpers";
 import { type Mutation, mutationSchema } from "@/lib/doc/types";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { eq, literal, prop } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 
 // ── Seeds ─────────────────────────────────────────────────────────────
 
@@ -74,8 +76,8 @@ function singleModuleDoc(): BlueprintDoc {
 						name: "Intake",
 						type: "survey",
 						fields: [
-							f({ kind: "text", id: "q1", label: "Q1" }),
-							f({ kind: "int", id: "q2", label: "Q2" }),
+							f({ kind: "text", id: "q1", label: proseText("Q1") }),
+							f({ kind: "int", id: "q2", label: proseText("Q2") }),
 						],
 					},
 				],
@@ -94,12 +96,15 @@ function richDoc(): BlueprintDoc {
 			{
 				name: "patient",
 				properties: [
-					{ name: "case_name", label: "Name" },
-					{ name: "age", label: "Age" },
-					{ name: "village", label: "Village" },
+					{ name: "case_name", label: proseText("Name") },
+					{ name: "age", label: proseText("Age") },
+					{ name: "village", label: proseText("Village") },
 				],
 			},
-			{ name: "household", properties: [{ name: "region", label: "Region" }] },
+			{
+				name: "household",
+				properties: [{ name: "region", label: proseText("Region") }],
+			},
 		],
 		modules: [
 			{
@@ -118,31 +123,40 @@ function richDoc(): BlueprintDoc {
 							f({
 								kind: "text",
 								id: "case_name",
-								label: "Name",
-								case_property_on: "patient",
+								label: proseText("Name"),
+								caseWrite: {
+									caseType: "patient",
+									property: "case_name",
+								},
 							}),
 							f({
 								kind: "int",
 								id: "age",
-								label: "Age",
-								case_property_on: "patient",
+								label: proseText("Age"),
+								caseWrite: { caseType: "patient", property: "age" },
 							}),
 							f({
 								kind: "group",
 								id: "grp",
-								label: "Group",
+								label: proseText("Group"),
 								children: [
-									f({ kind: "text", id: "inner", label: "Inner" }),
-									f({ kind: "text", id: "inner2", label: "Inner 2" }),
+									f({ kind: "text", id: "inner", label: proseText("Inner") }),
+									f({
+										kind: "text",
+										id: "inner2",
+										label: proseText("Inner 2"),
+									}),
 								],
 							}),
 							f({
 								kind: "repeat",
 								id: "rep",
-								label: "Repeat",
-								children: [f({ kind: "text", id: "rep_q", label: "Rep Q" })],
+								label: proseText("Repeat"),
+								children: [
+									f({ kind: "text", id: "rep_q", label: proseText("Rep Q") }),
+								],
 							}),
-							f({ kind: "text", id: "outcome", label: "Outcome" }),
+							f({ kind: "text", id: "outcome", label: proseText("Outcome") }),
 						],
 					},
 					{
@@ -152,8 +166,8 @@ function richDoc(): BlueprintDoc {
 							f({
 								kind: "text",
 								id: "village",
-								label: "Village",
-								case_property_on: "patient",
+								label: proseText("Village"),
+								caseWrite: { caseType: "patient", property: "village" },
 							}),
 						],
 					},
@@ -170,8 +184,8 @@ function richDoc(): BlueprintDoc {
 							f({
 								kind: "text",
 								id: "region",
-								label: "Region",
-								case_property_on: "household",
+								label: proseText("Region"),
+								caseWrite: { caseType: "household", property: "region" },
 							}),
 						],
 					},
@@ -179,12 +193,12 @@ function richDoc(): BlueprintDoc {
 			},
 		],
 	});
-	doc.logo = "asset-logo-1";
+	doc.logo = testMediaAssetId("asset-logo-1");
 	// Attach message media to one field so the field-media diff branch fires.
 	const ageField = Object.values(doc.fields).find((fld) => fld.id === "age");
 	if (ageField) {
 		(ageField as Record<string, unknown>).label_media = {
-			image: "asset-img-1",
+			image: testMediaAssetId("asset-img-1"),
 		};
 	}
 	return doc;
@@ -207,7 +221,7 @@ const XPATH_POOL = [
 	"#form/age > 17",
 	"/data/village != ''",
 	"#patient/age > 0",
-	"#case/age = '1'",
+	"#patient/age = '1'",
 	"",
 ];
 const LABEL_POOL = ["Plain", "See #patient/age", "Check stuff"];
@@ -231,7 +245,7 @@ type FuzzOp =
 			asGroup: boolean;
 	  }
 	| { kind: "removeField"; fieldPick: number }
-	| { kind: "renameField"; fieldPick: number; idPick: number }
+	| { kind: "updateFieldId"; fieldPick: number; idPick: number }
 	| { kind: "moveField"; fieldPick: number; parentPick: number; index: number }
 	| { kind: "convertField"; fieldPick: number }
 	| {
@@ -260,7 +274,7 @@ type FuzzOp =
 	| { kind: "renameModule"; modulePick: number; namePick: number }
 	| { kind: "updateModule"; modulePick: number; caseTypePick: number }
 	| { kind: "setModuleMedia"; modulePick: number; clear: boolean }
-	| { kind: "setCaseTypes"; drop: boolean }
+	| { kind: "editCaseTypes"; drop: boolean }
 	| { kind: "setAppName"; namePick: number }
 	| { kind: "setConnectType"; pick: number }
 	| { kind: "setAppLogo"; clear: boolean };
@@ -292,7 +306,7 @@ const opArb: fc.Arbitrary<FuzzOp> = fc.oneof(
 				fieldPick: fc.nat({ max: 40 }),
 				idPick: fc.nat({ max: ID_POOL.length - 1 }),
 			})
-			.map((r) => ({ kind: "renameField" as const, ...r })),
+			.map((r) => ({ kind: "updateFieldId" as const, ...r })),
 	},
 	{
 		weight: 4,
@@ -418,7 +432,7 @@ const opArb: fc.Arbitrary<FuzzOp> = fc.oneof(
 		weight: 1,
 		arbitrary: fc
 			.record({ drop: fc.boolean() })
-			.map((r) => ({ kind: "setCaseTypes" as const, ...r })),
+			.map((r) => ({ kind: "editCaseTypes" as const, ...r })),
 	},
 	{
 		weight: 1,
@@ -505,24 +519,27 @@ function lower(doc: BlueprintDoc, op: FuzzOp): Mutation[] {
 				? parentUuid
 				: findContainingForm(doc, parentUuid);
 			const caseProp = CASE_TYPE_POOL[op.casePropPick];
+			const id = ID_POOL[op.idPick];
 			const field = op.asGroup
 				? ({
 						uuid: mintUuid(),
 						kind: "group",
-						id: ID_POOL[op.idPick],
-						label: "Group",
+						id,
+						label: proseText("Group"),
 					} as never)
 				: ({
 						uuid: mintUuid(),
 						kind: "text",
-						id: ID_POOL[op.idPick],
-						label: LABEL_POOL[op.labelPick],
+						id,
+						label: proseText(LABEL_POOL[op.labelPick]),
 						relevant: parseXPathForForm(
 							doc,
 							formUuid,
 							XPATH_POOL[op.relevantPick],
 						),
-						...(caseProp && { case_property_on: caseProp }),
+						...(caseProp && {
+							caseWrite: { caseType: caseProp, property: id },
+						}),
 					} as never);
 			return [{ kind: "addField", parentUuid, field }];
 		}
@@ -530,10 +547,18 @@ function lower(doc: BlueprintDoc, op: FuzzOp): Mutation[] {
 			const uuid = pickField(doc, op.fieldPick);
 			return uuid ? [{ kind: "removeField", uuid }] : [];
 		}
-		case "renameField": {
+		case "updateFieldId": {
 			const uuid = pickField(doc, op.fieldPick);
-			return uuid
-				? [{ kind: "renameField", uuid, newId: ID_POOL[op.idPick] }]
+			const field = uuid ? doc.fields[uuid] : undefined;
+			return field
+				? [
+						{
+							kind: "updateField",
+							uuid: field.uuid,
+							targetKind: field.kind,
+							patch: { id: ID_POOL[op.idPick] },
+						} as Mutation,
+					]
 				: [];
 		}
 		case "moveField": {
@@ -583,7 +608,7 @@ function lower(doc: BlueprintDoc, op: FuzzOp): Mutation[] {
 						relevant: op.clearRelevant
 							? null
 							: parseXPathForField(doc, uuid, XPATH_POOL[op.relevantPick]),
-						label: LABEL_POOL[op.labelPick],
+						label: proseText(LABEL_POOL[op.labelPick]),
 					},
 				} as Mutation,
 			];
@@ -596,7 +621,7 @@ function lower(doc: BlueprintDoc, op: FuzzOp): Mutation[] {
 					kind: "setFieldMedia",
 					fieldUuid: uuid,
 					slot: "label",
-					media: op.clear ? null : { image: `asset-${mintUuid()}` },
+					media: op.clear ? null : { image: testMediaAssetId(mintUuid()) },
 				},
 			];
 		}
@@ -667,7 +692,7 @@ function lower(doc: BlueprintDoc, op: FuzzOp): Mutation[] {
 				{
 					kind: "setFormMedia",
 					uuid,
-					icon: op.clear ? null : (`asset-${mintUuid()}` as never),
+					icon: op.clear ? null : testMediaAssetId(mintUuid()),
 					audioLabel: null,
 				},
 			];
@@ -720,25 +745,34 @@ function lower(doc: BlueprintDoc, op: FuzzOp): Mutation[] {
 				{
 					kind: "setModuleMedia",
 					uuid,
-					icon: op.clear ? null : (`asset-${mintUuid()}` as never),
+					icon: op.clear ? null : testMediaAssetId(mintUuid()),
 					audioLabel: null,
 				},
 			];
 		}
-		case "setCaseTypes":
-			return [
-				{
-					kind: "setCaseTypes",
-					caseTypes: op.drop
-						? null
-						: [
-								{
-									name: "patient",
-									properties: [{ name: "case_name", label: "N" }],
-								},
-							],
-				},
-			];
+		case "editCaseTypes":
+			if (op.drop) {
+				return (doc.caseTypes ?? []).map((caseType) => ({
+					kind: "retireCaseType" as const,
+					caseType: caseType.name,
+				}));
+			}
+			return doc.caseTypes?.some((caseType) => caseType.name === "patient")
+				? [
+						{
+							kind: "setCaseProperty",
+							caseType: "patient",
+							property: { name: "case_name", label: proseText("N") },
+						},
+					]
+				: [
+						{ kind: "declareCaseType", caseType: "patient" },
+						{
+							kind: "addCaseProperty",
+							caseType: "patient",
+							property: { name: "case_name", label: proseText("N") },
+						},
+					];
 		case "setAppName":
 			return [{ kind: "setAppName", name: NAME_POOL[op.namePick] }];
 		case "setConnectType": {
@@ -749,7 +783,7 @@ function lower(doc: BlueprintDoc, op: FuzzOp): Mutation[] {
 			return [
 				{
 					kind: "setAppLogo",
-					logo: op.clear ? null : (`asset-${mintUuid()}` as never),
+					logo: op.clear ? null : testMediaAssetId(mintUuid()),
 				},
 			];
 	}
@@ -862,15 +896,37 @@ describe("diffDocsToMutations — diff(prev, next) replayed on prev ≡ next", (
 // ── Explicit unit cases ───────────────────────────────────────────────
 
 describe("diffDocsToMutations — explicit cases", () => {
-	it("pure rename of a field (id rides updateField, no cascade)", () => {
+	it("adds a field beside a field moved into the same container", () => {
+		const prev = richDoc();
+		const next = applyOps(prev, [
+			{
+				kind: "moveField",
+				fieldPick: 0,
+				parentPick: 9,
+				index: 3,
+			},
+			{
+				kind: "addField",
+				parentPick: 4,
+				idPick: 0,
+				relevantPick: 0,
+				labelPick: 0,
+				casePropPick: 0,
+				asGroup: false,
+			},
+		]);
+		assertRoundTrip(prev, next);
+	});
+
+	it("reconciles a pure field-ID change through updateField", () => {
 		const prev = singleModuleDoc();
 		const next = produce(prev, (draft) => {
 			const target = Object.values(draft.fields).find((fld) => fld.id === "q1");
 			if (target) target.id = "q1_renamed";
 		});
 		const diff = diffDocsToMutations(prev, next);
-		// Field id is reconciled through the updateField patch (cascade-free),
-		// not renameField — see diffDocsToMutations' field-update note.
+		// Field identity has one canonical mutation dialect: the ID rides the
+		// same target-kind-aware updateField patch used by direct authoring.
 		expect(
 			diff.some(
 				(m) =>
@@ -878,7 +934,6 @@ describe("diffDocsToMutations — explicit cases", () => {
 					(m.patch as { id?: string }).id === "q1_renamed",
 			),
 		).toBe(true);
-		expect(diff.some((m) => m.kind === "renameField")).toBe(false);
 		assertRoundTrip(prev, next);
 	});
 
@@ -896,20 +951,18 @@ describe("diffDocsToMutations — explicit cases", () => {
 		assertRoundTrip(prev, next);
 	});
 
-	it("a non-catalog structural edit emits no setCaseTypes (no concurrent-catalog clobber)", () => {
+	it("a non-catalog structural edit emits no catalog mutations", () => {
 		// A doc WITH a catalog; reorder its fields (a purely structural edit
 		// that doesn't touch the catalog). The diff must NOT re-pin the whole
-		// catalog — a wholesale setCaseTypes would overwrite a co-member's
-		// concurrent catalog add on the guarded re-apply. (The old
-		// `structuralTouched` heuristic emitted setCaseTypes on any structural
-		// edit, which is the bug this guards.)
+		// catalog — replaying it must leave a co-member's concurrent catalog add
+		// untouched.
 		const prev = buildDoc({
 			caseTypes: [
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name" },
-						{ name: "age", label: "Age" },
+						{ name: "case_name", label: proseText("Name") },
+						{ name: "age", label: proseText("Age") },
 					],
 				},
 			],
@@ -925,14 +978,17 @@ describe("diffDocsToMutations — explicit cases", () => {
 								{
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: {
+										caseType: "patient",
+										property: "case_name",
+									},
 								},
 								{
 									kind: "int",
 									id: "age",
-									label: "Age",
-									case_property_on: "patient",
+									label: proseText("Age"),
+									caseWrite: { caseType: "patient", property: "age" },
 								},
 							],
 						},
@@ -951,8 +1007,7 @@ describe("diffDocsToMutations — explicit cases", () => {
 		});
 		const diff = diffDocsToMutations(backfilled, next);
 		expect(diff.some((m) => m.kind === "moveField")).toBe(true);
-		// No wholesale catalog re-pin on a purely structural edit.
-		expect(diff.some((m) => m.kind === "setCaseTypes")).toBe(false);
+		// No catalog re-pin on a purely structural edit.
 		expect(
 			diff.some(
 				(m) =>
@@ -979,8 +1034,8 @@ describe("diffDocsToMutations — explicit cases", () => {
 								f({
 									kind: "text",
 									id: "pw",
-									label: "Password",
-									hint: "secret",
+									label: proseText("Password"),
+									hint: proseText("secret"),
 								}),
 							],
 						},
@@ -992,7 +1047,7 @@ describe("diffDocsToMutations — explicit cases", () => {
 			const target = Object.values(draft.fields).find((fld) => fld.id === "pw");
 			if (target) {
 				(target as Record<string, unknown>).kind = "secret";
-				(target as Record<string, unknown>).label = "PIN";
+				(target as Record<string, unknown>).label = proseText("PIN");
 			}
 		});
 		const diff = diffDocsToMutations(prev, next);
@@ -1005,7 +1060,9 @@ describe("diffDocsToMutations — explicit cases", () => {
 		const withMedia = produce(prev, (draft) => {
 			const target = Object.values(draft.fields).find((fld) => fld.id === "q1");
 			if (target)
-				(target as Record<string, unknown>).label_media = { image: "a1" };
+				(target as Record<string, unknown>).label_media = {
+					image: testMediaAssetId("a1"),
+				};
 		});
 		// set
 		const setDiff = diffDocsToMutations(prev, withMedia);
@@ -1029,12 +1086,14 @@ describe("diffDocsToMutations — explicit cases", () => {
 							name: "F",
 							type: "survey",
 							fields: [
-								f({ kind: "text", id: "loose", label: "Loose" }),
+								f({ kind: "text", id: "loose", label: proseText("Loose") }),
 								f({
 									kind: "group",
 									id: "g",
-									label: "Group",
-									children: [f({ kind: "text", id: "child", label: "Child" })],
+									label: proseText("Group"),
+									children: [
+										f({ kind: "text", id: "child", label: proseText("Child") }),
+									],
 								}),
 							],
 						},
@@ -1077,12 +1136,14 @@ describe("diffDocsToMutations — explicit cases", () => {
 							name: "Reg",
 							type: "registration",
 							fields: [
-								f({ kind: "text", id: "a", label: "A" }),
+								f({ kind: "text", id: "a", label: proseText("A") }),
 								f({
 									kind: "group",
 									id: "grp",
-									label: "G",
-									children: [f({ kind: "text", id: "b", label: "B" })],
+									label: proseText("G"),
+									children: [
+										f({ kind: "text", id: "b", label: proseText("B") }),
+									],
 								}),
 							],
 						},
@@ -1141,9 +1202,8 @@ describe("diffDocsToMutations — explicit cases", () => {
 		expect(diff.some((m) => m.kind === "setAppLogo" && m.logo === null)).toBe(
 			true,
 		);
-		// The catalog change rides GRANULAR kinds now (declare the new type,
-		// retire the old) — never a wholesale `setCaseTypes` on the live path.
-		expect(diff.some((m) => m.kind === "setCaseTypes")).toBe(false);
+		// The catalog change rides granular kinds (declare the new type, retire
+		// the old).
 		expect(
 			diff.some((m) => m.kind === "declareCaseType" && m.caseType === "only"),
 		).toBe(true);

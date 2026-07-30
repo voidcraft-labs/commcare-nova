@@ -58,7 +58,7 @@ export async function authorizeSystemSchemaMutationInTransaction(
 		.where("id", "=", args.appId)
 		.forShare()
 		.executeTakeFirst();
-	if (!app?.project_id || app.deleted_at !== null) {
+	if (!app || app.deleted_at !== null) {
 		throw new AppAccessError("not_found");
 	}
 	return { projectId: app.project_id };

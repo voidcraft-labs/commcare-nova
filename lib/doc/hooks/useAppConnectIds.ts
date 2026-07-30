@@ -17,6 +17,7 @@
  */
 import { useBlueprintDocEq } from "@/lib/doc/hooks/useBlueprintDoc";
 import type { Uuid } from "@/lib/doc/types";
+import { isConnectLearnConfig } from "@/lib/domain";
 
 /** The four Connect sub-config kinds whose ids share the app-wide namespace. */
 export type ConnectIdKind =
@@ -24,22 +25,6 @@ export type ConnectIdKind =
 	| "assessment"
 	| "deliver_unit"
 	| "task";
-
-/**
- * The connect kinds that are "live" for an app mode. Only these count toward
- * the uniqueness scope — matching the emit resolver (`buildConnectSlugMap`)
- * and the `CONNECT_ID_DUPLICATE` validator rule, which both process only
- * mode-matching kinds. A stray cross-mode block (e.g. a `deliver_unit` left
- * on a form after switching to learn) is therefore not "taken", so all four
- * uniqueness scopes agree. `null` (not in Connect mode) → no live kinds.
- */
-function liveKindsFor(
-	connectType: "learn" | "deliver" | null,
-): readonly ConnectIdKind[] {
-	if (connectType === "learn") return ["learn_module", "assessment"];
-	if (connectType === "deliver") return ["deliver_unit", "task"];
-	return [];
-}
 
 /** One set connect id, located by the form + kind that owns it. */
 export interface AppConnectId {
@@ -71,15 +56,48 @@ function sameIds(
  */
 export function useAppConnectIds(): readonly AppConnectId[] {
 	return useBlueprintDocEq((s) => {
-		const liveKinds = liveKindsFor(s.connectType);
 		const out: AppConnectId[] = [];
 		for (const moduleUuid of s.moduleOrder) {
 			for (const formUuid of s.formOrder[moduleUuid] ?? []) {
 				const connect = s.forms[formUuid]?.connect;
 				if (!connect) continue;
-				for (const kind of liveKinds) {
-					const id = connect[kind]?.id;
-					if (id) out.push({ formUuid, kind, id });
+				if (s.connectType === null) {
+					throw new Error(
+						"Stored Connect configuration requires an app Connect mode.",
+					);
+				}
+				const learnConfig = isConnectLearnConfig(connect);
+				if ((s.connectType === "learn") !== learnConfig) {
+					throw new Error(
+						"Stored Connect configuration does not match the app Connect mode.",
+					);
+				}
+				if (learnConfig) {
+					if (connect.learn_module) {
+						out.push({
+							formUuid,
+							kind: "learn_module",
+							id: connect.learn_module.id,
+						});
+					}
+					if (connect.assessment) {
+						out.push({
+							formUuid,
+							kind: "assessment",
+							id: connect.assessment.id,
+						});
+					}
+				} else {
+					if (connect.deliver_unit) {
+						out.push({
+							formUuid,
+							kind: "deliver_unit",
+							id: connect.deliver_unit.id,
+						});
+					}
+					if (connect.task) {
+						out.push({ formUuid, kind: "task", id: connect.task.id });
+					}
 				}
 			}
 		}

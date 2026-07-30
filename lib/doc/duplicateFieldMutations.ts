@@ -50,15 +50,6 @@ export function duplicateFieldMutations(
 		const cloneUuid = asUuid(crypto.randomUUID());
 		const copy = structuredClone(field);
 		copy.uuid = cloneUuid;
-		if (
-			(copy.kind === "single_select" || copy.kind === "multi_select") &&
-			copy.optionsSource.kind === "inline"
-		) {
-			copy.optionsSource.options = copy.optionsSource.options.map((option) => ({
-				...option,
-				uuid: asUuid(crypto.randomUUID()),
-			}));
-		}
 		cloned.push({ parentUuid: intoParent, field: copy });
 		for (const childUuid of doc.fieldOrder[sourceUuid] ?? []) {
 			cloneInto(childUuid, cloneUuid);

@@ -16,12 +16,12 @@ import {
 import { Switch } from "@/components/shadcn/switch";
 import type { XPathLintContext } from "@/lib/codemirror/xpath-lint";
 import {
-	assignConnectId,
 	connectIdValidity,
 	DEFAULT_ASSESSMENT_USER_SCORE,
 	DEFAULT_DELIVER_ENTITY_ID,
 	DEFAULT_DELIVER_ENTITY_NAME,
 	deriveConnectId,
+	projectDraftConnectId,
 } from "@/lib/doc/connectConfig";
 import { parseXPathForForm } from "@/lib/doc/expressionText";
 import {
@@ -30,7 +30,13 @@ import {
 	useAppConnectIds,
 } from "@/lib/doc/hooks/useAppConnectIds";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
-import type { ConnectConfig, ConnectType, XPathExpression } from "@/lib/domain";
+import type {
+	ConnectConfig,
+	ConnectDeliverConfig,
+	ConnectLearnConfig,
+	ConnectType,
+	XPathExpression,
+} from "@/lib/domain";
 import { asUuid } from "@/lib/domain";
 import { CurrentFormScope } from "@/lib/references/ReferenceContext";
 import { useStopEscape } from "@/lib/ui/hooks/useStopEscape";
@@ -134,10 +140,10 @@ export function configToDraft(
 	config: ConnectConfig,
 	printExpr: (expr: XPathExpression) => string,
 ): BlockDraft {
-	const lm = config.learn_module;
-	const assessment = config.assessment;
-	const du = config.deliver_unit;
-	const task = config.task;
+	const lm = "learn_module" in config ? config.learn_module : undefined;
+	const assessment = "assessment" in config ? config.assessment : undefined;
+	const du = "deliver_unit" in config ? config.deliver_unit : undefined;
+	const task = "task" in config ? config.task : undefined;
 	return {
 		learnOn: !!lm,
 		learnName: lm?.name ?? "",
@@ -182,9 +188,9 @@ export function draftParticipates(
 		: draft.deliverOn || draft.taskOn;
 }
 
-/** Whether every ENABLED sub-config's required content is filled. Ids and
- *  the optional XPath buffers don't gate (they autofill / wire-default); an
- *  enabled assessment is always complete. */
+/** Whether every ENABLED sub-config's required authored content is filled.
+ * IDs are assigned during finalization and optional XPath slots use their
+ * documented wire defaults; an enabled assessment is always complete. */
 export function draftSectionsComplete(
 	draft: BlockDraft,
 	mode: ConnectType,
@@ -205,12 +211,13 @@ export function draftSectionsComplete(
 }
 
 /** Validate an explicitly-typed id (format + app-wide uniqueness). A blank
- *  id is valid — the commit autofills it. */
+ * draft buffer is valid because dialog finalization assigns the id. */
 export type IdValidator = (kind: SubConfigKind, value: string) => string | null;
 
-/** Whether every enabled sub-config's typed id is valid. Blank ids pass
- *  (autofill). Used alongside `draftSectionsComplete` so a bad id can't slip
- *  past to a gate bounce. */
+/** Whether every enabled sub-config's typed id is valid. Blank draft buffers
+ * pass because finalization assigns them before constructing `ConnectConfig`.
+ * Used alongside `draftSectionsComplete` so a bad explicit id cannot reach
+ * admission. */
 export function draftIdsValid(
 	draft: BlockDraft,
 	mode: ConnectType,
@@ -255,29 +262,37 @@ export function connectIdHelpers(
 		derivedId: (kind) =>
 			deriveConnectId(idBaseName(kind, moduleName, formName), takenFor(kind)),
 		validateId: (kind, value) => {
-			const id = value.trim();
-			return id ? connectIdValidity(id, takenFor(kind)) : null;
+			return value === "" ? null : connectIdValidity(value, takenFor(kind));
 		},
 	};
 }
 
-/** The id every participating sub-config of `mode` will carry, accumulated via
- *  the SHARED `assignConnectId` rule the commit's `dedupeRestoredConnectIds`
- *  also uses (a free explicit id kept verbatim, otherwise derived from the
- *  explicit value or the entity name) and in the same kind order — so the
- *  preview lands the SAME ids the commit will. Built from the manager's drafts
- *  so its id guard and seeding read the in-flight set, not just the live doc:
- *  two blank same-base blocks disambiguate here exactly as they will at commit
- *  (no display-vs-stored drift), and an explicit duplicate typed across two
- *  forms is caught inline. */
+/** The id every participating sub-config of `mode` currently proposes,
+ * accumulated via the shared `projectDraftConnectId` rule: an explicit value
+ * stays byte-for-byte visible even when the adjacent guard will refuse it, and
+ * only an empty value derives from the entity name. Every explicit identity is
+ * reserved before any empty draft derives, so a blank earlier in document
+ * order cannot steal a later explicit spelling. Built from the caller's drafts
+ * so its id guard and seeding read the in-flight set, not just the live doc: two
+ * blank same-base blocks disambiguate here exactly as they will at commit (no
+ * display-vs-stored drift), and an explicit duplicate typed across two forms
+ * is caught inline. Callers may seed the scope with committed ids outside
+ * their target set; every returned entry is the complete guard universe. */
 export function assignDraftConnectIds(
 	forms: readonly { formUuid: string; moduleName: string; formName: string }[],
 	modeDrafts: Record<string, BlockDraft>,
 	mode: ConnectType,
+	reservedIds: readonly AppConnectId[] = [],
 ): AppConnectId[] {
-	const taken = new Set<string>();
-	const out: AppConnectId[] = [];
-	const assign = (
+	const taken = new Set(reservedIds.map(({ id }) => id));
+	const out: AppConnectId[] = [...reservedIds];
+	const requested: Array<{
+		readonly formUuid: string;
+		readonly kind: SubConfigKind;
+		readonly buffer: string;
+		readonly base: string;
+	}> = [];
+	const collect = (
 		formUuid: string,
 		kind: SubConfigKind,
 		on: boolean,
@@ -285,25 +300,35 @@ export function assignDraftConnectIds(
 		base: string,
 	) => {
 		if (!on) return;
-		const id = assignConnectId(buffer.trim() || undefined, base, taken);
-		out.push({ formUuid: asUuid(formUuid), kind, id });
+		requested.push({ formUuid, kind, buffer, base });
 	};
 	for (const f of forms) {
 		const d = modeDrafts[f.formUuid] ?? EMPTY_DRAFT;
 		const pair = `${f.moduleName} ${f.formName}`;
 		if (mode === "learn") {
-			assign(f.formUuid, "learn_module", d.learnOn, d.learnId, f.moduleName);
-			assign(f.formUuid, "assessment", d.assessmentOn, d.assessmentId, pair);
+			collect(f.formUuid, "learn_module", d.learnOn, d.learnId, f.moduleName);
+			collect(f.formUuid, "assessment", d.assessmentOn, d.assessmentId, pair);
 		} else {
-			assign(
+			collect(
 				f.formUuid,
 				"deliver_unit",
 				d.deliverOn,
 				d.deliverId,
 				f.moduleName,
 			);
-			assign(f.formUuid, "task", d.taskOn, d.taskId, pair);
+			collect(f.formUuid, "task", d.taskOn, d.taskId, pair);
 		}
+	}
+	for (const { buffer } of requested) {
+		if (buffer !== "") taken.add(buffer);
+	}
+	for (const { formUuid, kind, buffer, base } of requested) {
+		const id = projectDraftConnectId(
+			buffer === "" ? undefined : buffer,
+			base,
+			taken,
+		);
+		out.push({ formUuid: asUuid(formUuid), kind, id });
 	}
 	return out;
 }
@@ -323,15 +348,36 @@ function xpathOverride(
 	return parseExpr(trimmed);
 }
 
-/** Lower a draft to the `ConnectConfig` the commit path lands. A blank id
- *  is omitted (the commit autofills); an XPath buffer still at its default is
- *  omitted (the wire-emit default applies); an overridden buffer is parsed
- *  against the form. */
+/** Lower a component-local draft to one complete final `ConnectConfig`.
+ * Blank ids are assigned before the value leaves the dialog; an XPath buffer
+ * still at its default stays absent so the wire-emit default applies. */
+export function draftToConfig(
+	draft: BlockDraft,
+	mode: "learn",
+	parseExpr: (text: string) => XPathExpression,
+	derivedId: (kind: SubConfigKind) => string,
+): ConnectLearnConfig;
+export function draftToConfig(
+	draft: BlockDraft,
+	mode: "deliver",
+	parseExpr: (text: string) => XPathExpression,
+	derivedId: (kind: SubConfigKind) => string,
+): ConnectDeliverConfig;
 export function draftToConfig(
 	draft: BlockDraft,
 	mode: ConnectType,
 	parseExpr: (text: string) => XPathExpression,
+	derivedId: (kind: SubConfigKind) => string,
+): ConnectConfig;
+export function draftToConfig(
+	draft: BlockDraft,
+	mode: ConnectType,
+	parseExpr: (text: string) => XPathExpression,
+	derivedId: (kind: SubConfigKind) => string,
 ): ConnectConfig {
+	if (!draftParticipates(draft, mode) || !draftSectionsComplete(draft, mode)) {
+		throw new Error("Incomplete Connect draft reached finalization.");
+	}
 	if (mode === "learn") {
 		const userScore = xpathOverride(
 			draft.userScoreText,
@@ -341,15 +387,15 @@ export function draftToConfig(
 		return {
 			...(draft.learnOn && {
 				learn_module: {
-					...(draft.learnId.trim() && { id: draft.learnId.trim() }),
+					id: draft.learnId || derivedId("learn_module"),
 					name: draft.learnName.trim(),
 					description: draft.learnDescription.trim(),
-					time_estimate: parseTimeEstimate(draft.learnTimeEstimate) ?? 1,
+					time_estimate: parseTimeEstimate(draft.learnTimeEstimate) as number,
 				},
 			}),
 			...(draft.assessmentOn && {
 				assessment: {
-					...(draft.assessmentId.trim() && { id: draft.assessmentId.trim() }),
+					id: draft.assessmentId || derivedId("assessment"),
 					...(userScore && { user_score: userScore }),
 				},
 			}),
@@ -368,7 +414,7 @@ export function draftToConfig(
 	return {
 		...(draft.deliverOn && {
 			deliver_unit: {
-				...(draft.deliverId.trim() && { id: draft.deliverId.trim() }),
+				id: draft.deliverId || derivedId("deliver_unit"),
 				name: draft.deliverName.trim(),
 				...(entityId && { entity_id: entityId }),
 				...(entityName && { entity_name: entityName }),
@@ -376,7 +422,7 @@ export function draftToConfig(
 		}),
 		...(draft.taskOn && {
 			task: {
-				...(draft.taskId.trim() && { id: draft.taskId.trim() }),
+				id: draft.taskId || derivedId("task"),
 				name: draft.taskName.trim(),
 				description: draft.taskDescription.trim(),
 			},
@@ -598,7 +644,7 @@ export function FormSubConfigs({
 	formUuid: string;
 }) {
 	const idCheck = (kind: SubConfigKind) => (value: string) =>
-		value.trim() ? validateId(kind, value) : null;
+		value === "" ? null : validateId(kind, value);
 	const getLintContext = useConnectLintContext(asUuid(formUuid));
 
 	// Flip a sub-config. Turning it ON seeds the derived id into a still-blank
@@ -614,7 +660,7 @@ export function FormSubConfigs({
 						? { learnOn: false }
 						: {
 								learnOn: true,
-								...(draft.learnId.trim()
+								...(draft.learnId
 									? {}
 									: { learnId: derivedId("learn_module") }),
 							},
@@ -625,7 +671,7 @@ export function FormSubConfigs({
 						? { assessmentOn: false }
 						: {
 								assessmentOn: true,
-								...(draft.assessmentId.trim()
+								...(draft.assessmentId
 									? {}
 									: { assessmentId: derivedId("assessment") }),
 							},
@@ -636,7 +682,7 @@ export function FormSubConfigs({
 						? { deliverOn: false }
 						: {
 								deliverOn: true,
-								...(draft.deliverId.trim()
+								...(draft.deliverId
 									? {}
 									: { deliverId: derivedId("deliver_unit") }),
 							},
@@ -647,7 +693,7 @@ export function FormSubConfigs({
 						? { taskOn: false }
 						: {
 								taskOn: true,
-								...(draft.taskId.trim() ? {} : { taskId: derivedId("task") }),
+								...(draft.taskId ? {} : { taskId: derivedId("task") }),
 							},
 				);
 			default:
@@ -662,17 +708,16 @@ export function FormSubConfigs({
 	const blurResetId = (kind: SubConfigKind) => () => {
 		switch (kind) {
 			case "learn_module":
-				if (!draft.learnId.trim()) onPatch({ learnId: derivedId(kind) });
+				if (!draft.learnId) onPatch({ learnId: derivedId(kind) });
 				return;
 			case "assessment":
-				if (!draft.assessmentId.trim())
-					onPatch({ assessmentId: derivedId(kind) });
+				if (!draft.assessmentId) onPatch({ assessmentId: derivedId(kind) });
 				return;
 			case "deliver_unit":
-				if (!draft.deliverId.trim()) onPatch({ deliverId: derivedId(kind) });
+				if (!draft.deliverId) onPatch({ deliverId: derivedId(kind) });
 				return;
 			case "task":
-				if (!draft.taskId.trim()) onPatch({ taskId: derivedId(kind) });
+				if (!draft.taskId) onPatch({ taskId: derivedId(kind) });
 				return;
 			default:
 				return assertNever(kind);
@@ -891,13 +936,25 @@ function DialogBody({
 	const [drafts, setDrafts] = useState<Record<string, BlockDraft>>(() =>
 		Object.fromEntries(targets.map((t) => [t.formUuid, { ...EMPTY_DRAFT }])),
 	);
-	// One id scope for the dialog, built from the LIVE doc — the per-form setup
-	// edits the active mode against every other form's committed ids.
+	// One exact id scope for the dialog: committed ids outside the target set
+	// plus every in-flight target draft. The shared projection reserves all
+	// explicit/live identities before deriving one empty draft, so the inline
+	// guard and final app-wide planner admit the same set.
 	const appConnectIds = useAppConnectIds();
+	const targetFormUuids = new Set(targets.map(({ formUuid }) => formUuid));
+	const committedIdsOutsideTargets = appConnectIds.filter(
+		({ formUuid }) => !targetFormUuids.has(formUuid),
+	);
+	const assignedIds = assignDraftConnectIds(
+		targets,
+		drafts,
+		mode,
+		committedIdsOutsideTargets,
+	);
 	const idHelpers: Record<string, ReturnType<typeof connectIdHelpers>> = {};
 	for (const t of targets) {
 		idHelpers[t.formUuid] = connectIdHelpers(
-			appConnectIds,
+			assignedIds,
 			t.formUuid,
 			t.moduleName,
 			t.formName,
@@ -935,8 +992,11 @@ function DialogBody({
 					.filter((t) => draftParticipates(draftOf(t.formUuid), mode))
 					.map((t) => [
 						t.formUuid,
-						draftToConfig(draftOf(t.formUuid), mode, (text) =>
-							parseXPathForForm(doc, asUuid(t.formUuid), text),
+						draftToConfig(
+							draftOf(t.formUuid),
+							mode,
+							(text) => parseXPathForForm(doc, asUuid(t.formUuid), text),
+							idHelpers[t.formUuid].derivedId,
 						),
 					]),
 			),

@@ -120,8 +120,7 @@ export function planTileLayoutEnable(args: {
 	mutations.push({
 		kind: "setCaseListMeta",
 		uuid: moduleUuid,
-		patch: {},
-		tilePatch: {},
+		patch: { tile: {} },
 	});
 	return { ok: true, mutations };
 }
@@ -132,15 +131,13 @@ export function planTileLayoutEnable(args: {
  * back.
  */
 export function planTileLayoutDisable(moduleUuid: Uuid): readonly Mutation[] {
-	return [
-		{ kind: "setCaseListMeta", uuid: moduleUuid, patch: {}, tilePatch: null },
-	];
+	return [{ kind: "setCaseListMeta", uuid: moduleUuid, patch: { tile: null } }];
 }
 
 /**
  * Keep the tile on screen above this module's forms, or stop doing so.
  *
- * `tilePatch` replaces the layout object wholesale, so this rebuilds it
+ * `patch.tile` replaces the layout object wholesale, so this rebuilds it
  * from the current one rather than writing a bare `{ persistOnForms }`.
  * The layout carries exactly one slot today and the two spellings are
  * identical — but a second slot added later would be silently erased by
@@ -157,8 +154,9 @@ export function planTilePersistOnForms(
 		{
 			kind: "setCaseListMeta",
 			uuid: moduleUuid,
-			patch: {},
-			tilePatch: persist ? { ...rest, persistOnForms: true } : rest,
+			patch: {
+				tile: persist ? { ...rest, persistOnForms: true } : rest,
+			},
 		},
 	];
 }

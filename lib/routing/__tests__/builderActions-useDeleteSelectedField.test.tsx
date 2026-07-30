@@ -14,10 +14,11 @@
 import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
-import { asUuid } from "@/lib/doc/types";
+import { proseText } from "@/lib/domain/prose";
 
 const replaceStateSpy = vi.spyOn(window.history, "replaceState");
 const pathname = "/build/test-app";
@@ -93,19 +94,19 @@ function makeStore() {
 									uuid: "q-a-0000-0000-0000-000000000000",
 									kind: "text",
 									id: "a",
-									label: "A",
+									label: proseText("A"),
 								}),
 								f({
 									uuid: "q-b-0000-0000-0000-000000000000",
 									kind: "text",
 									id: "b",
-									label: "B",
+									label: proseText("B"),
 								}),
 								f({
 									uuid: "q-c-0000-0000-0000-000000000000",
 									kind: "text",
 									id: "c",
-									label: "C",
+									label: proseText("C"),
 								}),
 							],
 						},
@@ -128,9 +129,9 @@ function wrap(store: ReturnType<typeof makeStore>) {
 	};
 }
 
-const Q_A = "q-a-0000-0000-0000-000000000000";
-const Q_B = "q-b-0000-0000-0000-000000000000";
-const Q_C = "q-c-0000-0000-0000-000000000000";
+const Q_A = testUuid("q-a-0000-0000-0000-000000000000");
+const Q_B = testUuid("q-b-0000-0000-0000-000000000000");
+const Q_C = testUuid("q-c-0000-0000-0000-000000000000");
 
 /**
  * Set mockSegments to simulate being on a form screen, optionally with
@@ -143,7 +144,7 @@ function setFormUrl(
 	const state = store.getState();
 	const moduleUuid = state.moduleOrder[0];
 	const formUuid = state.formOrder[moduleUuid][0];
-	mockSegments.current = selectedUuid ? [formUuid, selectedUuid] : [formUuid];
+	mockSegments.current = selectedUuid ? [selectedUuid] : [formUuid];
 	return { moduleUuid, formUuid };
 }
 
@@ -192,7 +193,7 @@ describe("useDeleteSelectedField", () => {
 		});
 		act(() => result.current());
 
-		expect(store.getState().fields[asUuid(Q_B)]).toBeUndefined();
+		expect(store.getState().fields[testUuid(Q_B)]).toBeUndefined();
 		/* Flat URL: selected field is a single segment (parser derives form). */
 		expect(replaceStateSpy).toHaveBeenCalledWith(
 			null,
@@ -210,7 +211,7 @@ describe("useDeleteSelectedField", () => {
 		});
 		act(() => result.current());
 
-		expect(store.getState().fields[asUuid(Q_C)]).toBeUndefined();
+		expect(store.getState().fields[testUuid(Q_C)]).toBeUndefined();
 		expect(replaceStateSpy).toHaveBeenCalledWith(
 			null,
 			"",
@@ -220,8 +221,8 @@ describe("useDeleteSelectedField", () => {
 
 	it("refuses to delete the only remaining field (commit gate) and keeps the selection", () => {
 		const store = makeStore();
-		store.getState().applyMany([{ kind: "removeField", uuid: asUuid(Q_B) }]);
-		store.getState().applyMany([{ kind: "removeField", uuid: asUuid(Q_C) }]);
+		store.getState().applyMany([{ kind: "removeField", uuid: testUuid(Q_B) }]);
+		store.getState().applyMany([{ kind: "removeField", uuid: testUuid(Q_C) }]);
 
 		setFormUrl(store, Q_A);
 		const { result } = renderHook(() => useDeleteSelectedField(), {
@@ -233,7 +234,7 @@ describe("useDeleteSelectedField", () => {
 		 * complete-phase ratchet rejects the removal (toast carries the
 		 * finding), the field survives, and the selection stays on it
 		 * rather than deselecting a field that's still on screen. */
-		expect(store.getState().fields[asUuid(Q_A)]).toBeDefined();
+		expect(store.getState().fields[testUuid(Q_A)]).toBeDefined();
 		expect(replaceStateSpy).not.toHaveBeenCalled();
 	});
 
@@ -244,7 +245,7 @@ describe("useDeleteSelectedField", () => {
 		 * selection and no-ops entirely (no doc mutation, no URL change).
 		 * The stale URL cleanup is handled by `LocationRecoveryEffect`. */
 		const store = makeStore();
-		setFormUrl(store, "bogus-not-in-form-uuid");
+		setFormUrl(store, testUuid("bogus-not-in-form-uuid"));
 
 		const { result } = renderHook(() => useDeleteSelectedField(), {
 			wrapper: wrap(store),

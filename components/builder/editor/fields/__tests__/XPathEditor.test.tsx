@@ -8,7 +8,7 @@
 // `onEmpty` does two pieces of work that have different
 // conditionality:
 //
-//   1. Slot clear (`updateField({ validate_msg: undefined })`) — the
+//   1. Slot clear (`updateField({ validate_msg: null })`) — the
 //      authoring-layer write that drops the message string. Gated
 //      on `validateMsg !== undefined` so a passive focus-blur or
 //      Esc on a never-set slot does not stamp a redundant removal
@@ -39,11 +39,12 @@
 // regression.
 
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { xp } from "@/lib/__tests__/docHelpers";
-import { asUuid } from "@/lib/doc/types";
 import type { TextField, XPathExpression } from "@/lib/domain";
 import { printXPath } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 
 // Stub XPathField — the real implementation mounts CodeMirror and
 // requires a ReferenceProvider context. The stub renders an opaque
@@ -54,12 +55,34 @@ vi.mock("@/components/builder/XPathField", () => ({
 		<div data-testid="xpath-field-stub">{value}</div>
 	),
 }));
+vi.mock("@/components/builder/RefLabelInput", () => ({
+	RefLabelInput: ({
+		label,
+		value,
+		onEmpty,
+	}: {
+		label: string;
+		value: { parts: Array<{ kind: string; text?: string }> };
+		onEmpty?: () => void;
+	}) => (
+		<input
+			aria-label={label}
+			defaultValue={value.parts
+				.map((part) => (part.kind === "text" ? (part.text ?? "") : ""))
+				.join("")}
+			onBlur={(event) => {
+				if (event.currentTarget.value === "") onEmpty?.();
+			}}
+		/>
+	),
+}));
 
 // Track every call to `updateField` so the test can assert the
 // slot-clear arm did or did not fire.
 const updateFieldMock = vi.fn(
 	(_uuid: unknown, _kind: unknown, _patch: unknown) => ({ ok: true }) as const,
 );
+const xpathProjectionMock = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/doc/hooks/useBlueprintMutations", () => ({
 	// The editor dispatches through the inline (no-toast) flavor — mirror
 	// the hook's announcing + inline twin shape.
@@ -73,13 +96,7 @@ vi.mock("@/lib/doc/hooks/useBlueprintMutations", () => ({
 // no provider, so print/parse run against an empty resolution surface
 // (the fixture expression has no form refs).
 vi.mock("@/lib/doc/hooks/useXPathSlots", () => ({
-	useXPathText: (expr: XPathExpression | undefined) =>
-		expr === undefined
-			? ""
-			: printXPath(expr, {
-					fieldPathSegments: () => undefined,
-					userPropertySlug: () => undefined,
-				}),
+	useXPathProjection: xpathProjectionMock,
 	useParseXPathForField: () => (text: string) => ({
 		parts: text.length === 0 ? [] : [{ kind: "text", text }],
 	}),
@@ -103,13 +120,28 @@ import { XPathEditor } from "../XPathEditor";
 
 const baseField: TextField = {
 	kind: "text",
-	uuid: asUuid("u1-text"),
+	uuid: testUuid("u1-text"),
 	id: "patient_age",
-	label: "Patient age",
+	label: proseText("Patient age"),
 	validate: xp(". > 0"),
 };
 
 describe("XPathEditor — validate_msg clear-arm split", () => {
+	beforeEach(() => {
+		xpathProjectionMock.mockImplementation(
+			(expr: XPathExpression | undefined) => ({
+				ok: true,
+				text:
+					expr === undefined
+						? ""
+						: printXPath(expr, {
+								fieldPathSegments: () => undefined,
+								userPropertySlug: () => undefined,
+							}),
+			}),
+		);
+	});
+
 	it("clicking Add pill, focusing, and blurring the message input on a never-set slot returns the Add pill without calling updateField", () => {
 		// Reset the shared mock between cases so prior tests don't
 		// pollute the assertion.
@@ -163,7 +195,10 @@ describe("XPathEditor — validate_msg clear-arm split", () => {
 
 		render(
 			<XPathEditor
-				field={{ ...baseField, validate_msg: "Must be greater than zero." }}
+				field={{
+					...baseField,
+					validate_msg: proseText("Must be greater than zero."),
+				}}
 				value={xp(". > 0")}
 				onChange={() => ({ ok: true }) as const}
 				label="Validation"
@@ -191,6 +226,33 @@ describe("XPathEditor — validate_msg clear-arm split", () => {
 		const [uuidArg, kindArg, patchArg] = updateFieldMock.mock.calls[0] ?? [];
 		expect(uuidArg).toBe(baseField.uuid);
 		expect(kindArg).toBe("text");
-		expect(patchArg).toEqual({ validate_msg: undefined });
+		expect(patchArg).toEqual({ validate_msg: null });
+	});
+
+	it("renders an unresolved identity as a repair state without UUID text", () => {
+		const missing = testUuid("missing-xpath-reference");
+		xpathProjectionMock.mockReturnValue({
+			ok: false,
+			text: "#form/[reference needs repair]",
+			unresolved: [{ kind: "field-ref", identity: missing }],
+		});
+
+		const { container } = render(
+			<XPathEditor
+				field={baseField}
+				value={xp(". > 0")}
+				onChange={() => ({ ok: true }) as const}
+				label="Validation"
+				keyName="validate"
+			/>,
+		);
+
+		expect(
+			screen.getByText(/contains a reference that no longer resolves/i),
+		).toBeDefined();
+		expect(screen.getByTestId("xpath-field-stub").textContent).toBe(
+			"#form/[reference needs repair]",
+		);
+		expect(container.textContent).not.toContain(missing);
 	});
 });

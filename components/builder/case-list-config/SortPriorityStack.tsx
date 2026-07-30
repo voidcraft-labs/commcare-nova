@@ -46,6 +46,10 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/shadcn/dropdown-menu";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
+import {
+	type ProseProjector,
+	useProseProjection,
+} from "@/lib/doc/hooks/useProseProjection";
 import type {
 	CasePropertyDataType,
 	CaseType,
@@ -53,12 +57,7 @@ import type {
 	ColumnSort,
 	SortDirection,
 } from "@/lib/domain";
-import {
-	authorableCaseProperties,
-	type CaseListConfig,
-	canonicalCasePropertyName,
-	orderedColumns,
-} from "@/lib/domain";
+import { type CaseListConfig, orderedColumns } from "@/lib/domain";
 import { effectiveDataType } from "@/lib/domain/casePropertyTypes";
 import { checkExpression } from "@/lib/domain/predicate";
 import { useCanEdit } from "@/lib/session/hooks";
@@ -96,6 +95,7 @@ export function CaseOrderingComposer({
 	caseTypes = caseType === undefined ? [] : [caseType],
 	onChange,
 }: CaseOrderingComposerProps) {
+	const projectProse = useProseProjection();
 	const canEdit = useCanEdit();
 	const containerKey = useId();
 	const orderAddReasonId = useId();
@@ -119,37 +119,32 @@ export function CaseOrderingComposer({
 	);
 	const orderChoices = useMemo<readonly SearchableChoice<OrderChoice>[]>(() => {
 		const choices: SearchableChoice<OrderChoice>[] = [];
-		const properties = authorableCaseProperties(caseType?.properties ?? []);
+		const properties = caseType?.properties ?? [];
 		const propertyByName = new Map(
-			properties.map((property) => [
-				canonicalCasePropertyName(property.name),
-				property,
-			]),
+			properties.map((property) => [property.name, property]),
 		);
 		const sortedPropertyNames = new Set(
 			sorted.flatMap((column) =>
-				column.kind === "calculated"
-					? []
-					: [canonicalCasePropertyName(column.field)],
+				column.kind === "calculated" ? [] : [column.field],
 			),
 		);
 		const unsortedByProperty = new Map<string, Column>();
 		for (const column of unsorted) {
 			if (column.kind === "calculated") continue;
-			const name = canonicalCasePropertyName(column.field);
+			const name = column.field;
 			if (!unsortedByProperty.has(name)) unsortedByProperty.set(name, column);
 		}
 
 		for (const property of properties) {
-			const name = canonicalCasePropertyName(property.name);
+			const name = property.name;
 			if (sortedPropertyNames.has(name)) continue;
 			const existing = unsortedByProperty.get(name);
 			choices.push({
 				id: `property:${name}`,
 				label:
 					existing === undefined
-						? propertyDisplayLabel(property)
-						: friendlyColumnLabel(existing, caseType),
+						? propertyDisplayLabel(property, projectProse)
+						: friendlyColumnLabel(existing, caseType, projectProse),
 				group: "Case information",
 				value:
 					existing === undefined
@@ -159,15 +154,12 @@ export function CaseOrderingComposer({
 		}
 
 		for (const column of unsorted) {
-			if (
-				column.kind !== "calculated" &&
-				propertyByName.has(canonicalCasePropertyName(column.field))
-			) {
+			if (column.kind !== "calculated" && propertyByName.has(column.field)) {
 				continue;
 			}
 			choices.push({
 				id: `saved:${column.uuid}`,
-				label: friendlyColumnLabel(column, caseType),
+				label: friendlyColumnLabel(column, caseType, projectProse),
 				detail:
 					column.kind === "calculated"
 						? "Calculated from case information"
@@ -180,7 +172,7 @@ export function CaseOrderingComposer({
 			});
 		}
 		return choices;
-	}, [caseType, sorted, unsorted]);
+	}, [caseType, sorted, unsorted, projectProse]);
 	const orderSummary = useMemo(() => {
 		if (sorted.length === 0) return "No default order";
 		const shown = sorted.slice(0, 2).map((column) => {
@@ -189,7 +181,7 @@ export function CaseOrderingComposer({
 				directionOptions(column, caseType, caseTypes).find(
 					(option) => option.value === direction,
 				)?.label ?? "A to Z";
-			return `${friendlyColumnLabel(column, caseType)} ${directionSummaryPhrase(directionLabel)}`;
+			return `${friendlyColumnLabel(column, caseType, projectProse)} ${directionSummaryPhrase(directionLabel)}`;
 		});
 		const sentence =
 			shown.length === 1
@@ -199,7 +191,7 @@ export function CaseOrderingComposer({
 		return remaining > 0
 			? `${sentence}. ${remaining.toLocaleString()} more ${remaining === 1 ? "item breaks" : "items break"} ties.`
 			: sentence;
-	}, [caseType, caseTypes, sorted]);
+	}, [caseType, caseTypes, projectProse, sorted]);
 
 	const applyRuleSequence = useCallback(
 		(nextRules: readonly Column[]) => {
@@ -245,7 +237,7 @@ export function CaseOrderingComposer({
 			if (!canEdit) return;
 			const column = sorted[index];
 			if (column === undefined) return;
-			const label = friendlyColumnLabel(column, caseType);
+			const label = friendlyColumnLabel(column, caseType, projectProse);
 			const targetIndex =
 				key === "Home"
 					? 0
@@ -273,11 +265,11 @@ export function CaseOrderingComposer({
 			setMoveAnnouncement(
 				targetIndex === 0
 					? `${label} now comes first`
-					: `${label} now comes after ${friendlyColumnLabel(preceding, caseType)}`,
+					: `${label} now comes after ${friendlyColumnLabel(preceding, caseType, projectProse)}`,
 			);
 			applyRuleSequence(next);
 		},
-		[applyRuleSequence, canEdit, caseType, sorted],
+		[applyRuleSequence, canEdit, caseType, projectProse, sorted],
 	);
 
 	const setDirection = useCallback(
@@ -354,7 +346,7 @@ export function CaseOrderingComposer({
 				choice.kind === "existing"
 					? choice.column
 					: {
-							...seedColumnForProperty(choice.property, {
+							...seedColumnForProperty(choice.property, projectProse, {
 								visibleInList: false,
 								visibleInDetail: false,
 							}),
@@ -364,7 +356,7 @@ export function CaseOrderingComposer({
 				{ ...column, sort: { direction: "asc", priority: sorted.length } },
 			]);
 		},
-		[applyRuleSequence, canEdit, sorted],
+		[applyRuleSequence, canEdit, projectProse, sorted],
 	);
 
 	return (
@@ -452,7 +444,11 @@ export function CaseOrderingComposer({
 										pendingDrop={pendingDrop}
 										preview={
 											<CaseOrderingDragPreview
-												label={friendlyColumnLabel(column, caseType)}
+												label={friendlyColumnLabel(
+													column,
+													caseType,
+													projectProse,
+												)}
 											/>
 										}
 									>
@@ -567,7 +563,8 @@ function CaseOrderingRuleRow({
 	readonly onDirectionChange: (direction: SortDirection) => void;
 	readonly onRemove: () => void;
 }) {
-	const label = friendlyColumnLabel(column, caseType);
+	const projectProse = useProseProjection();
+	const label = friendlyColumnLabel(column, caseType, projectProse);
 	const direction = column.sort?.direction ?? "asc";
 	const options = directionOptions(column, caseType, caseTypes);
 	const currentDirection =
@@ -755,8 +752,8 @@ function columnDataType(
 		return undefined;
 	}
 	if (!("field" in column)) return undefined;
-	const property = authorableCaseProperties(caseType?.properties ?? []).find(
-		(candidate) => candidate.name === canonicalCasePropertyName(column.field),
+	const property = (caseType?.properties ?? []).find(
+		(candidate) => candidate.name === column.field,
 	);
 	return property === undefined ? undefined : effectiveDataType(property);
 }
@@ -764,12 +761,17 @@ function columnDataType(
 function friendlyColumnLabel(
 	column: Column | undefined,
 	caseType: CaseType | undefined,
+	project: ProseProjector,
 ): string {
 	if (column === undefined) return "the previous item";
 	const authored = column.header.trim();
 	if (authored.length > 0) return authored;
 	if (!("field" in column)) return "Calculated value";
-	return propertyDisplayLabelForName(column.field, caseType?.properties ?? []);
+	return propertyDisplayLabelForName(
+		column.field,
+		caseType?.properties ?? [],
+		project,
+	);
 }
 
 function CaseOrderingDragPreview({ label }: { readonly label: string }) {

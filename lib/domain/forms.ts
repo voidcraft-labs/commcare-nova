@@ -1,11 +1,15 @@
 // lib/domain/forms.ts
 import { z } from "zod";
-import { assetIdSchema } from "./multimedia";
+import { formIconRefSchema } from "./builtinIcons";
+import { authoredCasePropertyNameSchema } from "./casePropertyName";
+import { persistableJsonPositiveIntegerSchema } from "./jsonNumber";
+import { mediaAssetIdSchema } from "./multimedia";
 import {
 	type Predicate,
 	predicateSchema,
 	type ValueExpression,
 	valueExpressionSchema,
+	XML_ELEMENT_NAME_PATTERN,
 } from "./predicate/types";
 import { type Uuid, uuidSchema } from "./uuid";
 import { xpathExpressionSchema } from "./xpath";
@@ -69,30 +73,16 @@ export function isCaseFirstModule(
 
 export const POST_SUBMIT_DESTINATIONS = [
 	"app_home",
-	"root",
 	"module",
-	"parent_module",
 	"previous",
 ] as const;
 export type PostSubmitDestination = (typeof POST_SUBMIT_DESTINATIONS)[number];
 
 /**
- * User-facing destinations (UI + SA tools). Three clear choices:
+ * The one stored and machine-authored navigation vocabulary:
  *   "app_home" → App Home (main menu)
  *   "module"   → This Module (case list / form list)
  *   "previous" → Previous Screen (back to where the user was)
- *
- * Internal-only values (not exposed to users):
- *   "root"           → resolved automatically when put_in_root is modeled
- *   "parent_module"  → resolved automatically when nested modules are modeled
- */
-export const USER_FACING_DESTINATIONS = [
-	"app_home",
-	"module",
-	"previous",
-] as const;
-
-/**
  * Form-type-aware default for post_submit when the field is absent.
  * Case-loading forms (followup, close) return to the previous screen
  * (the case list they came from); registration and survey go home.
@@ -104,12 +94,10 @@ export function defaultPostSubmit(formType: FormType): PostSubmitDestination {
 const closeConditionSchema = z
 	.object({
 		// The checked field, by stable uuid — rename-proof identity, the
-		// same contract as form-link targets. The schema stays permissive
-		// over the string (a legacy doc can carry an unresolvable id or a
-		// transient empty value); the validator's close-condition rules
-		// adjudicate resolution, and every reader resolves through
-		// `doc.fields` with the verbatim text as the dangling fallback.
-		field: z.string().transform((s) => s as Uuid),
+		// same contract as form-link targets. The frozen one-off migration
+		// converts textual ids before this final schema is installed; the live
+		// schema admits no empty or unresolved placeholder.
+		field: uuidSchema,
 		answer: z.string(),
 		operator: z.enum(["=", "selected"]).optional(),
 	})
@@ -190,6 +178,12 @@ export const caseTargetSchema = z.discriminatedUnion("kind", [
 ]);
 export type CaseTarget = z.infer<typeof caseTargetSchema>;
 
+const existingCaseTargetSchema = z.discriminatedUnion("kind", [
+	operationCaseTargetSchema,
+	sessionCaseTargetSchema,
+	expressionCaseTargetSchema,
+]);
+
 export const CASE_OPERATION_ACTIONS = ["create", "update", "close"] as const;
 export type CaseOperationAction = (typeof CASE_OPERATION_ACTIONS)[number];
 
@@ -209,7 +203,7 @@ export const RESERVED_CASE_OPERATION_TYPES: ReadonlySet<string> = new Set([
 
 export const caseOperationWriteSchema = z
 	.object({
-		property: z.string(),
+		property: authoredCasePropertyNameSchema,
 		value: valueExpressionSchema,
 		condition: predicateSchema.optional(),
 	})
@@ -235,28 +229,90 @@ export type CaseOperationLink = z.infer<typeof caseOperationLinkSchema>;
  *
  * `uuid` is reference identity and `id` is the author-facing/wire slug;
  * execution order is the array's own position, so an operation carries no
- * ordering slot at all. Facet legality intentionally stays out of the shape
- * schema so legacy documents remain parseable and the rule engine can return
- * precise, repairable findings instead of a generic Zod failure.
+ * ordering slot at all. The action is the stored-shape discriminator: each arm
+ * admits only the facets CommCare can execute for that action.
  */
-export const caseOperationSchema = z
-	.object({
-		uuid: uuidSchema,
-		id: z.string(),
-		action: z.enum(CASE_OPERATION_ACTIONS),
-		caseType: z.string(),
-		target: caseTargetSchema,
-		condition: predicateSchema.optional(),
-		forEach: z.object({ repeat: uuidSchema }).strict().optional(),
-		name: valueExpressionSchema.optional(),
-		owner: valueExpressionSchema.optional(),
-		rename: valueExpressionSchema.optional(),
-		retype: z.string().optional(),
-		writes: z.array(caseOperationWriteSchema).optional(),
-		links: z.array(caseOperationLinkSchema).optional(),
-	})
-	.strict();
-export type CaseOperation = z.infer<typeof caseOperationSchema>;
+const caseOperationCommonShape = {
+	uuid: uuidSchema,
+	id: z.string(),
+	caseType: z.string(),
+	condition: predicateSchema.optional(),
+	forEach: z.object({ repeat: uuidSchema }).strict().optional(),
+	writes: z.array(caseOperationWriteSchema).optional(),
+} as const;
+
+export const caseOperationSchema = z.discriminatedUnion("action", [
+	z
+		.object({
+			...caseOperationCommonShape,
+			action: z.literal("create"),
+			target: newCaseTargetSchema,
+			name: valueExpressionSchema,
+			owner: valueExpressionSchema.optional(),
+			links: z.array(caseOperationLinkSchema).optional(),
+			rename: z.never().optional(),
+			retype: z.never().optional(),
+		})
+		.strict(),
+	z
+		.object({
+			...caseOperationCommonShape,
+			action: z.literal("update"),
+			target: existingCaseTargetSchema,
+			name: z.never().optional(),
+			owner: valueExpressionSchema.optional(),
+			rename: valueExpressionSchema.optional(),
+			retype: z.string().optional(),
+			links: z.array(caseOperationLinkSchema).optional(),
+		})
+		.strict(),
+	z
+		.object({
+			...caseOperationCommonShape,
+			action: z.literal("close"),
+			target: existingCaseTargetSchema,
+			name: z.never().optional(),
+			owner: z.never().optional(),
+			rename: z.never().optional(),
+			retype: z.never().optional(),
+			links: z.never().optional(),
+		})
+		.strict(),
+]);
+
+/**
+ * The read model shared by operation consumers.
+ *
+ * Runtime admission is deliberately stricter than this convenient projection:
+ * `caseOperationSchema` is the authoritative action-discriminated stored shape.
+ * Keeping the common facet view here lets generic walkers and mutation planners
+ * inspect an already-parsed operation without re-distributing every helper over
+ * the three action arms.
+ */
+export type CaseOperation = {
+	uuid: Uuid;
+	id: string;
+	action: CaseOperationAction;
+	caseType: string;
+	target: CaseTarget;
+	condition?: Predicate;
+	forEach?: { repeat: Uuid };
+	name?: ValueExpression;
+	owner?: ValueExpression;
+	rename?: ValueExpression;
+	retype?: string;
+	writes?: CaseOperationWrite[];
+	links?: CaseOperationLink[];
+};
+
+/**
+ * The same strict runtime parser with its output viewed through the common
+ * read model. Generic containers use this when they do not need arm-specific
+ * construction, while `caseOperationSchema.options` remains available to
+ * action-aware mutation schemas.
+ */
+export const caseOperationReadSchema: z.ZodType<CaseOperation> =
+	caseOperationSchema;
 
 /**
  * The operation sequence — which is simply the array, copied so callers can
@@ -272,26 +328,29 @@ export function orderedCaseOperations(form: {
 	return [...(form.caseOperations ?? [])];
 }
 
-// Connect config. Each sub-config's `id` stays `z.string().optional()` on
-// purpose: it's a transient in-progress state (a block can exist briefly
-// before its id is filled) and the doc-store type tolerates that. The real
-// invariant — every connect id is present, a legal XML element name, ≤50
-// chars, and unique across the app by the time it's emitted — is enforced at
-// RUNTIME, not by this type: `deriveConnectId` autofills at creation, the
-// UI/tool guards reject bad explicit input, and `buildConnectSlugMap`'s
-// `narrowId` is the emit-time tripwire that throws if a block somehow reaches
-// the wire id-less. Don't tighten this to required.
+// Connect config. Persisted blocks are complete: partial sub-configs and
+// omitted ids belong only to builder/tool draft types and are finalized before
+// a Form is constructed. All four ids share this one XML-element/Connect-slug
+// grammar; app-wide uniqueness and app-mode compatibility need the owning
+// Blueprint and are enforced by `blueprintTopologyIssues`.
+export const CONNECT_ID_MAX_LENGTH = 50;
+export const connectIdSchema = z
+	.string()
+	.min(1)
+	.max(CONNECT_ID_MAX_LENGTH)
+	.regex(XML_ELEMENT_NAME_PATTERN);
+
 const connectLearnModuleSchema = z
 	.object({
-		id: z.string().optional(),
+		id: connectIdSchema,
 		name: z.string(),
 		description: z.string(),
-		time_estimate: z.number().int().positive(),
+		time_estimate: persistableJsonPositiveIntegerSchema,
 	})
 	.strict();
 const connectAssessmentSchema = z
 	.object({
-		id: z.string().optional(),
+		id: connectIdSchema,
 		// An XPath expression consumed only by the XForm bind emitter. Either
 		// side may set it (the SA points it at a hidden score field; the UI
 		// panel lets a user override), but if absent the wire layer in
@@ -304,7 +363,7 @@ const connectAssessmentSchema = z
 	.strict();
 const connectDeliverUnitSchema = z
 	.object({
-		id: z.string().optional(),
+		id: connectIdSchema,
 		name: z.string(),
 		// `entity_id` / `entity_name` are XPath expressions consumed only by
 		// the XForm bind emitter. Either side may set them (the SA can opt
@@ -319,20 +378,48 @@ const connectDeliverUnitSchema = z
 	.strict();
 const connectTaskSchema = z
 	.object({
-		id: z.string().optional(),
+		id: connectIdSchema,
 		name: z.string(),
 		description: z.string(),
 	})
 	.strict();
-const connectConfigSchema = z
+export const connectLearnConfigSchema = z
 	.object({
 		learn_module: connectLearnModuleSchema.optional(),
 		assessment: connectAssessmentSchema.optional(),
+	})
+	.strict()
+	.refine(
+		(config) =>
+			config.learn_module !== undefined || config.assessment !== undefined,
+		"Connect learn configuration must contain a learn module or assessment.",
+	);
+
+export const connectDeliverConfigSchema = z
+	.object({
 		deliver_unit: connectDeliverUnitSchema.optional(),
 		task: connectTaskSchema.optional(),
 	})
-	.strict();
+	.strict()
+	.refine(
+		(config) => config.deliver_unit !== undefined || config.task !== undefined,
+		"Connect deliver configuration must contain a deliver unit or task.",
+	);
+
+export const connectConfigSchema = z.union([
+	connectLearnConfigSchema,
+	connectDeliverConfigSchema,
+]);
+
+export type ConnectLearnConfig = z.infer<typeof connectLearnConfigSchema>;
+export type ConnectDeliverConfig = z.infer<typeof connectDeliverConfigSchema>;
 export type ConnectConfig = z.infer<typeof connectConfigSchema>;
+
+export function isConnectLearnConfig(
+	config: ConnectConfig,
+): config is ConnectLearnConfig {
+	return "learn_module" in config || "assessment" in config;
+}
 export type ConnectLearnModule = z.infer<typeof connectLearnModuleSchema>;
 export type ConnectAssessment = z.infer<typeof connectAssessmentSchema>;
 export type ConnectDeliverUnit = z.infer<typeof connectDeliverUnitSchema>;
@@ -352,19 +439,19 @@ export const formSchema = z
 		 */
 		displayCondition: predicateSchema.optional(),
 		closeCondition: closeConditionSchema.optional(),
-		connect: connectConfigSchema.nullable().optional(),
+		connect: connectConfigSchema.optional(),
 		postSubmit: z.enum(POST_SUBMIT_DESTINATIONS).optional(),
 		formLinks: z.array(formLinkSchema).optional(),
 		/** Ordered, typed case effects: what one submission does to the case
 		 *  universe, in the order the runtime applies it. */
-		caseOperations: z.array(caseOperationSchema).optional(),
+		caseOperations: z.array(caseOperationReadSchema).optional(),
 		/**
 		 * Image shown on the form's menu tile — the per-form
 		 * affordance within a module's menu.
 		 */
-		icon: assetIdSchema.optional(),
+		icon: formIconRefSchema.optional(),
 		/** Audio version of the form's menu label, for audio-prompt playback. */
-		audioLabel: assetIdSchema.optional(),
+		audioLabel: mediaAssetIdSchema.optional(),
 	})
 	.strict();
 export type Form = z.infer<typeof formSchema>;

@@ -26,7 +26,7 @@ export type GetCaseOperationsResult =
 
 export const getCaseOperationsTool = {
 	description:
-		"List every case operation in execution order. Addresses and every Nova-owned reference use stable uuids; authored ids and names remain readable metadata.",
+		"List every case operation in execution order. Addresses and every Nova-owned reference use stable UUIDs; authored ids and names remain readable metadata.",
 	inputSchema: operationAddressSchema,
 	async execute(
 		input: GetCaseOperationsInput,

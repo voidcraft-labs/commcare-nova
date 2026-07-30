@@ -20,8 +20,8 @@ import type { LookupColumn, LookupTableDefinition } from "@/lib/lookup/types";
 /** CCHQ's fixture-id scheme prefix for lookup tables. */
 export const LOOKUP_FIXTURE_ID_PREFIX = "item-list:";
 
-/** Build the `item-list:<tag>` wire instance id for a lookup table tag. */
-export function lookupFixtureInstanceId(tag: string): string {
+/** Build the `item-list:<tag>` suite fixture id for a lookup table tag. */
+export function lookupFixtureId(tag: string): string {
 	return `${LOOKUP_FIXTURE_ID_PREFIX}${tag}`;
 }
 
@@ -30,16 +30,18 @@ export function lookupFixtureInstanceId(tag: string): string {
  * runtime resolves the delivered fixture by the substring after the last `/`,
  * so the source must end with the exact fixture id.
  */
-export function lookupFixtureInstanceSrc(instanceId: string): string {
-	return `jr://fixture/${instanceId}`;
+export function lookupFixtureSrc(fixtureId: string): string {
+	return `jr://fixture/${fixtureId}`;
 }
 
 /** One table's resolved wire vocabulary. */
 export interface LookupTableWireNaming {
 	readonly tableId: LookupTableId;
 	readonly tag: string;
-	/** `item-list:<tag>` — the fixture id and the `instance('...')` id. */
-	readonly instanceId: string;
+	/** `<tag>` — the XForm-local id used by `instance('<tag>')`. */
+	readonly xformInstanceId: string;
+	/** `item-list:<tag>` — the suite fixture id and XForm src suffix. */
+	readonly fixtureId: string;
 	/** `<{tag}_list>` — the fixture's single body element. */
 	readonly listElementName: string;
 	/** `<{tag}>` — one element per row. */
@@ -68,7 +70,8 @@ function tableNaming(definition: LookupTableDefinition): LookupTableWireNaming {
 	return {
 		tableId: definition.id,
 		tag: definition.tag,
-		instanceId: lookupFixtureInstanceId(definition.tag),
+		xformInstanceId: definition.tag,
+		fixtureId: lookupFixtureId(definition.tag),
 		listElementName: `${definition.tag}_list`,
 		rowElementName: definition.tag,
 		columns: definition.columns,
@@ -95,7 +98,8 @@ export function inertLookupWireNaming(): LookupWireNaming {
 	const tableFor = (tableId: LookupTableId): LookupTableWireNaming => ({
 		tableId,
 		tag: "nova_lookup",
-		instanceId: lookupFixtureInstanceId("nova_lookup"),
+		xformInstanceId: "nova_lookup",
+		fixtureId: lookupFixtureId("nova_lookup"),
 		listElementName: "nova_lookup_list",
 		rowElementName: "nova_lookup",
 		columns: [],

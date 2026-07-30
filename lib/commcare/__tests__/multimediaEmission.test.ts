@@ -1,4 +1,3 @@
-import { asUuid } from "@/lib/domain";
 /**
  * Media emission through `expandDoc` → `buildXForm` and the HQ shells.
  *
@@ -14,6 +13,7 @@ import { asUuid } from "@/lib/domain";
  */
 
 import { describe, expect, it } from "vitest";
+import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { expandDoc } from "@/lib/commcare/expander";
 import type {
@@ -21,7 +21,8 @@ import type {
 	ResolvedMediaAsset,
 } from "@/lib/commcare/multimedia/assetWirePath";
 import { validateXForm } from "@/lib/commcare/validator/xformOracle";
-import { asAssetId } from "@/lib/domain/multimedia";
+import type { MediaAssetId } from "@/lib/domain/multimedia";
+import { proseText } from "@/lib/domain/prose";
 
 // Asset ids referenced by the fixture doc, each mapped to a distinct
 // content hash so the emitted jr:// paths are distinguishable.
@@ -36,12 +37,13 @@ const HASHES = {
 } as const;
 
 function makeManifest(): AssetManifest {
-	const m = new Map<ReturnType<typeof asAssetId>, ResolvedMediaAsset>();
+	const m = new Map<MediaAssetId, ResolvedMediaAsset>();
 	for (const [id, hash] of Object.entries(HASHES)) {
 		const kind = id === "help-aud" ? "audio" : "image";
 		const extension = kind === "audio" ? ".mp3" : ".png";
-		m.set(asAssetId(id), {
-			assetId: asAssetId(id),
+		const assetId = testMediaAssetId(id);
+		m.set(assetId, {
+			assetId,
 			wirePath: `commcare/${hash}${extension}`,
 			kind,
 			mimeType: kind === "audio" ? "audio/mpeg" : "image/png",
@@ -62,7 +64,10 @@ function mediaDoc() {
 	return buildDoc({
 		appName: "Media app",
 		caseTypes: [
-			{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+			{
+				name: "patient",
+				properties: [{ name: "case_name", label: proseText("Name") }],
+			},
 		],
 		modules: [
 			{
@@ -76,35 +81,27 @@ function mediaDoc() {
 							f({
 								kind: "text",
 								id: "case_name",
-								label: "Patient name",
-								case_property_on: "patient",
-								label_media: { image: "label-img" },
-								help: "Use the name on their ID.",
-								help_media: { audio: "help-aud" },
+								label: proseText("Patient name"),
+								caseWrite: { caseType: "patient", property: "case_name" },
+								label_media: { image: testMediaAssetId("label-img") },
+								help: proseText("Use the name on their ID."),
+								help_media: { audio: testMediaAssetId("help-aud") },
 								validate: ". != ''",
-								validate_msg: "Name is required",
-								validate_msg_media: { image: "vmsg-img" },
+								validate_msg: proseText("Name is required"),
+								validate_msg_media: { image: testMediaAssetId("vmsg-img") },
 							}),
 							f({
 								kind: "single_select",
 								id: "triage_color",
-								label: "Triage color",
-								optionsSource: {
-									kind: "inline",
-									options: [
-										{
-											uuid: asUuid("f6fe3b33-ed06-432b-abb5-659c72f3bd35"),
-											value: "red",
-											label: "Red",
-											media: { image: "opt-img" },
-										},
-										{
-											uuid: asUuid("9ed60cff-0d5c-4dc0-aaa5-9fba2616391c"),
-											value: "green",
-											label: "Green",
-										},
-									],
-								},
+								label: proseText("Triage color"),
+								options: [
+									{
+										value: "red",
+										label: "Red",
+										media: { image: testMediaAssetId("opt-img") },
+									},
+									{ value: "green", label: "Green" },
+								],
 							}),
 						],
 					},
@@ -156,7 +153,10 @@ describe("XForm itext media emission", () => {
 		const doc = buildDoc({
 			appName: "Media-only validate_msg",
 			caseTypes: [
-				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
 			],
 			modules: [
 				{
@@ -170,11 +170,13 @@ describe("XForm itext media emission", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 									validate: ". != ''",
 									// validate_msg deliberately absent — only the media.
-									validate_msg_media: { audio: "help-aud" },
+									validate_msg_media: {
+										audio: testMediaAssetId("help-aud"),
+									},
 								}),
 							],
 						},
@@ -203,7 +205,10 @@ describe("XForm itext media emission", () => {
 		const doc = buildDoc({
 			appName: "Media-only optional slots",
 			caseTypes: [
-				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
 			],
 			modules: [
 				{
@@ -217,13 +222,15 @@ describe("XForm itext media emission", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 									// Only media on hint / help / validate_msg — no text.
-									hint_media: { image: "label-img" },
-									help_media: { audio: "help-aud" },
+									hint_media: { image: testMediaAssetId("label-img") },
+									help_media: { audio: testMediaAssetId("help-aud") },
 									validate: ". != ''",
-									validate_msg_media: { image: "vmsg-img" },
+									validate_msg_media: {
+										image: testMediaAssetId("vmsg-img"),
+									},
 								}),
 							],
 						},
@@ -259,9 +266,9 @@ describe("HQ shell media stamping", () => {
 		// the normalized doc directly (the schemas carry them from Segment 1).
 		const moduleUuid = doc.moduleOrder[0];
 		const formUuid = doc.formOrder[moduleUuid][0];
-		doc.modules[moduleUuid].icon = "mod-icon";
-		doc.forms[formUuid].icon = "form-icon";
-		doc.logo = "logo";
+		doc.modules[moduleUuid].icon = testMediaAssetId("mod-icon");
+		doc.forms[formUuid].icon = testMediaAssetId("form-icon");
+		doc.logo = testMediaAssetId("logo");
 
 		const hqJson = expandDoc(doc, { assets: makeManifest() });
 

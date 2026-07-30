@@ -2,6 +2,7 @@
 
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import { TooltipProvider } from "@/components/shadcn/tooltip";
 import { AssetPreviewDialog } from "../AssetPreviewDialog";
 
@@ -29,7 +30,7 @@ describe("AssetPreviewDialog", () => {
 			<TooltipProvider>
 				<AssetPreviewDialog
 					target={{
-						id: "asset-1",
+						id: testMediaAssetId("asset-1"),
 						kind: "docx",
 						filename: "client-plan.docx",
 						title: "Client plan",
@@ -65,7 +66,7 @@ describe("AssetPreviewDialog", () => {
 			<TooltipProvider>
 				<AssetPreviewDialog
 					target={{
-						id: "asset-long-name",
+						id: testMediaAssetId("asset-long-name"),
 						kind: "docx",
 						filename,
 						title,
@@ -95,7 +96,7 @@ describe("AssetPreviewDialog", () => {
 			<TooltipProvider>
 				<AssetPreviewDialog
 					target={{
-						id: "asset-2",
+						id: testMediaAssetId("asset-2"),
 						kind: "pdf",
 						filename: "referral.pdf",
 						title: "Referral",

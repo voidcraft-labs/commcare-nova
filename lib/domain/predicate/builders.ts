@@ -34,12 +34,12 @@
 // comparison arm and is provably assignable to `Predicate`.
 //
 // **Predicate-operand auto-wrap.** Predicate operators (`compare`,
-// `in`, `between`, `is-null`, `is-blank`, `within-distance`) carry
+// `in`, `between`, `is-blank`, `within-distance`) carry
 // `ValueExpression`-typed operands. Builders accept
 // `ValueExpression | Term` at every operand slot and route Term-
 // shaped inputs through `toValueExpression(...)` (declared below)
 // which wraps them in `{ kind: "term", term: <Term> }`. Call-sites
-// like `eq(prop("name"), literal("Alice"))` pass `Term`-typed
+// like `eq(prop("patient", "case_name"), literal("Alice"))` pass `Term`-typed
 // arguments; the builder wraps each at its boundary and the
 // constructed predicate carries `ValueExpression`-typed operand
 // slots. Term-vs-ValueExpression discrimination is safe because the
@@ -48,7 +48,7 @@
 // `literal` while `ValueExpression`'s are `term` / `today` / `now`
 // / `date-add` / `date-coerce` / `datetime-coerce` / `double` /
 // `arith` / `concat` / `coalesce` / `if` / `switch` / `count` /
-// `unwrap-list` / `format-date`.
+// `table-lookup` / `format-date`.
 //
 // Distance constraint trade-off: `within`'s `distance` is plain
 // `number`. TypeScript can't cheaply express "positive finite-converting number" (it
@@ -218,8 +218,8 @@ export function prop(
 
 /**
  * Constructs a reference to a value the user typed into a search
- * input. Resolved at compile time (XPath / SQL) by mapping its stable
- * UUID to the input's current saved name and runtime binding.
+ * input. Resolved at compile time (XPath / SQL) by mapping the UUID to
+ * the search input's current runtime binding.
  */
 export function input(searchInputUuid: Uuid): SearchInputRef {
 	return { kind: "input", searchInputUuid };
@@ -503,8 +503,8 @@ export function anyRelationPath(
 // Operands are `ValueExpression`; the builder accepts
 // `Term | ValueExpression` and routes Term-shaped inputs through
 // `toValueExpression` so call-sites like
-// `eq(prop("name"), literal("Alice"))` and
-// `eq(arith("+", prop("age"), literal(1)), literal(19))`
+// `eq(prop("patient", "case_name"), literal("Alice"))` and
+// `eq(arith("+", prop("patient", "age"), literal(1)), literal(19))`
 // compose interchangeably.
 
 type ComparisonPredicate<K extends ComparisonKind> = {
@@ -740,8 +740,8 @@ export function within(
  * so existing `match(prop, "alice", "fuzzy")` calls keep working.
  * Term / ValueExpression operands flow through the same operand-
  * widening pattern the other Predicate value slots use; the value
- * being a Search-input term lets the match value flow at runtime from the
- * UUID-linked input's current-name binding — the load-bearing pattern
+ * being a `term(input("name_search"))` lets the match value flow at
+ * runtime from a search-input binding — the load-bearing pattern
  * for case-search-driven approximate matching.
  */
 export function match(
@@ -905,63 +905,10 @@ export function isMatchNone(
 }
 
 /**
- * Constructs an `is-null` predicate — the strict-absent operator.
- * Asks "does `left` resolve to absent (key not present in the JSONB /
- * Map)?" Postgres / in-memory distinguish absent from cleared and
- * from explicit-empty; the AST is Postgres-strict family-wide.
- *
- * Distinct from `isBlank`: `is-null` matches only the absent state,
- * while `is-blank` widens to include the empty-string value too.
- * `is-null` is **unrepresentable on every CCHQ wire target** — the
- * wire layer collapses absent / cleared / empty into one match set.
- * On-device, `prop = ''` matches all three states; in CSQL, the
- * server-side `case_property_query()` short-circuits `value == ''`
- * to `case_property_missing()` semantics at
- * `commcare-hq/corehq/apps/es/case_search.py::case_property_query`,
- * also matching all three states. There is no CSQL function authors
- * can write to select strict-absent only — `case_property_missing`
- * is a Python helper at
- * `commcare-hq/corehq/apps/es/case_search.py::case_property_missing`,
- * not a CSQL function in the table at
- * `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_QUERY_FUNCTIONS`.
- * Emitting `is-null` against any CCHQ target would silently widen
- * the match set and lose the AST's strictness signal. The
- * representability checker errors at authoring time when an
- * `is-null` reaches a CCHQ-bound context; the per-dialect emitters
- * defensively throw.
- *
- * `is-null` is foundation infrastructure for non-filter surfaces —
- * case-data inspection, audit / admin views, expression operators
- * that distinguish absent from empty — where the strict-absent
- * signal carries domain meaning Postgres represents natively via
- * the JSONB presence test. Filter authoring surfaces (filter UI, SA
- * tool surface, validator) reach for `is-blank` instead because
- * "field empty" is the user-facing intent and `is-blank` emits
- * cleanly on every CCHQ target. The operator stays in the AST
- * regardless because the discriminated-union shape is part of the
- * persisted contract — removing a kind would invalidate every
- * persisted predicate that used it.
- *
- * The `left` slot accepts any term — property reference,
- * search-input reference, session-user reference, session-context
- * reference, and (structurally only) literal. Whether a checker
- * rejects the literal shape is a type-checker concern; the builder
- * + schema accept it uniformly across every Term variant.
- */
-export function isNull(
-	left: Term | ValueExpression,
-): Extract<Predicate, { kind: "is-null" }> {
-	return { kind: "is-null", left: toValueExpression(left) };
-}
-
-/**
  * Constructs an `is-blank` predicate — the portable absent-or-empty
  * operator. Asks "does `left` resolve to absent OR to the empty
- * string?" The widening over `is-null` is the operator's purpose:
- * `isBlank` is the author-facing "field set / unset" check — filter
- * UI, SA tool surface, and validator produce this operator (not
- * `is-null`) for predicates targeting CCHQ, and the wire layer
- * emits a clean form on every target.
+ * string?" `isBlank` is the one author-facing "field set / unset"
+ * check, and emits cleanly on every target.
  *
  * Per-dialect representability:
  *
@@ -984,9 +931,9 @@ export function isNull(
  *     `if(count(input), real, match-all())` wrapper for refs that
  *     read a search input.
  *
- * The `left` slot is parallel-shaped to `isNull` — every Term
- * variant is admitted at the schema layer, with literal-shaped
- * `left` rejected by the type checker as a category error.
+ * Every Term variant is admitted at the schema layer, with a
+ * literal-shaped `left` rejected by the type checker as a category
+ * error.
  */
 export function isBlank(
 	left: Term | ValueExpression,
@@ -1412,22 +1359,6 @@ export function count(
 	return where === undefined
 		? { kind: "count", via }
 		: { kind: "count", via, where };
-}
-
-/**
- * `unwrap-list` value expression: pull a JSON-encoded array stored
- * in a property's value and surface it as a sequence of values via
- * CCHQ's `unwrap-list(...)` value function. v1 has no AST consumer
- * for the resulting sequence — `in.values` and
- * `multi-select-contains.values` stay literal-only — but the
- * builder exists for the persisted-shape contract and the future
- * `selected-any(prop, unwrap-list(...))` CSQL emission pattern (B-
- * phase).
- */
-export function unwrapList(
-	value: ValueExpression,
-): Extract<ValueExpression, { kind: "unwrap-list" }> {
-	return { kind: "unwrap-list", value };
 }
 
 /**

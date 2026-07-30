@@ -9,7 +9,7 @@
 // Hiding writes only the visibility slot, so there is no way for a hidden
 // column to lose its place.
 
-import type { CaseListConfig, Column } from "@/lib/domain";
+import { type CaseListConfig, type Column, orderedColumns } from "@/lib/domain";
 
 export type CaseDisplaySurface = "list" | "detail";
 
@@ -26,22 +26,6 @@ export interface CaseWorkspaceColumnProjection {
 	readonly fullyHidden: readonly Column[];
 }
 
-/** Resolve a sequence of uuids against the column set, skipping unknown ids. */
-function inSequence(
-	columns: readonly Column[],
-	sequence: readonly string[],
-): Column[] {
-	const byUuid = new Map(
-		columns.map((column) => [column.uuid as string, column]),
-	);
-	const out: Column[] = [];
-	for (const uuid of sequence) {
-		const column = byUuid.get(uuid);
-		if (column !== undefined) out.push(column);
-	}
-	return out;
-}
-
 /**
  * Split each surface's sequence into what it shows and what it offers.
  * Visibility slots follow the domain convention: absent is visible.
@@ -49,8 +33,8 @@ function inSequence(
 export function projectCaseWorkspaceColumns(
 	config: CaseListConfig,
 ): CaseWorkspaceColumnProjection {
-	const listSequence = inSequence(config.columns, config.listColumnOrder);
-	const detailSequence = inSequence(config.columns, config.detailColumnOrder);
+	const listSequence = orderedColumns(config, "list");
+	const detailSequence = orderedColumns(config, "detail");
 
 	const listVisible: Column[] = [];
 	const listHidden: Column[] = [];

@@ -1,11 +1,11 @@
 import { z } from "zod";
 import {
-	type LookupColumnId,
 	lookupColumnIdSchema,
 	lookupRowIdSchema,
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
 import {
+	isReservedInstanceTag,
 	LOOKUP_DATA_TYPES,
 	LOOKUP_MAX_CELL_BYTES,
 	LOOKUP_MAX_COLUMN_LABEL_LENGTH,
@@ -20,7 +20,7 @@ import {
 	LOOKUP_WIRE_IDENTIFIER_PATTERN,
 	LOOKUP_XML_PREFIX_PATTERN,
 } from "./constants";
-import type { LookupCellValue, LookupRevision, LookupRowValues } from "./types";
+import type { LookupRevision, LookupRowValues } from "./types";
 
 const REVISION_PATTERN = /^(?:0|[1-9][0-9]*)$/;
 const ORDER_KEY_PATTERN = /^[0-9A-Za-z]*[1-9A-Za-z]$/;
@@ -145,6 +145,14 @@ function wireIdentifierSchema(kind: "tag" | "column") {
 		.refine(
 			(value) => !LOOKUP_XML_PREFIX_PATTERN.test(value),
 			`${label} may not start with xml.`,
+		)
+		.refine(
+			(value) => kind !== "tag" || !isReservedInstanceTag(value),
+			// A tag is the fixture's instance id on the device, and the runtime
+			// registers instances into one map by that id — so a reserved tag would
+			// replace the real one and every form using the table would silently
+			// stop writing cases.
+			`${label} is a name CommCare reserves for its own data, so a table cannot use it. Pick another tag.`,
 		);
 }
 
@@ -181,7 +189,7 @@ export const lookupCellInputSchema = z.union([
 ]);
 
 export const lookupRowValuesSchema = z
-	.record(z.string(), lookupCellInputSchema)
+	.record(lookupColumnIdSchema, lookupCellInputSchema)
 	.superRefine((values, ctx) => {
 		const keys = Object.keys(values);
 		if (keys.length > LOOKUP_MAX_COLUMNS) {
@@ -190,34 +198,8 @@ export const lookupRowValuesSchema = z
 				message: `A row may contain at most ${LOOKUP_MAX_COLUMNS} cells.`,
 			});
 		}
-		const seen = new Set<string>();
-		for (const key of keys) {
-			const parsed = lookupColumnIdSchema.safeParse(key);
-			if (!parsed.success) {
-				ctx.addIssue({
-					code: "custom",
-					path: [key],
-					message: "Row value keys must be UUIDv7 column identifiers.",
-				});
-				continue;
-			}
-			if (seen.has(parsed.data)) {
-				ctx.addIssue({
-					code: "custom",
-					path: [key],
-					message: "Row value keys must be unique UUIDs.",
-				});
-			}
-			seen.add(parsed.data);
-		}
 	})
-	.transform((values) => {
-		const normalized: Record<LookupColumnId, LookupCellValue> = {};
-		for (const [key, value] of Object.entries(values)) {
-			normalized[lookupColumnIdSchema.parse(key)] = value;
-		}
-		return normalized satisfies LookupRowValues;
-	});
+	.overwrite((values) => values satisfies LookupRowValues);
 
 export const lookupColumnDraftSchema = z
 	.object({

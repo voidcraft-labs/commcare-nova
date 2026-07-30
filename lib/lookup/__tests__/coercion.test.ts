@@ -104,9 +104,9 @@ describe("strict temporal coercion", () => {
 });
 
 describe("validateLookupRowValues", () => {
-	it("normalizes a complete typed row and permits missing cells", () => {
+	it("accepts a complete canonical typed row and permits missing cells", () => {
 		const result = validateLookupRowValues(COLUMNS, {
-			[id(1).toUpperCase()]: "",
+			[id(1)]: "",
 			[id(2)]: 7,
 			[id(3)]: 1.25,
 			[id(4)]: "2024-02-29",
@@ -123,6 +123,16 @@ describe("validateLookupRowValues", () => {
 			[id(6)]: "2026-03-04T14:30:00Z",
 		});
 		expect(validateLookupRowValues(COLUMNS, {}).success).toBe(true);
+	});
+
+	it("rejects a noncanonical column UUID instead of normalizing it", () => {
+		const result = validateLookupRowValues(COLUMNS, {
+			[id(1).toUpperCase()]: "",
+		});
+		expect(result.success).toBe(false);
+		expect(result.issues).toContainEqual(
+			expect.objectContaining({ code: "invalid_column_id" }),
+		);
 	});
 
 	it("rejects unknown UUIDs and non-primitive/type-mismatched values", () => {

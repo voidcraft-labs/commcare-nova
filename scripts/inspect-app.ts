@@ -14,13 +14,16 @@
  */
 import "dotenv/config";
 import { Command } from "commander";
+import { sql } from "kysely";
 import { closeCaseStoreDatabase } from "@/lib/case-store/postgres/connection";
 import { loadApp } from "@/lib/db/apps";
+import { parsePersistedJsonText } from "@/lib/db/persistedJson";
 import { getAppDb } from "@/lib/db/pg";
 import { listThreadMetas, loadThread } from "@/lib/db/threads";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import type { FieldWithChildren } from "@/lib/doc/fieldWalk";
 import { buildFieldTree, countFieldsUnder } from "@/lib/doc/fieldWalk";
+import { projectProseTemplate } from "@/lib/domain";
 import { readRunSummary } from "@/lib/log/reader";
 import { analyzeBlueprint, extractLogicFields } from "./lib/blueprint-stats";
 import {
@@ -118,15 +121,22 @@ const showRow = opts.row === true;
  * other kind carries one. The `"label" in f` guard keeps this honest
  * in the face of the discriminated union.
  */
-function printFieldTree(tree: FieldWithChildren[], indent = 0): void {
+function printFieldTree(
+	doc: BlueprintDoc,
+	tree: FieldWithChildren[],
+	indent = 0,
+): void {
 	const pad = "  ".repeat(indent);
 	for (const f of tree) {
-		const label = "label" in f ? (f.label ?? "(no label)") : "(no label)";
+		const label =
+			"label" in f && f.label
+				? projectProseTemplate(f.label, doc).text || "(no label)"
+				: "(no label)";
 		console.log(
 			`${pad}  - [${f.kind}] ${f.id} — "${truncate(label, 60)}" (${f.uuid.slice(0, 8)})`,
 		);
 		if (f.children) {
-			printFieldTree(f.children, indent + 1);
+			printFieldTree(doc, f.children, indent + 1);
 		}
 	}
 }
@@ -188,15 +198,36 @@ async function main() {
 	/* ── Raw row view (--row) ─────────────────────────────────────── */
 	if (showRow) {
 		/* The header above is the curated view; this is the whole `apps`
-		 * row — run-lease + reservation columns and anything added since,
-		 * with no column list to fall out of date. Dates serialize as ISO
-		 * through JSON.stringify. */
+		 * row — run-lease + reservation columns and anything added since.
+		 * Keep the JSONB carrier out of pg's eager decoder: both halves cross
+		 * as exact text and enter through Nova's lossless persisted parser. */
 		const db = await getAppDb();
-		const row = await db
+		const stored = await db
 			.selectFrom("apps")
-			.selectAll()
+			.select(sql<string>`(to_jsonb(apps) - 'case_types')::text`.as("row_text"))
+			.select(
+				sql<string | null>`${sql.ref("apps.case_types")}::text`.as(
+					"case_types_text",
+				),
+			)
 			.where("id", "=", appId)
 			.executeTakeFirst();
+		const row =
+			stored === undefined
+				? undefined
+				: (parsePersistedJsonText(
+						stored.row_text,
+						`apps row for ${appId}`,
+					) as Record<string, unknown>);
+		if (row !== undefined) {
+			row.case_types =
+				stored?.case_types_text === null
+					? null
+					: parsePersistedJsonText(
+							stored?.case_types_text ?? "",
+							`apps.case_types for ${appId}`,
+						);
+		}
 		printSection("Raw App Row (apps table)");
 		console.log(JSON.stringify(row, null, 2));
 	}
@@ -235,7 +266,7 @@ async function main() {
 			);
 
 			if (showFields) {
-				printFieldTree(buildFieldTree(doc, form.uuid), 3);
+				printFieldTree(doc, buildFieldTree(doc, form.uuid), 3);
 			}
 		}
 	}

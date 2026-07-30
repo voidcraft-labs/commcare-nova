@@ -15,13 +15,14 @@
  * second hand-maintained operator allowlist.
  */
 
+import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
 import {
-	type FormFieldEntry,
-	formFieldEntriesFor,
-	lookupFilterEligibleFormFields,
-	lookupFilterFormFieldAdmission,
-} from "@/lib/doc/formFieldEntries";
-import type { BlueprintDoc, Field, Module, Uuid } from "@/lib/domain";
+	type BlueprintDoc,
+	caseDataTypeForFieldKind,
+	type Field,
+	type Module,
+	type Uuid,
+} from "@/lib/domain";
 import {
 	type CheckError,
 	checkPredicate,
@@ -57,15 +58,78 @@ const POLICY_OWNED_CHECK_CODES: ReadonlySet<CheckError["code"]> = new Set([
 	"unknown-form-field",
 ]);
 
-function eligibleFormFieldTypes(args: {
-	readonly entries: readonly FormFieldEntry[];
-	readonly currentFieldUuid: Uuid;
-}): NonNullable<TypeContext["formFields"]> {
-	return new Map(
-		lookupFilterEligibleFormFields(args.entries, args.currentFieldUuid).map(
-			(entry) => [entry.uuid, entry.dataType],
-		),
+interface FieldPosition {
+	readonly field: Field;
+	readonly index: number;
+	/** Repeat ancestors, outermost first. */
+	readonly repeats: readonly Uuid[];
+}
+
+function fieldPositions(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+): ReadonlyMap<Uuid, FieldPosition> {
+	const positions = new Map<Uuid, FieldPosition>();
+	const visited = new Set<Uuid>();
+	let index = 0;
+
+	const walk = (parentUuid: Uuid, repeats: readonly Uuid[]): void => {
+		for (const fieldUuid of orderedFieldUuids(doc, parentUuid)) {
+			if (visited.has(fieldUuid)) continue;
+			visited.add(fieldUuid);
+			const field = doc.fields[fieldUuid];
+			if (field === undefined) continue;
+			positions.set(fieldUuid, { field, index, repeats });
+			index++;
+			if (doc.fieldOrder[fieldUuid] === undefined) continue;
+			walk(
+				fieldUuid,
+				field.kind === "repeat" ? [...repeats, fieldUuid] : repeats,
+			);
+		}
+	};
+
+	walk(formUuid, []);
+	return positions;
+}
+
+function isPrefix(prefix: readonly Uuid[], value: readonly Uuid[]): boolean {
+	return (
+		prefix.length <= value.length &&
+		prefix.every((repeatUuid, index) => value[index] === repeatUuid)
 	);
+}
+
+function formFieldTypes(
+	positions: ReadonlyMap<Uuid, FieldPosition>,
+): NonNullable<TypeContext["formFields"]> {
+	const result = new Map<Uuid, ReturnType<typeof caseDataTypeForFieldKind>>();
+	for (const [uuid, { field }] of positions) {
+		const dataType = caseDataTypeForFieldKind(field.kind);
+		if (dataType !== undefined || field.kind === "hidden") {
+			result.set(uuid, dataType);
+		}
+	}
+	return result;
+}
+
+function eligibleFormFieldTypes(args: {
+	readonly allTypes: NonNullable<TypeContext["formFields"]>;
+	readonly positions: ReadonlyMap<Uuid, FieldPosition>;
+	readonly current: FieldPosition;
+}): NonNullable<TypeContext["formFields"]> {
+	const eligible = new Map<Uuid, ReturnType<typeof caseDataTypeForFieldKind>>();
+	for (const [uuid, type] of args.allTypes) {
+		const position = args.positions.get(uuid);
+		if (
+			position !== undefined &&
+			position.index < args.current.index &&
+			isPrefix(position.repeats, args.current.repeats)
+		) {
+			eligible.set(uuid, type);
+		}
+	}
+	return eligible;
 }
 
 function location(
@@ -120,8 +184,9 @@ function selectFilterFindings(args: {
 	readonly formUuid: Uuid;
 	readonly formName: string;
 	readonly field: Field;
-	readonly entries: readonly FormFieldEntry[];
-	readonly entriesByUuid: ReadonlyMap<Uuid, FormFieldEntry>;
+	readonly position: FieldPosition;
+	readonly positions: ReadonlyMap<Uuid, FieldPosition>;
+	readonly formFields: NonNullable<TypeContext["formFields"]>;
 	readonly lookupTables: LookupTypeIndex;
 }): ValidationError[] {
 	const { field } = args;
@@ -156,19 +221,14 @@ function selectFilterFindings(args: {
 	walkTermsWithPaths(source.filter, (term, path: PredicateAstPath): void => {
 		const at = formatPath([...path]);
 		if (term.kind === "input") {
-			const inputName =
-				args.mod.caseListConfig?.searchInputs.find(
-					(input) => input.uuid === term.searchInputUuid,
-				)?.name ?? term.searchInputUuid;
 			pushOnce(`search-input:${term.searchInputUuid}`, () =>
 				policyFinding({
 					code: "LOOKUP_SELECT_FILTER_TERM_NOT_ALLOWED",
 					...args,
-					message: `Lookup choices for field "${field.id}" in "${args.formName}" read Search answer "${inputName}"${at ? ` at ${at}` : ""}, but a form question's choices are built outside the case-search screen. Use a lookup column, fixed value, current-user/session value, or eligible earlier form answer.`,
+					message: `Lookup choices for field "${field.id}" in "${args.formName}" read Search answer "${term.searchInputUuid}"${at ? ` at ${at}` : ""}, but a form question's choices are built outside the case-search screen. Use a lookup column, fixed value, current-user/session value, or eligible earlier form answer.`,
 					details: {
 						reason: "search-input",
 						target: `input:${term.searchInputUuid}`,
-						inputName,
 						inputUuid: term.searchInputUuid,
 						path: at,
 						tableId: source.tableId,
@@ -179,18 +239,15 @@ function selectFilterFindings(args: {
 		}
 		if (term.kind !== "field") return;
 
-		const referenced = args.entriesByUuid.get(term.uuid);
-		const admission = lookupFilterFormFieldAdmission(
-			args.entries,
-			field.uuid,
-			term.uuid,
-		);
-		const admissionReason = admission.admitted ? undefined : admission.reason;
-		if (
-			referenced === undefined ||
-			admissionReason === "field-unavailable" ||
-			admissionReason === "current-field-unavailable"
-		) {
+		const referenced = args.positions.get(term.uuid);
+		const referencedType =
+			referenced === undefined
+				? undefined
+				: caseDataTypeForFieldKind(referenced.field.kind);
+		const valueBearing =
+			referenced !== undefined &&
+			(referencedType !== undefined || referenced.field.kind === "hidden");
+		if (!valueBearing) {
 			pushOnce(`field-unavailable:${term.uuid}`, () =>
 				policyFinding({
 					code: "LOOKUP_SELECT_FILTER_TERM_NOT_ALLOWED",
@@ -208,15 +265,15 @@ function selectFilterFindings(args: {
 			return;
 		}
 
-		if (admissionReason === "field-repeat-scope") {
+		if (!isPrefix(referenced.repeats, args.position.repeats)) {
 			pushOnce(`field-repeat:${term.uuid}`, () =>
 				policyFinding({
 					code: "LOOKUP_SELECT_FILTER_FIELD_REPEAT_SCOPE",
 					...args,
-					message: `Lookup choices for field "${field.id}" in "${args.formName}" read "${referenced.id}" from a child, sibling, or unrelated repeat${at ? ` at ${at}` : ""}. A lookup filter may read root answers plus earlier answers from its current or an enclosing repeat only.`,
+					message: `Lookup choices for field "${field.id}" in "${args.formName}" read "${referenced.field.id}" from a child, sibling, or unrelated repeat${at ? ` at ${at}` : ""}. A lookup filter may read root answers plus earlier answers from its current or an enclosing repeat only.`,
 					details: {
 						referencedFieldUuid: term.uuid,
-						referencedFieldId: referenced.id,
+						referencedFieldId: referenced.field.id,
 						path: at,
 						tableId: source.tableId,
 					},
@@ -225,15 +282,15 @@ function selectFilterFindings(args: {
 			return;
 		}
 
-		if (admissionReason === "field-not-earlier") {
+		if (referenced.index >= args.position.index) {
 			pushOnce(`field-order:${term.uuid}`, () =>
 				policyFinding({
 					code: "LOOKUP_SELECT_FILTER_FIELD_NOT_EARLIER",
 					...args,
-					message: `Lookup choices for field "${field.id}" in "${args.formName}" read "${referenced.id}"${at ? ` at ${at}` : ""}, but that answer is not earlier in the form's effective order. Move the source question earlier or remove the dependency.`,
+					message: `Lookup choices for field "${field.id}" in "${args.formName}" read "${referenced.field.id}"${at ? ` at ${at}` : ""}, but that answer is not earlier in the form's effective order. Move the source question earlier or remove the dependency.`,
 					details: {
 						referencedFieldUuid: term.uuid,
-						referencedFieldId: referenced.id,
+						referencedFieldId: referenced.field.id,
 						path: at,
 						tableId: source.tableId,
 					},
@@ -247,8 +304,9 @@ function selectFilterFindings(args: {
 		caseTypes: [],
 		knownInputs: [],
 		formFields: eligibleFormFieldTypes({
-			entries: args.entries,
-			currentFieldUuid: field.uuid,
+			allTypes: args.formFields,
+			positions: args.positions,
+			current: args.position,
 		}),
 		lookupTables: args.lookupTables,
 		tableScope: { tableId: source.tableId, columns },
@@ -295,21 +353,20 @@ export function validateLookupOptionsSources(
 ): ValidationError[] {
 	const form = doc.forms[formUuid];
 	const mod = doc.modules[moduleUuid];
-	const entries = formFieldEntriesFor(doc.fields, doc.fieldOrder, formUuid);
-	const entriesByUuid = new Map(entries.map((entry) => [entry.uuid, entry]));
+	const positions = fieldPositions(doc, formUuid);
+	const formFields = formFieldTypes(positions);
 	const errors: ValidationError[] = [];
-	for (const entry of entries) {
-		const field = doc.fields[entry.uuid];
-		if (field === undefined) continue;
+	for (const position of positions.values()) {
 		errors.push(
 			...selectFilterFindings({
 				mod,
 				moduleUuid,
 				formUuid,
 				formName: form.name,
-				field,
-				entries,
-				entriesByUuid,
+				field: position.field,
+				position,
+				positions,
+				formFields,
 				lookupTables,
 			}),
 		);

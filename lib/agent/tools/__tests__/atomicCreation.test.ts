@@ -1,4 +1,5 @@
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { proseText } from "@/lib/domain/prose";
 /**
  * Atomic structural creation — `createForm` / `createModule` land an
  * entity TOGETHER with what makes it sound and complete, in one gated
@@ -13,19 +14,18 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
  */
 
 import { describe, expect, it, vi } from "vitest";
-import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
 import { runValidation } from "@/lib/commcare/validator/runner";
-import { printXPathInDoc } from "@/lib/doc/expressionText";
+import type { PreparedMutationCandidate } from "@/lib/doc/commitVerdicts";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import type { AdmittedMutationStages } from "@/lib/doc/mutationAdmission";
 import type { BlueprintDoc } from "@/lib/domain";
-import { asUuid, blueprintDocSchema } from "@/lib/domain";
+import { blueprintDocSchema } from "@/lib/domain";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
-import { createFormTool } from "../createForm";
-import { createModuleTool } from "../createModule";
+import { createFormInputSchema, createFormTool } from "../createForm";
+import { createModuleInputSchema, createModuleTool } from "../createModule";
 import { updateFormTool } from "../updateForm";
-
-const BASE_MODULE_UUID = asUuid("10000000-0000-4000-8000-000000000001");
-const BASE_FORM_UUID = asUuid("10000000-0000-4000-8000-000000000002");
 
 function makeCtx() {
 	// Every persisted doc must survive the SAME Zod gate the next load
@@ -36,19 +36,23 @@ function makeCtx() {
 	// the app's next load.
 	const recordMutations = vi
 		.fn()
-		.mockImplementation(async (_muts: unknown, doc: BlueprintDoc) => {
-			blueprintDocSchema.parse(toPersistableDoc(doc));
-			return { events: [], committedDoc: doc };
+		.mockImplementation(async (prepared: PreparedMutationCandidate) => {
+			blueprintDocSchema.parse(toPersistableDoc(prepared.nextDoc));
+			return { events: [], committedDoc: prepared.nextDoc };
 		});
 	// The guarded writer returns `{ events, committedDoc }` per stage; the parse
 	// check stays and the final stage's doc rides back as the committed doc.
 	const recordMutationStages = vi
 		.fn()
-		.mockImplementation(async (stages: Array<{ doc: BlueprintDoc }>) => {
-			const finalDoc = stages[stages.length - 1]?.doc;
-			if (finalDoc) blueprintDocSchema.parse(toPersistableDoc(finalDoc));
-			return { events: [], committedDoc: finalDoc };
-		});
+		.mockImplementation(
+			async (
+				prepared: PreparedMutationCandidate,
+				_stages: AdmittedMutationStages,
+			) => {
+				blueprintDocSchema.parse(toPersistableDoc(prepared.nextDoc));
+				return { events: [], committedDoc: prepared.nextDoc };
+			},
+		);
 	const ctx: ToolExecutionContext = {
 		appId: "app-1",
 		projectId: "project-1",
@@ -73,7 +77,6 @@ function completeDoc(): BlueprintDoc {
 		appName: "Clinic",
 		modules: [
 			{
-				uuid: BASE_MODULE_UUID,
 				name: "Patients",
 				caseType: "patient",
 				caseListConfig: caseListConfig([
@@ -81,21 +84,20 @@ function completeDoc(): BlueprintDoc {
 				]),
 				forms: [
 					{
-						uuid: BASE_FORM_UUID,
 						name: "Register patient",
 						type: "registration",
 						fields: [
 							f({
 								kind: "text",
 								id: "case_name",
-								label: "Name",
-								case_property_on: "patient",
+								label: proseText("Name"),
+								caseWrite: { caseType: "patient", property: "case_name" },
 							}),
 							f({
 								kind: "text",
 								id: "village",
-								label: "Village",
-								case_property_on: "patient",
+								label: proseText("Village"),
+								caseWrite: { caseType: "patient", property: "village" },
 							}),
 						],
 					},
@@ -106,8 +108,8 @@ function completeDoc(): BlueprintDoc {
 			{
 				name: "patient",
 				properties: [
-					{ name: "case_name", label: "Name" },
-					{ name: "village", label: "Village" },
+					{ name: "case_name", label: proseText("Name") },
+					{ name: "village", label: proseText("Village") },
 				],
 			},
 			/* Recorded ahead of its module — the generateSchema-first flow:
@@ -116,33 +118,75 @@ function completeDoc(): BlueprintDoc {
 			{
 				name: "household",
 				properties: [
-					{ name: "case_name", label: "Household name" },
-					{ name: "head_of_household", label: "Head of household" },
+					{ name: "case_name", label: proseText("Household name") },
+					{ name: "head_of_household", label: proseText("Head of household") },
 				],
 			},
 		],
 	});
 }
 
+function moduleAddress(doc: BlueprintDoc) {
+	return { moduleUuid: doc.moduleOrder[0] };
+}
+
+function formAddress(doc: BlueprintDoc) {
+	const moduleUuid = doc.moduleOrder[0];
+	const formUuid = doc.formOrder[moduleUuid]?.[0];
+	if (!formUuid) throw new Error("Fixture must contain a form");
+	return { moduleUuid, formUuid };
+}
+
 describe("createForm — atomic form + fields", () => {
 	it("grows a COMPLETE app: a followup form lands with its fields in one batch", async () => {
 		const { ctx, recordMutations } = makeCtx();
+		const doc = completeDoc();
+		const formUuid = testUuid("receipt-followup-form");
+		const notesUuid = testUuid("receipt-followup-notes");
+		const statusUuid = testUuid("receipt-followup-status");
+		const optionUuids = [
+			testUuid("receipt-followup-status-open"),
+			testUuid("receipt-followup-status-done"),
+		];
 		const out = await createFormTool.execute(
 			{
-				moduleUuid: BASE_MODULE_UUID,
+				...moduleAddress(doc),
+				formUuid,
 				name: "Follow up",
 				type: "followup",
 				fields: [
 					{
+						fieldUuid: notesUuid,
 						kind: "text",
 						id: "visit_notes",
-						label: "Visit notes",
-						case_property_on: "patient",
+						label: proseText("Visit notes"),
+						caseWrite: { caseType: "patient", property: "visit_notes" },
+					} as never,
+					{
+						fieldUuid: statusUuid,
+						kind: "single_select",
+						id: "visit_status",
+						label: proseText("Visit status"),
+						optionsSource: {
+							kind: "inline",
+							options: [
+								{
+									optionUuid: optionUuids[0],
+									value: "open",
+									label: proseText("Open"),
+								},
+								{
+									optionUuid: optionUuids[1],
+									value: "done",
+									label: proseText("Done"),
+								},
+							],
+						},
 					} as never,
 				],
 			},
 			ctx,
-			completeDoc(),
+			doc,
 		);
 
 		expect("message" in out.result).toBe(true);
@@ -152,26 +196,40 @@ describe("createForm — atomic form + fields", () => {
 		const kinds = out.mutations.map((m) => m.kind);
 		expect(kinds[0]).toBe("addForm");
 		expect(kinds).toContain("addField");
+		if (!("formUuid" in out.result)) throw new Error("expected success");
+		expect(out.result.formUuid).toBe(formUuid);
+		expect(out.result.fields).toEqual([
+			{ uuid: notesUuid, id: "visit_notes", options: [] },
+			{
+				uuid: statusUuid,
+				id: "visit_status",
+				options: [
+					{ uuid: optionUuids[0], value: "open" },
+					{ uuid: optionUuids[1], value: "done" },
+				],
+			},
+		]);
 	});
 
 	it("rejects a registration form missing its case_name writer with guidance THIS call can satisfy", async () => {
 		const { ctx, recordMutations } = makeCtx();
+		const doc = completeDoc();
 		const out = await createFormTool.execute(
 			{
-				moduleUuid: BASE_MODULE_UUID,
+				...moduleAddress(doc),
 				name: "Enroll",
 				type: "registration",
 				fields: [
 					{
 						kind: "text",
 						id: "village",
-						label: "Village",
-						case_property_on: "patient",
+						label: proseText("Village"),
+						caseWrite: { caseType: "patient", property: "village" },
 					} as never,
 				],
 			},
 			ctx,
-			completeDoc(),
+			doc,
 		);
 
 		expect("error" in out.result && out.result.error).toContain("case_name");
@@ -181,23 +239,30 @@ describe("createForm — atomic form + fields", () => {
 
 	it("nests fields under a group created in the same call", async () => {
 		const { ctx } = makeCtx();
+		const doc = completeDoc();
+		const vitalsUuid = testUuid("same-call-vitals");
 		const out = await createFormTool.execute(
 			{
-				moduleUuid: BASE_MODULE_UUID,
+				...moduleAddress(doc),
 				name: "Assessment",
 				type: "followup",
 				fields: [
-					{ kind: "group", id: "vitals", label: "Vitals" } as never,
+					{
+						fieldUuid: vitalsUuid,
+						kind: "group",
+						id: "vitals",
+						label: proseText("Vitals"),
+					} as never,
 					{
 						kind: "decimal",
 						id: "temperature",
-						label: "Temperature",
-						parentId: "vitals",
+						label: proseText("Temperature"),
+						parentUuid: vitalsUuid,
 					} as never,
 				],
 			},
 			ctx,
-			completeDoc(),
+			doc,
 		);
 
 		expect("message" in out.result).toBe(true);
@@ -215,32 +280,78 @@ describe("createForm — atomic form + fields", () => {
 describe("createModule — atomic module + forms + case list", () => {
 	it("grows a COMPLETE app: a case-managing module lands with forms and columns in one batch", async () => {
 		const { ctx, recordMutations } = makeCtx();
+		const moduleUuid = testUuid("receipt-household-module");
+		const formUuid = testUuid("receipt-household-form");
+		const nameUuid = testUuid("receipt-household-name");
+		const headUuid = testUuid("receipt-household-head");
+		const kindUuid = testUuid("receipt-household-kind");
+		const optionUuids = [
+			testUuid("receipt-household-kind-rural"),
+			testUuid("receipt-household-kind-urban"),
+		];
+		const columnUuid = testUuid("receipt-household-column");
 		const out = await createModuleTool.execute(
 			{
+				moduleUuid,
 				name: "Households",
 				case_type: "household",
 				forms: [
 					{
+						formUuid,
 						name: "Register household",
 						type: "registration",
 						fields: [
 							{
+								fieldUuid: nameUuid,
 								kind: "text",
 								id: "case_name",
-								label: "Household name",
-								case_property_on: "household",
+								label: proseText("Household name"),
+								caseWrite: {
+									caseType: "household",
+									property: "case_name",
+								},
 							} as never,
 							{
+								fieldUuid: headUuid,
 								kind: "text",
 								id: "head_of_household",
-								label: "Head of household",
-								case_property_on: "household",
+								label: proseText("Head of household"),
+								caseWrite: {
+									caseType: "household",
+									property: "head_of_household",
+								},
+							} as never,
+							{
+								fieldUuid: kindUuid,
+								kind: "single_select",
+								id: "household_kind",
+								label: proseText("Household kind"),
+								optionsSource: {
+									kind: "inline",
+									options: [
+										{
+											optionUuid: optionUuids[0],
+											value: "rural",
+											label: proseText("Rural"),
+										},
+										{
+											optionUuid: optionUuids[1],
+											value: "urban",
+											label: proseText("Urban"),
+										},
+									],
+								},
 							} as never,
 						],
 					},
 				],
 				case_list_columns: [
-					{ kind: "plain", field: "case_name", header: "Name" } as never,
+					{
+						columnUuid,
+						kind: "plain",
+						field: "case_name",
+						header: "Name",
+					} as never,
 				],
 			},
 			ctx,
@@ -259,6 +370,29 @@ describe("createModule — atomic module + forms + case list", () => {
 				m.kind === "addModule",
 		);
 		expect(addModule?.module.caseListConfig?.columns).toHaveLength(1);
+		if (!("moduleUuid" in out.result)) throw new Error("expected success");
+		expect(out.result).toMatchObject({
+			moduleUuid,
+			forms: [
+				{
+					uuid: formUuid,
+					name: "Register household",
+					fields: [
+						{ uuid: nameUuid, id: "case_name", options: [] },
+						{ uuid: headUuid, id: "head_of_household", options: [] },
+						{
+							uuid: kindUuid,
+							id: "household_kind",
+							options: [
+								{ uuid: optionUuids[0], value: "rural" },
+								{ uuid: optionUuids[1], value: "urban" },
+							],
+						},
+					],
+				},
+			],
+			columns: [{ uuid: columnUuid }],
+		});
 	});
 
 	it("rejects a case-typed module with no forms (forms belong in this call)", async () => {
@@ -288,14 +422,20 @@ describe("createModule — atomic module + forms + case list", () => {
 							{
 								kind: "text",
 								id: "case_name",
-								label: "Household name",
-								case_property_on: "household",
+								label: proseText("Household name"),
+								caseWrite: {
+									caseType: "household",
+									property: "case_name",
+								},
 							} as never,
 							{
 								kind: "text",
 								id: "head_of_household",
-								label: "Head of household",
-								case_property_on: "household",
+								label: proseText("Head of household"),
+								caseWrite: {
+									caseType: "household",
+									property: "head_of_household",
+								},
 							} as never,
 						],
 					},
@@ -321,7 +461,11 @@ describe("createModule — atomic module + forms + case list", () => {
 						name: "Feedback survey",
 						type: "survey",
 						fields: [
-							{ kind: "text", id: "comments", label: "Comments" } as never,
+							{
+								kind: "text",
+								id: "comments",
+								label: proseText("Comments"),
+							} as never,
 						],
 					},
 				],
@@ -330,6 +474,56 @@ describe("createModule — atomic module + forms + case list", () => {
 			completeDoc(),
 		);
 		expect("message" in out.result).toBe(true);
+	});
+
+	it("rejects a field/option UUID collision across separate born forms", async () => {
+		const { ctx, recordMutations } = makeCtx();
+		const repeatedOptionUuid = testUuid("cross-form-option-collision");
+		const select = (id: string, suffix: string) =>
+			({
+				kind: "single_select",
+				id,
+				label: proseText(id),
+				optionsSource: {
+					kind: "inline",
+					options: [
+						{
+							optionUuid: repeatedOptionUuid,
+							value: `yes_${suffix}`,
+							label: proseText("Yes"),
+						},
+						{
+							value: `no_${suffix}`,
+							label: proseText("No"),
+						},
+					],
+				},
+			}) as never;
+		const out = await createModuleTool.execute(
+			{
+				name: "Colliding surveys",
+				forms: [
+					{
+						name: "First",
+						type: "survey",
+						fields: [select("first_answer", "first")],
+					},
+					{
+						name: "Second",
+						type: "survey",
+						fields: [select("second_answer", "second")],
+					},
+				],
+			},
+			ctx,
+			completeDoc(),
+		);
+
+		expect("error" in out.result && out.result.error).toContain(
+			repeatedOptionUuid,
+		);
+		expect(out.mutations).toEqual([]);
+		expect(recordMutations).not.toHaveBeenCalled();
 	});
 });
 
@@ -344,7 +538,6 @@ function completeConnectDoc(): BlueprintDoc {
 		connectType: "learn",
 		modules: [
 			{
-				uuid: BASE_MODULE_UUID,
 				name: "Lessons",
 				caseType: "trainee",
 				caseListConfig: caseListConfig([
@@ -352,7 +545,6 @@ function completeConnectDoc(): BlueprintDoc {
 				]),
 				forms: [
 					{
-						uuid: BASE_FORM_UUID,
 						name: "Enroll trainee",
 						type: "registration",
 						connect: {
@@ -367,14 +559,14 @@ function completeConnectDoc(): BlueprintDoc {
 							f({
 								kind: "text",
 								id: "case_name",
-								label: "Name",
-								case_property_on: "trainee",
+								label: proseText("Name"),
+								caseWrite: { caseType: "trainee", property: "case_name" },
 							}),
 							f({
 								kind: "text",
 								id: "village",
-								label: "Village",
-								case_property_on: "trainee",
+								label: proseText("Village"),
+								caseWrite: { caseType: "trainee", property: "village" },
 							}),
 						],
 					},
@@ -385,8 +577,8 @@ function completeConnectDoc(): BlueprintDoc {
 			{
 				name: "trainee",
 				properties: [
-					{ name: "case_name", label: "Name" },
-					{ name: "village", label: "Village" },
+					{ name: "case_name", label: proseText("Name") },
+					{ name: "village", label: proseText("Village") },
 				],
 			},
 			/* Pre-recorded types for the creations below — the
@@ -395,7 +587,7 @@ function completeConnectDoc(): BlueprintDoc {
 			...["quiz_case", "assessment_case", "refresher", "seller"].map(
 				(name) => ({
 					name,
-					properties: [{ name: "case_name", label: "Name" }],
+					properties: [{ name: "case_name", label: proseText("Name") }],
 				}),
 			),
 		],
@@ -403,36 +595,30 @@ function completeConnectDoc(): BlueprintDoc {
 }
 
 describe("atomic creation on a complete Connect app", () => {
-	it("createForm with a connect block commits in one batch", async () => {
-		const { ctx, recordMutations } = makeCtx();
-		const out = await createFormTool.execute(
-			{
-				moduleUuid: BASE_MODULE_UUID,
-				name: "Lesson two",
-				type: "followup",
-				fields: [
-					{
-						kind: "text",
-						id: "lesson_notes",
-						label: "Notes",
-						case_property_on: "trainee",
-					} as never,
-				],
-				connect: {
-					learn_module: {
-						id: "lesson_two",
-						name: "Lesson two",
-						description: "Follow-up content",
-						time_estimate: 20,
-					},
+	it("createForm rejects a Connect block so participation has one owner", () => {
+		const doc = completeConnectDoc();
+		const parsed = createFormInputSchema.safeParse({
+			...moduleAddress(doc),
+			name: "Lesson two",
+			type: "followup",
+			fields: [
+				{
+					kind: "text",
+					id: "lesson_notes",
+					label: proseText("Notes"),
+					caseWrite: { caseType: "trainee", property: "lesson_notes" },
+				} as never,
+			],
+			connect: {
+				learn_module: {
+					id: "lesson_two",
+					name: "Lesson two",
+					description: "Follow-up content",
+					time_estimate: 20,
 				},
 			},
-			ctx,
-			completeConnectDoc(),
-		);
-
-		expect("message" in out.result).toBe(true);
-		expect(recordMutations).toHaveBeenCalledTimes(1);
+		});
+		expect(parsed.success).toBe(false);
 	});
 
 	it("createForm WITHOUT a connect block commits — the form is auxiliary, not malformed", async () => {
@@ -441,22 +627,23 @@ describe("atomic creation on a complete Connect app", () => {
 		 * by simply not finding a block there. The app keeps its existing
 		 * participating form, so the participation floor holds. */
 		const { ctx, recordMutations } = makeCtx();
+		const doc = completeConnectDoc();
 		const out = await createFormTool.execute(
 			{
-				moduleUuid: BASE_MODULE_UUID,
+				...moduleAddress(doc),
 				name: "Reference sheet",
 				type: "followup",
 				fields: [
 					{
 						kind: "text",
 						id: "lesson_notes",
-						label: "Notes",
-						case_property_on: "trainee",
+						label: proseText("Notes"),
+						caseWrite: { caseType: "trainee", property: "lesson_notes" },
 					} as never,
 				],
 			},
 			ctx,
-			completeConnectDoc(),
+			doc,
 		);
 
 		expect("message" in out.result, JSON.stringify(out.result)).toBe(true);
@@ -468,49 +655,39 @@ describe("atomic creation on a complete Connect app", () => {
 		expect(runValidation(out.newDoc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 	});
 
-	it("removing the LAST participating form's block bounces with the app-level participation finding", async () => {
-		/* The fixture's only form carries the only learn block. Clearing it
-		 * (connect: null — null removes) leaves a Connect app with zero
-		 * participation — the one state the relaxation still forbids. */
+	it("routes whole-block removal to the app-wide Connect target owner", async () => {
+		/* updateForm refines the config of an existing participant. Changing
+		 * participation is a complete-set command even when this is the only
+		 * participating form. */
 		const { ctx, recordMutations } = makeCtx();
+		const doc = completeConnectDoc();
 		const out = await updateFormTool.execute(
-			{ moduleUuid: BASE_MODULE_UUID, formUuid: BASE_FORM_UUID, connect: null },
+			{ ...formAddress(doc), connect: null },
 			ctx,
-			completeConnectDoc(),
+			doc,
 		);
 
 		const error = "error" in out.result ? out.result.error : "";
-		expect(error).toContain("at least one participating");
+		expect(error).toContain("configureConnect/configure_connect");
 		expect(recordMutations).not.toHaveBeenCalled();
 	});
 
-	it("clearing one form's block commits while another form still participates", async () => {
-		/* Same clear, but the app gained a second participating form first —
-		 * the toggle-off is an ordinary edit whenever participation
-		 * survives it. */
-		const { ctx } = makeCtx();
+	it("routes participant removal to the app-wide owner while an auxiliary form remains", async () => {
+		const { ctx, recordMutations } = makeCtx();
 		const doc = completeConnectDoc();
 		const grown = await createFormTool.execute(
 			{
-				moduleUuid: BASE_MODULE_UUID,
+				...moduleAddress(doc),
 				name: "Lesson two",
 				type: "followup",
 				fields: [
 					{
 						kind: "text",
 						id: "lesson_notes",
-						label: "Notes",
-						case_property_on: "trainee",
+						label: proseText("Notes"),
+						caseWrite: { caseType: "trainee", property: "lesson_notes" },
 					} as never,
 				],
-				connect: {
-					learn_module: {
-						id: "lesson_two",
-						name: "Lesson two",
-						description: "Follow-up content",
-						time_estimate: 20,
-					},
-				},
 			},
 			ctx,
 			doc,
@@ -518,448 +695,117 @@ describe("atomic creation on a complete Connect app", () => {
 		expect("message" in grown.result).toBe(true);
 
 		const out = await updateFormTool.execute(
-			{ moduleUuid: BASE_MODULE_UUID, formUuid: BASE_FORM_UUID, connect: null },
+			{ ...formAddress(grown.newDoc), connect: null },
 			ctx,
 			grown.newDoc,
 		);
 
-		expect("message" in out.result, JSON.stringify(out.result)).toBe(true);
+		expect(out.result).toEqual({
+			error: expect.stringContaining("configureConnect/configure_connect"),
+		});
+		expect(out.mutations).toEqual([]);
+		expect(recordMutations).toHaveBeenCalledTimes(1);
 		expect(runValidation(out.newDoc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 	});
 
-	it("createForm parses assessment.user_score text to the expression AST, resolving a same-call field to an identity leaf", async () => {
-		const { ctx, recordMutations } = makeCtx();
-		const out = await createFormTool.execute(
+	it("derives a newly-added section id from the same-call target form name", async () => {
+		const doc = completeConnectDoc();
+		const address = formAddress(doc);
+		const out = await updateFormTool.execute(
 			{
-				moduleUuid: BASE_MODULE_UUID,
-				name: "Quiz",
-				type: "followup",
-				fields: [
-					{
-						kind: "text",
-						id: "answer_one",
-						label: "Answer one",
-						case_property_on: "trainee",
-					} as never,
-					{ kind: "hidden", id: "score_total", calculate: "1 + 1" } as never,
-				],
+				...address,
+				name: "Final quiz",
 				connect: {
-					assessment: { user_score: "#form/score_total" },
+					assessment: {
+						user_score: xp("100"),
+					},
 				},
 			},
-			ctx,
-			completeConnectDoc(),
+			makeCtx().ctx,
+			doc,
 		);
 
-		expect("message" in out.result, JSON.stringify(out.result)).toBe(true);
-		expect(recordMutations).toHaveBeenCalledTimes(1);
-		const addForm = out.mutations.find(
-			(m): m is Extract<typeof m, { kind: "addForm" }> => m.kind === "addForm",
-		);
-		const scoreField = out.mutations.find(
-			(m): m is Extract<typeof m, { kind: "addField" }> =>
-				m.kind === "addField" && m.field.id === "score_total",
-		);
-		const userScore = addForm?.form.connect?.assessment?.user_score;
-		// Stored as the AST — a raw string here is exactly the shape the
-		// next load's Zod gate rejects (the whole point of the boundary).
-		expect(userScore).toEqual({
-			parts: [{ kind: "field-ref", uuid: scoreField?.field.uuid }],
-		});
-		// And the projection prints the authored text back.
-		expect(userScore && printXPathInDoc(out.newDoc, userScore)).toBe(
-			"#form/score_total",
-		);
-	});
-
-	it("createModule parses each form's assessment.user_score the same way", async () => {
-		const { ctx, recordMutations } = makeCtx();
-		const out = await createModuleTool.execute(
-			{
-				name: "Quizzes",
-				case_type: "quiz_case",
-				forms: [
-					{
-						name: "Register quiz",
-						type: "registration",
-						fields: [
-							{
-								kind: "text",
-								id: "case_name",
-								label: "Quiz name",
-								case_property_on: "quiz_case",
-							} as never,
-							{
-								kind: "text",
-								id: "topic",
-								label: "Topic",
-								case_property_on: "quiz_case",
-							} as never,
-							{
-								kind: "hidden",
-								id: "score_total",
-								calculate: "1 + 1",
-							} as never,
-						],
-						connect: {
-							assessment: { user_score: "#form/score_total" },
-						},
-					},
-				],
-				case_list_columns: [
-					{ kind: "plain", field: "case_name", header: "Name" } as never,
-				],
-			},
-			ctx,
-			completeConnectDoc(),
-		);
-
-		expect("message" in out.result, JSON.stringify(out.result)).toBe(true);
-		expect(recordMutations).toHaveBeenCalledTimes(1);
-		const addForm = out.mutations.find(
-			(m): m is Extract<typeof m, { kind: "addForm" }> => m.kind === "addForm",
-		);
-		const scoreField = out.mutations.find(
-			(m): m is Extract<typeof m, { kind: "addField" }> =>
-				m.kind === "addField" && m.field.id === "score_total",
-		);
-		expect(addForm?.form.connect?.assessment?.user_score).toEqual({
-			parts: [{ kind: "field-ref", uuid: scoreField?.field.uuid }],
+		expect(out.result).not.toHaveProperty("error");
+		expect(out.newDoc.forms[address.formUuid]?.name).toBe("Final quiz");
+		expect(out.newDoc.forms[address.formUuid]?.connect).toMatchObject({
+			learn_module: { id: "enroll_module" },
+			assessment: { id: "lessons_final_quiz" },
 		});
 	});
 
-	it("createModule lands forms with their connect blocks in one batch", async () => {
-		const { ctx, recordMutations } = makeCtx();
-		const out = await createModuleTool.execute(
-			{
-				name: "Assessments",
-				case_type: "assessment_case",
-				forms: [
-					{
-						name: "Register assessment",
-						type: "registration",
-						fields: [
-							{
-								kind: "text",
-								id: "case_name",
-								label: "Assessment name",
-								case_property_on: "assessment_case",
-							} as never,
-							{
-								kind: "text",
-								id: "topic",
-								label: "Topic",
-								case_property_on: "assessment_case",
-							} as never,
-						],
-						connect: {
-							learn_module: {
-								id: "assessment_intro",
-								name: "Assessment intro",
-								description: "How scoring works",
-								time_estimate: 5,
+	it("createModule rejects nested Connect blocks so participation has one owner", () => {
+		const parsed = createModuleInputSchema.safeParse({
+			name: "Assessments",
+			case_type: "assessment_case",
+			forms: [
+				{
+					name: "Register assessment",
+					type: "registration",
+					fields: [
+						{
+							kind: "text",
+							id: "case_name",
+							label: proseText("Assessment name"),
+							caseWrite: {
+								caseType: "assessment_case",
+								property: "case_name",
 							},
 						},
+					],
+					connect: {
+						learn_module: {
+							name: "Assessment intro",
+							description: "How scoring works",
+							time_estimate: 5,
+						},
 					},
-				],
-				case_list_columns: [
-					{ kind: "plain", field: "case_name", header: "Name" } as never,
-				],
-			},
-			ctx,
-			completeConnectDoc(),
-		);
-
-		expect("message" in out.result).toBe(true);
-		expect(recordMutations).toHaveBeenCalledTimes(1);
+				},
+			],
+			case_list_columns: [
+				{ kind: "plain", field: "case_name", header: "Name" },
+			],
+		});
+		expect(parsed.success).toBe(false);
 	});
 });
 
-// ── Connect-id source enforcement on the creation tools ──────────────
-//
-// The creation tools are connect-block writers, so they carry the same
-// at-source id contract `updateForm` holds: an
-// omitted id is autofilled (valid, unique, name-derived, STORED on the
-// doc) and an explicit invalid/duplicate id fails the call with nothing
-// persisted. Nothing downstream supplies a default — the emit resolver
-// throws on a missing id — so this enforcement is what makes the
-// schema's "leave the id unset and Nova fills it in" description true.
+// ── Connect participation has one owner ─────────────────────────────
 
-describe("creation tools force connect ids correct at the source", () => {
-	it("createForm autofills an omitted connect id from the module name, unique against stored ids", async () => {
-		const { ctx } = makeCtx();
-		const out = await createFormTool.execute(
-			{
-				moduleUuid: BASE_MODULE_UUID,
-				name: "Lesson two",
-				type: "followup",
-				fields: [
-					{
-						kind: "text",
-						id: "lesson_notes",
-						label: "Notes",
-						case_property_on: "trainee",
-					} as never,
-				],
+describe("creation tools leave Connect participation to configureConnect", () => {
+	it("rejects Connect at both creation schema boundaries", () => {
+		expect(
+			createFormInputSchema.safeParse({
+				moduleUuid: testUuid("creation-connect-module"),
+				name: "New participant",
+				type: "survey",
+				fields: [{ kind: "text", id: "note", label: proseText("Note") }],
 				connect: {
 					learn_module: {
-						// id omitted — the normal case the schema description promises.
-						name: "Lesson two",
-						description: "Follow-up content",
-						time_estimate: 20,
+						name: "Lesson",
+						description: "Lesson",
+						time_estimate: 5,
 					},
 				},
-			},
-			ctx,
-			completeConnectDoc(),
-		);
-
-		expect("message" in out.result).toBe(true);
-		const addForm = out.mutations.find(
-			(m): m is Extract<typeof m, { kind: "addForm" }> => m.kind === "addForm",
-		);
-		// Derived from the module name ("Lessons"), valid + unique vs the
-		// stored "enroll_module".
-		expect(addForm?.form.connect?.learn_module?.id).toBe("lessons");
-	});
-
-	it("createForm rejects an explicit duplicate connect id (nothing persisted)", async () => {
-		const { ctx, recordMutations } = makeCtx();
-		const out = await createFormTool.execute(
-			{
-				moduleUuid: BASE_MODULE_UUID,
-				name: "Lesson two",
-				type: "followup",
-				fields: [
-					{
-						kind: "text",
-						id: "lesson_notes",
-						label: "Notes",
-						case_property_on: "trainee",
-					} as never,
-				],
-				connect: {
-					learn_module: {
-						id: "enroll_module", // already taken by the stored form
-						name: "Lesson two",
-						description: "Follow-up content",
-						time_estimate: 20,
-					},
-				},
-			},
-			ctx,
-			completeConnectDoc(),
-		);
-
-		expect("error" in out.result && out.result.error).toContain(
-			"enroll_module",
-		);
-		expect(out.mutations).toEqual([]);
-		expect(recordMutations).not.toHaveBeenCalled();
-	});
-
-	it("createForm rejects an explicit XML-illegal connect id", async () => {
-		const { ctx, recordMutations } = makeCtx();
-		const out = await createFormTool.execute(
-			{
-				moduleUuid: BASE_MODULE_UUID,
-				name: "Lesson two",
-				type: "followup",
-				fields: [
-					{
-						kind: "text",
-						id: "lesson_notes",
-						label: "Notes",
-						case_property_on: "trainee",
-					} as never,
-				],
-				connect: {
-					learn_module: {
-						id: "bad id",
-						name: "Lesson two",
-						description: "Follow-up content",
-						time_estimate: 20,
-					},
-				},
-			},
-			ctx,
-			completeConnectDoc(),
-		);
-
-		expect("error" in out.result && out.result.error).toContain("bad id");
-		expect(recordMutations).not.toHaveBeenCalled();
-	});
-
-	it("createModule autofills omitted ids uniquely across the call's own forms", async () => {
-		// Two id-less learn_module blocks in ONE creation both derive from the
-		// module name — the threaded id set must suffix the second, so the
-		// batch can't be born with a duplicate.
-		const { ctx } = makeCtx();
-		const out = await createModuleTool.execute(
-			{
-				name: "Refreshers",
-				case_type: "refresher",
+			}).success,
+		).toBe(false);
+		expect(
+			createModuleInputSchema.safeParse({
+				name: "New module",
 				forms: [
 					{
-						name: "Refresher one",
-						type: "registration",
-						fields: [
-							{
-								kind: "text",
-								id: "case_name",
-								label: "Name",
-								case_property_on: "refresher",
-							} as never,
-							{
-								kind: "text",
-								id: "topic_covered",
-								label: "Topic covered",
-								case_property_on: "refresher",
-							} as never,
-						],
+						name: "New participant",
+						type: "survey",
+						fields: [{ kind: "text", id: "note", label: proseText("Note") }],
 						connect: {
 							learn_module: {
-								name: "Refresher one",
-								description: "Part one",
-								time_estimate: 5,
-							},
-						},
-					},
-					{
-						name: "Refresher two",
-						type: "followup",
-						fields: [
-							{
-								kind: "text",
-								id: "notes",
-								label: "Notes",
-								case_property_on: "refresher",
-							} as never,
-						],
-						connect: {
-							learn_module: {
-								name: "Refresher two",
-								description: "Part two",
+								name: "Lesson",
+								description: "Lesson",
 								time_estimate: 5,
 							},
 						},
 					},
 				],
-				case_list_columns: [
-					{ kind: "plain", field: "case_name", header: "Name" } as never,
-				],
-			},
-			ctx,
-			completeConnectDoc(),
-		);
-
-		expect("message" in out.result).toBe(true);
-		const ids = out.mutations
-			.filter(
-				(m): m is Extract<typeof m, { kind: "addForm" }> =>
-					m.kind === "addForm",
-			)
-			.map((m) => m.form.connect?.learn_module?.id);
-		expect(ids).toEqual(["refreshers", "refreshers_2"]);
-	});
-
-	it("createModule rejects an explicit duplicate id against a stored block (nothing persisted)", async () => {
-		const { ctx, recordMutations } = makeCtx();
-		const out = await createModuleTool.execute(
-			{
-				name: "Refreshers",
-				case_type: "refresher",
-				forms: [
-					{
-						name: "Refresher one",
-						type: "registration",
-						fields: [
-							{
-								kind: "text",
-								id: "case_name",
-								label: "Name",
-								case_property_on: "refresher",
-							} as never,
-							{
-								kind: "text",
-								id: "topic_covered",
-								label: "Topic covered",
-								case_property_on: "refresher",
-							} as never,
-						],
-						connect: {
-							learn_module: {
-								id: "enroll_module", // taken by the stored form
-								name: "Refresher one",
-								description: "Part one",
-								time_estimate: 5,
-							},
-						},
-					},
-				],
-				case_list_columns: [
-					{ kind: "plain", field: "case_name", header: "Name" } as never,
-				],
-			},
-			ctx,
-			completeConnectDoc(),
-		);
-
-		expect("error" in out.result && out.result.error).toContain(
-			"enroll_module",
-		);
-		expect(recordMutations).not.toHaveBeenCalled();
-	});
-
-	it("caps an id autofilled from a long module name at the 50-character slug limit", async () => {
-		// LEEP regression: this module name's snake-id is 52 chars, over the
-		// varchar(50) Connect column — the autofill must cap at derivation so
-		// CONNECT_ID_TOO_LONG can never fire on an id the user didn't type.
-		const { ctx } = makeCtx();
-		const out = await createModuleTool.execute(
-			{
-				name: "Module 3 — Conducting the 15-question seller interview",
-				case_type: "seller",
-				forms: [
-					{
-						name: "Interview",
-						type: "registration",
-						fields: [
-							{
-								kind: "text",
-								id: "case_name",
-								label: "Name",
-								case_property_on: "seller",
-							} as never,
-							{
-								kind: "text",
-								id: "stall_location",
-								label: "Stall location",
-								case_property_on: "seller",
-							} as never,
-						],
-						connect: {
-							learn_module: {
-								name: "Interview",
-								description: "Seller interview training",
-								time_estimate: 15,
-							},
-						},
-					},
-				],
-				case_list_columns: [
-					{ kind: "plain", field: "case_name", header: "Name" } as never,
-				],
-			},
-			ctx,
-			completeConnectDoc(),
-		);
-
-		expect("message" in out.result).toBe(true);
-		const addForm = out.mutations.find(
-			(m): m is Extract<typeof m, { kind: "addForm" }> => m.kind === "addForm",
-		);
-		const id = addForm?.form.connect?.learn_module?.id as string;
-		expect(id.length).toBeLessThanOrEqual(50);
+			}).success,
+		).toBe(false);
 	});
 });

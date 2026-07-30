@@ -22,10 +22,11 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { createModuleInputSchema } from "../../tools/createModule";
 import { updateModuleInputSchema } from "../../tools/updateModule";
 
-const MODULE_UUID = "11111111-1111-4111-8111-111111111111";
+const MODULE_UUID = testUuid("legacy-column-rejection-module");
 
 describe("updateModule legacy column field rejection", () => {
 	it("input schema parses a name-only payload cleanly", () => {
@@ -64,9 +65,9 @@ describe("updateModule legacy column field rejection", () => {
 		expect(result.success).toBe(false);
 	});
 
-	it("input schema parses a UUID-only payload (the tool body rejects it)", () => {
+	it("input schema parses a payload with neither name nor case_type (the tool body rejects it)", () => {
 		// `name` and `case_type` are each optional — the schema accepts a
-		// bare stable address and the tool body returns the "nothing to
+		// bare module UUID and the tool body returns the "nothing to
 		// update" error, so the SA gets a corrective message rather than a
 		// parse failure it can't read.
 		const result = updateModuleInputSchema.safeParse({

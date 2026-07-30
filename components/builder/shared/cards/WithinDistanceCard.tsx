@@ -16,7 +16,6 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/shadcn/select";
-import { canonicalCasePropertyName } from "@/lib/domain";
 import {
 	DISTANCE_UNITS,
 	type DistanceUnit,
@@ -57,7 +56,7 @@ export function withinDistanceDefault(
 ): Extract<Predicate, { kind: "within-distance" }> {
 	const ct = ctx.caseTypes.find((c) => c.name === ctx.currentCaseType);
 	const property = ct?.properties.find((p) => p.data_type === "geopoint");
-	const propName = canonicalCasePropertyName(property?.name ?? "");
+	const propName = property?.name ?? "";
 	return within(prop(ctx.currentCaseType, propName), literal(""), 1, "miles");
 }
 

@@ -1,4 +1,5 @@
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { proseText } from "@/lib/domain/prose";
 /**
  * Perf guard for the boundary gate: a full `evaluateBoundary` run over a
  * large deterministic fixture must finish inside a GENEROUS budget. The
@@ -44,8 +45,8 @@ function largeDoc(): BlueprintDoc {
 					f({
 						kind: "text",
 						id: "case_name",
-						label: "Name",
-						case_property_on: caseType,
+						label: proseText("Name"),
+						caseWrite: { caseType, property: "case_name" },
 					}),
 					...Array.from({ length: 20 }, (_, q) =>
 						f({
@@ -54,13 +55,20 @@ function largeDoc(): BlueprintDoc {
 							label: `Question ${q}`,
 							relevant: q > 0 ? `#form/q_${q - 1} != ''` : undefined,
 							required: "true()",
-							...(fm > 0 && q < 3 ? { case_property_on: caseType } : {}),
+							...(fm > 0 && q < 3
+								? {
+										caseWrite: {
+											caseType,
+											property: `q_${q}`,
+										},
+									}
+								: {}),
 						}),
 					),
 					f({
 						kind: "group",
 						id: "grp",
-						label: "Group",
+						label: proseText("Group"),
 						children: Array.from({ length: 3 }, (_, q) =>
 							f({
 								kind: "hidden",

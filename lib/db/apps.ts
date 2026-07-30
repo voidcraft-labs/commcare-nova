@@ -21,12 +21,12 @@
  */
 
 import Fuse from "fuse.js";
-import type {
-	Kysely,
-	RawBuilder,
-	Selectable,
-	Transaction,
-	UpdateResult,
+import {
+	type RawBuilder,
+	type Selectable,
+	sql,
+	type Transaction,
+	type UpdateResult,
 } from "kysely";
 import type { ErrorType } from "@/lib/agent";
 import { getAuthDb } from "@/lib/auth/db";
@@ -35,23 +35,29 @@ import { retenantAppCasesOn } from "@/lib/case-store/retenant";
 import type { Database as CaseDatabase } from "@/lib/case-store/sql/database";
 import {
 	collectThreadAttachmentAssetIds,
+	collectThreadAttachments,
 	remapThreadAttachmentAssetIds,
 } from "@/lib/chat/threadAttachments";
 import { isBuiltinIconRef } from "@/lib/domain/builtinIcons";
 import { log } from "@/lib/logger";
 import { readLookupDefinitionsInTransaction } from "@/lib/lookup/definitionSnapshot";
 import {
-	describeMediaExpectationFailures,
-	type MediaAttachExpectation,
-} from "@/lib/media/attachVerdicts";
+	nextPersistedSequence,
+	safePersistedSequence,
+} from "@/lib/utils/persistedSequence";
+import type { CasePropertyRenamePlan } from "../doc/casePropertyRenames";
 import {
-	describeIntroducedErrors,
+	describeCommitFindings,
 	evaluatePreparedMutationCandidate,
 	exportReadinessFindings,
+	mutationCommitVerdict,
 	prepareMutationCandidate,
 } from "../doc/commitVerdicts";
 import { deepEqual } from "../doc/deepEqual";
-import { diffDocsToMutations } from "../doc/diffDocsToMutations";
+import {
+	CasePropertySemanticProvenanceRequiredError,
+	diffDocsToMutations,
+} from "../doc/diffDocsToMutations";
 import {
 	hydratePersistedBlueprint,
 	toPersistableDoc,
@@ -59,12 +65,17 @@ import {
 import {
 	EMPTY_LOOKUP_REFERENCE_TARGETS,
 	extractLookupReferenceTargets,
-	LOOKUP_CONTEXT_UNAVAILABLE,
 	type LookupReferenceTargetSet,
 	type LookupValidationContext,
 	unionLookupReferenceTargetSets,
 } from "../doc/lookupReferences";
+import {
+	type AdmittedMutationBatch,
+	admitMutationBatch,
+	encodeAdmittedMutationEnvelope,
+} from "../doc/mutationAdmission";
 import { buildReferenceIndex } from "../doc/referenceIndex";
+import { canonicalAppGenesis } from "../doc/scaffolds";
 import type { Mutation } from "../doc/types";
 import type {
 	BlueprintDoc,
@@ -75,23 +86,22 @@ import {
 	asWalkableDoc,
 	collectRealAssetRefs,
 	remapAssetRefs,
+	walkAuthoredAssetRefs,
 } from "../domain/mediaRefs";
-import type { AssetId } from "../domain/multimedia";
 import {
-	assembleBlueprint,
-	decomposeBlueprint,
-	diffBlueprints,
-	type EntityRow,
-} from "./blueprintRows";
-import {
-	provenRenamePairs,
-	type RenameExpectation,
-} from "./classifyCaseTypeChanges";
+	type AssetKind,
+	asMediaAssetId,
+	type MediaAssetId,
+} from "../domain/multimedia";
+import type { Uuid } from "../domain/uuid";
+import { decomposeBlueprint, diffBlueprints } from "./blueprintRows";
 import {
 	AppProjectChangedError,
+	appChangeFingerprintMatches,
 	BlueprintCommitRejectedError,
-	batchTargetsMissing,
 	CommitReauthError,
+	MutationBatchIdCollisionError,
+	mutationTargetsInvalid,
 	RunHolderLostError,
 } from "./commitGuard";
 import {
@@ -114,16 +124,23 @@ import {
 	replaceLookupReferenceEdges,
 } from "./lookupReferenceEdges";
 import {
-	addReferencingApp,
-	addReferencingAppInTransaction,
-	getAssetsInTransaction,
+	deleteMediaReferenceEdges,
+	insertMediaReferenceEdges,
+	lockAndValidateMediaReferences,
 	type MediaAssetRecord,
+	MediaReferenceProjectionError,
+	type MediaReferenceRequirement,
 } from "./mediaAssets";
 import {
 	deleteMediaAssetMetadataInTransaction,
 	MediaAssetStillReferencedError,
 } from "./mediaDeletion";
 import { getCurrentPeriod } from "./period";
+import {
+	assemblePersistedBlueprintJsonText,
+	type PersistedEntityRowText,
+	parsePersistedMutationBatchText,
+} from "./persistedJson";
 import {
 	type AppDatabase,
 	type AppsTable,
@@ -150,7 +167,12 @@ import {
 	type RunHolderIdentity,
 	runLeaseState,
 } from "./runLiveness";
-import type { AcceptedMutationDoc, AppDoc } from "./types";
+import {
+	type AppDoc,
+	type BlueprintMutationAppChangeKind,
+	type ClientAppChangeKind,
+	parsePersistedAppLifecycleStatus,
+} from "./types";
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -174,8 +196,8 @@ export interface AppSummary {
 	module_count: number;
 	form_count: number;
 	status: AppDoc["status"];
-	/** App-logo asset id (a plain column); `null` when unset. */
-	logo: string | null;
+	/** Strict app-logo asset UUID; `null` when unset. */
+	logo: MediaAssetId | null;
 	/** Error classification string — present only when status is 'error'. */
 	error_type: string | null;
 	/** ISO 8601 string. */
@@ -184,23 +206,15 @@ export interface AppSummary {
 	updated_at: string;
 }
 
-/**
- * Shape returned by `listDeletedApps` — the standard summary plus the two
- * soft-delete fields, both non-null on any row the query returns. `status`
- * is inherited as-is: soft-delete and lifecycle status are orthogonal axes.
- */
+/** Shape returned by `listDeletedApps` — the standard summary plus the two
+ * soft-delete fields, both non-null on any row the query returns. */
 export interface DeletedAppSummary extends AppSummary {
 	deleted_at: string;
 	recoverable_until: string;
 }
 
-/**
- * Narrowed status enum exposed on list/search surfaces. The stored enum also
- * includes `"deleted"` for legacy rows written by the prior status-flip
- * soft-delete flow; soft-deletes are filtered by `deleted_at IS NULL`, so
- * `"deleted"` is never a legitimate filter argument.
- */
-export type AppStatus = Exclude<AppDoc["status"], "deleted">;
+/** Closed run-lifecycle filter vocabulary for list/search surfaces. */
+export type AppStatus = AppDoc["status"];
 
 /** Sort orders supported by `listApps`. `searchApps` takes none — Fuse ranks
  *  by relevance, the only sensible ordering for a search. */
@@ -260,31 +274,66 @@ export interface SearchAppsResult {
 export const UNTITLED_APP_NAME = "Untitled";
 
 type AppRow = Selectable<AppsTable>;
+type AppRowWithoutCaseTypes = Omit<AppRow, "case_types">;
+type PersistedBlueprintAppRow = Omit<AppRow, "case_types"> & {
+	readonly case_types_text: string | null;
+};
+
+/**
+ * Complete app-row projection for Blueprint readers. `case_types` is
+ * deliberately absent: selecting it even beside `case_types::text` would let
+ * pg eagerly parse and numerically alias the discarded JSONB value.
+ */
+const PERSISTED_BLUEPRINT_APP_COLUMNS = [
+	"id",
+	"owner",
+	"project_id",
+	"app_name",
+	"app_name_lower",
+	"connect_type",
+	"logo",
+	"module_count",
+	"form_count",
+	"mutation_seq",
+	"status",
+	"awaiting_input",
+	"error_type",
+	"deleted_at",
+	"recoverable_until",
+	"run_id",
+	"res_period",
+	"res_reserved",
+	"res_settled",
+	"res_user_id",
+	"res_run_id",
+	"lock_run_id",
+	"lock_actor_user_id",
+	"lock_expire_at",
+	"run_holder_nonce",
+	"created_at",
+	"updated_at",
+] as const satisfies readonly (keyof AppsTable)[];
 
 // ── Row projections ────────────────────────────────────────────────
 
-/** Assemble the full `AppDoc` from a row + its entity rows. */
-function rowToAppDoc(row: AppRow, entities: EntityRow[]): AppDoc {
-	const blueprint = assembleBlueprint(
-		row.id,
-		{
-			app_name: row.app_name,
-			connect_type: row.connect_type,
-			case_types: row.case_types,
-			logo: row.logo,
-		},
-		entities,
-	);
+/** Project one already-admitted persisted blueprint into the full app record. */
+function rowToAppDoc(
+	row: PersistedBlueprintAppRow,
+	blueprint: PersistableDoc,
+): AppDoc {
 	return {
 		owner: row.owner,
 		project_id: row.project_id,
 		app_name: row.app_name,
 		blueprint,
-		mutation_seq: Number(row.mutation_seq),
+		mutation_seq: safePersistedSequence(
+			row.mutation_seq,
+			`apps.mutation_seq for app ${row.id}`,
+		),
 		connect_type: row.connect_type,
 		module_count: row.module_count,
 		form_count: row.form_count,
-		status: row.status as AppDoc["status"],
+		status: parsePersistedAppLifecycleStatus(row.status),
 		...(row.awaiting_input && { awaiting_input: true }),
 		error_type: row.error_type,
 		deleted_at: row.deleted_at?.toISOString() ?? null,
@@ -303,26 +352,106 @@ function rowToAppDoc(row: AppRow, entities: EntityRow[]): AppDoc {
 async function lockAppRow(
 	tx: Transaction<AppDatabase>,
 	appId: string,
-): Promise<AppRow | undefined> {
+): Promise<PersistedBlueprintAppRow | undefined> {
 	return (await tx
 		.selectFrom("apps")
-		.selectAll()
+		.select(PERSISTED_BLUEPRINT_APP_COLUMNS)
+		.select(
+			sql<string | null>`${sql.ref("apps.case_types")}::text`.as(
+				"case_types_text",
+			),
+		)
 		.where("id", "=", appId)
 		.forUpdate()
-		.executeTakeFirst()) as AppRow | undefined;
+		.executeTakeFirst()) as PersistedBlueprintAppRow | undefined;
 }
 
 async function loadEntities(
-	tx: Transaction<AppDatabase> | null,
+	tx: Transaction<AppDatabase>,
 	appId: string,
-): Promise<EntityRow[]> {
-	const db = tx ?? (await getAppDb());
-	const rows = await db
+): Promise<PersistedEntityRowText[]> {
+	const rows = await tx
 		.selectFrom("blueprint_entities")
-		.select(["uuid", "kind", "parent_uuid", "ordinal", "data"])
+		.select(["uuid", "kind", "parent_uuid", "ordinal"])
+		.select(
+			sql<string>`${sql.ref("blueprint_entities.data")}::text`.as("data_text"),
+		)
 		.where("app_id", "=", appId)
 		.execute();
-	return rows as EntityRow[];
+	return rows as PersistedEntityRowText[];
+}
+
+type StrictAppLoadAfterRootReadHook = (appId: string) => void | Promise<void>;
+let strictAppLoadAfterRootReadHook: StrictAppLoadAfterRootReadHook | null =
+	null;
+
+/**
+ * Deterministic concurrency seam for the torn-read regression. Production
+ * never installs this hook; it runs while the app row's share/update lock is
+ * held and before entity rows are read.
+ */
+export function __setStrictAppLoadAfterRootReadHookForTests(
+	hook: StrictAppLoadAfterRootReadHook | null,
+): void {
+	strictAppLoadAfterRootReadHook = hook;
+}
+
+interface StrictAppSnapshot {
+	readonly app: AppDoc;
+	readonly doc: BlueprintDoc;
+	readonly lookupContext: LookupValidationContext;
+}
+
+/**
+ * The one current persisted-app admission owner.
+ *
+ * The caller has already read and locked the app row on `tx`. From there this
+ * function reads every Blueprint JSONB carrier as exact `::text`, performs
+ * strict schema assembly and hydration, reads the referenced Project lookup
+ * definitions on the same transaction, and applies the absolute whole-document
+ * gate before returning any current state.
+ */
+async function loadStrictAppSnapshotFromRowInTransaction(
+	tx: Transaction<AppDatabase>,
+	row: PersistedBlueprintAppRow,
+): Promise<StrictAppSnapshot> {
+	await strictAppLoadAfterRootReadHook?.(row.id);
+	const entities = await loadEntities(tx, row.id);
+	const persisted = assemblePersistedBlueprintJsonText(
+		row.id,
+		{
+			app_name: row.app_name,
+			connect_type: row.connect_type,
+			case_types_text: row.case_types_text,
+			logo: row.logo,
+		},
+		entities,
+	);
+	const doc = hydratePersistedBlueprint(persisted);
+	const targets = extractLookupReferenceTargets(doc);
+	const definitionSnapshot = await readLookupDefinitionsInTransaction(
+		tx,
+		row.project_id,
+		targets.tableIds,
+	);
+	const lookupContext: LookupValidationContext = {
+		kind: "available",
+		...definitionSnapshot,
+	};
+	const verdict = mutationCommitVerdict(doc, [], lookupContext);
+	if (!verdict.ok) {
+		const codes = [...new Set(verdict.findings.map((finding) => finding.code))]
+			.sort()
+			.join(",");
+		throw new Error(
+			`Persisted app ${row.id} fails the absolute commit gate (${codes}).`,
+		);
+	}
+	return {
+		app: rowToAppDoc(row, toPersistableDoc(verdict.nextDoc)),
+		doc: verdict.nextDoc,
+		lookupContext,
+	};
 }
 
 /** Extract denormalized list-display fields from a persistable doc. The name
@@ -344,84 +473,108 @@ function denormalize(doc: PersistableDoc) {
 	};
 }
 
-/**
- * Maintain the media reverse index for a saved blueprint: record `appId`
- * against every asset the doc references, so the delete reference guard reads
- * a candidate set instead of loading every app. Post-commit + best-effort — a
- * failure logs, never throws (the media validator at export is the
- * correctness backstop, and the next save re-adds a dropped edge). Built-in
- * icon refs (`nova-icon:<slug>`) have no asset row and need no index.
- */
-async function syncMediaReferences(
-	appId: string,
-	doc: PersistableDoc,
-): Promise<void> {
-	try {
-		await addReferencingApp(collectRealAssetRefs(asWalkableDoc(doc)), appId);
-	} catch (err) {
-		log.error("[syncMediaReferences] reverse-index update failed", err, {
-			appId,
-		});
-	}
+export interface CandidateThreadMediaProjection {
+	readonly threadId: string;
+	readonly messages: readonly unknown[];
+}
+
+function blueprintMediaRequirements(
+	doc: BlueprintDoc | PersistableDoc,
+): MediaReferenceRequirement[] {
+	return [...walkAuthoredAssetRefs(asWalkableDoc(doc))]
+		.filter((ref) => !isBuiltinIconRef(ref.assetId))
+		.map((ref) => ({
+			assetId: asMediaAssetId(ref.assetId),
+			expectedKind: ref.slotKind,
+		}));
 }
 
 /**
- * Lock, validate, and reverse-index every real asset reference a candidate
- * newly introduces. The asset locks are sorted and held through the blueprint
- * commit; deletion takes the conflicting `FOR UPDATE`, so exactly one side of
- * attach-vs-delete wins and the loser re-evaluates fresh state.
+ * Rederive and replace one app's complete live media projection. The caller
+ * already owns the app `FOR UPDATE`; that is what keeps every Blueprint and
+ * thread carrier stable while this function reads the other rows.
  */
-async function admitIntroducedMediaReferences(
+export async function replaceExactMediaReferencesForApp(
 	tx: Transaction<AppDatabase>,
 	args: {
-		appId: string;
-		projectId: string | null;
-		previousDoc: BlueprintDoc | PersistableDoc;
-		candidateDoc: BlueprintDoc | PersistableDoc;
-		expectations?: readonly MediaAttachExpectation[];
+		readonly appId: string;
+		readonly projectId: string;
+		readonly candidateDoc?: BlueprintDoc | PersistableDoc;
+		readonly candidateThread?: CandidateThreadMediaProjection;
 	},
 ): Promise<void> {
-	const previous = new Set(
-		collectRealAssetRefs(asWalkableDoc(args.previousDoc)),
-	);
-	const candidate = collectRealAssetRefs(asWalkableDoc(args.candidateDoc));
-	const introduced = [
-		...new Set(candidate.filter((id) => !previous.has(id))),
-	].sort();
-	const idsToLock = [
-		...new Set([
-			...introduced,
-			...(args.expectations ?? []).map((entry) => entry.assetId),
-		]),
-	].sort();
-	if (idsToLock.length === 0) return;
-	if (args.projectId === null) {
-		throw new BlueprintCommitRejectedError(
-			"This app has no Project, so its media can't be verified. Reload and try again.",
-		);
-	}
-	const assets = await getAssetsInTransaction(tx, idsToLock);
-	if (args.expectations && args.expectations.length > 0) {
-		const failure = describeMediaExpectationFailures(
-			args.expectations,
-			assets,
-			args.projectId,
-		);
-		if (failure !== null) throw new BlueprintCommitRejectedError(failure);
-	}
-	for (const assetId of introduced) {
-		const asset = assets.get(assetId);
-		if (
-			asset === undefined ||
-			asset.project_id !== args.projectId ||
-			asset.status !== "ready"
-		) {
-			throw new BlueprintCommitRejectedError(
-				"A media file this change attaches is no longer available in this Project. Choose it again and retry.",
+	let doc = args.candidateDoc;
+	if (doc === undefined) {
+		const stored = await loadAppInTransaction(tx, args.appId);
+		if (stored === null || stored.project_id !== args.projectId) {
+			throw new MediaReferenceProjectionError(
+				"The app media projection could not be derived from its locked Project.",
 			);
 		}
+		doc = hydratePersistedBlueprint(stored.blueprint);
 	}
-	await addReferencingAppInTransaction(tx, introduced, args.appId);
+	const requirements = blueprintMediaRequirements(doc);
+	const threads = await tx
+		.selectFrom("threads")
+		.select(["thread_id", "messages"])
+		.where("app_id", "=", args.appId)
+		.orderBy("thread_id")
+		.execute();
+	let substituted = false;
+	for (const thread of threads) {
+		const messages =
+			args.candidateThread?.threadId === thread.thread_id
+				? args.candidateThread.messages
+				: thread.messages;
+		if (args.candidateThread?.threadId === thread.thread_id) substituted = true;
+		for (const attachment of collectThreadAttachments(messages)) {
+			requirements.push({
+				assetId: attachment.assetId,
+				expectedKind: attachment.kind as AssetKind,
+			});
+		}
+	}
+	if (args.candidateThread !== undefined && !substituted) {
+		for (const attachment of collectThreadAttachments(
+			args.candidateThread.messages,
+		)) {
+			requirements.push({
+				assetId: attachment.assetId,
+				expectedKind: attachment.kind as AssetKind,
+			});
+		}
+	}
+	const assetIds = await lockAndValidateMediaReferences(
+		tx,
+		args.projectId,
+		requirements,
+	);
+	await deleteMediaReferenceEdges(tx, args.appId);
+	await insertMediaReferenceEdges(tx, {
+		appId: args.appId,
+		projectId: args.projectId,
+		assetIds,
+	});
+}
+
+async function admitExactMediaReferences(
+	tx: Transaction<AppDatabase>,
+	args: {
+		readonly appId: string;
+		readonly projectId: string;
+		readonly candidateDoc: BlueprintDoc | PersistableDoc;
+	},
+): Promise<void> {
+	try {
+		await replaceExactMediaReferencesForApp(tx, args);
+	} catch (error) {
+		if (error instanceof MediaReferenceProjectionError) {
+			throw new BlueprintCommitRejectedError(
+				"A media file used by this app is unavailable, outside this Project, not ready, or the wrong kind for its authored slot. Choose it again and retry.",
+			);
+		}
+		throw error;
+	}
 }
 
 function hasLookupReferenceTargets(targets: LookupReferenceTargetSet): boolean {
@@ -430,16 +583,13 @@ function hasLookupReferenceTargets(targets: LookupReferenceTargetSet): boolean {
 
 /**
  * Freeze the exact tables one candidate pair can reference, then read the
- * rows-free definitions against that same transaction snapshot. Non-Project
- * legacy apps receive the explicit unavailable context and may only save a
- * candidate whose structural target set is empty.
+ * rows-free definitions against that same transaction snapshot.
  */
 async function lookupContextForAuthoritativeWrite(
 	tx: Transaction<AppDatabase>,
-	projectId: string | null,
+	projectId: string,
 	targets: LookupReferenceTargetSet,
 ): Promise<LookupValidationContext> {
-	if (projectId === null) return LOOKUP_CONTEXT_UNAVAILABLE;
 	try {
 		await lockLookupTablesForReferenceWrite(tx, projectId, targets.tableIds);
 	} catch (error) {
@@ -477,9 +627,8 @@ async function assertProjectCapabilityInTransaction(
 
 /**
  * Authorize an actor against the Project carried by the freshly locked app
- * row. Legacy rows without a Project retain their owner-only recovery path;
- * normal Project apps join the shared membership gate and lock the actor's
- * exact membership row before the caller makes any write-side decision.
+ * row, locking the actor's exact membership row before the caller makes any
+ * write-side decision.
  */
 async function assertAppCapabilityInTransaction(
 	tx: Transaction<AppDatabase>,
@@ -488,10 +637,6 @@ async function assertAppCapabilityInTransaction(
 	capability: AppCapability,
 	message: string,
 ): Promise<void> {
-	if (app.project_id === null) {
-		if (app.owner !== actorUserId) throw new CommitReauthError(message);
-		return;
-	}
 	await assertProjectCapabilityInTransaction(
 		tx,
 		actorUserId,
@@ -504,74 +649,11 @@ async function assertAppCapabilityInTransaction(
 /** Reject a writer whose admitted Project snapshot no longer matches the app. */
 function assertExpectedAppProject(
 	app: Pick<Selectable<AppsTable>, "project_id">,
-	expectedProjectId: string | null,
+	expectedProjectId: string,
 ): void {
 	if (app.project_id !== expectedProjectId) {
 		throw new AppProjectChangedError();
 	}
-}
-
-/** Result of one app-locked, authoritatively admitted external side effect. */
-export interface AuthorizedAppSideEffectResult<T> {
-	readonly projectId: string | null;
-	readonly value: T;
-}
-
-/**
- * Hold the app row, fresh edit authorization, and any exact chat-holder
- * capability while `effect` applies case schema/data Phase A on the SAME
- * transaction and connection. This avoids the small-pool deadlock created by
- * nesting a second transaction behind locks held by the first. The transaction
- * runs exactly once because the caller's Phase A plan is not replay-safe;
- * callers compensate any already-committed result if a later phase fails.
- *
- * This is intentionally narrower than a general transaction escape hatch. It
- * exists for the migration-bearing blueprint saga, whose case-schema Phase A
- * commits before the blueprint and must not run after a membership removal or
- * Project move. Normal app transactions stay on retrying {@link withAppTx}.
- */
-export async function withAuthorizedAppEditSideEffect<T>(
-	appId: string,
-	actorUserId: string,
-	expectedProjectId: string | null,
-	chatRunHolder: ChatRunHolderCapability | undefined,
-	effect: (
-		tx: Transaction<CaseDatabase>,
-		scope: { readonly projectId: string | null },
-	) => Promise<T>,
-): Promise<AuthorizedAppSideEffectResult<T>> {
-	// App state and case data deliberately share one physical Postgres database
-	// and pool. Kysely keeps their table maps separate at the package boundary,
-	// so join the generic types at this one explicit cross-store transaction
-	// seam without changing the runtime handle or checking out another client.
-	const db = (await getAppDb()) as unknown as Kysely<
-		AppDatabase & CaseDatabase
-	>;
-	return await db.transaction().execute(async (fullTx) => {
-		const tx = fullTx.$pickTables<keyof AppDatabase>();
-		const fresh = await lockAppRow(tx, appId);
-		if (!fresh) {
-			throw new CommitReauthError("App not found.");
-		}
-		assertExpectedAppProject(fresh, expectedProjectId);
-		await assertAppCapabilityInTransaction(
-			tx,
-			fresh,
-			actorUserId,
-			"edit",
-			"You no longer have edit access to this app's Project.",
-		);
-		const lease = runLeaseState(leaseView(fresh));
-		if (
-			chatRunHolder !== undefined &&
-			!exactRunHolderMatches(lease.holderIdentity, chatRunHolder)
-		) {
-			throw new RunHolderLostError(lease.present ? "superseded" : "released");
-		}
-		const scope = { projectId: fresh.project_id } as const;
-		const caseTx = fullTx.$pickTables<keyof CaseDatabase>();
-		return { ...scope, value: await effect(caseTx, scope) };
-	});
 }
 
 /**
@@ -583,7 +665,7 @@ export async function withAuthorizedAppEditSideEffect<T>(
  */
 export async function deleteMediaAssetForChatRun(args: {
 	appId: string;
-	assetId: AssetId;
+	assetId: MediaAssetId;
 	actorUserId: string;
 	expectedProjectId: string;
 	holder: ChatRunHolderCapability;
@@ -715,42 +797,48 @@ export async function projectHasApps(projectId: string): Promise<boolean> {
 
 // ── CRUD ───────────────────────────────────────────────────────────
 
-/** Optional overrides for `createApp`. */
+/** Optional lifecycle and naming inputs for `createApp`. */
 export interface CreateAppOptions {
-	/** Initial app name. Empty string when unset — display falls back to
-	 *  `UNTITLED_APP_NAME` at projection time. */
-	appName?: string;
+	/** Initial name authored by the canonical genesis mutation batch. An omitted
+	 *  or whitespace-only value becomes the real persisted name `Untitled`. */
+	name?: string;
 	/**
 	 * Initial lifecycle status. `"generating"` arms the staleness clock (the
 	 * chat build's run-liveness marker); `"complete"` is the at-rest default
-	 * for every other creation. `"error"`/`"deleted"` are excluded — a fresh
+	 * for every other creation. `"error"` is excluded — a fresh
 	 * app has failed at nothing and soft-delete is out-of-band.
 	 */
 	status?: "generating" | "complete";
 	/** Internal chat lifecycle generation. The chat route mints this server-side
 	 * before creating a build; non-chat complete app creation leaves it null. */
 	runHolderNonce?: string;
-	/**
-	 * The contents the app is BORN with — a template expressed as a mutation
-	 * batch against the empty doc. The callback and reducer each run exactly once
-	 * before the retryable transaction; the prepared candidate is then admitted
-	 * and inserted atomically, so no pre-template app is ever visible.
-	 * Supplying one is a promise the app is born EXPORT-ready, enforced by
-	 * `createApp`. Omit for the empty app the chat build and MCP mint.
-	 */
-	seedMutations?: (doc: BlueprintDoc) => Mutation[];
+}
+
+/** Exact committed sequence-1 state and identities returned by app genesis. */
+export interface CreateAppReceipt {
+	appId: string;
+	baseSeq: 1;
+	blueprint: PersistableDoc;
+	starter: {
+		moduleUuid: Uuid;
+		formUuid: Uuid;
+		fieldUuid: Uuid;
+	};
 }
 
 /**
- * Create a new app: one transaction inserting the `apps` row plus the entity
- * rows of whatever the template seeded. Returns the new app id.
+ * Create a new app in its one legal persisted birth state. The canonical name,
+ * survey module, form, and field are prepared and admitted before the retryable
+ * transaction; the app root, locked lookup verdict, media admission, lookup
+ * edges, entities, empty sequence-1 fold-baseline change, and immutable baseline
+ * then commit together or not at all.
  */
 export async function createApp(
 	owner: string,
 	projectId: string,
 	runId: string,
 	opts?: CreateAppOptions,
-): Promise<string> {
+): Promise<CreateAppReceipt> {
 	const appId = crypto.randomUUID();
 	const runHolderNonce =
 		(opts?.status ?? "generating") === "generating"
@@ -758,7 +846,7 @@ export async function createApp(
 			: null;
 	const emptyDoc: BlueprintDoc = {
 		appId,
-		appName: opts?.appName ?? "",
+		appName: "",
 		connectType: null,
 		caseTypes: null,
 		modules: {},
@@ -770,10 +858,12 @@ export async function createApp(
 		fieldParent: {},
 	};
 	// Atomic creation is the app-lock exception: a SQL retry may re-run the
-	// transaction closure, so the template callback and reducer must stay out of
-	// it. The prepared value is deterministic and safe to evaluate repeatedly.
-	const seedMutations = opts?.seedMutations?.(emptyDoc) ?? [];
-	const prepared = prepareMutationCandidate(emptyDoc, seedMutations);
+	// transaction closure, so UUID minting and the reducer stay outside it. The
+	// prepared canonical value is then safe to evaluate repeatedly under the
+	// transaction's locked Project lookup definition snapshot.
+	const genesis = canonicalAppGenesis(emptyDoc, opts?.name);
+	const genesisMutations = admitMutationBatch(genesis.mutations);
+	const prepared = prepareMutationCandidate(emptyDoc, genesisMutations);
 	const candidateTargets = extractLookupReferenceTargets(prepared.nextDoc);
 	const persistable = toPersistableDoc(prepared.nextDoc);
 	const denorm = denormalize(persistable);
@@ -792,7 +882,7 @@ export async function createApp(
 				owner,
 				project_id: projectId,
 				...denorm,
-				mutation_seq: 0,
+				mutation_seq: 1,
 				status: opts?.status ?? "generating",
 				awaiting_input: false,
 				error_type: null,
@@ -807,35 +897,28 @@ export async function createApp(
 			projectId,
 			candidateTargets,
 		);
-		const verdict = evaluatePreparedMutationCandidate(
-			emptyDoc,
-			prepared,
-			lookupContext,
-		);
+		const verdict = evaluatePreparedMutationCandidate(prepared, lookupContext);
 		if (!verdict.ok) {
 			throw new Error(
-				`App template is not valid by construction: ${describeIntroducedErrors(
-					verdict.introduced,
+				`App template is not valid by construction: ${describeCommitFindings(
+					verdict.findings,
 				)}`,
 			);
 		}
-		if (opts?.seedMutations !== undefined) {
-			const notExportable = exportReadinessFindings(
-				verdict.nextDoc,
-				lookupContext,
+		const notExportable = exportReadinessFindings(
+			verdict.nextDoc,
+			lookupContext,
+		);
+		if (notExportable.length > 0) {
+			throw new Error(
+				`App genesis must be export-ready, but the canonical starter could not be exported:\n${notExportable
+					.map((error) => `- ${error.message}`)
+					.join("\n")}`,
 			);
-			if (notExportable.length > 0) {
-				throw new Error(
-					`App template must be born export-ready, but the app it creates could not be exported:\n${notExportable
-						.map((error) => `- ${error.message}`)
-						.join("\n")}`,
-				);
-			}
 		}
-		await admitIntroducedMediaReferences(tx, {
+		await admitExactMediaReferences(tx, {
 			appId,
 			projectId,
-			previousDoc: emptyDoc,
 			candidateDoc: verdict.nextDoc,
 		});
 		await replaceLookupReferenceEdges(tx, {
@@ -859,40 +942,45 @@ export async function createApp(
 				)
 				.execute();
 		}
+		const baselineMutations = admitMutationBatch([]);
+		await tx
+			.insertInto("app_changes")
+			.values({
+				app_id: appId,
+				seq: 1,
+				batch_id: `genesis:${appId}`,
+				run_id: runId,
+				actor_id: owner,
+				kind: "fold-baseline",
+				mutations: encodeAdmittedMutationEnvelope(baselineMutations).json,
+				from_project_id: null,
+				to_project_id: null,
+			})
+			.execute();
+		await sql`SELECT nova_insert_app_change_genesis_fold_baseline(${appId})`.execute(
+			tx,
+		);
 	});
-	return appId;
+	return {
+		appId,
+		baseSeq: 1,
+		blueprint: persistable,
+		starter: {
+			moduleUuid: genesis.moduleUuid,
+			formUuid: genesis.formUuid,
+			fieldUuid: genesis.fieldUuid,
+		},
+	};
 }
 
 // ── Committed-batch writer ──────────────────────────────────────────
 
-/**
- * The one committed-batch write — the shared tail of every guarded commit.
- * On the caller's transaction (which holds the app row lock): write the
- * entity-row DIFF (only what changed), stamp the scalars + denormalized
- * summary + `mutation_seq` at the caller's LITERAL `seq`, append the
- * PERMANENT `accepted_mutations` entry (whose `UNIQUE (app_id, batch_id)` is
- * the idempotency latch), and poke the stream channel — the NOTIFY delivers
- * on commit, after the rows are visible.
- */
-async function writeCommittedBatch(
+async function writeBlueprintEntityDiff(
 	tx: Transaction<AppDatabase>,
 	args: {
-		appId: string;
-		seq: number;
-		batchId: string;
-		runId?: string;
-		prevDoc: PersistableDoc;
-		committedDoc: PersistedBlueprint;
-		mutations: Mutation[];
-		actorUserId: string;
-		kind: AcceptedMutationDoc["kind"];
-		/** Exact chat holder authority. The conditional app-row write is the final
-		 * SQL compare-and-set after every entity/reference preparation step. */
-		expectedHolder?: ExactRunHolderIdentity;
-		extraAppFields?: Partial<{
-			project_id: string;
-			lock_expire_at: Date;
-		}>;
+		readonly appId: string;
+		readonly prevDoc: PersistableDoc;
+		readonly committedDoc: PersistedBlueprint;
 	},
 ): Promise<void> {
 	const { upserts, deletedUuids } = diffBlueprints(
@@ -929,6 +1017,50 @@ async function writeCommittedBatch(
 			)
 			.execute();
 	}
+}
+
+/**
+ * The one committed-batch write — the shared tail of every guarded commit.
+ * On the caller's transaction (which holds the app row lock): write the
+ * entity-row DIFF (only what changed), stamp the scalars + denormalized
+ * summary + `mutation_seq` at the caller's LITERAL `seq`, append the
+ * PERMANENT `app_changes` entry (whose `UNIQUE (app_id, batch_id)` is
+ * the idempotency latch), and poke the stream channel — the NOTIFY delivers
+ * on commit, after the rows are visible.
+ */
+async function writeCommittedBatch(
+	tx: Transaction<AppDatabase>,
+	args: {
+		appId: string;
+		seq: number;
+		batchId: string;
+		runId?: string;
+		prevDoc: PersistableDoc;
+		committedDoc: PersistedBlueprint;
+		mutations: AdmittedMutationBatch;
+		actorUserId: string;
+		kind: BlueprintMutationAppChangeKind;
+		/** Exact chat holder authority. The conditional app-row write is the final
+		 * SQL compare-and-set after every entity/reference preparation step. */
+		expectedHolder?: ExactRunHolderIdentity;
+		extraAppFields?: Partial<{ lock_expire_at: Date }>;
+	},
+): Promise<void> {
+	await writeBlueprintEntityDiff(tx, args);
+	await tx
+		.insertInto("app_changes")
+		.values({
+			app_id: args.appId,
+			seq: args.seq,
+			batch_id: args.batchId,
+			run_id: args.runId ?? null,
+			actor_id: args.actorUserId,
+			kind: args.kind,
+			mutations: encodeAdmittedMutationEnvelope(args.mutations).json,
+			from_project_id: null,
+			to_project_id: null,
+		})
+		.execute();
 	let appUpdate = tx
 		.updateTable("apps")
 		.set({
@@ -953,18 +1085,61 @@ async function writeCommittedBatch(
 			`[writeCommittedBatch] app row missing for appId=${args.appId}`,
 		);
 	}
+	await notifyAppStream(tx, args.appId, args.seq);
+}
+
+/**
+ * Persist one exact Project transition. The event is inserted while the
+ * locked app still carries the source Project and preceding head; only then is
+ * the app advanced to the destination Project and event sequence. Database
+ * triggers verify both halves at their natural points and again at commit.
+ */
+async function writeProjectMoveChange(
+	tx: Transaction<AppDatabase>,
+	args: {
+		readonly appId: string;
+		readonly seq: number;
+		readonly batchId: string;
+		readonly prevDoc: PersistableDoc;
+		readonly committedDoc: PersistedBlueprint;
+		readonly mutations: AdmittedMutationBatch;
+		readonly actorUserId: string;
+		readonly fromProjectId: string;
+		readonly toProjectId: string;
+	},
+): Promise<void> {
+	await writeBlueprintEntityDiff(tx, args);
 	await tx
-		.insertInto("accepted_mutations")
+		.insertInto("app_changes")
 		.values({
 			app_id: args.appId,
 			seq: args.seq,
 			batch_id: args.batchId,
-			run_id: args.runId ?? null,
+			run_id: null,
 			actor_id: args.actorUserId,
-			kind: args.kind,
-			mutations: JSON.stringify(args.mutations),
+			kind: "project-move",
+			mutations: encodeAdmittedMutationEnvelope(args.mutations).json,
+			from_project_id: args.fromProjectId,
+			to_project_id: args.toProjectId,
 		})
 		.execute();
+	const update = await tx
+		.updateTable("apps")
+		.set({
+			...denormalize(args.committedDoc),
+			project_id: args.toProjectId,
+			mutation_seq: args.seq,
+			updated_at: new Date(),
+		})
+		.where("id", "=", args.appId)
+		.where("project_id", "=", args.fromProjectId)
+		.where("mutation_seq", "=", args.seq - 1)
+		.executeTakeFirst();
+	if (!updatedExactlyOne(update)) {
+		throw new Error(
+			`[writeProjectMoveChange] app source/head changed for appId=${args.appId}`,
+		);
+	}
 	await notifyAppStream(tx, args.appId, args.seq);
 }
 
@@ -980,32 +1155,17 @@ export interface CommitGuardedBatchArgs {
 	 * GenerationContext supplies it; MCP deliberately never does.
 	 */
 	readonly chatRunHolder?: ChatRunHolderCapability;
-	readonly mutations: Mutation[];
+	readonly mutations: AdmittedMutationBatch;
 	/** The acting user — reauth + attribution key, never the tenant. */
 	readonly actorUserId: string;
-	readonly kind: AcceptedMutationDoc["kind"];
-	readonly mediaExpectations?: readonly MediaAttachExpectation[];
-	/**
-	 * The rename pairs the caller's Phase-1 case-store migration covered
-	 * (the cross-store saga passes this, possibly EMPTY). When present,
-	 * the commit re-proves renames against the FRESH doc pair inside the
-	 * transaction (`provenRenamePairs`) and requires the two pair sets to
-	 * match exactly. Either direction of mismatch means Phase A migrated a
-	 * different property population from the one this fresh commit would
-	 * rename. In particular, an expected pair can disappear when a peer added
-	 * another unchanged writer that keeps the old property alive; accepting
-	 * that shape would move the keeper's saved values to the new property.
-	 * Absent (direct chat fast-path / cross-Project-move callers, whose
-	 * batches carry no rename kinds): no check.
-	 */
-	readonly renameExpectations?: readonly RenameExpectation[];
+	readonly kind: ClientAppChangeKind;
 	/**
 	 * Project captured with the caller's admitted blueprint/scope snapshot. A
 	 * move before this commit rejects so stale work reloads instead of silently
 	 * crossing tenant scope. This is only a scope expectation: fresh
 	 * authorization below always runs transactionally.
 	 */
-	readonly expectedProjectId: string | null;
+	readonly expectedProjectId: string;
 }
 
 /** Outcome of {@link commitGuardedBatch}. */
@@ -1017,6 +1177,36 @@ export interface CommitGuardedBatchResult {
 	readonly deduped: boolean;
 }
 
+export interface GuardedBatchBeforeWriteContext {
+	readonly tx: Transaction<AppDatabase>;
+	readonly freshDoc: BlueprintDoc;
+	readonly nextDoc: BlueprintDoc;
+	readonly seq: number;
+	readonly casePropertyRenamePlan?: CasePropertyRenamePlan;
+}
+
+export interface CommitGuardedBatchTransactionHooks {
+	/**
+	 * Infrastructure composition seam after fresh locked admission and before
+	 * Blueprint/event persistence. Explicit case-property rename uses it to put
+	 * row/schema Phase A in the same app-locked transaction.
+	 */
+	readonly beforeWrite?: (
+		context: GuardedBatchBeforeWriteContext,
+	) => Promise<void>;
+}
+
+interface CommitGuardedBatchInternalOptions
+	extends CommitGuardedBatchTransactionHooks {
+	/**
+	 * Existing transaction used only by infrastructure probes that must exercise
+	 * the exact guarded writer and then roll the surrounding transaction back.
+	 * Ordinary callers always omit this and retain the retrying transaction plus
+	 * same-transaction exact media projection below.
+	 */
+	readonly transaction?: Transaction<AppDatabase>;
+}
+
 /** Postgres unique-violation SQLSTATE — the dedup latch's concurrent-retry arm. */
 function isUniqueViolation(err: unknown): boolean {
 	return (err as { code?: unknown })?.code === "23505";
@@ -1025,13 +1215,13 @@ function isUniqueViolation(err: unknown): boolean {
 /**
  * The unified guarded blueprint commit — the read-evaluate-write every
  * interactive mutation path (chat, MCP, auto-save) shares. Synthetic repairs
- * and the dormant cross-Project move use the parallel locked protocols below.
+ * and the atomic cross-Project move use the parallel locked protocols below.
  *
  * One transaction: lock the app row (the per-app serialization point); a
  * dedup hit on `(app_id, batch_id)` returns the recorded seq + the current
  * committed doc, writing nothing; lock + reauthorize the actor's exact Project
- * membership against the fresh row (owner fallback for a null Project; a
- * concurrent MOVE rejects retryably); when chat supplied holder authority,
+ * membership against the fresh row (a concurrent MOVE rejects retryably);
+ * when chat supplied holder authority,
  * compare its exact mode/run identity before evaluation and again on the final
  * app-row SQL update (MCP's attribution-only run id supplies no authority);
  * re-check media expectations against rows read `FOR SHARE` (a racing delete
@@ -1046,9 +1236,9 @@ function isUniqueViolation(err: unknown): boolean {
  */
 export async function commitGuardedBatch(
 	args: CommitGuardedBatchArgs,
+	internalOptions: CommitGuardedBatchInternalOptions = {},
 ): Promise<CommitGuardedBatchResult> {
 	const { appId, batchId, runId, mutations, actorUserId, kind } = args;
-	const mediaExpectations = args.mediaExpectations;
 	if (
 		(kind === "chat" &&
 			(args.chatRunHolder?.source !== "chat" ||
@@ -1065,204 +1255,181 @@ export async function commitGuardedBatch(
 		persistable?: PersistedBlueprint;
 	};
 
-	const commitOnce = (): Promise<InternalResult> =>
-		withAppTx(async (tx) => {
-			const fresh = await lockAppRow(tx, appId);
-			if (!fresh) {
-				throw new Error(
-					`[commitGuardedBatch] app row missing for appId=${appId}`,
-				);
-			}
-			// Idempotent replay of an already-committed batch — the latch read
-			// happens under the app row lock, so it observes every prior commit.
-			const latch = await tx
-				.selectFrom("accepted_mutations")
-				.select("seq")
-				.where("app_id", "=", appId)
-				.where("batch_id", "=", batchId)
-				.executeTakeFirst();
-			// A migration-bearing saga held this Project while its separately
-			// committed schema Phase A ran. If the app moved after that lock released,
-			// reject so the saga compensates instead of committing mismatched work.
-			assertExpectedAppProject(fresh, args.expectedProjectId);
-			if (fresh.project_id === null) {
-				if (fresh.owner !== actorUserId) {
-					throw new CommitReauthError(
-						"You don't have edit access to this app.",
+	const commitInTransaction = async (
+		tx: Transaction<AppDatabase>,
+	): Promise<InternalResult> => {
+		const fresh = await lockAppRow(tx, appId);
+		if (!fresh) {
+			throw new Error(
+				`[commitGuardedBatch] app row missing for appId=${appId}`,
+			);
+		}
+		// Idempotent replay of an already-committed batch — the latch read
+		// happens under the app row lock, so it observes every prior commit.
+		const latch = await tx
+			.selectFrom("app_changes")
+			.select(["seq", "actor_id", "kind", "run_id"])
+			.select(
+				sql<string>`${sql.ref("app_changes.mutations")}::text`.as(
+					"mutations_text",
+				),
+			)
+			.where("app_id", "=", appId)
+			.where("batch_id", "=", batchId)
+			.executeTakeFirst();
+		const latchMutations =
+			latch === undefined
+				? undefined
+				: parsePersistedMutationBatchText(
+						latch.mutations_text,
+						`app_changes.mutations for app ${appId}, sequence ${latch.seq}`,
 					);
-				}
-			} else {
-				await assertProjectCapabilityInTransaction(
-					tx,
-					actorUserId,
-					fresh.project_id,
-					"edit",
-					"You no longer have edit access to this app's Project.",
-				);
-			}
-			const lease = runLeaseState(leaseView(fresh));
-			if (
-				args.chatRunHolder !== undefined &&
-				!exactRunHolderMatches(lease.holderIdentity, args.chatRunHolder)
-			) {
-				throw new RunHolderLostError(lease.present ? "superseded" : "released");
-			}
-			const entities = await loadEntities(tx, appId);
-			const freshPersistable = assembleBlueprint(
-				appId,
+		if (
+			latch !== undefined &&
+			!appChangeFingerprintMatches(
 				{
-					app_name: fresh.app_name,
-					connect_type: fresh.connect_type,
-					case_types: fresh.case_types,
-					logo: fresh.logo,
+					mutations: latchMutations,
+					actorUserId: latch.actor_id,
+					kind: latch.kind,
+					runId: latch.run_id,
 				},
-				entities,
+				{ mutations, actorUserId, kind, runId },
+			)
+		) {
+			throw new MutationBatchIdCollisionError();
+		}
+		// Reject a caller admitted against an older Project placement. Explicit
+		// rename Phase A shares this transaction, so no case/schema write can
+		// escape before this fresh scope check.
+		assertExpectedAppProject(fresh, args.expectedProjectId);
+		await assertProjectCapabilityInTransaction(
+			tx,
+			actorUserId,
+			fresh.project_id,
+			"edit",
+			"You no longer have edit access to this app's Project.",
+		);
+		const lease = runLeaseState(leaseView(fresh));
+		if (
+			args.chatRunHolder !== undefined &&
+			!exactRunHolderMatches(lease.holderIdentity, args.chatRunHolder)
+		) {
+			throw new RunHolderLostError(lease.present ? "superseded" : "released");
+		}
+		if (mutations.length === 0) {
+			throw new BlueprintCommitRejectedError(
+				"This change did not contain any edits.",
 			);
-			if (latch) {
-				const dedupedDoc = hydratePersistedBlueprint(freshPersistable);
-				dedupedDoc.refIndex = buildReferenceIndex(dedupedDoc);
-				return {
-					seq: Number(latch.seq),
-					committedDoc: dedupedDoc,
-					deduped: true,
-				};
-			}
-			// Rebuild the fresh doc, reject a concurrent-delete target, re-verdict.
-			const freshDoc = hydratePersistedBlueprint(freshPersistable);
-			if (batchTargetsMissing(freshDoc, mutations)) {
-				throw new BlueprintCommitRejectedError(
-					"This app changed while you were editing — something your change " +
-						"targeted was removed by someone else. Reload to get the latest " +
-						"version, then redo that change.",
-				);
-			}
-			const prepared = prepareMutationCandidate(freshDoc, mutations);
-			const previousTargets = extractLookupReferenceTargets(freshDoc);
-			const candidateTargets = extractLookupReferenceTargets(prepared.nextDoc);
-			if (
-				fresh.project_id === null &&
-				hasLookupReferenceTargets(candidateTargets)
-			) {
-				throw new BlueprintCommitRejectedError(
-					"This legacy app has no Project, so it cannot save lookup references. Move or repair the app, then try again.",
-				);
-			}
-			const lookupTargets = unionLookupReferenceTargetSets(
-				previousTargets,
-				candidateTargets,
-			);
-			const lookupContext = await lookupContextForAuthoritativeWrite(
-				tx,
-				fresh.project_id,
-				lookupTargets,
-			);
-			const verdict = evaluatePreparedMutationCandidate(
-				freshDoc,
-				prepared,
-				lookupContext,
-			);
-			if (!verdict.ok) {
-				throw new BlueprintCommitRejectedError(
-					describeIntroducedErrors(verdict.introduced),
-				);
-			}
-			// Rename-expectation gate — re-prove renames against the FRESH
-			// pair and require exact set equality with what Phase A migrated.
-			// A fresh-only pair would strand values after commit. An
-			// expected-only pair is unsafe too: it can mean a peer added an
-			// unchanged writer that now KEEPS the old property, in which case
-			// stale Phase A moved that keeper's values even though the fresh
-			// mutation is no longer a property rename. Conservatively reject
-			// even the harmless peer-already-renamed case; compensation is
-			// idempotent, while guessing wrong here relocates saved case data.
-			if (args.renameExpectations !== undefined) {
-				const proven = provenRenamePairs(freshDoc, verdict.nextDoc);
-				const freshExpectations: RenameExpectation[] = [];
-				for (const [renamedType, pairs] of proven) {
-					for (const pair of pairs) {
-						freshExpectations.push({
-							caseType: renamedType,
-							from: pair.from,
-							to: pair.to,
-						});
-						const covered = args.renameExpectations.some(
-							(expectation) =>
-								expectation.caseType === renamedType &&
-								expectation.from === pair.from &&
-								expectation.to === pair.to,
-						);
-						if (!covered) {
-							throw new BlueprintCommitRejectedError(
-								`This change would rename the case property "${pair.from}" to "${pair.to}" on "${renamedType}", but it was prepared against an older version of the app and the saved case data was migrated for a different rename. Reload to get the latest state, then redo the rename.`,
-							);
-						}
-					}
-				}
-				for (const expectation of args.renameExpectations) {
-					const stillProven = freshExpectations.some(
-						(freshExpectation) =>
-							freshExpectation.caseType === expectation.caseType &&
-							freshExpectation.from === expectation.from &&
-							freshExpectation.to === expectation.to,
-					);
-					if (!stillProven) {
-						throw new BlueprintCommitRejectedError(
-							`Saved case data was prepared for a rename of "${expectation.from}" to "${expectation.to}" on "${expectation.caseType}", but the current app no longer proves that exact rename. Reload to get the latest state, then redo the rename.`,
-						);
-					}
-				}
-			}
-			const seq = Number(fresh.mutation_seq) + 1;
-			const persistable = toPersistableDoc(verdict.nextDoc);
-			await admitIntroducedMediaReferences(tx, {
-				appId,
-				projectId: fresh.project_id,
-				previousDoc: freshDoc,
-				candidateDoc: verdict.nextDoc,
-				expectations: mediaExpectations,
-			});
-			/* Per-commit EDIT lease refresh — the run-lock analogue of the build's
-			 * per-commit `updated_at` stamp. Fires only when THIS commit's run OWNS
-			 * the edit lock (through the one liveness reader). */
-			const commitLease =
-				args.chatRunHolder !== undefined
-					? runLeaseState(leaseView(fresh))
-					: undefined;
-			const ownsEditLock =
-				args.chatRunHolder?.mode === "edit" &&
-				exactRunHolderMatches(
-					commitLease?.holderIdentity ?? null,
-					args.chatRunHolder,
-				);
-			await replaceLookupReferenceEdges(tx, {
-				appId,
-				projectId: fresh.project_id,
-				targets: candidateTargets,
-			});
-			await writeCommittedBatch(tx, {
-				appId,
-				seq,
-				batchId,
-				runId,
-				prevDoc: freshPersistable,
-				committedDoc: persistable,
-				mutations,
-				actorUserId,
-				kind,
-				...(args.chatRunHolder !== undefined && {
-					expectedHolder: args.chatRunHolder,
-				}),
-				...(ownsEditLock && {
-					extraAppFields: { lock_expire_at: new Date(editLeaseDeadlineMs()) },
-				}),
-			});
+		}
+		const freshSnapshot = await loadStrictAppSnapshotFromRowInTransaction(
+			tx,
+			fresh,
+		);
+		const freshPersistable = freshSnapshot.app.blueprint;
+		if (latch) {
+			const dedupedDoc = freshSnapshot.doc;
+			dedupedDoc.refIndex = buildReferenceIndex(dedupedDoc);
 			return {
-				seq,
-				committedDoc: verdict.nextDoc,
-				deduped: false,
-				persistable,
+				seq: safePersistedSequence(
+					latch.seq,
+					`app_changes.seq for app ${appId}`,
+				),
+				committedDoc: dedupedDoc,
+				deduped: true,
 			};
+		}
+		// Rebuild the fresh doc, reject a concurrent-delete target, re-verdict.
+		const freshDoc = freshSnapshot.doc;
+		if (mutationTargetsInvalid(freshDoc, mutations)) {
+			throw new BlueprintCommitRejectedError(
+				"This app changed while you were editing — something your change " +
+					"targeted was removed by someone else. Reload to get the latest " +
+					"version, then redo that change.",
+			);
+		}
+		const prepared = prepareMutationCandidate(freshDoc, mutations);
+		const previousTargets = extractLookupReferenceTargets(freshDoc);
+		const candidateTargets = extractLookupReferenceTargets(prepared.nextDoc);
+		const lookupTargets = unionLookupReferenceTargetSets(
+			previousTargets,
+			candidateTargets,
+		);
+		const lookupContext = await lookupContextForAuthoritativeWrite(
+			tx,
+			fresh.project_id,
+			lookupTargets,
+		);
+		const verdict = evaluatePreparedMutationCandidate(prepared, lookupContext);
+		if (!verdict.ok) {
+			throw new BlueprintCommitRejectedError(
+				describeCommitFindings(verdict.findings),
+			);
+		}
+		const seq = nextPersistedSequence(
+			fresh.mutation_seq,
+			`apps.mutation_seq for app ${appId}`,
+		);
+		const persistable = toPersistableDoc(verdict.nextDoc);
+		await admitExactMediaReferences(tx, {
+			appId,
+			projectId: fresh.project_id,
+			candidateDoc: verdict.nextDoc,
 		});
+		await internalOptions.beforeWrite?.({
+			tx,
+			freshDoc,
+			nextDoc: verdict.nextDoc,
+			seq,
+			...(verdict.prepared.casePropertyRenamePlan !== undefined && {
+				casePropertyRenamePlan: verdict.prepared.casePropertyRenamePlan,
+			}),
+		});
+		/* Per-commit EDIT lease refresh — the run-lock analogue of the build's
+		 * per-commit `updated_at` stamp. Fires only when THIS commit's run OWNS
+		 * the edit lock (through the one liveness reader). */
+		const commitLease =
+			args.chatRunHolder !== undefined
+				? runLeaseState(leaseView(fresh))
+				: undefined;
+		const ownsEditLock =
+			args.chatRunHolder?.mode === "edit" &&
+			exactRunHolderMatches(
+				commitLease?.holderIdentity ?? null,
+				args.chatRunHolder,
+			);
+		await replaceLookupReferenceEdges(tx, {
+			appId,
+			projectId: fresh.project_id,
+			targets: candidateTargets,
+		});
+		await writeCommittedBatch(tx, {
+			appId,
+			seq,
+			batchId,
+			runId,
+			prevDoc: freshPersistable,
+			committedDoc: persistable,
+			mutations,
+			actorUserId,
+			kind,
+			...(args.chatRunHolder !== undefined && {
+				expectedHolder: args.chatRunHolder,
+			}),
+			...(ownsEditLock && {
+				extraAppFields: { lock_expire_at: new Date(editLeaseDeadlineMs()) },
+			}),
+		});
+		return {
+			seq,
+			committedDoc: verdict.nextDoc,
+			deduped: false,
+			persistable,
+		};
+	};
+	const commitOnce = (): Promise<InternalResult> =>
+		internalOptions.transaction === undefined
+			? withAppTx(commitInTransaction)
+			: commitInTransaction(internalOptions.transaction);
 
 	let result: InternalResult;
 	try {
@@ -1270,16 +1437,29 @@ export async function commitGuardedBatch(
 	} catch (err) {
 		// A concurrent commit of the SAME batchId slipped between our latch read
 		// and insert — the UNIQUE constraint caught it; converge on the dedup.
-		if (!isUniqueViolation(err)) throw err;
+		// An externally-owned transaction is already aborted by the violation,
+		// so its rollback-only probe must fail instead of attempting a retry.
+		if (internalOptions.transaction !== undefined || !isUniqueViolation(err)) {
+			throw err;
+		}
 		result = await commitOnce();
 	}
 
-	// Post-commit media reverse-index sync — best-effort, only on a real commit.
-	if (!result.deduped && result.persistable !== undefined) {
-		await syncMediaReferences(appId, result.persistable);
-	}
 	const { persistable: _persistable, ...publicResult } = result;
 	return publicResult;
+}
+
+/**
+ * Infrastructure-only transaction seam for the migration entrypoint's runtime
+ * authority probe. The caller owns commit/rollback; no post-commit side effect
+ * may escape that transaction.
+ */
+export async function commitGuardedBatchInTransaction(
+	tx: Transaction<AppDatabase>,
+	args: CommitGuardedBatchArgs,
+	hooks: CommitGuardedBatchTransactionHooks = {},
+): Promise<CommitGuardedBatchResult> {
+	return commitGuardedBatch(args, { transaction: tx, ...hooks });
 }
 
 export type SyntheticBatchAuthority =
@@ -1320,7 +1500,7 @@ function syntheticActorId(authority: SyntheticBatchAuthority): string {
 			"Synthetic system authority requires a named system actor and reason.",
 		);
 	}
-	// `actorId` is the durable attribution in `accepted_mutations`; `reason` is
+	// `actorId` is the durable attribution in `app_changes`; `reason` is
 	// an explicit operator-callsite safeguard until the log schema gains metadata.
 	return authority.actorId;
 }
@@ -1348,8 +1528,9 @@ export async function appendSyntheticBatch(
 		throw new Error("Synthetic batch id must not be empty.");
 	}
 	const actorUserId = syntheticActorId(args.authority);
-	// Hydration/backfill is deterministic and independent of the locked basis.
-	// Keep it outside the retryable transaction closure.
+	// Hydration rebuilds derived in-memory state without changing canonical
+	// identities and is independent of the locked basis. Keep it outside the
+	// retryable transaction closure.
 	const requestedTarget = hydratePersistedBlueprint(args.targetDoc);
 
 	type InternalResult = AppendSyntheticBatchResult & {
@@ -1361,48 +1542,58 @@ export async function appendSyntheticBatch(
 			throw new Error("[appendSyntheticBatch] app row is unavailable");
 		}
 		const latch = await tx
-			.selectFrom("accepted_mutations")
+			.selectFrom("app_changes")
 			.select("seq")
 			.where("app_id", "=", args.appId)
 			.where("batch_id", "=", batchId)
 			.executeTakeFirst();
 		if (args.authority.kind === "user") {
-			if (fresh.project_id === null) {
-				if (fresh.owner !== args.authority.actorUserId) {
-					throw new CommitReauthError(
-						"You don't have edit access to this app.",
-					);
-				}
-			} else {
-				await assertProjectCapabilityInTransaction(
-					tx,
-					args.authority.actorUserId,
-					fresh.project_id,
-					"edit",
-					"You no longer have edit access to this app's Project.",
-				);
-			}
+			await assertProjectCapabilityInTransaction(
+				tx,
+				args.authority.actorUserId,
+				fresh.project_id,
+				"edit",
+				"You no longer have edit access to this app's Project.",
+			);
 		}
-		if (latch) return { kind: "deduped", seq: Number(latch.seq) };
-		if (Number(fresh.mutation_seq) !== args.expectedBaseSeq) {
+		if (latch) {
+			return {
+				kind: "deduped",
+				seq: safePersistedSequence(
+					latch.seq,
+					`app_changes.seq for app ${args.appId}`,
+				),
+			};
+		}
+		if (
+			safePersistedSequence(
+				fresh.mutation_seq,
+				`apps.mutation_seq for app ${args.appId}`,
+			) !== args.expectedBaseSeq
+		) {
 			throw new BlueprintCommitRejectedError(
 				"This app changed while the repair was being prepared. Reload the latest app and prepare the repair again.",
 			);
 		}
 
-		const entities = await loadEntities(tx, args.appId);
-		const previousPersistable = assembleBlueprint(
-			args.appId,
-			{
-				app_name: fresh.app_name,
-				connect_type: fresh.connect_type,
-				case_types: fresh.case_types,
-				logo: fresh.logo,
-			},
-			entities,
+		const previousSnapshot = await loadStrictAppSnapshotFromRowInTransaction(
+			tx,
+			fresh,
 		);
-		const previousDoc = hydratePersistedBlueprint(previousPersistable);
-		const mutations = diffDocsToMutations(previousDoc, requestedTarget);
+		const previousPersistable = previousSnapshot.app.blueprint;
+		const previousDoc = previousSnapshot.doc;
+		let syntheticMutations: Mutation[];
+		try {
+			syntheticMutations = diffDocsToMutations(previousDoc, requestedTarget);
+		} catch (error) {
+			if (error instanceof CasePropertySemanticProvenanceRequiredError) {
+				throw new BlueprintCommitRejectedError(
+					"The requested repair changes case-property identities without the original explicit rename command. Whole-document repair cannot decide whether saved case rows should move.",
+				);
+			}
+			throw error;
+		}
+		const mutations = admitMutationBatch(syntheticMutations);
 		const prepared = prepareMutationCandidate(previousDoc, mutations);
 		const replayed = toPersistableDoc(prepared.nextDoc);
 		const requested = toPersistableDoc(requestedTarget);
@@ -1412,23 +1603,21 @@ export async function appendSyntheticBatch(
 			);
 		}
 		if (mutations.length === 0) {
-			return { kind: "noop", seq: Number(fresh.mutation_seq) };
+			return {
+				kind: "noop",
+				seq: safePersistedSequence(
+					fresh.mutation_seq,
+					`apps.mutation_seq for app ${args.appId}`,
+				),
+			};
 		}
-		if (batchTargetsMissing(previousDoc, mutations)) {
+		if (mutationTargetsInvalid(previousDoc, mutations)) {
 			throw new BlueprintCommitRejectedError(
 				"This app changed while the repair was being prepared. Reload the latest app and prepare the repair again.",
 			);
 		}
 		const previousTargets = extractLookupReferenceTargets(previousDoc);
 		const candidateTargets = extractLookupReferenceTargets(prepared.nextDoc);
-		if (
-			fresh.project_id === null &&
-			hasLookupReferenceTargets(candidateTargets)
-		) {
-			throw new BlueprintCommitRejectedError(
-				"This legacy app has no Project, so it cannot save lookup references.",
-			);
-		}
 		const lookupTargets = unionLookupReferenceTargetSets(
 			previousTargets,
 			candidateTargets,
@@ -1438,22 +1627,20 @@ export async function appendSyntheticBatch(
 			fresh.project_id,
 			lookupTargets,
 		);
-		const verdict = evaluatePreparedMutationCandidate(
-			previousDoc,
-			prepared,
-			lookupContext,
-		);
+		const verdict = evaluatePreparedMutationCandidate(prepared, lookupContext);
 		if (!verdict.ok) {
 			throw new BlueprintCommitRejectedError(
-				describeIntroducedErrors(verdict.introduced),
+				describeCommitFindings(verdict.findings),
 			);
 		}
 		const persistable = toPersistableDoc(verdict.nextDoc);
-		const seq = Number(fresh.mutation_seq) + 1;
-		await admitIntroducedMediaReferences(tx, {
+		const seq = nextPersistedSequence(
+			fresh.mutation_seq,
+			`apps.mutation_seq for app ${args.appId}`,
+		);
+		await admitExactMediaReferences(tx, {
 			appId: args.appId,
 			projectId: fresh.project_id,
-			previousDoc,
 			candidateDoc: verdict.nextDoc,
 		});
 		await replaceLookupReferenceEdges(tx, {
@@ -1469,13 +1656,10 @@ export async function appendSyntheticBatch(
 			committedDoc: persistable,
 			mutations,
 			actorUserId,
-			kind: "migration",
+			kind: "blueprint-migration",
 		});
 		return { kind: "committed", seq, persistable };
 	});
-	if (result.kind === "committed" && result.persistable !== undefined) {
-		await syncMediaReferences(args.appId, result.persistable);
-	}
 	const { persistable: _persistable, ...publicResult } = result;
 	return publicResult;
 }
@@ -1488,8 +1672,7 @@ interface ProjectMoveThreadSnapshot {
 export type PrepareProjectMoveResult =
 	| {
 			kind: "ready";
-			requiredAssetIds: readonly string[];
-			historicalAssetIds: readonly string[];
+			assetIds: readonly MediaAssetId[];
 	  }
 	| { kind: "already_moved" }
 	| { kind: "busy" }
@@ -1512,8 +1695,7 @@ interface ProjectMoveCoreArgs {
 }
 
 interface ProjectMoveCommitArgs extends ProjectMoveCoreArgs {
-	readonly assetIdMap: ReadonlyMap<string, string>;
-	readonly attemptedRealIds: ReadonlySet<string>;
+	readonly assetIdMap: ReadonlyMap<MediaAssetId, MediaAssetId>;
 }
 
 async function authorizeProjectMoveGovernance(
@@ -1541,7 +1723,7 @@ async function authorizeProjectMoveGovernance(
 }
 
 function projectMoveRunDisposition(
-	fresh: AppRow,
+	fresh: Omit<AppRow, "case_types">,
 ): Extract<
 	PrepareProjectMoveResult,
 	{ kind: "busy" | "reapable" | "corrupt_holder" }
@@ -1561,20 +1743,13 @@ function projectMoveRunDisposition(
 async function assembleLockedProjectMoveDoc(
 	tx: Transaction<AppDatabase>,
 	appId: string,
-	fresh: AppRow,
+	fresh: PersistedBlueprintAppRow,
 ): Promise<{ persisted: PersistedBlueprint; doc: BlueprintDoc }> {
-	const entities = await loadEntities(tx, appId);
-	const persisted = assembleBlueprint(
-		appId,
-		{
-			app_name: fresh.app_name,
-			connect_type: fresh.connect_type,
-			case_types: fresh.case_types,
-			logo: fresh.logo,
-		},
-		entities,
-	);
-	return { persisted, doc: hydratePersistedBlueprint(persisted) };
+	if (fresh.id !== appId) {
+		throw new Error("Project-move app row does not match the requested app.");
+	}
+	const snapshot = await loadStrictAppSnapshotFromRowInTransaction(tx, fresh);
+	return { persisted: snapshot.app.blueprint, doc: snapshot.doc };
 }
 
 async function readProjectMoveThreads(
@@ -1589,7 +1764,7 @@ async function readProjectMoveThreads(
 		.execute();
 	return rows.map((row) => ({
 		threadId: row.thread_id,
-		messages: Array.isArray(row.messages) ? row.messages : [],
+		messages: row.messages,
 	}));
 }
 
@@ -1606,18 +1781,19 @@ async function lockProjectMoveThreads(
 		.execute();
 	return rows.map((row) => ({
 		threadId: row.thread_id,
-		messages: Array.isArray(row.messages) ? row.messages : [],
+		messages: row.messages,
 	}));
 }
 
-function realHistoricalAssetIds(
+function threadAssetIds(
 	threads: readonly ProjectMoveThreadSnapshot[],
-): string[] {
+): MediaAssetId[] {
 	return [
 		...new Set(
 			threads
 				.flatMap((thread) => collectThreadAttachmentAssetIds(thread.messages))
-				.filter((assetId) => !isBuiltinIconRef(assetId)),
+				.filter((assetId) => !isBuiltinIconRef(assetId))
+				.map(asMediaAssetId),
 		),
 	].sort();
 }
@@ -1691,28 +1867,16 @@ export async function repairLookupReferenceEdges(
 		if (!fresh) {
 			throw new Error("[repairLookupReferenceEdges] app row is unavailable");
 		}
-		const entities = await loadEntities(tx, appId);
-		const persisted = assembleBlueprint(
-			appId,
-			{
-				app_name: fresh.app_name,
-				connect_type: fresh.connect_type,
-				case_types: fresh.case_types,
-				logo: fresh.logo,
-			},
-			entities,
-		);
-		const doc = hydratePersistedBlueprint(persisted);
+		const snapshot = await loadStrictAppSnapshotFromRowInTransaction(tx, fresh);
+		const doc = snapshot.doc;
 		const structural = extractLookupReferenceTargets(doc);
 		const stored = await readStoredLookupReferenceTargets(tx, appId);
 		if (deepEqual(structural, stored)) return { kind: "unchanged" };
-		if (fresh.project_id !== null) {
-			await lockLookupTablesForReferenceWrite(
-				tx,
-				fresh.project_id,
-				structural.tableIds,
-			);
-		}
+		await lockLookupTablesForReferenceWrite(
+			tx,
+			fresh.project_id,
+			structural.tableIds,
+		);
 		await replaceLookupReferenceEdges(tx, {
 			appId,
 			projectId: fresh.project_id,
@@ -1765,14 +1929,14 @@ export async function prepareAppProjectMoveInTransaction(
 	await assertMoveLookupClosureEmpty(tx, args.appId, doc);
 	await assertMoveCaptureClosureEmpty(tx, args.appId);
 	const threads = await readProjectMoveThreads(tx, args.appId);
-	const requiredAssetIds = [...collectRealAssetRefs(asWalkableDoc(doc))].sort();
-	const required = new Set(requiredAssetIds);
 	return {
 		kind: "ready",
-		requiredAssetIds,
-		historicalAssetIds: realHistoricalAssetIds(threads).filter(
-			(assetId) => !required.has(assetId),
-		),
+		assetIds: [
+			...new Set([
+				...collectRealAssetRefs(asWalkableDoc(doc)),
+				...threadAssetIds(threads),
+			]),
+		].sort(),
 	};
 }
 
@@ -1787,7 +1951,7 @@ export async function repairAppCaseTenancy(
 ): Promise<{ projectId: string; moved: number }> {
 	return withAppTx(async (tx) => {
 		const fresh = await lockAppRow(tx, appId);
-		if (!fresh?.project_id) throw new CommitReauthError("App not found.");
+		if (!fresh) throw new CommitReauthError("App not found.");
 		await assertAppCapabilityInTransaction(
 			tx,
 			fresh,
@@ -1856,44 +2020,25 @@ export async function commitAppProjectMoveInTransaction(
 	await assertMoveLookupClosureEmpty(tx, args.appId, previousDoc);
 	await assertMoveCaptureClosureEmpty(tx, args.appId);
 	const threads = await lockProjectMoveThreads(tx, args.appId);
-	const requiredAssetIds = [
-		...collectRealAssetRefs(asWalkableDoc(previousDoc)),
-	].sort();
-	const historicalAssetIds = realHistoricalAssetIds(threads);
 	const freshClosure = [
-		...new Set([...requiredAssetIds, ...historicalAssetIds]),
+		...new Set([
+			...collectRealAssetRefs(asWalkableDoc(previousDoc)),
+			...threadAssetIds(threads),
+		]),
 	].sort();
 	const staleSources = new Set(
-		freshClosure.filter((assetId) => !args.attemptedRealIds.has(assetId)),
+		freshClosure.filter((assetId) => !args.assetIdMap.has(assetId)),
 	);
-	for (const sourceId of requiredAssetIds) {
-		if (!args.assetIdMap.has(sourceId)) staleSources.add(sourceId);
-	}
-	const mappedFreshSources = freshClosure.filter((sourceId) =>
-		args.assetIdMap.has(sourceId),
-	);
-	const destinationIds = mappedFreshSources.map(
-		(sourceId) => args.assetIdMap.get(sourceId) as string,
-	);
-	const destinationAssets = await getAssetsInTransaction(tx, destinationIds);
-	for (const sourceId of mappedFreshSources) {
-		const destinationId = args.assetIdMap.get(sourceId) as string;
-		const asset = destinationAssets.get(destinationId);
-		if (
-			asset === undefined ||
-			asset.project_id !== args.toProjectId ||
-			asset.status !== "ready"
-		) {
-			staleSources.add(sourceId);
-		}
-	}
 	if (staleSources.size > 0) {
 		return { kind: "media_stale", missing: [...staleSources].sort() };
 	}
-	// The reverse index covers every persisted carrier, not only blueprint
-	// fields. Chat-only image/document attachments therefore protect their
-	// destination copies from deletion as soon as this move commits.
-	await addReferencingAppInTransaction(tx, destinationIds, args.appId);
+	const destinationIds = freshClosure.map((sourceId) => {
+		const destinationId = args.assetIdMap.get(sourceId);
+		if (destinationId === undefined) {
+			throw new Error(`Missing planned media mapping for ${sourceId}.`);
+		}
+		return destinationId;
+	});
 
 	const requestedCandidate =
 		args.assetIdMap.size > 0
@@ -1901,7 +2046,9 @@ export async function commitAppProjectMoveInTransaction(
 					remapAssetRefs(toPersistableDoc(previousDoc), args.assetIdMap),
 				)
 			: previousDoc;
-	const mutations = diffDocsToMutations(previousDoc, requestedCandidate);
+	const mutations = admitMutationBatch(
+		diffDocsToMutations(previousDoc, requestedCandidate),
+	);
 	const prepared = prepareMutationCandidate(previousDoc, mutations);
 	if (
 		!deepEqual(
@@ -1919,36 +2066,64 @@ export async function commitAppProjectMoveInTransaction(
 		EMPTY_LOOKUP_REFERENCE_TARGETS,
 	);
 	const verdict = evaluatePreparedMutationCandidate(
-		previousDoc,
 		prepared,
 		destinationContext,
 	);
 	if (!verdict.ok) {
 		throw new BlueprintCommitRejectedError(
-			describeIntroducedErrors(verdict.introduced),
+			describeCommitFindings(verdict.findings),
 		);
 	}
 	const committedDoc = toPersistableDoc(verdict.nextDoc);
-	await admitIntroducedMediaReferences(tx, {
-		appId: args.appId,
-		projectId: args.toProjectId,
-		previousDoc,
-		candidateDoc: verdict.nextDoc,
-	});
+	const remappedThreads = threads.map((thread) => ({
+		...thread,
+		messages: remapThreadAttachmentAssetIds(thread.messages, args.assetIdMap),
+	}));
+	const destinationRequirements = blueprintMediaRequirements(verdict.nextDoc);
+	for (const thread of remappedThreads) {
+		for (const attachment of collectThreadAttachments(thread.messages)) {
+			destinationRequirements.push({
+				assetId: attachment.assetId,
+				expectedKind: attachment.kind as AssetKind,
+			});
+		}
+	}
+	try {
+		await lockAndValidateMediaReferences(
+			tx,
+			args.toProjectId,
+			destinationRequirements,
+		);
+	} catch (error) {
+		if (error instanceof MediaReferenceProjectionError) {
+			const missingSource = [...args.assetIdMap].find(
+				([, destinationId]) => destinationId === error.assetId,
+			)?.[0];
+			return {
+				kind: "media_stale",
+				missing: missingSource ? [missingSource] : freshClosure,
+			};
+		}
+		throw error;
+	}
+	await deleteMediaReferenceEdges(tx, args.appId);
 	await replaceLookupReferenceEdges(tx, {
 		appId: args.appId,
 		projectId: args.toProjectId,
 		targets: EMPTY_LOOKUP_REFERENCE_TARGETS,
 	});
-	for (const thread of threads) {
-		const remapped = remapThreadAttachmentAssetIds(
-			thread.messages,
-			args.assetIdMap,
-		);
-		if (deepEqual(remapped, thread.messages)) continue;
+	for (const thread of remappedThreads) {
+		if (
+			deepEqual(
+				thread.messages,
+				threads.find((source) => source.threadId === thread.threadId)?.messages,
+			)
+		) {
+			continue;
+		}
 		await tx
 			.updateTable("threads")
-			.set({ messages: JSON.stringify(remapped) })
+			.set({ messages: JSON.stringify(thread.messages) })
 			.where("app_id", "=", args.appId)
 			.where("thread_id", "=", thread.threadId)
 			.execute();
@@ -1959,8 +2134,11 @@ export async function commitAppProjectMoveInTransaction(
 		toProjectId: args.toProjectId,
 	});
 	await tx.deleteFrom("presence").where("app_id", "=", args.appId).execute();
-	const seq = Number(fresh.mutation_seq) + 1;
-	await writeCommittedBatch(tx, {
+	const seq = nextPersistedSequence(
+		fresh.mutation_seq,
+		`apps.mutation_seq for app ${args.appId}`,
+	);
+	await writeProjectMoveChange(tx, {
 		appId: args.appId,
 		seq,
 		batchId: capabilities.batchId,
@@ -1968,8 +2146,13 @@ export async function commitAppProjectMoveInTransaction(
 		committedDoc,
 		mutations,
 		actorUserId: args.actorUserId,
-		kind: "migration",
-		extraAppFields: { project_id: args.toProjectId },
+		fromProjectId: fresh.project_id,
+		toProjectId: args.toProjectId,
+	});
+	await insertMediaReferenceEdges(tx, {
+		appId: args.appId,
+		projectId: args.toProjectId,
+		assetIds: destinationIds,
 	});
 	await notifyPresence(tx, args.appId);
 	return { kind: "moved" };
@@ -2058,7 +2241,7 @@ export async function claimAndReserveRun(
 	runId: string,
 	actorUserId: string,
 	cost: number,
-	expectedProjectId: string | null,
+	expectedProjectId: string,
 	holderNonce: string = crypto.randomUUID(),
 ): Promise<ClaimedRun> {
 	const period = getCurrentPeriod();
@@ -2192,7 +2375,7 @@ export async function reserveForNewBuild(
 	actorUserId: string,
 	cost: number,
 	runId: string,
-	expectedProjectId: string | null,
+	expectedProjectId: string,
 	holderNonce: string,
 ): Promise<Reservation> {
 	const period = getCurrentPeriod();
@@ -2508,7 +2691,7 @@ export async function reacquireLease(
 	presentedHolderNonce: string | null,
 	mode: "build" | "edit",
 	actorUserId: string,
-	expectedProjectId: string | null,
+	expectedProjectId: string,
 ): Promise<ReacquireLeaseResult> {
 	return await withAppTx(async (tx) => {
 		const fresh = await lockAppRow(tx, appId);
@@ -2717,7 +2900,7 @@ export async function setAwaitingInput(
 	mode: "build" | "edit",
 	awaiting: boolean,
 	actorUserId: string,
-	expectedProjectId: string | null,
+	expectedProjectId: string,
 ): Promise<ReacquireOutcome> {
 	return await withAppTx(async (tx) => {
 		const fresh = await lockAppRow(tx, appId);
@@ -2874,15 +3057,7 @@ export async function restoreApp(
  * `resolveAppAccess` — the table doesn't scope by user.
  */
 export async function loadApp(appId: string): Promise<AppDoc | null> {
-	const db = await getAppDb();
-	const row = (await db
-		.selectFrom("apps")
-		.selectAll()
-		.where("id", "=", appId)
-		.executeTakeFirst()) as AppRow | undefined;
-	if (!row) return null;
-	const entities = await loadEntities(null, appId);
-	return rowToAppDoc(row, entities);
+	return withAppTx((tx) => loadAppInTransaction(tx, appId));
 }
 
 /**
@@ -2902,13 +3077,17 @@ export async function loadAppInTransaction(
 ): Promise<AppDoc | null> {
 	const row = (await tx
 		.selectFrom("apps")
-		.selectAll()
+		.select(PERSISTED_BLUEPRINT_APP_COLUMNS)
+		.select(
+			sql<string | null>`${sql.ref("apps.case_types")}::text`.as(
+				"case_types_text",
+			),
+		)
 		.where("id", "=", appId)
 		.forShare()
-		.executeTakeFirst()) as AppRow | undefined;
+		.executeTakeFirst()) as PersistedBlueprintAppRow | undefined;
 	if (!row) return null;
-	const entities = await loadEntities(tx, appId);
-	return rowToAppDoc(row, entities);
+	return (await loadStrictAppSnapshotFromRowInTransaction(tx, row)).app;
 }
 
 /** Whoever currently HOLDS the app's run window — see {@link loadAppHolder}.
@@ -2950,15 +3129,28 @@ export async function loadAppHolder(appId: string): Promise<AppHolder> {
 	}
 }
 
-/** Load just the owning Project id — the lightweight authorization read. */
-export async function loadAppProjectId(appId: string): Promise<string | null> {
+export type AppProjectLookup =
+	| { readonly kind: "found"; readonly projectId: string }
+	| { readonly kind: "not-found" };
+
+/**
+ * Load just the owning Project id — the lightweight authorization read.
+ *
+ * Missing-app state is explicit rather than overloaded onto a nullable Project:
+ * every persisted app has exactly one Project.
+ */
+export async function loadAppProjectId(
+	appId: string,
+): Promise<AppProjectLookup> {
 	const db = await getAppDb();
 	const row = await db
 		.selectFrom("apps")
 		.select("project_id")
 		.where("id", "=", appId)
 		.executeTakeFirst();
-	return row?.project_id ?? null;
+	return row === undefined
+		? { kind: "not-found" }
+		: { kind: "found", projectId: row.project_id };
 }
 
 // ── Listing ─────────────────────────────────────────────────────────
@@ -3029,7 +3221,10 @@ function cursorFor(
 /** The summary projection + the scan-side reapers: a stale build reads as
  *  `error` immediately (the reap settles asynchronously), and a stranded edit
  *  hold fires the refund-only reaper without changing the row shown. */
-function projectAppSummary(row: AppRow, now: number): AppSummary {
+function projectAppSummary(
+	row: AppRowWithoutCaseTypes,
+	now: number,
+): AppSummary {
 	const lease = runLeaseState(leaseView(row), now);
 	const isStale = lease.reapableStaleBuild;
 	const exactIdentity = toExactRunHolderIdentity(lease.holderIdentity);
@@ -3045,9 +3240,9 @@ function projectAppSummary(row: AppRow, now: number): AppSummary {
 		connect_type: row.connect_type,
 		module_count: row.module_count,
 		form_count: row.form_count,
-		status: isStale ? "error" : (row.status as AppDoc["status"]),
+		status: isStale ? "error" : parsePersistedAppLifecycleStatus(row.status),
 		error_type: isStale ? "internal" : row.error_type,
-		logo: row.logo,
+		logo: row.logo === null ? null : asMediaAssetId(row.logo),
 		created_at: row.created_at.toISOString(),
 		updated_at: row.updated_at.toISOString(),
 	};
@@ -3067,7 +3262,10 @@ async function queryAppsByScope(
 ): Promise<ListAppsResult> {
 	const { limit, sort, status, cursor } = options;
 	const db = await getAppDb();
-	let query = db.selectFrom("apps").selectAll().where("deleted_at", "is", null);
+	let query = db
+		.selectFrom("apps")
+		.select(PERSISTED_BLUEPRINT_APP_COLUMNS)
+		.where("deleted_at", "is", null);
 	query = Array.isArray(scopeValue)
 		? query.where(scopeField, "in", scopeValue as string[])
 		: query.where(scopeField, "=", scopeValue as string);
@@ -3136,7 +3334,7 @@ async function queryAppsByScope(
 			);
 		}
 	}
-	const rows = (await query.limit(limit).execute()) as AppRow[];
+	const rows = (await query.limit(limit).execute()) as AppRowWithoutCaseTypes[];
 	const now = Date.now();
 	const apps = rows.map((row) => projectAppSummary(row, now));
 	const last = rows[rows.length - 1];
@@ -3254,13 +3452,13 @@ export async function listDeletedApps(
 	const db = await getAppDb();
 	const rows = (await db
 		.selectFrom("apps")
-		.selectAll()
+		.select(PERSISTED_BLUEPRINT_APP_COLUMNS)
 		.where("project_id", "=", projectId)
 		.where("deleted_at", "is not", null)
 		.orderBy("deleted_at", "desc")
 		.orderBy("id", "asc")
 		.limit(options.limit)
-		.execute()) as AppRow[];
+		.execute()) as AppRowWithoutCaseTypes[];
 	const now = Date.now();
 	const apps: DeletedAppSummary[] = [];
 	for (const row of rows) {
@@ -3274,12 +3472,10 @@ export async function listDeletedApps(
 			connect_type: row.connect_type,
 			module_count: row.module_count,
 			form_count: row.form_count,
-			/* Status pass-through — soft-delete is the existence axis, so a
-			 * deleted `error` app keeps its true badge (legacy rows deleted by
-			 * the old status-flip flow still carry the literal `"deleted"`). */
-			status: row.status as AppDoc["status"],
+			// Soft-delete is the existence axis; lifecycle status remains true.
+			status: parsePersistedAppLifecycleStatus(row.status),
 			error_type: row.error_type,
-			logo: row.logo,
+			logo: row.logo === null ? null : asMediaAssetId(row.logo),
 			created_at: row.created_at.toISOString(),
 			updated_at: row.updated_at.toISOString(),
 			deleted_at: deletedAt.toISOString(),

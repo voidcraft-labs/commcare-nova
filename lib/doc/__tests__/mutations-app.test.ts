@@ -1,7 +1,9 @@
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
+import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import { applyMutation } from "@/lib/doc/mutations";
 import type { BlueprintDoc } from "@/lib/doc/types";
+import { proseText } from "@/lib/domain/prose";
 
 function emptyDoc(): BlueprintDoc {
 	return {
@@ -53,34 +55,31 @@ describe("applyMutation: setConnectType", () => {
 	});
 });
 
-describe("applyMutation: setCaseTypes", () => {
-	it("sets a case type list", () => {
+describe("applyMutation: granular case-type catalog", () => {
+	it("declares a type and adds a property without a whole-catalog mutation", () => {
 		const next = produce(emptyDoc(), (d) => {
+			applyMutation(d, { kind: "declareCaseType", caseType: "patient" });
 			applyMutation(d, {
-				kind: "setCaseTypes",
-				caseTypes: [
-					{
-						name: "patient",
-						properties: [{ name: "name", label: "Name" }],
-					},
-				],
+				kind: "addCaseProperty",
+				caseType: "patient",
+				property: { name: "name", label: proseText("Name") },
 			});
 		});
 		expect(next.caseTypes).toEqual([
 			{
 				name: "patient",
-				properties: [{ name: "name", label: "Name" }],
+				properties: [{ name: "name", label: proseText("Name") }],
 			},
 		]);
 	});
 
-	it("sets null", () => {
+	it("retiring the last type restores the canonical null catalog", () => {
 		const withTypes: BlueprintDoc = {
 			...emptyDoc(),
 			caseTypes: [{ name: "a", properties: [] }],
 		};
 		const next = produce(withTypes, (d) => {
-			applyMutation(d, { kind: "setCaseTypes", caseTypes: null });
+			applyMutation(d, { kind: "retireCaseType", caseType: "a" });
 		});
 		expect(next.caseTypes).toBeNull();
 	});
@@ -88,14 +87,18 @@ describe("applyMutation: setCaseTypes", () => {
 
 describe("applyMutation: setAppLogo", () => {
 	it("sets the logo to an asset id", () => {
+		const logo = testMediaAssetId("asset-logo");
 		const next = produce(emptyDoc(), (d) => {
-			applyMutation(d, { kind: "setAppLogo", logo: "asset-logo" });
+			applyMutation(d, { kind: "setAppLogo", logo });
 		});
-		expect(next.logo).toBe("asset-logo");
+		expect(next.logo).toBe(logo);
 	});
 
 	it("clears the logo by mapping null to undefined (not a literal null)", () => {
-		const withLogo: BlueprintDoc = { ...emptyDoc(), logo: "asset-logo" };
+		const withLogo: BlueprintDoc = {
+			...emptyDoc(),
+			logo: testMediaAssetId("asset-logo"),
+		};
 		const next = produce(withLogo, (d) => {
 			applyMutation(d, { kind: "setAppLogo", logo: null });
 		});
@@ -108,7 +111,10 @@ describe("applyMutation: setAppLogo", () => {
 	it("does not mutate the input doc", () => {
 		const doc = emptyDoc();
 		produce(doc, (d) => {
-			applyMutation(d, { kind: "setAppLogo", logo: "asset-logo" });
+			applyMutation(d, {
+				kind: "setAppLogo",
+				logo: testMediaAssetId("asset-logo"),
+			});
 		});
 		expect(doc.logo).toBeUndefined();
 	});

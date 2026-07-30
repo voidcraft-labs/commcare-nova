@@ -4,13 +4,10 @@
  *
  * ## What this closes
  *
- * The SA's chat-side commit writes the blueprint only (each tool batch
- * commits inline through `commitGuardedBatch`, which does not run the
- * case-store schema saga), so `case_type_schemas` carries no row for
- * any case type the SA just generated. Until the user's first
- * awaited write (auto-save PUT or MCP tool call) routes through
- * `applyBlueprintChange` and lands the schema sync, every
- * case-store insert path fires `SchemaNotSyncedError`:
+ * A run may finish with schema/index work still pending after a transient
+ * post-commit DDL failure. Until that durable work and the final Blueprint
+ * projection converge, case-store insert paths can fire
+ * `SchemaNotSyncedError`:
  *
  *   - `populateSampleCasesAction` (sample-data populate).
  *   - `submitFormAction` (form submit).
@@ -37,8 +34,8 @@
  * the materialization and trip `SchemaNotSyncedError`.
  * Sequencing the await before the SSE emit means any
  * user-initiated case-store action subsequent to the completion
- * celebration sees a synced schema. (On MCP, the cross-store saga
- * inside every guarded commit covers the same contract — a
+ * celebration sees a synced schema. (On MCP, the guarded commit boundary
+ * covers the same contract — a
  * case-type-touching batch syncs its schema before the tool
  * returns.)
  *
@@ -55,15 +52,10 @@
  * `loadApp().mutation_seq`, which could pair a later seq with an
  * earlier blueprint and defeat the guard.
  *
- * ## Why no saga
- *
- * Idempotent UPSERT over whatever the blueprint carries — this
- * boundary passes no `change`, so no caller-intent migration runs,
- * and nothing needs compensating on failure (the store's own
- * string↔array reshape may still rewrite rows inside the sync,
- * atomically with the schema write — see `applySchemaChange`). The
- * compensation surface `applyBlueprintChange.ts` builds for awaited
- * writes is irrelevant here.
+ * The operation is an idempotent latest-state projection. It passes no
+ * caller-intent migration; any detected same-name type transition remains
+ * atomic with the stored schema update, while durable index work drains from
+ * the latest stored schema after commit.
  *
  * ## Failure handling — retry transient, swallow transient, THROW deterministic
  *
@@ -125,6 +117,14 @@ export interface MaterializeCaseStoreSchemasArgs {
 	readonly syncedSeq?: number;
 }
 
+/** Drain durable expression-index work from the latest stored schemas. */
+export async function drainPendingCaseSchemaIndexes(
+	appId: string,
+): Promise<void> {
+	const store = await withSchemaContext();
+	await store.drainPendingIndexConvergence({ appId });
+}
+
 /**
  * For every case type in `blueprint.caseTypes`, call `applySchemaChange`
  * with no `property` / `change` — the additive arm that UPSERTs
@@ -139,20 +139,23 @@ export interface MaterializeCaseStoreSchemasArgs {
  * write (a registration creating children of several case types) recover
  * in one pass rather than one heal per stale type.
  *
- * Throws only on a DETERMINISTIC fault — each per-type sync retries a transient
- * blip (`withTransientRetry`), then swallows a still-transient terminal throw
+ * The mandatory pending-index drain runs first and propagates any failure:
+ * completion cannot claim convergence while durable work remains. Each
+ * subsequent per-type schema sync retries a transient blip
+ * (`withTransientRetry`), then swallows a still-transient terminal throw
  * (`warn` + continue; the point-of-use `withSchemaHeal` is the backstop) but
  * RETHROWS a deterministic one (a real bug the build finalize must surface via
  * `failRun`, not celebrate over). Whole types can be left unsynced by a
  * sustained transient outage; each heals on its first case-store touch.
  *
- * No-op when `caseTypes` is null (survey-only build) or empty. The early
- * return skips the `withSchemaContext` allocation so a survey-only
- * completion never pays the connection-pool lookup cost.
+ * A survey-only or empty catalog still allocates the schema store and drains
+ * pending index work for the app, then skips only the per-type loop.
  */
 export async function materializeCaseStoreSchemas(
 	args: MaterializeCaseStoreSchemasArgs,
 ): Promise<void> {
+	const store = await withSchemaContext();
+	await store.drainPendingIndexConvergence({ appId: args.appId });
 	const caseTypes = args.blueprint.caseTypes;
 	if (caseTypes === null || caseTypes.length === 0) {
 		return;
@@ -163,8 +166,6 @@ export async function materializeCaseStoreSchemas(
 	// per-property indexes + migrates EVERY member's rows of the case type), so
 	// the instance carries no bound Project. Each write still locks the live app
 	// and observes its current Project inside the schema/data transaction.
-	const store = await withSchemaContext();
-
 	// Sequential rather than parallel: each `applySchemaChange`
 	// touches Postgres index DDL via `CREATE INDEX CONCURRENTLY`,
 	// which doesn't lock writes but does serialize against

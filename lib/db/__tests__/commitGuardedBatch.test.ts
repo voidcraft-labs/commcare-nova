@@ -20,11 +20,14 @@ import { Pool } from "pg";
 import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import type { Mutation } from "@/lib/doc/types";
-import type { BlueprintDoc } from "@/lib/domain";
+import type { BlueprintDoc, Uuid } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import { __setAppDbForTests, type AppDatabase } from "../pg";
+import { commitGuardedBatchProposal as commitGuardedBatch } from "./admittedWriterTestHelpers";
 import { setupAppStateTestDb } from "./appStateTestDb";
 
 const OWNER = "user-owner";
+const PROJECT = "project-test";
 
 const h = setupAppStateTestDb("commit_unit_");
 
@@ -47,14 +50,20 @@ function minDoc(): BlueprintDoc {
 							f({
 								kind: "text",
 								id: "case_name",
-								label: "Name",
-								case_property_on: "patient",
+								label: proseText("Name"),
+								caseWrite: {
+									caseType: "patient",
+									property: "case_name",
+								},
 							}),
 							f({
 								kind: "text",
 								id: "village",
-								label: "Village",
-								case_property_on: "patient",
+								label: proseText("Village"),
+								caseWrite: {
+									caseType: "patient",
+									property: "village",
+								},
 							}),
 						],
 					},
@@ -65,15 +74,15 @@ function minDoc(): BlueprintDoc {
 			{
 				name: "patient",
 				properties: [
-					{ name: "case_name", label: "Name" },
-					{ name: "village", label: "Village" },
+					{ name: "case_name", label: proseText("Name") },
+					{ name: "village", label: proseText("Village") },
 				],
 			},
 		],
 	});
 }
 
-function villageUuid(doc: BlueprintDoc): string {
+function villageUuid(doc: BlueprintDoc): Uuid {
 	const uuid = Object.values(doc.fields).find(
 		(fld) => fld.id === "village",
 	)?.uuid;
@@ -87,7 +96,7 @@ function renameVillageLabel(doc: BlueprintDoc, label: string): Mutation[] {
 			kind: "updateField",
 			uuid: villageUuid(doc),
 			targetKind: "text",
-			patch: { label },
+			patch: { label: proseText(label) },
 		} as Mutation,
 	];
 }
@@ -98,11 +107,9 @@ async function readSeq(appId: string): Promise<number> {
 
 describe("commitGuardedBatch — seq recompute", () => {
 	it("computes the literal (fresh + 1) off whatever mutation_seq the row carries (no cached zero)", async () => {
-		const { commitGuardedBatch } = await import("../apps");
 		const doc = minDoc();
-		// A null-project app (owner path — reauth passes on owner === actor).
 		const appId = await h.seedAppWithBlueprint(doc, {
-			projectId: null,
+			projectId: PROJECT,
 			owner: OWNER,
 		});
 		// A row already advanced by 41 prior commits.
@@ -116,7 +123,7 @@ describe("commitGuardedBatch — seq recompute", () => {
 
 		const result = await commitGuardedBatch({
 			appId,
-			expectedProjectId: null,
+			expectedProjectId: PROJECT,
 			batchId: crypto.randomUUID(),
 			mutations: renameVillageLabel(doc, "Home"),
 			actorUserId: OWNER,
@@ -128,10 +135,9 @@ describe("commitGuardedBatch — seq recompute", () => {
 	});
 
 	it("two concurrent commits produce gap-free seqs — each re-reads the advanced seq under the app-row lock", async () => {
-		const { commitGuardedBatch } = await import("../apps");
 		const doc = minDoc();
 		const appId = await h.seedAppWithBlueprint(doc, {
-			projectId: null,
+			projectId: PROJECT,
 			owner: OWNER,
 		});
 
@@ -150,7 +156,7 @@ describe("commitGuardedBatch — seq recompute", () => {
 			const [a, b] = await Promise.all([
 				commitGuardedBatch({
 					appId,
-					expectedProjectId: null,
+					expectedProjectId: PROJECT,
 					batchId: crypto.randomUUID(),
 					mutations: renameVillageLabel(doc, "Home A"),
 					actorUserId: OWNER,
@@ -158,7 +164,7 @@ describe("commitGuardedBatch — seq recompute", () => {
 				}),
 				commitGuardedBatch({
 					appId,
-					expectedProjectId: null,
+					expectedProjectId: PROJECT,
 					batchId: crypto.randomUUID(),
 					mutations: renameVillageLabel(doc, "Home B"),
 					actorUserId: OWNER,
@@ -185,7 +191,7 @@ describe("commitGuardedBatch — seq recompute", () => {
 		// landed at 2.
 		const rows = await h
 			.db()
-			.selectFrom("accepted_mutations")
+			.selectFrom("app_changes")
 			.select("seq")
 			.where("app_id", "=", appId)
 			.orderBy("seq")

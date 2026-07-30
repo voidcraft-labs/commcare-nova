@@ -27,13 +27,10 @@ import { searchInputModeMatchesPropertyType } from "./case-list/searchInputModeM
 import { searchInputNameUniqueness } from "./case-list/searchInputNameUniqueness";
 import { searchInputPredicateTypeCheck } from "./case-list/searchInputPredicateTypeCheck";
 import { searchInputRefUsesWhenInputPresent } from "./case-list/searchInputRefUsesWhenInputPresent";
-import { searchInputSelectWidgetNotSupported } from "./case-list/searchInputSelectWidgetNotSupported";
 import { searchInputTypeMatchesPropertyType } from "./case-list/searchInputTypeMatchesPropertyType";
 import { searchInputViaModeCompatibility } from "./case-list/searchInputViaModeCompatibility";
 import { sortPriorityUniqueness } from "./case-list/sortPriorityUniqueness";
-import { strictNullPortability } from "./case-list/strictNullPortability";
 import { caseSearchConfigRequiresCaseType } from "./case-search/caseSearchConfigRequiresCaseType";
-import { caseSearchConfigRequiresSearchableSurface } from "./case-search/caseSearchConfigRequiresSearchableSurface";
 import { excludedOwnerIdsTypeCheck } from "./case-search/excludedOwnerIdsTypeCheck";
 import { searchButtonDisplayConditionTypeCheck } from "./case-search/searchButtonDisplayConditionTypeCheck";
 import { moduleDisplayCondition } from "./displayConditions";
@@ -220,14 +217,12 @@ export const MODULE_RULES: readonly ModuleRule[] = [
 	matchModeOnDeviceCompatibility,
 	onDeviceExpressionCompatibility,
 	dateAddOnDeviceCompatibility,
-	strictNullPortability,
 	ancestorExistsCannotNestSubcase,
 	sortPriorityUniqueness,
 	caseTileLayout,
 	searchInputNameUniqueness,
 	searchInputModeMatchesPropertyType,
 	searchInputTypeMatchesPropertyType,
-	searchInputSelectWidgetNotSupported,
 	searchInputDefaultTypeCheck,
 	searchInputPredicateTypeCheck,
 	csqlPredicateRepresentability,
@@ -239,6 +234,5 @@ export const MODULE_RULES: readonly ModuleRule[] = [
 	// still emit.
 	searchButtonDisplayConditionTypeCheck,
 	excludedOwnerIdsTypeCheck,
-	caseSearchConfigRequiresSearchableSurface,
 	caseSearchConfigRequiresCaseType,
 ];
