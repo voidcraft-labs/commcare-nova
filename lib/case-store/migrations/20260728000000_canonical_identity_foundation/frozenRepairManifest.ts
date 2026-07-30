@@ -8,11 +8,24 @@
 export const CANONICAL_IDENTITY_REPAIR_VERSION =
 	"20260728000000-canonical-identity-repair-v2";
 
+/**
+ * The closed chat-attachment vocabulary, mirroring
+ * `frozenOccurrenceDispatcher.ts`'s `FROZEN_CHAT_ATTACHMENT_KINDS`. Only the
+ * kind is kept from the attachment body: it is the one field the disposition
+ * check reads, and it carries nothing about the document itself.
+ */
+export type FrozenChatAttachmentKind =
+	| "image"
+	| "pdf"
+	| "text"
+	| "docx"
+	| "xlsx";
+
 export interface FrozenThreadAttachmentRepairTarget {
 	readonly messageIndex: number;
 	readonly attachmentIndex: number;
 	readonly assetId: string;
-	readonly attachmentText: string;
+	readonly attachmentKind: FrozenChatAttachmentKind;
 	readonly attachmentDigest: string;
 	readonly assetDisposition: "missing" | "foreign-project";
 	readonly assetProjectId?: string;
@@ -32,11 +45,18 @@ export interface FrozenThreadAttachmentRepair {
 }
 
 /**
- * Exact plaintext selectors and source/result digests captured in one
+ * Coordinates, content digests, and source/result digests captured in one
  * REPEATABLE READ, READ ONLY production snapshot (`1629016:1629016:`).
  * The repair keeps every message byte and removes only these thirteen strict
  * `messages[*].metadata.attachments[*]` objects. The deployment identity must
  * re-prove these bytes under the final quiescent lock before writing.
+ *
+ * Each target names its object by coordinate plus `attachmentDigest`, the
+ * SHA-256 of PostgreSQL's canonical text for that exact attachment. The
+ * attachment body itself is deliberately absent: these are real customer
+ * documents, and their filenames, titles, and summaries have no business in
+ * source control. The digest is a strictly stronger fence than a string
+ * compare, and `attachmentKind` is the only body field any check reads.
  */
 export const FROZEN_THREAD_ATTACHMENT_REPAIRS = [
 	{
@@ -58,7 +78,7 @@ export const FROZEN_THREAD_ATTACHMENT_REPAIRS = [
 				messageIndex: 0,
 				attachmentIndex: 0,
 				assetId: "ec81f880-12a4-421b-8594-266fda2fc65e",
-				attachmentText: `{"kind": "text", "assetId": "ec81f880-12a4-421b-8594-266fda2fc65e", "filename": "01_email_thread_maternal_newborn_app.md", "mimeType": "text/markdown"}`,
+				attachmentKind: "text",
 				attachmentDigest:
 					"97544b4084e6034b6c7f1812ed0dc902bde9b159681dc4ce9059ce5fc9a3eaa7",
 				assetDisposition: "missing",
@@ -84,7 +104,7 @@ export const FROZEN_THREAD_ATTACHMENT_REPAIRS = [
 				messageIndex: 0,
 				attachmentIndex: 0,
 				assetId: "0ca3abb6-d038-4cf5-88f9-4e46f2e436cb",
-				attachmentText: `{"kind": "text", "assetId": "0ca3abb6-d038-4cf5-88f9-4e46f2e436cb", "filename": "01_email_thread_maternal_newborn_app.md", "mimeType": "text/markdown"}`,
+				attachmentKind: "text",
 				attachmentDigest:
 					"44b9622f9f66ecb334951224f4c1615677b701e4d49b834f99fe454e3de62ab7",
 				assetDisposition: "missing",
@@ -110,7 +130,7 @@ export const FROZEN_THREAD_ATTACHMENT_REPAIRS = [
 				messageIndex: 0,
 				attachmentIndex: 0,
 				assetId: "81c6ef03-fdf3-4448-bfcb-155b9f71bb12",
-				attachmentText: `{"kind": "xlsx", "assetId": "81c6ef03-fdf3-4448-bfcb-155b9f71bb12", "filename": "03_current_tracker_mama_na_mtoto.xlsx", "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}`,
+				attachmentKind: "xlsx",
 				attachmentDigest:
 					"77587cb24e31c3db5c31c9b368686fe2742ddc7bd07374097dab4177664283d6",
 				assetDisposition: "missing",
@@ -119,7 +139,7 @@ export const FROZEN_THREAD_ATTACHMENT_REPAIRS = [
 				messageIndex: 0,
 				attachmentIndex: 1,
 				assetId: "e9c32489-47e8-4587-bcaf-92df8cb00b81",
-				attachmentText: `{"kind": "docx", "assetId": "e9c32489-47e8-4587-bcaf-92df8cb00b81", "filename": "02_SOW_mama_na_mtoto.docx", "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"}`,
+				attachmentKind: "docx",
 				attachmentDigest:
 					"748e3867fdcca87105979b5ca6e5cd805b3b9a17efbd24880e21cbb6eb3d6e38",
 				assetDisposition: "missing",
@@ -128,7 +148,7 @@ export const FROZEN_THREAD_ATTACHMENT_REPAIRS = [
 				messageIndex: 0,
 				attachmentIndex: 2,
 				assetId: "3e536425-70c3-440b-a8fb-e9caf7313204",
-				attachmentText: `{"kind": "text", "assetId": "3e536425-70c3-440b-a8fb-e9caf7313204", "filename": "01_email_thread_maternal_newborn_app.md", "mimeType": "text/markdown"}`,
+				attachmentKind: "text",
 				attachmentDigest:
 					"30d4170ba1ba6dea9d279437d1012db5222bdfd57677ff8e855cc7fcfb4f21e5",
 				assetDisposition: "missing",
@@ -154,7 +174,7 @@ export const FROZEN_THREAD_ATTACHMENT_REPAIRS = [
 				messageIndex: 0,
 				attachmentIndex: 0,
 				assetId: "748f9258-219e-4704-b077-98b15fd1c4f5",
-				attachmentText: `{"kind": "xlsx", "title": "Indiana Department of Health MCH System Requirements Extract", "assetId": "748f9258-219e-4704-b077-98b15fd1c4f5", "summary": "This document contains functional and technical specifications for the Maternal and Child Health (MCH) system for the Indiana State Department of Health (IDOH). It delineates requirements for client management, provider tracking, birth defect case management, secure communications, third-party interoperability, and extensive cloud-hosting security compliance.", "filename": "Att_O_-_IDOH_Functional_Technical_Requirements.xlsx", "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}`,
+				attachmentKind: "xlsx",
 				attachmentDigest:
 					"fc5ad1b617a9fcd2c7e634039ca34fa11c41ce52ff7a36e67240cbff20481054",
 				assetDisposition: "foreign-project",
@@ -166,7 +186,7 @@ export const FROZEN_THREAD_ATTACHMENT_REPAIRS = [
 				messageIndex: 0,
 				attachmentIndex: 1,
 				assetId: "04c39627-13e8-40ca-beb6-0cfbab732f2c",
-				attachmentText: `{"kind": "docx", "title": "Maternal and Child Health Data System — Scope of Work", "assetId": "04c39627-13e8-40ca-beb6-0cfbab732f2c", "summary": "This document outlines the scope of work for the design, development, implementation, and maintenance of a cloud-based Maternal and Child Health Data System for the Indiana Department of Health. It details the transition from four legacy applications, the data migration plan, required system integrations, and non-functional requirements including compliance and security standards.", "filename": "(Source of Truth) 24-75386 - Exhibit A - Scope of Work - Not Tracked.docx", "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"}`,
+				attachmentKind: "docx",
 				attachmentDigest:
 					"4ddc6b5e826249cfde731bbf78522991947078047feade3aca220f3a2e394ad0",
 				assetDisposition: "foreign-project",
@@ -195,7 +215,7 @@ export const FROZEN_THREAD_ATTACHMENT_REPAIRS = [
 				messageIndex: 0,
 				attachmentIndex: 0,
 				assetId: "266bf631-cb70-40ec-bfdf-3a6e91ebc6b2",
-				attachmentText: `{"kind": "text", "title": "Maternal and Newborn Mobile App Requirements", "assetId": "266bf631-cb70-40ec-bfdf-3a6e91ebc6b2", "summary": "This document outlines the operational and functional requirements for a mobile application designed to replace the paper \\"Mama na Mtoto\\" register used by Community Health Volunteers (CHVs) in Migori, Kenya. It covers client registration, antenatal care tracking, delivery records, newborn follow-up visits, and key donor-mandated M&E indicators.", "filename": "01_email_thread_maternal_newborn_app.md", "mimeType": "text/markdown"}`,
+				attachmentKind: "text",
 				attachmentDigest:
 					"1c286596568fae7cfe5f96d8e6985812966a1b30d157c661cac925b2229e82e7",
 				assetDisposition: "missing",
@@ -204,7 +224,7 @@ export const FROZEN_THREAD_ATTACHMENT_REPAIRS = [
 				messageIndex: 0,
 				attachmentIndex: 1,
 				assetId: "fdd3c156-5167-458b-be6b-230582cc6655",
-				attachmentText: `{"kind": "docx", "title": "Mama na Mtoto Community Maternal and Newborn Health Digital Application SOW", "assetId": "fdd3c156-5167-458b-be6b-230582cc6655", "summary": "Establishes the terms for designing and deploying a mobile, offline-capable maternal and newborn care application to replace paper registers used by Community Health Volunteers in Kenya. Defines a longitudinal case structure tracking beneficiaries from registration through postnatal follow-up, automated danger-sign referrals, and donor indicators. Details functional requirements, data dictionary fields, implementation schedules, and platform standards in compliance with the Kenya Data Protection Act.", "filename": "02_SOW_mama_na_mtoto.docx", "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"}`,
+				attachmentKind: "docx",
 				attachmentDigest:
 					"6610d25e7d566b99873538a83d3e188a0f6b8fad0a3aa2d4b503cb0efd7b1bc7",
 				assetDisposition: "missing",
@@ -213,7 +233,7 @@ export const FROZEN_THREAD_ATTACHMENT_REPAIRS = [
 				messageIndex: 0,
 				attachmentIndex: 2,
 				assetId: "025d867e-f94d-423d-98ec-e7e4f42d15cc",
-				attachmentText: `{"kind": "xlsx", "title": "Mama na Mtoto CHV Register", "assetId": "025d867e-f94d-423d-98ec-e7e4f42d15cc", "summary": "This document specifies the requirements, drop-down taxonomies, calculation rules, and reporting indicators for the Mama na Mtoto CHV Register (v3.2) used in Bonyamatuta Ward.", "filename": "03_current_tracker_mama_na_mtoto.xlsx", "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}`,
+				attachmentKind: "xlsx",
 				attachmentDigest:
 					"ff21c495ef58fba74c35ea8a61f04346b412ffecad4b73fc7c0278aa86d01aa6",
 				assetDisposition: "missing",
@@ -239,7 +259,7 @@ export const FROZEN_THREAD_ATTACHMENT_REPAIRS = [
 				messageIndex: 0,
 				attachmentIndex: 0,
 				assetId: "1fb10514-fb3c-4745-bd06-67bb4db375b3",
-				attachmentText: `{"kind": "image", "assetId": "1fb10514-fb3c-4745-bd06-67bb4db375b3", "filename": "06_workshop_whiteboard_growth_monitoring.png", "mimeType": "image/png"}`,
+				attachmentKind: "image",
 				attachmentDigest:
 					"f6b5427d72f05e54eae37d899051d36a7e6f97dbe7e6e843e9ca9a7be66216bb",
 				assetDisposition: "missing",
@@ -248,7 +268,7 @@ export const FROZEN_THREAD_ATTACHMENT_REPAIRS = [
 				messageIndex: 0,
 				attachmentIndex: 1,
 				assetId: "3d41053b-9442-4171-a724-01f5a0c260b4",
-				attachmentText: `{"kind": "text", "assetId": "3d41053b-9442-4171-a724-01f5a0c260b4", "filename": "01_email_thread_maternal_newborn_app.md", "mimeType": "text/markdown"}`,
+				attachmentKind: "text",
 				attachmentDigest:
 					"db4a191022e75b2958116e86f6d2ef899c51548a12b2c39aa7e32d83a6cf50cc",
 				assetDisposition: "missing",
@@ -274,7 +294,7 @@ export const FROZEN_THREAD_ATTACHMENT_REPAIRS = [
 				messageIndex: 0,
 				attachmentIndex: 0,
 				assetId: "158ff67f-7572-4eb3-9836-a0450db72ac9",
-				attachmentText: `{"kind": "text", "title": "Maternal and Newborn Mobile Application Requirements", "assetId": "158ff67f-7572-4eb3-9836-a0450db72ac9", "summary": "This document outlines the operational and functional requirements for digitizing the 'Mama na Mtoto' paper register into a mobile application for Community Health Volunteers (CHVs) in Migori. It details client registration, pregnancy monitoring, postnatal follow-up, and supervisor viewing workflows, with a strong focus on offline functionality for cheap Android devices and alignment with donor-mandated indicators.", "filename": "01_email_thread_maternal_newborn_app.md", "mimeType": "text/markdown"}`,
+				attachmentKind: "text",
 				attachmentDigest:
 					"db8293b25b5223a6f75c4ed42435fac0d91721f6ac33a089c4e3da3c1c68bab4",
 				assetDisposition: "missing",
@@ -284,9 +304,7 @@ export const FROZEN_THREAD_ATTACHMENT_REPAIRS = [
 ] as const satisfies readonly FrozenThreadAttachmentRepair[];
 
 export const FROZEN_THREAD_ATTACHMENT_REPAIR_MANIFEST_DIGEST =
-	"19c9dbcb3f979423b880efc34b1c1497397ed3da7df9727ff2f473dff312cf09";
-export const FROZEN_THREAD_ATTACHMENT_REPAIR_EVIDENCE_DIGEST =
-	"19f9fd14266ad70d55304ac9864f130ccae08a2a166b98c4542795d826c3fc13";
+	"9a6c3e02368a99b4420b75c34456bc98b031f2c2fb281fcc9bffa08409ad06a7";
 
 /**
  * Exact schema/row closure for the sole app whose Project was absent in the

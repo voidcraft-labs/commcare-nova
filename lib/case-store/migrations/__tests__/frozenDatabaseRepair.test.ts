@@ -10,6 +10,26 @@ import {
 } from "../20260728000000_canonical_identity_foundation/frozenRepairManifest";
 import { canonicalIdentityDigest } from "../20260728000000_canonical_identity_foundation/frozenTransform";
 
+/**
+ * A strict-shaped attachment for a manifest target.
+ *
+ * The manifest deliberately holds no attachment body — these were real customer
+ * documents — so a fixture is synthesized from the identity it does keep. The
+ * placeholder filename and mimeType only have to satisfy the strict shape gate;
+ * nothing under test reads them.
+ */
+function attachmentFor(target: {
+	readonly assetId: string;
+	readonly attachmentKind: string;
+}): Record<string, unknown> {
+	return {
+		assetId: target.assetId,
+		kind: target.attachmentKind,
+		filename: "fixture",
+		mimeType: "application/octet-stream",
+	};
+}
+
 describe("frozen canonical-identity repair terminal boundary", () => {
 	it("keeps repair-before and its immediate no-write rerun in the pre-canonical stage", () => {
 		expect(
@@ -96,9 +116,7 @@ describe("frozen thread attachment repair manifest", () => {
 					role: "user",
 					parts: [{ type: "text", text: "preserved" }],
 					metadata: {
-						attachments: repair.targets.map((target) =>
-							JSON.parse(target.attachmentText),
-						),
+						attachments: repair.targets.map(attachmentFor),
 					},
 				},
 			];
@@ -120,8 +138,17 @@ describe("frozen thread attachment repair manifest", () => {
 		const repair = FROZEN_THREAD_ATTACHMENT_REPAIRS[0];
 		expect(repair).toBeDefined();
 		if (repair === undefined) return;
-		const attachment = JSON.parse(repair.targets[0]?.attachmentText ?? "{}");
-		attachment.filename = "changed";
+		const target = repair.targets[0];
+		expect(target).toBeDefined();
+		if (target === undefined) return;
+		// The asset id is what the disposition check acts on, so retargeting it is
+		// the change that must fail closed. Cosmetic fields are covered upstream by
+		// the whole-column `sourceMessagesDigest` and again by the per-target SQL
+		// digest, neither of which this pure function can see.
+		const attachment = {
+			...attachmentFor(target),
+			assetId: "00000000-0000-4000-8000-000000000000",
+		};
 		expect(() =>
 			removeFrozenThreadAttachmentTargets(
 				[

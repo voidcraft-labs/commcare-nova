@@ -504,11 +504,17 @@ export function removeFrozenThreadAttachmentTargets(
 			messages,
 			target.messageIndex,
 			target.attachmentIndex,
-		);
-		const expected = parseFrozenExactJson(target.attachmentText);
+		) as { readonly assetId?: unknown; readonly kind?: unknown } | undefined;
+		// Identity here is the coordinate plus the two fields the repair acts on.
+		// Every other byte is already covered twice over: the caller proves
+		// `sourceMessagesDigest` across the whole column BEFORE calling this, and
+		// the per-target SQL digest covers the exact object again. Holding the
+		// attachment body here would mean keeping real customer filenames and
+		// document summaries in source to re-derive a check those two already make.
 		if (
 			value === undefined ||
-			canonicalIdentityDigest(value) !== canonicalIdentityDigest(expected)
+			value.assetId !== target.assetId ||
+			value.kind !== target.attachmentKind
 		) {
 			throw new Error(
 				`Frozen thread attachment ${canonicalIdentityDigest([
@@ -648,28 +654,30 @@ async function applyFrozenThreadAttachmentRepairs<DB>(
 	const byKey = new Map(
 		rows.map((row) => [`${row.app_id}\u0000${row.thread_id}`, row] as const),
 	);
+	// Only the four coordinates cross into SQL: the recordset below declares
+	// exactly those columns, and every disposition check reads the manifest
+	// directly rather than this payload.
 	const targets = FROZEN_THREAD_ATTACHMENT_REPAIRS.flatMap((repair) =>
 		repair.targets.map((target) => ({
 			app_id: repair.appId,
 			thread_id: repair.threadId,
 			message_index: target.messageIndex,
 			attachment_index: target.attachmentIndex,
-			attachment_text: target.attachmentText,
-			attachment_digest: target.attachmentDigest,
-			asset_id: target.assetId,
-			asset_disposition: target.assetDisposition,
-			asset_project_id:
-				"assetProjectId" in target ? target.assetProjectId : null,
-			asset_row_digest:
-				"assetRowDigest" in target ? target.assetRowDigest : null,
 		})),
+	);
+	// Sourced from the manifest, NOT from `targets`. The asset lookup below keys
+	// on these ids, and an empty array would make every `missing` disposition
+	// pass for the wrong reason — `asset === undefined` is that check's success
+	// condition, so a lookup that matched nothing would silently confirm all
+	// eleven of them.
+	const assetIds = FROZEN_THREAD_ATTACHMENT_REPAIRS.flatMap((repair) =>
+		repair.targets.map((target) => target.assetId),
 	);
 	const attachmentRows = await sql<{
 		app_id: string;
 		thread_id: string;
 		message_index: number;
 		attachment_index: number;
-		attachment_text: string | null;
 		attachment_digest: string | null;
 	}>`
 		WITH expected AS (
@@ -687,14 +695,8 @@ async function applyFrozenThreadAttachmentRepairs<DB>(
 			expected.thread_id,
 			expected.message_index,
 			expected.attachment_index,
-			(
-				thread_row.messages #> ARRAY[
-					expected.message_index::text,
-					'metadata',
-					'attachments',
-					expected.attachment_index::text
-				]
-			)::text AS attachment_text,
+			-- The digest is the whole proof; the attachment body itself is never
+			-- selected, so customer document text does not leave PostgreSQL.
 			encode(
 				sha256(
 					convert_to(
@@ -750,7 +752,7 @@ async function applyFrozenThreadAttachmentRepairs<DB>(
 				'hex'
 			) AS row_digest
 		FROM public.media_assets
-		WHERE id::text = ANY(${targets.map((target) => target.asset_id)})
+		WHERE id::text = ANY(${assetIds})
 		ORDER BY convert_to(id::text, 'UTF8')
 	`.execute(tx);
 	const assetById = new Map(
@@ -776,10 +778,7 @@ async function applyFrozenThreadAttachmentRepairs<DB>(
 			const targetRow = attachmentByKey.get(
 				`${repair.appId}\u0000${repair.threadId}\u0000${target.messageIndex}\u0000${target.attachmentIndex}`,
 			);
-			if (
-				targetRow?.attachment_text !== target.attachmentText ||
-				targetRow.attachment_digest !== target.attachmentDigest
-			) {
+			if (targetRow?.attachment_digest !== target.attachmentDigest) {
 				throw new Error(
 					`Frozen thread attachment ${canonicalIdentityDigest([
 						repair.threadId,
@@ -789,16 +788,14 @@ async function applyFrozenThreadAttachmentRepairs<DB>(
 				);
 			}
 			const asset = assetById.get(target.assetId);
-			const attachment = parseFrozenExactJson(target.attachmentText) as {
-				readonly kind?: unknown;
-			};
+
 			if (
 				(target.assetDisposition === "missing" && asset !== undefined) ||
 				(target.assetDisposition === "foreign-project" &&
 					(asset === undefined ||
 						asset.project_id !== target.assetProjectId ||
 						asset.project_id === repair.appProjectId ||
-						asset.kind !== attachment.kind ||
+						asset.kind !== target.attachmentKind ||
 						asset.row_digest !== target.assetRowDigest))
 			) {
 				throw new Error(
