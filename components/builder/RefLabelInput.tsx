@@ -35,6 +35,7 @@ import {
 	type ProseTemplate,
 	proseTemplateIsEmpty,
 } from "@/lib/domain";
+import { displayId } from "@/lib/references/config";
 import type { ReferenceProvider } from "@/lib/references/provider";
 import {
 	useCurrentFormUuid,
@@ -76,7 +77,11 @@ function parseValueToContent(
 ): JSONContent {
 	return proseTemplateToTiptapContent(value, (part) => {
 		const resolved = provider?.resolvePart(part, formUuid);
-		return resolved?.label ?? resolved?.raw ?? "";
+		// What the CHIP shows, which is `displayId` — not `Reference.label`, the
+		// autocomplete string. The atom's `label` is the text Backspace converts
+		// the chip back into, so the two have to be the same thing or that gesture
+		// replaces a reference with words the author never saw.
+		return resolved == null ? "" : displayId(resolved);
 	}) as JSONContent;
 }
 

@@ -96,7 +96,13 @@ describe("run-holder write structural guard", () => {
 		// already-repaired rows, which is what lets the fold still terminate at
 		// the exact current state. Appending a mutation batch here would put a
 		// change in the durable log that no author made.
-		expect(frozenRepair).not.toMatch(/\binsert\b/i);
+		// Both the Kysely builder and raw SQL, because `\binsert\b` matches
+		// neither `insertInto(` (the house form — `\b` fails before the capital I)
+		// nor `INSERT INTO` reliably, while it DOES match the word "insert" in a
+		// comment. A fence that misses the idiomatic violation and fires on prose
+		// is the shape this suite exists to catch.
+		expect(frozenRepair).not.toMatch(/\.insertInto\s*\(/);
+		expect(frozenRepair).not.toMatch(/\bINSERT\s+INTO\b/i);
 		expect(
 			source("scripts/repair-canonical-identity-foundation.ts"),
 		).not.toMatch(appDml);

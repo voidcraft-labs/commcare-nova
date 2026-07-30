@@ -59,6 +59,7 @@ import {
 import {
 	AppProjectChangedError,
 	CommitReauthError,
+	type MutationBatchIdCollisionError,
 	RunHolderLostError,
 } from "@/lib/db/commitGuard";
 import { MAX_RUN_MINUTES } from "@/lib/db/constants";
@@ -257,6 +258,11 @@ export class GenerationContext implements ToolExecutionContext {
 	 * Terminal and replacement-safe: the route refunds/logs this run without
 	 * settling, releasing, failing, or otherwise touching the successor. */
 	private _holderLostError: RunHolderLostError | undefined;
+	/** A server-minted batch id was reused for different content. That is Nova's
+	 * own protocol failure, never something the model did or can fix, so the run
+	 * ends rather than handing back an error the model reads as retryable and
+	 * answers by reminting the id. Terminal and never cleared within a run. */
+	private _batchIdCollisionError: MutationBatchIdCollisionError | undefined;
 	private _parkedNote: string | undefined;
 	/** Which liveness horizon the heartbeats refresh: an edit `run_lock` lease,
 	 * or (false) a build's `updated_at` staleness clock.
@@ -720,6 +726,16 @@ export class GenerationContext implements ToolExecutionContext {
 	/** Exact holder-loss signal captured from a guarded write or finalizer. */
 	holderLostError(): RunHolderLostError | undefined {
 		return this._holderLostError;
+	}
+
+	/** Batch-id collision captured from a guarded write; see the field. */
+	batchIdCollisionError(): MutationBatchIdCollisionError | undefined {
+		return this._batchIdCollisionError;
+	}
+
+	/** Preserve the first collision object so every run fence rethrows one signal. */
+	latchBatchIdCollision(error: MutationBatchIdCollisionError): void {
+		this._batchIdCollisionError ??= error;
 	}
 
 	/** Preserve the first authoritative holder-loss object for every run fence. */

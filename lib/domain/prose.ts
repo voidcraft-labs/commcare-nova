@@ -130,14 +130,6 @@ export function proseTemplateIsEmpty(
 }
 
 /**
- * Context-free diagnostic/search fallback. Reference-capable human surfaces
- * should use `projectProseTemplate` with the owning document and render its
- * structured unresolved state; wire/runtime surfaces must use
- * `printProseTemplate`. This fallback deliberately emits an identity-free
- * repair marker when a compact caller has no document, never a guessed name or
- * stored UUID.
- */
-/**
  * The literal text an author typed, with every reference part skipped.
  *
  * This is NOT a projection: a reference's current spelling only exists relative

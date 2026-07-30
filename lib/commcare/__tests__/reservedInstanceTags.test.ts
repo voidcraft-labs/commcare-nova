@@ -9,6 +9,8 @@
 // the other half — it proves the refusal actually covers everything the emitter
 // can produce, so the two lists cannot drift apart.
 
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
 	isReservedInstanceTag,
@@ -18,17 +20,31 @@ import {
 import { instanceSourceFor } from "../predicate/instances";
 
 /**
- * The closed set `instanceSourceFor` resolves without a lookup table — its
- * `switch` arms. Anything outside this set is either a lookup fixture (which is
- * the table's own tag, by construction) or a thrown upstream bug.
+ * The closed set `instanceSourceFor` resolves without a lookup table, READ OUT
+ * OF ITS SOURCE rather than restated here.
+ *
+ * A hand-written copy could not fail: adding a `case "reports":` arm to the
+ * emitter would leave every assertion green while reopening exactly the
+ * collision this guard closes. Parsing the arms means a new one has to be
+ * either unrepresentable as a tag or reserved, or this test goes red.
  */
-const EMITTED_INSTANCE_IDS = [
-	"casedb",
-	"commcaresession",
-	"results",
-	"results:inline",
-	"search-input:results",
-] as const;
+function emittedInstanceIds(): readonly string[] {
+	const source = readFileSync(
+		join(process.cwd(), "lib/commcare/predicate/instances.ts"),
+		"utf8",
+	);
+	const start = source.indexOf("export function instanceSourceFor");
+	if (start < 0) throw new Error("instanceSourceFor not found");
+	// Bound the slice to this function: later helpers in the same file have their
+	// own `case` arms over unrelated vocabularies.
+	const end = source.indexOf("\nexport ", start + 1);
+	const body = source.slice(start, end < 0 ? source.length : end);
+	const ids = [...body.matchAll(/case\s+"([^"]+)":/g)].map((m) => m[1]);
+	if (ids.length === 0) throw new Error("no instanceSourceFor arms parsed");
+	return ids;
+}
+
+const EMITTED_INSTANCE_IDS = emittedInstanceIds();
 
 describe("reserved instance tags", () => {
 	it("covers every non-fixture instance id the emitter can produce", () => {
@@ -44,6 +60,8 @@ describe("reserved instance tags", () => {
 	});
 
 	it("pins the emitter's closed set, so a new arm fails here first", () => {
+		// Parsed from source, so this list grows when the emitter does.
+		expect(EMITTED_INSTANCE_IDS.length).toBeGreaterThan(0);
 		for (const id of EMITTED_INSTANCE_IDS) {
 			expect(() => instanceSourceFor(id)).not.toThrow();
 		}

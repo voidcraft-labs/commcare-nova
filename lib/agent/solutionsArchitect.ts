@@ -29,6 +29,7 @@ import {
 	AppProjectChangedError,
 	BlueprintCommitRejectedError,
 	CommitReauthError,
+	MutationBatchIdCollisionError,
 	RunHolderLostError,
 } from "@/lib/db/commitGuard";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
@@ -141,7 +142,10 @@ export function createSolutionsArchitect(
 	 */
 	function throwIfTerminalRunError(): void {
 		const terminalError =
-			ctx.holderLostError() ?? ctx.projectChangedError() ?? ctx.reauthError();
+			ctx.holderLostError() ??
+			ctx.projectChangedError() ??
+			ctx.reauthError() ??
+			ctx.batchIdCollisionError();
 		if (terminalError !== undefined) throw terminalError;
 	}
 
@@ -254,6 +258,12 @@ export function createSolutionsArchitect(
 						 * commit sets. */
 						if (err instanceof RunHolderLostError) {
 							ctx.latchRunHolderLost(err);
+						} else if (err instanceof MutationBatchIdCollisionError) {
+							// A reused batch id is our protocol failure. Latching ends the
+							// run: a bare throw becomes a `tool-error` part, which the model
+							// reads as retryable and answers by calling again with a fresh
+							// server-minted id — the exact loop this exists to stop.
+							ctx.latchBatchIdCollision(err);
 						} else if (
 							err instanceof CommitReauthError ||
 							err instanceof AppProjectChangedError

@@ -112,32 +112,31 @@ export const CommcareRef = Node.create({
 				if (!parsed.success || parsed.data.kind === "text") return false;
 				// Backspace turns the chip back into the text it was showing, minus
 				// the character just deleted, so editing continues where the author
-				// was looking. That text is the chip's own current projection —
-				// `label` — which was resolved against the document when the atom was
-				// built.
+				// was looking. That text is the chip's own projection — `label` —
+				// resolved against the document when the atom was built. It must not
+				// come from a context-free projector, which has no document and so
+				// would type `#form/[reference needs repair]` into authored prose.
 				//
-				// It must NOT come from the context-free projector. Without a
-				// document that returns `#form/[reference needs repair]`, so this
-				// typed a truncated repair marker into the author's prose and lost the
-				// reference. A repair marker is a display state for a chip; as
-				// authored text it is a string that looks like a reference and can
-				// never resolve.
+				// The label is not always there. `serializedProseReferencePart` writes
+				// only the encoded part, so a chip parsed from that carrier — every
+				// chip in the markdown-backed inline editor — has an empty label. This
+				// convenience simply does not apply to those, and claiming otherwise by
+				// running a bespoke delete would make Backspace destroy a reference on
+				// a surface where it cannot offer the replacement text. Falling through
+				// gives them ProseMirror's ordinary atom deletion: visible, undoable,
+				// and identical to every other inline atom.
 				const label =
 					typeof nodeBefore.attrs.label === "string"
 						? nodeBefore.attrs.label
 						: "";
+				if (label.length === 0) return false;
 				const nodeStart = $anchor.pos - nodeBefore.nodeSize;
 				editor
 					.chain()
 					.focus()
 					.command(({ tr }) => {
 						tr.delete(nodeStart, $anchor.pos);
-						// No label means nothing was ever projected for this chip, so
-						// there is no honest text to leave behind. Removing it is the
-						// truthful outcome; inventing text is not.
-						if (label.length > 0) {
-							tr.insertText(label.slice(0, -1), nodeStart);
-						}
+						tr.insertText(label.slice(0, -1), nodeStart);
 						return true;
 					})
 					.run();
