@@ -3,14 +3,15 @@
 import {
 	act,
 	fireEvent,
-	render,
+	render as rtlRender,
 	screen,
 	waitFor,
 	within,
 } from "@testing-library/react";
-import { useState } from "react";
+import { type ReactElement, type ReactNode, useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { BlueprintDocProvider } from "@/lib/doc/provider";
 import {
 	type CaseListConfig,
 	type CaseType,
@@ -22,6 +23,19 @@ import { prop, term } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
 import { CaseOrderingComposer } from "../SortPriorityStack";
 import { resolveSortedColumns } from "../sortPriority";
+
+// The surfaces here spell authored prose against the document; every production
+// mount sits inside the builder's provider. Wrapping at `render` reproduces it
+// and carries through each `rerender`.
+function DocumentProvider({ children }: { readonly children: ReactNode }) {
+	return (
+		<BlueprintDocProvider appId="test-app">{children}</BlueprintDocProvider>
+	);
+}
+
+function render(ui: ReactElement) {
+	return rtlRender(ui, { wrapper: DocumentProvider });
+}
 
 const session = vi.hoisted(() => ({ canEdit: true }));
 

@@ -7,12 +7,13 @@ import {
 	screen,
 	waitFor,
 } from "@testing-library/react";
-import { useState } from "react";
+import { type ComponentProps, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	activateWithEnter,
 	settleBaseUiTransitions,
 } from "@/__tests__/helpers/baseUiInteractions";
+import { BlueprintDocProvider } from "@/lib/doc/provider";
 import type { CaseType } from "@/lib/domain";
 import {
 	literal,
@@ -21,7 +22,19 @@ import {
 	prop,
 } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
-import { PredicateCardEditor } from "../../PredicateCardEditor";
+import { PredicateCardEditor as ProductionPredicateCardEditor } from "../../PredicateCardEditor";
+
+// The card spells each option's authored label against the document; every
+// production mount sits inside the builder's provider.
+function PredicateCardEditor(
+	props: ComponentProps<typeof ProductionPredicateCardEditor>,
+) {
+	return (
+		<BlueprintDocProvider appId="test-app">
+			<ProductionPredicateCardEditor {...props} />
+		</BlueprintDocProvider>
+	);
+}
 
 const OPTIONS = [
 	{ value: "a", label: proseText("Alpha") },

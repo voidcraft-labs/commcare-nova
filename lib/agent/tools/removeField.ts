@@ -17,7 +17,8 @@
 
 import type { z } from "zod";
 import { countFieldsUnder } from "@/lib/doc/fieldWalk";
-import { type BlueprintDoc, fallbackProseProjection } from "@/lib/domain";
+import type { BlueprintDoc } from "@/lib/domain";
+import { projectProseTemplate } from "@/lib/domain/prose";
 import { removeFieldMutations } from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import {
@@ -65,10 +66,12 @@ export const removeFieldTool = {
 			const formUuid = resolved.formUuid;
 			// Snapshot the human label off the pre-mutation field for the
 			// transcript subject (label-less kinds fall back to the id) — mirrors
-			// the friendly subject addField / editField surface.
+			// the friendly subject addField / editField surface. Projected against
+			// the pre-mutation doc, which is the only one that still holds the
+			// field a label reference may point at.
 			const removedLabel =
 				"label" in resolved.field && resolved.field.label
-					? fallbackProseProjection(resolved.field.label)
+					? projectProseTemplate(resolved.field.label, doc).text
 					: "";
 			const beforeCount = countFieldsUnder(doc, formUuid);
 			const mutations = removeFieldMutations(doc, resolved.field.uuid);

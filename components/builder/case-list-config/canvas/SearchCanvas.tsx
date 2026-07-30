@@ -33,6 +33,7 @@ import {
 } from "@/components/builder/shared/useReorderableList";
 import { Button } from "@/components/shadcn/button";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
+import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import {
 	type CaseProperty,
 	type CaseSearchConfig,
@@ -100,6 +101,7 @@ export function SearchCanvas({
 	searchSettingsHasError = false,
 }: SearchCanvasProps) {
 	const canEdit = useCanEdit();
+	const projectProse = useProseProjection();
 	const containerKey = useId();
 	const [moveAnnouncement, setMoveAnnouncement] = useState("");
 	const panelSelected = selection?.type === "search-panel";
@@ -126,8 +128,8 @@ export function SearchCanvas({
 	const orderedInputs = useMemo(() => [...searchInputs], [searchInputs]);
 
 	const resolved = useMemo(
-		() => resolveRows(orderedInputs, caseTypes, currentCaseType),
-		[orderedInputs, caseTypes, currentCaseType],
+		() => resolveRows(orderedInputs, caseTypes, currentCaseType, projectProse),
+		[orderedInputs, caseTypes, currentCaseType, projectProse],
 	);
 
 	const { pendingDrop } = useReorderableList<SearchInputDef>({
@@ -397,6 +399,7 @@ export function AddSearchFieldControl({
 	readonly onChoose: (property: CaseProperty) => void;
 	readonly disabledReason: string | undefined;
 }) {
+	const projectProse = useProseProjection();
 	const effectiveDisabledReason =
 		disabledReason ??
 		(properties.length === 0
@@ -423,10 +426,14 @@ export function AddSearchFieldControl({
 				const name = property.name;
 				return {
 					id: `property:${name}`,
-					label: propertyDisplayLabel(property),
+					label: propertyDisplayLabel(property, projectProse),
 					detail: [
 						propertyTypeLabel(property),
-						friendlyPropertyDisambiguator(property, orderedProperties),
+						friendlyPropertyDisambiguator(
+							property,
+							orderedProperties,
+							projectProse,
+						),
 					]
 						.filter((part): part is string => part !== undefined)
 						.join(" · "),
@@ -439,7 +446,7 @@ export function AddSearchFieldControl({
 					value: property,
 				};
 			}),
-		[orderedProperties],
+		[orderedProperties, projectProse],
 	);
 
 	if (effectiveDisabledReason !== undefined) {

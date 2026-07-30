@@ -3,15 +3,16 @@
 import {
 	cleanup,
 	fireEvent,
-	render,
+	render as rtlRender,
 	screen,
 	waitFor,
 	within,
 } from "@testing-library/react";
-import { useState } from "react";
+import { type ReactElement, type ReactNode, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { activateWithEnter } from "@/__tests__/helpers/baseUiInteractions";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { BlueprintDocProvider } from "@/lib/doc/provider";
 import type { CaseType } from "@/lib/domain";
 import {
 	ancestorPath,
@@ -32,6 +33,19 @@ import {
 import { proseText } from "@/lib/domain/prose";
 import { comparisonDefault } from "../cards/ComparisonCard";
 import { PredicateWorkbench } from "../PredicateWorkbench";
+
+// The surfaces here spell authored prose against the document; every production
+// mount sits inside the builder's provider. Wrapping at `render` reproduces it
+// and carries through each `rerender`.
+function DocumentProvider({ children }: { readonly children: ReactNode }) {
+	return (
+		<BlueprintDocProvider appId="test-app">{children}</BlueprintDocProvider>
+	);
+}
+
+function render(ui: ReactElement) {
+	return rtlRender(ui, { wrapper: DocumentProvider });
+}
 
 const CASE_TYPES: readonly CaseType[] = [
 	{

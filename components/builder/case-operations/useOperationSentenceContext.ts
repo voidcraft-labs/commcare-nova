@@ -15,10 +15,14 @@ import { useMemo } from "react";
 import type { OperationSentenceContext } from "@/components/builder/case-operations/operationSentence";
 import { useBlueprintDocShallow } from "@/lib/doc/hooks/useBlueprintDoc";
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
-import { fallbackProseProjection, orderedCaseOperations } from "@/lib/domain";
+import { orderedCaseOperations } from "@/lib/domain";
+import { projectProseTemplate } from "@/lib/domain/prose";
+import type { XPathPrintableDoc } from "@/lib/domain/xpath/print";
 
-/** Stable empty stand-in, so the shallow compare holds across notifications. */
+/** Stable empty stand-ins, so the shallow compare holds across notifications. */
 const NO_FIELDS: BlueprintDoc["fields"] = {};
+const NO_FIELD_ORDER: BlueprintDoc["fieldOrder"] = {};
+const NO_FIELD_PARENT: BlueprintDoc["fieldParent"] = {};
 
 /**
  * Resolve operation / repeat / field uuids to the author's own words for
@@ -33,11 +37,22 @@ export function useOperationSentenceContext(
 	 * needs the whole record — but only once a form resolves. A caller that
 	 * holds no form (the rail's hook-order-preserving call while nothing is
 	 * selected) would otherwise subscribe every builder screen to every field
-	 * in the app, and re-render the layout on each keystroke in any label. */
-	const { form, fields } = useBlueprintDocShallow((state) => {
-		const form = formUuid === undefined ? undefined : state.forms[formUuid];
-		return { form, fields: form === undefined ? NO_FIELDS : state.fields };
-	});
+	 * in the app, and re-render the layout on each keystroke in any label.
+	 * The ordering/worker families ride the same guard: a label is prose whose
+	 * references only spell out against them, so they are read together or not
+	 * at all. */
+	const { form, fields, fieldOrder, fieldParent, userProperties } =
+		useBlueprintDocShallow((state) => {
+			const form = formUuid === undefined ? undefined : state.forms[formUuid];
+			const idle = form === undefined;
+			return {
+				form,
+				fields: idle ? NO_FIELDS : state.fields,
+				fieldOrder: idle ? NO_FIELD_ORDER : state.fieldOrder,
+				fieldParent: idle ? NO_FIELD_PARENT : state.fieldParent,
+				userProperties: idle ? undefined : state.userProperties,
+			};
+		});
 
 	return useMemo(() => {
 		const operationNames = new Map(
@@ -46,12 +61,22 @@ export function useOperationSentenceContext(
 				operation.id,
 			]),
 		);
+		const printDoc: XPathPrintableDoc = {
+			fields,
+			fieldOrder,
+			fieldParent,
+			userProperties,
+			forms:
+				form === undefined || formUuid === undefined
+					? {}
+					: { [formUuid]: form },
+		};
 		const labelOf = (uuid: Uuid): string | undefined => {
 			const field = fields[uuid];
 			if (field === undefined) return undefined;
 			const label =
 				"label" in field && field.label
-					? fallbackProseProjection(field.label).trim()
+					? projectProseTemplate(field.label, printDoc).text.trim()
 					: "";
 			return label.length > 0 ? label : field.id;
 		};
@@ -60,5 +85,5 @@ export function useOperationSentenceContext(
 			repeatLabel: labelOf,
 			fieldLabel: labelOf,
 		};
-	}, [form, fields]);
+	}, [form, formUuid, fields, fieldOrder, fieldParent, userProperties]);
 }

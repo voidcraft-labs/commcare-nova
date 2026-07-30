@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import {
-	fallbackProseProjection,
 	ProseProjectionError,
 	type ProseTemplate,
 	printProseTemplate,
 	projectProseTemplate,
+	proseTemplateText,
 	resolveProseTemplate,
 	type XPathPrintableDoc,
 } from "@/lib/domain";
@@ -42,13 +42,19 @@ describe("prose identity projection", () => {
 		});
 	});
 
-	it("never leaks stored identities from a context-free projection", () => {
-		const projected = fallbackProseProjection(TEMPLATE);
-		expect(projected).toBe(
-			"#form/[reference needs repair] / #user/[reference needs repair] / #user/commcare_project",
-		);
+	it("returns the authored text alone, spelling no reference at all", () => {
+		// `proseTemplateText` is not a projection: a reference's spelling only
+		// exists relative to a document, so this returns exactly what the author
+		// typed and skips every reference part. That is stronger than the
+		// context-free projector it replaced, which always emitted SOMETHING for
+		// a reference and so had to invent repair text for the two arms it could
+		// not resolve.
+		const projected = proseTemplateText(TEMPLATE);
+		expect(projected).toBe(" /  / ");
 		expect(projected).not.toContain(FIELD);
 		expect(projected).not.toContain(USER_PROPERTY);
+		expect(projected).not.toContain("#form/");
+		expect(projected).not.toContain("#user/");
 	});
 
 	it("shows repair text to people and fails closed for wire/runtime projection", () => {

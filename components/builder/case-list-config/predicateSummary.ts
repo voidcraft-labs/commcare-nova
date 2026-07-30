@@ -11,12 +11,8 @@
 // value", "a related case exists") rather than leaking AST jargon.
 // The summary is display-only — nothing parses it back.
 
-import {
-	type CaseProperty,
-	type CaseType,
-	fallbackProseProjection,
-	type UserProperty,
-} from "@/lib/domain";
+import type { ProseProjector } from "@/lib/doc/hooks/useProseProjection";
+import type { CaseProperty, CaseType, UserProperty } from "@/lib/domain";
 import type {
 	Literal,
 	Predicate,
@@ -46,6 +42,12 @@ export interface PredicateSummaryContext {
 		UserProperty,
 		"uuid" | "slug" | "label"
 	>[];
+	/** Spells a property or option label's references against the owning
+	 *  document. Required even for a caller whose predicate resolves no
+	 *  property: a summary that reached a label without one would print repair
+	 *  text over a healthy reference, and the reader could not tell that from
+	 *  real damage. */
+	readonly projectProse: ProseProjector;
 }
 
 /**
@@ -56,7 +58,7 @@ export interface PredicateSummaryContext {
  */
 export function summarizeFilter(
 	predicate: Predicate | undefined,
-	context: PredicateSummaryContext = {},
+	context: PredicateSummaryContext,
 ): string | undefined {
 	if (predicate === undefined) return undefined;
 	if (predicate.kind === "match-all") return undefined;
@@ -451,6 +453,7 @@ function choiceLiteralText(
 ): string {
 	const resolved = resolvePropertyRef(propertyRef, context);
 	const property = resolved?.property;
+	const projectProse = context.projectProse;
 	if (
 		property === undefined ||
 		(property.data_type !== "single_select" &&
@@ -463,8 +466,7 @@ function choiceLiteralText(
 	const option = property.options?.find(
 		(candidate) => candidate.value === literal.value,
 	);
-	const optionLabel =
-		option === undefined ? "" : fallbackProseProjection(option.label);
+	const optionLabel = option === undefined ? "" : projectProse(option.label);
 	if (option === undefined || optionLabel === "") {
 		return literalText(literal.value);
 	}
@@ -473,7 +475,7 @@ function choiceLiteralText(
 		property.options?.some(
 			(candidate) =>
 				candidate.value !== option.value &&
-				fallbackProseProjection(candidate.label) === optionLabel,
+				projectProse(candidate.label) === optionLabel,
 		) ?? false;
 	return duplicateLabel
 		? `${optionLabel} (saved as ${option.value})`
@@ -520,10 +522,12 @@ function propertySentenceLabel(
 	const label = propertyDisplayLabelForName(
 		propertyRef.property,
 		resolved.properties,
+		context.projectProse,
 	);
 	const disambiguator = friendlyPropertyDisambiguator(
 		resolved.property,
 		resolved.properties,
+		context.projectProse,
 	);
 	return disambiguator === undefined ? label : `${label} (${disambiguator})`;
 }

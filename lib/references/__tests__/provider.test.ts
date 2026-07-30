@@ -42,6 +42,7 @@ function caseCtx(
 		validPaths: new Set(),
 		reachableCaseTypes: toReachableIndex(
 			reachableCaseTypes(caseType, caseTypes),
+			{ fields: {}, forms: {}, fieldOrder: {} },
 		),
 		formEntries: [],
 		formType,

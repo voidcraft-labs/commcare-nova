@@ -20,16 +20,17 @@
 import {
 	act,
 	fireEvent,
-	render,
+	render as rtlRender,
 	screen,
 	waitFor,
 } from "@testing-library/react";
-import { useState } from "react";
+import { type ReactElement, type ReactNode, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import {
 	activateWithEnter,
 	focusElement,
 } from "@/__tests__/helpers/baseUiInteractions";
+import { BlueprintDocProvider } from "@/lib/doc/provider";
 import type { CaseType } from "@/lib/domain";
 import {
 	ancestorPath,
@@ -64,6 +65,19 @@ import { ExpressionCardEditor } from "../ExpressionCardEditor";
 import { buildValidityIndex, PredicateEditProvider } from "../editorContext";
 import { PredicateCardEditor } from "../PredicateCardEditor";
 import { RelationPathBuilder } from "../primitives/RelationPathBuilder";
+
+// Cards and the path builder spell authored prose — option labels, property
+// names — against the document. Wrapping at `render` reproduces the builder's
+// provider for every surface here.
+function DocumentProvider({ children }: { readonly children: ReactNode }) {
+	return (
+		<BlueprintDocProvider appId="test-app">{children}</BlueprintDocProvider>
+	);
+}
+
+function render(ui: ReactElement) {
+	return rtlRender(ui, { wrapper: DocumentProvider });
+}
 
 const HOUSEHOLD: CaseType = {
 	name: "household",

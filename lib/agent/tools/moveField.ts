@@ -48,7 +48,8 @@ import type { z } from "zod";
 import { fieldSlotAfter } from "@/lib/doc/fieldSlot";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, Field, Uuid } from "@/lib/domain";
-import { fallbackProseProjection, isContainer, uuidSchema } from "@/lib/domain";
+import { isContainer, uuidSchema } from "@/lib/domain";
+import { projectProseTemplate } from "@/lib/domain/prose";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import {
 	guardedMutate,
@@ -285,7 +286,7 @@ export const moveFieldTool = {
 					: "to the end of the form's top level";
 			const label =
 				postField && "label" in postField && postField.label
-					? fallbackProseProjection(postField.label)
+					? projectProseTemplate(postField.label, newDoc).text
 					: "";
 			return {
 				kind: "mutate" as const,

@@ -19,10 +19,10 @@ import {
 } from "@/components/shadcn/dialog";
 import { Skeleton } from "@/components/shadcn/skeleton";
 import {
-	type CaseProperty,
-	type CaseType,
-	fallbackProseProjection,
-} from "@/lib/domain";
+	type ProseProjector,
+	useProseProjection,
+} from "@/lib/doc/hooks/useProseProjection";
+import type { CaseProperty, CaseType } from "@/lib/domain";
 import { caseRowDisplaySourceValue } from "@/lib/preview/engine/caseDataBindingClient";
 import type { JsonValue } from "@/lib/preview/engine/caseDataBindingTypes";
 import { useCaseData } from "@/lib/preview/hooks/useCaseDataBinding";
@@ -38,6 +38,7 @@ import { DATA_TYPE_ICONS, NameChip } from "./NameChip";
 function displayCaseValue(
 	decl: CaseProperty | undefined,
 	raw: JsonValue | Date | undefined,
+	projectProse: ProseProjector,
 ): string {
 	if (raw === undefined || raw === null || raw === "") return "";
 	if (raw instanceof Date) return raw.toISOString();
@@ -45,7 +46,7 @@ function displayCaseValue(
 		const option = decl?.options?.find(
 			(candidate) => candidate.value === value,
 		);
-		return option ? fallbackProseProjection(option.label) : value;
+		return option ? projectProse(option.label) : value;
 	};
 	if (Array.isArray(raw))
 		return raw.map((v) => optionLabel(String(v))).join(", ");
@@ -107,6 +108,7 @@ export function CaseDetailDialog({
 	readonly onClose: () => void;
 }) {
 	const accessPhase = useAccessPhase();
+	const projectProse = useProseProjection();
 	const { state, reload } = useCaseData({
 		appId,
 		caseType: caseType.name,
@@ -139,6 +141,7 @@ export function CaseDetailDialog({
 			value: displayCaseValue(
 				caseNameDecl,
 				caseRowDisplaySourceValue(row, "case_name"),
+				projectProse,
 			),
 		});
 		for (const decl of caseType.properties) {
@@ -150,6 +153,7 @@ export function CaseDetailDialog({
 				value: displayCaseValue(
 					decl,
 					caseRowDisplaySourceValue(row, decl.name),
+					projectProse,
 				),
 			});
 		}
@@ -158,7 +162,11 @@ export function CaseDetailDialog({
 			rows.push({
 				key,
 				decl: undefined,
-				value: displayCaseValue(undefined, caseRowDisplaySourceValue(row, key)),
+				value: displayCaseValue(
+					undefined,
+					caseRowDisplaySourceValue(row, key),
+					projectProse,
+				),
 			});
 		}
 	}

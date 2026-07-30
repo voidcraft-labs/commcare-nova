@@ -10,8 +10,15 @@
 // `onChange` / `onValidityChange`, and how nested errors land on
 // the right card.
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+	fireEvent,
+	render as rtlRender,
+	screen,
+	waitFor,
+} from "@testing-library/react";
+import type { ReactElement, ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
+import { BlueprintDocProvider } from "@/lib/doc/provider";
 import type { CaseType } from "@/lib/domain";
 import {
 	ancestorPath,
@@ -29,6 +36,19 @@ import {
 import { proseText } from "@/lib/domain/prose";
 import { presentCheckErrorForEditor } from "../checkErrorPresentation";
 import { PredicateCardEditor } from "../PredicateCardEditor";
+
+// The surfaces here spell authored prose against the document; every production
+// mount sits inside the builder's provider. Wrapping at `render` reproduces it
+// and carries through each `rerender`.
+function DocumentProvider({ children }: { readonly children: ReactNode }) {
+	return (
+		<BlueprintDocProvider appId="test-app">{children}</BlueprintDocProvider>
+	);
+}
+
+function render(ui: ReactElement) {
+	return rtlRender(ui, { wrapper: DocumentProvider });
+}
 
 // ── Fixtures ───────────────────────────────────────────────────────────
 

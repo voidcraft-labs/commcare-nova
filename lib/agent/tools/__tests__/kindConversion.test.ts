@@ -22,8 +22,8 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc as buildFixtureDoc, f, xp } from "@/lib/__tests__/docHelpers";
 import {
 	type BlueprintDoc,
-	fallbackProseProjection,
 	fieldCaseWrite,
+	proseTemplateText,
 	type SelectOption,
 } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
@@ -346,7 +346,7 @@ describe("editField — demotions", () => {
 		expect(after?.kind).toBe("text");
 		expect(
 			after && "hint" in after && after.hint
-				? fallbackProseProjection(after.hint)
+				? proseTemplateText(after.hint)
 				: undefined,
 		).toBe("scan the vial");
 	});
@@ -378,7 +378,7 @@ describe("editField — demotions", () => {
 		if (!after || !("label" in after) || !after.label) {
 			throw new Error("field label missing");
 		}
-		expect(fallbackProseProjection(after.label)).toBe("Status");
+		expect(proseTemplateText(after.label)).toBe("Status");
 	});
 
 	it("case-bound, declared-type property: the conversion re-declares the data_type in the same batch", async () => {
@@ -460,7 +460,7 @@ describe("editField — demotions", () => {
 		expect(
 			entry?.options?.map((option) => ({
 				value: option.value,
-				label: fallbackProseProjection(option.label),
+				label: proseTemplateText(option.label),
 			})),
 		).toEqual([
 			{ value: "clinic_a", label: "Clinic A" },
@@ -713,7 +713,7 @@ describe("editField — demotions", () => {
 				fld.id === "status" &&
 				"label" in fld &&
 				fld.label !== undefined &&
-				fallbackProseProjection(fld.label) === "Status",
+				proseTemplateText(fld.label) === "Status",
 		);
 		const { ctx } = makeStubToolContext();
 		const result = await editFieldTool.execute(
@@ -828,14 +828,14 @@ describe("editField — demotions", () => {
 				field.id === "score" &&
 				"label" in field &&
 				field.label !== undefined &&
-				fallbackProseProjection(field.label) === "Patient score",
+				proseTemplateText(field.label) === "Patient score",
 		);
 		const targetPeer = Object.values(doc.fields).find(
 			(field) =>
 				field.id === "risk_score" &&
 				"label" in field &&
 				field.label !== undefined &&
-				fallbackProseProjection(field.label) === "Risk score",
+				proseTemplateText(field.label) === "Risk score",
 		);
 		if (!addressed || !targetPeer) throw new Error("fixture fields missing");
 		const patientModule = doc.moduleOrder[0];
@@ -982,7 +982,7 @@ describe("editField — demotions", () => {
 		expect(
 			entry?.options?.map((option) => ({
 				value: option.value,
-				label: fallbackProseProjection(option.label),
+				label: proseTemplateText(option.label),
 			})),
 		).toEqual([
 			{ value: "en", label: "English" },

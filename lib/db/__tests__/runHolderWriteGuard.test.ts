@@ -80,20 +80,43 @@ describe("run-holder write structural guard", () => {
 		// Operator recovery delegates to `recoverAppStatus` rather than issuing its
 		// own DML, so its writes go through the same holder proof as everything else.
 		expect(source("scripts/recover-app.ts")).not.toMatch(appDml);
-		// The frozen pre-canonical repair owns its catalog-row update and exact
-		// manifest-pinned orphan-app deletion; its operator script delegates into
-		// that transaction authority.
+		// The frozen pre-canonical repair owns exactly one catalog-row update and
+		// the manifest-pinned orphan-app deletion; its operator script delegates
+		// into that transaction authority.
 		const frozenRepair = source(
 			"lib/case-store/migrations/20260728000000_canonical_identity_foundation/frozenDatabaseRepair.ts",
 		);
-		expect(frozenRepair.match(/\bUPDATE apps\b/g)?.length).toBe(2);
+		expect(frozenRepair.match(/\bUPDATE apps\b/g)?.length).toBe(1);
 		expect(frozenRepair.match(/\bDELETE FROM apps\b/g)?.length).toBe(1);
+		// It writes NO history, and that is the design rather than an omission:
+		// `app_changes` and `app_change_fold_baselines` do not exist yet when the
+		// repair runs — the canonical migration creates them, renaming
+		// `accepted_mutations` on the way — so there is nothing to append to. The
+		// migration's own per-app Project-bearing fold baseline then captures the
+		// already-repaired rows, which is what lets the fold still terminate at
+		// the exact current state. Appending a mutation batch here would put a
+		// change in the durable log that no author made.
+		expect(frozenRepair).not.toMatch(/\binsert\b/i);
 		expect(
 			source("scripts/repair-canonical-identity-foundation.ts"),
 		).not.toMatch(appDml);
 		expect(
 			source("lib/db/apps.ts").match(new RegExp(appDml, "g"))?.length,
-		).toBe(17);
+		).toBe(18);
+		// The eighteenth site is `writeProjectMoveChange`. A bare count would let
+		// a future writer drop its fence and still pass, so pin the fence itself:
+		// the Project move is a compare-and-set on BOTH the source Project and the
+		// prior head, and it throws rather than reporting success when either has
+		// moved underneath.
+		const projectMove = exportedFunction(
+			"lib/db/apps.ts",
+			"writeProjectMoveChange",
+		);
+		expect(projectMove).toContain(
+			'.where("project_id", "=", args.fromProjectId)',
+		);
+		expect(projectMove).toContain('.where("mutation_seq", "=", args.seq - 1)');
+		expect(projectMove).toContain("app source/head changed");
 		expect(
 			source("lib/db/credits.ts").match(new RegExp(appDml, "g"))?.length,
 		).toBe(5);

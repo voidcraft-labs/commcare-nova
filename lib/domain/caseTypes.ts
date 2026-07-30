@@ -8,7 +8,8 @@ import type { CaseProperty, CaseType } from "./blueprint";
 import type { CasePropertyDataType } from "./casePropertyTypes";
 import type { CaseWrite, FieldKind } from "./fields";
 import type { FormType } from "./forms";
-import { fallbackProseProjection } from "./prose";
+import { projectProseTemplate } from "./prose";
+import type { XPathPrintableDoc } from "./xpath/print";
 
 /**
  * The case-property `data_type` a field of the given kind writes.
@@ -197,16 +198,21 @@ export type ReachableCaseTypeIndex = Map<
  *  property of every type: it's a system property of every case (the loaded
  *  case's id), addressable as `#<type>/case_id`, so resolve / validate /
  *  autocomplete all see it uniformly even though the case-type record never
- *  declares it. A declared `case_id` (rare) keeps its own label. */
+ *  declares it. A declared `case_id` (rare) keeps its own label.
+ *
+ *  `doc` is what a catalog label's worker-property references are spelled
+ *  against — the label reaches a person as the autocomplete's `detail` line and
+ *  as a case chip's title. */
 export function toReachableIndex(
 	reachable: ReachableCaseType[],
+	doc: XPathPrintableDoc,
 ): ReachableCaseTypeIndex {
 	const index: ReachableCaseTypeIndex = new Map();
 	for (const t of reachable) {
 		const properties = new Map(
 			t.properties.map((p) => [
 				p.name,
-				{ label: fallbackProseProjection(p.label) },
+				{ label: projectProseTemplate(p.label, doc).text },
 			]),
 		);
 		if (!properties.has("case_id"))

@@ -9,7 +9,11 @@ import {
 	toReachableIndex,
 } from "../caseTypes";
 import type { FieldKind } from "../fields";
+import type { XPathPrintableDoc } from "../xpath/print";
 
+/** These fixtures label every property with literal prose, so an empty
+ *  document resolves everything they reference (nothing). */
+const EMPTY_DOC: XPathPrintableDoc = { fields: {}, forms: {}, fieldOrder: {} };
 const prop = (name: string) => ({ name, label: proseText(name) });
 const TYPES: CaseType[] = [
 	{ name: "mother", properties: [prop("case_name"), prop("household_code")] },
@@ -74,7 +78,10 @@ describe("reachableCaseTypes — own + ancestors, depth = parent-index hops", ()
 
 describe("toReachableIndex — seeds case_id on every type", () => {
 	it("adds case_id (label 'case id') even though no record declares it", () => {
-		const index = toReachableIndex(reachableCaseTypes("pregnancy", TYPES));
+		const index = toReachableIndex(
+			reachableCaseTypes("pregnancy", TYPES),
+			EMPTY_DOC,
+		);
 		expect(index.get("pregnancy")?.properties.get("case_id")).toEqual({
 			label: "case id",
 		});
@@ -92,7 +99,10 @@ describe("toReachableIndex — seeds case_id on every type", () => {
 				properties: [{ name: "case_id", label: proseText("Custom") }],
 			},
 		];
-		const index = toReachableIndex(reachableCaseTypes("x", declared));
+		const index = toReachableIndex(
+			reachableCaseTypes("x", declared),
+			EMPTY_DOC,
+		);
 		expect(index.get("x")?.properties.get("case_id")).toEqual({
 			label: "Custom",
 		});
@@ -101,14 +111,20 @@ describe("toReachableIndex — seeds case_id on every type", () => {
 
 describe("caseRefAcceptMap — form-type narrowing", () => {
 	it("narrows a registration form to the own type's case_id only", () => {
-		const index = toReachableIndex(reachableCaseTypes("pregnancy", TYPES));
+		const index = toReachableIndex(
+			reachableCaseTypes("pregnancy", TYPES),
+			EMPTY_DOC,
+		);
 		const accept = caseRefAcceptMap(index, "registration");
 		expect([...accept.keys()]).toEqual(["pregnancy"]);
 		expect([...(accept.get("pregnancy") ?? [])]).toEqual(["case_id"]);
 	});
 
 	it("exposes every reachable type's full property set on followup", () => {
-		const index = toReachableIndex(reachableCaseTypes("pregnancy", TYPES));
+		const index = toReachableIndex(
+			reachableCaseTypes("pregnancy", TYPES),
+			EMPTY_DOC,
+		);
 		const accept = caseRefAcceptMap(index, "followup");
 		expect([...(accept.get("pregnancy") ?? [])].sort()).toEqual([
 			"case_id",
@@ -123,7 +139,10 @@ describe("caseRefAcceptMap — form-type narrowing", () => {
 	});
 
 	it("exposes the same full property set on close (a followup superset)", () => {
-		const index = toReachableIndex(reachableCaseTypes("pregnancy", TYPES));
+		const index = toReachableIndex(
+			reachableCaseTypes("pregnancy", TYPES),
+			EMPTY_DOC,
+		);
 		const accept = caseRefAcceptMap(index, "close");
 		expect([...(accept.get("mother") ?? [])].sort()).toEqual([
 			"case_id",
@@ -138,7 +157,10 @@ describe("caseRefAcceptMap — form-type narrowing", () => {
 		// empty. The accept map is empty even when the module HAS a case type
 		// (a survey sharing a case-typed module), so the validator / linter /
 		// autocomplete all reject case refs on it.
-		const index = toReachableIndex(reachableCaseTypes("pregnancy", TYPES));
+		const index = toReachableIndex(
+			reachableCaseTypes("pregnancy", TYPES),
+			EMPTY_DOC,
+		);
 		const accept = caseRefAcceptMap(index, "survey");
 		expect(accept.size).toBe(0);
 	});

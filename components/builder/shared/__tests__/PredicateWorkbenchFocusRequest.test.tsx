@@ -1,8 +1,10 @@
 // @vitest-environment happy-dom
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { render as rtlRender, screen, waitFor } from "@testing-library/react";
+import type { ReactElement, ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { BlueprintDocProvider } from "@/lib/doc/provider";
 import type { CaseType } from "@/lib/domain";
 import {
 	and,
@@ -14,6 +16,19 @@ import {
 } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
 import { PredicateWorkbench } from "../PredicateWorkbench";
+
+// The surfaces here spell authored prose against the document; every production
+// mount sits inside the builder's provider. Wrapping at `render` reproduces it
+// and carries through each `rerender`.
+function DocumentProvider({ children }: { readonly children: ReactNode }) {
+	return (
+		<BlueprintDocProvider appId="test-app">{children}</BlueprintDocProvider>
+	);
+}
+
+function render(ui: ReactElement) {
+	return rtlRender(ui, { wrapper: DocumentProvider });
+}
 
 const caseTypes: readonly CaseType[] = [
 	{

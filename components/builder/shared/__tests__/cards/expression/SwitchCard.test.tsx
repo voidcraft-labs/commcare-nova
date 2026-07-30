@@ -7,12 +7,13 @@
 // and `fallback` slots stay structurally fixed.
 
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { useState } from "react";
+import { type ComponentProps, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import {
 	focusElement,
 	settleBaseUiTransitions,
 } from "@/__tests__/helpers/baseUiInteractions";
+import { BlueprintDocProvider } from "@/lib/doc/provider";
 import type { CaseType } from "@/lib/domain";
 import {
 	type CheckError,
@@ -27,7 +28,19 @@ import {
 	type ValueExpression,
 } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
-import { ExpressionCardEditor } from "../../../ExpressionCardEditor";
+import { ExpressionCardEditor as ProductionExpressionCardEditor } from "../../../ExpressionCardEditor";
+
+// The card spells the discriminator's authored label against the document;
+// every production mount sits inside the builder's provider.
+function ExpressionCardEditor(
+	props: ComponentProps<typeof ProductionExpressionCardEditor>,
+) {
+	return (
+		<BlueprintDocProvider appId="test-app">
+			<ProductionExpressionCardEditor {...props} />
+		</BlueprintDocProvider>
+	);
+}
 
 const PATIENT: CaseType = {
 	name: "patient",

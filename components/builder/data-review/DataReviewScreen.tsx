@@ -58,12 +58,12 @@ import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { useProjectToast } from "@/lib/collab/useProjectToast";
 import { useMaterializableCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useModule } from "@/lib/doc/hooks/useEntity";
+import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import type { Uuid } from "@/lib/doc/types";
-import {
-	type CaseProperty,
-	type CasePropertyDataType,
-	fallbackProseProjection,
-	type ProseTemplate,
+import type {
+	CaseProperty,
+	CasePropertyDataType,
+	ProseTemplate,
 } from "@/lib/domain";
 import { viewerTimeZone } from "@/lib/preview/engine/caseDataBindingClient";
 import type {
@@ -863,6 +863,7 @@ function ReplacementInput({
 	readonly onDraftChange: (next: ReplaceDraft) => void;
 }) {
 	const checkboxIdBase = useId();
+	const projectProse = useProseProjection();
 	const setText = (text: string) =>
 		onDraftChange({ ...draft, text, failures: null });
 
@@ -944,7 +945,7 @@ function ReplacementInput({
 					<SelectContent>
 						{options.map((option) => (
 							<SelectItem key={option.value} value={option.value}>
-								{fallbackProseProjection(option.label)}
+								{projectProse(option.label)}
 							</SelectItem>
 						))}
 					</SelectContent>
@@ -978,7 +979,7 @@ function ReplacementInput({
 										})
 									}
 								/>
-								{fallbackProseProjection(option.label)}
+								{projectProse(option.label)}
 							</label>
 						);
 					})}

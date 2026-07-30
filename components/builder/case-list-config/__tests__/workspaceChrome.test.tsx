@@ -2,15 +2,17 @@
 
 import {
 	fireEvent,
-	render,
+	render as rtlRender,
 	screen,
 	waitFor,
 	within,
 } from "@testing-library/react";
+import type { ReactElement, ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { settleBaseUiTransitions } from "@/__tests__/helpers/baseUiInteractions";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
+import { BlueprintDocProvider } from "@/lib/doc/provider";
 import {
 	advancedSearchInputDef,
 	type CaseProperty,
@@ -50,6 +52,20 @@ import { SearchCanvas } from "../canvas/SearchCanvas";
 import { SearchConditionCanvas } from "../canvas/SearchConditionCanvas";
 import { SearchInputEditor } from "../inspector/SearchInputEditor";
 import { SearchPanelInspectorBody } from "../inspector/SearchPanelInspectorBody";
+
+// Every surface on this canvas spells authored prose — an information label, a
+// field name, a saved condition — against the document. Wrapping at `render`
+// rather than per component reproduces the builder's provider for the whole
+// workspace, and carries through each `rerender`.
+function DocumentProvider({ children }: { readonly children: ReactNode }) {
+	return (
+		<BlueprintDocProvider appId="test-app">{children}</BlueprintDocProvider>
+	);
+}
+
+function render(ui: ReactElement) {
+	return rtlRender(ui, { wrapper: DocumentProvider });
+}
 
 const session = vi.hoisted(() => ({ canEdit: true }));
 

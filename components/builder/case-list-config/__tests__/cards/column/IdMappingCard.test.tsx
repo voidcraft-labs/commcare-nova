@@ -20,10 +20,16 @@
 // Each operation routes through `idMappingColumn(...)` so the
 // emitted Column always parses through `columnSchema`.
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { useState } from "react";
+import {
+	fireEvent,
+	render as rtlRender,
+	screen,
+	waitFor,
+} from "@testing-library/react";
+import { type ReactElement, type ReactNode, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { BlueprintDocProvider } from "@/lib/doc/provider";
 import {
 	type CaseType,
 	type Column,
@@ -33,6 +39,19 @@ import {
 } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import { ColumnEditor } from "../../../ColumnEditor";
+
+// The surfaces here spell authored prose against the document; every production
+// mount sits inside the builder's provider. Wrapping at `render` reproduces it
+// and carries through each `rerender`.
+function DocumentProvider({ children }: { readonly children: ReactNode }) {
+	return (
+		<BlueprintDocProvider appId="test-app">{children}</BlueprintDocProvider>
+	);
+}
+
+function render(ui: ReactElement) {
+	return rtlRender(ui, { wrapper: DocumentProvider });
+}
 
 const TEST_UUID = testUuid("00000000-0000-0000-0000-000000000001");
 

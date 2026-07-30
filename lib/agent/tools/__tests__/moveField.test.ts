@@ -20,7 +20,7 @@ import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import type { PreparedMutationCandidate } from "@/lib/doc/commitVerdicts";
 import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
-import { fallbackProseProjection, proseText } from "@/lib/domain/prose";
+import { proseTemplateText, proseText } from "@/lib/domain/prose";
 import { makeStubToolContext } from "../../__tests__/fixtures";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { applyToDoc } from "../common";
@@ -278,7 +278,7 @@ describe("moveField — parentUuid placement", () => {
 				fld.id === "dup" &&
 				"label" in fld &&
 				fld.label !== undefined &&
-				fallbackProseProjection(fld.label) === "Nested dup",
+				proseTemplateText(fld.label) === "Nested dup",
 		);
 		if (!nested) throw new Error("fixture field missing");
 		const result = await moveFieldTool.execute(

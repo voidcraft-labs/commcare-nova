@@ -7,16 +7,17 @@ import { proseText } from "@/lib/domain/prose";
 import {
 	act,
 	fireEvent,
-	render,
+	render as rtlRender,
 	screen,
 	waitFor,
 } from "@testing-library/react";
 import { produce } from "immer";
-import { type ReactNode, StrictMode } from "react";
+import { type ReactElement, type ReactNode, StrictMode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { applyMutations as replayMutations } from "@/lib/doc/mutations";
+import { BlueprintDocProvider } from "@/lib/doc/provider";
 import type { Mutation } from "@/lib/doc/types";
 import {
 	advancedSearchInputDef,
@@ -52,6 +53,19 @@ import {
 	useCaseListWorkspace,
 } from "../CaseListConfigWorkspace";
 import { searchInputRemovalDependencies } from "../searchInputRemovalDependencies";
+
+// The surfaces here spell authored prose against the document; every production
+// mount sits inside the builder's provider. Wrapping at `render` reproduces it
+// and carries through each `rerender`.
+function DocumentProvider({ children }: { readonly children: ReactNode }) {
+	return (
+		<BlueprintDocProvider appId="test-app">{children}</BlueprintDocProvider>
+	);
+}
+
+function render(ui: ReactElement) {
+	return rtlRender(ui, { wrapper: DocumentProvider });
+}
 
 interface MutableWorkspaceModule {
 	uuid: ReturnType<typeof testUuid>;

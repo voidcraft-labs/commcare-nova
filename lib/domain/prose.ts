@@ -137,30 +137,18 @@ export function proseTemplateIsEmpty(
  * repair marker when a compact caller has no document, never a guessed name or
  * stored UUID.
  */
-export function fallbackProseProjection(template: ProseTemplate): string {
+/**
+ * The literal text an author typed, with every reference part skipped.
+ *
+ * This is NOT a projection: a reference's current spelling only exists relative
+ * to a document, so anything user-visible goes through `projectProseTemplate`.
+ * This is for search indexing, sort keys, and comparisons, where matching what
+ * was typed is the point and inventing a rendered spelling would be wrong.
+ */
+export function proseTemplateText(template: ProseTemplate): string {
 	let out = "";
 	for (const part of template.parts) {
-		switch (part.kind) {
-			case "text":
-				out += part.text;
-				break;
-			case "field-ref":
-				out += "#form/[reference needs repair]";
-				break;
-			case "case-ref":
-				out += `#${part.caseType}/${part.property}`;
-				break;
-			case "user-property-ref":
-				out += "#user/[reference needs repair]";
-				break;
-			case "user-ref":
-				out += `#user/${part.property}`;
-				break;
-			default: {
-				const _exhaustive: never = part;
-				break;
-			}
-		}
+		if (part.kind === "text") out += part.text;
 	}
 	return out;
 }

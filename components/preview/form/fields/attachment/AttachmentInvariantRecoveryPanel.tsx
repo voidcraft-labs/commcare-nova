@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useFieldsAndOrder } from "@/lib/doc/hooks/useFieldsAndOrder";
-import { fallbackProseProjection, fieldRegistry } from "@/lib/domain";
+import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
+import { fieldRegistry } from "@/lib/domain";
 import {
 	discardAttachmentInvariantRecovery,
 	listAttachmentInvariantRecoveries,
@@ -26,6 +27,7 @@ export function AttachmentInvariantRecoveryPanel({
 	readonly entryKey: string;
 }) {
 	const { fields } = useFieldsAndOrder();
+	const projectProse = useProseProjection();
 	const writeAuthority = useAttachmentEntryWriteAuthority(entryKey);
 	const [, setRevision] = useState(0);
 	useEffect(
@@ -49,13 +51,11 @@ export function AttachmentInvariantRecoveryPanel({
 			<ul className="mt-3 space-y-3">
 				{recoveries.map((recovery) => {
 					const field = fields[recovery.fieldUuid];
-					const authoredLabel =
-						field !== undefined &&
-						"label" in field &&
-						field.label &&
-						fallbackProseProjection(field.label).trim().length > 0
-							? fallbackProseProjection(field.label).trim()
-							: undefined;
+					const authored =
+						field !== undefined && "label" in field && field.label
+							? projectProse(field.label).trim()
+							: "";
+					const authoredLabel = authored.length > 0 ? authored : undefined;
 					const question =
 						authoredLabel ??
 						(field === undefined

@@ -3,14 +3,16 @@
 import {
 	act,
 	fireEvent,
-	render,
+	render as rtlRender,
 	screen,
 	waitFor,
 } from "@testing-library/react";
+import type { ReactElement, ReactNode } from "react";
 import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import { settleBaseUiTransitions } from "@/__tests__/helpers/baseUiInteractions";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
+import { BlueprintDocProvider } from "@/lib/doc/provider";
 import type {
 	CaseListConfig,
 	CaseSearchConfig,
@@ -49,7 +51,10 @@ import { CaseAvailabilityComposer } from "../canvas/CaseAvailabilityComposer";
 const docApi = vi.hoisted(() => ({ getState: () => ({}) }));
 const permissions = vi.hoisted(() => ({ canEdit: true }));
 
-vi.mock("@/lib/doc/hooks/useBlueprintDoc", () => ({
+// The composer spells a saved condition's authored prose against the document,
+// so it needs the real projection hook alongside the imperative-api stub.
+vi.mock("@/lib/doc/hooks/useBlueprintDoc", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@/lib/doc/hooks/useBlueprintDoc")>()),
 	useBlueprintDocApi: () => docApi,
 }));
 
@@ -69,6 +74,17 @@ vi.mock("@/lib/session/hooks", () => ({
 	useCanEdit: () => permissions.canEdit,
 	useProjectScopeEpoch: () => 0,
 }));
+
+// The composer and the workbench both spell a saved condition's authored prose
+// against the document. Wrapping at `render` reproduces the builder's provider
+// for every surface here, and carries through each `rerender`.
+function DocumentProvider({ children }: { readonly children: ReactNode }) {
+	return <BlueprintDocProvider appId="app-1">{children}</BlueprintDocProvider>;
+}
+
+function render(ui: ReactElement) {
+	return rtlRender(ui, { wrapper: DocumentProvider });
+}
 
 const CASE_TYPES: CaseType[] = [
 	{

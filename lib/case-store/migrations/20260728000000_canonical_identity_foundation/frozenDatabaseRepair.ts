@@ -995,14 +995,22 @@ async function inspectFrozenRepairState<DB>(
 				[canonicalIdentityDigest(snapshot.appId), snapshot] as const,
 		),
 	);
+	// Only that each repaired document plans cleanly. It must NOT also demand
+	// `beforeDigest === afterDigest`: that says "the canonical migration is a
+	// no-op on this document", which is a property of the migrated era asserted
+	// inside a pre-migration audit. It is reliably false on real data —
+	// `case_property_on` is a live persisted key, and the transform rewrites
+	// every field carrying one — so requiring it made the applied-state rerun
+	// throw, which is exactly the audit a retried cutover depends on.
+	//
+	// The `expectedAfter` loop below is what actually proves the applied state,
+	// and it compares against a pre-canonical digest, so the two belong to the
+	// same era.
 	let resultRowsExact =
 		invalidProjectApps.length === 0 &&
-		snapshots.every((snapshot) => {
-			const plan = planCanonicalAppMigration(snapshot);
-			return (
-				plan.findings.length === 0 && plan.beforeDigest === plan.afterDigest
-			);
-		});
+		snapshots.every(
+			(snapshot) => planCanonicalAppMigration(snapshot).findings.length === 0,
+		);
 	if (resultRowsExact) {
 		for (const [appDigest, afterDigest] of expectedAfter) {
 			const snapshot = snapshotByDigest.get(appDigest);

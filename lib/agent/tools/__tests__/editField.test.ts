@@ -16,7 +16,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import type { BlueprintDoc, Field, Form, Module } from "@/lib/domain";
-import { fallbackProseProjection, proseText } from "@/lib/domain/prose";
+import { proseTemplateText, proseText } from "@/lib/domain/prose";
 import {
 	makeMcpTestContext,
 	makeStubToolContext,
@@ -75,7 +75,7 @@ function makeDoc(help?: string): BlueprintDoc {
 function helpOf(doc: BlueprintDoc): string | undefined {
 	const field = doc.fields[FIELD];
 	return field && "help" in field && field.help
-		? fallbackProseProjection(field.help)
+		? proseTemplateText(field.help)
 		: undefined;
 }
 

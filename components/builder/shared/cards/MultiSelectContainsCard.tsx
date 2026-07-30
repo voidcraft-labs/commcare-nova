@@ -25,7 +25,8 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/shadcn/dropdown-menu";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
-import { type CaseProperty, fallbackProseProjection } from "@/lib/domain";
+import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
+import type { CaseProperty } from "@/lib/domain";
 import {
 	type Literal,
 	literal,
@@ -86,6 +87,7 @@ export function MultiSelectContainsCard({
 	path,
 }: MultiSelectContainsCardProps) {
 	const ctx = usePredicateEditContext();
+	const projectProse = useProseProjection();
 	const propertyErrors = useEditorErrorsAt(appendSlot(path, "property"));
 	const rowIdentity = useStableListIdentity(value.values);
 
@@ -101,7 +103,7 @@ export function MultiSelectContainsCard({
 	const allOptions =
 		property?.options?.map((option) => ({
 			value: option.value,
-			label: fallbackProseProjection(option.label),
+			label: projectProse(option.label),
 		})) ?? [];
 	const selectedValues = new Set<string>(
 		value.values

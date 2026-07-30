@@ -20,6 +20,7 @@ import tablerCalendar from "@iconify-icons/tabler/calendar";
 import tablerCalendarStats from "@iconify-icons/tabler/calendar-stats";
 import tablerSearch from "@iconify-icons/tabler/search";
 import { propertyDisplayLabel } from "@/components/builder/shared/primitives/propertyDisplay";
+import type { ProseProjector } from "@/lib/doc/hooks/useProseProjection";
 import {
 	applicableSearchModes,
 	type CaseProperty,
@@ -230,6 +231,7 @@ export function resolveRows(
 	value: readonly SearchInputDef[],
 	caseTypes: readonly CaseType[],
 	currentCaseType: string,
+	project: ProseProjector,
 ): readonly ResolvedRow[] {
 	const firstIndexByName = new Map<string, number>();
 	for (let i = 0; i < value.length; i++) {
@@ -268,7 +270,7 @@ export function resolveRows(
 					),
 				};
 			}
-			typeCouplingErrors = computeTypeCouplingErrors(row, property);
+			typeCouplingErrors = computeTypeCouplingErrors(row, property, project);
 		}
 
 		return {
@@ -340,6 +342,7 @@ export function resolveDestinationCaseType(
 export function computeTypeCouplingErrors(
 	row: SimpleSearchInputDef,
 	property: CaseProperty | undefined,
+	project: ProseProjector,
 ): readonly string[] {
 	const errors: string[] = [];
 
@@ -364,7 +367,7 @@ export function computeTypeCouplingErrors(
 	const typeAllowList = SEARCH_INPUT_TYPE_PROPERTY_TYPES[row.type];
 	if (typeAllowList !== undefined && !typeAllowList.includes(dataType)) {
 		errors.push(
-			`${SEARCH_INPUT_TYPE_LABELS[row.type]} can’t search ${propertyDisplayLabel(property)}. Choose ${friendlyPropertyTypes(typeAllowList)} information.`,
+			`${SEARCH_INPUT_TYPE_LABELS[row.type]} can’t search ${propertyDisplayLabel(property, project)}. Choose ${friendlyPropertyTypes(typeAllowList)} information.`,
 		);
 	}
 
@@ -372,7 +375,7 @@ export function computeTypeCouplingErrors(
 		const modeAllowList = SEARCH_MODE_PROPERTY_TYPES[row.mode.kind];
 		if (modeAllowList !== undefined && !modeAllowList.includes(dataType)) {
 			errors.push(
-				`“${SEARCH_MODE_LABELS[row.mode.kind]}” can’t match ${propertyDisplayLabel(property)}. Choose ${friendlyPropertyTypes(modeAllowList)} information.`,
+				`“${SEARCH_MODE_LABELS[row.mode.kind]}” can’t match ${propertyDisplayLabel(property, project)}. Choose ${friendlyPropertyTypes(modeAllowList)} information.`,
 			);
 		}
 	}

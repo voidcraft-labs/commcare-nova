@@ -231,7 +231,10 @@ describe("canonical picker order", () => {
 	};
 
 	it("orders answer, repeat, and identity-key choices at every hierarchy level", () => {
-		const entries = formFieldEntriesFor(fields, fieldOrder, FORM);
+		const entries = formFieldEntriesFor(
+			{ fields, fieldOrder, forms: { [FORM]: {} } },
+			FORM,
+		);
 
 		expect(uuids(entries)).toEqual([ROOT_A, ROOT_B, REPEAT, CHILD_B, CHILD_A]);
 		expect(uuids(operationFormFieldDecls(entries, undefined))).toEqual([

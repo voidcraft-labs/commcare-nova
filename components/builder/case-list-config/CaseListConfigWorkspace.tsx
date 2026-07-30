@@ -72,6 +72,7 @@ import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useEffectiveCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useCaseWorkspaceBoundaryVerdicts } from "@/lib/doc/hooks/useCaseWorkspaceVerdicts";
 import { useModule } from "@/lib/doc/hooks/useEntity";
+import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import { useUserProperties } from "@/lib/doc/hooks/useUserCollections";
 import { searchInputUpdateMutation } from "@/lib/doc/searchInputMutations";
 import type { Mutation, Uuid } from "@/lib/doc/types";
@@ -382,6 +383,7 @@ function useController(
 	 * commit gate validates against (see the hook doc). */
 	const caseTypes = useEffectiveCaseTypes();
 	const userProperties = useUserProperties();
+	const projectProse = useProseProjection();
 	const navigate = useNavigate();
 	const { moveColumnOnSurface, moveSearchInputToIndex, commitMany, inline } =
 		useBlueprintMutations();
@@ -704,12 +706,19 @@ function useController(
 	} = useMemo(
 		() =>
 			caseType !== undefined
-				? caseListConfigVerdicts(config, caseTypes, caseType, {
+				? caseListConfigVerdicts(config, caseTypes, caseType, projectProse, {
 						caseSearchEnabled: effectiveSearchConfig !== undefined,
 						boundary: boundaryVerdicts,
 					})
 				: EMPTY_VERDICTS,
-		[boundaryVerdicts, config, caseTypes, caseType, effectiveSearchConfig],
+		[
+			boundaryVerdicts,
+			config,
+			caseTypes,
+			caseType,
+			effectiveSearchConfig,
+			projectProse,
+		],
 	);
 
 	// ── Mutators ──
@@ -883,6 +892,7 @@ function useController(
 			surface,
 			seedColumnForProperty(
 				property,
+				projectProse,
 				surface === "list"
 					? { visibleInDetail: false }
 					: { visibleInList: false },
@@ -1167,7 +1177,7 @@ function useController(
 		// The canvas owns the meaningful choice. This layer carries it into a
 		// working input with a unique internal name, a matching widget, and the
 		// established per-type match default.
-		const seed = seedSearchInputForProperty(config, property);
+		const seed = seedSearchInputForProperty(config, property, projectProse);
 		const retainedModuleUuid = requireRetainedModuleUuid(moduleUuid);
 		const outcome = commitMany([
 			enableCaseSearchMutation(retainedModuleUuid, searchConfig),

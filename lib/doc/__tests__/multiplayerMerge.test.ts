@@ -48,8 +48,8 @@ import {
 	calculatedColumn,
 	emptyCaseListConfig,
 	type Field,
-	fallbackProseProjection,
 	fieldCaseWrite,
+	proseTemplateText,
 	simpleSearchInputDef,
 } from "@/lib/domain";
 import { input, literal, term } from "@/lib/domain/predicate";
@@ -797,8 +797,8 @@ describe("disjoint collection edits merge", () => {
 		if (!redLabel || !greenLabel) {
 			throw new Error("expected both concurrently updated options");
 		}
-		expect(fallbackProseProjection(redLabel)).toBe("Crimson");
-		expect(fallbackProseProjection(greenLabel)).toBe("Emerald");
+		expect(proseTemplateText(redLabel)).toBe("Crimson");
+		expect(proseTemplateText(greenLabel)).toBe("Emerald");
 	});
 
 	it("removeOption below two options is gate-rejected (SELECT_TOO_FEW_OPTIONS)", () => {
@@ -1392,7 +1392,7 @@ describe("diff round-trip — granular edits", () => {
 			throw new Error("missing inline color options");
 		}
 		const opts = color.optionsSource.options.map((option) =>
-			fallbackProseProjection(option.label),
+			proseTemplateText(option.label),
 		);
 		expect(opts).toContain("Emerald");
 	});

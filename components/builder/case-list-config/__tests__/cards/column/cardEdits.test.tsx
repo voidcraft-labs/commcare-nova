@@ -20,9 +20,11 @@
 // preset switching is covered by `CustomDatePatternInput.test.tsx`
 // at the primitive level.
 
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render as rtlRender, screen } from "@testing-library/react";
+import type { ReactElement, ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { BlueprintDocProvider } from "@/lib/doc/provider";
 import {
 	type CaseType,
 	type Column,
@@ -38,6 +40,19 @@ import {
 import { literal, term } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
 import { ColumnEditor } from "../../../ColumnEditor";
+
+// The surfaces here spell authored prose against the document; every production
+// mount sits inside the builder's provider. Wrapping at `render` reproduces it
+// and carries through each `rerender`.
+function DocumentProvider({ children }: { readonly children: ReactNode }) {
+	return (
+		<BlueprintDocProvider appId="test-app">{children}</BlueprintDocProvider>
+	);
+}
+
+function render(ui: ReactElement) {
+	return rtlRender(ui, { wrapper: DocumentProvider });
+}
 
 const PATIENT: CaseType = {
 	name: "patient",

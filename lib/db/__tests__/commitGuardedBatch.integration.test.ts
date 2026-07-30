@@ -43,8 +43,8 @@ import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import type { Mutation } from "@/lib/doc/types";
 import {
 	type BlueprintDoc,
-	fallbackProseProjection,
 	type MediaAssetId,
+	proseTemplateText,
 	type Uuid,
 } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
@@ -403,7 +403,7 @@ describe("commitGuardedBatch (Postgres)", () => {
 			village &&
 				"label" in village &&
 				village.label !== undefined &&
-				fallbackProseProjection(village.label),
+				proseTemplateText(village.label),
 		).toBe("Home village");
 
 		// The app row advanced its counter.
@@ -467,7 +467,7 @@ describe("commitGuardedBatch (Postgres)", () => {
 			village &&
 				"label" in village &&
 				village.label !== undefined &&
-				fallbackProseProjection(village.label),
+				proseTemplateText(village.label),
 		).toBe("Reassembled");
 		expect(reloaded?.mutation_seq).toBe(result.seq);
 	});
@@ -532,7 +532,7 @@ describe("commitGuardedBatch (Postgres)", () => {
 			village &&
 				"label" in village &&
 				village.label !== undefined &&
-				fallbackProseProjection(village.label),
+				proseTemplateText(village.label),
 		).toBe("Home village");
 	});
 
@@ -764,7 +764,7 @@ describe("commitGuardedBatch (Postgres)", () => {
 			village &&
 				"label" in village &&
 				village.label !== undefined &&
-				fallbackProseProjection(village.label),
+				proseTemplateText(village.label),
 		).toBe("Village");
 	});
 
@@ -818,7 +818,7 @@ describe("commitGuardedBatch (Postgres)", () => {
 			village &&
 				"label" in village &&
 				village.label !== undefined &&
-				fallbackProseProjection(village.label),
+				proseTemplateText(village.label),
 		).toBe("Village");
 	});
 
@@ -1039,7 +1039,7 @@ describe("commitGuardedBatch (Postgres)", () => {
 			village &&
 				"label" in village &&
 				village.label !== undefined &&
-				fallbackProseProjection(village.label),
+				proseTemplateText(village.label),
 		).toBe("Home village");
 	});
 

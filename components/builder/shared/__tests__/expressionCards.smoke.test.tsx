@@ -13,6 +13,7 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { BlueprintDocProvider } from "@/lib/doc/provider";
 import {
 	type CaseType,
 	lookupColumnIdSchema,
@@ -112,15 +113,19 @@ describe("expression cards smoke — mount via ExpressionCardEditor", () => {
 	for (const kind of allKinds) {
 		it(`${kind}: mounts inside ExpressionCardEditor`, () => {
 			const value = valueForKind(kind);
+			// Cards spell authored prose against the document; every
+			// production mount sits inside the builder's provider.
 			const { container } = render(
-				<ExpressionCardEditor
-					value={value}
-					onChange={() => {}}
-					caseTypes={ctx.caseTypes}
-					currentCaseType={ctx.currentCaseType}
-					knownInputs={ctx.knownInputs}
-					operationScope={ctx.operationScope}
-				/>,
+				<BlueprintDocProvider appId="test-app">
+					<ExpressionCardEditor
+						value={value}
+						onChange={() => {}}
+						caseTypes={ctx.caseTypes}
+						currentCaseType={ctx.currentCaseType}
+						knownInputs={ctx.knownInputs}
+						operationScope={ctx.operationScope}
+					/>
+				</BlueprintDocProvider>,
 			);
 			expect(container.firstElementChild).not.toBeNull();
 		});

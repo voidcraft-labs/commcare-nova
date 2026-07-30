@@ -41,7 +41,8 @@ import { MediaDisplay } from "@/components/builder/media/MediaDisplay";
 import { type FieldPath, fpath } from "@/lib/doc/fieldPath";
 import { useField } from "@/lib/doc/hooks/useEntity";
 import { useOrderedFields } from "@/lib/doc/hooks/useOrderedFields";
-import { asUuid, fallbackProseProjection, type Uuid } from "@/lib/domain";
+import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
+import { asUuid, type Uuid } from "@/lib/domain";
 import { useEngineController } from "@/lib/preview/hooks/useEngineController";
 import { useEngineStateAt } from "@/lib/preview/hooks/useEngineState";
 import { LabelContent } from "@/lib/references/LabelContent";
@@ -166,6 +167,7 @@ const InteractiveField = memo(function InteractiveField({
 	const enginePath = field ? `${prefix}/${field.id}` : undefined;
 	const state = useEngineStateAt(uuid, enginePath);
 	const controller = useEngineController();
+	const projectProse = useProseProjection();
 	// Capture questions stage bytes against the app; every other kind
 	// ignores it.
 	const appId = useAppId();
@@ -399,7 +401,7 @@ const InteractiveField = memo(function InteractiveField({
 						.join(" ")}
 					questionLabel={
 						state.resolvedLabel ??
-						(field.label ? fallbackProseProjection(field.label) : undefined)
+						(field.label ? projectProse(field.label) : undefined)
 					}
 					onChange={(value) => controller.setValueAt(path, value)}
 					onBlur={() => controller.touchAt(path)}

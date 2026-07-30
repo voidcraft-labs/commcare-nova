@@ -30,9 +30,9 @@ import { PeerBadge, usePeerEditingColor } from "@/components/builder/PeerBadge";
 import { type FieldPath, fpath } from "@/lib/doc/fieldPath";
 import { useField } from "@/lib/doc/hooks/useEntity";
 import { useOrderedFields } from "@/lib/doc/hooks/useOrderedFields";
+import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import type { SearchResult } from "@/lib/doc/hooks/useSearchFilter";
 import {
-	fallbackProseProjection,
 	fieldRegistry,
 	type ProseTemplate,
 	proseTemplateIsEmpty,
@@ -83,6 +83,11 @@ export const FieldRow = memo(function FieldRow({
 	/** Shared provider — resolves label chips against this row's own form. */
 	const provider = useReferenceProvider();
 
+	/** Stand-in when the row renders outside a `ReferenceProviderWrapper`: the
+	 *  document still spells every reference, it just skips the provider's
+	 *  form-scope narrowing. */
+	const projectProse = useProseProjection();
+
 	/** The hue of a peer whose selection IS this field, or null — drives the
 	 *  live "editing this" ring. Called unconditionally (before the guard). */
 	const editingColor = usePeerEditingColor(uuid);
@@ -109,7 +114,7 @@ export const FieldRow = memo(function FieldRow({
 			: undefined;
 	const fieldLabel = fieldTemplate
 		? (provider?.projectTemplate(fieldTemplate, formUuid).text ??
-			fallbackProseProjection(fieldTemplate))
+			projectProse(fieldTemplate))
 		: "";
 	const showIdMatch = !!(idIndices && fieldLabel);
 	const textIndices = labelIndices ?? (!fieldLabel ? idIndices : undefined);

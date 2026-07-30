@@ -4,11 +4,8 @@ import tablerAlertTriangle from "@iconify-icons/tabler/alert-triangle";
 import tablerPaperclip from "@iconify-icons/tabler/paperclip";
 import tablerX from "@iconify-icons/tabler/x";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
-import {
-	type CaptureField,
-	fallbackProseProjection,
-	fieldRegistry,
-} from "@/lib/domain";
+import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
+import { type CaptureField, fieldRegistry } from "@/lib/domain";
 import {
 	captureAcceptAttribute,
 	MAX_CAPTURE_BYTES,
@@ -216,6 +213,7 @@ function AttachmentControl({
 	const mayEdit = useCanEdit();
 	const accessPhase = useAccessPhase();
 	const scopeEpoch = useProjectScopeEpoch();
+	const projectProse = useProseProjection();
 	const mayWrite = mayEdit && accessPhase === "authorized";
 	const inputId = useId();
 	const actionId = useId();
@@ -227,11 +225,12 @@ function AttachmentControl({
 	const validationId = useId();
 	const helpId = useId();
 	const inputRef = useRef<HTMLInputElement>(null);
+	// `questionLabel` is the engine's runtime-resolved prompt, which exists only
+	// once the label carries a reference; a plain label arrives here unresolved
+	// and still has to be spelled against the document.
 	const accessibleQuestionLabel =
 		questionLabel ??
-		(field.label
-			? fallbackProseProjection(field.label)
-			: fieldRegistry[field.kind].label);
+		(field.label ? projectProse(field.label) : fieldRegistry[field.kind].label);
 	const slotKey = resolveAttachmentSlotKey({
 		appId,
 		entryKey,

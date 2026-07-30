@@ -28,12 +28,8 @@ import { LabelField } from "@/components/preview/form/fields/LabelField";
 import { TextEditable } from "@/components/preview/form/TextEditable";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useField } from "@/lib/doc/hooks/useEntity";
-import {
-	type FieldPatchFor,
-	fallbackProseProjection,
-	type ProseTemplate,
-	type Uuid,
-} from "@/lib/domain";
+import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
+import type { FieldPatchFor, ProseTemplate, Uuid } from "@/lib/domain";
 import { useEngineController } from "@/lib/preview/hooks/useEngineController";
 import { useEngineState } from "@/lib/preview/hooks/useEngineState";
 import { LabelContent } from "@/lib/references/LabelContent";
@@ -60,6 +56,7 @@ export const FieldRow = memo(function FieldRow({
 	const q = useField(uuid);
 	const state = useEngineState(uuid);
 	const controller = useEngineController();
+	const projectProse = useProseProjection();
 	const isFieldSelected = useIsFieldSelected(uuid);
 	useFulfillPendingScroll(uuid, isFieldSelected);
 	const mode = useEditMode();
@@ -99,7 +96,7 @@ export const FieldRow = memo(function FieldRow({
 	// `label` is absent from the `hidden` kind; fall back to id or a
 	// generic placeholder so the drag preview never shows an empty pill.
 	const labelText =
-		q && "label" in q && q.label ? fallbackProseProjection(q.label).trim() : "";
+		q && "label" in q && q.label ? projectProse(q.label).trim() : "";
 	const previewLabel = labelText || q?.id || "Field";
 	const renderPreview = useCallback(
 		() => <DragPreviewPill label={previewLabel} />,

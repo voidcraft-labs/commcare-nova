@@ -1,12 +1,19 @@
 // @vitest-environment happy-dom
 
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render as rtlRender, screen } from "@testing-library/react";
 import { produce } from "immer";
-import { type ReactNode, StrictMode, useLayoutEffect, useState } from "react";
+import {
+	type ReactElement,
+	type ReactNode,
+	StrictMode,
+	useLayoutEffect,
+	useState,
+} from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { applyMutations } from "@/lib/doc/mutations";
+import { BlueprintDocProvider } from "@/lib/doc/provider";
 import type { Mutation } from "@/lib/doc/types";
 import {
 	advancedSearchInputDef,
@@ -28,6 +35,19 @@ import {
 	CaseListWorkspaceProvider,
 	useCaseListWorkspace,
 } from "../CaseListConfigWorkspace";
+
+// The surfaces here spell authored prose against the document; every production
+// mount sits inside the builder's provider. Wrapping at `render` reproduces it
+// and carries through each `rerender`.
+function DocumentProvider({ children }: { readonly children: ReactNode }) {
+	return (
+		<BlueprintDocProvider appId="test-app">{children}</BlueprintDocProvider>
+	);
+}
+
+function render(ui: ReactElement) {
+	return rtlRender(ui, { wrapper: DocumentProvider });
+}
 
 const MODULE_UUID = testUuid("00000000-0000-4000-8000-000000000001");
 const INPUT_UUID = testUuid("00000000-0000-4000-8000-000000000011");

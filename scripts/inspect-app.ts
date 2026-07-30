@@ -23,7 +23,7 @@ import { listThreadMetas, loadThread } from "@/lib/db/threads";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import type { FieldWithChildren } from "@/lib/doc/fieldWalk";
 import { buildFieldTree, countFieldsUnder } from "@/lib/doc/fieldWalk";
-import { fallbackProseProjection } from "@/lib/domain";
+import { projectProseTemplate } from "@/lib/domain";
 import { readRunSummary } from "@/lib/log/reader";
 import { analyzeBlueprint, extractLogicFields } from "./lib/blueprint-stats";
 import {
@@ -121,18 +121,22 @@ const showRow = opts.row === true;
  * other kind carries one. The `"label" in f` guard keeps this honest
  * in the face of the discriminated union.
  */
-function printFieldTree(tree: FieldWithChildren[], indent = 0): void {
+function printFieldTree(
+	doc: BlueprintDoc,
+	tree: FieldWithChildren[],
+	indent = 0,
+): void {
 	const pad = "  ".repeat(indent);
 	for (const f of tree) {
 		const label =
 			"label" in f && f.label
-				? fallbackProseProjection(f.label) || "(no label)"
+				? projectProseTemplate(f.label, doc).text || "(no label)"
 				: "(no label)";
 		console.log(
 			`${pad}  - [${f.kind}] ${f.id} — "${truncate(label, 60)}" (${f.uuid.slice(0, 8)})`,
 		);
 		if (f.children) {
-			printFieldTree(f.children, indent + 1);
+			printFieldTree(doc, f.children, indent + 1);
 		}
 	}
 }
@@ -262,7 +266,7 @@ async function main() {
 			);
 
 			if (showFields) {
-				printFieldTree(buildFieldTree(doc, form.uuid), 3);
+				printFieldTree(doc, buildFieldTree(doc, form.uuid), 3);
 			}
 		}
 	}

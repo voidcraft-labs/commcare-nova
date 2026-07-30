@@ -30,8 +30,14 @@ import {
 	today,
 	whenInput,
 } from "@/lib/domain/predicate";
-import { proseText } from "@/lib/domain/prose";
+import { projectProseTemplate, proseText } from "@/lib/domain/prose";
 import { humanizeName, summarizeFilter } from "../predicateSummary";
+
+/** These fixtures label every choice with literal prose, so an empty document
+ *  resolves everything they reference (nothing). */
+const projectProse = (template: Parameters<typeof projectProseTemplate>[0]) =>
+	projectProseTemplate(template, { fields: {}, forms: {}, fieldOrder: {} })
+		.text;
 
 const status = () => term(prop("patient", "status"));
 
@@ -43,71 +49,94 @@ const statusIsntClosed: Predicate = {
 
 describe("summarizeFilter", () => {
 	it("returns undefined for an absent filter and for match-all (no narrowing)", () => {
-		expect(summarizeFilter(undefined)).toBeUndefined();
-		expect(summarizeFilter(matchAll())).toBeUndefined();
+		expect(summarizeFilter(undefined, { projectProse })).toBeUndefined();
+		expect(summarizeFilter(matchAll(), { projectProse })).toBeUndefined();
 	});
 
 	it("renders comparisons as subject-verb-object sentences", () => {
-		expect(summarizeFilter(statusIsntClosed)).toBe("status isn't closed");
+		expect(summarizeFilter(statusIsntClosed, { projectProse })).toBe(
+			"status isn't closed",
+		);
 		expect(
-			summarizeFilter({
-				kind: "eq",
-				left: status(),
-				right: term(literal("active")),
-			}),
+			summarizeFilter(
+				{
+					kind: "eq",
+					left: status(),
+					right: term(literal("active")),
+				},
+				{ projectProse },
+			),
 		).toBe("status is active");
 		expect(
-			summarizeFilter({
-				kind: "gt",
-				left: term(prop("patient", "age")),
-				right: term(literal(5)),
-			}),
+			summarizeFilter(
+				{
+					kind: "gt",
+					left: term(prop("patient", "age")),
+					right: term(literal(5)),
+				},
+				{ projectProse },
+			),
 		).toBe("age is more than 5");
 	});
 
 	it("spaces identifier separators so property names read as words", () => {
 		expect(
-			summarizeFilter({
-				kind: "eq",
-				left: term(prop("patient", "rash_onset_date")),
-				right: today(),
-			}),
+			summarizeFilter(
+				{
+					kind: "eq",
+					left: term(prop("patient", "rash_onset_date")),
+					right: today(),
+				},
+				{ projectProse },
+			),
 		).toBe("rash onset date is today");
 		expect(humanizeName("follow-up_date")).toBe("follow up date");
 	});
 
 	it("uses Nova's friendly labels for exact standard property references", () => {
 		expect(
-			summarizeFilter({
-				kind: "eq",
-				left: term(prop("patient", "case_name")),
-				right: term(literal("Alice")),
-			}),
+			summarizeFilter(
+				{
+					kind: "eq",
+					left: term(prop("patient", "case_name")),
+					right: term(literal("Alice")),
+				},
+				{ projectProse },
+			),
 		).toBe("case name is Alice");
 		expect(
-			summarizeFilter({
-				kind: "match",
-				property: prop("patient", "external_id"),
-				value: term(literal("ABC")),
-				mode: "fuzzy",
-			}),
+			summarizeFilter(
+				{
+					kind: "match",
+					property: prop("patient", "external_id"),
+					value: term(literal("ABC")),
+					mode: "fuzzy",
+				},
+				{ projectProse },
+			),
 		).toBe("external ID roughly matches ABC");
 		expect(
-			summarizeFilter({
-				kind: "multi-select-contains",
-				property: prop("patient", "case_name"),
-				values: [literal("Alice")],
-				quantifier: "any",
-			}),
+			summarizeFilter(
+				{
+					kind: "multi-select-contains",
+					property: prop("patient", "case_name"),
+					values: [literal("Alice")],
+					quantifier: "any",
+				},
+				{ projectProse },
+			),
 		).toBe("case name includes any of Alice");
 		expect(
-			summarizeFilter({
-				kind: "within-distance",
-				property: prop("patient", "date_opened"),
-				center: term(literal("0 0")),
-				distance: 5,
-				unit: "kilometers",
-			}),
+			summarizeFilter(
+				{
+					kind: "within-distance",
+					property: prop("patient", "date_opened"),
+					center: term(literal("0 0")),
+					distance: 5,
+					unit: "kilometers",
+				},
+				{ projectProse },
+			),
 		).toBe("date opened is within 5 kilometers of 0 0");
 	});
 
@@ -131,7 +160,7 @@ describe("summarizeFilter", () => {
 					left: term(prop("patient", "case_name")),
 					right: term(literal("Patient name")),
 				},
-				{ caseTypes, currentCaseType: "patient" },
+				{ projectProse, caseTypes, currentCaseType: "patient" },
 			),
 		).toBe("Case name is Patient name");
 	});
@@ -159,6 +188,7 @@ describe("summarizeFilter", () => {
 		const context = {
 			caseTypes,
 			currentCaseType: "patient",
+			projectProse,
 		};
 		expect(
 			summarizeFilter(
@@ -209,7 +239,7 @@ describe("summarizeFilter", () => {
 				],
 			},
 		];
-		const context = { caseTypes, currentCaseType: "patient" };
+		const context = { caseTypes, currentCaseType: "patient", projectProse };
 
 		expect(
 			summarizeFilter(
@@ -259,6 +289,7 @@ describe("summarizeFilter", () => {
 				},
 			] satisfies readonly CaseType[],
 			currentCaseType: "patient",
+			projectProse,
 		};
 
 		expect(
@@ -296,7 +327,7 @@ describe("summarizeFilter", () => {
 				],
 			},
 		];
-		const context = { caseTypes, currentCaseType: "patient" };
+		const context = { caseTypes, currentCaseType: "patient", projectProse };
 
 		expect(
 			summarizeFilter(
@@ -319,6 +350,7 @@ describe("summarizeFilter", () => {
 		expect(
 			summarizeFilter(
 				whenInput(input(testUuid("name_search")), statusIsntClosed),
+				{ projectProse },
 			),
 		).toBe("When Search field has an answer, status isn't closed");
 	});
@@ -328,6 +360,7 @@ describe("summarizeFilter", () => {
 			summarizeFilter(
 				whenInput(input(testUuid("name_search")), statusIsntClosed),
 				{
+					projectProse,
 					knownInputs: [
 						{
 							uuid: testUuid("name_search"),
@@ -343,32 +376,35 @@ describe("summarizeFilter", () => {
 
 	it("describes related-case filters as matching conditions", () => {
 		const via = ancestorPath(relationStep("parent"));
-		expect(summarizeFilter(exists(via, statusIsntClosed))).toBe(
-			"A related case matches status isn't closed",
-		);
-		expect(summarizeFilter(missing(via, statusIsntClosed))).toBe(
-			"No related case matches status isn't closed",
-		);
+		expect(
+			summarizeFilter(exists(via, statusIsntClosed), { projectProse }),
+		).toBe("A related case matches status isn't closed");
+		expect(
+			summarizeFilter(missing(via, statusIsntClosed), { projectProse }),
+		).toBe("No related case matches status isn't closed");
 	});
 
 	it("joins and/or clauses with words and overflows past two", () => {
-		expect(summarizeFilter(and(statusIsntClosed, statusIsntClosed))).toBe(
-			"status isn't closed and status isn't closed",
-		);
+		expect(
+			summarizeFilter(and(statusIsntClosed, statusIsntClosed), {
+				projectProse,
+			}),
+		).toBe("status isn't closed and status isn't closed");
 		expect(
 			summarizeFilter(
 				and(statusIsntClosed, statusIsntClosed, statusIsntClosed),
+				{ projectProse },
 			),
 		).toBe("status isn't closed and status isn't closed and 1 more");
-		expect(summarizeFilter(or(statusIsntClosed, statusIsntClosed))).toBe(
-			"status isn't closed or status isn't closed",
-		);
+		expect(
+			summarizeFilter(or(statusIsntClosed, statusIsntClosed), { projectProse }),
+		).toBe("status isn't closed or status isn't closed");
 	});
 
 	it("renders absence and membership tests in worker words", () => {
-		expect(summarizeFilter(isBlank(prop("patient", "phone")))).toBe(
-			"phone is blank",
-		);
+		expect(
+			summarizeFilter(isBlank(prop("patient", "phone")), { projectProse }),
+		).toBe("phone is blank");
 		expect(
 			summarizeFilter(
 				isIn(
@@ -376,6 +412,7 @@ describe("summarizeFilter", () => {
 					literal("active"),
 					literal("pending"),
 				),
+				{ projectProse },
 			),
 		).toBe("status is one of active, pending");
 		expect(
@@ -384,21 +421,25 @@ describe("summarizeFilter", () => {
 					lower: term(literal("a")),
 					upper: term(literal("b")),
 				}),
+				{ projectProse },
 			),
 		).toBe("status is between a and b");
 	});
 
 	it("describes top-level negation as the filtering outcome", () => {
-		expect(summarizeFilter(not(statusIsntClosed))).toBe(
+		expect(summarizeFilter(not(statusIsntClosed), { projectProse })).toBe(
 			"Exclude cases when status isn't closed",
 		);
 		expect(
-			summarizeFilter(not(exists(ancestorPath(relationStep("parent"))))),
+			summarizeFilter(not(exists(ancestorPath(relationStep("parent")))), {
+				projectProse,
+			}),
 		).toBe("Exclude cases when a related case exists");
 		expect(
 			summarizeFilter(
 				not(whenInput(input(testUuid("name_search")), statusIsntClosed)),
 				{
+					projectProse,
 					knownInputs: [
 						{
 							uuid: testUuid("name_search"),
@@ -421,6 +462,7 @@ describe("summarizeFilter", () => {
 					eq(prop("patient", "status"), literal("active")),
 					not(eq(prop("patient", "region"), literal("blocked"))),
 				),
+				{ projectProse },
 			),
 		).toBe("status is active and region isn't blocked");
 		expect(
@@ -429,30 +471,34 @@ describe("summarizeFilter", () => {
 					ancestorPath(relationStep("parent")),
 					not(eq(prop("household", "status"), literal("closed"))),
 				),
+				{ projectProse },
 			),
 		).toBe("A related case matches status isn't closed");
 	});
 
 	it("renders sentinels honestly", () => {
-		expect(summarizeFilter(matchNone())).toBe("no cases");
-		expect(summarizeFilter({ kind: "not", clause: matchAll() })).toBe(
-			"Exclude every case",
-		);
-		expect(summarizeFilter({ kind: "not", clause: matchNone() })).toBe(
-			"No cases are excluded",
-		);
+		expect(summarizeFilter(matchNone(), { projectProse })).toBe("no cases");
+		expect(
+			summarizeFilter({ kind: "not", clause: matchAll() }, { projectProse }),
+		).toBe("Exclude every case");
+		expect(
+			summarizeFilter({ kind: "not", clause: matchNone() }, { projectProse }),
+		).toBe("No cases are excluded");
 	});
 
 	it("degrades computed operands to an honest generic", () => {
 		expect(
-			summarizeFilter({
-				kind: "eq",
-				left: status(),
-				right: {
-					kind: "concat",
-					parts: [term(literal("a")), term(literal("b"))],
+			summarizeFilter(
+				{
+					kind: "eq",
+					left: status(),
+					right: {
+						kind: "concat",
+						parts: [term(literal("a")), term(literal("b"))],
+					},
 				},
-			}),
+				{ projectProse },
+			),
 		).toBe("status is a calculated value");
 	});
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { proseText } from "@/lib/domain/prose";
+import { type ProseTemplate, proseText } from "@/lib/domain/prose";
 import {
 	friendlyPropertyDisambiguator,
 	propertyDisplayLabel,
@@ -7,31 +7,48 @@ import {
 	propertyFallbackDisplayLabel,
 } from "../primitives/propertyDisplay";
 
+/** These fixtures carry plain text labels, so concatenating the text runs is
+ *  the exact projection a document would produce. */
+const stubProject = (label: ProseTemplate): string =>
+	label.parts.map((part) => (part.kind === "text" ? part.text : "")).join("");
+
 describe("propertyDisplayLabel", () => {
 	it("uses friendly system labels instead of stored identifiers", () => {
 		expect(
-			propertyDisplayLabel({
-				name: "external_id",
-				label: proseText("external_id"),
-			}),
+			propertyDisplayLabel(
+				{
+					name: "external_id",
+					label: proseText("external_id"),
+				},
+				stubProject,
+			),
 		).toBe("External ID");
 		expect(
-			propertyDisplayLabel({ name: "status", label: proseText("Status") }),
+			propertyDisplayLabel(
+				{ name: "status", label: proseText("Status") },
+				stubProject,
+			),
 		).toBe("Case status (open or closed)");
 	});
 
 	it("keeps a meaningful authored label", () => {
 		expect(
-			propertyDisplayLabel({
-				name: "case_name",
-				label: proseText("Patient name"),
-			}),
+			propertyDisplayLabel(
+				{
+					name: "case_name",
+					label: proseText("Patient name"),
+				},
+				stubProject,
+			),
 		).toBe("Patient name");
 		expect(
-			propertyDisplayLabel({
-				name: "current_status",
-				label: proseText("Workflow stage"),
-			}),
+			propertyDisplayLabel(
+				{
+					name: "current_status",
+					label: proseText("Workflow stage"),
+				},
+				stubProject,
+			),
 		).toBe("Workflow stage");
 	});
 
@@ -45,13 +62,17 @@ describe("propertyDisplayLabel", () => {
 
 	it("resolves an exact property definition by name", () => {
 		expect(
-			propertyDisplayLabelForName("external_id", [
-				{
-					name: "external_id",
-					label: proseText("external_id"),
-					data_type: "text",
-				},
-			]),
+			propertyDisplayLabelForName(
+				"external_id",
+				[
+					{
+						name: "external_id",
+						label: proseText("external_id"),
+						data_type: "text",
+					},
+				],
+				stubProject,
+			),
 		).toBe("External ID");
 	});
 
@@ -68,9 +89,9 @@ describe("propertyDisplayLabel", () => {
 				data_type: "text" as const,
 			},
 		];
-		expect(friendlyPropertyDisambiguator(properties[0], properties)).toBe(
-			undefined,
-		);
+		expect(
+			friendlyPropertyDisambiguator(properties[0], properties, stubProject),
+		).toBe(undefined);
 	});
 
 	it("keeps a parenthetical when it genuinely distinguishes equal labels", () => {
@@ -86,11 +107,11 @@ describe("propertyDisplayLabel", () => {
 				data_type: "text" as const,
 			},
 		];
-		expect(friendlyPropertyDisambiguator(properties[0], properties)).toBe(
-			"Home region",
-		);
-		expect(friendlyPropertyDisambiguator(properties[1], properties)).toBe(
-			"Work region",
-		);
+		expect(
+			friendlyPropertyDisambiguator(properties[0], properties, stubProject),
+		).toBe("Home region");
+		expect(
+			friendlyPropertyDisambiguator(properties[1], properties, stubProject),
+		).toBe("Work region");
 	});
 });

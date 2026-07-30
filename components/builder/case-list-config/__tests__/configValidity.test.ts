@@ -27,9 +27,13 @@ import {
 	term,
 	whenInput,
 } from "@/lib/domain/predicate";
-import { proseText } from "@/lib/domain/prose";
+import { proseTemplateText, proseText } from "@/lib/domain/prose";
 
 import { caseListConfigVerdicts } from "../configValidity";
+
+/** Every fixture property below is labeled with literal prose, so a
+ *  context-free projection spells exactly what a document-aware one would. */
+const projectProse = proseTemplateText;
 
 const CASE_TYPES: CaseType[] = [
 	{
@@ -48,7 +52,12 @@ function config(partial: Partial<CaseListConfig>): CaseListConfig {
 }
 
 function verdicts(partial: Partial<CaseListConfig>) {
-	return caseListConfigVerdicts(config(partial), CASE_TYPES, "patient");
+	return caseListConfigVerdicts(
+		config(partial),
+		CASE_TYPES,
+		"patient",
+		projectProse,
+	);
 }
 
 const CLEAN = { search: false, list: false, detail: false };
@@ -156,6 +165,7 @@ describe("caseListConfigVerdicts", () => {
 			}),
 			caseTypes,
 			"patient",
+			projectProse,
 		);
 		expect(v.errorAreas).toEqual(CLEAN);
 		expect(v.brokenColumns.size).toBe(0);
@@ -300,12 +310,14 @@ describe("caseListConfigVerdicts", () => {
 			propertyComparison,
 			CASE_TYPES,
 			"patient",
+			projectProse,
 			{ caseSearchEnabled: false },
 		);
 		const searchBacked = caseListConfigVerdicts(
 			propertyComparison,
 			CASE_TYPES,
 			"patient",
+			projectProse,
 			{ caseSearchEnabled: true },
 		);
 
@@ -327,6 +339,7 @@ describe("caseListConfigVerdicts", () => {
 			config({}),
 			CASE_TYPES,
 			"patient",
+			projectProse,
 			{
 				boundary: { ...baseBoundary, searchButtonConditionBroken: true },
 			},
@@ -335,6 +348,7 @@ describe("caseListConfigVerdicts", () => {
 			config({}),
 			CASE_TYPES,
 			"patient",
+			projectProse,
 			{
 				boundary: { ...baseBoundary, excludedOwnerIdsBroken: true },
 			},

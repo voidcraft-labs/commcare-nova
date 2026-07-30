@@ -1,14 +1,23 @@
 import type { CaseProperty } from "@/lib/domain";
 import {
 	effectiveDataType,
-	fallbackProseProjection,
 	isStandardCaseListProperty,
 	standardCasePropertyDisplayLabel,
 } from "@/lib/domain";
 import { humanizeId } from "@/lib/domain/idSlug";
 
-export function propertyDisplayLabel(property: CaseProperty): string {
-	const authored = fallbackProseProjection(property.label).trim();
+/**
+ * A catalog label is a `ProseTemplate`, so its current spelling only exists
+ * relative to a document. The projector is required rather than defaulted: a
+ * default would render the same property correctly on one screen and as a
+ * repair marker on the next, and the caller that cannot supply a document is
+ * the one that should not be projecting.
+ */
+export function propertyDisplayLabel(
+	property: CaseProperty,
+	project: (label: CaseProperty["label"]) => string,
+): string {
+	const authored = project(property.label).trim();
 	const authoredLooksGenerated =
 		normalizedIdentifierLabel(authored) ===
 		normalizedIdentifierLabel(property.name);
@@ -36,11 +45,12 @@ export function propertyFallbackDisplayLabel(name: string): string {
 export function propertyDisplayLabelForName(
 	name: string,
 	properties: readonly CaseProperty[],
+	project: (label: CaseProperty["label"]) => string,
 ): string {
 	const property = properties.find((candidate) => candidate.name === name);
 	return property === undefined
 		? propertyFallbackDisplayLabel(name)
-		: propertyDisplayLabel(property);
+		: propertyDisplayLabel(property, project);
 }
 
 /**
@@ -75,11 +85,12 @@ function normalizedDisplayLabel(label: string): string {
 export function friendlyPropertyDisambiguator(
 	property: CaseProperty,
 	properties: readonly CaseProperty[],
+	project: (label: CaseProperty["label"]) => string,
 ): string | undefined {
-	const label = propertyDisplayLabel(property);
+	const label = propertyDisplayLabel(property, project);
 	const peers = properties.filter(
 		(candidate) =>
-			normalizedDisplayLabel(propertyDisplayLabel(candidate)) ===
+			normalizedDisplayLabel(propertyDisplayLabel(candidate, project)) ===
 			normalizedDisplayLabel(label),
 	);
 	if (peers.length < 2) return undefined;

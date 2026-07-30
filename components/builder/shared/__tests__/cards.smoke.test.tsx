@@ -12,6 +12,7 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { BlueprintDocProvider } from "@/lib/doc/provider";
 import type { CaseType } from "@/lib/domain";
 import {
 	type Predicate,
@@ -86,14 +87,18 @@ describe("cards smoke — mount via PredicateCardEditor", () => {
 	for (const kind of allKinds) {
 		it(`${kind}: mounts inside PredicateCardEditor`, () => {
 			const value = predicateCardSchemas[kind].defaultValue(ctx);
+			// Cards spell authored prose against the document; every
+			// production mount sits inside the builder's provider.
 			const { container } = render(
-				<PredicateCardEditor
-					value={value}
-					onChange={() => {}}
-					caseTypes={ctx.caseTypes}
-					currentCaseType={ctx.currentCaseType}
-					knownInputs={ctx.knownInputs}
-				/>,
+				<BlueprintDocProvider appId="test-app">
+					<PredicateCardEditor
+						value={value}
+						onChange={() => {}}
+						caseTypes={ctx.caseTypes}
+						currentCaseType={ctx.currentCaseType}
+						knownInputs={ctx.knownInputs}
+					/>
+				</BlueprintDocProvider>,
 			);
 			// One element in the container — the predicate card —
 			// confirms render landed without throwing.

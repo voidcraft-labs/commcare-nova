@@ -21,11 +21,17 @@
 //      mapping table, non-default threshold + unit) round-trip
 //      through the editor untouched.
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { useState } from "react";
+import {
+	fireEvent,
+	render as rtlRender,
+	screen,
+	waitFor,
+} from "@testing-library/react";
+import { type ReactElement, type ReactNode, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { settleBaseUiTransitions } from "@/__tests__/helpers/baseUiInteractions";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { BlueprintDocProvider } from "@/lib/doc/provider";
 import {
 	type CaseType,
 	type Column,
@@ -40,6 +46,19 @@ import {
 import { literal, term } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
 import { ColumnEditor } from "../../../ColumnEditor";
+
+// The surfaces here spell authored prose against the document; every production
+// mount sits inside the builder's provider. Wrapping at `render` reproduces it
+// and carries through each `rerender`.
+function DocumentProvider({ children }: { readonly children: ReactNode }) {
+	return (
+		<BlueprintDocProvider appId="test-app">{children}</BlueprintDocProvider>
+	);
+}
+
+function render(ui: ReactElement) {
+	return rtlRender(ui, { wrapper: DocumentProvider });
+}
 
 const PATIENT: CaseType = {
 	name: "patient",

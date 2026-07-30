@@ -1,10 +1,7 @@
 "use client";
 import { MediaDisplay } from "@/components/builder/media/MediaDisplay";
-import {
-	fallbackProseProjection,
-	type MultiSelectField,
-	type SelectOption,
-} from "@/lib/domain";
+import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
+import type { MultiSelectField, SelectOption } from "@/lib/domain";
 import { PreviewMarkdown } from "@/lib/markdown";
 import type { FieldState } from "@/lib/preview/engine/types";
 import { useEditMode } from "@/lib/session/hooks";
@@ -40,6 +37,8 @@ export function SelectMultiField({
 	// lookup-backed select reads the ENGINE's live filtered choices — see
 	// the single-select twin for the loading contract.
 	const lookupBacked = field.optionsSource.kind === "lookup";
+	// Document-aware option-label projection — see the single-select twin.
+	const projectProse = useProseProjection();
 	// `key` is display identity — see the single-select twin.
 	const options: ReadonlyArray<{
 		key: string;
@@ -53,8 +52,7 @@ export function SelectMultiField({
 					...opt,
 					key: opt.value,
 					label:
-						state.resolvedOptionLabels?.[opt.uuid] ??
-						fallbackProseProjection(opt.label),
+						state.resolvedOptionLabels?.[opt.uuid] ?? projectProse(opt.label),
 				}))
 			: [];
 	const selected = new Set(state.value ? state.value.split(" ") : []);

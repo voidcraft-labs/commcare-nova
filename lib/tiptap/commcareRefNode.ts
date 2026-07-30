@@ -8,11 +8,7 @@
 
 import { mergeAttributes, Node } from "@tiptap/core";
 import { ReactNodeViewRenderer } from "@tiptap/react";
-import {
-	fallbackProseProjection,
-	type ProseReferencePart,
-	prosePartSchema,
-} from "@/lib/domain";
+import { type ProseReferencePart, prosePartSchema } from "@/lib/domain";
 import { CommcareRefView } from "./CommcareRefView";
 
 const DATA_ATTR = "data-nova-prose-ref";
@@ -83,7 +79,12 @@ export const CommcareRef = Node.create({
 	renderHTML({ node, HTMLAttributes }) {
 		const part = prosePartSchema.safeParse(node.attrs.part);
 		if (!part.success || part.data.kind === "text") return ["span", {}, ""];
-		const fallback = fallbackProseProjection({ parts: [part.data] });
+		// `label` is the chip's projection, resolved against the document when the
+		// atom was built. A `Node`'s static `renderHTML` has no document, and the
+		// React node view is what actually draws the chip — so this emits the
+		// stored label and nothing else. Inventing a spelling inside a serializer
+		// would put text on the page that no document produced; the encoded
+		// `data-nova-prose-ref` attribute is what preserves identity regardless.
 		return [
 			"span",
 			mergeAttributes(HTMLAttributes, {
@@ -91,7 +92,7 @@ export const CommcareRef = Node.create({
 				[DATA_ATTR]: encodeProseReferencePart(part.data),
 				"data-label": node.attrs.label,
 			}),
-			node.attrs.label || fallback,
+			node.attrs.label,
 		];
 	},
 

@@ -1,7 +1,9 @@
 // @vitest-environment happy-dom
 
 import { fireEvent, render, screen } from "@testing-library/react";
+import type { ComponentProps } from "react";
 import { describe, expect, it, type Mock, vi } from "vitest";
+import { BlueprintDocProvider } from "@/lib/doc/provider";
 import type { CaseType } from "@/lib/domain";
 import {
 	dateLiteral,
@@ -11,7 +13,19 @@ import {
 } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
 import { PredicateEditProvider } from "../editorContext";
-import { LiteralValueInput } from "../primitives/LiteralValueInput";
+import { LiteralValueInput as ProductionLiteralValueInput } from "../primitives/LiteralValueInput";
+
+// The input spells a choice's authored label against the document; every
+// production mount sits inside the builder's provider.
+function LiteralValueInput(
+	props: ComponentProps<typeof ProductionLiteralValueInput>,
+) {
+	return (
+		<BlueprintDocProvider appId="test-app">
+			<ProductionLiteralValueInput {...props} />
+		</BlueprintDocProvider>
+	);
+}
 
 const LONG_OPTION_LABEL =
 	"Return every week until the household follow-up is complete";

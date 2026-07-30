@@ -16,8 +16,10 @@
 //      throw would crash the whole case-list-config Display
 //      section.
 
-import { render } from "@testing-library/react";
+import { render as rtlRender } from "@testing-library/react";
+import type { ReactElement, ReactNode } from "react";
 import { describe, expect, it } from "vitest";
+import { BlueprintDocProvider } from "@/lib/doc/provider";
 import { type CaseType, type Column, columnSchema } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import { ColumnEditor } from "../../../ColumnEditor";
@@ -25,6 +27,19 @@ import {
 	type ColumnEditContext,
 	columnCardSchemas,
 } from "../../../columnEditorSchemas";
+
+// The surfaces here spell authored prose against the document; every production
+// mount sits inside the builder's provider. Wrapping at `render` reproduces it
+// and carries through each `rerender`.
+function DocumentProvider({ children }: { readonly children: ReactNode }) {
+	return (
+		<BlueprintDocProvider appId="test-app">{children}</BlueprintDocProvider>
+	);
+}
+
+function render(ui: ReactElement) {
+	return rtlRender(ui, { wrapper: DocumentProvider });
+}
 
 const PATIENT: CaseType = {
 	name: "patient",

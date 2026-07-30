@@ -34,10 +34,10 @@ import { FIELD_STYLES } from "@/components/preview/form/fieldStyles";
 import { TextEditable } from "@/components/preview/form/TextEditable";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useField } from "@/lib/doc/hooks/useEntity";
+import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import {
 	EMPTY_PROSE_TEMPLATE,
 	type FieldPatchFor,
-	fallbackProseProjection,
 	type ProseTemplate,
 	proseTemplateIsEmpty,
 	type Uuid,
@@ -74,6 +74,7 @@ export const GroupOpenRow = memo(function GroupOpenRow({
 	const q = useField(uuid);
 	const state = useEngineState(uuid);
 	const controller = useEngineController();
+	const projectProse = useProseProjection();
 	const mode = useEditMode();
 	const { updateField } = useBlueprintMutations();
 	/* Inline save for the TextEditable header — null outside edit mode so
@@ -121,7 +122,7 @@ export const GroupOpenRow = memo(function GroupOpenRow({
 	// with `in` / the kind discriminant before reading `label`.
 	const isRepeatType = q?.kind === "repeat";
 	const labelText =
-		q && "label" in q && q.label ? fallbackProseProjection(q.label).trim() : "";
+		q && "label" in q && q.label ? projectProse(q.label).trim() : "";
 	const previewLabel =
 		labelText || q?.id || (isRepeatType ? "Untitled repeat" : "Untitled group");
 	const renderPreview = useCallback(

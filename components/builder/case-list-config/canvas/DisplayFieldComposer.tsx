@@ -26,6 +26,7 @@ import {
 } from "@/components/builder/shared/useReorderableList";
 import { Button } from "@/components/shadcn/button";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
+import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import {
 	type CaseProperty,
 	type Column,
@@ -314,6 +315,7 @@ export function AddInformationControl({
 	readonly createDisabledReason: string | undefined;
 }) {
 	const canEdit = useCanEdit();
+	const projectProse = useProseProjection();
 	const [mode, setMode] = useState<"main" | "alternate">("main");
 	const allProperties = useMemo(() => {
 		const byName = new Map<string, CaseProperty>();
@@ -340,10 +342,11 @@ export function AddInformationControl({
 			const disambiguator = friendlyPropertyDisambiguator(
 				property,
 				allProperties,
+				projectProse,
 			);
 			return {
 				id: `${repeat ? "repeat" : "property"}:${property.name}`,
-				label: propertyDisplayLabel(property),
+				label: propertyDisplayLabel(property, projectProse),
 				detail: [
 					propertyTypeLabel(property),
 					disambiguator,
@@ -447,6 +450,7 @@ export function AddInformationControl({
 		columns,
 		createDisabledReason,
 		mode,
+		projectProse,
 		properties,
 		propertyByName,
 		repeatableProperties,

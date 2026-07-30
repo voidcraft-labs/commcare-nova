@@ -32,12 +32,15 @@ export type {
 export function useFormFieldEntries(
 	formUuid: Uuid,
 ): readonly FormFieldEntryWithAncestors[] {
-	const { fields, fieldOrder } = useBlueprintDocShallow((state) => ({
+	const source = useBlueprintDocShallow((state) => ({
 		fields: state.fields,
 		fieldOrder: state.fieldOrder,
+		forms: state.forms,
+		fieldParent: state.fieldParent,
+		userProperties: state.userProperties,
 	}));
 	return useMemo(
-		() => formFieldEntriesFor(fields, fieldOrder, formUuid),
-		[fields, fieldOrder, formUuid],
+		() => formFieldEntriesFor(source, formUuid),
+		[source, formUuid],
 	);
 }

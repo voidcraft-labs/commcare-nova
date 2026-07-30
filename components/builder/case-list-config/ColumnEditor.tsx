@@ -38,6 +38,7 @@ import {
 	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from "@/components/shadcn/dropdown-menu";
+import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import type { CaseType, Column, ColumnKind, UserProperty } from "@/lib/domain";
 import {
 	calculatedColumn,
@@ -106,6 +107,7 @@ export function ColumnEditor({
 	userProperties = [],
 	onValidityChange,
 }: ColumnEditorProps) {
+	const projectProse = useProseProjection();
 	const ctx = useMemo<ColumnEditContext>(
 		() => ({ caseTypes, currentCaseType, userProperties }),
 		[caseTypes, currentCaseType, userProperties],
@@ -123,7 +125,7 @@ export function ColumnEditor({
 		if (schema.applicableForProperty(property)) return [] as const;
 		const information =
 			property !== undefined
-				? propertyDisplayLabel(property)
+				? propertyDisplayLabel(property, projectProse)
 				: "This information";
 		const guidance =
 			value.kind === "phone"
@@ -132,7 +134,7 @@ export function ColumnEditor({
 		return [
 			`${information} can’t use ${schema.label.toLowerCase()} formatting. ${guidance}`,
 		] as const;
-	}, [ctx, value]);
+	}, [ctx, value, projectProse]);
 
 	// Standardized parent-validity propagation — fires on mount + on
 	// every transition. The helper ref-stashes the callback so a

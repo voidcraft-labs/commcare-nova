@@ -44,6 +44,10 @@ import type { CaseWriteChoiceVerdict } from "@/lib/doc/caseWriteChoices";
 import { useEffectiveCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useCaseWriteChoices } from "@/lib/doc/hooks/useCaseWriteChoices";
 import {
+	type ProseProjector,
+	useProseProjection,
+} from "@/lib/doc/hooks/useProseProjection";
+import {
 	authoredCasePropertyNameSchema,
 	type CaseProperty,
 	type CaseType,
@@ -83,8 +87,9 @@ function propertyChoice(
 	caseType: CaseType,
 	property: CaseProperty,
 	verdict: CaseWriteChoiceVerdict,
+	project: ProseProjector,
 ): CaseWriteChoice {
-	const label = propertyDisplayLabel(property);
+	const label = propertyDisplayLabel(property, project);
 	return {
 		id: destinationId(caseType.name, property.name),
 		group: typeLabel(caseType.name),
@@ -109,6 +114,7 @@ export function CaseWriteEditor<F extends Field>(
 ) {
 	const { field, value, onChange, label, autoFocus } = props;
 	const context = useSelectedFormContext();
+	const projectProse = useProseProjection();
 	const effectiveCaseTypes = useEffectiveCaseTypes();
 	const { choiceVerdict } = useCaseWriteChoices(field);
 	const triggerId = useId();
@@ -166,7 +172,12 @@ export function CaseWriteEditor<F extends Field>(
 					property: property.name,
 				};
 				result.push(
-					propertyChoice(caseType, property, choiceVerdict(caseWrite)),
+					propertyChoice(
+						caseType,
+						property,
+						choiceVerdict(caseWrite),
+						projectProse,
+					),
 				);
 			}
 		}
@@ -181,7 +192,7 @@ export function CaseWriteEditor<F extends Field>(
 			});
 		}
 		return result;
-	}, [choiceVerdict, clearVerdict, writableTypes]);
+	}, [choiceVerdict, clearVerdict, projectProse, writableTypes]);
 	const groups = useMemo<readonly CaseWriteChoiceGroup[]>(() => {
 		const order: string[] = [];
 		const byGroup = new Map<string, CaseWriteChoice[]>();

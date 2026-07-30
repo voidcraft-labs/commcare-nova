@@ -78,6 +78,7 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@/components/shadcn/dropdown-menu";
+import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import {
 	advancedSearchInputDef,
 	applicableSearchModes,
@@ -216,9 +217,15 @@ export function SearchInputEditor({
 	const bindingTriggerRef = useRef<HTMLButtonElement>(null);
 	const typeTriggerRef = useRef<HTMLButtonElement>(null);
 	const matchTriggerRef = useRef<HTMLButtonElement>(null);
+	const projectProse = useProseProjection();
 	const transitionFocusRef = useRef<TransitionFocus>("type");
 	const resolved: ResolvedRow = useMemo(() => {
-		const rows = resolveRows(siblings, caseTypes, currentCaseType);
+		const rows = resolveRows(
+			siblings,
+			caseTypes,
+			currentCaseType,
+			projectProse,
+		);
 		return (
 			rows[index] ?? {
 				nameState: { kind: "ok" } as const,
@@ -227,7 +234,7 @@ export function SearchInputEditor({
 				typeCouplingErrors: [] as readonly string[],
 			}
 		);
-	}, [siblings, index, caseTypes, currentCaseType, value.label]);
+	}, [siblings, index, caseTypes, currentCaseType, projectProse, value.label]);
 
 	// Every named row is in scope — the edited row included. A custom
 	// condition is keyed to its OWN input via the when-input-present
@@ -381,7 +388,7 @@ export function SearchInputEditor({
 		) {
 			patch.label =
 				propertyDef !== undefined
-					? propertyDisplayLabel(propertyDef)
+					? propertyDisplayLabel(propertyDef, projectProse)
 					: labelFromProperty(property);
 		}
 		const oldBase = xmlNameFromProperty(value.property);
@@ -400,7 +407,7 @@ export function SearchInputEditor({
 		const targetLabel =
 			propertyDef === undefined
 				? propertyFallbackDisplayLabel(property)
-				: propertyDisplayLabel(propertyDef);
+				: propertyDisplayLabel(propertyDef, projectProse);
 		requestInputTransition(next, "binding", targetLabel);
 	};
 
@@ -533,7 +540,7 @@ export function SearchInputEditor({
 						},
 					);
 		const resultingMode = effectiveModeKind(next);
-		const targetPropertyLabel = propertyDisplayLabel(propertyDef);
+		const targetPropertyLabel = propertyDisplayLabel(propertyDef, projectProse);
 		return {
 			source: value,
 			next,
@@ -646,6 +653,7 @@ export function SearchInputEditor({
 									caseTypes,
 									currentCaseType,
 									knownInputs,
+									projectProse,
 								}) ?? "Every case matches"}
 							</p>
 							<Button
@@ -936,6 +944,7 @@ function BindingPicker({
 	rowIndex,
 	triggerRef,
 }: BindingPickerProps) {
+	const projectProse = useProseProjection();
 	const scope = classifyVia(row.via);
 	const ct = caseTypes.find((c) => c.name === currentCaseType);
 	const parentCt =
@@ -957,12 +966,20 @@ function BindingPicker({
 		scope === "custom"
 			? propertyFallbackDisplayLabel(row.property)
 			: selectedDef === undefined
-				? propertyDisplayLabelForName(row.property, destinationProperties)
-				: propertyDisplayLabel(selectedDef);
+				? propertyDisplayLabelForName(
+						row.property,
+						destinationProperties,
+						projectProse,
+					)
+				: propertyDisplayLabel(selectedDef, projectProse);
 	const selectedQualifier =
 		scope === "custom" || selectedDef === undefined
 			? undefined
-			: friendlyPropertyDisambiguator(selectedDef, destinationProperties);
+			: friendlyPropertyDisambiguator(
+					selectedDef,
+					destinationProperties,
+					projectProse,
+				);
 	const sourceLabel =
 		scope === "custom"
 			? "Linked case"
@@ -978,9 +995,13 @@ function BindingPicker({
 		() => [
 			...thisCaseProperties.map((property) => ({
 				id: `self:${property.name}`,
-				label: propertyDisplayLabel(property),
+				label: propertyDisplayLabel(property, projectProse),
 				detail: [
-					friendlyPropertyDisambiguator(property, thisCaseProperties),
+					friendlyPropertyDisambiguator(
+						property,
+						thisCaseProperties,
+						projectProse,
+					),
 					propertyTypeLabel(property),
 				]
 					.filter((part): part is string => part !== undefined)
@@ -992,9 +1013,13 @@ function BindingPicker({
 			})),
 			...parentCaseProperties.map((property) => ({
 				id: `parent:${property.name}`,
-				label: propertyDisplayLabel(property),
+				label: propertyDisplayLabel(property, projectProse),
 				detail: [
-					friendlyPropertyDisambiguator(property, parentCaseProperties),
+					friendlyPropertyDisambiguator(
+						property,
+						parentCaseProperties,
+						projectProse,
+					),
 					propertyTypeLabel(property),
 				]
 					.filter((part): part is string => part !== undefined)
@@ -1005,7 +1030,7 @@ function BindingPicker({
 				value: { property, scope: "parent" as const },
 			})),
 		],
-		[thisCaseProperties, parentCaseProperties],
+		[thisCaseProperties, parentCaseProperties, projectProse],
 	);
 	const selectedId =
 		scope === "self" || scope === "parent"

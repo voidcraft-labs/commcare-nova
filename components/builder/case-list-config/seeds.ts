@@ -18,6 +18,7 @@
 // click away in the Match picker.
 
 import { columnAddMutation } from "@/lib/doc/caseListColumnMutations";
+import type { ProseProjector } from "@/lib/doc/hooks/useProseProjection";
 import type { Mutation, Uuid } from "@/lib/doc/types";
 import {
 	type CaseListConfig,
@@ -145,6 +146,7 @@ export function widgetTypeForProperty(property: CaseProperty): SearchInputType {
 export function seedSearchInput(
 	config: CaseListConfig,
 	caseType: CaseType | undefined,
+	project: ProseProjector,
 ): SearchInputDef | undefined {
 	const used = new Set(
 		config.searchInputs.flatMap((s) =>
@@ -153,7 +155,7 @@ export function seedSearchInput(
 	);
 	const property = pickSeedProperty(caseType, used);
 	if (property === undefined) return undefined;
-	return seedSearchInputForProperty(config, property);
+	return seedSearchInputForProperty(config, property, project);
 }
 
 /**
@@ -164,6 +166,7 @@ export function seedSearchInput(
 export function seedSearchInputForProperty(
 	config: CaseListConfig,
 	property: CaseProperty,
+	project: ProseProjector,
 ): SimpleSearchInputDef {
 	const type = widgetTypeForProperty(property);
 	// Text searches fuzzily by default; date and barcode widgets keep their
@@ -176,7 +179,7 @@ export function seedSearchInputForProperty(
 	return simpleSearchInputDef(
 		newUuid(),
 		uniqueInputName(xmlNameFromProperty(property.name), config.searchInputs),
-		propertyDisplayLabel(property),
+		propertyDisplayLabel(property, project),
 		type,
 		property.name,
 		type === "text" && fuzzyAdmitted ? { mode: fuzzyMode() } : {},
@@ -191,6 +194,7 @@ export function seedSearchInputForProperty(
 export function seedColumn(
 	config: CaseListConfig,
 	caseType: CaseType | undefined,
+	project: ProseProjector,
 	slots?: { visibleInList?: boolean; visibleInDetail?: boolean },
 ): Column | undefined {
 	const used = new Set(
@@ -198,7 +202,7 @@ export function seedColumn(
 	);
 	const property = pickSeedProperty(caseType, used);
 	if (property === undefined) return undefined;
-	return seedColumnForProperty(property, slots);
+	return seedColumnForProperty(property, project, slots);
 }
 
 /** Build a presentable display field for the property the author explicitly
@@ -206,9 +210,10 @@ export function seedColumn(
  * information they meant. */
 export function seedColumnForProperty(
 	property: CaseProperty,
+	project: ProseProjector,
 	slots?: { visibleInList?: boolean; visibleInDetail?: boolean },
 ): Column {
-	const header = propertyDisplayLabel(property);
+	const header = propertyDisplayLabel(property, project);
 	const dataType = effectiveDataType(property);
 	if (dataType === "date" || dataType === "datetime") {
 		return dateColumn(

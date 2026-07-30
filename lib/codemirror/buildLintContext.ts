@@ -93,6 +93,7 @@ export function buildLintContext(
 	const reachable = moduleCaseType
 		? toReachableIndex(
 				reachableCaseTypes(moduleCaseType, state.caseTypes ?? []),
+				state,
 			)
 		: undefined;
 

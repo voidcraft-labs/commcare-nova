@@ -72,6 +72,7 @@ import {
 	useOrderedForms,
 	useOrderedModules,
 } from "@/lib/doc/hooks/useModuleIds";
+import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import type { Uuid } from "@/lib/doc/types";
 import {
 	CASE_LOADING_FORM_TYPES,
@@ -218,6 +219,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		mod?.caseType,
 		caseType?.properties ?? NO_CASE_PROPERTIES,
 	);
+	const projectProse = useProseProjection();
 	const { signIn } = useAuth();
 	/* Whoever Preview is running as — the member, or the persona they
 	 * picked. The hook owns the hydration rule, so search defaults and the
@@ -988,7 +990,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 				className="@container/detail overflow-hidden rounded-lg border border-pv-input-border bg-pv-surface"
 			>
 				{detailColumns.map((col, i) => {
-					const label = caseColumnLabel(col, caseType.properties);
+					const label = caseColumnLabel(col, caseType.properties, projectProse);
 					return (
 						<div
 							key={col.uuid}
@@ -1084,6 +1086,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			name: entry.form.name,
 			summary: summarizeFilter(entry.form.displayCondition, {
 				...(caseType !== undefined && { currentCaseType: caseType.name }),
+				projectProse,
 			}),
 		}));
 	const formMenuPane = displayedFormMenuCase !== null && (
@@ -1844,7 +1847,11 @@ function ResultsTable({
 						key={col.uuid}
 						className="min-w-0 px-3.5 py-2.5 text-[13px] font-semibold text-nova-text break-words"
 					>
-						{caseColumnLabel(col, caseProperties)}
+						{caseColumnLabel(
+							col,
+							caseProperties,
+							columnDisplayContext.projectProse,
+						)}
 					</div>
 				))}
 				<div aria-hidden="true" />
@@ -1862,7 +1869,11 @@ function ResultsTable({
 									<span
 										className={`text-xs font-medium text-nova-text-muted ${layout.label}`}
 									>
-										{caseColumnLabel(col, caseProperties)}
+										{caseColumnLabel(
+											col,
+											caseProperties,
+											columnDisplayContext.projectProse,
+										)}
 									</span>
 									<span
 										className={`min-w-0 break-words [overflow-wrap:anywhere] ${index === 0 ? "font-medium text-nova-text" : "text-nova-text-secondary"}`}

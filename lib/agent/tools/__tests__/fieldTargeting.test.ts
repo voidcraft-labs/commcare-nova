@@ -10,7 +10,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
-import { fallbackProseProjection, proseText } from "@/lib/domain/prose";
+import { proseTemplateText, proseText } from "@/lib/domain/prose";
 import { makeStubToolContext } from "../../__tests__/fixtures";
 import { addFieldsTool } from "../addFields";
 import { editFieldInputSchema, editFieldTool } from "../editField";
@@ -84,7 +84,7 @@ function fieldByLabel(doc: BlueprintDoc, label: string) {
 		(candidate) =>
 			"label" in candidate &&
 			candidate.label !== undefined &&
-			fallbackProseProjection(candidate.label) === label,
+			proseTemplateText(candidate.label) === label,
 	);
 	if (field === undefined) throw new Error(`field labeled "${label}" missing`);
 	return field;
@@ -131,14 +131,14 @@ describe("field UUID addresses", () => {
 			changed &&
 				"label" in changed &&
 				changed.label !== undefined &&
-				fallbackProseProjection(changed.label),
+				proseTemplateText(changed.label),
 		).toBe("History patient");
 		const untouched = result.newDoc.fields[fieldByLabel(doc, "In orders").uuid];
 		expect(
 			untouched &&
 				"label" in untouched &&
 				untouched.label !== undefined &&
-				fallbackProseProjection(untouched.label),
+				proseTemplateText(untouched.label),
 		).toBe("In orders");
 	});
 

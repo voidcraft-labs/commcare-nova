@@ -34,7 +34,7 @@ import {
 	isDocDataKey,
 } from "@/lib/doc/store";
 import type { BlueprintDoc, Mutation, Uuid } from "@/lib/doc/types";
-import { fallbackProseProjection } from "@/lib/domain";
+import { proseTemplateText } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 
 import {
@@ -134,7 +134,7 @@ function fieldLabel(doc: BlueprintDoc, uuid: Uuid): string | undefined {
 	if (!field || !("label" in field) || field.label === undefined) {
 		return undefined;
 	}
-	return fallbackProseProjection(field.label);
+	return proseTemplateText(field.label);
 }
 
 /** A frame carrying an autosave-kind (no runId) batch from `actorId`. */

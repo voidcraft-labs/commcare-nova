@@ -20,11 +20,11 @@ import { INSPECTOR_LABEL_CLS } from "@/components/builder/inspector/inspectorChr
 import { MediaSlot } from "@/components/builder/media/MediaSlot";
 import { RefLabelInput } from "@/components/builder/RefLabelInput";
 import { RejectionInline } from "@/components/builder/RejectionNotice";
+import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import {
 	asUuid,
 	type CommitOutcome,
 	type Field,
-	fallbackProseProjection,
 	type ProseTemplate,
 	proseTemplateIsEmpty,
 	proseText,
@@ -99,6 +99,10 @@ export function OptionsEditorWidget({
 	);
 	const [focusIndex, setFocusIndex] = useState<number | null>(null);
 	const groupLabelId = useId();
+	// The two accessible names below are the only place an option label is
+	// read as plain text; a screen reader hears the same words the sighted
+	// author sees in the chip, so it goes through the document too.
+	const projectProse = useProseProjection();
 
 	// Ref on the fieldset element — used by the blur handler to check
 	// whether focus moved outside the group. Checking
@@ -290,7 +294,7 @@ export function OptionsEditorWidget({
 							onClick={() => removeOption(i)}
 							disabled={draft.length <= 2}
 							aria-label={`Remove ${
-								fallbackProseProjection(opt.label).trim() || `option ${i + 1}`
+								projectProse(opt.label).trim() || `option ${i + 1}`
 							}`}
 							className="flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-lg text-nova-text-muted transition-colors hover:bg-nova-rose/10 hover:text-nova-rose disabled:cursor-not-allowed disabled:opacity-30"
 						>
@@ -304,9 +308,7 @@ export function OptionsEditorWidget({
 								// The UUID is the authored identity. Values are mutable
 								// wire projections and never address option media.
 								slotKey={`option:${slotKeyBase}:${opt.uuid}`}
-								ariaLabel={
-									fallbackProseProjection(opt.label).trim() || `Option ${i + 1}`
-								}
+								ariaLabel={projectProse(opt.label).trim() || `Option ${i + 1}`}
 							/>
 						</div>
 					</div>

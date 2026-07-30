@@ -35,6 +35,7 @@ import { BlurCommitTextInput } from "@/components/builder/shared/primitives/Blur
 import { InlineError } from "@/components/builder/shared/primitives/CardShell";
 import { PropertyPicker } from "@/components/builder/shared/primitives/PropertyPicker";
 import { propertyDisplayLabelForName } from "@/components/builder/shared/primitives/propertyDisplay";
+import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import type { CaseProperty } from "@/lib/domain";
 
 interface ColumnFieldRowProps {
@@ -73,10 +74,15 @@ export function ColumnFieldRow({
 }: ColumnFieldRowProps) {
 	const fieldInvalid = errors !== undefined && errors.length > 0;
 	const { caseTypes, currentCaseType } = usePredicateEditContext();
+	const projectProse = useProseProjection();
 	const properties =
 		caseTypes.find((caseType) => caseType.name === currentCaseType)
 			?.properties ?? [];
-	const inheritedHeader = propertyDisplayLabelForName(field, properties);
+	const inheritedHeader = propertyDisplayLabelForName(
+		field,
+		properties,
+		projectProse,
+	);
 	const usesInheritedHeader = header.trim() === "";
 	return (
 		<div className="space-y-4 [&_button]:!text-[14px] [&_input]:!text-[14px]">

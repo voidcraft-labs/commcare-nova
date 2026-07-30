@@ -47,6 +47,7 @@
 
 import { caseSearchPredicateVerdict } from "@/lib/doc/hooks/predicateVerdicts";
 import type { CaseWorkspaceBoundaryVerdicts } from "@/lib/doc/hooks/useCaseWorkspaceVerdicts";
+import type { ProseProjector } from "@/lib/doc/hooks/useProseProjection";
 import {
 	type CaseListConfig,
 	type CaseType,
@@ -115,6 +116,7 @@ export function caseListConfigVerdicts(
 	config: CaseListConfig,
 	caseTypes: readonly CaseType[],
 	currentCaseType: string,
+	project: ProseProjector,
 	options: CaseListConfigVerdictOptions = {},
 ): CaseListConfigVerdicts {
 	const caseSearchEnabled =
@@ -198,7 +200,12 @@ export function caseListConfigVerdicts(
 	};
 	let search =
 		boundary.searchInputsBroken || boundary.searchButtonConditionBroken;
-	const resolved = resolveRows(config.searchInputs, caseTypes, currentCaseType);
+	const resolved = resolveRows(
+		config.searchInputs,
+		caseTypes,
+		currentCaseType,
+		project,
+	);
 	for (let i = 0; i < config.searchInputs.length; i++) {
 		const row = config.searchInputs[i];
 		const rowResolved = resolved[i];

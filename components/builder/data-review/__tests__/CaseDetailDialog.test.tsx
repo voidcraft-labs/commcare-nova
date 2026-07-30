@@ -2,6 +2,7 @@
 
 import { render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { BlueprintDocProvider } from "@/lib/doc/provider";
 import type { CaseType } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import type {
@@ -118,14 +119,18 @@ describe("CaseDetailDialog", () => {
 	});
 
 	it("renders canonical scalars from their row columns and JSONB values from properties", async () => {
+		// The dialog spells each property's authored label against the document;
+		// every production mount sits inside the builder's provider.
 		render(
-			<CaseDetailDialog
-				appId="app-1"
-				caseType={CASE_TYPE}
-				caseId="case-1"
-				caseName="Patient details"
-				onClose={vi.fn()}
-			/>,
+			<BlueprintDocProvider appId="app-1">
+				<CaseDetailDialog
+					appId="app-1"
+					caseType={CASE_TYPE}
+					caseId="case-1"
+					caseName="Patient details"
+					onClose={vi.fn()}
+				/>
+			</BlueprintDocProvider>,
 		);
 
 		expect(await screen.findByRole("dialog")).toBeDefined();

@@ -367,7 +367,10 @@ export function validateBlueprintDeep(
 		// case-type records — the same authoritative source the editor's lint
 		// context uses — so authoring and deep validation agree on `#<type>/<prop>`.
 		const caseTypeIndex = mod.caseType
-			? toReachableIndex(reachableCaseTypes(mod.caseType, doc.caseTypes ?? []))
+			? toReachableIndex(
+					reachableCaseTypes(mod.caseType, doc.caseTypes ?? []),
+					doc,
+				)
 			: undefined;
 
 		for (const formUuid of scopedForms) {

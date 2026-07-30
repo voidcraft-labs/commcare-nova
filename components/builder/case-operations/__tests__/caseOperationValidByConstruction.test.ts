@@ -216,11 +216,7 @@ function fixture(formType: "followup" | "registration"): {
  * canvas or the scope rule moves this test with it.
  */
 function editorVocabulary(shape: ReturnType<typeof fixture>) {
-	const entries = formFieldEntriesFor(
-		shape.doc.fields,
-		shape.doc.fieldOrder,
-		shape.formUuid,
-	);
+	const entries = formFieldEntriesFor(shape.doc, shape.formUuid);
 	return {
 		caseTypes: effectiveCaseTypes(shape.doc),
 		currentCaseType: shape.doc.modules[shape.moduleUuid]?.caseType ?? "",
@@ -620,11 +616,7 @@ describe("every seed the canvas commits is accepted outright", () => {
 		const shape = fixture(formType);
 		const vocabulary = editorVocabulary(shape);
 		const editCtx: PredicateEditContext = vocabulary;
-		const entries = formFieldEntriesFor(
-			shape.doc.fields,
-			shape.doc.fieldOrder,
-			shape.formUuid,
-		);
+		const entries = formFieldEntriesFor(shape.doc, shape.formUuid);
 		const writeFields = operationFormFieldDecls(entries, undefined);
 
 		// "Add a condition" on the operation, and on one of its writes.

@@ -38,11 +38,11 @@ import {
 } from "@/components/shadcn/dropdown-menu";
 import { FieldError } from "@/components/shadcn/field";
 import { Input } from "@/components/shadcn/input";
+import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import {
 	type CaseProperty,
 	type CaseType,
 	effectiveDataType,
-	fallbackProseProjection,
 } from "@/lib/domain";
 import {
 	dateLiteral,
@@ -145,6 +145,7 @@ export function LiteralValueInput({
 	ariaLabel = "Value",
 }: LiteralValueInputProps) {
 	const ctx = usePredicateEditContext();
+	const projectProse = useProseProjection();
 	const property = useMemo<CaseProperty | undefined>(() => {
 		if (propertyName === undefined) return undefined;
 		const ct: CaseType | undefined = ctx.caseTypes.find(
@@ -251,7 +252,7 @@ export function LiteralValueInput({
 					options={
 						property?.options?.map((option) => ({
 							value: option.value,
-							label: fallbackProseProjection(option.label),
+							label: projectProse(option.label),
 						})) ?? []
 					}
 					invalid={invalid}

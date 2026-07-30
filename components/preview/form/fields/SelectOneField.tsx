@@ -1,10 +1,7 @@
 "use client";
 import { MediaDisplay } from "@/components/builder/media/MediaDisplay";
-import {
-	fallbackProseProjection,
-	type SelectOption,
-	type SingleSelectField,
-} from "@/lib/domain";
+import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
+import type { SelectOption, SingleSelectField } from "@/lib/domain";
 import { PreviewMarkdown } from "@/lib/markdown";
 import type { FieldState } from "@/lib/preview/engine/types";
 import { useEditMode } from "@/lib/session/hooks";
@@ -40,6 +37,11 @@ export function SelectOneField({
 	// fixture snapshot is still loading they are undefined and the list
 	// shows its loading state.
 	const lookupBacked = field.optionsSource.kind === "lookup";
+	// The engine only resolves option labels for a field whose label or hint
+	// already carries a reference, so an option that references something on a
+	// plainly-labelled question arrives here unresolved — spell it against the
+	// document rather than showing repair text for a healthy reference.
+	const projectProse = useProseProjection();
 	// `key` is display identity: static options are validator-unique by
 	// value; lookup rows guarantee neither unique nor non-blank values,
 	// so their choices carry the source row id.
@@ -55,8 +57,7 @@ export function SelectOneField({
 					...opt,
 					key: opt.value,
 					label:
-						state.resolvedOptionLabels?.[opt.uuid] ??
-						fallbackProseProjection(opt.label),
+						state.resolvedOptionLabels?.[opt.uuid] ?? projectProse(opt.label),
 				}))
 			: [];
 	const showError = state.touched && !state.valid;

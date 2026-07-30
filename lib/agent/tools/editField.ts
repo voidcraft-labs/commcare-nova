@@ -62,10 +62,10 @@ import type {
 } from "@/lib/domain";
 import {
 	convertNeedsOptionSeed,
-	fallbackProseProjection,
 	findAuthoredBlueprintIdentity,
 	getConvertibleTypes,
 } from "@/lib/domain";
+import { projectProseTemplate } from "@/lib/domain/prose";
 import { updateFieldMutations } from "../blueprintHelpers";
 import { prepareToolOptionsSource } from "../contentProcessing";
 import type { ToolExecutionContext } from "../toolExecutionContext";
@@ -464,7 +464,8 @@ export const editFieldTool = {
 							.join(", ");
 						const fieldLabel =
 							"label" in resolved.field && resolved.field.label
-								? fallbackProseProjection(resolved.field.label) || currentId
+								? projectProseTemplate(resolved.field.label, doc).text ||
+									currentId
 								: currentId;
 						return {
 							kind: "mutate" as const,
@@ -631,7 +632,7 @@ export const editFieldTool = {
 				workingDoc.forms[resolved.formUuid]?.name ?? resolved.formUuid;
 			const label =
 				postField && "label" in postField && postField.label
-					? fallbackProseProjection(postField.label)
+					? projectProseTemplate(postField.label, workingDoc).text
 					: "";
 			const kind = postField?.kind ?? "unknown";
 			// Report honestly when the call carried only the `kind` discriminator

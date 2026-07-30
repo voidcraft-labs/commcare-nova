@@ -22,7 +22,7 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { docHasData } from "@/lib/doc/predicates";
 import type { BlueprintDocStoreApi } from "@/lib/doc/store";
 import type { Mutation } from "@/lib/doc/types";
-import { fallbackProseProjection } from "@/lib/domain";
+import { proseTemplateText } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 
 import type {
@@ -341,7 +341,7 @@ describe("generation lifecycle (end-to-end)", () => {
 		);
 		const nameField = docStore.getState().fields[Q_NAME_UUID];
 		assert(nameField && nameField.kind === "text");
-		expect(fallbackProseProjection(nameField.label)).toBe("Patient Full Name");
+		expect(proseTemplateText(nameField.label)).toBe("Patient Full Name");
 		expect(deriveAgentStage(s().events)).toBe(GenerationStage.Fix);
 
 		// ── Done ──

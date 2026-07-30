@@ -1,11 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { xp } from "@/lib/__tests__/docHelpers";
-import {
-	type CaseType,
-	fallbackProseProjection,
-	fieldKinds,
-} from "@/lib/domain";
+import { type CaseType, fieldKinds, proseTemplateText } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import {
 	applyDefaults,
@@ -98,9 +94,7 @@ describe("applyDefaults", () => {
 			},
 			[testCaseType],
 		);
-		expect(result.label && fallbackProseProjection(result.label)).toBe(
-			"Full Name",
-		);
+		expect(result.label && proseTemplateText(result.label)).toBe("Full Name");
 	});
 
 	it("applies exact catalog metadata to a case-bound field id", () => {
@@ -124,10 +118,10 @@ describe("applyDefaults", () => {
 		);
 
 		expect(result.kind).toBe("text");
-		expect(result.label && fallbackProseProjection(result.label)).toBe(
+		expect(result.label && proseTemplateText(result.label)).toBe(
 			"Enrollment number",
 		);
-		expect(result.hint && fallbackProseProjection(result.hint)).toBe(
+		expect(result.hint && proseTemplateText(result.hint)).toBe(
 			"Printed on the card",
 		);
 	});
@@ -142,7 +136,7 @@ describe("applyDefaults", () => {
 			},
 			[testCaseType],
 		);
-		expect(result.label && fallbackProseProjection(result.label)).toBe(
+		expect(result.label && proseTemplateText(result.label)).toBe(
 			"Custom Label",
 		);
 	});
@@ -182,7 +176,7 @@ describe("applyDefaults", () => {
 			result.optionsSource?.kind === "inline"
 				? result.optionsSource.options.map((option) => ({
 						value: option.value,
-						label: fallbackProseProjection(option.label),
+						label: proseTemplateText(option.label),
 					}))
 				: [],
 		).toEqual([
@@ -239,9 +233,7 @@ describe("applyDefaults", () => {
 			},
 			[testCaseType],
 		);
-		expect(result.label && fallbackProseProjection(result.label)).toBe(
-			"Full Name",
-		);
+		expect(result.label && proseTemplateText(result.label)).toBe("Full Name");
 	});
 
 	it("fills in hint from case type", () => {
@@ -253,7 +245,7 @@ describe("applyDefaults", () => {
 			},
 			[testCaseType],
 		);
-		expect(result.hint && fallbackProseProjection(result.hint)).toBe(
+		expect(result.hint && proseTemplateText(result.hint)).toBe(
 			"Include country code",
 		);
 	});
@@ -274,7 +266,7 @@ describe("applyDefaults", () => {
 			{ id: "notes", kind: "text", label: proseText("Notes") },
 			[testCaseType],
 		);
-		expect(result.label && fallbackProseProjection(result.label)).toBe("Notes");
+		expect(result.label && proseTemplateText(result.label)).toBe("Notes");
 		expect(result.hint).toBeUndefined();
 	});
 
@@ -328,7 +320,7 @@ describe("applyDefaults", () => {
 			},
 			[testCaseType, otherCaseType],
 		);
-		expect(result.label && fallbackProseProjection(result.label)).toBe(
+		expect(result.label && proseTemplateText(result.label)).toBe(
 			"Household ID",
 		);
 	});

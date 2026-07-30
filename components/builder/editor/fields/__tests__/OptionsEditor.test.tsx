@@ -27,8 +27,8 @@ import { focusElement } from "@/__tests__/helpers/baseUiInteractions";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
 import {
-	fallbackProseProjection,
 	type ProseTemplate,
+	proseTemplateText,
 	type SelectOptionsSource,
 	type SingleSelectField,
 } from "@/lib/domain";
@@ -227,9 +227,9 @@ describe("OptionsEditor", () => {
 		expect(last.kind).toBe("inline");
 		if (last.kind !== "inline") throw new Error("expected inline options");
 		expect(last.options[0]?.value).toBe("crimson");
-		expect(fallbackProseProjection(last.options[0]?.label)).toBe("Red");
+		expect(proseTemplateText(last.options[0]?.label)).toBe("Red");
 		expect(last.options[1]?.value).toBe("blue");
-		expect(fallbackProseProjection(last.options[1]?.label)).toBe("Blue");
+		expect(proseTemplateText(last.options[1]?.label)).toBe("Blue");
 	});
 
 	it("dispatches a shorter list when an option row is removed", () => {
@@ -283,7 +283,7 @@ describe("OptionsEditor", () => {
 		if (last.kind !== "inline") throw new Error("expected inline options");
 		expect(last.options).toHaveLength(2);
 		expect(last.options[0]?.value).toBe("blue");
-		expect(fallbackProseProjection(last.options[0]?.label)).toBe("Blue");
+		expect(proseTemplateText(last.options[0]?.label)).toBe("Blue");
 	});
 
 	it("keeps the canonical two-option floor by disabling both remove buttons", () => {

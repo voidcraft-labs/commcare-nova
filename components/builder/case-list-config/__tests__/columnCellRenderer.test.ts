@@ -18,7 +18,8 @@ import {
 	plainColumn,
 } from "@/lib/domain";
 import { prop, term } from "@/lib/domain/predicate";
-import { proseText } from "@/lib/domain/prose";
+import { projectProseTemplate, proseText } from "@/lib/domain/prose";
+import type { XPathPrintableDoc } from "@/lib/domain/xpath/print";
 import type { CaseRowWithCalculated } from "@/lib/preview/engine/caseDataBindingTypes";
 import {
 	type ColumnDisplayContext,
@@ -33,10 +34,14 @@ import {
 const originalTimeZone = process.env.TZ;
 const COLUMN_UUID = testUuid("00000000-0000-4000-8000-000000000001");
 const TODAY = new Date("2026-07-17T12:00:00.000Z");
+const EMPTY_DOC: XPathPrintableDoc = { fields: {}, forms: {}, fieldOrder: {} };
 const EMPTY_CONTEXT: ColumnDisplayContext = {
 	calculatedTemporalTypes: new Map(),
 	caseProperties: [],
 	today: TODAY,
+	// These fixtures label their options with literal prose, so an empty
+	// document resolves everything they reference (nothing).
+	projectProse: (template) => projectProseTemplate(template, EMPTY_DOC).text,
 };
 
 describe("case-list Preview cell formatting", () => {

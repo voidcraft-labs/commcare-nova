@@ -56,6 +56,7 @@ import type {
 } from "@/lib/doc/casePropertyRenameImpact";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useCasePropertyRenameReview } from "@/lib/doc/hooks/useCasePropertyRenameReview";
+import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import {
 	authoredCasePropertyNameSchema,
 	CASE_SCALAR_PROPERTY_NAMES,
@@ -185,6 +186,7 @@ export function CasePropertyRenameDialog({
 	readonly canEdit: boolean;
 	readonly initialCaseType?: string;
 }) {
+	const projectProse = useProseProjection();
 	const titleRef = useRef<HTMLHeadingElement>(null);
 	const nameInputId = useId();
 	const { inline } = useBlueprintMutations();
@@ -452,7 +454,10 @@ export function CasePropertyRenameDialog({
 													<p className="break-words font-medium text-nova-text [overflow-wrap:anywhere]">
 														{authoredProperty === undefined
 															? propertyLabel(property)
-															: propertyDisplayLabel(authoredProperty)}
+															: propertyDisplayLabel(
+																	authoredProperty,
+																	projectProse,
+																)}
 													</p>
 													<p className="break-all font-mono text-xs text-nova-text-muted">
 														#{caseType.name}/{property}

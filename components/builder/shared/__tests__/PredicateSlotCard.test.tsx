@@ -15,8 +15,10 @@
 //     valid: false; clearing the slot flips back to true even with
 //     the stale-shadow path active (slot-presence short-circuit).
 
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render as rtlRender, screen } from "@testing-library/react";
+import type { ReactElement, ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
+import { BlueprintDocProvider } from "@/lib/doc/provider";
 import type { CaseType } from "@/lib/domain";
 import {
 	eq,
@@ -28,6 +30,19 @@ import {
 } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
 import { PredicateSlotCard } from "../PredicateSlotCard";
+
+// The surfaces here spell authored prose against the document; every production
+// mount sits inside the builder's provider. Wrapping at `render` reproduces it
+// and carries through each `rerender`.
+function DocumentProvider({ children }: { readonly children: ReactNode }) {
+	return (
+		<BlueprintDocProvider appId="test-app">{children}</BlueprintDocProvider>
+	);
+}
+
+function render(ui: ReactElement) {
+	return rtlRender(ui, { wrapper: DocumentProvider });
+}
 
 // ── Fixtures ──────────────────────────────────────────────────────
 

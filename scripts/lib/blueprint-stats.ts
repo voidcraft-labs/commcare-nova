@@ -13,9 +13,9 @@
 
 import {
 	expressionSource,
-	fallbackProseProjection,
 	fieldCaseWrite,
 	isContainer,
+	projectProseTemplate,
 } from "../../lib/domain";
 import type { BlueprintDoc, Field, Form, Module, Uuid } from "./types";
 
@@ -515,7 +515,7 @@ function walkForLogic(
 		}
 		if ("hint" in f && f.hint) {
 			has.push("hint");
-			expressions.hint = fallbackProseProjection(f.hint);
+			expressions.hint = projectProseTemplate(f.hint, doc).text;
 		}
 
 		if (has.length > 0) {

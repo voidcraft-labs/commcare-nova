@@ -28,10 +28,10 @@ import {
 	PopoverTrigger,
 } from "@/components/shadcn/popover";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
+import type { ProseProjector } from "@/lib/doc/hooks/useProseProjection";
 import {
 	type CaseProperty,
 	type Column,
-	fallbackProseProjection,
 	TIME_SINCE_UNIT_DAYS,
 } from "@/lib/domain";
 import {
@@ -103,6 +103,10 @@ export type ColumnDisplayContext = {
 		CalculatedTemporalType
 	>;
 	readonly today: Date;
+	/** Spells an option label's references against the owning document. Rides
+	 *  the display context rather than being read per cell, so the Results
+	 *  list and the Quick Filter that matches it can never disagree. */
+	readonly projectProse: ProseProjector;
 };
 
 /** Resolve the authored expression type once per calculated column. */
@@ -136,6 +140,7 @@ export function projectColumnDisplay(
 				context.caseProperties.find(
 					(property) => property.name === column.field,
 				),
+				context.projectProse,
 			);
 		case "phone":
 			return {
@@ -164,6 +169,7 @@ export function projectColumnDisplay(
 				context.caseProperties.find(
 					(property) => property.name === column.field,
 				),
+				context.projectProse,
 			);
 		case "calculated":
 			return projectCalculatedValue(
@@ -177,6 +183,7 @@ function projectPlainValue(
 	row: CaseRowWithCalculated,
 	field: string,
 	property: CaseProperty | undefined,
+	projectProse: ProseProjector,
 ): PreviewFormattedValue {
 	const source = caseRowDisplaySourceValue(row, field);
 	if (
@@ -184,7 +191,7 @@ function projectPlainValue(
 		(Array.isArray(source) || typeof source === "string")
 	) {
 		const rawTokens = Array.isArray(source)
-			? source.map((item) => projectStoredScalar(item, undefined))
+			? source.map((item) => projectStoredScalar(item, undefined, projectProse))
 			: source.split(/\s+/).filter(Boolean);
 		if (rawTokens.some((token) => token === undefined)) {
 			return unsupportedStoredValue();
@@ -199,7 +206,7 @@ function projectPlainValue(
 			text: [
 				...(property.options ?? [])
 					.filter((option) => selected.has(option.value))
-					.map((option) => fallbackProseProjection(option.label)),
+					.map((option) => projectProse(option.label)),
 				...tokens.filter((token) => !knownValues.has(token)),
 			].join(" "),
 		};
@@ -207,7 +214,7 @@ function projectPlainValue(
 	if (Array.isArray(source)) {
 		const labels: string[] = [];
 		for (const item of source) {
-			const label = projectStoredScalar(item, property);
+			const label = projectStoredScalar(item, property, projectProse);
 			if (label === undefined) return unsupportedStoredValue();
 			if (label !== "") labels.push(label);
 		}
@@ -229,7 +236,7 @@ function projectPlainValue(
 	}
 	return {
 		kind: "value",
-		text: projectStoredScalar(source, property) ?? "",
+		text: projectStoredScalar(source, property, projectProse) ?? "",
 	};
 }
 
@@ -254,6 +261,7 @@ function projectImageMappedValue(
 	source: ReturnType<typeof caseRowDisplaySourceValue>,
 	mapping: Extract<Column, { kind: "image-map" }>["mapping"],
 	property: CaseProperty | undefined,
+	projectProse: ProseProjector,
 ): PreviewFormattedValue {
 	const selected = selectedTokens(source);
 	if (selected === undefined) return unsupportedStoredValue();
@@ -265,7 +273,7 @@ function projectImageMappedValue(
 		? { kind: "value", text: "" }
 		: {
 				kind: "image",
-				text: option ? fallbackProseProjection(option.label) : match.value,
+				text: option ? projectProse(option.label) : match.value,
 				assetId: match.assetId,
 			};
 }
@@ -289,6 +297,7 @@ function selectedTokens(
 function projectStoredScalar(
 	value: unknown,
 	property: CaseProperty | undefined,
+	projectProse: ProseProjector,
 ): string | undefined {
 	if (value === null || value === undefined) return "";
 	if (
@@ -300,7 +309,7 @@ function projectStoredScalar(
 	}
 	const raw = String(value);
 	const option = property?.options?.find((entry) => entry.value === raw);
-	if (option !== undefined) return fallbackProseProjection(option.label);
+	if (option !== undefined) return projectProse(option.label);
 	if (typeof value === "boolean") return value ? "Yes" : "No";
 	return raw;
 }

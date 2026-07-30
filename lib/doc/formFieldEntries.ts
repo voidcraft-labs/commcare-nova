@@ -13,9 +13,10 @@ import {
 	caseDataTypeForFieldKind,
 	type Field,
 	type FieldKind,
-	fallbackProseProjection,
 	type Uuid,
 } from "@/lib/domain";
+import { projectProseTemplate } from "@/lib/domain/prose";
+import type { XPathPrintableDoc } from "@/lib/domain/xpath/print";
 
 export interface FormFieldEntry {
 	readonly uuid: Uuid;
@@ -43,10 +44,26 @@ export interface FormFieldEntryWithAncestors extends FormFieldEntry {
 	readonly repeatAncestors: readonly Uuid[];
 }
 
-function labelOf(field: Field): string {
+/**
+ * The document surface entry building reads: the two maps the walk itself
+ * needs, plus what a label's references need to be spelled out. `forms` and
+ * `fieldParent` are what terminate a reference's ancestor walk at the right
+ * root — passing only the sub-tree being walked would spell a path relative to
+ * a group, and `useFormFieldEntries` is called with a group uuid as often as a
+ * form's.
+ */
+export interface FormFieldEntrySource {
+	fields: Readonly<Record<Uuid, Field | undefined>>;
+	fieldOrder: Readonly<Record<Uuid, readonly Uuid[] | undefined>>;
+	forms: XPathPrintableDoc["forms"];
+	fieldParent?: XPathPrintableDoc["fieldParent"];
+	userProperties?: XPathPrintableDoc["userProperties"];
+}
+
+function labelOf(field: Field, doc: XPathPrintableDoc): string {
 	const label =
 		"label" in field && field.label
-			? fallbackProseProjection(field.label).trim()
+			? projectProseTemplate(field.label, doc).text.trim()
 			: "";
 	return label.length > 0 ? label : field.id;
 }
@@ -56,10 +73,10 @@ function labelOf(field: Field): string {
  * repeat. Each sibling level sorts independently by `(order, uuid)`.
  */
 export function formFieldEntriesFor(
-	fields: Readonly<Record<Uuid, Field | undefined>>,
-	fieldOrder: Readonly<Record<Uuid, readonly Uuid[] | undefined>>,
+	source: FormFieldEntrySource,
 	formUuid: Uuid,
 ): readonly FormFieldEntryWithAncestors[] {
+	const { fields, fieldOrder } = source;
 	const found: FormFieldEntryWithAncestors[] = [];
 	const walk = (parent: Uuid, repeats: readonly Uuid[]) => {
 		const children = [...(fieldOrder[parent] ?? [])];
@@ -71,7 +88,7 @@ export function formFieldEntriesFor(
 			found.push({
 				uuid: field.uuid,
 				id: field.id,
-				label: labelOf(field),
+				label: labelOf(field, source),
 				kind: field.kind,
 				dataType: caseDataTypeForFieldKind(field.kind),
 				repeat: childRepeats.at(-1),
