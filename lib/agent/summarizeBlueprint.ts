@@ -34,6 +34,7 @@ import {
 	userPropertiesOf,
 	userTypesOf,
 } from "@/lib/domain";
+import { projectProseTemplate } from "@/lib/domain/prose";
 import { unwrittenPropertiesReminder } from "./systemReminder";
 import {
 	ADVANCED_SLOT_NAMES,
@@ -57,7 +58,13 @@ function summarizeField(
 	// structural/media kinds and on non-case fields — render each
 	// piece only when it's meaningful.
 	const pieces: string[] = [`${indent}- ${field.id} (${field.kind})`];
-	if ("label" in field && field.label) pieces[0] += `: "${field.label}"`;
+	// `label` is a `ProseTemplate`, so it has to be projected against the
+	// owning document rather than interpolated — a template dropped into a
+	// template literal stringifies to `[object Object]`, which would make
+	// every field in the app indistinguishable to whoever reads this summary.
+	if ("label" in field && field.label) {
+		pieces[0] += `: "${projectProseTemplate(field.label, doc).text}"`;
+	}
 	const write = fieldCaseWrite(field);
 	if (write) pieces[0] += ` → ${write.caseType}.${write.property}`;
 	if (isContainer(field)) {
