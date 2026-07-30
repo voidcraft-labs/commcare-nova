@@ -491,7 +491,7 @@ export const createModuleTool = {
 					: "";
 			return {
 				kind: "mutate" as const,
-				mutations,
+				mutations: commit.mutations,
 				newDoc,
 				result: {
 					message: `Successfully created module "${name}" (UUID ${moduleUuid})${case_type ? ` (case type: ${case_type})` : ""}${structureNote}. App now has ${newDoc.moduleOrder.length} module${newDoc.moduleOrder.length === 1 ? "" : "s"}.${skippedNote}`,

@@ -57,12 +57,12 @@ export function useFormIds(moduleUuid: Uuid): Uuid[] | undefined {
 }
 
 /** Forms for a given module in DISPLAY sequence. Reference-stable when the
- *  sequence (by entity reference) is unchanged; empty array for unknown
- *  modules. */
-export function useOrderedForms(moduleUuid: Uuid): Form[] {
+ *  sequence (by entity reference) is unchanged; empty array while no module is
+ *  selected or for an unknown module. */
+export function useOrderedForms(moduleUuid: Uuid | undefined): Form[] {
 	return useBlueprintDocEq(
 		(s) =>
-			(s.formOrder[moduleUuid] ?? [])
+			(moduleUuid === undefined ? [] : (s.formOrder[moduleUuid] ?? []))
 				.map((uuid) => s.forms[uuid])
 				.filter((f): f is Form => f !== undefined),
 		sameSequenceByIdentity,

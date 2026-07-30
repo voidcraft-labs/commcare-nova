@@ -10,9 +10,11 @@ import { resolvableUserPropertySlug } from "@/lib/doc/expressionText";
 import {
 	fieldPathResolver,
 	printXPath,
+	projectXPath,
 	renameCasePropertyInXPath,
 	type XPathExpression,
 	type XPathPrintableDoc,
+	XPathProjectionError,
 	xpathPrintContext,
 } from "@/lib/domain";
 import { parseXPathExpression } from "../expressionAst";
@@ -159,11 +161,20 @@ describe("resolve at print", () => {
 		);
 	});
 
-	it("falls back to the uuid spelling for an unresolvable identity leaf", () => {
+	it("shows repair text without leaking identity and blocks strict projection", () => {
 		const doc = makeDoc();
 		const expr = parse("#form/age", doc);
 		delete (doc.fields as Record<string, unknown>)[AGE];
-		expect(printXPath(expr, xpathPrintContext(doc))).toBe(`#form/${AGE}`);
+		const projected = projectXPath(expr, xpathPrintContext(doc));
+		expect(projected).toEqual({
+			ok: false,
+			text: "#form/[reference needs repair]",
+			unresolved: [{ kind: "field-ref", identity: AGE }],
+		});
+		expect(projected.text).not.toContain(AGE);
+		expect(() => printXPath(expr, xpathPrintContext(doc))).toThrow(
+			XPathProjectionError,
+		);
 	});
 
 	it("prints a custom user property through its current slug without rewriting", () => {

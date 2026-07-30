@@ -165,7 +165,8 @@ function collectFieldsUnder(doc: BlueprintDoc, parentUuid: Uuid): Field[] {
 	const out: Field[] = [];
 	const stack: Uuid[] = [...(doc.fieldOrder[parentUuid] ?? [])];
 	while (stack.length > 0) {
-		const uuid = stack.pop() as Uuid;
+		const uuid = stack.pop();
+		if (uuid === undefined) continue;
 		const field = doc.fields[uuid];
 		if (!field) continue;
 		out.push(field);

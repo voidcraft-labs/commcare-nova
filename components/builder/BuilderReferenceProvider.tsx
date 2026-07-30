@@ -23,7 +23,7 @@
 import { useCallback, useContext } from "react";
 import { buildLintContext } from "@/lib/codemirror/buildLintContext";
 import { BlueprintDocContext } from "@/lib/doc/provider";
-import type { Uuid } from "@/lib/domain";
+import { asUuid } from "@/lib/domain";
 import { ReferenceProviderWrapper } from "@/lib/references/ReferenceContext";
 import { useLocation } from "@/lib/routing/hooks";
 
@@ -45,7 +45,7 @@ export function BuilderReferenceProvider({
 	const getContextForForm = useCallback(
 		(formUuid: string) =>
 			docStore
-				? buildLintContext(docStore.getState(), formUuid as Uuid)
+				? buildLintContext(docStore.getState(), asUuid(formUuid))
 				: undefined,
 		[docStore],
 	);
@@ -60,19 +60,37 @@ export function BuilderReferenceProvider({
 			? loc.formUuid
 			: undefined;
 
-	/** Subscribe to entity changes that invalidate the ReferenceProvider cache.
-	 *  Covers fields (field references, case_property_on), modules (case_type renames),
-	 *  and forms (form type changes affecting case config). Uses a tuple selector
-	 *  with reference equality — only fires when at least one entity map gets a
-	 *  new Immer reference. */
+	/** Subscribe to every document family read by `buildLintContext`. Field
+	 *  moves change only `fieldOrder`; form moves change only `formOrder`;
+	 *  worker-information renames and case-catalog edits likewise live outside
+	 *  the field/module/form entity maps. Missing one of those families leaves
+	 *  the provider's per-form path/name indexes stale. Uses a tuple selector
+	 *  with reference equality, so unrelated document/UI changes do not clear
+	 *  the cache. */
 	const subscribeMutation = useCallback(
 		(listener: () => void) => {
 			if (!docStore) return () => {};
 			return docStore.subscribe(
-				(s) => [s.fields, s.modules, s.forms] as const,
+				(s) =>
+					[
+						s.fields,
+						s.fieldOrder,
+						s.modules,
+						s.forms,
+						s.formOrder,
+						s.caseTypes,
+						s.userProperties,
+					] as const,
 				() => listener(),
 				{
-					equalityFn: (a, b) => a[0] === b[0] && a[1] === b[1] && a[2] === b[2],
+					equalityFn: (a, b) =>
+						a[0] === b[0] &&
+						a[1] === b[1] &&
+						a[2] === b[2] &&
+						a[3] === b[3] &&
+						a[4] === b[4] &&
+						a[5] === b[5] &&
+						a[6] === b[6],
 				},
 			);
 		},

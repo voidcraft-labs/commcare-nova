@@ -39,6 +39,7 @@ import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
 import { MAX_RUN_MINUTES } from "@/lib/db/constants";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import type { Mutation } from "@/lib/doc/types";
 import {
 	type BlueprintDoc,
@@ -56,23 +57,44 @@ const { projectRoleForInTransactionMock } = vi.hoisted(() => ({
 		vi.fn<(_tx: unknown, u: string, o: string) => Promise<string | null>>(),
 }));
 vi.mock("@/lib/db/projectMembership", () => ({
-	// Keep the legacy out-of-transaction helper present for any incidental
-	// module consumer; the guarded writer authorizes exclusively in-transaction.
+	// Keep the out-of-transaction helper present for any incidental module
+	// consumer; the guarded writer authorizes exclusively in-transaction.
 	projectRoleFor: vi.fn(),
 	projectRoleForInTransaction: projectRoleForInTransactionMock,
 }));
 
 const {
 	appendSyntheticBatch,
-	commitGuardedBatch,
-	commitGuardedBatchInTransaction,
+	commitGuardedBatch: commitGuardedBatchOpaque,
+	commitGuardedBatchInTransaction: commitGuardedBatchInTransactionOpaque,
 	loadApp,
 	UNTITLED_APP_NAME,
 } = await import("../apps");
+const commitGuardedBatch = (
+	args: Omit<Parameters<typeof commitGuardedBatchOpaque>[0], "mutations"> & {
+		mutations: unknown;
+	},
+) =>
+	commitGuardedBatchOpaque({
+		...args,
+		mutations: admitMutationBatch(args.mutations),
+	});
+const commitGuardedBatchInTransaction = (
+	tx: Parameters<typeof commitGuardedBatchInTransactionOpaque>[0],
+	args: Omit<
+		Parameters<typeof commitGuardedBatchInTransactionOpaque>[1],
+		"mutations"
+	> & { mutations: unknown },
+) =>
+	commitGuardedBatchInTransactionOpaque(tx, {
+		...args,
+		mutations: admitMutationBatch(args.mutations),
+	});
 const {
 	AppProjectChangedError,
 	CommitReauthError,
 	BlueprintCommitRejectedError,
+	MutationBatchIdCollisionError,
 	RunHolderLostError,
 } = await import("../commitGuard");
 const { decomposeBlueprint } = await import("../blueprintRows");
@@ -478,13 +500,13 @@ describe("commitGuardedBatch (Postgres)", () => {
 		expect(first.deduped).toBe(false);
 		expect(first.seq).toBe(1);
 
-		// A second commit of the SAME batchId — even with different mutations —
-		// replays the latch: same seq, deduped, no new write.
+		// A byte/identity-equivalent retry replays the latch: same seq, deduped,
+		// no new write.
 		const replay = await commitGuardedBatch({
 			appId,
 			expectedProjectId: PROJECT,
 			batchId,
-			mutations: renameVillageLabel(doc, "IGNORED — dedup replay"),
+			mutations: renameVillageLabel(doc, "Home village"),
 			actorUserId: OWNER,
 			kind: "autosave",
 		});
@@ -504,6 +526,118 @@ describe("commitGuardedBatch (Postgres)", () => {
 				village.label !== undefined &&
 				fallbackProseProjection(village.label),
 		).toBe("Home village");
+	});
+
+	it("rejects a reused batchId whose admitted content differs", async () => {
+		const doc = minDoc();
+		const appId = await seedApp(doc);
+		const batchId = crypto.randomUUID();
+
+		await commitGuardedBatch({
+			appId,
+			expectedProjectId: PROJECT,
+			batchId,
+			mutations: renameVillageLabel(doc, "Home village"),
+			actorUserId: OWNER,
+			kind: "autosave",
+		});
+
+		await expect(
+			commitGuardedBatch({
+				appId,
+				expectedProjectId: PROJECT,
+				batchId,
+				mutations: renameVillageLabel(doc, "Different village"),
+				actorUserId: OWNER,
+				kind: "autosave",
+			}),
+		).rejects.toBeInstanceOf(MutationBatchIdCollisionError);
+		expect(await readSeq(appId)).toBe(1);
+		expect(await readStream(appId)).toHaveLength(1);
+	});
+
+	it.each([
+		{
+			label: "actor",
+			retry: { actorUserId: MEMBER, kind: "mcp" as const, runId: "run-1" },
+		},
+		{
+			label: "kind",
+			retry: {
+				actorUserId: OWNER,
+				kind: "autosave" as const,
+				runId: "run-1",
+			},
+		},
+		{
+			label: "run attribution",
+			retry: { actorUserId: OWNER, kind: "mcp" as const, runId: "run-2" },
+		},
+	])(
+		"rejects a reused batchId whose immutable $label differs",
+		async ({ retry }) => {
+			const doc = minDoc();
+			const appId = await seedApp(doc);
+			const batchId = crypto.randomUUID();
+			const mutations = renameVillageLabel(doc, "Home village");
+
+			await commitGuardedBatch({
+				appId,
+				expectedProjectId: PROJECT,
+				batchId,
+				runId: "run-1",
+				mutations,
+				actorUserId: OWNER,
+				kind: "mcp",
+			});
+
+			await expect(
+				commitGuardedBatch({
+					appId,
+					expectedProjectId: PROJECT,
+					batchId,
+					mutations,
+					...retry,
+				}),
+			).rejects.toBeInstanceOf(MutationBatchIdCollisionError);
+			expect(await readSeq(appId)).toBe(1);
+			expect(await readStream(appId)).toHaveLength(1);
+		},
+	);
+
+	it("treats key order, null prototypes, and acyclic sharing as one admitted retry", async () => {
+		const doc = minDoc();
+		const appId = await seedApp(doc);
+		const batchId = crypto.randomUUID();
+		const sharedLabel = proseText("Home village");
+		const first = () =>
+			Object.assign(Object.create(null), {
+				patch: Object.assign(Object.create(null), { label: sharedLabel }),
+				targetKind: "text",
+				uuid: villageUuid(doc),
+				kind: "updateField",
+			});
+
+		await commitGuardedBatch({
+			appId,
+			expectedProjectId: PROJECT,
+			batchId,
+			mutations: [first(), first()],
+			actorUserId: OWNER,
+			kind: "autosave",
+		});
+		const replay = await commitGuardedBatch({
+			appId,
+			expectedProjectId: PROJECT,
+			batchId,
+			mutations: [structuredClone(first()), structuredClone(first())],
+			actorUserId: OWNER,
+			kind: "autosave",
+		});
+
+		expect(replay.deduped).toBe(true);
+		expect(replay.seq).toBe(1);
+		expect(await readStream(appId)).toHaveLength(1);
 	});
 
 	it("refreshes the EDIT run_lock lease on a commit by the lock-holding run", async () => {
@@ -1008,7 +1142,12 @@ describe("commitGuardedBatch — rename-expectation gate", () => {
 		const village = Object.values(doc.fields).find((fl) => fl.id === "village");
 		if (!village) throw new Error("fixture is missing the village field");
 		const mutations: Mutation[] = [
-			{ kind: "renameField", uuid: village.uuid, newId: "hamlet" },
+			{
+				kind: "updateField",
+				uuid: village.uuid,
+				targetKind: "text",
+				patch: { id: "hamlet" },
+			},
 		];
 
 		// The batch's fresh re-apply renames village→hamlet, but the caller
@@ -1044,15 +1183,13 @@ describe("commitGuardedBatch — rename-expectation gate", () => {
 		expect(result.seq).toBe(1);
 	});
 
-	it("rejects a pre-migrated diff rename when a peer's fresh writer keeps the old property", async () => {
-		/* M's diff/undo/collab batch prepared village→hamlet from a prior containing only the first
+	it("converges a fresh peer writer during a covered field/property ID change", async () => {
+		/* M prepared village→hamlet from a prior containing only the first
 		 * writer, then Phase A moved every saved `village` value. Before M's
-		 * blueprint commit, a peer added the second unchanged `village` writer.
-		 * Unlike interactive `renameField`, the diff encoding is an `updateField`
-		 * id patch targeting only M's original UUID, so the peer stays on `village`.
-		 * The fresh diff now suppresses the rename proof because `village` stays
-		 * live for that keeper. Accepting M would leave the final schema with both
-		 * properties while the keeper's values had already been moved to `hamlet`. */
+		 * blueprint commit, a peer added a second `village` writer. The single
+		 * canonical updateField dialect preserves the case property's semantic
+		 * identity by cascading that peer in the freshly locked document, so
+		 * the covered migration and blueprint commit still converge. */
 		const fresh = buildDoc({
 			appName: "Kept rename race",
 			modules: [
@@ -1112,28 +1249,41 @@ describe("commitGuardedBatch — rename-expectation gate", () => {
 		);
 		if (!movingWriter) throw new Error("fixture is missing the moving writer");
 
-		await expect(
-			commitGuardedBatch({
-				appId,
-				expectedProjectId: null,
-				batchId: crypto.randomUUID(),
-				mutations: [
-					{
-						kind: "updateField",
-						uuid: movingWriter.uuid,
-						targetKind: "text",
-						patch: { id: "hamlet" },
-					} as Mutation,
-				],
-				actorUserId: OWNER,
-				kind: "autosave",
-				renameExpectations: [
-					{ caseType: "patient", from: "village", to: "hamlet" },
-				],
-			}),
-		).rejects.toThrow(
-			'Saved case data was prepared for a rename of "village" to "hamlet"',
-		);
-		expect(await readSeq(appId)).toBe(0);
+		const result = await commitGuardedBatch({
+			appId,
+			expectedProjectId: null,
+			batchId: crypto.randomUUID(),
+			mutations: [
+				{
+					kind: "updateField",
+					uuid: movingWriter.uuid,
+					targetKind: "text",
+					patch: { id: "hamlet" },
+				} as Mutation,
+			],
+			actorUserId: OWNER,
+			kind: "autosave",
+			renameExpectations: [
+				{ caseType: "patient", from: "village", to: "hamlet" },
+			],
+		});
+
+		const writerIds = Object.values(result.committedDoc.fields)
+			.filter(
+				(field) =>
+					"label" in field &&
+					field.label !== undefined &&
+					["Moving village writer", "Keeping village writer"].includes(
+						fallbackProseProjection(field.label),
+					),
+			)
+			.map((field) => field.id);
+		expect(writerIds).toEqual(["hamlet", "hamlet"]);
+		expect(
+			result.committedDoc.caseTypes
+				?.find((caseType) => caseType.name === "patient")
+				?.properties.map((property) => property.name),
+		).toEqual(["case_name", "hamlet"]);
+		expect(await readSeq(appId)).toBe(1);
 	});
 });

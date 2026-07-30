@@ -209,7 +209,7 @@ export const setCaseListTileTool = {
 
 			return {
 				kind: "mutate" as const,
-				mutations,
+				mutations: commit.mutations,
 				newDoc: commit.newDoc,
 				result: {
 					message: describeOutcome({

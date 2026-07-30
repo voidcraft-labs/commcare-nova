@@ -22,6 +22,7 @@ import type { Mutation, Uuid } from "@/lib/doc/types";
 import {
 	type BlueprintDoc,
 	type CaseOperation,
+	caseOperationSchema,
 	emptyCaseListConfig,
 } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
@@ -36,6 +37,10 @@ function value(value: string) {
 		kind: "term" as const,
 		term: { kind: "literal" as const, value },
 	};
+}
+
+function strictOperation(operation: CaseOperation) {
+	return caseOperationSchema.parse(operation);
 }
 
 /**
@@ -637,6 +642,7 @@ describe("batchTargetsMissing — case-operation logical identities", () => {
 				{
 					operation: "update",
 					uuid: OPERATION,
+					targetAction: "create",
 					patch: { id: "renamed" },
 				},
 			),
@@ -709,7 +715,7 @@ describe("batchTargetsMissing — case-operation logical identities", () => {
 					patch: {},
 					caseOperationChange: {
 						operation: "add",
-						value: { ...operation, uuid: OPERATION },
+						value: strictOperation({ ...operation, uuid: OPERATION }),
 					},
 				},
 			]),
@@ -730,7 +736,6 @@ describe("batchTargetsMissing — case-operation logical identities", () => {
 						operation: "add-write",
 						uuid: OPERATION,
 						value: peerWrite,
-						index: 1,
 					},
 				),
 			]),
@@ -756,7 +761,6 @@ describe("batchTargetsMissing — case-operation logical identities", () => {
 						operation: "add-link",
 						uuid: OPERATION,
 						value: peerLink,
-						index: 1,
 					},
 				),
 			]),
@@ -792,30 +796,33 @@ describe("batchTargetsMissing — case-operation logical identities", () => {
 					kind: "updateForm",
 					uuid: testUuid(formUuid),
 					patch: {},
-					caseOperationChange: { operation: "add", value: born },
+					caseOperationChange: {
+						operation: "add",
+						value: strictOperation(born),
+					},
 				},
 				granular(formUuid, born, {
 					operation: "add-write",
 					uuid: born.uuid,
 					value: { property: "note", value: value("hello") },
-					index: 0,
+					after: null,
 				}),
 				granular(formUuid, born, {
 					operation: "add-link",
 					uuid: born.uuid,
 					value: born.links?.[0] as NonNullable<CaseOperation["links"]>[number],
-					index: 0,
+					after: null,
 				}),
 			]),
 		).toBe(false);
 	});
 
-	it("accepts a move whose anchor is only born later in the same batch", () => {
+	it("requires a move anchor to exist earlier in the same batch", () => {
 		const { doc, formUuid } = fixture();
 		const first = operationIn(doc, formUuid);
 		const peer: CaseOperation = {
 			...first,
-			uuid: testUuid("44444444-4444-4444-8444-444444444444"),
+			uuid: testUuid("same-batch-peer-operation"),
 			id: "same_batch_birth",
 		};
 		const move = (after: ReturnType<typeof testUuid> | null): Mutation => ({
@@ -825,10 +832,8 @@ describe("batchTargetsMissing — case-operation logical identities", () => {
 			caseOperationPatch: { operation: "move", uuid: OPERATION, after },
 		});
 
-		// A placement named by the uuid it follows cannot be shifted by a peer,
-		// so there is no rank to fence: the anchor either survives and the
-		// operation lands after it, or it does not and the operation appends.
-		// Neither outcome is a phantom conflict.
+		// A later declaration cannot retroactively make an earlier placement
+		// deterministic.
 		expect(
 			batchTargetsMissing(doc, [
 				move(peer.uuid),
@@ -836,12 +841,31 @@ describe("batchTargetsMissing — case-operation logical identities", () => {
 					kind: "updateForm",
 					uuid: testUuid(formUuid),
 					patch: {},
-					caseOperationChange: { operation: "add", value: peer },
+					caseOperationChange: {
+						operation: "add",
+						value: strictOperation(peer),
+					},
 				},
+			]),
+		).toBe(true);
+
+		// Declaring the anchor first makes the same placement valid.
+		expect(
+			batchTargetsMissing(doc, [
+				{
+					kind: "updateForm",
+					uuid: testUuid(formUuid),
+					patch: {},
+					caseOperationChange: {
+						operation: "add",
+						value: strictOperation(peer),
+					},
+				},
+				move(peer.uuid),
 			]),
 		).toBe(false);
 
-		// The MOVED operation still has to exist — that is a real conflict.
+		// Repeating a valid move of an existing operation remains resolvable.
 		expect(batchTargetsMissing(doc, [move(null), move(null)])).toBe(false);
 	});
 
@@ -861,7 +885,10 @@ describe("batchTargetsMissing — case-operation logical identities", () => {
 					kind: "updateForm",
 					uuid: testUuid(formUuid),
 					patch: {},
-					caseOperationChange: { operation: "add", value: born },
+					caseOperationChange: {
+						operation: "add",
+						value: strictOperation(born),
+					},
 				},
 				granular(
 					formUuid,
@@ -869,6 +896,7 @@ describe("batchTargetsMissing — case-operation logical identities", () => {
 					{
 						operation: "update",
 						uuid: OTHER_OPERATION,
+						targetAction: "create",
 						patch: { id: "born_renamed" },
 					},
 				),
@@ -956,21 +984,16 @@ describe("batchTargetsMissing — app-level scalars", () => {
 		expect(batchTargetsMissing(doc, scalars)).toBe(false);
 	});
 
-	it("a wholesale setCaseTypes re-seeds the simulated catalog for later catalog edits", () => {
+	it("a declaration seeds the simulated catalog for later catalog edits", () => {
 		const { doc } = fixture();
 		const batch: Mutation[] = [
-			{
-				kind: "setCaseTypes",
-				caseTypes: [{ name: "household", properties: [] }],
-			} as unknown as Mutation,
+			{ kind: "declareCaseType", caseType: "household" },
 			{
 				kind: "addCaseProperty",
 				caseType: "household",
 				property: { name: "size", label: proseText("Size") },
 			},
-			// `patient` was replaced by the wholesale set → now a conflict.
-			{ kind: "retireCaseType", caseType: "patient" } as Mutation,
 		];
-		expect(batchTargetsMissing(doc, batch)).toBe(true);
+		expect(batchTargetsMissing(doc, batch)).toBe(false);
 	});
 });

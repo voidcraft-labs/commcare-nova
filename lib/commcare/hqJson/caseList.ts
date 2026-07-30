@@ -140,6 +140,7 @@ import { moduleTypeContext } from "../validator/rules/case-list/shared";
  */
 function projectColumnToDetail(
 	column: Column,
+	doc: BlueprintDoc,
 	assets?: AssetManifest,
 	caseProperties: readonly CaseProperty[] = [],
 	typeContext?: TypeContext,
@@ -181,6 +182,7 @@ function projectColumnToDetail(
 					field: plainSelectDisplayXpath(
 						emitCasePropertyWirePath(column.field),
 						property,
+						doc,
 					),
 					format: "calculate",
 					useXpathExpression: true,
@@ -263,6 +265,7 @@ function projectColumnToDetail(
  */
 function projectColumnForShortDetail(
 	column: Column,
+	doc: BlueprintDoc,
 	assets?: AssetManifest,
 	caseProperties: readonly CaseProperty[] = [],
 	typeContext?: TypeContext,
@@ -270,6 +273,7 @@ function projectColumnForShortDetail(
 ): WireDetailColumn {
 	const projected = projectColumnToDetail(
 		column,
+		doc,
 		assets,
 		caseProperties,
 		typeContext,
@@ -837,6 +841,7 @@ export function projectCaseListForHq(
 	const shortColumns = shortSourceColumns.map((c) =>
 		projectColumnForShortDetail(
 			c,
+			doc,
 			assets,
 			caseProperties,
 			typeContext,
@@ -844,7 +849,14 @@ export function projectCaseListForHq(
 		),
 	);
 	const longColumns = longSourceColumns.map((c) =>
-		projectColumnToDetail(c, assets, caseProperties, typeContext, lookupNaming),
+		projectColumnToDetail(
+			c,
+			doc,
+			assets,
+			caseProperties,
+			typeContext,
+			lookupNaming,
+		),
 	);
 	const sortElements = projectSortElements(
 		mod,

@@ -53,6 +53,7 @@ import {
 	buildCaseChangesBlueprint,
 	CASE_CHANGES_SEED,
 	caseChangesRoute,
+	identityProjectionRoute,
 } from "./lib/caseChangesSeed";
 import {
 	buildCaseWorkspaceBlueprint,
@@ -463,6 +464,7 @@ async function main(): Promise<void> {
 	const caseChanges: {
 		appId: string;
 		route: string;
+		identityProjectionRoute: string;
 		caseId: string;
 		viewerStateFile: string;
 	}[] = [];
@@ -524,6 +526,7 @@ async function main(): Promise<void> {
 		caseChanges.push({
 			appId: caseChangesAppId,
 			route: caseChangesRoute(caseChangesAppId),
+			identityProjectionRoute: identityProjectionRoute(caseChangesAppId),
 			caseId: caseChangesPatient.caseId,
 			viewerStateFile: VIEWER_STATE_FILE,
 		});

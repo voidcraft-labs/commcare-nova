@@ -34,6 +34,7 @@ import {
 	isProseTemplate,
 	type ProseTemplate,
 	printProseTemplate,
+	projectProseTemplate,
 } from "./prose";
 import {
 	FIELD_REFERENCE_SLOTS,
@@ -49,6 +50,7 @@ import {
 import { isXPathExpression, type XPathExpression } from "./xpath/ast";
 import {
 	printXPath,
+	projectXPath,
 	type XPathPrintableDoc,
 	xpathPrintContext,
 } from "./xpath/print";
@@ -111,21 +113,25 @@ function isFormExpressionEntry(
 const FIELD_EXPRESSION_SLOT_ENTRIES: readonly FieldExpressionSlotEntry[] =
 	FIELD_REFERENCE_SLOTS.filter(isFieldExpressionEntry);
 
-const FIELD_SLOT_PATHS: Record<FieldExpressionSlotId, string> = (() => {
-	const paths = {} as Record<FieldExpressionSlotId, string>;
+const FIELD_SLOT_ENTRIES: Record<
+	FieldExpressionSlotId,
+	FieldExpressionSlotEntry
+> = (() => {
+	const entries = {} as Record<FieldExpressionSlotId, FieldExpressionSlotEntry>;
 	for (const entry of FIELD_EXPRESSION_SLOT_ENTRIES) {
-		paths[entry.slot] = entry.path;
+		entries[entry.slot] = entry;
 	}
-	return paths;
+	return entries;
 })();
 
-const FORM_SLOT_PATHS: Record<FormExpressionSlotId, string> = (() => {
-	const paths = {} as Record<FormExpressionSlotId, string>;
-	for (const entry of FORM_REFERENCE_SLOTS) {
-		if (isFormExpressionEntry(entry)) paths[entry.slot] = entry.path;
-	}
-	return paths;
-})();
+const FORM_SLOT_ENTRIES: Record<FormExpressionSlotId, FormExpressionSlotEntry> =
+	(() => {
+		const entries = {} as Record<FormExpressionSlotId, FormExpressionSlotEntry>;
+		for (const entry of FORM_REFERENCE_SLOTS) {
+			if (isFormExpressionEntry(entry)) entries[entry.slot] = entry;
+		}
+		return entries;
+	})();
 
 const SCALAR_FIELD_EXPRESSION_SLOT_IDS: ReadonlySet<string> = new Set(
 	FIELD_EXPRESSION_SLOT_ENTRIES.filter((e) => !e.path.includes("[]")).map(
@@ -160,13 +166,33 @@ export function isScalarFieldExpressionSlotId(
 function projectSlotValue(
 	value: unknown,
 	doc: XPathPrintableDoc,
+	kind: FieldExpressionSlotEntry["kind"],
 ): string | undefined {
 	if (typeof value === "string") return value;
-	if (isProseTemplate(value)) {
+	if (kind === "prose" && isProseTemplate(value)) {
 		return printProseTemplate(value, doc);
 	}
-	if (isXPathExpression(value)) {
+	if (kind === "xpath-ast" && isXPathExpression(value)) {
 		return printXPath(value, xpathPrintContext(doc));
+	}
+	return undefined;
+}
+
+/** Human/validator projection of one slot. Unlike the strict runtime/wire
+ * accessor above, an unresolved identity returns repair text so validation can
+ * report the dangling carrier instead of throwing before it reaches the deep
+ * reference rule. */
+function projectSlotValueForInspection(
+	value: unknown,
+	doc: XPathPrintableDoc,
+	kind: FieldExpressionSlotEntry["kind"],
+): string | undefined {
+	if (typeof value === "string") return value;
+	if (kind === "prose" && isProseTemplate(value)) {
+		return projectProseTemplate(value, doc).text;
+	}
+	if (kind === "xpath-ast" && isXPathExpression(value)) {
+		return projectXPath(value, xpathPrintContext(doc)).text;
 	}
 	return undefined;
 }
@@ -183,8 +209,22 @@ export function expressionSource(
 	slot: ScalarFieldExpressionSlotId,
 	doc: XPathPrintableDoc,
 ): string | undefined {
-	const value = readSlotValues(field, FIELD_SLOT_PATHS[slot])[0]?.value;
-	return projectSlotValue(value, doc);
+	const entry = FIELD_SLOT_ENTRIES[slot];
+	const value = readSlotValues(field, entry.path)[0]?.value;
+	return projectSlotValue(value, doc, entry.kind);
+}
+
+/** Inspection-only twin of {@link expressionSource}. Wire/runtime consumers
+ * must use the strict accessor; validators and editors use this total
+ * projection to surface a repair state. */
+export function expressionInspectionSource(
+	field: Field,
+	slot: ScalarFieldExpressionSlotId,
+	doc: XPathPrintableDoc,
+): string | undefined {
+	const entry = FIELD_SLOT_ENTRIES[slot];
+	const value = readSlotValues(field, entry.path)[0]?.value;
+	return projectSlotValueForInspection(value, doc, entry.kind);
 }
 
 /**
@@ -201,9 +241,9 @@ export function expressionSourceEntries(
 	const entries: SlotStringEntry[] = [];
 	for (const { indices, value } of readSlotValues(
 		field,
-		FIELD_SLOT_PATHS[slot],
+		FIELD_SLOT_ENTRIES[slot].path,
 	)) {
-		const text = projectSlotValue(value, doc);
+		const text = projectSlotValue(value, doc, FIELD_SLOT_ENTRIES[slot].kind);
 		if (text !== undefined) entries.push({ indices, text });
 	}
 	return entries;
@@ -214,7 +254,7 @@ export function fieldProseTemplate(
 	field: Field,
 	slot: Exclude<FieldProseSlotId, "option_label">,
 ): ProseTemplate | undefined {
-	const value = readSlotValues(field, FIELD_SLOT_PATHS[slot])[0]?.value;
+	const value = readSlotValues(field, FIELD_SLOT_ENTRIES[slot].path)[0]?.value;
 	return isProseTemplate(value) ? value : undefined;
 }
 
@@ -228,8 +268,9 @@ export function formExpressionSource(
 	slot: ScalarFormExpressionSlotId,
 	doc: XPathPrintableDoc,
 ): string | undefined {
-	const value = readSlotValues(form, FORM_SLOT_PATHS[slot])[0]?.value;
-	return projectSlotValue(value, doc);
+	const entry = FORM_SLOT_ENTRIES[slot];
+	const value = readSlotValues(form, entry.path)[0]?.value;
+	return projectSlotValue(value, doc, entry.kind);
 }
 
 /**
@@ -243,7 +284,7 @@ export function formExpressionValue(
 	form: Form,
 	slot: ScalarFormExpressionSlotId,
 ): XPathExpression | undefined {
-	const value = readSlotValues(form, FORM_SLOT_PATHS[slot])[0]?.value;
+	const value = readSlotValues(form, FORM_SLOT_ENTRIES[slot].path)[0]?.value;
 	return isXPathExpression(value) ? value : undefined;
 }
 
@@ -306,14 +347,23 @@ export function expressionSurfaceReads(
 		const slot: FieldReferenceSlot = entry;
 		if (!fieldSlotApplies(slot, field.kind, repeatMode)) continue;
 		for (const { value, indices } of readSlotValues(field, entry.path)) {
-			const text = projectSlotValue(value, doc);
+			const text =
+				entry.kind === "xpath-ast" && isXPathExpression(value)
+					? projectXPath(value, xpathPrintContext(doc)).text
+					: entry.kind === "prose" && isProseTemplate(value)
+						? projectProseTemplate(value, doc).text
+						: typeof value === "string"
+							? value
+							: undefined;
 			if (text !== undefined) {
 				reads.push({
 					slot: entry.slot,
 					text,
 					indices,
-					...(isXPathExpression(value) && { expr: value }),
-					...(isProseTemplate(value) && { template: value }),
+					...(entry.kind === "xpath-ast" &&
+						isXPathExpression(value) && { expr: value }),
+					...(entry.kind === "prose" &&
+						isProseTemplate(value) && { template: value }),
 				});
 			}
 		}

@@ -358,13 +358,11 @@ describe("moveField across forms is warn-and-skipped (undesigned operation)", ()
 		expect(calcText(state, SUB_B)).toBe("/data/grp/a + 1");
 	});
 
-	it("skips a move whose destination container is reachable from NO form (fail closed)", () => {
-		// An orphaned group (present in `fields`, absent from every
-		// `fieldOrder`) can arrive via a degenerate historical replay. The
-		// guard must skip unless the move is PROVABLY same-form — proceeding
-		// would teleport the field out of its form with zero reference
-		// rewriting, the exact dangling-then-captured bug class the skip
-		// exists to eliminate.
+	it("refuses to load a destination container reachable from no form", () => {
+		// Closed topology rejects an orphaned group before it can become live
+		// reducer state. The move guard still fails closed for stale in-memory
+		// inputs, while the persisted/load boundary prevents this degenerate
+		// shape from entering an authoring session at all.
 		const ORPHAN = testUuid("orp-0000-0000-0000-000000000000");
 		const doc = fixture();
 		doc.fields[ORPHAN] = {
@@ -375,21 +373,9 @@ describe("moveField across forms is warn-and-skipped (undesigned operation)", ()
 		} as BlueprintDoc["fields"][typeof ORPHAN];
 
 		const store = createBlueprintDocStore();
-		store.getState().load(resolveDocExpressions(doc));
-		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-		const [result] = store
-			.getState()
-			.applyMany([
-				{ kind: "moveField", uuid: SRC, toParentUuid: ORPHAN, after: null },
-			]);
-
-		expect(warn).toHaveBeenCalledTimes(1);
-		warn.mockRestore();
-		expect(result).toBeUndefined();
-		const state = store.getState();
-		expect(state.fieldOrder[GRP1]).toEqual([SRC]);
-		expect(state.fieldOrder[ORPHAN]).toBeUndefined();
-		expect(calcText(state, REF)).toBe("/data/grp1/source + 1");
+		expect(() => store.getState().load(resolveDocExpressions(doc))).toThrow(
+			/invalid blueprint topology/,
+		);
 	});
 });
 

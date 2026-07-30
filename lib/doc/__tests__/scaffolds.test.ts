@@ -395,10 +395,8 @@ describe("caseTypeSetPatch", () => {
 
 	it("re-typing a viewer to a brand-new type commits clean (one catalog write)", () => {
 		// The born viewer owns type "a" alone; re-typing to a brand-new "b" must
-		// retire "a" AND declare "b" in ONE setCaseTypes. Two separate wholesale
-		// writes (declare [a,b] then retire-of-a [] ) would clobber "b" back out,
-		// failing the seeded Name column (CASE_LIST_COLUMN_UNKNOWN_FIELD) — the
-		// re-type dead-end caseTypeCatalogMutations exists to prevent.
+		// retire "a" AND declare "b" in one granular batch, preserving the new
+		// declaration for the seeded Name column.
 		const { mutations, moduleUuid } = caseListModuleMutations(emptyDoc(), {
 			caseType: "a",
 		});

@@ -131,7 +131,7 @@ export const updateAppTool = {
 			}
 			return {
 				kind: "mutate" as const,
-				mutations,
+				mutations: commit.mutations,
 				newDoc: commit.newDoc,
 				result: {
 					message: `Successfully set the app's ${changes.join(" and ")}.`,

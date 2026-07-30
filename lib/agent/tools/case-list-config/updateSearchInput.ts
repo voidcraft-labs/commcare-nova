@@ -121,7 +121,7 @@ export const updateSearchInputTool = {
 
 			return {
 				kind: "mutate" as const,
-				mutations: result.mutations,
+				mutations: commit.mutations,
 				newDoc,
 				result: {
 					message: `Updated search input ${searchInputUuid} on module "${mod.name}". New kind: ${searchInput.kind}, label "${searchInput.label}".`,

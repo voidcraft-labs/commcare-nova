@@ -52,6 +52,7 @@
 // concern.
 
 import { z } from "zod";
+import { externalUserPropertyNameSchema } from "../externalUserProperty";
 import { uuidSchema } from "../uuid";
 
 const xpathTextPartSchema = z
@@ -86,7 +87,7 @@ const xpathCaseRefPartSchema = z
 const xpathUserRefPartSchema = z
 	.object({
 		kind: z.literal("user-ref"),
-		property: z.string(),
+		property: externalUserPropertyNameSchema,
 	})
 	.strict();
 

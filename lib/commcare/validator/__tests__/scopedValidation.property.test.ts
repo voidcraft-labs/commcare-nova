@@ -21,8 +21,8 @@ import { proseText } from "@/lib/domain/prose";
  * findings at realistic locations.
  *
  * Each sample applies TWO batches: a DAMAGE batch first (seeding findings
- * anywhere in the doc — the legacy-broken-doc situation the gate must
- * handle), then an EDIT batch whose derived scope is what the laws are
+ * anywhere in the candidate), then an EDIT batch whose derived scope is what
+ * the laws are
  * asserted against. Without the damage step every finding would be
  * batch-introduced and therefore in scope by construction — the filter
  * side of law (a) would never exclude anything and the property would be
@@ -88,7 +88,13 @@ function mutationArb(doc: BlueprintDoc): fc.Arbitrary<Mutation> {
 					fc.constantFrom("zz_fresh_id", "case_name", "a", "b", "q1"),
 				)
 				.map(
-					([uuid, newId]): Mutation => ({ kind: "renameField", uuid, newId }),
+					([uuid, newId]): Mutation =>
+						({
+							kind: "updateField",
+							uuid,
+							targetKind: doc.fields[uuid].kind,
+							patch: { id: newId },
+						}) as Mutation,
 				),
 			fc
 				.constantFrom(...fieldUuids)

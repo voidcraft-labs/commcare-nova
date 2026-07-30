@@ -29,7 +29,6 @@ import type { ReactNode } from "react";
 import { useContext } from "react";
 import { assert, describe, expect, it, vi } from "vitest";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
-import { resolveDocExpressions } from "@/lib/__tests__/docHelpers";
 import {
 	useBlueprintDoc,
 	useBlueprintDocShallow,
@@ -257,10 +256,47 @@ describe("useBlueprintMutations", () => {
 		expect(printProseTemplate(renamed.label, store.getState())).toBe("Renamed");
 	});
 
+	it("normalizes an explicit undefined field clear to JSON-stable null", () => {
+		const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
+			wrapper,
+		});
+		const store = result.current.store;
+		assert(store);
+
+		act(() => {
+			result.current.mutations.updateField(Q_A, "text", {
+				hint: proseText("Temporary hint"),
+			});
+		});
+		store.getState().takeCommands();
+
+		act(() => {
+			result.current.mutations.updateField(Q_A, "text", {
+				hint: undefined,
+			});
+		});
+
+		expect(
+			(store.getState().fields[Q_A] as { hint?: unknown }).hint,
+		).toBeUndefined();
+		const commands = store.getState().peekCommands();
+		expect(commands).toEqual([
+			{
+				kind: "updateField",
+				uuid: Q_A,
+				targetKind: "text",
+				patch: { hint: null },
+			},
+		]);
+		expect(JSON.parse(JSON.stringify(commands))).toEqual(commands);
+	});
+
 	it("renameQuestion rewrites the id in order", () => {
 		const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
 			wrapper,
 		});
+		const store = result.current.store;
+		assert(store);
 
 		act(() => {
 			result.current.mutations.renameField(Q_A, "alpha");
@@ -269,6 +305,14 @@ describe("useBlueprintMutations", () => {
 		const ids = result.current.children.map((q) => q.id);
 		expect(ids).toContain("alpha");
 		expect(ids).not.toContain("a");
+		expect(store.getState().peekCommands()).toEqual([
+			{
+				kind: "updateField",
+				uuid: Q_A,
+				targetKind: "text",
+				patch: { id: "alpha" },
+			},
+		]);
 	});
 
 	it("removeField drops the field from order", () => {
@@ -687,6 +731,46 @@ describe("useBlueprintMutations", () => {
 		const s = result.current.store?.getState();
 		const formUuid = getFormUuid(result.current.store);
 		expect(s?.forms[formUuid].name).toBe("Renamed Form");
+		expect(s?.peekCommands()).toEqual([
+			{
+				kind: "renameForm",
+				uuid: formUuid,
+				newId: "Renamed Form",
+			},
+		]);
+	});
+
+	it("normalizes an explicit undefined form clear to JSON-stable null", () => {
+		const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
+			wrapper,
+		});
+		const store = result.current.store;
+		assert(store);
+		const formUuid = getFormUuid(store);
+
+		act(() => {
+			result.current.mutations.updateForm(formUuid, {
+				purpose: "Temporary purpose",
+			});
+		});
+		store.getState().takeCommands();
+
+		act(() => {
+			result.current.mutations.updateForm(formUuid, {
+				purpose: undefined,
+			});
+		});
+
+		expect(store.getState().forms[formUuid].purpose).toBeUndefined();
+		const commands = store.getState().peekCommands();
+		expect(commands).toEqual([
+			{
+				kind: "updateForm",
+				uuid: formUuid,
+				patch: { purpose: null },
+			},
+		]);
+		expect(JSON.parse(JSON.stringify(commands))).toEqual(commands);
 	});
 
 	it("setFormMedia sets and clears form media through explicit nulls", () => {
@@ -862,35 +946,31 @@ describe("useBlueprintMutations", () => {
 		expect(s?.modules[moduleUuid]).toBeDefined();
 	});
 
-	// ── setCaseTypes ──────────────────────────────────────────────────────
+	// ── Granular case-type catalog ────────────────────────────────────────
 
-	it("setCaseTypes replaces the app-level case types array", () => {
+	it("commitMany creates and retires catalog records without a whole-catalog setter", () => {
 		const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
 			wrapper,
 		});
 
-		const nextTypes = [
-			{ name: "patient", properties: [] },
-			{ name: "visit", properties: [] },
-		];
-
 		act(() => {
-			result.current.mutations.setCaseTypes(nextTypes);
+			result.current.mutations.commitMany([
+				{ kind: "declareCaseType", caseType: "patient" },
+				{ kind: "declareCaseType", caseType: "visit" },
+			]);
 		});
 
 		const s = result.current.store?.getState();
-		expect(s?.caseTypes).toEqual(nextTypes);
-	});
-
-	it("setCaseTypes with null clears the app-level case types", () => {
-		const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
-			wrapper,
-		});
-
+		expect(s?.caseTypes).toEqual([
+			{ name: "patient", properties: [] },
+			{ name: "visit", properties: [] },
+		]);
 		act(() => {
-			result.current.mutations.setCaseTypes(null);
+			result.current.mutations.commitMany([
+				{ kind: "retireCaseType", caseType: "patient" },
+				{ kind: "retireCaseType", caseType: "visit" },
+			]);
 		});
-
 		expect(result.current.store?.getState().caseTypes).toBeNull();
 	});
 
@@ -903,17 +983,24 @@ describe("useBlueprintMutations", () => {
 
 		// Seed case types with a property to update.
 		act(() => {
-			result.current.mutations.setCaseTypes([
+			result.current.mutations.commitMany([
 				{
-					name: "person",
-					properties: [
-						{
-							name: "dob",
-							label: proseText("Date of Birth"),
-							data_type: "text",
-						},
-						{ name: "age", label: proseText("Age"), data_type: "int" },
-					],
+					kind: "declareCaseType",
+					caseType: "person",
+				},
+				{
+					kind: "addCaseProperty",
+					caseType: "person",
+					property: {
+						name: "dob",
+						label: proseText("Date of Birth"),
+						data_type: "text",
+					},
+				},
+				{
+					kind: "addCaseProperty",
+					caseType: "person",
+					property: { name: "age", label: proseText("Age"), data_type: "int" },
 				},
 			]);
 		});
@@ -939,12 +1026,19 @@ describe("useBlueprintMutations", () => {
 		});
 
 		act(() => {
-			result.current.mutations.setCaseTypes([
+			result.current.mutations.commitMany([
 				{
-					name: "person",
-					properties: [
-						{ name: "dob", label: proseText("DOB"), data_type: "text" },
-					],
+					kind: "declareCaseType",
+					caseType: "person",
+				},
+				{
+					kind: "addCaseProperty",
+					caseType: "person",
+					property: {
+						name: "dob",
+						label: proseText("DOB"),
+						data_type: "text",
+					},
 				},
 			]);
 		});
@@ -976,12 +1070,19 @@ describe("useBlueprintMutations", () => {
 		});
 
 		act(() => {
-			result.current.mutations.setCaseTypes([
+			result.current.mutations.commitMany([
 				{
-					name: "person",
-					properties: [
-						{ name: "dob", label: proseText("DOB"), data_type: "text" },
-					],
+					kind: "declareCaseType",
+					caseType: "person",
+				},
+				{
+					kind: "addCaseProperty",
+					caseType: "person",
+					property: {
+						name: "dob",
+						label: proseText("DOB"),
+						data_type: "text",
+					},
 				},
 			]);
 		});
@@ -1070,72 +1171,6 @@ describe("useBlueprintMutations", () => {
 		expect(captured.value?.renamed?.oldId).toBe("a");
 		expect(captured.value?.renamed?.newId).toBe("a_2");
 		expect(typeof captured.value?.renamed?.xpathFieldsRewritten).toBe("number");
-	});
-
-	// ── renameQuestion xpathFieldsRewritten ──────────────────────────────
-
-	it("renameQuestion returns the reducer's rewrite metadata", () => {
-		// The dep's calculate is an identity-leaf AST — a rename rewrites
-		// NOTHING (the new name arrives at print), so the surfaced count is
-		// zero. The metadata channel itself is what this pins.
-		const MOD4 = testUuid("module-4-uuid");
-		const FORM3 = testUuid("form-3-uuid");
-		const Q_SRC = testUuid("q-src-0000-0000-0000-000000000000");
-		const Q_DEP = testUuid("q-dep-0000-0000-0000-000000000000");
-		const bpWithRefs: BlueprintDoc = {
-			appId: "t",
-			appName: "Refs",
-			connectType: null,
-			caseTypes: null,
-			modules: { [MOD4]: { uuid: MOD4, id: "m", name: "M" } },
-			forms: { [FORM3]: { uuid: FORM3, id: "f", name: "F", type: "survey" } },
-			fields: {
-				[Q_SRC]: {
-					uuid: Q_SRC,
-					id: "source",
-					kind: "text",
-					label: proseText("Source"),
-				} as BlueprintDoc["fields"][typeof Q_SRC],
-				// `calculate` lives on the hidden kind only — the rewrite pass
-				// walks the registry's per-kind slot projection, so the fixture
-				// puts the expression where the schema actually declares it.
-				[Q_DEP]: {
-					uuid: Q_DEP,
-					id: "dep",
-					kind: "hidden",
-					calculate: "/data/source + 1",
-				} as unknown as BlueprintDoc["fields"][typeof Q_DEP],
-			},
-			moduleOrder: [MOD4],
-			formOrder: { [MOD4]: [FORM3] },
-			fieldOrder: { [FORM3]: [Q_SRC, Q_DEP] },
-			fieldParent: {},
-		};
-		const refWrapper = ({ children }: { children: ReactNode }) => (
-			<BlueprintDocProvider
-				appId="t"
-				initialDoc={resolveDocExpressions(bpWithRefs)}
-			>
-				{children}
-			</BlueprintDocProvider>
-		);
-
-		const { result } = renderHook(() => useBlueprintMutations(), {
-			wrapper: refWrapper,
-		});
-
-		const captured: {
-			value?: ReturnType<typeof result.current.renameField>;
-		} = {};
-		act(() => {
-			captured.value = result.current.renameField(
-				testUuid("q-src-0000-0000-0000-000000000000"),
-				"primary",
-			);
-		});
-
-		expect(captured.value).toBeDefined();
-		expect(captured.value?.xpathFieldsRewritten).toBe(0);
 	});
 
 	// ── moveField — extra options ─────────────────────────────────────────

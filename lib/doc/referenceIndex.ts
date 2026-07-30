@@ -79,6 +79,7 @@ import {
 	USER_PROPERTY_TARGET_PREFIX,
 	type Uuid,
 	userPropertyTargetKey,
+	uuidSchema,
 	type XPathExpression,
 } from "@/lib/domain";
 import {
@@ -159,17 +160,19 @@ interface CarrierContext {
  * maintained buckets in O(1).
  */
 function carrierContext(doc: BlueprintDoc, carrier: string): CarrierContext {
+	const identity = uuidSchema.safeParse(carrier);
+	if (!identity.success) return {};
 	const mod = ownRecordValue(doc.modules, carrier);
 	if (mod) {
 		return {
-			moduleUuid: carrier as Uuid,
+			moduleUuid: identity.data,
 			...(mod.caseType !== undefined && { moduleCaseType: mod.caseType }),
 		};
 	}
 	let formUuid: Uuid | undefined;
-	if (ownRecordValue(doc.forms, carrier)) formUuid = carrier as Uuid;
+	if (ownRecordValue(doc.forms, carrier)) formUuid = identity.data;
 	else if (ownRecordValue(doc.fields, carrier)) {
-		formUuid = findContainingForm(doc, carrier as Uuid);
+		formUuid = findContainingForm(doc, identity.data);
 	} else return {};
 	if (formUuid === undefined) return {};
 	const moduleUuid = resolveFormModule(doc, formUuid);
@@ -190,7 +193,10 @@ function resolveFormModule(
 	formUuid: Uuid,
 ): Uuid | undefined {
 	for (const [moduleUuid, formUuids] of Object.entries(doc.formOrder)) {
-		if (formUuids.includes(formUuid)) return moduleUuid as Uuid;
+		if (formUuids.includes(formUuid)) {
+			const parsedModuleUuid = uuidSchema.safeParse(moduleUuid);
+			if (parsedModuleUuid.success) return parsedModuleUuid.data;
+		}
 	}
 	return undefined;
 }
@@ -970,12 +976,11 @@ export function planReferenceIndexMaintenance(
 	};
 	switch (mut.kind) {
 		// App-level slots are never indexed (the case-type catalog is
-		// root-level data the planner reads directly), so the catalog kinds —
-		// wholesale and granular alike — are no-ops here.
+		// root-level data the planner reads directly), so the granular catalog
+		// kinds are no-ops here.
 		case "setAppName":
 		case "setConnectType":
 		case "setAppLogo":
-		case "setCaseTypes":
 		case "declareCaseType":
 		case "retireCaseType":
 		case "addCaseProperty":
@@ -1070,31 +1075,6 @@ export function planReferenceIndexMaintenance(
 			// case-property declaration. UUID references need no re-indexing.
 			carriers.add(mut.uuid);
 			break;
-		case "renameField": {
-			const field = ownRecordValue(doc.fields, mut.uuid);
-			if (!field || field.id === mut.newId) break;
-			carriers.add(mut.uuid);
-			const caseType = fieldCasePropertyOn(field);
-			if (caseType !== undefined && field.id.length > 0) {
-				// Peers rename in lockstep, so their declarations re-key.
-				const declKey = casePropertyDeclKey(caseType, field.id);
-				for (const peer of Object.keys(
-					ownRecordValue(index.decl, declKey) ?? {},
-				)) {
-					if (peer === mut.uuid) continue;
-					carriers.add(peer);
-				}
-				// …and every carrier reading the property re-keys from
-				// `c:<type>/<old>` to `c:<type>/<new>`.
-				const propertyKey = casePropertyTargetKey(caseType, field.id);
-				for (const carrier of Object.keys(
-					ownRecordValue(index.in, propertyKey) ?? {},
-				)) {
-					carriers.add(carrier);
-				}
-			}
-			break;
-		}
 		case "convertField":
 		case "setFieldMedia":
 			carriers.add(mut.kind === "setFieldMedia" ? mut.fieldUuid : mut.uuid);
@@ -1128,6 +1108,40 @@ export function planReferenceIndexMaintenance(
 			break;
 		case "updateField": {
 			carriers.add(mut.uuid);
+			const field = ownRecordValue(doc.fields, mut.uuid);
+			const patch = mut.patch as Record<string, unknown>;
+			const newId = patch.id;
+			if (
+				field === undefined ||
+				typeof newId !== "string" ||
+				newId === field.id
+			) {
+				break;
+			}
+			const oldCaseType = fieldCasePropertyOn(field);
+			const rawNewCaseType = patch.case_property_on;
+			const newCaseType = Object.hasOwn(patch, "case_property_on")
+				? typeof rawNewCaseType === "string" && rawNewCaseType.length > 0
+					? rawNewCaseType
+					: undefined
+				: oldCaseType;
+			// The reducer cascades only a same-binding id change. A patch that
+			// also changes or clears `case_property_on` is a retarget and rekeys
+			// only the addressed field's own declaration/slots.
+			if (oldCaseType === undefined || newCaseType !== oldCaseType) break;
+
+			const declKey = casePropertyDeclKey(oldCaseType, field.id);
+			for (const peer of Object.keys(
+				ownRecordValue(index.decl, declKey) ?? {},
+			)) {
+				if (peer !== mut.uuid) carriers.add(peer);
+			}
+			const propertyKey = casePropertyTargetKey(oldCaseType, field.id);
+			for (const carrier of Object.keys(
+				ownRecordValue(index.in, propertyKey) ?? {},
+			)) {
+				carriers.add(carrier);
+			}
 			break;
 		}
 		// User properties, user types, and personas register NO edges. The

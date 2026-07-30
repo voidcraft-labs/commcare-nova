@@ -76,7 +76,7 @@ export const setAppLogoTool = {
 
 			return {
 				kind: "mutate" as const,
-				mutations,
+				mutations: commit.mutations,
 				newDoc,
 				result:
 					logo === null

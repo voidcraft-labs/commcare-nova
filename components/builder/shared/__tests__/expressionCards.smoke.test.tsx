@@ -13,8 +13,13 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import type { CaseType } from "@/lib/domain";
 import {
+	type CaseType,
+	lookupColumnIdSchema,
+	lookupTableIdSchema,
+} from "@/lib/domain";
+import {
+	and,
 	type SearchInputDecl,
 	type ValueExpression,
 	valueExpressionSchema,
@@ -65,18 +70,37 @@ const ctx: ExpressionEditContext = {
 	caseTypes: [PATIENT],
 	currentCaseType: "patient",
 	knownInputs: KNOWN_INPUTS,
+	operationScope: {
+		creates: [{ uuid: testUuid("earlier-create"), label: "Create a referral" }],
+	},
 };
 
 const allKinds = Object.keys(
 	expressionCardSchemas,
 ) as ValueExpression["kind"][];
 
+function valueForKind(kind: ValueExpression["kind"]): ValueExpression {
+	if (kind === "table-lookup") {
+		return {
+			kind: "table-lookup",
+			tableId: lookupTableIdSchema.parse(
+				"018f3e8a-7b2c-7def-8abc-1234567890ab",
+			),
+			resultColumnId: lookupColumnIdSchema.parse(
+				"018f3e8a-7b2c-7def-8abc-1234567890ac",
+			),
+			where: and(),
+		};
+	}
+	return expressionCardSchemas[kind].defaultValue(ctx);
+}
+
 // ── Round-trip parsing — every default is schema-valid AST ─────────────
 
 describe("expression cards smoke — defaultValue parses through valueExpressionSchema", () => {
 	for (const kind of allKinds) {
 		it(`${kind}: default value is parseable`, () => {
-			const value = expressionCardSchemas[kind].defaultValue(ctx);
+			const value = valueForKind(kind);
 			expect(() => valueExpressionSchema.parse(value)).not.toThrow();
 		});
 	}
@@ -87,7 +111,7 @@ describe("expression cards smoke — defaultValue parses through valueExpression
 describe("expression cards smoke — mount via ExpressionCardEditor", () => {
 	for (const kind of allKinds) {
 		it(`${kind}: mounts inside ExpressionCardEditor`, () => {
-			const value = expressionCardSchemas[kind].defaultValue(ctx);
+			const value = valueForKind(kind);
 			const { container } = render(
 				<ExpressionCardEditor
 					value={value}
@@ -95,6 +119,7 @@ describe("expression cards smoke — mount via ExpressionCardEditor", () => {
 					caseTypes={ctx.caseTypes}
 					currentCaseType={ctx.currentCaseType}
 					knownInputs={ctx.knownInputs}
+					operationScope={ctx.operationScope}
 				/>,
 			);
 			expect(container.firstElementChild).not.toBeNull();

@@ -2027,7 +2027,8 @@ describe("#form/ hashtag expansion", () => {
 		});
 		const hq = expandDoc(doc);
 		const xform = Object.values(hq._attachments)[0] as string;
-		// The resolved `calculate` is byte-identical to the legacy `#case/parent`
+		// The resolved `calculate` is byte-identical to the established
+		// `#case/parent`
 		// walk (apostrophes XML-escaped by the serializer in the attribute value).
 		const escapedWalk = expandHashtags(
 			"#case/parent/household_code",
@@ -3689,12 +3690,13 @@ describe("Connect deliver_unit entity defaults", () => {
 
 // ── Case-property rename pipeline regression ──────────────────────────
 //
-// `renameField` cascades through sibling fields' XPath references — the
+// A case-bound `updateField.patch.id` cascades through sibling fields'
+// XPath references — the
 // unit coverage lives in `lib/doc/__tests__/mutations-pathRewrite.test.ts`
 // and `mutations-fields.test.ts`. The pipeline-level invariant: the
 // emitted XForm's bind/calculate attributes must reference the renamed
 // id everywhere the original reference stood. Without this assertion, a
-// refactor of the rename reducer could silently break downstream
+// refactor of the field-ID cascade could silently break downstream
 // expression rewriting — validation would still pass because references
 // remain syntactically well-formed, but they would point at nothing.
 

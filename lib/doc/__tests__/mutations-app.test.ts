@@ -55,17 +55,14 @@ describe("applyMutation: setConnectType", () => {
 	});
 });
 
-describe("applyMutation: setCaseTypes", () => {
-	it("sets a case type list", () => {
+describe("applyMutation: granular case-type catalog", () => {
+	it("declares a type and adds a property without a whole-catalog mutation", () => {
 		const next = produce(emptyDoc(), (d) => {
+			applyMutation(d, { kind: "declareCaseType", caseType: "patient" });
 			applyMutation(d, {
-				kind: "setCaseTypes",
-				caseTypes: [
-					{
-						name: "patient",
-						properties: [{ name: "name", label: proseText("Name") }],
-					},
-				],
+				kind: "addCaseProperty",
+				caseType: "patient",
+				property: { name: "name", label: proseText("Name") },
 			});
 		});
 		expect(next.caseTypes).toEqual([
@@ -76,13 +73,13 @@ describe("applyMutation: setCaseTypes", () => {
 		]);
 	});
 
-	it("sets null", () => {
+	it("retiring the last type restores the canonical null catalog", () => {
 		const withTypes: BlueprintDoc = {
 			...emptyDoc(),
 			caseTypes: [{ name: "a", properties: [] }],
 		};
 		const next = produce(withTypes, (d) => {
-			applyMutation(d, { kind: "setCaseTypes", caseTypes: null });
+			applyMutation(d, { kind: "retireCaseType", caseType: "a" });
 		});
 		expect(next.caseTypes).toBeNull();
 	});

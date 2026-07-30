@@ -9,6 +9,11 @@
 import "dotenv/config";
 import { Command } from "commander";
 import { sql } from "kysely";
+import { frozenPersistableSnapshot } from "@/lib/case-store/migrations/20260728000000_canonical_identity_foundation/frozenDatabaseMigration";
+import {
+	captureFrozenStorageSnapshot,
+	dispatchFrozenStorageOccurrences,
+} from "@/lib/case-store/migrations/20260728000000_canonical_identity_foundation/frozenOccurrenceDispatcher";
 import {
 	FROZEN_ENTITY_OCCURRENCES,
 	FROZEN_FINAL_MUTATION_KINDS,
@@ -28,7 +33,9 @@ import {
 	scanLookupIdentities,
 } from "@/lib/case-store/migrations/20260728000000_canonical_identity_foundation/frozenTransform";
 import { closeCaseStoreDatabase } from "@/lib/case-store/postgres/connection";
+import { replayCanonicalMutationSuffix } from "@/lib/db/canonicalMutationFold";
 import { getAppDb } from "@/lib/db/pg";
+import { blueprintDocSchema } from "@/lib/domain/blueprint";
 import { runMain } from "./lib/main";
 import { targetProdDb } from "./lib/prodDb";
 
@@ -447,12 +454,108 @@ async function main(): Promise<void> {
 		.transaction()
 		.setIsolationLevel("repeatable read")
 		.execute(async (tx) => {
+			const existingOccurrenceTables = new Set(
+				(
+					await sql<{ table_name: string }>`
+						SELECT class.relname AS table_name
+						FROM pg_catalog.pg_class AS class
+						JOIN pg_catalog.pg_namespace AS namespace
+						  ON namespace.oid = class.relnamespace
+						WHERE namespace.nspname = 'public'
+						  AND class.relkind IN ('r', 'p')
+						  AND class.relname = ANY(${sql.val([...FROZEN_OCCURRENCE_TABLES])})
+						ORDER BY class.relname
+					`.execute(tx)
+				).rows.map((row) => row.table_name),
+			);
 			if (options.locked) {
 				await sql`
 						LOCK TABLE ${sql.join(
-							FROZEN_OCCURRENCE_TABLES.map((table) => sql.table(table)),
+							[...existingOccurrenceTables].map((table) => sql.table(table)),
 						)} IN SHARE MODE
-					`.execute(tx);
+				`.execute(tx);
+			}
+			const occurrenceProjections = dispatchFrozenStorageOccurrences(
+				await captureFrozenStorageSnapshot(tx),
+			);
+			const authoredSqlType = (
+				await sql<{ data_type: string }>`
+					SELECT data_type
+					FROM information_schema.columns
+					WHERE table_schema = 'public'
+					  AND table_name = 'blueprint_entities'
+					  AND column_name = 'uuid'
+				`.execute(tx)
+			).rows[0]?.data_type;
+			const baselineRows = existingOccurrenceTables.has(
+				"mutation_fold_baselines",
+			)
+				? (
+						await sql<{
+							app_id: string;
+							seq: string;
+							snapshot: Record<string, unknown>;
+							snapshot_digest: string;
+							batch_id: string;
+							run_id: string | null;
+							actor_id: string;
+							kind: string;
+							mutations: unknown;
+						}>`
+							SELECT DISTINCT ON (baseline.app_id)
+								baseline.app_id,
+								baseline.seq::text,
+								baseline.snapshot,
+								baseline.snapshot_digest,
+								marker.batch_id,
+								marker.run_id,
+								marker.actor_id,
+								marker.kind,
+								marker.mutations
+							FROM mutation_fold_baselines AS baseline
+							JOIN accepted_mutations AS marker
+							  ON marker.app_id = baseline.app_id
+							 AND marker.seq = baseline.seq
+							ORDER BY baseline.app_id, baseline.seq DESC
+						`.execute(tx)
+					).rows
+				: [];
+			const baselineByApp = new Map(
+				baselineRows.map((row) => [row.app_id, row] as const),
+			);
+			const suffixRows = existingOccurrenceTables.has("mutation_fold_baselines")
+				? (
+						await sql<{
+							app_id: string;
+							seq: string;
+							batch_id: string;
+							run_id: string | null;
+							actor_id: string;
+							kind: string;
+							mutations: unknown;
+						}>`
+							WITH latest AS (
+								SELECT DISTINCT ON (app_id) app_id, seq
+								FROM mutation_fold_baselines
+								ORDER BY app_id, seq DESC
+							)
+							SELECT mutation.app_id, mutation.seq::text,
+							       mutation.batch_id, mutation.run_id,
+							       mutation.actor_id, mutation.kind,
+							       mutation.mutations
+							FROM accepted_mutations AS mutation
+							JOIN latest
+							  ON latest.app_id = mutation.app_id
+							 AND mutation.seq > latest.seq
+							ORDER BY mutation.app_id, mutation.seq
+						`.execute(tx)
+					).rows
+				: [];
+			const suffixByApp = new Map<string, typeof suffixRows>();
+			for (const row of suffixRows) {
+				const rows = suffixByApp.get(row.app_id) ?? [];
+				rows.push(row);
+				suffixByApp.set(row.app_id, rows);
 			}
 
 			const appRows = await tx
@@ -697,6 +800,61 @@ async function main(): Promise<void> {
 				>) {
 					rewriteTotals[key] += plan.rewrites[key];
 				}
+				const appDigest = canonicalIdentityDigest(app.id);
+				const baseline = baselineByApp.get(app.id);
+				if (authoredSqlType === "uuid" && baseline === undefined) {
+					findings.push({
+						code: "invalid-fold-baseline",
+						path: `apps.${appDigest}.mutationFoldBaseline`,
+						digest: canonicalIdentityDigest("missing"),
+					});
+				}
+				if (baseline !== undefined) {
+					const baselineDigest = canonicalIdentityDigest(baseline.snapshot);
+					const markerIsExact =
+						baseline.batch_id === "migration:canonical-identity-foundation" &&
+						baseline.run_id === null &&
+						baseline.actor_id === "system:canonical-identity-foundation" &&
+						baseline.kind === "migration" &&
+						Array.isArray(baseline.mutations) &&
+						baseline.mutations.length === 0;
+					if (!markerIsExact || baseline.snapshot_digest !== baselineDigest) {
+						findings.push({
+							code: "invalid-fold-baseline",
+							path: `apps.${appDigest}.mutationFoldBaseline`,
+							digest: canonicalIdentityDigest({
+								markerIsExact,
+								digestMatches: baseline.snapshot_digest === baselineDigest,
+							}),
+						});
+					} else {
+						try {
+							const replayed = replayCanonicalMutationSuffix({
+								baselineSnapshot: baseline.snapshot,
+								baselineSeq: baseline.seq,
+								expectedHeadSeq: app.mutation_seq,
+								suffix: suffixByApp.get(app.id) ?? [],
+							});
+							const currentSnapshot = blueprintDocSchema.parse(
+								frozenPersistableSnapshot(app, plan),
+							);
+							if (
+								canonicalIdentityDigest(replayed.snapshot) !==
+								canonicalIdentityDigest(currentSnapshot)
+							) {
+								throw new Error("post-horizon fold mismatch");
+							}
+						} catch (error) {
+							findings.push({
+								code: "post-horizon-replay-mismatch",
+								path: `apps.${appDigest}.postHorizon`,
+								digest: canonicalIdentityDigest(
+									error instanceof Error ? error.message : "unknown",
+								),
+							});
+						}
+					}
+				}
 				appDigests.push(
 					canonicalIdentityDigest({
 						app: canonicalIdentityDigest(app.id),
@@ -886,15 +1044,25 @@ async function main(): Promise<void> {
 				);
 			}
 
-			const latestByApp = new Map(
-				(
-					await sql<{ app_id: string; seq: string; kind: string }>`
-						SELECT DISTINCT ON (app_id) app_id, seq::text, kind
-						FROM accepted_mutations
-						ORDER BY app_id, seq DESC
-					`.execute(tx)
-				).rows.map((row) => [row.app_id, row] as const),
-			);
+			const latestByApp = existingOccurrenceTables.has(
+				"mutation_fold_baselines",
+			)
+				? new Map(
+						(
+							await sql<{ app_id: string; seq: string; kind: string }>`
+								SELECT DISTINCT ON (baseline.app_id)
+									baseline.app_id,
+									baseline.seq::text,
+									marker.kind
+								FROM mutation_fold_baselines AS baseline
+								JOIN accepted_mutations AS marker
+								  ON marker.app_id = baseline.app_id
+								 AND marker.seq = baseline.seq
+								ORDER BY baseline.app_id, baseline.seq DESC
+							`.execute(tx)
+						).rows.map((row) => [row.app_id, row] as const),
+					)
+				: new Map<string, { app_id: string; seq: string; kind: string }>();
 			for (const app of appRows) {
 				const latest = latestByApp.get(app.id);
 				latestHorizons.push({
@@ -908,6 +1076,14 @@ async function main(): Promise<void> {
 			const tableSizes: Record<string, CountBytes> = {};
 			const tableDigests: Record<string, string> = {};
 			for (const table of tables) {
+				if (!existingOccurrenceTables.has(table)) {
+					tableSizes[table] = { count: 0, bytes: 0 };
+					tableDigests[table] = canonicalIdentityDigest({
+						table,
+						state: "planned-ddl-absent",
+					});
+					continue;
+				}
 				tableSizes[table] = await tableCountBytes(
 					tx as Awaited<ReturnType<typeof getAppDb>>,
 					table,
@@ -928,7 +1104,7 @@ async function main(): Promise<void> {
 				FROM pg_class c
 				LEFT JOIN pg_index i ON i.indrelid = c.oid
 				LEFT JOIN pg_constraint con ON con.conrelid = c.oid
-				WHERE c.relname = ANY(${sql.val(tables)})
+				WHERE c.relname = ANY(${sql.val([...existingOccurrenceTables])})
 				GROUP BY c.relname
 				ORDER BY c.relname
 			`.execute(tx);
@@ -951,6 +1127,57 @@ async function main(): Promise<void> {
 				.selectFrom("presence")
 				.select(({ fn }) => fn.countAll<string>().as("count"))
 				.executeTakeFirstOrThrow();
+			const leaseBlockers = await sql<{ count: string }>`
+				SELECT count(*)::text AS count
+				FROM apps
+				WHERE
+					status = 'generating'
+					OR awaiting_input
+					OR lock_run_id IS NOT NULL
+					OR lock_actor_user_id IS NOT NULL
+					OR lock_expire_at IS NOT NULL
+					OR NOT (
+						(
+							res_period IS NULL
+							AND res_reserved IS NULL
+							AND res_settled IS NULL
+							AND res_user_id IS NULL
+							AND res_run_id IS NULL
+						)
+						OR (
+							res_period IS NOT NULL
+							AND res_reserved IS NOT NULL
+							AND res_settled IS TRUE
+							AND res_user_id IS NOT NULL
+						)
+					)
+			`.execute(tx);
+			if (options.locked) {
+				if (Number(leaseBlockers.rows[0]?.count ?? 0) !== 0) {
+					findings.push({
+						code: "invalid-legacy-shape",
+						path: "quiescence.apps",
+						digest: canonicalIdentityDigest({
+							count: leaseBlockers.rows[0]?.count ?? "unknown",
+						}),
+					});
+				}
+				if (
+					Number(activeStreams.count) !== 0 ||
+					Number(chunks.unterminated) !== 0 ||
+					Number(presence.count) !== 0
+				) {
+					findings.push({
+						code: "invalid-legacy-shape",
+						path: "quiescence.streams",
+						digest: canonicalIdentityDigest({
+							activeStreams: activeStreams.count,
+							unterminatedChunks: chunks.unterminated,
+							presenceSessions: presence.count,
+						}),
+					});
+				}
+			}
 
 			const rewriteBytes = Object.entries(tableSizes)
 				.filter(([table]) =>
@@ -973,6 +1200,18 @@ async function main(): Promise<void> {
 					storage: FROZEN_STORAGE_OCCURRENCES,
 					mutationKinds: FROZEN_FINAL_MUTATION_KINDS,
 				}),
+				occurrenceProjectionDigest: canonicalIdentityDigest(
+					occurrenceProjections,
+				),
+				occurrencePlan: occurrenceProjections.map(
+					({ id, disposition, rowCount, bytes, digest }) => ({
+						id,
+						disposition,
+						rowCount,
+						bytes,
+						digest,
+					}),
+				),
 				snapshotDigest: canonicalIdentityDigest({
 					appDigests,
 					tableDigests,
@@ -988,6 +1227,7 @@ async function main(): Promise<void> {
 					chunks: Number(chunks.count),
 					unterminatedChunks: Number(chunks.unterminated),
 					activeStreams: Number(activeStreams.count),
+					leaseBlockers: Number(leaseBlockers.rows[0]?.count ?? 0),
 					presence: Number(presence.count),
 				},
 				rewriteTotals,

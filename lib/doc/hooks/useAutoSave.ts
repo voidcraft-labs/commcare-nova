@@ -248,7 +248,7 @@ export function useAutoSave(): SaveState {
 						terminalToastIdRef.current = projectToast(
 							"error",
 							"These edits couldn't be saved",
-							"The server rejected a change, so saving is paused to avoid losing work. Reload the app to continue from the last saved version.",
+							signal.message,
 							{ persistent: true },
 						);
 					}

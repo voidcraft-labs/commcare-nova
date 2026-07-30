@@ -182,7 +182,9 @@ describe("blueprint entity-row round trip", () => {
 		broken.formOrder = Object.fromEntries(
 			Object.entries(broken.formOrder).map(([k]) => [k, []]),
 		);
-		expect(() => decomposeBlueprint(broken)).toThrow(/refusing to persist/);
+		expect(() => decomposeBlueprint(broken)).toThrow(
+			/absent from every formOrder membership array/,
+		);
 	});
 });
 
@@ -341,7 +343,7 @@ describe("the user collections", () => {
 		};
 
 		expect(() => decomposeBlueprint(toPersistableDoc(doc))).toThrow(
-			/duplicate entity uuid/i,
+			/appears in both modules and userProperties/i,
 		);
 	});
 
@@ -359,7 +361,7 @@ describe("the user collections", () => {
 		};
 
 		expect(() => decomposeBlueprint(toPersistableDoc(doc))).toThrow(
-			/duplicate entity uuid/i,
+			/appears in both modules and userProperties/i,
 		);
 	});
 

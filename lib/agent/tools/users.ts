@@ -250,7 +250,7 @@ async function commit(
 	}
 	return {
 		kind: "mutate",
-		mutations,
+		mutations: outcome.mutations,
 		newDoc: outcome.newDoc,
 		result: { message, summary },
 	};
@@ -295,7 +295,7 @@ export const addUserPropertiesTool = {
 			}
 			return {
 				kind: "mutate",
-				mutations,
+				mutations: outcome.mutations,
 				newDoc: outcome.newDoc,
 				result: {
 					message: `Added ${uuids.length} worker-information ${uuids.length === 1 ? "property" : "properties"}. Stable uuids: ${uuids.join(", ")}.`,
@@ -435,7 +435,7 @@ export const addUserTypesTool = {
 			}
 			return {
 				kind: "mutate",
-				mutations,
+				mutations: outcome.mutations,
 				newDoc: outcome.newDoc,
 				result: {
 					message: `Added ${uuids.length} ${uuids.length === 1 ? "role" : "roles"}. Stable uuids: ${uuids.join(", ")}.`,
@@ -594,7 +594,7 @@ export const addPersonasTool = {
 			}
 			return {
 				kind: "mutate",
-				mutations,
+				mutations: outcome.mutations,
 				newDoc: outcome.newDoc,
 				result: {
 					message: `Added ${uuids.length} ${uuids.length === 1 ? "persona" : "personas"}. Stable uuids: ${uuids.join(", ")}.`,

@@ -24,6 +24,11 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { applyBlueprintChange } from "@/lib/db/applyBlueprintChange";
+import { prepareMutationCandidate } from "@/lib/doc/commitVerdicts";
+import {
+	admitMutationBatch,
+	admitMutationStages,
+} from "@/lib/doc/mutationAdmission";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
 import type { LogWriter } from "@/lib/log/writer";
@@ -93,6 +98,30 @@ function mockDoc(): BlueprintDoc {
 	};
 }
 
+function recordProposal(
+	ctx: McpContext,
+	mutations: unknown,
+	doc: BlueprintDoc,
+	stage?: string,
+) {
+	return ctx.recordMutations(
+		prepareMutationCandidate(doc, admitMutationBatch(mutations)),
+		stage,
+	);
+}
+
+function recordStageProposals(
+	ctx: McpContext,
+	doc: BlueprintDoc,
+	stages: unknown,
+) {
+	const admitted = admitMutationStages(stages);
+	return ctx.recordMutationStages(
+		prepareMutationCandidate(doc, admitted.batch),
+		admitted,
+	);
+}
+
 /* Reset the hoisted `applyBlueprintChange` mock between tests so
  * `mockImplementationOnce` chains in one test don't bleed into the
  * next. */
@@ -118,7 +147,8 @@ describe("McpContext", () => {
 			{ kind: "setAppName", name: "y" },
 		];
 		const doc = mockDoc();
-		const { events, committedDoc } = await ctx.recordMutations(
+		const { events, committedDoc } = await recordProposal(
+			ctx,
 			muts,
 			doc,
 			"scaffold",
@@ -129,8 +159,8 @@ describe("McpContext", () => {
 		expect(events.every((e) => e.source === "mcp")).toBe(true);
 		expect(events.every((e) => e.stage === "scaffold")).toBe(true);
 		// The saga mock returns `{}` (no committedDoc → a top-level dedup-shape
-		// return), so `saveBlueprint` coalesces to the passed post-mutation doc.
-		expect(committedDoc).toBe(doc);
+		// return), so `saveBlueprint` coalesces to the prepared post-mutation doc.
+		expect(committedDoc.appName).toBe("y");
 		expect(
 			(logWriter.logEvent as ReturnType<typeof vi.fn>).mock.calls,
 		).toHaveLength(2);
@@ -158,11 +188,13 @@ describe("McpContext", () => {
 		});
 
 		let settled = false;
-		const p = ctx
-			.recordMutations([{ kind: "setAppName", name: "x" }], mockDoc())
-			.then(() => {
-				settled = true;
-			});
+		const p = recordProposal(
+			ctx,
+			[{ kind: "setAppName", name: "x" }],
+			mockDoc(),
+		).then(() => {
+			settled = true;
+		});
 		/* Flush microtasks + one macrotask tick — `setImmediate` drains
 		 * more aggressively than `await Promise.resolve()`, which only
 		 * covers a single microtask. If `recordMutations` had fired the
@@ -192,7 +224,7 @@ describe("McpContext", () => {
 			conversionImpact: zeroConversionImpact,
 		});
 		const doc = mockDoc();
-		const result = await ctx.recordMutations([], doc);
+		const result = await recordProposal(ctx, [], doc);
 		expect(result.events).toEqual([]);
 		// The empty-batch short-circuit surfaces the passed doc verbatim as the
 		// current committed state — no save, so nothing to hydrate from.
@@ -216,13 +248,16 @@ describe("McpContext", () => {
 		});
 		const renameMut: Mutation = { kind: "setAppName", name: "renamed" };
 		const patchMut: Mutation = { kind: "setAppName", name: "patched" };
-		const midDoc = { ...mockDoc(), appName: "renamed" };
 		const finalDoc = { ...mockDoc(), appName: "patched" };
 
-		const { events, committedDoc } = await ctx.recordMutationStages([
-			{ mutations: [renameMut], doc: midDoc, stage: "rename:0-0" },
-			{ mutations: [patchMut], doc: finalDoc, stage: "edit:0-0" },
-		]);
+		const { events, committedDoc } = await recordStageProposals(
+			ctx,
+			mockDoc(),
+			[
+				{ mutations: [renameMut], stage: "rename:0-0" },
+				{ mutations: [patchMut], stage: "edit:0-0" },
+			],
+		);
 
 		// ONE transactional save for the whole sequence: the guard carries
 		// the CONCATENATED batch (one fresh-doc re-verdict over the whole
@@ -240,7 +275,7 @@ describe("McpContext", () => {
 		expect(events.map((e) => e.seq)).toEqual([0, 1]);
 		// The saga mock returns no `committedDoc`, so the stages path coalesces
 		// to the FINAL stage's doc — what the tool continues against.
-		expect(committedDoc).toBe(finalDoc);
+		expect(committedDoc.appName).toBe(finalDoc.appName);
 	});
 
 	it("recordMutationStages logs nothing when the guarded save rejects", async () => {
@@ -259,10 +294,9 @@ describe("McpContext", () => {
 		});
 
 		await expect(
-			ctx.recordMutationStages([
+			recordStageProposals(ctx, mockDoc(), [
 				{
 					mutations: [{ kind: "setAppName", name: "x" }],
-					doc: mockDoc(),
 					stage: "rename:0-0",
 				},
 			]),

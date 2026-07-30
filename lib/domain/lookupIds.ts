@@ -19,14 +19,14 @@ export type LookupRowId = string & {
 	readonly [lookupRowIdBrand]: true;
 };
 
-const UUID_V7_PATTERN =
+export const LOOKUP_UUID_V7_PATTERN =
 	/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 function lookupUuidV7Schema<Identity extends string>() {
 	return z
 		.string()
 		.regex(
-			UUID_V7_PATTERN,
+			LOOKUP_UUID_V7_PATTERN,
 			"Expected a canonical lowercase UUIDv7 identifier.",
 		) as unknown as z.ZodType<Identity>;
 }

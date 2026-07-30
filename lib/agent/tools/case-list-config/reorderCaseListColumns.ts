@@ -116,7 +116,7 @@ export const reorderCaseListColumnsTool = {
 
 			return {
 				kind: "mutate" as const,
-				mutations: result.mutations,
+				mutations: commit.mutations,
 				newDoc,
 				result: {
 					message: `Reordered ${columnUuids.length} field${columnUuids.length === 1 ? "" : "s"} on ${surface === "results" ? "Results" : "Details"} for module "${mod.name}".`,

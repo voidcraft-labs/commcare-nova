@@ -577,10 +577,10 @@ describe("after moveField", () => {
 	});
 });
 
-// ── renameField / updateField (structural no-ops) ─────────────────────────────
+// ── updateField (structural no-op) ────────────────────────────────────────────
 
-describe("after renameField / updateField (structural noop)", () => {
-	it("renameField does not change fieldParent values", () => {
+describe("after updateField (structural noop)", () => {
+	it("a field-ID update does not change fieldParent values", () => {
 		const doc = buildDoc({
 			modules: [
 				{
@@ -600,10 +600,15 @@ describe("after renameField / updateField (structural noop)", () => {
 		const before = { ...doc.fieldParent };
 		const store = storeFrom(doc);
 		const result = applyBatch(store, [
-			{ kind: "renameField", uuid: FLD_A, newId: "new_id" },
+			{
+				kind: "updateField",
+				uuid: FLD_A,
+				targetKind: "text",
+				patch: { id: "new_id" },
+			},
 		]);
 		assertFieldParentInvariants(result);
-		// fieldParent values should be identical before and after rename.
+		// fieldParent values are identical before and after the ID change.
 		expect(result.fieldParent[FLD_A]).toBe(before[FLD_A]);
 	});
 

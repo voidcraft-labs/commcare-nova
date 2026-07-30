@@ -376,7 +376,7 @@ export function useDragIntent({
 				if (drop.kind === "drop-field") {
 					const siblings = orderedFieldUuids(
 						docs.getState(),
-						drop.parentUuid as Uuid,
+						asUuid(drop.parentUuid),
 					);
 					if (isNoOpFieldDrop(siblings, asUuid(dragUuid), drop.uuid, edge)) {
 						return;
@@ -420,7 +420,7 @@ export function useDragIntent({
 						// land before the visually-first sibling.
 						const firstChild = orderedFieldUuids(
 							docs.getState(),
-							drop.uuid as Uuid,
+							asUuid(drop.uuid),
 						)[0];
 						result = firstChild
 							? moveField(asUuid(dragUuid), {

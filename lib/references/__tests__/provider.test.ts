@@ -84,6 +84,62 @@ describe("ReferenceProvider — form-entry cache is keyed per form", () => {
 		expect(provider.resolve("#form/g/b", "formA")?.path).toBe("g/b");
 	});
 
+	it("reprojects field paths and worker-information names after invalidation", () => {
+		const fieldUuid = testUuid("stable-field");
+		const propertyUuid = testUuid("stable-worker-property");
+		let path = "group_a/value";
+		let property = {
+			uuid: propertyUuid,
+			slug: "district",
+			label: "District",
+		};
+		const provider = new ReferenceProvider(() => ({
+			...formCtx("formA", []),
+			formEntries: [
+				{
+					uuid: fieldUuid,
+					path,
+					label: "Value",
+					kind: "text",
+				},
+			],
+			userProperties: [property],
+		}));
+		const template = {
+			parts: [
+				{ kind: "field-ref" as const, uuid: fieldUuid },
+				{ kind: "text" as const, text: " / " },
+				{
+					kind: "user-property-ref" as const,
+					userPropertyUuid: propertyUuid,
+				},
+			],
+		};
+
+		expect(provider.projectTemplate(template, "formA").text).toBe(
+			"#form/group_a/value / #user/district",
+		);
+
+		path = "group_b/value";
+		property = {
+			...property,
+			slug: "supervision_area",
+			label: "Supervision area",
+		};
+		provider.invalidate();
+
+		expect(provider.projectTemplate(template, "formA")).toEqual({
+			ok: true,
+			text: "#form/group_b/value / #user/supervision_area",
+		});
+		expect(
+			provider.projectPart({ kind: "field-ref", uuid: fieldUuid }, "formA"),
+		).toMatchObject({
+			ok: true,
+			reference: { raw: "#form/group_b/value" },
+		});
+	});
+
 	it("a form ref needs a form scope — no formUuid resolves to null", () => {
 		const provider = new ReferenceProvider(() =>
 			formCtx("formA", [["g/a", "A"]]),
@@ -157,6 +213,51 @@ describe("ReferenceProvider — custom worker properties", () => {
 		).toMatchObject({
 			path: "supervisor_area",
 			label: "Supervisor area (supervisor_area)",
+		});
+	});
+
+	it("returns an identity-free structured repair state for a missing UUID", () => {
+		const missing = testUuid("missing-property");
+		const provider = new ReferenceProvider(() => ({
+			...formCtx("formA", []),
+			userProperties: [],
+		}));
+
+		const projected = provider.projectPart(
+			{ kind: "user-property-ref", userPropertyUuid: missing },
+			"formA",
+		);
+		expect(projected).toEqual({
+			ok: false,
+			unresolved: {
+				kind: "unresolved-reference",
+				referenceKind: "user-property-ref",
+				type: "user",
+				repairText: "#user/[reference needs repair]",
+			},
+		});
+		expect(JSON.stringify(projected)).not.toContain(missing);
+	});
+
+	it("projects open external worker names without requiring a built-in catalog row", () => {
+		const provider = new ReferenceProvider(() => formCtx("formA", []));
+		expect(
+			provider.projectPart(
+				{ kind: "user-ref", property: "external_program_code" },
+				"formA",
+			),
+		).toEqual({
+			ok: true,
+			reference: {
+				type: "user",
+				path: "external_program_code",
+				label: "external_program_code",
+				raw: "#user/external_program_code",
+				part: {
+					kind: "user-ref",
+					property: "external_program_code",
+				},
+			},
 		});
 	});
 

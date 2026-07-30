@@ -19,7 +19,6 @@ import {
 	casePropertySchema,
 	caseSearchConfigSchema,
 	caseTileLayoutSchema,
-	caseTypeSchema,
 	columnSchema,
 	columnSortSchema,
 	fieldKinds,
@@ -139,26 +138,56 @@ function caseOperationChangeSchemaFor(
  *
  * Adds and removals use `caseOperationChange`; every edit to an existing
  * operation uses this identity-keyed union. There is no paired whole-operation
- * fallback: the migration horizon archives the older dialect, and all
- * post-horizon readers consume this one payload.
+ * fallback; every reader consumes this one payload.
  */
 function caseOperationPatchSchemaFor(
 	operationValueSchema: typeof caseOperationSchema,
 ) {
-	const operationPatchSchema = clearablePartialPatch(operationValueSchema)
-		// `clearablePartialPatch` already drops `uuid`, so identity replacement
-		// is unrepresentable here rather than checked after the fact: the arm's
-		// own `uuid` is the addressing key, and `.strict()` rejects a second
-		// one outright. Do not add a runtime guard for it.
-		.omit({
-			writes: true,
-			links: true,
-		})
-		.strict()
-		.refine((patch) => Object.keys(patch).length > 0, {
-			message: "A case-operation update patch must change at least one slot.",
-		});
-	const writeSchema = operationValueSchema.shape.writes.unwrap().element;
+	// Identity and destination action are represented once on the outer update
+	// arm. Writes and links have their own keyed merge units.
+	const createOperationPatchSchema = clearablePartialPatch(
+		operationValueSchema.options[0],
+	)
+		.omit({ action: true, writes: true, links: true })
+		.strict();
+	const updateOperationPatchSchema = clearablePartialPatch(
+		operationValueSchema.options[1],
+	)
+		.omit({ action: true, writes: true, links: true })
+		.strict();
+	const closeOperationPatchSchema = clearablePartialPatch(
+		operationValueSchema.options[2],
+	)
+		.omit({ action: true, writes: true, links: true })
+		.strict();
+	const operationUpdateSchema = z.discriminatedUnion("targetAction", [
+		z
+			.object({
+				operation: z.literal("update"),
+				uuid: uuidSchema,
+				targetAction: operationValueSchema.options[0].shape.action,
+				patch: createOperationPatchSchema,
+			})
+			.strict(),
+		z
+			.object({
+				operation: z.literal("update"),
+				uuid: uuidSchema,
+				targetAction: operationValueSchema.options[1].shape.action,
+				patch: updateOperationPatchSchema,
+			})
+			.strict(),
+		z
+			.object({
+				operation: z.literal("update"),
+				uuid: uuidSchema,
+				targetAction: operationValueSchema.options[2].shape.action,
+				patch: closeOperationPatchSchema,
+			})
+			.strict(),
+	]);
+	const writeSchema =
+		operationValueSchema.options[0].shape.writes.unwrap().element;
 	const writePatchSchema = z
 		.object({
 			value: writeSchema.shape.value.optional(),
@@ -168,7 +197,8 @@ function caseOperationPatchSchemaFor(
 		.refine((patch) => Object.keys(patch).length > 0, {
 			message: "A case-operation write patch must change at least one slot.",
 		});
-	const linkSchema = operationValueSchema.shape.links.unwrap().element;
+	const linkSchema =
+		operationValueSchema.options[0].shape.links.unwrap().element;
 	const linkPatchSchema = linkSchema
 		.omit({ identifier: true })
 		.partial()
@@ -176,28 +206,16 @@ function caseOperationPatchSchemaFor(
 		.refine((patch) => Object.keys(patch).length > 0, {
 			message: "A case-operation link patch must change at least one slot.",
 		});
-	const uniqueOrder = <T extends z.ZodTypeAny>(member: T, noun: string) =>
-		z
-			.array(member)
-			.min(2)
-			.refine((values) => new Set(values).size === values.length, {
-				message: `A case-operation ${noun} order cannot repeat a key.`,
-			});
-
 	return z.discriminatedUnion("operation", [
-		z
-			.object({
-				operation: z.literal("update"),
-				uuid: uuidSchema,
-				patch: operationPatchSchema,
-			})
-			.strict(),
+		operationUpdateSchema,
 		z
 			.object({
 				operation: z.literal("add-write"),
 				uuid: uuidSchema,
 				value: writeSchema,
-				index: z.number().int().nonnegative().optional(),
+				/** Logical predecessor in this operation's write collection.
+				 * `null` means first; omission means intentional append. */
+				after: writeSchema.shape.property.nullable().optional(),
 			})
 			.strict(),
 		z
@@ -217,9 +235,10 @@ function caseOperationPatchSchemaFor(
 			.strict(),
 		z
 			.object({
-				operation: z.literal("reorder-writes"),
+				operation: z.literal("move-write"),
 				uuid: uuidSchema,
-				properties: uniqueOrder(writeSchema.shape.property, "write"),
+				property: writeSchema.shape.property,
+				after: writeSchema.shape.property.nullable(),
 			})
 			.strict(),
 		z
@@ -227,7 +246,9 @@ function caseOperationPatchSchemaFor(
 				operation: z.literal("add-link"),
 				uuid: uuidSchema,
 				value: linkSchema,
-				index: z.number().int().nonnegative().optional(),
+				/** Logical predecessor in this operation's link collection.
+				 * `null` means first; omission means intentional append. */
+				after: linkSchema.shape.identifier.nullable().optional(),
 			})
 			.strict(),
 		z
@@ -247,9 +268,10 @@ function caseOperationPatchSchemaFor(
 			.strict(),
 		z
 			.object({
-				operation: z.literal("reorder-links"),
+				operation: z.literal("move-link"),
 				uuid: uuidSchema,
-				identifiers: uniqueOrder(linkSchema.shape.identifier, "link"),
+				identifier: linkSchema.shape.identifier,
+				after: linkSchema.shape.identifier.nullable(),
 			})
 			.strict(),
 		z
@@ -393,9 +415,47 @@ type UpdateFieldArm = {
 		kind: z.ZodLiteral<"updateField">;
 		uuid: typeof uuidSchema;
 		targetKind: z.ZodLiteral<K>;
-		patch: (typeof fieldPatchSchemaByKind)[K];
+		patch: (typeof updateFieldPatchSchemaByKind)[K];
 	}>;
 }[(typeof fieldKinds)[number]];
+
+/**
+ * A field id is mutable through `updateField`, but it is never clearable.
+ * Override the domain partial's generic nullable slot here so the canonical
+ * mutation envelope rejects both `null` and the empty string.
+ */
+function fieldPatchWithValidId<S extends z.ZodRawShape>(
+	schema: z.ZodObject<S>,
+) {
+	return schema.extend({ id: z.string().min(1).optional() });
+}
+
+const updateFieldPatchSchemaByKind = {
+	text: fieldPatchWithValidId(fieldPatchSchemaByKind.text),
+	int: fieldPatchWithValidId(fieldPatchSchemaByKind.int),
+	decimal: fieldPatchWithValidId(fieldPatchSchemaByKind.decimal),
+	date: fieldPatchWithValidId(fieldPatchSchemaByKind.date),
+	time: fieldPatchWithValidId(fieldPatchSchemaByKind.time),
+	datetime: fieldPatchWithValidId(fieldPatchSchemaByKind.datetime),
+	single_select: fieldPatchWithValidId(fieldPatchSchemaByKind.single_select),
+	multi_select: fieldPatchWithValidId(fieldPatchSchemaByKind.multi_select),
+	geopoint: fieldPatchWithValidId(fieldPatchSchemaByKind.geopoint),
+	image: fieldPatchWithValidId(fieldPatchSchemaByKind.image),
+	audio: fieldPatchWithValidId(fieldPatchSchemaByKind.audio),
+	video: fieldPatchWithValidId(fieldPatchSchemaByKind.video),
+	file: fieldPatchWithValidId(fieldPatchSchemaByKind.file),
+	barcode: fieldPatchWithValidId(fieldPatchSchemaByKind.barcode),
+	signature: fieldPatchWithValidId(fieldPatchSchemaByKind.signature),
+	label: fieldPatchWithValidId(fieldPatchSchemaByKind.label),
+	hidden: fieldPatchWithValidId(fieldPatchSchemaByKind.hidden),
+	secret: fieldPatchWithValidId(fieldPatchSchemaByKind.secret),
+	group: fieldPatchWithValidId(fieldPatchSchemaByKind.group),
+	repeat: z.union([
+		fieldPatchWithValidId(fieldPatchSchemaByKind.repeat.options[0]),
+		fieldPatchWithValidId(fieldPatchSchemaByKind.repeat.options[1]),
+		fieldPatchWithValidId(fieldPatchSchemaByKind.repeat.options[2]),
+	]),
+} as const;
 
 const updateFieldArms = fieldKinds.map(
 	(targetKind) =>
@@ -404,9 +464,8 @@ const updateFieldArms = fieldKinds.map(
 				kind: z.literal("updateField"),
 				uuid: uuidSchema,
 				targetKind: z.literal(targetKind),
-				// A final update always carries its patch. Pre-horizon events are
-				// archived by the migration and never parse through this schema.
-				patch: fieldPatchSchemaByKind[targetKind],
+				// A final update always carries its patch.
+				patch: updateFieldPatchSchemaByKind[targetKind],
 			})
 			.strict() as unknown as UpdateFieldArm,
 ) as [UpdateFieldArm, ...UpdateFieldArm[]];
@@ -524,8 +583,8 @@ function createMutationSchema({
 		// A move carries an ANCHOR — the module it now follows — not a position.
 		// A position is computed against the sequence its author could see, so
 		// two people moving from one document compute the same one; an anchor
-		// cannot be shifted by a peer's insert, and a peer-removed anchor
-		// appends rather than throwing.
+		// cannot be shifted by a peer's insert. A peer-removed anchor rejects at
+		// live admission; replay leaves the sequence unchanged.
 		z.object({
 			kind: z.literal("moveModule"),
 			uuid: uuidSchema,
@@ -545,7 +604,7 @@ function createMutationSchema({
 			.object({
 				kind: z.literal("updateModule"),
 				uuid: uuidSchema,
-				patch: mutationModuleUpdatePatchSchema.default(() => ({})),
+				patch: mutationModuleUpdatePatchSchema,
 				ensureCaseListConfig: z.literal(true).optional(),
 				caseSearchConfigOperation: z
 					.enum([
@@ -668,7 +727,7 @@ function createMutationSchema({
 			.object({
 				kind: z.literal("updateForm"),
 				uuid: uuidSchema,
-				patch: mutationFormUpdatePatchSchema.default(() => ({})),
+				patch: mutationFormUpdatePatchSchema,
 				caseOperationChange: mutationCaseOperationChangeSchema.optional(),
 				caseOperationPatch: mutationCaseOperationPatchSchema.optional(),
 			})
@@ -708,12 +767,6 @@ function createMutationSchema({
 			 *  for first. A cross-parent move names a sibling in the DESTINATION. */
 			after: uuidSchema.nullable(),
 		}),
-		z.object({
-			kind: z.literal("renameField"),
-			uuid: uuidSchema,
-			// See renameModule — reject empty ids at the schema boundary.
-			newId: z.string().min(1),
-		}),
 		// `updateField` is itself a per-`targetKind` discriminated union — see
 		// `updateFieldArms` above. Zod v4 supports nesting one
 		// `discriminatedUnion` inside another, which keeps both layers as
@@ -751,19 +804,15 @@ function createMutationSchema({
 			kind: z.literal("setAppLogo"),
 			logo: mediaAssetIdSchema.nullable(),
 		}),
-		z.object({
-			kind: z.literal("setCaseTypes"),
-			caseTypes: z.array(caseTypeSchema).nullable(),
-		}),
 		// ─── Granular case-type catalog ──────────────────────────────────────
 		//
-		// The catalog is keyed by `(case-type name, property name)`. Replacing the
-		// wholesale `setCaseTypes` on the live diff path, these fine-grained kinds
-		// let two members concurrently declare a type / add a property / edit a
-		// property and merge by construction. `setCaseTypes` stays in the union for
-		// event-log replay and whole-catalog seeding. Each `setCaseTypeMeta` slot is
-		// nullable so a clear (`parent_type` / `relationship`) crosses the JSON wire
-		// as an explicit `null`; the reducer maps `null → delete`.
+		// The catalog is keyed by `(case-type name, property name)`. These
+		// fine-grained kinds let two members concurrently declare a type / add a
+		// property / edit a property and merge by construction. There is no
+		// whole-catalog mutation in the post-horizon dialect. Each
+		// `setCaseTypeMeta` slot is nullable so a clear (`parent_type` /
+		// `relationship`) crosses the JSON wire as an explicit `null`; the reducer
+		// maps `null → delete`.
 		z.object({ kind: z.literal("declareCaseType"), caseType: z.string() }),
 		z.object({ kind: z.literal("retireCaseType"), caseType: z.string() }),
 		z.object({
@@ -811,7 +860,7 @@ function createMutationSchema({
 		z.object({
 			kind: z.literal("updateUserProperty"),
 			uuid: uuidSchema,
-			patch: userPropertyUpdatePatchSchema.default(() => ({})),
+			patch: userPropertyUpdatePatchSchema,
 		}),
 		z.object({ kind: z.literal("removeUserProperty"), uuid: uuidSchema }),
 		z.object({
@@ -822,7 +871,7 @@ function createMutationSchema({
 		z.object({
 			kind: z.literal("updateUserType"),
 			uuid: uuidSchema,
-			patch: userTypeEntityUpdatePatchSchema.default(() => ({})),
+			patch: userTypeEntityUpdatePatchSchema,
 			valuePatch: userDataValuePatchSchema.optional(),
 		}),
 		z.object({ kind: z.literal("removeUserType"), uuid: uuidSchema }),
@@ -834,7 +883,7 @@ function createMutationSchema({
 		z.object({
 			kind: z.literal("updatePersona"),
 			uuid: uuidSchema,
-			patch: personaEntityUpdatePatchSchema.default(() => ({})),
+			patch: personaEntityUpdatePatchSchema,
 			valuePatch: userDataValuePatchSchema.optional(),
 		}),
 		z.object({ kind: z.literal("removePersona"), uuid: uuidSchema }),
@@ -1049,10 +1098,8 @@ export type Mutation = z.infer<typeof mutationSchema>;
 // Per-mutation result returned by the reducer.
 //
 // `applyMany(mutations)` returns `MutationResult[]` — one entry per input
-// mutation, same order. Most mutation kinds produce `undefined`; the two
-// that surface actionable metadata are:
-//   - `renameField`: `FieldRenameMeta` with the XPath-rewrite count
-//   - `moveField`: `MoveFieldResult` with cross-level auto-rename info
+// mutation, same order. Most mutation kinds produce `undefined`; `moveField`
+// produces `MoveFieldResult` with cross-level auto-rename info.
 //
 // A flat union (rather than a positionally-typed tuple or a
 // generic-per-mutation result) keeps the public API uniform and easy to
@@ -1062,11 +1109,8 @@ export type Mutation = z.infer<typeof mutationSchema>;
 // because those kinds return `undefined` and `undefined` already belongs
 // to this union.
 
-import type {
-	FieldRenameMeta,
-	MoveFieldResult,
-} from "@/lib/doc/mutations/fields";
+import type { MoveFieldResult } from "@/lib/doc/mutations/fields";
 
-export type MutationResult = FieldRenameMeta | MoveFieldResult | undefined;
+export type MutationResult = MoveFieldResult | undefined;
 
-export type { FieldRenameMeta, MoveFieldResult };
+export type { MoveFieldResult };

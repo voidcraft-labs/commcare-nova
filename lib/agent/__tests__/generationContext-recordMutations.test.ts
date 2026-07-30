@@ -24,6 +24,11 @@ import {
 	BlueprintCommitRejectedError,
 	CommitReauthError,
 } from "@/lib/db/commitGuard";
+import { prepareMutationCandidate } from "@/lib/doc/commitVerdicts";
+import {
+	admitMutationBatch,
+	admitMutationStages,
+} from "@/lib/doc/mutationAdmission";
 import type { Mutation } from "@/lib/doc/types";
 import { proseText } from "@/lib/domain/prose";
 
@@ -42,7 +47,7 @@ vi.mock("@/lib/db/apps", () => ({
 	refreshBuildLiveness: vi.fn(() => Promise.resolve()),
 }));
 
-/* Rename-carrying batches detour through the cross-store saga so the
+/* Field-ID-changing batches detour through the cross-store saga so the
  * case-store row migration runs with the commit — mock it as its own
  * seam. */
 vi.mock("@/lib/db/applyBlueprintChange", () => ({
@@ -83,6 +88,32 @@ function committedDocFor(appName: string) {
 	return { ...makeMinimalDoc(), appName };
 }
 
+function recordProposal(
+	ctx: GenerationContext,
+	mutations: unknown,
+	doc: ReturnType<typeof makeMinimalDoc>,
+	stage?: string,
+	mediaExpectations?: Parameters<GenerationContext["recordMutations"]>[2],
+) {
+	return ctx.recordMutations(
+		prepareMutationCandidate(doc, admitMutationBatch(mutations)),
+		stage,
+		mediaExpectations,
+	);
+}
+
+function recordStageProposals(
+	ctx: GenerationContext,
+	doc: ReturnType<typeof makeMinimalDoc>,
+	stages: unknown,
+) {
+	const admitted = admitMutationStages(stages);
+	return ctx.recordMutationStages(
+		prepareMutationCandidate(doc, admitted.batch),
+		admitted,
+	);
+}
+
 describe("GenerationContext.recordMutations", () => {
 	let ctx: GenerationContext;
 	let writer: ReturnType<typeof makeTestContext>["writer"];
@@ -106,7 +137,7 @@ describe("GenerationContext.recordMutations", () => {
 	});
 
 	it("commits through the unified guarded writer with kind:'chat', the run's id, and the actor", async () => {
-		await ctx.recordMutations([TEXT_FIELD_MUTATION], DOC);
+		await recordProposal(ctx, [TEXT_FIELD_MUTATION], DOC);
 		expect(vi.mocked(commitGuardedBatch)).toHaveBeenCalledTimes(1);
 		const args = vi.mocked(commitGuardedBatch).mock.calls[0]?.[0];
 		expect(args).toMatchObject({
@@ -129,7 +160,7 @@ describe("GenerationContext.recordMutations", () => {
 	it("derives edit holder authority from editLease instead of the attribution id alone", async () => {
 		ctx = makeTestContext({ editLease: true }).ctx;
 
-		await ctx.recordMutations([TEXT_FIELD_MUTATION], DOC);
+		await recordProposal(ctx, [TEXT_FIELD_MUTATION], DOC);
 
 		expect(vi.mocked(commitGuardedBatch).mock.calls[0]?.[0]).toMatchObject({
 			runId: "run-1",
@@ -142,22 +173,23 @@ describe("GenerationContext.recordMutations", () => {
 		});
 	});
 
-	it("routes a rename-carrying batch through the cross-store saga instead of the bare writer", async () => {
-		// A `renameField` batch must run the classifier-proven rename's
-		// row migration WITH the commit — committing it bare would leave
-		// the rename's diff evidence expired for every later sync and
-		// strand the rows on the old key.
+	it("routes an own-id updateField patch through the cross-store saga instead of the bare writer", async () => {
+		// The canonical ID-changing updateField patch must run the
+		// classifier-proven rename's row migration WITH the commit —
+		// committing it bare would leave the diff evidence expired for
+		// every later sync and strand the rows on the old key.
 		vi.mocked(applyBlueprintChange).mockResolvedValue({
 			seq: 3,
 			committedDoc: committedDocFor("saga-committed"),
 		});
-		const rename: Mutation = {
-			kind: "renameField",
+		const idChange: Mutation = {
+			kind: "updateField",
 			uuid: testUuid("field-uuid"),
-			newId: "patient_full_name",
+			targetKind: "text",
+			patch: { id: "patient_full_name" },
 		};
 
-		const result = await ctx.recordMutations([rename], DOC);
+		const result = await recordProposal(ctx, [idChange], DOC);
 
 		expect(vi.mocked(commitGuardedBatch)).not.toHaveBeenCalled();
 		expect(vi.mocked(applyBlueprintChange)).toHaveBeenCalledTimes(1);
@@ -173,7 +205,7 @@ describe("GenerationContext.recordMutations", () => {
 			},
 			userId: "user-1",
 			kind: "chat",
-			guard: { mutations: [rename] },
+			guard: { mutations: [idChange] },
 		});
 		expect(args?.batchId).toEqual(expect.any(String));
 		// The SA adopts the saga's committed doc, and the SSE frame
@@ -201,13 +233,14 @@ describe("GenerationContext.recordMutations", () => {
 				],
 			},
 		});
-		const rename: Mutation = {
-			kind: "renameField",
+		const idChange: Mutation = {
+			kind: "updateField",
 			uuid: testUuid("field-uuid"),
-			newId: "patient_full_name",
+			targetKind: "text",
+			patch: { id: "patient_full_name" },
 		};
 
-		await ctx.recordMutations([rename], DOC);
+		await recordProposal(ctx, [idChange], DOC);
 
 		// Read-and-clear: the first consume returns the person-readable
 		// note (the tool wrapper appends it to its success message so the
@@ -231,14 +264,14 @@ describe("GenerationContext.recordMutations", () => {
 			after: null,
 		};
 
-		await ctx.recordMutations([move], DOC);
+		await recordProposal(ctx, [move], DOC);
 
 		expect(vi.mocked(commitGuardedBatch)).not.toHaveBeenCalled();
 		expect(vi.mocked(applyBlueprintChange)).toHaveBeenCalledTimes(1);
 	});
 
 	it("emits data-mutations AFTER the commit, carrying raw mutations + envelopes + seq + batchId", async () => {
-		await ctx.recordMutations([TEXT_FIELD_MUTATION], DOC);
+		await recordProposal(ctx, [TEXT_FIELD_MUTATION], DOC);
 		const call = writer.write.mock.calls[0]?.[0] as {
 			type: string;
 			data: {
@@ -282,7 +315,7 @@ describe("GenerationContext.recordMutations", () => {
 				}),
 		);
 
-		const pending = ctx.recordMutations([TEXT_FIELD_MUTATION], DOC);
+		const pending = recordProposal(ctx, [TEXT_FIELD_MUTATION], DOC);
 		// The commit is in flight — nothing is on the wire yet.
 		await Promise.resolve();
 		expect(writer.write).not.toHaveBeenCalled();
@@ -300,7 +333,7 @@ describe("GenerationContext.recordMutations", () => {
 	});
 
 	it("carries the optional stage tag on the SSE payload AND on every envelope", async () => {
-		await ctx.recordMutations([TEXT_FIELD_MUTATION], DOC, "form:0-0");
+		await recordProposal(ctx, [TEXT_FIELD_MUTATION], DOC, "form:0-0");
 		const call = writer.write.mock.calls[0]?.[0] as {
 			data: {
 				mutations: Mutation[];
@@ -314,7 +347,7 @@ describe("GenerationContext.recordMutations", () => {
 	});
 
 	it("omits the stage key entirely from SSE when no stage is provided", async () => {
-		await ctx.recordMutations([TEXT_FIELD_MUTATION], DOC);
+		await recordProposal(ctx, [TEXT_FIELD_MUTATION], DOC);
 		const call = writer.write.mock.calls[0]?.[0] as {
 			data: Record<string, unknown>;
 		};
@@ -322,7 +355,8 @@ describe("GenerationContext.recordMutations", () => {
 	});
 
 	it("writes one MutationEvent per mutation to the log with the supplied stage", async () => {
-		await ctx.recordMutations(
+		await recordProposal(
+			ctx,
 			[TEXT_FIELD_MUTATION, SECOND_MUTATION],
 			DOC,
 			"form:0-0",
@@ -349,7 +383,8 @@ describe("GenerationContext.recordMutations", () => {
 	});
 
 	it("assigns monotonically increasing seq to each emitted mutation event", async () => {
-		await ctx.recordMutations(
+		await recordProposal(
+			ctx,
 			[TEXT_FIELD_MUTATION, SECOND_MUTATION],
 			DOC,
 			"form:0-0",
@@ -366,7 +401,8 @@ describe("GenerationContext.recordMutations", () => {
 			committedDoc: committed,
 			deduped: false,
 		});
-		const { events, committedDoc } = await ctx.recordMutations(
+		const { events, committedDoc } = await recordProposal(
+			ctx,
 			[TEXT_FIELD_MUTATION],
 			DOC,
 			"form:0-0",
@@ -379,7 +415,7 @@ describe("GenerationContext.recordMutations", () => {
 	});
 
 	it("no-ops on empty batches — no commit, no SSE write, no log event; returns the passed doc", async () => {
-		const result = await ctx.recordMutations([], DOC, "form:0-0");
+		const result = await recordProposal(ctx, [], DOC, "form:0-0");
 		expect(result.events).toEqual([]);
 		expect(result.committedDoc).toBe(DOC);
 		expect(vi.mocked(commitGuardedBatch)).not.toHaveBeenCalled();
@@ -392,7 +428,7 @@ describe("GenerationContext.recordMutations", () => {
 			new BlueprintCommitRejectedError("removed by someone else"),
 		);
 		await expect(
-			ctx.recordMutations([TEXT_FIELD_MUTATION], DOC),
+			recordProposal(ctx, [TEXT_FIELD_MUTATION], DOC),
 		).rejects.toBeInstanceOf(BlueprintCommitRejectedError);
 		// The client never sees a batch the doc didn't absorb, and no log entry
 		// records a batch that never committed.
@@ -412,7 +448,7 @@ describe("GenerationContext.recordMutations", () => {
 		vi.mocked(commitGuardedBatch).mockRejectedValueOnce(reauth);
 
 		expect(ctx.reauthError()).toBeUndefined();
-		await expect(ctx.recordMutations([TEXT_FIELD_MUTATION], DOC)).rejects.toBe(
+		await expect(recordProposal(ctx, [TEXT_FIELD_MUTATION], DOC)).rejects.toBe(
 			reauth,
 		);
 		expect(ctx.reauthError()).toBe(reauth);
@@ -429,7 +465,7 @@ describe("GenerationContext.recordMutations", () => {
 		vi.mocked(commitGuardedBatch).mockRejectedValueOnce(projectChanged);
 
 		expect(ctx.projectChangedError()).toBeUndefined();
-		await expect(ctx.recordMutations([TEXT_FIELD_MUTATION], DOC)).rejects.toBe(
+		await expect(recordProposal(ctx, [TEXT_FIELD_MUTATION], DOC)).rejects.toBe(
 			projectChanged,
 		);
 		expect(ctx.projectChangedError()).toBe(projectChanged);
@@ -448,7 +484,8 @@ describe("GenerationContext.recordMutations", () => {
 				slot: "label media",
 			},
 		] as const;
-		await ctx.recordMutations(
+		await recordProposal(
+			ctx,
 			[TEXT_FIELD_MUTATION],
 			DOC,
 			undefined,
@@ -459,7 +496,7 @@ describe("GenerationContext.recordMutations", () => {
 	});
 
 	it("omits mediaExpectations from the commit args when the batch attaches no media", async () => {
-		await ctx.recordMutations([TEXT_FIELD_MUTATION], DOC);
+		await recordProposal(ctx, [TEXT_FIELD_MUTATION], DOC);
 		const args = vi.mocked(commitGuardedBatch).mock.calls[0]?.[0];
 		expect(args && "mediaExpectations" in args).toBe(false);
 	});
@@ -474,7 +511,7 @@ describe("GenerationContext.recordMutations", () => {
 			committedDoc: committed,
 			deduped: false,
 		});
-		await ctx.recordMutations([TEXT_FIELD_MUTATION], DOC);
+		await recordProposal(ctx, [TEXT_FIELD_MUTATION], DOC);
 		expect(ctx.latestPersistedDoc()).toBe(committed);
 		expect(ctx.latestCommittedSeq()).toBe(9);
 	});
@@ -499,8 +536,6 @@ describe("GenerationContext.recordMutationStages", () => {
 	});
 
 	it("commits the whole sequence as ONE batch (one batchId, one seq) preserving editField atomicity", async () => {
-		const midDoc = { ...makeMinimalDoc(), appName: "renamed" };
-		const finalDoc = { ...makeMinimalDoc(), appName: "patched" };
 		const committed = committedDocFor("committed-final");
 		vi.mocked(commitGuardedBatch).mockResolvedValueOnce({
 			seq: 4,
@@ -508,10 +543,14 @@ describe("GenerationContext.recordMutationStages", () => {
 			deduped: false,
 		});
 
-		const { events, committedDoc } = await ctx.recordMutationStages([
-			{ mutations: [TEXT_FIELD_MUTATION], doc: midDoc, stage: "rename:0-0" },
-			{ mutations: [SECOND_MUTATION], doc: finalDoc, stage: "edit:0-0" },
-		]);
+		const { events, committedDoc } = await recordStageProposals(
+			ctx,
+			makeMinimalDoc(),
+			[
+				{ mutations: [TEXT_FIELD_MUTATION], stage: "convert:0-0" },
+				{ mutations: [SECOND_MUTATION], stage: "edit:0-0" },
+			],
+		);
 
 		// Exactly ONE commit over the concatenated batch.
 		expect(vi.mocked(commitGuardedBatch)).toHaveBeenCalledTimes(1);
@@ -533,20 +572,24 @@ describe("GenerationContext.recordMutationStages", () => {
 		expect(frame.data.batchId).toBe(args?.batchId);
 
 		// Per-stage envelopes keep their own tags, in order, with distinct seqs.
-		expect(events.map((e) => e.stage)).toEqual(["rename:0-0", "edit:0-0"]);
+		expect(events.map((e) => e.stage)).toEqual(["convert:0-0", "edit:0-0"]);
 		expect(events.map((e) => e.seq)).toEqual([0, 1]);
 		// The SA continues against the writer's committed doc.
 		expect(committedDoc).toBe(committed);
 	});
 
 	it("no-ops when every stage is empty — the last stage's doc is the current state", async () => {
-		const lastDoc = { ...makeMinimalDoc(), appName: "unchanged" };
-		const { events, committedDoc } = await ctx.recordMutationStages([
-			{ mutations: [], doc: makeMinimalDoc(), stage: "a" },
-			{ mutations: [], doc: lastDoc, stage: "b" },
-		]);
+		const currentDoc = { ...makeMinimalDoc(), appName: "unchanged" };
+		const { events, committedDoc } = await recordStageProposals(
+			ctx,
+			currentDoc,
+			[
+				{ mutations: [], stage: "a" },
+				{ mutations: [], stage: "b" },
+			],
+		);
 		expect(events).toEqual([]);
-		expect(committedDoc).toBe(lastDoc);
+		expect(committedDoc).toBe(currentDoc);
 		expect(vi.mocked(commitGuardedBatch)).not.toHaveBeenCalled();
 		expect(writer.write).not.toHaveBeenCalled();
 		expect(logWriter.logEvent).not.toHaveBeenCalled();
@@ -557,12 +600,8 @@ describe("GenerationContext.recordMutationStages", () => {
 			new BlueprintCommitRejectedError("rejected"),
 		);
 		await expect(
-			ctx.recordMutationStages([
-				{
-					mutations: [TEXT_FIELD_MUTATION],
-					doc: makeMinimalDoc(),
-					stage: "rename:0-0",
-				},
+			recordStageProposals(ctx, makeMinimalDoc(), [
+				{ mutations: [TEXT_FIELD_MUTATION], stage: "convert:0-0" },
 			]),
 		).rejects.toBeInstanceOf(BlueprintCommitRejectedError);
 		expect(writer.write).not.toHaveBeenCalled();

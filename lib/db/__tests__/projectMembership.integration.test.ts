@@ -24,11 +24,7 @@ import {
 	resolveAppScopeInTransaction,
 	resolveAuthorizedAppSnapshot,
 } from "../appAccess";
-import {
-	commitGuardedBatch,
-	loadAppInTransaction,
-	withAuthorizedAppEditSideEffect,
-} from "../apps";
+import { loadAppInTransaction, withAuthorizedAppEditSideEffect } from "../apps";
 import { CommitReauthError, RunHolderLostError } from "../commitGuard";
 import { projectRoleForInTransaction } from "../projectMembership";
 import {
@@ -36,6 +32,7 @@ import {
 	PROJECT_MEMBERSHIP_GATE_KEY,
 	PROJECT_MEMBERSHIP_GATE_NAMESPACE,
 } from "../projectMembershipGate";
+import { commitGuardedBatchProposal as commitGuardedBatch } from "./admittedWriterTestHelpers";
 import { setupAppStateTestDb } from "./appStateTestDb";
 
 const h = setupAppStateTestDb("project_membership_tx_");

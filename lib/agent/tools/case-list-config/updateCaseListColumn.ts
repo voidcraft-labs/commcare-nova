@@ -121,7 +121,7 @@ export const updateCaseListColumnTool = {
 
 			return {
 				kind: "mutate" as const,
-				mutations: result.mutations,
+				mutations: commit.mutations,
 				newDoc,
 				result: {
 					message: `Updated case list column ${columnUuid} on module "${mod.name}". New kind: ${column.kind}, header "${column.header}".`,

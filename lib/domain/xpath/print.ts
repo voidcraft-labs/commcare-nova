@@ -6,12 +6,9 @@
 // new name reaches an expression — no rewrite ever touched the stored
 // slot; the print just resolves the uuid again.
 //
-// Printing is TOTAL. An identity leaf whose target no longer resolves
-// (unreachable through the gated surfaces — deleting a referenced
-// field rejects at commit) prints the raw uuid in the reference's
-// spelling (`#form/<uuid>` / `/data/<uuid>`), which the validator
-// flags from the printed text. A throw here would take down emit and
-// validation for the whole doc over one corrupt leaf.
+// Human projection is total and never leaks stored UUID text: unresolved
+// identities produce a structured result plus an explicit repair marker.
+// `printXPath` is the strict wire/runtime boundary and throws on that result.
 
 import { ownRecordValue, recordFromEntries } from "../records";
 import type { XPathExpression } from "./ast";
@@ -46,6 +43,26 @@ export interface XPathPrintableDoc {
 	/** The maintained reverse index when present (in-memory docs);
 	 *  printing derives its own from `fieldOrder` when absent. */
 	fieldParent?: Record<string, string | null | undefined>;
+}
+
+export interface UnresolvedXPathProjection {
+	readonly kind: "field-ref" | "path-ref" | "user-property-ref";
+	readonly identity: string;
+}
+
+export type XPathProjectionResult =
+	| { readonly ok: true; readonly text: string }
+	| {
+			readonly ok: false;
+			readonly text: string;
+			readonly unresolved: readonly UnresolvedXPathProjection[];
+	  };
+
+export class XPathProjectionError extends Error {
+	constructor(readonly unresolved: readonly UnresolvedXPathProjection[]) {
+		super("XPath contains an unresolved authored reference.");
+		this.name = "XPathProjectionError";
+	}
 }
 
 /**
@@ -116,24 +133,35 @@ export function xpathPrintContext(doc: XPathPrintableDoc): XPathPrintContext {
  *   - `user-property-ref` → the target property's current saved name
  *   - `case-ref` / `user-ref` → their name spelling
  */
-export function printXPath(
+export function projectXPath(
 	expr: XPathExpression,
 	ctx: XPathPrintContext,
-): string {
+): XPathProjectionResult {
 	let out = "";
+	const unresolved: UnresolvedXPathProjection[] = [];
 	for (const part of expr.parts) {
 		switch (part.kind) {
 			case "text":
 				out += part.text;
 				break;
 			case "field-ref": {
-				const segments = ctx.fieldPathSegments(part.uuid) ?? [part.uuid];
-				out += `#form/${segments.join("/")}`;
+				const segments = ctx.fieldPathSegments(part.uuid);
+				if (segments === undefined) {
+					unresolved.push({ kind: part.kind, identity: part.uuid });
+					out += "#form/[reference needs repair]";
+				} else {
+					out += `#form/${segments.join("/")}`;
+				}
 				break;
 			}
 			case "path-ref": {
-				const path = ctx.fieldPathSegments(part.uuid) ?? [part.uuid];
-				out += `/data/${path.join("/")}`;
+				const path = ctx.fieldPathSegments(part.uuid);
+				if (path === undefined) {
+					unresolved.push({ kind: part.kind, identity: part.uuid });
+					out += "/data/[reference needs repair]";
+				} else {
+					out += `/data/${path.join("/")}`;
+				}
 				break;
 			}
 			case "case-ref":
@@ -142,16 +170,39 @@ export function printXPath(
 			case "user-ref":
 				out += `#user/${part.property}`;
 				break;
-			case "user-property-ref":
-				out += `#user/${
-					ctx.userPropertySlug(part.userPropertyUuid) ?? part.userPropertyUuid
-				}`;
+			case "user-property-ref": {
+				const slug = ctx.userPropertySlug(part.userPropertyUuid);
+				if (slug === undefined) {
+					unresolved.push({
+						kind: part.kind,
+						identity: part.userPropertyUuid,
+					});
+					out += "#user/[reference needs repair]";
+				} else {
+					out += `#user/${slug}`;
+				}
 				break;
+			}
 			default: {
 				const _exhaustive: never = part;
 				break;
 			}
 		}
 	}
-	return out;
+	return unresolved.length === 0
+		? { ok: true, text: out }
+		: { ok: false, text: out, unresolved };
+}
+
+/**
+ * Strict projection for wire/runtime callers. Human editors should use
+ * `projectXPath` and render its repair text when `ok` is false.
+ */
+export function printXPath(
+	expr: XPathExpression,
+	ctx: XPathPrintContext,
+): string {
+	const projected = projectXPath(expr, ctx);
+	if (!projected.ok) throw new XPathProjectionError(projected.unresolved);
+	return projected.text;
 }

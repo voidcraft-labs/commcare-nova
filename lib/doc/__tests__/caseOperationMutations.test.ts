@@ -196,6 +196,7 @@ describe("case-operation mutation planning", () => {
 			caseOperationPatch: {
 				operation: "update",
 				uuid: CONSUMER,
+				targetAction: "update",
 				patch: {
 					caseType: "patient",
 					target: { kind: "session" },
@@ -232,6 +233,7 @@ describe("case-operation mutation planning", () => {
 				caseOperationPatch: {
 					operation: "update",
 					uuid: CREATE,
+					targetAction: "create",
 					patch: { id: "create_encounter" },
 				},
 			}),
@@ -246,6 +248,7 @@ describe("case-operation mutation planning", () => {
 				caseOperationPatch: {
 					operation: "update",
 					uuid: CREATE,
+					targetAction: "create",
 					patch: { name: term(literal("Encounter")) },
 				},
 			}),
@@ -981,6 +984,7 @@ describe("case-operation persistence and reference participation", () => {
 				caseOperationPatch: {
 					operation: "update",
 					uuid: CREATE,
+					targetAction: "create",
 					patch: { id: "still_absent" },
 				},
 			},
@@ -1058,7 +1062,7 @@ describe("case-operation persistence and reference participation", () => {
 		expect(declarersOf(doc, "visit", "source_id")).toContain(formUuid);
 	});
 
-	it("rewrites operation write keys and AST reads in the field/property rename cascade", () => {
+	it("rewrites operation write keys and AST reads in the field-ID/property cascade", () => {
 		const { doc, formUuid } = fixture();
 		(doc.forms[formUuid] as Form).caseOperations = [
 			{
@@ -1076,7 +1080,12 @@ describe("case-operation persistence and reference participation", () => {
 			},
 		];
 		const next = apply(doc, [
-			{ kind: "renameField", uuid: NAME, newId: "display_name" },
+			{
+				kind: "updateField",
+				uuid: NAME,
+				targetKind: "text",
+				patch: { id: "display_name" },
+			},
 		]);
 		const write = next.forms[formUuid].caseOperations?.[0].writes?.[0];
 		expect(write?.property).toBe("display_name");

@@ -10,7 +10,7 @@ import {
 	BlueprintDocContext,
 	type BlueprintDocStore,
 } from "@/lib/doc/provider";
-import type { BlueprintDoc, Uuid } from "@/lib/domain";
+import { type BlueprintDoc, type Uuid, uuidSchema } from "@/lib/domain";
 import type { EditScope } from "@/lib/session/builderTypes";
 import { derivePostBuildEdit } from "@/lib/session/lifecycle";
 import type { BuilderSessionStoreApi } from "@/lib/session/provider";
@@ -54,6 +54,13 @@ function flatIndexInForm(
 	};
 	walk(formUuid);
 	return found;
+}
+
+/** Tool events are historical display input. Ignore stale/non-canonical
+ * identities instead of throwing from the chat renderer. */
+function canonicalToolUuid(value: unknown): Uuid | undefined {
+	const parsed = uuidSchema.safeParse(value);
+	return parsed.success ? parsed.data : undefined;
 }
 
 interface SignalGridProps {
@@ -117,27 +124,18 @@ export function SignalGrid({ controller, messages }: SignalGridProps) {
 
 				const input = part.input as Record<string, unknown>;
 				const doc = docStoreRef.current?.getState();
-				const moduleUuid =
-					typeof input.moduleUuid === "string"
-						? (input.moduleUuid as Uuid)
-						: undefined;
+				const moduleUuid = canonicalToolUuid(input.moduleUuid);
 				const moduleIndex =
 					doc && moduleUuid ? orderedModuleUuids(doc).indexOf(moduleUuid) : -1;
 				if (doc && moduleUuid && moduleIndex >= 0) {
 					latestToolScope = { moduleIndex };
-					const formUuid =
-						typeof input.formUuid === "string"
-							? (input.formUuid as Uuid)
-							: undefined;
+					const formUuid = canonicalToolUuid(input.formUuid);
 					const formIndex = formUuid
 						? orderedFormUuids(doc, moduleUuid).indexOf(formUuid)
 						: -1;
 					if (formUuid && formIndex >= 0) {
 						latestToolScope.formIndex = formIndex;
-						const fieldUuid =
-							typeof input.fieldUuid === "string"
-								? (input.fieldUuid as Uuid)
-								: undefined;
+						const fieldUuid = canonicalToolUuid(input.fieldUuid);
 						if (fieldUuid) {
 							const flatIdx = flatIndexInForm(doc, formUuid, fieldUuid);
 							if (flatIdx >= 0) latestToolScope.fieldIndex = flatIdx;

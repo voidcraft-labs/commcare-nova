@@ -1,8 +1,12 @@
 /** React NodeView for a structural prose-reference atom. */
 
 import { type NodeViewProps, NodeViewWrapper } from "@tiptap/react";
-import { fallbackProseProjection, prosePartSchema } from "@/lib/domain";
-import { ReferenceChip } from "@/lib/references/ReferenceChip";
+import { prosePartSchema } from "@/lib/domain";
+import { unresolvedReferenceProjection } from "@/lib/references/provider";
+import {
+	ReferenceChip,
+	UnresolvedReferenceChip,
+} from "@/lib/references/ReferenceChip";
 import {
 	useCurrentFormUuid,
 	useReferenceProvider,
@@ -19,14 +23,18 @@ export function CommcareRefView({ node }: NodeViewProps) {
 			</NodeViewWrapper>
 		);
 	}
-	const fallback = fallbackProseProjection({ parts: [parsed.data] });
-	const resolved = provider?.resolvePart(parsed.data, formUuid);
+	const projected =
+		provider?.projectPart(parsed.data, formUuid) ??
+		({
+			ok: false,
+			unresolved: unresolvedReferenceProjection(parsed.data),
+		} as const);
 	return (
 		<NodeViewWrapper as="span" className="inline">
-			{resolved ? (
-				<ReferenceChip reference={resolved} />
+			{projected.ok ? (
+				<ReferenceChip reference={projected.reference} />
 			) : (
-				<span className="text-nova-text-muted">{fallback}</span>
+				<UnresolvedReferenceChip unresolved={projected.unresolved} />
 			)}
 		</NodeViewWrapper>
 	);

@@ -133,7 +133,7 @@ export const setCaseSearchAdvancedTool = {
 
 			return {
 				kind: "mutate" as const,
-				mutations,
+				mutations: commit.mutations,
 				newDoc,
 				result: {
 					message:

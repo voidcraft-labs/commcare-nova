@@ -300,7 +300,7 @@ export function assembleFieldMutations(
 			: (() => {
 					const siblings = orderedFieldUuids(doc, batchInsertParent);
 					const at = Math.max(0, Math.min(anchorStartIndex, siblings.length));
-					return at === 0 ? null : (siblings[at - 1] as Uuid);
+					return at === 0 ? null : (siblings[at - 1] ?? null);
 				})();
 	const lastPlacedByParent = new Map<string, Uuid | null | undefined>();
 	if (anchorAfter !== undefined) {
@@ -310,7 +310,7 @@ export function assembleFieldMutations(
 		if (mut.kind !== "addField") continue;
 		const after = lastPlacedByParent.get(mut.parentUuid);
 		if (after !== undefined) mut.after = after;
-		lastPlacedByParent.set(mut.parentUuid, mut.field.uuid as Uuid);
+		lastPlacedByParent.set(mut.parentUuid, asUuid(mut.field.uuid));
 	}
 	// Declaration chokepoint: a field writing to a type absent from the catalog
 	// declares it (granular `declareCaseType`) — the reducer no longer

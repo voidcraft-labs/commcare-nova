@@ -228,7 +228,7 @@ export const updateFormTool = {
 			if (!formAfter) {
 				return {
 					kind: "mutate" as const,
-					mutations,
+					mutations: commit.mutations,
 					newDoc,
 					result: {
 						error: `Form ${formUuid} not found after update`,
@@ -253,7 +253,7 @@ export const updateFormTool = {
 				);
 			return {
 				kind: "mutate" as const,
-				mutations,
+				mutations: commit.mutations,
 				newDoc,
 				result: {
 					message: `Successfully updated form "${formAfter.name}" (${formAfter.type}, UUID ${formUuid}). Changed: ${formChanges.join(", ")}.`,

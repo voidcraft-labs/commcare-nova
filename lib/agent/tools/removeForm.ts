@@ -104,7 +104,7 @@ export const removeFormTool = {
 			const remainingForms = orderedFormUuids(newDoc, moduleUuid);
 			return {
 				kind: "mutate" as const,
-				mutations,
+				mutations: commit.mutations,
 				newDoc,
 				result: {
 					message: `Successfully removed form "${removedName}" from module "${mod.name}". Module now has ${remainingForms.length} form${remainingForms.length === 1 ? "" : "s"}.`,

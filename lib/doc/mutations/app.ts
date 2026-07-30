@@ -23,7 +23,6 @@ export function applyAppMutation(
 			kind:
 				| "setAppName"
 				| "setConnectType"
-				| "setCaseTypes"
 				| "setAppLogo"
 				| "declareCaseType"
 				| "retireCaseType"
@@ -41,16 +40,14 @@ export function applyAppMutation(
 		case "setConnectType":
 			draft.connectType = mut.connectType;
 			return;
-		case "setCaseTypes":
-			draft.caseTypes = mut.caseTypes;
-			return;
 		case "setAppLogo":
 			// The doc's `logo` slot is `.optional()`, not `.nullable()`, so
 			// a cleared logo must drop off the doc — not persist as a
-			// literal `null` the schema would reject. The payload carries
-			// `null` to mean "clear"; map it to `undefined` so Immer's
-			// assignment removes the key. An asset id sets it verbatim.
-			draft.logo = mut.logo ?? undefined;
+			// literal `null` or own `undefined` the schema would reject. The
+			// payload carries `null` to mean "clear"; the reducer deletes the
+			// property. An asset id sets it verbatim.
+			if (mut.logo === null) delete draft.logo;
+			else draft.logo = mut.logo;
 			return;
 		case "declareCaseType": {
 			// Idempotent: an existing declaration is left untouched (its

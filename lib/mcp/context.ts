@@ -39,14 +39,19 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type {
 	ConversionImpactFn,
 	RecordMutationsResult,
-	StagedMutationBatch,
 	ToolExecutionContext,
 } from "@/lib/agent/toolExecutionContext";
 import { describeParkedOutcome } from "@/lib/agent/toolExecutionContext";
 import { withSchemaContext } from "@/lib/case-store";
 import { applyBlueprintChange } from "@/lib/db/applyBlueprintChange";
+import type { PreparedMutationCandidate } from "@/lib/doc/commitVerdicts";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
-import type { Mutation } from "@/lib/doc/types";
+import {
+	type AdmittedMutationBatch,
+	type AdmittedMutationStages,
+	admittedMutationSlice,
+	encodeAdmittedMutationEnvelope,
+} from "@/lib/doc/mutationAdmission";
 import type { BlueprintDoc } from "@/lib/domain";
 import type {
 	ConversationEvent,
@@ -142,22 +147,19 @@ export class McpContext implements ToolExecutionContext {
 	 *   to inspect the sequence that was just persisted.
 	 */
 	async recordMutations(
-		mutations: Mutation[],
-		doc: BlueprintDoc,
+		prepared: PreparedMutationCandidate,
 		stage?: string,
 		mediaExpectations?: readonly MediaAttachExpectation[],
 	): Promise<RecordMutationsResult> {
-		if (mutations.length === 0) return { events: [], committedDoc: doc };
+		if (prepared.mutations.length === 0) {
+			return { events: [], committedDoc: prepared.nextDoc };
+		}
 		/* Persist FIRST, log second: the guarded transactional commit can
 		 * still reject (or throw on a transport fault), and an event log
 		 * that recorded a batch the blueprint never absorbed would make a
 		 * replay diverge from the persisted doc. */
-		const committedDoc = await this.saveBlueprint(
-			doc,
-			mutations,
-			mediaExpectations,
-		);
-		const events = this.buildEnvelopes(mutations, stage);
+		const committedDoc = await this.saveBlueprint(prepared, mediaExpectations);
+		const events = this.buildEnvelopes(prepared.mutations, stage);
 		for (const e of events) this.logWriter.logEvent(e);
 		return { events, committedDoc };
 	}
@@ -183,22 +185,15 @@ export class McpContext implements ToolExecutionContext {
 	 * ordering as `recordMutations`.
 	 */
 	async recordMutationStages(
-		stages: StagedMutationBatch[],
+		prepared: PreparedMutationCandidate,
+		stages: AdmittedMutationStages,
 	): Promise<RecordMutationsResult> {
-		const nonEmpty = stages.filter((s) => s.mutations.length > 0);
-		if (nonEmpty.length === 0) {
-			// Nothing to commit — the last stage's doc is the current state.
-			const current = stages[stages.length - 1]?.doc;
-			if (current === undefined) {
-				throw new Error("recordMutationStages called with no stages");
-			}
-			return { events: [], committedDoc: current };
+		if (stages.batch.length === 0) {
+			return { events: [], committedDoc: prepared.nextDoc };
 		}
-		const finalDoc = nonEmpty[nonEmpty.length - 1].doc;
-		const allMutations = nonEmpty.flatMap((s) => s.mutations);
-		const committedDoc = await this.saveBlueprint(finalDoc, allMutations);
-		const events = nonEmpty.flatMap((s) =>
-			this.buildEnvelopes(s.mutations, s.stage),
+		const committedDoc = await this.saveBlueprint(prepared);
+		const events = stages.slices.flatMap((slice) =>
+			this.buildEnvelopes(admittedMutationSlice(stages, slice), slice.stage),
 		);
 		for (const e of events) this.logWriter.logEvent(e);
 		return { events, committedDoc };
@@ -207,23 +202,26 @@ export class McpContext implements ToolExecutionContext {
 	/** Build the `MutationEvent` envelopes for one batch under one stage
 	 *  tag, allocating from the per-request `seq` counter. */
 	private buildEnvelopes(
-		mutations: Mutation[],
+		mutations: AdmittedMutationBatch,
 		stage?: string,
 	): MutationEvent[] {
-		return mutations.map((mutation) => ({
-			kind: "mutation",
-			runId: this.runId,
-			ts: Date.now(),
-			seq: this.seq++,
-			actor: "agent",
-			/* Inline `source: "mcp"` so the envelope satisfies the schema
-			 * at the type level — `LogWriter.logEvent` overwrites this
-			 * with its constructor-provided source on the way to the
-			 * sink, so the persisted value can never drift. */
-			source: "mcp",
-			...(stage !== undefined && { stage }),
-			mutation,
-		}));
+		return mutations.map(
+			(mutation) =>
+				encodeAdmittedMutationEnvelope({
+					kind: "mutation",
+					runId: this.runId,
+					ts: Date.now(),
+					seq: this.seq++,
+					actor: "agent",
+					/* Inline `source: "mcp"` so the envelope satisfies the schema
+					 * at the type level — `LogWriter.logEvent` overwrites this
+					 * with its constructor-provided source on the way to the
+					 * sink, so the persisted value can never drift. */
+					source: "mcp",
+					...(stage !== undefined && { stage }),
+					mutation,
+				}).value as unknown as MutationEvent,
+		);
 	}
 
 	/**
@@ -275,15 +273,15 @@ export class McpContext implements ToolExecutionContext {
 	 * the run id persists alongside the blueprint.
 	 */
 	private async saveBlueprint(
-		doc: BlueprintDoc,
-		mutations: Mutation[],
+		prepared: PreparedMutationCandidate,
 		mediaExpectations?: readonly MediaAttachExpectation[],
 	): Promise<BlueprintDoc> {
+		const mutations = prepared.mutations;
 		const result = await applyBlueprintChange({
 			appId: this.appId,
 			userId: this.userId,
 			expectedProjectId: this.projectId,
-			prospective: toPersistableDoc(doc),
+			prospective: toPersistableDoc(prepared.nextDoc),
 			runId: this.runId,
 			batchId: crypto.randomUUID(),
 			kind: "mcp",
@@ -312,7 +310,7 @@ export class McpContext implements ToolExecutionContext {
 				failureReasons: result.migration.failureReasons,
 			});
 		}
-		return result.committedDoc ?? doc;
+		return result.committedDoc ?? prepared.nextDoc;
 	}
 
 	/** See `ToolExecutionContext.consumeParkedNote`. */

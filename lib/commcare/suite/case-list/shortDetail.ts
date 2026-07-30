@@ -217,6 +217,7 @@ export function buildShortDetail(args: {
 		detailKind: "short",
 		target,
 		caseProperties,
+		proseDoc: doc,
 		caseTypes: relationContext.caseTypes,
 		currentCaseType: mod.caseType,
 		userPropertySlugs: userPropertySlugsByUuid(doc),

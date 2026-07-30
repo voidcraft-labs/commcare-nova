@@ -17,7 +17,6 @@ import {
 	resolveDocExpressions,
 } from "@/lib/__tests__/docHelpers";
 import { applyMutation } from "@/lib/doc/mutations";
-import type { FieldRenameMeta } from "@/lib/doc/mutations/fields";
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
 
 import type { Field, Form, Module } from "@/lib/domain";
@@ -134,24 +133,30 @@ function docWithForm(form: Partial<Form> = {}): BlueprintDoc {
 	};
 }
 
-/** Rename field `uuid` to `newId` and return the resulting doc + meta. */
-function rename(
+/** Update field `uuid` through the single canonical id-patch path. */
+function updateFieldId(
 	start: BlueprintDoc,
 	uuid: Uuid,
-	newId: string,
-): { next: BlueprintDoc; meta: FieldRenameMeta | undefined } {
-	let meta: FieldRenameMeta | undefined;
+	id: string,
+): { next: BlueprintDoc } {
+	const targetKind = start.fields[uuid]?.kind;
+	if (targetKind === undefined) {
+		throw new Error(`fixture: field ${uuid} missing`);
+	}
 	const next = produce(resolveDocExpressions(start), (d) => {
-		meta = applyMutation(d, { kind: "renameField", uuid, newId }) as
-			| FieldRenameMeta
-			| undefined;
+		applyMutation(d, {
+			kind: "updateField",
+			uuid,
+			targetKind,
+			patch: { id },
+		} as Parameters<typeof applyMutation>[1]);
 	});
-	return { next, meta };
+	return { next };
 }
 
 // ── Live bug 1: `required` is an XPath surface ────────────────────
 
-describe("renameField rewrites `required` expressions (live bug)", () => {
+describe("updateField id patch rewrites `required` expressions", () => {
 	it("follows a /data/ path ref in another field's required", () => {
 		const start: BlueprintDoc = {
 			...docWithForm(),
@@ -163,7 +168,7 @@ describe("renameField rewrites `required` expressions (live bug)", () => {
 			},
 			fieldOrder: { [F("1")]: [Q("age"), Q("ref")] },
 		};
-		const { next } = rename(start, Q("age"), "years");
+		const { next } = updateFieldId(start, Q("age"), "years");
 		expect(printedSlot(next, Q("ref"), "required")).toBe("/data/years > 17");
 	});
 
@@ -178,7 +183,7 @@ describe("renameField rewrites `required` expressions (live bug)", () => {
 			},
 			fieldOrder: { [F("1")]: [Q("age"), Q("ref")] },
 		};
-		const { next } = rename(start, Q("age"), "years");
+		const { next } = updateFieldId(start, Q("age"), "years");
 		expect(printedSlot(next, Q("ref"), "required")).toBe("#form/years > 17");
 	});
 
@@ -201,14 +206,14 @@ describe("renameField rewrites `required` expressions (live bug)", () => {
 				[Q("grp")]: [Q("nested")],
 			},
 		};
-		const { next } = rename(start, Q("root"), "years");
+		const { next } = updateFieldId(start, Q("root"), "years");
 		expect(printedSlot(next, Q("ref"), "required")).toBe("#form/grp/age > 17");
 	});
 });
 
 // ── Live bug 2: help / validate_msg / option-label prose ──────────
 
-describe("renameField preserves identity-backed help/validate_msg/option-label prose", () => {
+describe("updateField id patch preserves identity-backed help/validate_msg/option-label prose", () => {
 	it("projects a help reference through the field's current name", () => {
 		const start: BlueprintDoc = {
 			...docWithForm(),
@@ -220,7 +225,7 @@ describe("renameField preserves identity-backed help/validate_msg/option-label p
 			},
 			fieldOrder: { [F("1")]: [Q("age"), Q("ref")] },
 		};
-		const { next } = rename(start, Q("age"), "years");
+		const { next } = updateFieldId(start, Q("age"), "years");
 		const help = asField(next.fields[Q("ref")])?.help;
 		if (!help) throw new Error("expected help template");
 		expect(printProseTemplate(help, next)).toBe(
@@ -240,7 +245,7 @@ describe("renameField preserves identity-backed help/validate_msg/option-label p
 			},
 			fieldOrder: { [F("1")]: [Q("age"), Q("ref")] },
 		};
-		const { next } = rename(start, Q("age"), "years");
+		const { next } = updateFieldId(start, Q("age"), "years");
 		const validateMessage = asField(next.fields[Q("ref")])?.validate_msg;
 		if (!validateMessage) throw new Error("expected validation template");
 		expect(printProseTemplate(validateMessage, next)).toBe(
@@ -276,7 +281,7 @@ describe("renameField preserves identity-backed help/validate_msg/option-label p
 			},
 			fieldOrder: { [F("1")]: [Q("age"), Q("sel")] },
 		};
-		const { next } = rename(start, Q("age"), "years");
+		const { next } = updateFieldId(start, Q("age"), "years");
 		const options = asField(next.fields[Q("sel")])?.optionsSource?.options;
 		if (!options?.[0] || !options[1]) {
 			throw new Error("expected both inline options");
@@ -306,7 +311,7 @@ describe("repeat slots follow renames at print", () => {
 			},
 			fieldOrder: { [F("1")]: [Q("n"), Q("rep")], [Q("rep")]: [] },
 		};
-		const { next } = rename(start, Q("n"), "child_count");
+		const { next } = updateFieldId(start, Q("n"), "child_count");
 		expect(printedSlot(next, Q("rep"), "repeat_count")).toBe(
 			"/data/child_count",
 		);
@@ -328,7 +333,7 @@ describe("repeat slots follow renames at print", () => {
 			},
 			fieldOrder: { [F("1")]: [Q("v"), Q("rep")], [Q("rep")]: [] },
 		};
-		const { next } = rename(start, Q("v"), "location");
+		const { next } = updateFieldId(start, Q("v"), "location");
 		expect(printedSlot(next, Q("rep"), "ids_query")).toBe(
 			"instance('casedb')/casedb/case[village = #form/location]/@case_id",
 		);
@@ -337,8 +342,8 @@ describe("repeat slots follow renames at print", () => {
 
 // ── Form-level wiring: form links, close condition, connect ───────
 
-describe("renameField rewrites the owning form's form-level wiring", () => {
-	it("form_links[].condition follows a rename at print, with zero rewrites", () => {
+describe("updateField id patch rewrites the owning form's form-level wiring", () => {
+	it("form_links[].condition follows an id patch at print", () => {
 		const start: BlueprintDoc = {
 			...docWithForm({
 				formLinks: [
@@ -351,12 +356,11 @@ describe("renameField rewrites the owning form's form-level wiring", () => {
 			fields: { [Q("r")]: field_(Q("r"), "refer") },
 			fieldOrder: { [F("1")]: [Q("r")] },
 		};
-		const { next, meta } = rename(start, Q("r"), "referral");
+		const { next } = updateFieldId(start, Q("r"), "referral");
 		const condition = next.forms[F("1")]?.formLinks?.[0]?.condition;
 		expect(condition && printXPath(condition, xpathPrintContext(next))).toBe(
 			"/data/referral = 'yes' and #form/referral != ''",
 		);
-		expect(meta?.formWiringRewritten).toBe(0);
 	});
 
 	it("rewrites form_links[].datums[].xpath but never the datum name", () => {
@@ -376,7 +380,7 @@ describe("renameField rewrites the owning form's form-level wiring", () => {
 			fields: { [Q("s")]: field_(Q("s"), "selected_case") },
 			fieldOrder: { [F("1")]: [Q("s")] },
 		};
-		const { next } = rename(start, Q("s"), "chosen_case");
+		const { next } = updateFieldId(start, Q("s"), "chosen_case");
 		const link = next.forms[F("1")]?.formLinks?.[0];
 		const datumXPath = link?.datums?.[0]?.xpath;
 		expect(datumXPath && printXPath(datumXPath, xpathPrintContext(next))).toBe(
@@ -417,14 +421,14 @@ describe("renameField rewrites the owning form's form-level wiring", () => {
 			formOrder: { [M("X")]: [F("1"), F("2")] },
 			fieldOrder: { [F("1")]: [Q("a1")], [F("2")]: [Q("a2")] },
 		};
-		const { next } = rename(start, Q("a1"), "years");
+		const { next } = updateFieldId(start, Q("a1"), "years");
 		const otherCondition = next.forms[F("2")]?.formLinks?.[0]?.condition;
 		expect(
 			otherCondition && printXPath(otherCondition, xpathPrintContext(next)),
 		).toBe("/data/age > 17");
 	});
 
-	it("a close condition follows its field's rename with zero rewrites — the ref is its uuid", () => {
+	it("a close condition keeps its field UUID through an id patch", () => {
 		const start: BlueprintDoc = {
 			...docWithForm({
 				type: "close",
@@ -433,10 +437,9 @@ describe("renameField rewrites the owning form's form-level wiring", () => {
 			fields: { [Q("o")]: field_(Q("o"), "outcome") },
 			fieldOrder: { [F("1")]: [Q("o")] },
 		};
-		const { next, meta } = rename(start, Q("o"), "case_outcome");
+		const { next } = updateFieldId(start, Q("o"), "case_outcome");
 		expect(next.forms[F("1")]?.closeCondition?.field).toBe(Q("o"));
 		expect(next.forms[F("1")]?.closeCondition?.answer).toBe("deceased");
-		expect(meta?.formWiringRewritten).toBe(0);
 	});
 
 	it("a cousin sharing the target's id can't confuse the ref — identity, not text", () => {
@@ -458,13 +461,13 @@ describe("renameField rewrites the owning form's form-level wiring", () => {
 				[Q("grp")]: [Q("o2")],
 			},
 		};
-		const { next } = rename(start, Q("o1"), "case_outcome");
+		const { next } = updateFieldId(start, Q("o1"), "case_outcome");
 		expect(next.forms[F("1")]?.closeCondition?.field).toBe(Q("o1"));
 		expect(next.fields[Q("o1")]?.id).toBe("case_outcome");
 		expect(next.fields[Q("o2")]?.id).toBe("outcome");
 	});
 
-	it("connect XPath slots follow a rename at print, with zero rewrites", () => {
+	it("connect XPath slots follow an id patch at print", () => {
 		const start: BlueprintDoc = {
 			...docWithForm({
 				connect: {
@@ -479,7 +482,7 @@ describe("renameField rewrites the owning form's form-level wiring", () => {
 			fields: { [Q("s")]: field_(Q("s"), "score", { kind: "int" }) },
 			fieldOrder: { [F("1")]: [Q("s")] },
 		};
-		const { next, meta } = rename(start, Q("s"), "points");
+		const { next } = updateFieldId(start, Q("s"), "points");
 		const form = next.forms[F("1")];
 		if (!form) throw new Error("fixture form missing");
 		expect(formExpressionSource(form, "assessment_user_score", next)).toBe(
@@ -491,7 +494,6 @@ describe("renameField rewrites the owning form's form-level wiring", () => {
 		expect(formExpressionSource(form, "deliver_entity_name", next)).toBe(
 			"#form/points",
 		);
-		expect(meta?.formWiringRewritten).toBe(0);
 	});
 });
 
@@ -604,7 +606,7 @@ describe("case-property cascade rewrites module predicate-AST slots", () => {
 				} as Form,
 			},
 		};
-		const { next } = rename(start, Q("src"), "years");
+		const { next } = updateFieldId(start, Q("src"), "years");
 		expect(next.modules[M("X")]?.displayCondition).toEqual(
 			eq(prop("patient", "years"), literal(18)),
 		);
@@ -623,11 +625,9 @@ describe("case-property cascade rewrites module predicate-AST slots", () => {
 				}),
 			},
 		});
-		const { next, meta } = rename(start, Q("src"), "years");
+		const { next } = updateFieldId(start, Q("src"), "years");
 		const filter = next.modules[M("X")]?.caseListConfig?.filter;
 		expect(filter).toEqual(eq(prop("patient", "years"), literal("1")));
-		expect(meta?.moduleRefsRewritten).toBe(1);
-		expect(meta?.cascadedAcrossForms).toBe(true);
 	});
 
 	it("does NOT rewrite a PropertyRef on a different case type", () => {
@@ -641,10 +641,9 @@ describe("case-property cascade rewrites module predicate-AST slots", () => {
 				}),
 			},
 		});
-		const { next, meta } = rename(start, Q("src"), "years");
+		const { next } = updateFieldId(start, Q("src"), "years");
 		const filter = next.modules[M("Y")]?.caseListConfig?.filter;
 		expect(filter).toEqual(eq(prop("household", "age"), literal("1")));
-		expect(meta?.moduleRefsRewritten).toBe(0);
 	});
 
 	it("rewrites a PropertyRef whose relation walk lands on the renamed type", () => {
@@ -664,7 +663,7 @@ describe("case-property cascade rewrites module predicate-AST slots", () => {
 				}),
 			},
 		});
-		const { next } = rename(start, Q("src"), "years");
+		const { next } = updateFieldId(start, Q("src"), "years");
 		const filter = next.modules[M("Y")]?.caseListConfig?.filter;
 		expect(filter).toEqual(
 			eq(
@@ -704,7 +703,7 @@ describe("case-property cascade rewrites module predicate-AST slots", () => {
 			},
 			fieldOrder: { ...base.fieldOrder, [F("2")]: [Q("reg")] },
 		};
-		const { next } = rename(start, Q("reg"), "zone");
+		const { next } = updateFieldId(start, Q("reg"), "zone");
 		const filter = next.modules[M("X")]?.caseListConfig?.filter;
 		expect(filter).toEqual(
 			eq(
@@ -744,7 +743,7 @@ describe("case-property cascade rewrites module predicate-AST slots", () => {
 			},
 			fieldOrder: { ...base.fieldOrder, [F("2")]: [Q("reg")] },
 		};
-		const { next } = rename(start, Q("reg"), "zone");
+		const { next } = updateFieldId(start, Q("reg"), "zone");
 		const filter = next.modules[M("X")]?.caseListConfig?.filter;
 		expect(filter).toEqual(
 			eq(
@@ -770,16 +769,12 @@ describe("case-property cascade rewrites module predicate-AST slots", () => {
 				}),
 			},
 		});
-		const { next, meta } = rename(start, Q("src"), "years");
+		const { next } = updateFieldId(start, Q("src"), "years");
 		const col = next.modules[M("X")]?.caseListConfig?.columns[0];
 		expect(col).toMatchObject({
 			kind: "calculated",
 			expression: term(prop("patient", "years")),
 		});
-		// Calculated columns count as AST refs, not as `columnsRewritten`
-		// (that count is the property-name-as-string column rewrite).
-		expect(meta?.columnsRewritten).toBe(0);
-		expect(meta?.moduleRefsRewritten).toBe(1);
 	});
 
 	it("rewrites simple search-input property on the matching module only", () => {
@@ -805,7 +800,7 @@ describe("case-property cascade rewrites module predicate-AST slots", () => {
 				}),
 			},
 		});
-		const { next } = rename(start, Q("src"), "years");
+		const { next } = updateFieldId(start, Q("src"), "years");
 		const xInput = next.modules[M("X")]?.caseListConfig?.searchInputs[0];
 		const yInput = next.modules[M("Y")]?.caseListConfig?.searchInputs[0];
 		// Module X lists patients — its input targets patient.age → follows.
@@ -835,7 +830,7 @@ describe("case-property cascade rewrites module predicate-AST slots", () => {
 				}),
 			},
 		});
-		const { next } = rename(start, Q("src"), "years");
+		const { next } = updateFieldId(start, Q("src"), "years");
 		const yInput = next.modules[M("Y")]?.caseListConfig?.searchInputs[0];
 		expect(yInput).toMatchObject({ property: "years" });
 	});
@@ -859,13 +854,12 @@ describe("case-property cascade rewrites module predicate-AST slots", () => {
 				}),
 			},
 		});
-		const { next, meta } = rename(start, Q("src"), "years");
+		const { next } = updateFieldId(start, Q("src"), "years");
 		const inputDef = next.modules[M("X")]?.caseListConfig?.searchInputs[0];
 		expect(inputDef).toMatchObject({
 			predicate: eq(prop("patient", "years"), literal("18")),
 			default: term(prop("patient", "years")),
 		});
-		expect(meta?.moduleRefsRewritten).toBe(2);
 	});
 
 	it("rewrites searchButtonDisplayCondition and excludedOwnerIds", () => {
@@ -877,14 +871,12 @@ describe("case-property cascade rewrites module predicate-AST slots", () => {
 				},
 			},
 		});
-		const { next, meta } = rename(start, Q("src"), "years");
+		const { next } = updateFieldId(start, Q("src"), "years");
 		const search = next.modules[M("X")]?.caseSearchConfig;
 		expect(search?.searchButtonDisplayCondition).toEqual(
 			eq(prop("patient", "years"), literal("")),
 		);
 		expect(search?.excludedOwnerIds).toEqual(term(prop("patient", "years")));
-		expect(meta?.moduleRefsRewritten).toBe(2);
-		expect(meta?.cascadedAcrossForms).toBe(true);
 	});
 
 	it("rewrites case hashtags in another form's form-level wiring", () => {
@@ -927,19 +919,17 @@ describe("case-property cascade rewrites module predicate-AST slots", () => {
 			formOrder: { ...base.formOrder, [M("X")]: [F("1"), F("3")] },
 			fieldOrder: { ...base.fieldOrder, [F("3")]: [] },
 		};
-		const { next, meta } = rename(start, Q("src"), "years");
+		const { next } = updateFieldId(start, Q("src"), "years");
 		const f3Condition = next.forms[F("3")]?.formLinks?.[0]?.condition;
 		expect(
 			f3Condition && printXPath(f3Condition, xpathPrintContext(next)),
 		).toBe("#patient/years > 17 and #patient/years > 17");
-		expect(meta?.formWiringRewritten).toBe(1);
-		expect(meta?.cascadedAcrossForms).toBe(true);
 	});
 });
 
 // ── Renamed-container descendants ──────────────────────────────────
 
-describe("renameField re-anchors refs to a renamed CONTAINER's descendants", () => {
+describe("updateField id patch re-anchors refs to a renamed container's descendants", () => {
 	it("rewrites descendant hashtag + absolute refs on XPath surfaces", () => {
 		const start: BlueprintDoc = {
 			...docWithForm(),
@@ -955,7 +945,7 @@ describe("renameField re-anchors refs to a renamed CONTAINER's descendants", () 
 				[Q("grp")]: [Q("inner")],
 			},
 		};
-		const { next } = rename(start, Q("grp"), "grp2");
+		const { next } = updateFieldId(start, Q("grp"), "grp2");
 		expect(printedSlot(next, Q("ref"), "relevant")).toBe(
 			"#form/grp2/inner = '1' and /data/grp2/inner != ''",
 		);
@@ -976,7 +966,7 @@ describe("renameField re-anchors refs to a renamed CONTAINER's descendants", () 
 				[Q("grp")]: [Q("inner")],
 			},
 		};
-		const { next } = rename(start, Q("grp"), "grp2");
+		const { next } = updateFieldId(start, Q("grp"), "grp2");
 		const label = asField(next.fields[Q("ref")])?.label;
 		if (!label) throw new Error("expected field label template");
 		expect(printProseTemplate(label, next)).toBe(
@@ -1004,7 +994,7 @@ describe("renameField re-anchors refs to a renamed CONTAINER's descendants", () 
 				[Q("other")]: [Q("inner2")],
 			},
 		};
-		const { next } = rename(start, Q("grp"), "grp2");
+		const { next } = updateFieldId(start, Q("grp"), "grp2");
 		expect(printedSlot(next, Q("ref"), "relevant")).toBe(
 			"#form/other/inner = '1'",
 		);

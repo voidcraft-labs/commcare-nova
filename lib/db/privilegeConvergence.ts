@@ -123,7 +123,10 @@ const APPLICATION_TABLES = [
  * separate schema prevents that grant from covering migration-owned objects. */
 export const RUNTIME_CASE_TABLES = ["cases"] as const;
 
-const CONTROL_TABLES = ["media_reference_index_state"] as const;
+const CONTROL_TABLES = [
+	"media_reference_index_state",
+	"mutation_fold_baselines",
+] as const;
 
 const MIGRATION_TABLES = [
 	"kysely_migration",
@@ -341,6 +344,7 @@ export function assertDatabaseRolePolicy(
 }
 
 const EXPECTED_PUBLIC_ROUTINES = [
+	"nova_reject_mutation_fold_baseline_change",
 	"nova_lock_auth_member_membership_gate",
 	"nova_reject_auth_member_truncate",
 ] as const;
@@ -1007,6 +1011,10 @@ async function convergePrivilegesInTransaction(
 	}
 	await sql`
 		GRANT SELECT ON TABLE public.media_reference_index_state
+		TO ${sql.id(config.runtimeRole)}
+	`.execute(tx);
+	await sql`
+		GRANT SELECT ON TABLE public.mutation_fold_baselines
 		TO ${sql.id(config.runtimeRole)}
 	`.execute(tx);
 	await sql`

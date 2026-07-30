@@ -69,11 +69,11 @@ function walkFieldRefs(
 		const field = doc.fields[uuid];
 		if (!field) continue;
 		if (field.kind === "hidden") continue;
-		refs.push({ uuid: uuid as Uuid, parentUuid });
+		refs.push({ uuid, parentUuid });
 		// Containers (group/repeat) have an order entry; leaf fields don't —
 		// a keyed EXISTENCE check, not a positional read.
 		if (doc.fieldOrder[uuid] !== undefined) {
-			walkFieldRefs(doc, uuid as Uuid, refs);
+			walkFieldRefs(doc, uuid, refs);
 		}
 	}
 }
@@ -121,9 +121,8 @@ export function getFieldMoveTargets(
 	const idx = siblings.indexOf(fieldUuid);
 	if (idx === -1) return { beforeUuid: undefined, afterUuid: undefined };
 	return {
-		beforeUuid: idx > 0 ? (siblings[idx - 1] as Uuid) : undefined,
-		afterUuid:
-			idx < siblings.length - 1 ? (siblings[idx + 1] as Uuid) : undefined,
+		beforeUuid: idx > 0 ? siblings[idx - 1] : undefined,
+		afterUuid: idx < siblings.length - 1 ? siblings[idx + 1] : undefined,
 	};
 }
 
@@ -180,7 +179,8 @@ export function getCrossLevelFieldMoveTargets(
 			direction: "out",
 		};
 	} else if (idx > 0) {
-		const prevUuid = siblings[idx - 1] as Uuid;
+		const prevUuid = siblings[idx - 1];
+		if (prevUuid === undefined) return { up, down };
 		const prev = doc.fields[prevUuid];
 		if (prev && isContainer(prev)) {
 			up = { toParentUuid: prevUuid, direction: "into" };
@@ -196,12 +196,11 @@ export function getCrossLevelFieldMoveTargets(
 			direction: "out",
 		};
 	} else if (idx < siblings.length - 1) {
-		const nextUuid = siblings[idx + 1] as Uuid;
+		const nextUuid = siblings[idx + 1];
+		if (nextUuid === undefined) return { up, down };
 		const next = doc.fields[nextUuid];
 		if (next && isContainer(next)) {
-			const firstChild = orderedFieldUuids(doc, nextUuid)[0] as
-				| Uuid
-				| undefined;
+			const firstChild = orderedFieldUuids(doc, nextUuid)[0];
 			down = {
 				toParentUuid: nextUuid,
 				// Land as the first child (before any existing head). When the

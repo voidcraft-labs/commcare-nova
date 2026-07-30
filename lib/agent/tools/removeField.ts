@@ -93,7 +93,7 @@ export const removeFieldTool = {
 			const removedId = resolved.field.id;
 			return {
 				kind: "mutate" as const,
-				mutations,
+				mutations: commit.mutations,
 				newDoc,
 				result: {
 					message: `Successfully removed field "${removedId}" from "${formName}". Fields: ${beforeCount} → ${afterCount}.`,

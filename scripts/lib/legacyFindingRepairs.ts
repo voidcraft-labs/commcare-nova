@@ -107,6 +107,7 @@ import {
 	formExpressionSource,
 	orderedColumns,
 	plainColumn,
+	uuidSchema,
 } from "../../lib/domain";
 
 // ── Judgments — the REPAIRABLE / PROPOSED / NEEDS-OWNER table ────────
@@ -162,6 +163,18 @@ export const REPAIR_JUDGMENTS: Readonly<
 	),
 	BLUEPRINT_ENTITY_UUID_DUPLICATE: owner(
 		"choosing which globally-colliding entity keeps its stable identity requires rewriting every reference to the other entity",
+	),
+	BLUEPRINT_TOPOLOGY_INVALID: owner(
+		"reattaching an orphaned or multiply-owned entity requires choosing the user's intended module, form, or field container",
+	),
+	MUTATION_IDENTITY_COLLISION: owner(
+		"this is a live mutation-admission finding, not standing stored content; choosing a replacement identity would also require retargeting authored references",
+	),
+	MUTATION_SEQUENCE_ANCHOR_INVALID: owner(
+		"this is a live mutation-admission finding, not standing stored content; choosing a different neighbor would invent placement intent",
+	),
+	MUTATION_WIRE_CANONICALITY_INVALID: owner(
+		"this is a live mutation-wire admission finding, not standing stored content; malformed command bytes must be rejected at their producer rather than rewritten as app content",
 	),
 	CASE_PROPERTY_REFERENCE_INVALID: owner(
 		"choosing a replacement reference or clearing an authored catalog default changes the app's data semantics",
@@ -711,11 +724,9 @@ function updateFieldMutation(
 	field: Field,
 	patch: Record<string, unknown>,
 ): Mutation {
-	// The per-kind patch arm types only the keys the kind declares; some
-	// repairs clear keys a lenient legacy path parked off-kind (e.g.
-	// `case_property_on` on a media field). The reducer handles them:
-	// null deletes the key, then the merged entity re-parses through the
-	// strict field schema before landing.
+	// Every repair emits the one canonical field-property command, explicitly
+	// discriminated by the field's current kind. An explicit null is the
+	// serialized clear value; omission would mean "leave unchanged."
 	return {
 		kind: "updateField",
 		uuid: field.uuid,
@@ -975,9 +986,10 @@ const planRoundArity: RepairModule = (finding, doc) =>
 	);
 
 const planFieldIdRename: RepairModule = (finding, doc) => {
+	const detailFieldUuid = uuidSchema.safeParse(finding.details?.fieldUuid);
 	const fieldUuid =
 		finding.location.fieldUuid ??
-		(finding.details?.fieldUuid as Uuid | undefined);
+		(detailFieldUuid.success ? detailFieldUuid.data : undefined);
 	if (fieldUuid === undefined) return undefined;
 	const field = doc.fields[fieldUuid];
 	if (!field) return undefined;
@@ -987,7 +999,7 @@ const planFieldIdRename: RepairModule = (finding, doc) => {
 	return {
 		tier: "mechanical",
 		description: `rename field "${field.id}" → "${newId}"`,
-		mutations: [{ kind: "renameField", uuid: field.uuid, newId }],
+		mutations: [updateFieldMutation(field, { id: newId })],
 	};
 };
 
@@ -1009,7 +1021,7 @@ function planPropertyRename(
 	return {
 		tier: "mechanical",
 		description: `rename case property "${property}" → "${newId}" (renames the writing field; case-bound peers rename in lockstep)`,
-		mutations: [{ kind: "renameField", uuid: field.uuid, newId }],
+		mutations: [updateFieldMutation(field, { id: newId })],
 	};
 }
 
@@ -1057,7 +1069,7 @@ const planDuplicateSiblingRenames: RepairModule = (finding, doc) => {
 					if (!renameFieldIdVerdict({ doc, fieldUuid: uuid, newId: next }).ok)
 						continue;
 					claimed.add(next);
-					mutations.push({ kind: "renameField", uuid, newId: next });
+					mutations.push(updateFieldMutation(field, { id: next }));
 					renames.push(`"${field.id}" → "${next}"`);
 					break;
 				}
@@ -1124,7 +1136,7 @@ const planClearPostSubmit: RepairModule = (finding, doc) => {
 		description:
 			"clear the unrecognized post-submit destination (falls back to the form-type default)",
 		mutations: [
-			{ kind: "updateForm", uuid: formUuid, patch: { postSubmit: undefined } },
+			{ kind: "updateForm", uuid: formUuid, patch: { postSubmit: null } },
 		],
 	};
 };
@@ -1146,7 +1158,7 @@ const planDropCloseCondition: RepairModule = (finding, doc) => {
 			{
 				kind: "updateForm",
 				uuid: formUuid,
-				patch: { closeCondition: undefined },
+				patch: { closeCondition: null },
 			},
 		],
 	};

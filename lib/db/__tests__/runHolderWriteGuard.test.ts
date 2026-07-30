@@ -9,7 +9,7 @@
 // bare id, and that operator recovery cannot release a holder tokenlessly.
 //
 // A failure here is usually not a bug in the named function — it means a write
-// path grew outside the two reviewed database authorities, and the review that
+// path grew outside the reviewed database authorities, and the review that
 // should have covered it did not happen.
 
 import { readdirSync, readFileSync } from "node:fs";
@@ -68,7 +68,7 @@ const CREDIT_TERMINAL_WRITERS = [
 ] as const;
 
 describe("run-holder write structural guard", () => {
-	it("keeps all production apps DML inside the two reviewed database authorities", () => {
+	it("keeps all production apps DML inside the reviewed database authorities", () => {
 		const appDml =
 			/\.(?:insertInto|updateTable|deleteFrom|truncateTable)\(\s*["']apps["']\s*\)/;
 		const writers = ["lib", "app", "scripts"]
@@ -76,10 +76,24 @@ describe("run-holder write structural guard", () => {
 			.filter((path) => appDml.test(source(path)))
 			.sort();
 
-		expect(writers).toEqual(["lib/db/apps.ts", "lib/db/credits.ts"]);
+		expect(writers).toEqual([
+			"lib/db/apps.ts",
+			"lib/db/canonicalIdentityFoundationRepair.ts",
+			"lib/db/credits.ts",
+		]);
 		// Operator recovery delegates to `recoverAppStatus` rather than issuing its
 		// own DML, so its writes go through the same holder proof as everything else.
 		expect(source("scripts/recover-app.ts")).not.toMatch(appDml);
+		// The frozen pre-canonical repair owns its one catalog-row update; its
+		// operator script delegates into that transaction authority.
+		expect(
+			source("lib/db/canonicalIdentityFoundationRepair.ts").match(
+				new RegExp(appDml, "g"),
+			)?.length,
+		).toBe(1);
+		expect(
+			source("scripts/repair-canonical-identity-foundation.ts"),
+		).not.toMatch(appDml);
 		expect(
 			source("lib/db/apps.ts").match(new RegExp(appDml, "g"))?.length,
 		).toBe(17);

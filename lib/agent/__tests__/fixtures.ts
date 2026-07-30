@@ -22,7 +22,8 @@ import type { UIMessageStreamWriter } from "ai";
 import { vi } from "vitest";
 import type { Session } from "@/lib/auth";
 import { type AccumulatorSeed, UsageAccumulator } from "@/lib/db/usage";
-import type { Mutation } from "@/lib/doc/types";
+import type { PreparedMutationCandidate } from "@/lib/doc/commitVerdicts";
+import type { AdmittedMutationStages } from "@/lib/doc/mutationAdmission";
 import type { BlueprintDoc } from "@/lib/domain";
 import type { LogWriter } from "@/lib/log/writer";
 import { McpContext } from "@/lib/mcp/context";
@@ -31,7 +32,6 @@ import { GenerationContext } from "../generationContext";
 import type {
 	ConversionImpactFn,
 	RecordMutationsResult,
-	StagedMutationBatch,
 	ToolExecutionContext,
 } from "../toolExecutionContext";
 
@@ -264,14 +264,19 @@ export function makeStubToolContext(
 ): StubToolContextHandles {
 	const recordMutations = vi.fn(
 		async (
-			_mutations: Mutation[],
-			doc: BlueprintDoc,
-		): Promise<RecordMutationsResult> => ({ events: [], committedDoc: doc }),
+			prepared: PreparedMutationCandidate,
+		): Promise<RecordMutationsResult> => ({
+			events: [],
+			committedDoc: prepared.nextDoc,
+		}),
 	);
 	const recordMutationStages = vi.fn(
-		async (stages: StagedMutationBatch[]): Promise<RecordMutationsResult> => ({
+		async (
+			prepared: PreparedMutationCandidate,
+			_stages: AdmittedMutationStages,
+		): Promise<RecordMutationsResult> => ({
 			events: [],
-			committedDoc: stages[stages.length - 1]?.doc as BlueprintDoc,
+			committedDoc: prepared.nextDoc,
 		}),
 	);
 	const recordConversation = vi.fn();

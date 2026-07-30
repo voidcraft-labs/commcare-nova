@@ -20,12 +20,15 @@ import {
 	fieldKinds,
 	fieldRegistry,
 	HASHTAG_SEGMENT_SOURCE,
+	type ProseProjectionResult,
 	type ProseReferencePart,
 	type ProseTemplate,
+	projectProseTemplate,
 	type Uuid,
+	type XPathPrintableDoc,
 } from "@/lib/domain";
 import { classifyNamespace } from "./config";
-import type { Reference } from "./types";
+import type { Reference, ReferenceType } from "./types";
 
 /**
  * The pure (no-lookup) parse of a `#namespace/path` string. The namespace is
@@ -58,6 +61,33 @@ export const USER_PROPERTIES = BUILT_IN_USER_PROPERTIES.map((property) => ({
 }));
 
 export type ReferenceSurface = "prose" | "xpath";
+
+/**
+ * A typed reference that cannot be projected through the owning form.
+ * `repairText` is deliberately identity-free: the UUID remains available only
+ * in the stored part and never becomes authored display text.
+ */
+export interface UnresolvedReferenceProjection {
+	readonly kind: "unresolved-reference";
+	readonly referenceKind: ProseReferencePart["kind"];
+	readonly type: ReferenceType;
+	readonly repairText: string;
+}
+
+export type ReferencePartProjection =
+	| { readonly ok: true; readonly reference: Reference }
+	| {
+			readonly ok: false;
+			readonly unresolved: UnresolvedReferenceProjection;
+	  };
+
+export type ReferenceTemplateProjection =
+	| { readonly ok: true; readonly text: string }
+	| {
+			readonly ok: false;
+			readonly text: string;
+			readonly unresolved: readonly UnresolvedReferenceProjection[];
+	  };
 
 /** A namespace is exactly one hashtag segment — same vocabulary as the
  *  shared matcher source, anchored to the whole token. */
@@ -296,15 +326,13 @@ export class ReferenceProvider {
 	resolvePart(part: ProseReferencePart, formUuid?: string): Reference | null {
 		if (part.kind === "user-ref") {
 			const property = USER_PROPERTIES.find((p) => p.name === part.property);
-			return property
-				? {
-						type: "user",
-						path: property.name,
-						label: property.label,
-						raw: `#user/${property.name}`,
-						part,
-					}
-				: null;
+			return {
+				type: "user",
+				path: part.property,
+				label: property?.label ?? part.property,
+				raw: `#user/${part.property}`,
+				part,
+			};
 		}
 		if (!formUuid) return null;
 		const cache = this.ensureCache(formUuid);
@@ -351,17 +379,42 @@ export class ReferenceProvider {
 		};
 	}
 
-	/** Current plain-text projection used by compact/search surfaces. */
-	projectTemplate(template: ProseTemplate, formUuid?: string): string {
+	/**
+	 * Resolve a stored part to its current friendly reference, or return the
+	 * structured repair state a human surface must render. Callers must not
+	 * reconstruct a display path from the stored identity.
+	 */
+	projectPart(
+		part: ProseReferencePart,
+		formUuid?: string,
+	): ReferencePartProjection {
+		const reference = this.resolvePart(part, formUuid);
+		return reference === null
+			? { ok: false, unresolved: unresolvedReferenceProjection(part) }
+			: { ok: true, reference };
+	}
+
+	/** Current identity-safe plain-text projection used by compact/search surfaces. */
+	projectTemplate(
+		template: ProseTemplate,
+		formUuid?: string,
+	): ReferenceTemplateProjection {
 		let result = "";
+		const unresolved: UnresolvedReferenceProjection[] = [];
 		for (const part of template.parts) {
 			if (part.kind === "text") result += part.text;
 			else {
-				const resolved = this.resolvePart(part, formUuid);
-				result += resolved?.raw ?? unresolvedPartProjection(part);
+				const projected = this.projectPart(part, formUuid);
+				if (projected.ok) result += projected.reference.raw;
+				else {
+					unresolved.push(projected.unresolved);
+					result += projected.unresolved.repairText;
+				}
 			}
 		}
-		return result;
+		return unresolved.length === 0
+			? { ok: true, text: result }
+			: { ok: false, text: result, unresolved };
 	}
 
 	/**
@@ -436,16 +489,38 @@ export class ReferenceProvider {
 	}
 }
 
-function unresolvedPartProjection(part: ProseReferencePart): string {
+export function unresolvedReferenceProjection(
+	part: ProseReferencePart,
+): UnresolvedReferenceProjection {
 	switch (part.kind) {
 		case "field-ref":
-			return `#form/${part.uuid}`;
+			return {
+				kind: "unresolved-reference",
+				referenceKind: part.kind,
+				type: "form",
+				repairText: "#form/[reference needs repair]",
+			};
 		case "case-ref":
-			return `#${part.caseType}/${part.property}`;
+			return {
+				kind: "unresolved-reference",
+				referenceKind: part.kind,
+				type: "case",
+				repairText: `#${part.caseType}/[reference needs repair]`,
+			};
 		case "user-property-ref":
-			return `#user/${part.userPropertyUuid}`;
+			return {
+				kind: "unresolved-reference",
+				referenceKind: part.kind,
+				type: "user",
+				repairText: "#user/[reference needs repair]",
+			};
 		case "user-ref":
-			return `#user/${part.property}`;
+			return {
+				kind: "unresolved-reference",
+				referenceKind: part.kind,
+				type: "user",
+				repairText: "#user/[reference needs repair]",
+			};
 		default: {
 			const _exhaustive: never = part;
 			return _exhaustive;
@@ -462,15 +537,21 @@ function unresolvedPartProjection(part: ProseReferencePart): string {
  *  (FieldPicker icon lookup, autocomplete chip rendering) can index
  *  `fieldRegistry` without a widening cast. */
 export interface FieldEntryField {
+	readonly uuid: Uuid;
 	readonly id: string;
 	readonly kind: FieldKind;
 	readonly label?: ProseTemplate;
 }
 
-/** Minimal doc projection consumed by `collectFieldEntries`. */
+/** Owning-document projection consumed by `collectFieldEntries`. Labels may
+ * contain UUID-backed references, so fields/order alone cannot distinguish a
+ * valid current path from a dangling identity. */
 export interface FieldEntrySource {
 	readonly fields: Readonly<Record<string, FieldEntryField>>;
-	readonly fieldOrder: Readonly<Record<string, readonly string[]>>;
+	readonly fieldOrder: Readonly<Record<string, readonly Uuid[]>>;
+	readonly forms: XPathPrintableDoc["forms"];
+	readonly fieldParent?: XPathPrintableDoc["fieldParent"];
+	readonly userProperties?: XPathPrintableDoc["userProperties"];
 }
 
 /**
@@ -486,12 +567,20 @@ export interface FieldEntrySource {
  */
 export function collectFieldEntries(
 	src: FieldEntrySource,
-	parentUuid: string,
+	parentUuid: Uuid,
 	parent?: FieldPath,
-): Array<{ path: FieldPath; label: string; kind: FieldKind }> {
+): Array<{
+	uuid: Uuid;
+	path: FieldPath;
+	label: string;
+	labelProjection: ProseProjectionResult;
+	kind: FieldKind;
+}> {
 	const entries: Array<{
+		uuid: Uuid;
 		path: FieldPath;
 		label: string;
+		labelProjection: ProseProjectionResult;
 		kind: FieldKind;
 	}> = [];
 	const childUuids = src.fieldOrder[parentUuid] ?? [];
@@ -499,9 +588,14 @@ export function collectFieldEntries(
 		const field = src.fields[uuid];
 		if (!field) continue;
 		const path = fpath(field.id, parent);
+		const labelProjection = field.label
+			? projectProseTemplate(field.label, src)
+			: ({ ok: true, text: path } as const);
 		entries.push({
+			uuid: field.uuid,
 			path,
-			label: field.label ? compactTemplateLabel(field.label) : path,
+			label: labelProjection.text.trim() || path,
+			labelProjection,
 			kind: field.kind,
 		});
 		if (field.kind === "group" || field.kind === "repeat") {
@@ -509,28 +603,4 @@ export function collectFieldEntries(
 		}
 	}
 	return entries;
-}
-
-function compactTemplateLabel(template: ProseTemplate): string {
-	return template.parts
-		.map((part) => {
-			switch (part.kind) {
-				case "text":
-					return part.text;
-				case "field-ref":
-					return `#form/${part.uuid}`;
-				case "case-ref":
-					return `#${part.caseType}/${part.property}`;
-				case "user-property-ref":
-					return `#user/${part.userPropertyUuid}`;
-				case "user-ref":
-					return `#user/${part.property}`;
-				default: {
-					const _exhaustive: never = part;
-					return _exhaustive;
-				}
-			}
-		})
-		.join("")
-		.trim();
 }

@@ -25,6 +25,10 @@ import {
 } from "@/lib/collab/reconciler";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import {
+	type AdmittedMutationBatch,
+	admitMutationBatch,
+} from "@/lib/doc/mutationAdmission";
+import {
 	type BlueprintDocStoreApi,
 	createBlueprintDocStore,
 	isDocDataKey,
@@ -44,6 +48,15 @@ const MOD = testUuid("mod-1");
 const FORM = testUuid("form-1");
 const F_A = testUuid("field-a");
 const F_B = testUuid("field-b");
+const CANONICALITY_OUTCOME: PutOutcome = {
+	ok: false,
+	kind: "canonicality",
+	details: {
+		mutationIndex: 0,
+		pointer: "/0",
+		reason: "schema-parse",
+	},
+};
 
 /** A doc with one module, one form, two text fields — enough surface for
  *  scalar (`setAppName`) and structural (field label / reorder) merges. */
@@ -65,14 +78,12 @@ function makeDoc(appName = "App"): BlueprintDoc {
 				id: "a",
 				kind: "text",
 				label: proseText("A"),
-				formUuid: FORM,
 			},
 			[F_B]: {
 				uuid: F_B,
 				id: "b",
 				kind: "text",
 				label: proseText("B"),
-				formUuid: FORM,
 			},
 		},
 		moduleOrder: [MOD],
@@ -97,7 +108,13 @@ function autosaveFrame(
 	actorId: string,
 	mutations: Mutation[],
 ): MutationFrame {
-	return { seq, batchId, actorId, kind: "autosave", mutations };
+	return {
+		seq,
+		batchId,
+		actorId,
+		kind: "autosave",
+		mutations: admitMutationBatch(mutations),
+	};
 }
 
 /** A frame carrying a chat-kind (with runId) batch from `actorId`. */
@@ -108,7 +125,14 @@ function chatFrame(
 	runId: string,
 	mutations: Mutation[],
 ): MutationFrame {
-	return { seq, batchId, actorId, kind: "chat", runId, mutations };
+	return {
+		seq,
+		batchId,
+		actorId,
+		kind: "chat",
+		runId,
+		mutations: admitMutationBatch(mutations),
+	};
 }
 
 // ── Fake deps harness ──────────────────────────────────────────────────────
@@ -118,7 +142,7 @@ interface Harness {
 	docStore: BlueprintDocStoreApi;
 	sessionApi: BuilderSessionStoreApi;
 	/** Every PUT the reconciler dispatched, in order. */
-	puts: Array<{ batchId: string; mutations: Mutation[] }>;
+	puts: Array<{ batchId: string; mutations: AdmittedMutationBatch }>;
 	/** Resolve the Nth pending PUT with a 200 at `seq` (or a failure). */
 	resolvePut: (index: number, outcome: PutOutcome) => Promise<void>;
 	/** Fire the pending retry callback (the reconciler scheduled one). Returns
@@ -332,7 +356,10 @@ function harness(init: {
 
 /** Apply a batch to a doc off-store (for building expected values). Returns a
  *  clean `PersistableDoc` (store-only action keys + derived fields stripped). */
-function fold(doc: BlueprintDoc, batches: Mutation[][]): BlueprintDoc {
+function fold(
+	doc: BlueprintDoc,
+	batches: readonly (readonly Mutation[])[],
+): BlueprintDoc {
 	// Reuse the reducer's own fold semantics via a throwaway store so we never
 	// mutate `doc`.
 	const tmp = createBlueprintDocStore();
@@ -590,7 +617,7 @@ describe("reconciler", () => {
 			h.reconciler.registerChatBatch({
 				batchId: "chat-batch",
 				runId: "run-1",
-				mutations: [{ kind: "setAppName", name: "SAEdit" }],
+				mutations: admitMutationBatch([{ kind: "setAppName", name: "SAEdit" }]),
 				seq: 1,
 			});
 			// Apply it to the store like the dispatcher does.
@@ -638,14 +665,14 @@ describe("reconciler", () => {
 				actorId: "u1",
 				runId: "run-1",
 				kind: "mcp",
-				mutations: [
+				mutations: admitMutationBatch([
 					{
 						kind: "updateField",
 						uuid: F_B,
 						targetKind: "text",
 						patch: { label: proseText("B-mcp") },
 					},
-				],
+				]),
 			});
 			expect(fieldLabel(h.docStore.getState(), F_B)).toBe("B-mcp");
 			// Undo the local A edit — the restored state must still carry the MCP
@@ -685,7 +712,7 @@ describe("reconciler", () => {
 			const reg = h.reconciler.registerChatBatch({
 				batchId: "chat-1",
 				runId: "run-1",
-				mutations: addModuleBatch,
+				mutations: admitMutationBatch(addModuleBatch),
 				seq: 1,
 			});
 			expect(reg.alreadyConfirmed).toBe(false);
@@ -742,7 +769,7 @@ describe("reconciler", () => {
 			const reg = h.reconciler.registerChatBatch({
 				batchId: "chat-1",
 				runId: "run-1",
-				mutations: addModuleBatch,
+				mutations: admitMutationBatch(addModuleBatch),
 				seq: 1,
 			});
 			expect(reg.alreadyConfirmed).toBe(true);
@@ -1327,11 +1354,7 @@ describe("reconciler", () => {
 			h.docStore.getState().applyMany([{ kind: "setAppName", name: "Bad" }]);
 			const observed: string[] = [];
 			h.reconciler.dispatchHumanBatch((s) => observed.push(s.kind));
-			await h.resolvePut(0, {
-				ok: false,
-				kind: "permanent",
-				detail: "HTTP 400",
-			});
+			await h.resolvePut(0, CANONICALITY_OUTCOME);
 
 			const snap = h.reconciler.getSnapshot();
 			// TERMINAL: frozen (no more PUTs), retry stopped, surfaced + reported.
@@ -1382,11 +1405,7 @@ describe("reconciler", () => {
 
 			// B1's PUT is permanently rejected → terminal freeze. B2 is NOT silently
 			// applied-or-lost; the whole stack is frozen for the user to reload.
-			await h.resolvePut(0, {
-				ok: false,
-				kind: "permanent",
-				detail: "HTTP 400",
-			});
+			await h.resolvePut(0, CANONICALITY_OUTCOME);
 			const snap = h.reconciler.getSnapshot();
 			expect(snap.revoked).toBe(true);
 			expect(h.reconciler.canPut()).toBe(false);
@@ -1914,7 +1933,7 @@ describe("reconciler", () => {
 			h.reconciler.registerChatBatch({
 				batchId: "b",
 				runId: "r",
-				mutations: [{ kind: "setAppName", name: "Y" }],
+				mutations: admitMutationBatch([{ kind: "setAppName", name: "Y" }]),
 				seq: 1,
 			});
 			expect(h.reconciler.getSnapshot().sentPending).toHaveLength(0);
@@ -1957,7 +1976,7 @@ describe("reconciler", () => {
 			h.reconciler.registerChatBatch({
 				batchId: "chat-1",
 				runId: "run-1",
-				mutations: [{ kind: "setAppName", name: "Mid" }],
+				mutations: admitMutationBatch([{ kind: "setAppName", name: "Mid" }]),
 				seq: 2,
 			});
 			// The SA's own write, exactly as `streamDispatcher` applies it: the run's
@@ -2002,7 +2021,7 @@ describe("reconciler", () => {
 			h.reconciler.registerChatBatch({
 				batchId: "chat-1",
 				runId: "run-1",
-				mutations: [{ kind: "setAppName", name: "Mid" }],
+				mutations: admitMutationBatch([{ kind: "setAppName", name: "Mid" }]),
 				seq: 2,
 			});
 			h.docStore.getState().beginRemoteApply();
@@ -2087,7 +2106,7 @@ describe("reconciler", () => {
 			});
 			h.docStore.getState().applyMany([{ kind: "setAppName", name: "Bad" }]);
 			h.reconciler.dispatchHumanBatch();
-			await h.resolvePut(0, { ok: false, kind: "permanent" });
+			await h.resolvePut(0, CANONICALITY_OUTCOME);
 			// The member keeps editing behind the freeze; there IS an unsaved delta.
 			h.docStore
 				.getState()
@@ -2099,7 +2118,12 @@ describe("reconciler", () => {
 			// The 400 freeze rides the same no-more-PUTs flag as a revocation, but
 			// the terminal signal must stay `permanent` ("reload to continue") — a
 			// `reauth` here would send the user chasing phantom permission loss.
-			expect(signals).toEqual([{ kind: "permanent" }]);
+			expect(signals).toEqual([
+				expect.objectContaining({
+					kind: "permanent",
+					message: expect.stringContaining("not canonical"),
+				}),
+			]);
 		});
 
 		it("a revoked dispatch with NO unsaved delta stays a clean no-op (no `reauth`)", () => {

@@ -34,8 +34,10 @@
 
 import { z } from "zod";
 import { loadAppProjectId } from "@/lib/db/apps";
+import type { AdmittedMutationBatch } from "@/lib/doc/mutationAdmission";
 import type { Mutation } from "@/lib/doc/types";
 import {
+	asMediaAssetId,
 	type BlueprintDoc,
 	type BuiltinIconRefFor,
 	builtinIconRef,
@@ -202,11 +204,12 @@ export function resolveIconInput<Slug extends IconSlug>(
 	if (iconCatalogEntry(value)) {
 		return { icon: builtinIconRef(value as Slug), expectations: [] };
 	}
+	const assetId = asMediaAssetId(value);
 	return {
-		icon: value as MediaAssetId,
+		icon: assetId,
 		expectations: [
 			{
-				assetId: value as MediaAssetId,
+				assetId,
 				kind: "image",
 				slot: slotPhrase,
 			},
@@ -249,7 +252,7 @@ export interface ResolvedMediaBatchItem {
 /** Outcome of {@link commitMediaBatch}: the committed doc + the flattened
  *  mutation batch, or the error string for the tool's `{ error }` envelope. */
 export type MediaBatchOutcome =
-	| { ok: true; newDoc: BlueprintDoc; mutations: Mutation[] }
+	| { ok: true; newDoc: BlueprintDoc; mutations: AdmittedMutationBatch }
 	| { ok: false; error: string };
 
 /**
@@ -294,7 +297,7 @@ export async function commitMediaBatch(args: {
 		resolved.flatMap((r) => r.expectations),
 	);
 	if (!commit.ok) return { ok: false, error: commit.error };
-	return { ok: true, newDoc: commit.newDoc, mutations };
+	return { ok: true, newDoc: commit.newDoc, mutations: commit.mutations };
 }
 
 /** Join a batch's per-item lines into one sentence-cased success message. */

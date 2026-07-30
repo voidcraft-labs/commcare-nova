@@ -3,6 +3,7 @@ import {
 	type CaseOperation,
 	type CaseOperationLink,
 	type CaseOperationWrite,
+	caseOperationSchema,
 	type Form,
 	orderedCaseOperations,
 	type Uuid,
@@ -15,16 +16,18 @@ import {
 import { mutationCommitVerdict } from "./commitVerdicts";
 import { deepEqual } from "./deepEqual";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "./lookupReferences";
+import { sequenceMovesTo, spliceAfter } from "./mutations/sequence";
 import { caseOperationCatalogMutations } from "./scaffolds";
 import type { Mutation } from "./types";
 import { offeredChoiceRefusal } from "./userFacingErrors";
 
 type UpdateFormMutation = Extract<Mutation, { kind: "updateForm" }>;
 type CaseOperationPatch = NonNullable<UpdateFormMutation["caseOperationPatch"]>;
-type OperationPatch = Extract<
-	CaseOperationPatch,
-	{ operation: "update" }
->["patch"];
+type OperationUpdate = Extract<CaseOperationPatch, { operation: "update" }>;
+type StoredCaseOperation = Extract<
+	NonNullable<UpdateFormMutation["caseOperationChange"]>,
+	{ operation: "add" }
+>["value"];
 type WritePatch = Extract<
 	CaseOperationPatch,
 	{ operation: "update-write" }
@@ -45,7 +48,7 @@ const OPERATION_PATCH_KEYS = [
 	"owner",
 	"rename",
 	"retype",
-] as const satisfies readonly (keyof OperationPatch)[];
+] as const satisfies readonly (keyof CaseOperation)[];
 
 function clearable<T>(value: T | undefined): T | null {
 	return value === undefined ? null : structuredClone(value);
@@ -63,11 +66,110 @@ function operationMutation(
 	};
 }
 
+function scalarOperationUpdate(
+	before: CaseOperation,
+	after: StoredCaseOperation,
+): OperationUpdate {
+	switch (after.action) {
+		case "create": {
+			const patch = {
+				...(!deepEqual(before.id, after.id) ? { id: after.id } : {}),
+				...(!deepEqual(before.caseType, after.caseType)
+					? { caseType: after.caseType }
+					: {}),
+				...(!deepEqual(before.target, after.target)
+					? { target: structuredClone(after.target) }
+					: {}),
+				...(!deepEqual(before.condition, after.condition)
+					? { condition: clearable(after.condition) }
+					: {}),
+				...(!deepEqual(before.forEach, after.forEach)
+					? { forEach: clearable(after.forEach) }
+					: {}),
+				...(!deepEqual(before.name, after.name)
+					? { name: structuredClone(after.name) }
+					: {}),
+				...(!deepEqual(before.owner, after.owner)
+					? { owner: clearable(after.owner) }
+					: {}),
+				...(before.rename !== undefined ? { rename: null } : {}),
+				...(before.retype !== undefined ? { retype: null } : {}),
+			};
+			return {
+				operation: "update",
+				uuid: after.uuid,
+				targetAction: "create",
+				patch,
+			};
+		}
+		case "update": {
+			const patch = {
+				...(!deepEqual(before.id, after.id) ? { id: after.id } : {}),
+				...(!deepEqual(before.caseType, after.caseType)
+					? { caseType: after.caseType }
+					: {}),
+				...(!deepEqual(before.target, after.target)
+					? { target: structuredClone(after.target) }
+					: {}),
+				...(!deepEqual(before.condition, after.condition)
+					? { condition: clearable(after.condition) }
+					: {}),
+				...(!deepEqual(before.forEach, after.forEach)
+					? { forEach: clearable(after.forEach) }
+					: {}),
+				...(before.name !== undefined ? { name: null } : {}),
+				...(!deepEqual(before.owner, after.owner)
+					? { owner: clearable(after.owner) }
+					: {}),
+				...(!deepEqual(before.rename, after.rename)
+					? { rename: clearable(after.rename) }
+					: {}),
+				...(!deepEqual(before.retype, after.retype)
+					? { retype: clearable(after.retype) }
+					: {}),
+			};
+			return {
+				operation: "update",
+				uuid: after.uuid,
+				targetAction: "update",
+				patch,
+			};
+		}
+		case "close": {
+			const patch = {
+				...(!deepEqual(before.id, after.id) ? { id: after.id } : {}),
+				...(!deepEqual(before.caseType, after.caseType)
+					? { caseType: after.caseType }
+					: {}),
+				...(!deepEqual(before.target, after.target)
+					? { target: structuredClone(after.target) }
+					: {}),
+				...(!deepEqual(before.condition, after.condition)
+					? { condition: clearable(after.condition) }
+					: {}),
+				...(!deepEqual(before.forEach, after.forEach)
+					? { forEach: clearable(after.forEach) }
+					: {}),
+				...(before.name !== undefined ? { name: null } : {}),
+				...(before.owner !== undefined ? { owner: null } : {}),
+				...(before.rename !== undefined ? { rename: null } : {}),
+				...(before.retype !== undefined ? { retype: null } : {}),
+			};
+			return {
+				operation: "update",
+				uuid: after.uuid,
+				targetAction: "close",
+				patch,
+			};
+		}
+	}
+}
+
 /**
  * `after` is the whole placement — the operation this one now follows, or
  * `null` for first. An anchor cannot be shifted by a peer's insert, so there is
- * no rank for the authoritative writer to fence: the anchor either still exists
- * and the move lands behind it, or it does not and the move appends.
+ * no rank for the authoritative writer to fence: the anchor must still exist
+ * in the form's operation sequence or live admission rejects the move.
  */
 function moveOperationMutation(
 	formUuid: Uuid,
@@ -105,20 +207,6 @@ function commonOrder<T>(
 		a: a.filter((key) => inB.has(key)),
 		b: b.filter((key) => inA.has(key)),
 	};
-}
-
-/** Whether two keyed sequences hold their SHARED keys in a different order.
- *  Membership changes are handled by the add/remove paths, so the comparison
- *  is over the shared keys alone — comparing whole lengths instead made a
- *  reorder that ARRIVED WITH an addition invisible, and the tool then
- *  reported success for an order it had silently discarded. */
-function sequenceChanged<T>(
-	before: readonly T[] | undefined,
-	after: readonly T[] | undefined,
-	keyOf: (item: T) => string,
-): boolean {
-	const { a, b } = commonOrder(before, after, keyOf);
-	return a.some((key, index) => key !== b[index]);
 }
 
 /**
@@ -174,37 +262,17 @@ export function caseOperationChangesForUpdate(
 	after: CaseOperation,
 ): Mutation[] {
 	if (before.uuid !== after.uuid) return [];
-
-	// Writes and links pair by logical identity. Their sequence is authored
-	// data too, so a changed order emits its own final identity-list patch after
-	// membership/content edits. That keeps the order mergeable without a
-	// duplicate whole-operation replacement.
-	const writesReordered = sequenceChanged(
-		before.writes,
-		after.writes,
-		(write) => write.property,
-	);
-	const linksReordered = sequenceChanged(
-		before.links,
-		after.links,
-		(link) => link.identifier,
-	);
+	const parsedAfter = caseOperationSchema.safeParse(after);
+	if (!parsedAfter.success) return [];
 
 	const mutations: Mutation[] = [];
 
-	const patch: OperationPatch = {};
-	for (const key of OPERATION_PATCH_KEYS) {
-		if (deepEqual(before[key], after[key])) continue;
-		patch[key] = clearable(after[key]) as never;
-	}
-	if (Object.keys(patch).length > 0) {
-		mutations.push(
-			operationMutation(formUuid, {
-				operation: "update",
-				uuid: before.uuid,
-				patch,
-			}),
-		);
+	const scalarUpdate = scalarOperationUpdate(before, parsedAfter.data);
+	if (
+		before.action !== parsedAfter.data.action ||
+		Object.keys(scalarUpdate.patch).length > 0
+	) {
+		mutations.push(operationMutation(formUuid, scalarUpdate));
 	}
 
 	const beforeWrites = new Map(
@@ -226,12 +294,18 @@ export function caseOperationChangesForUpdate(
 	for (const [index, write] of (after.writes ?? []).entries()) {
 		const prior = beforeWrites.get(write.property);
 		if (prior === undefined) {
+			const predecessor =
+				index === 0
+					? null
+					: index === (after.writes?.length ?? 0) - 1
+						? undefined
+						: after.writes?.[index - 1]?.property;
 			mutations.push(
 				operationMutation(formUuid, {
 					operation: "add-write",
 					uuid: before.uuid,
 					value: structuredClone(write),
-					index,
+					...(predecessor === undefined ? {} : { after: predecessor }),
 				}),
 			);
 			continue;
@@ -254,12 +328,34 @@ export function caseOperationChangesForUpdate(
 			);
 		}
 	}
-	if (writesReordered) {
+	const desiredWriteOrder = (after.writes ?? []).map((write) => write.property);
+	let intermediateWriteOrder = (before.writes ?? [])
+		.map((write) => write.property)
+		.filter((property) => afterWrites.has(property));
+	for (const [index, write] of (after.writes ?? []).entries()) {
+		if (beforeWrites.has(write.property)) continue;
+		const predecessor =
+			index === 0
+				? null
+				: index === (after.writes?.length ?? 0) - 1
+					? undefined
+					: after.writes?.[index - 1]?.property;
+		intermediateWriteOrder = spliceAfter(
+			intermediateWriteOrder,
+			write.property,
+			predecessor,
+		);
+	}
+	for (const move of sequenceMovesTo(
+		intermediateWriteOrder,
+		desiredWriteOrder,
+	)) {
 		mutations.push(
 			operationMutation(formUuid, {
-				operation: "reorder-writes",
+				operation: "move-write",
 				uuid: before.uuid,
-				properties: (after.writes ?? []).map((write) => write.property),
+				property: move.uuid,
+				after: move.after,
 			}),
 		);
 	}
@@ -283,12 +379,18 @@ export function caseOperationChangesForUpdate(
 	for (const [index, link] of (after.links ?? []).entries()) {
 		const prior = beforeLinks.get(link.identifier);
 		if (prior === undefined) {
+			const predecessor =
+				index === 0
+					? null
+					: index === (after.links?.length ?? 0) - 1
+						? undefined
+						: after.links?.[index - 1]?.identifier;
 			mutations.push(
 				operationMutation(formUuid, {
 					operation: "add-link",
 					uuid: before.uuid,
 					value: structuredClone(link),
-					index,
+					...(predecessor === undefined ? {} : { after: predecessor }),
 				}),
 			);
 			continue;
@@ -313,12 +415,31 @@ export function caseOperationChangesForUpdate(
 			);
 		}
 	}
-	if (linksReordered) {
+	const desiredLinkOrder = (after.links ?? []).map((link) => link.identifier);
+	let intermediateLinkOrder = (before.links ?? [])
+		.map((link) => link.identifier)
+		.filter((identifier) => afterLinks.has(identifier));
+	for (const [index, link] of (after.links ?? []).entries()) {
+		if (beforeLinks.has(link.identifier)) continue;
+		const predecessor =
+			index === 0
+				? null
+				: index === (after.links?.length ?? 0) - 1
+					? undefined
+					: after.links?.[index - 1]?.identifier;
+		intermediateLinkOrder = spliceAfter(
+			intermediateLinkOrder,
+			link.identifier,
+			predecessor,
+		);
+	}
+	for (const move of sequenceMovesTo(intermediateLinkOrder, desiredLinkOrder)) {
 		mutations.push(
 			operationMutation(formUuid, {
-				operation: "reorder-links",
+				operation: "move-link",
 				uuid: before.uuid,
-				identifiers: (after.links ?? []).map((link) => link.identifier),
+				identifier: move.uuid,
+				after: move.after,
 			}),
 		);
 	}
@@ -695,7 +816,9 @@ export function addCaseOperationAfterMutations(
 ): Mutation[] {
 	const form = doc.forms[formUuid];
 	if (form === undefined) return [];
-	const value = { ...operation };
+	const parsed = caseOperationSchema.safeParse(operation);
+	if (!parsed.success) return [];
+	const value = parsed.data;
 	return [
 		...caseOperationCatalogMutations(doc, value),
 		{

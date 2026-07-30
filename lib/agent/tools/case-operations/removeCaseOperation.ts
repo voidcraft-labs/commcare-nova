@@ -133,7 +133,7 @@ export const removeCaseOperationTool = {
 			}
 			return {
 				kind: "mutate",
-				mutations,
+				mutations: commit.mutations,
 				newDoc: commit.newDoc,
 				result: {
 					message: `Removed case operation "${operation.id}".`,

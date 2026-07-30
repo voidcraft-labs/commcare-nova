@@ -106,7 +106,7 @@ export const removeSearchInputTool = {
 				newDoc.modules[moduleUuid]?.caseListConfig?.searchInputs.length ?? 0;
 			return {
 				kind: "mutate" as const,
-				mutations: result.mutations,
+				mutations: commit.mutations,
 				newDoc,
 				result: {
 					message: `Removed search input ${searchInputUuid} on module "${mod.name}". ${remaining} search input${remaining === 1 ? "" : "s"} remain.`,

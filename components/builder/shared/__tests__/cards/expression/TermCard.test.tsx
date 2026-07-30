@@ -261,6 +261,31 @@ describe("TermCard number literal recovery", () => {
 });
 
 describe("TermCard source transitions", () => {
+	it("does not offer empty case information in an unconstrained slot", async () => {
+		const onChange = vi.fn();
+		render(
+			<ExpressionCardEditor
+				value={term(literal("saved"))}
+				onChange={onChange}
+				caseTypes={[PATIENT]}
+				currentCaseType="patient"
+			/>,
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: /^Value source:/ }));
+		const caseInformationLabel = await screen.findByText(
+			"Other case information",
+		);
+		const caseInformation = caseInformationLabel.closest(
+			'[role="menuitemradio"]',
+		);
+
+		expect(caseInformation?.getAttribute("aria-disabled")).toBe("true");
+		if (caseInformation !== null) fireEvent.click(caseInformation);
+		await settleBaseUiTransitions();
+		expect(onChange).not.toHaveBeenCalled();
+	});
+
 	it("exposes the current value source as a checked radio choice", async () => {
 		renderStatefulTerm(term(literal("saved")));
 

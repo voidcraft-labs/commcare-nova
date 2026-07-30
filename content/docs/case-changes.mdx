@@ -146,18 +146,12 @@ first.
 
 Case changes are also part of Nova's shared authoring tools. You can ask Nova in
 chat to add, edit, move, or remove them, and a connected MCP agent has the same
-abilities. Inside a change, both surfaces use the names you see in the builder:
-the change's own id, plus field paths such as `visits/outcome`. Change ids and
-connection names use letters,
-numbers, and underscores and start with a letter or underscore; saved property
-names use the same characters and start with a letter.
-
-If a saved change contains lookup-table logic these tools cannot author yet,
-the read result keeps that change in its exact list position and identifies it
-by name, but marks its settings as unavailable instead of returning a partial
-editable shape. Nova and MCP refuse both updates and removal rather than
-discarding hidden behavior; you can still ask either one to move the intact
-change by that name.
+abilities. Describe the change using the same names you see in the builder,
+including field paths such as `visits/outcome`. Nova keeps those references
+attached to the right questions and changes even if you later rename or move
+them. Change ids and connection names use letters, numbers, and underscores and
+start with a letter or underscore; saved property names use the same characters
+and start with a letter.
 
 A request that adds several changes can connect them in one atomic call — for
 example, create a referral and then update that new referral. If any change is

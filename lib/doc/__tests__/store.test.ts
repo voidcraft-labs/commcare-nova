@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { BlueprintDoc } from "@/lib/doc/types";
 
@@ -68,7 +69,10 @@ describe("the command queue is current when the write is announced", () => {
 				} as BlueprintDoc;
 				store
 					.getState()
-					.commitDoc(next, [{ kind: "setAppName", name: "Renamed" }]);
+					.commitDoc(
+						next,
+						admitMutationBatch([{ kind: "setAppName", name: "Renamed" }]),
+					);
 			}),
 		).toBe(1);
 	});
@@ -101,7 +105,7 @@ describe("createBlueprintDocStore", () => {
 			forms: {},
 			fields: {},
 			moduleOrder: [modUuid],
-			formOrder: {},
+			formOrder: { [modUuid]: [] },
 			fieldOrder: {},
 			fieldParent: {},
 		};

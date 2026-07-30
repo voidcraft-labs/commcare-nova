@@ -160,7 +160,9 @@ export type CanonicalIdentityFindingCode =
 	| "noncanonical-prose"
 	| "noncanonical-xpath"
 	| "invalid-topology"
-	| "invalid-legacy-shape";
+	| "invalid-legacy-shape"
+	| "invalid-fold-baseline"
+	| "post-horizon-replay-mismatch";
 
 export interface CanonicalIdentityFinding {
 	readonly code: CanonicalIdentityFindingCode;

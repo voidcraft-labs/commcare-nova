@@ -26,7 +26,7 @@ import { XPathField } from "@/components/builder/XPathField";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import {
 	useParseXPathForField,
-	useXPathText,
+	useXPathProjection,
 } from "@/lib/doc/hooks/useXPathSlots";
 import type {
 	Field,
@@ -57,7 +57,8 @@ export function XPathEditor<F extends Field, K extends XPathExpressionKeys<F>>(
 	props: FieldEditorComponentProps<F, K>,
 ) {
 	const { field, value, onChange, label, autoFocus, keyName } = props;
-	const current = useXPathText(value as XPathExpression | undefined);
+	const projection = useXPathProjection(value as XPathExpression | undefined);
+	const current = projection.text;
 	const parseForField = useParseXPathForField(field.uuid);
 
 	// `field.uuid` is already branded `Uuid` by the Field type.
@@ -149,7 +150,7 @@ export function XPathEditor<F extends Field, K extends XPathExpressionKeys<F>>(
 	const clearValidateMsg = useCallback(() => {
 		if (validateMsg !== undefined) {
 			const outcome = updateField(field.uuid, field.kind, {
-				validate_msg: undefined,
+				validate_msg: null,
 			} as unknown as FieldPatchFor<F["kind"]>);
 			setValidateMsgRejection(outcome.ok ? null : outcome.messages.join(" "));
 		}
@@ -173,6 +174,9 @@ export function XPathEditor<F extends Field, K extends XPathExpressionKeys<F>>(
 					onEditingChange={setEditing}
 				/>
 			</div>
+			{!projection.ok && (
+				<RejectionInline message="This expression contains a reference that no longer resolves. Re-enter the intended field or worker-information reference." />
+			)}
 			{showValidateMsgEditor && (
 				<div className="mt-1">
 					<RefLabelInput

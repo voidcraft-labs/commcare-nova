@@ -36,12 +36,13 @@ export function fieldSlotAfter(
 	if (slot.afterUuid !== undefined) return slot.afterUuid;
 	if (slot.beforeUuid !== undefined) {
 		const at = siblings.indexOf(slot.beforeUuid);
-		// An anchor that is not a sibling appends rather than throwing: a peer may
-		// have moved or removed it between the gesture and the dispatch.
-		if (at < 0) return siblings.at(-1) ?? null;
-		return at === 0 ? null : (siblings[at - 1] as Uuid);
+		// Preserve a stale neighbor as an invalid declared anchor. The shared
+		// admission gate will reject it; translating it to the last sibling would
+		// silently turn "before X" into append.
+		if (at < 0) return slot.beforeUuid;
+		return at === 0 ? null : (siblings[at - 1] ?? null);
 	}
 	const index = slot.index ?? siblings.length;
 	const clamped = Math.max(0, Math.min(index, siblings.length));
-	return clamped === 0 ? null : (siblings[clamped - 1] as Uuid);
+	return clamped === 0 ? null : (siblings[clamped - 1] ?? null);
 }

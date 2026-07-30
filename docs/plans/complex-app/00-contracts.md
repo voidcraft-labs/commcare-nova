@@ -52,7 +52,25 @@ shape changes incompatibly, the same release either migrates the replayable
 suffix or atomically establishes an explicit fold horizon whose earlier rows
 remain opaque audit history. A horizon expected to support later replay owns an
 immutable, complete persisted baseline keyed to its exact app sequence; a reload
-marker by itself is never treated as reconstructable state.
+marker by itself is never treated as reconstructable state. Every app created
+after such a baseline table exists records its complete immutable genesis
+baseline atomically with the app; a nonempty sequence-zero document with neither
+seed history nor a baseline is forbidden.
+
+The gate consumes the exact parsed JSON value persistence can replay. Before
+reduction, one shared admission boundary safely detaches a proposed live batch
+without invoking accessors or serialization hooks, proves that it is a JSON
+data tree, round-trips it through JSON and the one current `mutationSchema`, and
+requires the schema output to be exactly the same JSON value. Object-key order
+is immaterial; own-key presence, dense array order, and primitive values are
+not. A dropped, defaulted, coerced, stripped, sparse, non-finite, non-plain, or
+otherwise non-JSON value rejects before any reducer, deduplication latch,
+sequence check, saga, or side effect runs. An optional-slot clear is explicit
+`null`, never `undefined`. Accepting writers consume only the opaque, detached,
+deeply immutable admitted batch and persist, stream, and return that same value,
+not a caller-owned object or a re-diffed candidate document. Durable mutation
+readers reassert the same final schema contract before replay. This is mutation
+admission, not a second compatibility parser or a post-commit normalizer.
 
 **Runnable topology is closed.** Every module, form, field, and flat authored
 entity appears exactly once in the membership sequence that owns it. Every
@@ -82,11 +100,15 @@ the rule forbids is unchanged either way: "I verified it against the emitter" is
 not a byte assertion, and a unit that cannot name a byte oracle has not met the
 bar.
 
-**Every author-facing vocabulary ships its three surfaces.** A unit that adds
-something an author can create also ships its SA tools, its MCP projection, and
-its public docs — the three editors edit one document, so a vocabulary reachable
-from only one of them is an unfinished feature, not a smaller one. Where a
-vocabulary is deliberately builder-only, the unit says so and why.
+**Every author-facing vocabulary ships its three editor surfaces.** A unit that
+adds something an author can create also ships its SA tools and its MCP
+projection — the three editors edit one document, so a vocabulary reachable
+from only one of them is an unfinished feature, not a smaller one. Public docs
+move when that vocabulary changes a reader-visible task or workflow, and teach
+it in friendly authoring language. Exact UUID parameters and typed payloads
+belong in the callable MCP reference, not in ordinary user guides; an internal
+identity change with no natural reader-facing explanation does not manufacture
+one. Where a vocabulary is deliberately builder-only, the unit says so and why.
 
 **Nova is not CommCare HQ.** HQ, CommCare Core, Formplayer, and CommCare Android
 establish only what the target wire and runtime accept, reject, or execute. Their

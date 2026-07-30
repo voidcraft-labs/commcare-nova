@@ -291,7 +291,7 @@ export const moveFieldTool = {
 					: "";
 			return {
 				kind: "mutate" as const,
-				mutations,
+				mutations: commit.mutations,
 				newDoc,
 				result: {
 					message: `Moved "${moved.id}" ${placement} in "${formName}".${renameNote}${displacedNote}`,

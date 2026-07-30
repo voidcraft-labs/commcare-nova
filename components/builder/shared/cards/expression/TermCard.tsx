@@ -831,11 +831,11 @@ function computeModeAdmission(
 	const reason = reasonFor(constraint);
 	const ct = ctx.caseTypes.find((c) => c.name === ctx.currentCaseType);
 	const hasAcceptedProperty =
-		constraint.accepts === "any" ||
-		(ct?.properties.some((p) =>
-			acceptsType(constraint, effectiveDataType(p)),
-		) ??
-			false);
+		ct?.properties.some(
+			(p) =>
+				constraint.accepts === "any" ||
+				acceptsType(constraint, effectiveDataType(p)),
+		) ?? false;
 	const hasAcceptedInput =
 		constraint.accepts === "any" ||
 		ctx.knownInputs.some((i) => acceptsType(constraint, i.data_type ?? "text"));
@@ -915,10 +915,9 @@ function buildTermAdmissionProbe(
 		: buildTermDefault(mode, ctx, constraint);
 }
 
-/** Build a per-mode draft. Property, search-answer, and app-information
- * defaults are schema-valid choices. User information deliberately starts
- * incomplete because inventing a field would silently change the rule's
- * meaning; `requestMode` collects that field before this draft may commit. */
+/** Build a per-mode draft. Every returned value is a complete, schema-valid
+ * authored choice. Source families with no honest default are either excluded
+ * by admission or collected by `requestMode` before this function is reached. */
 function buildTermDefault(
 	mode: TermMode,
 	ctx: TermAdmissionContext,
@@ -933,27 +932,30 @@ function buildTermDefault(
 			const ct = ctx.caseTypes.find((c) => c.name === ctx.currentCaseType);
 			const filter = propertyFilterFor(constraint);
 			const property = ct?.properties.find((p) => (filter ? filter(p) : true));
-			// Default to a placeholder property name — the picker surfaces
-			// "Pick a property" until the author picks one, and the type
-			// checker surfaces "Unknown property ''" inline.
+			if (property === undefined) {
+				throw new Error(
+					"Case information is unavailable without a property of the required type.",
+				);
+			}
 			return prop(
 				ctx.currentCaseType,
-				canonicalCasePropertyName(property?.name ?? ""),
+				canonicalCasePropertyName(property.name),
 			);
 		}
 		case "field": {
 			// The first answer whose type the slot accepts. A surface with no
-			// admissible answer never offers the source, so the placeholder uuid
-			// below is unreachable through the menu — it exists so the seed stays
-			// total, and the checker names it plainly if a document carries one.
+			// admissible answer never offers the source.
 			const admissible = (ctx.formFields ?? []).find(
 				(field) =>
 					constraint.accepts === "any" ||
 					acceptsType(constraint, field.dataType ?? "text"),
 			);
-			return formField(
-				admissible?.uuid ?? asUuid("00000000-0000-4000-8000-000000000000"),
-			);
+			if (admissible === undefined) {
+				throw new Error(
+					"Form answer is unavailable without an in-scope field of the required type.",
+				);
+			}
+			return formField(admissible.uuid);
 		}
 		case "input": {
 			const matching = ctx.knownInputs.find((i) =>
@@ -961,11 +963,13 @@ function buildTermDefault(
 					? true
 					: acceptsType(constraint, i.data_type ?? "text"),
 			);
-			return input(
-				matching?.uuid ??
-					ctx.knownInputs[0]?.uuid ??
-					asUuid("00000000-0000-4000-8000-000000000000"),
-			);
+			const selected = matching ?? ctx.knownInputs[0];
+			if (selected === undefined) {
+				throw new Error(
+					"Search answer is unavailable until a search field exists.",
+				);
+			}
+			return input(selected.uuid);
 		}
 		case "session-context":
 			// `userid` is the most authored choice ("owned by me"
@@ -973,10 +977,9 @@ function buildTermDefault(
 			// explicit pick.
 			return sessionContext("userid");
 		case "session-user":
-			// Open-namespace user-data field — defaults to a placeholder.
-			// The card surfaces a per-slot error until the author types
-			// a real field name.
-			return sessionUser("");
+			throw new Error(
+				"Worker data requires a field name before it can be authored.",
+			);
 		case "session-user-property": {
 			const property = ctx.userProperties[0];
 			if (property === undefined) {

@@ -63,8 +63,14 @@ import {
 } from "@/lib/db/commitGuard";
 import { MAX_RUN_MINUTES } from "@/lib/db/constants";
 import type { UsageAccumulator } from "@/lib/db/usage";
+import type { PreparedMutationCandidate } from "@/lib/doc/commitVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import type { Mutation } from "@/lib/doc/types";
+import {
+	type AdmittedMutationBatch,
+	type AdmittedMutationStages,
+	admittedMutationSlice,
+	encodeAdmittedMutationEnvelope,
+} from "@/lib/doc/mutationAdmission";
 import type { BlueprintDoc } from "@/lib/domain";
 import type {
 	ClassifiedErrorPayload,
@@ -90,7 +96,6 @@ import { streamObjectWith } from "./subGeneration";
 import type {
 	ConversionImpactFn,
 	RecordMutationsResult,
-	StagedMutationBatch,
 	ToolExecutionContext,
 } from "./toolExecutionContext";
 import { describeParkedOutcome } from "./toolExecutionContext";
@@ -125,7 +130,7 @@ export function logWarnings(
  * before constructing the context (Postgres-down = 503, not an orphaned
  * build). Every `GenerationContext` has a target app because each tool batch
  * commits inline through `commitGuardedBatch(appId, …)` — the same shape as
- * `McpContext` — except rename-carrying batches, which ride the cross-store
+ * `McpContext` — except field-ID-changing batches, which ride the cross-store
  * saga so the case-store row migration runs with the commit.
  */
 interface GenerationContextOptions {
@@ -460,33 +465,36 @@ export class GenerationContext implements ToolExecutionContext {
 	 * envelopes, and logs one `MutationEvent` per mutation.
 	 *
 	 * The optional `stage` string is a semantic tag for the log
-	 * (`"scaffold"`, `"module:0"`, `"form:0-1"`, `"rename:0-0"`). It's
+	 * (`"scaffold"`, `"module:0"`, `"form:0-1"`, `"convert:0-0"`). It's
 	 * stamped on every envelope — both log and SSE see the same tag, so
 	 * lifecycle derivations over the client buffer match replay derivations
 	 * over the persisted log.
 	 */
 	private buildEnvelopes(
-		mutations: Mutation[],
+		mutations: AdmittedMutationBatch,
 		stage?: string,
 	): MutationEvent[] {
-		return mutations.map((mutation) => ({
-			kind: "mutation",
-			runId: this.usage.runId,
-			ts: Date.now(),
-			seq: this.seq++,
-			actor: "agent",
-			/* Inline `source: "chat"` so the SSE envelope is schema-valid;
-			 * `LogWriter` re-stamps it authoritatively on the way to Postgres. */
-			source: "chat",
-			/* Include `stage` whenever the caller explicitly passed a value —
-			 * empty-string is a valid stage. */
-			...(stage !== undefined && { stage }),
-			mutation,
-		}));
+		return mutations.map(
+			(mutation) =>
+				encodeAdmittedMutationEnvelope({
+					kind: "mutation",
+					runId: this.usage.runId,
+					ts: Date.now(),
+					seq: this.seq++,
+					actor: "agent",
+					/* Inline `source: "chat"` so the SSE envelope is schema-valid;
+					 * `LogWriter` re-stamps it authoritatively on the way to Postgres. */
+					source: "chat",
+					/* Include `stage` whenever the caller explicitly passed a value —
+					 * empty-string is a valid stage. */
+					...(stage !== undefined && { stage }),
+					mutation,
+				}).value as unknown as MutationEvent,
+		);
 	}
 
 	/**
-	 * Commit one batch through the unified guarded writer (rename-carrying
+	 * Commit one batch through the unified guarded writer (field-id-changing
 	 * batches detour through the cross-store saga — see the branch below),
 	 * then — AFTER the commit resolves — emit the `data-mutations` SSE
 	 * event and log the envelopes. Awaited-inline: the SA's `serial()`
@@ -511,11 +519,12 @@ export class GenerationContext implements ToolExecutionContext {
 	 * asset between the pre-commit verdict and this commit.
 	 */
 	private async commitBatch(
-		mutations: Mutation[],
+		prepared: PreparedMutationCandidate,
 		events: MutationEvent[],
 		stage: string | undefined,
 		mediaExpectations?: readonly MediaAttachExpectation[],
 	): Promise<RecordMutationsResult> {
+		const mutations = prepared.mutations;
 		const batchId = crypto.randomUUID();
 		const chatRunHolder = this.chatRunHolder;
 		let result: { seq: number; committedDoc: BlueprintDoc };
@@ -528,16 +537,16 @@ export class GenerationContext implements ToolExecutionContext {
 			// bare would leave the rename's diff evidence expired at the
 			// drain-end additive materialize (the committed doc holds the
 			// new name on both sides), permanently stranding rows on the
-			// old key. The chat-emitted carriers are `renameField` and
-			// `moveField` — a cross-parent move's sibling-id dedup renames
-			// the field, and when the colliding sibling is NOT a writer of
-			// the same pair (a survey field sharing the id), the old
-			// property leaves the materializable view exactly like a
-			// rename. A moveField that renamed nothing classifies to zero
-			// entries and falls through the saga's fast path, so the
-			// over-trigger costs one in-memory replay. The diff-shaped
-			// undo batches exist only on the auto-save surface, which
-			// always rides the saga. Every other batch keeps the bare
+			// old key. The chat-emitted carriers are an `updateField` patch
+			// with its own `id` key and `moveField` — a cross-parent move's
+			// sibling-id dedup can rename the field, and when the colliding
+			// sibling is NOT a writer of the same pair (a survey field sharing
+			// the id), the old property leaves the materializable view exactly
+			// like a rename. A moveField that renamed nothing classifies to
+			// zero entries and falls through the saga's fast path, so the
+			// over-trigger costs one in-memory replay. The diff-shaped undo
+			// batches exist only on the auto-save surface, which always rides
+			// the saga. Every other batch keeps the bare
 			// inline commit; the drain-end materialize covers its schema
 			// sync in one pass — including a `convertField` batch, whose
 			// row migration needs no batch intent: the property KEY is
@@ -547,7 +556,9 @@ export class GenerationContext implements ToolExecutionContext {
 			// detour required.
 			if (
 				mutations.some(
-					(m) => m.kind === "renameField" || m.kind === "moveField",
+					(m) =>
+						m.kind === "moveField" ||
+						(m.kind === "updateField" && Object.hasOwn(m.patch, "id")),
 				)
 			) {
 				const saga = await applyBlueprintChange({
@@ -571,7 +582,7 @@ export class GenerationContext implements ToolExecutionContext {
 					// id was minted moments ago — reaching this is a latch
 					// collision on a fresh uuid.
 					throw new Error(
-						`[generationContext] rename batch ${batchId} deduped against an existing latch for app ${this.appId} — a freshly-minted batch id cannot have committed before`,
+						`[generationContext] identity-changing batch ${batchId} deduped against an existing latch for app ${this.appId} — a freshly-minted batch id cannot have committed before`,
 					);
 				}
 				result = { seq: saga.seq, committedDoc: saga.committedDoc };
@@ -614,17 +625,19 @@ export class GenerationContext implements ToolExecutionContext {
 		}
 		this._latestDoc = result.committedDoc;
 		this._latestSeq = result.seq;
-		this.writer.write({
-			type: "data-mutations",
-			data: {
-				mutations,
-				events,
-				seq: result.seq,
-				batchId,
-				...(stage !== undefined && { stage }),
-			},
-			transient: true,
-		});
+		this.writer.write(
+			encodeAdmittedMutationEnvelope({
+				type: "data-mutations",
+				data: {
+					mutations,
+					events,
+					seq: result.seq,
+					batchId,
+					...(stage !== undefined && { stage }),
+				},
+				transient: true,
+			}).value as never,
+		);
 		for (const e of events) this.logWriter.logEvent(e);
 		return { events, committedDoc: result.committedDoc };
 	}
@@ -651,43 +664,38 @@ export class GenerationContext implements ToolExecutionContext {
 	 * rides into the guarded commit for the in-transaction re-verification.
 	 */
 	async recordMutations(
-		mutations: Mutation[],
-		doc: BlueprintDoc,
+		prepared: PreparedMutationCandidate,
 		stage?: string,
 		mediaExpectations?: readonly MediaAttachExpectation[],
 	): Promise<RecordMutationsResult> {
-		if (mutations.length === 0) return { events: [], committedDoc: doc };
-		const events = this.buildEnvelopes(mutations, stage);
-		return this.commitBatch(mutations, events, stage, mediaExpectations);
+		if (prepared.mutations.length === 0) {
+			return { events: [], committedDoc: prepared.nextDoc };
+		}
+		const events = this.buildEnvelopes(prepared.mutations, stage);
+		return this.commitBatch(prepared, events, stage, mediaExpectations);
 	}
 
 	/**
 	 * ToolExecutionContext implementation. Concatenates the non-empty stages and
 	 * AWAITS ONE guarded commit for the whole sequence (one `batchId`, one `seq`),
-	 * preserving editField's convert→rename→patch atomicity — a rejection commits
+	 * preserving editField's convert→property-patch atomicity — a rejection commits
 	 * zero of the stages. Per-stage envelopes keep their own tags for the log /
 	 * replay chapters. Like `recordMutations`, the inline await is load-bearing.
 	 */
 	async recordMutationStages(
-		stages: StagedMutationBatch[],
+		prepared: PreparedMutationCandidate,
+		stages: AdmittedMutationStages,
 	): Promise<RecordMutationsResult> {
-		const nonEmpty = stages.filter((s) => s.mutations.length > 0);
-		if (nonEmpty.length === 0) {
-			// Nothing to commit — the last stage's doc is the current state.
-			const current = stages[stages.length - 1]?.doc;
-			if (current === undefined) {
-				throw new Error("recordMutationStages called with no stages");
-			}
-			return { events: [], committedDoc: current };
+		if (stages.batch.length === 0) {
+			return { events: [], committedDoc: prepared.nextDoc };
 		}
 		// ONE commit for the whole sequence (one batchId, one seq) — preserves
-		// editField's convert→rename→patch atomicity. Per-stage envelopes keep
+		// editField's convert→property-patch atomicity. Per-stage envelopes keep
 		// their own tags for the log / replay chapters.
-		const allMutations = nonEmpty.flatMap((s) => s.mutations);
-		const events = nonEmpty.flatMap((s) =>
-			this.buildEnvelopes(s.mutations, s.stage),
+		const events = stages.slices.flatMap((slice) =>
+			this.buildEnvelopes(admittedMutationSlice(stages, slice), slice.stage),
 		);
-		return this.commitBatch(allMutations, events, undefined);
+		return this.commitBatch(prepared, events, undefined);
 	}
 
 	/**

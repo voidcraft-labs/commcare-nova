@@ -16,9 +16,19 @@ import {
 } from "@/lib/db/commitGuard";
 import {
 	describeIntroducedErrors,
+	evaluatePreparedMutationCandidate,
 	mutationCommitVerdict,
+	mutationWireCanonicalityRejection,
+	prepareMutationCandidate,
 } from "@/lib/doc/commitVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import {
+	type AdmittedMutationBatch,
+	type AdmittedMutationStages,
+	admitMutationBatch,
+	admitMutationStages,
+	MutationWireCanonicalityError,
+} from "@/lib/doc/mutationAdmission";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
@@ -40,10 +50,11 @@ export type { StagedMutationBatch };
  *
  * No-op on empty batches — returns the input doc by reference.
  */
-export function applyToDoc(doc: BlueprintDoc, muts: Mutation[]): BlueprintDoc {
-	if (muts.length === 0) return doc;
+export function applyToDoc(doc: BlueprintDoc, muts: unknown): BlueprintDoc {
+	const admitted = admitMutationBatch(muts);
+	if (admitted.length === 0) return doc;
 	return produce(doc, (draft) => {
-		applyMutations(draft, muts);
+		applyMutations(draft, admitted);
 	});
 }
 
@@ -56,7 +67,11 @@ export function applyToDoc(doc: BlueprintDoc, muts: Mutation[]): BlueprintDoc {
  * envelope so the agent self-corrects in its loop.
  */
 export type GuardedMutateOutcome =
-	| { ok: true; newDoc: BlueprintDoc }
+	| {
+			ok: true;
+			newDoc: BlueprintDoc;
+			mutations: AdmittedMutationBatch;
+	  }
 	| { ok: false; error: string };
 
 /**
@@ -84,7 +99,7 @@ export type GuardedMutateOutcome =
 export async function guardedMutate(
 	ctx: ToolExecutionContext,
 	prevDoc: BlueprintDoc,
-	mutations: Mutation[],
+	mutations: unknown,
 	stage?: string,
 	mediaExpectations?: readonly MediaAttachExpectation[],
 ): Promise<GuardedMutateOutcome> {
@@ -99,7 +114,7 @@ export async function guardedMutate(
 	if (!verdict.ok) {
 		return { ok: false, error: describeIntroducedErrors(verdict.introduced) };
 	}
-	if (mutations.length > 0) {
+	if (verdict.mutations.length > 0) {
 		/* The guarded commit re-applies onto the FRESH stored doc, so its
 		 * `committedDoc` may carry a peer's concurrent edit merged in — the SA
 		 * continues against THAT, not the tool's pre-commit `nextDoc`. A
@@ -108,14 +123,21 @@ export async function guardedMutate(
 		 * which is NOT caught here — it propagates to `wrapMutating`, which
 		 * reloads fresh. */
 		const { committedDoc } = await ctx.recordMutations(
-			mutations,
-			verdict.nextDoc,
+			verdict.prepared,
 			stage,
 			mediaExpectations,
 		);
-		return { ok: true, newDoc: committedDoc };
+		return {
+			ok: true,
+			newDoc: committedDoc,
+			mutations: verdict.mutations,
+		};
 	}
-	return { ok: true, newDoc: verdict.nextDoc };
+	return {
+		ok: true,
+		newDoc: verdict.nextDoc,
+		mutations: verdict.mutations,
+	};
 }
 
 /**
@@ -138,23 +160,36 @@ export async function guardedMutate(
 export async function guardedMutateStages(
 	ctx: ToolExecutionContext,
 	prevDoc: BlueprintDoc,
-	stages: StagedMutationBatch[],
+	stages: unknown,
 ): Promise<GuardedMutateOutcome> {
-	const all = stages.flatMap((s) => s.mutations);
-	const verdict = mutationCommitVerdict(
+	let admitted: AdmittedMutationStages;
+	try {
+		admitted = admitMutationStages(stages);
+	} catch (error) {
+		if (!(error instanceof MutationWireCanonicalityError)) throw error;
+		const rejected = mutationWireCanonicalityRejection(prevDoc, error);
+		if (rejected.ok) throw new Error("Canonicality rejection was accepted");
+		return {
+			ok: false,
+			error: describeIntroducedErrors(rejected.introduced),
+		};
+	}
+	const prepared = prepareMutationCandidate(prevDoc, admitted.batch);
+	const verdict = evaluatePreparedMutationCandidate(
 		prevDoc,
-		all,
+		prepared,
 		LOOKUP_CONTEXT_UNAVAILABLE,
 	);
 	if (!verdict.ok) {
 		return { ok: false, error: describeIntroducedErrors(verdict.introduced) };
 	}
-	const nonEmpty = stages.filter((s) => s.mutations.length > 0);
-	if (nonEmpty.length === 0) return { ok: true, newDoc: prevDoc };
+	if (admitted.batch.length === 0) {
+		return { ok: true, newDoc: prevDoc, mutations: admitted.batch };
+	}
 	// The SA continues against the writer's committed doc (a peer edit merged
 	// in), not the tool's final-stage doc.
-	const { committedDoc } = await ctx.recordMutationStages(nonEmpty);
-	return { ok: true, newDoc: committedDoc };
+	const { committedDoc } = await ctx.recordMutationStages(prepared, admitted);
+	return { ok: true, newDoc: committedDoc, mutations: admitted.batch };
 }
 
 /**
@@ -180,7 +215,7 @@ export async function guardedMutateStages(
  */
 export interface MutatingToolResult<R> {
 	kind: "mutate";
-	mutations: Mutation[];
+	mutations: readonly Mutation[];
 	newDoc: BlueprintDoc;
 	result: R;
 }

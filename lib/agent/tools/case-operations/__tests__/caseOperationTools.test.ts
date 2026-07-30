@@ -7,13 +7,13 @@ import {
 	BlueprintCommitRejectedError,
 	batchTargetsMissing,
 } from "@/lib/db/commitGuard";
-import type { Mutation } from "@/lib/doc/types";
 import type {
 	BlueprintDoc,
 	LookupColumnId,
 	LookupTableId,
 	Uuid,
 } from "@/lib/domain";
+import { caseOperationSchema } from "@/lib/domain";
 import { eq, literal, tableColumn, tableLookup } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
 import { makeStubToolContext } from "../../../__tests__/fixtures";
@@ -28,7 +28,11 @@ import {
 	moveCaseOperationTool,
 } from "../moveCaseOperation";
 import { removeCaseOperationTool } from "../removeCaseOperation";
-import { type CaseOperationInput, caseOperationInputSchema } from "../shared";
+import {
+	type CaseOperationInput,
+	caseOperationInputSchema,
+	resolveCaseOperationInput,
+} from "../shared";
 import { updateCaseOperationTool } from "../updateCaseOperation";
 
 const TEXT = testUuid("case-operation-field");
@@ -184,6 +188,22 @@ describe("case-operation canonical author boundary", () => {
 				owner: fieldValue,
 			}).success,
 		).toBe(false);
+	});
+
+	it("constructs strict stored arms without own undefined facets", () => {
+		const closeInput = {
+			id: "close_visit",
+			action: "close",
+			caseType: "visit",
+			target: { kind: "session" },
+		} as const satisfies CaseOperationInput;
+		const resolved = resolveCaseOperationInput(closeInput, CREATE_UUID);
+
+		expect(caseOperationSchema.parse(resolved)).toEqual(resolved);
+		expect(Object.hasOwn(resolved, "writes")).toBe(false);
+		expect(Object.hasOwn(resolved, "links")).toBe(false);
+		expect(Object.hasOwn(resolved, "name")).toBe(false);
+		expect(Object.hasOwn(resolved, "owner")).toBe(false);
 	});
 
 	it("uses the validator's exact identifier vocabulary", () => {
@@ -402,6 +422,7 @@ describe("shared case-operation tools", () => {
 				caseOperationPatch: {
 					operation: "update",
 					uuid: CREATE_UUID,
+					targetAction: "create",
 					patch: {
 						id: "create_encounter",
 						condition: { kind: "match-all" },
@@ -456,6 +477,7 @@ describe("shared case-operation tools", () => {
 				caseOperationPatch: {
 					operation: "update",
 					uuid: UPDATE_UUID,
+					targetAction: "update",
 					patch: {
 						caseType: "patient",
 						target: { kind: "session" },
@@ -549,16 +571,14 @@ describe("shared case-operation tools", () => {
 			delete draft.forms[formUuid].caseOperations;
 		});
 		const { ctx, recordMutations } = makeStubToolContext();
-		recordMutations.mockImplementation(
-			async (mutations: Mutation[], candidate: BlueprintDoc) => {
-				if (batchTargetsMissing(fresh, mutations)) {
-					throw new BlueprintCommitRejectedError(
-						"A peer changed this case operation first.",
-					);
-				}
-				return { events: [], committedDoc: candidate };
-			},
-		);
+		recordMutations.mockImplementation(async (prepared) => {
+			if (batchTargetsMissing(fresh, prepared.mutations)) {
+				throw new BlueprintCommitRejectedError(
+					"A peer changed this case operation first.",
+				);
+			}
+			return { events: [], committedDoc: prepared.nextDoc };
+		});
 
 		await expect(
 			updateCaseOperationTool.execute(

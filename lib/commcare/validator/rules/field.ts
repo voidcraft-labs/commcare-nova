@@ -19,7 +19,7 @@ import {
 } from "@/lib/commcare";
 import { detectUnquotedStringLiteral, parser } from "@/lib/commcare/xpath";
 import type { BlueprintDoc, Field, FieldKind, Uuid } from "@/lib/domain";
-import { expressionSource, fieldRegistry } from "@/lib/domain";
+import { expressionInspectionSource, fieldRegistry } from "@/lib/domain";
 import { buildFieldTree } from "@/lib/preview/engine/fieldTree";
 import { type ValidationError, validationError } from "../errors";
 
@@ -59,7 +59,7 @@ function readXPath(
 	key: XPathFieldKey | "repeat_count" | "ids_query",
 	ctx: FieldContext,
 ): string | undefined {
-	const value = expressionSource(field, key, ctx.doc);
+	const value = expressionInspectionSource(field, key, ctx.doc);
 	return value !== undefined && value.length > 0 ? value : undefined;
 }
 

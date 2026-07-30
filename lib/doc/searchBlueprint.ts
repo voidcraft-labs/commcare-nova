@@ -11,8 +11,8 @@
 
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import {
-	expressionSource,
-	expressionSourceEntries,
+	expressionInspectionSource,
+	expressionSurfaceReads,
 	isContainer,
 } from "@/lib/domain";
 import {
@@ -194,7 +194,7 @@ function searchFields(
 		if (field.id.toLowerCase().includes(query)) {
 			matchFields.push({ field: "id", value: field.id });
 		}
-		const label = expressionSource(field, "label", doc);
+		const label = expressionInspectionSource(field, "label", doc);
 		if (label?.toLowerCase().includes(query)) {
 			matchFields.push({ field: "label", value: label });
 		}
@@ -219,7 +219,7 @@ function searchFields(
 			"validate_msg",
 			"hint",
 		] as const) {
-			const v = expressionSource(field, key, doc);
+			const v = expressionInspectionSource(field, key, doc);
 			if (v?.toLowerCase().includes(query)) {
 				matchFields.push({ field: key, value: v });
 			}
@@ -227,24 +227,27 @@ function searchFields(
 		// Option labels read through the fan-out accessor; each entry's
 		// index pairs the label with its option's sibling `value` literal
 		// (a data literal, not an expression slot — read directly).
-		const opts = anyField.options;
-		if (Array.isArray(opts)) {
+		const opts =
+			"optionsSource" in field && field.optionsSource.kind === "inline"
+				? field.optionsSource.options
+				: [];
+		if (opts.length > 0) {
 			const labelByOption = new Map<number, string>();
-			for (const entry of expressionSourceEntries(field, "option_label", doc)) {
+			for (const entry of expressionSurfaceReads(field, "prose", doc)) {
+				if (entry.slot !== "option_label") continue;
 				const index = entry.indices[0];
 				if (index !== undefined) labelByOption.set(index, entry.text);
 			}
 			for (let i = 0; i < opts.length; i++) {
-				const o = opts[i] as { value?: unknown };
+				const o = opts[i];
 				const optLabel = labelByOption.get(i);
 				if (
-					(typeof o.value === "string" &&
-						o.value.toLowerCase().includes(query)) ||
+					o.value.toLowerCase().includes(query) ||
 					optLabel?.toLowerCase().includes(query)
 				) {
 					matchFields.push({
 						field: "option",
-						value: `${String(o.value)}: ${optLabel}`,
+						value: `${o.value}: ${optLabel}`,
 					});
 					break;
 				}

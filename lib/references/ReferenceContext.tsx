@@ -37,7 +37,8 @@ interface ReferenceProviderWrapperProps {
 	currentFormUuid: string | undefined;
 	/** Subscribe to external mutations that invalidate cached data.
 	 *  Follows the useSyncExternalStore contract: subscribe(listener) → unsubscribe.
-	 *  Fires when field entities change — not on UI state changes. */
+	 *  Fires when a document family used by reference projection changes — not
+	 *  on unrelated document or UI state changes. */
 	subscribeMutation: (listener: () => void) => () => void;
 	children: React.ReactNode;
 }

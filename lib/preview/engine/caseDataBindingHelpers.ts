@@ -61,6 +61,7 @@ import {
 	PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS,
 } from "@/lib/doc/lookupReferences";
 import {
+	asUuid,
 	type BlueprintDoc,
 	type CaseListConfig,
 	type CaseOperation,
@@ -1046,7 +1047,7 @@ export async function buildSubmissionOperationProgram(args: {
 	const receiptIdentity = buildSubmissionReceiptIdentity(args);
 
 	const app = args.committedApp;
-	if (app.blueprint.forms[args.projection.formUuid as Uuid] === undefined) {
+	if (app.blueprint.forms[args.projection.formUuid] === undefined) {
 		throw new CaptureSubmissionRejectedError(
 			"The submitted form no longer exists in the committed app.",
 		);
@@ -1242,7 +1243,7 @@ export function buildCaseOperationProgramFromDoc(args: {
 	readonly viewerTimeZone?: string;
 }): BuiltSubmissionOperations {
 	const { mutation } = args;
-	const formUuid = args.projection.formUuid as Uuid;
+	const formUuid = args.projection.formUuid;
 	const blueprint = args.blueprint;
 	const doc = asWalkableDoc(blueprint);
 	const form = doc.forms[formUuid];
@@ -1291,7 +1292,7 @@ export function buildCaseOperationProgramFromDoc(args: {
 		entries: ReadonlyArray<SubmissionAnswerEntry> | undefined,
 	): ReadonlyMap<Uuid, string | readonly string[]> =>
 		new Map(
-			(entries ?? []).map((entry) => [entry.fieldUuid as Uuid, entry.value]),
+			(entries ?? []).map((entry) => [asUuid(entry.fieldUuid), entry.value]),
 		);
 	/* A repeat the COMMITTED doc scopes an operation over, with no scope in
 	 * the payload, is provable staleness rather than an empty repeat.

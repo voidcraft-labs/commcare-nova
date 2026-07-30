@@ -127,7 +127,7 @@ export const removeModuleTool = {
 
 			return {
 				kind: "mutate" as const,
-				mutations,
+				mutations: commit.mutations,
 				newDoc,
 				result: {
 					message: `Successfully removed module "${name}". App now has ${newDoc.moduleOrder.length} module${newDoc.moduleOrder.length === 1 ? "" : "s"}.${retirement.kind === "retire" ? ` Case type "${retirement.caseType}" had no other module or reference, so its record was retired from the catalog.` : ""}`,

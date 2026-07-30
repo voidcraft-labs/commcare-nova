@@ -13,7 +13,14 @@
  * long-lived server instances cannot change what a document means.
  */
 
-import type { BlueprintDoc, Field, Form, Module, Uuid } from "@/lib/domain";
+import {
+	asUuid,
+	type BlueprintDoc,
+	type Field,
+	type Form,
+	type Module,
+	type Uuid,
+} from "@/lib/domain";
 import type { LookupOptionsSource } from "@/lib/domain/lookupCarriers";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import type { Predicate, ValueExpression } from "@/lib/domain/predicate";
@@ -250,7 +257,7 @@ function parentByField(doc: BlueprintDoc): ReadonlyMap<Uuid, Uuid> {
 	const parents = new Map<Uuid, Uuid>();
 	for (const parentUuid of Object.keys(doc.fieldOrder).sort()) {
 		for (const childUuid of doc.fieldOrder[parentUuid] ?? []) {
-			if (!parents.has(childUuid)) parents.set(childUuid, parentUuid as Uuid);
+			if (!parents.has(childUuid)) parents.set(childUuid, asUuid(parentUuid));
 		}
 	}
 	return parents;

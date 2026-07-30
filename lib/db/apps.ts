@@ -64,6 +64,11 @@ import {
 	type LookupValidationContext,
 	unionLookupReferenceTargetSets,
 } from "../doc/lookupReferences";
+import {
+	type AdmittedMutationBatch,
+	admitMutationBatch,
+	encodeAdmittedMutationEnvelope,
+} from "../doc/mutationAdmission";
 import { buildReferenceIndex } from "../doc/referenceIndex";
 import type { Mutation } from "../doc/types";
 import type {
@@ -83,15 +88,23 @@ import {
 	diffBlueprints,
 	type EntityRow,
 } from "./blueprintRows";
+
+export {
+	applyCanonicalIdentityFoundationRepairInTransaction,
+	loadCanonicalIdentityRepairSnapshotsInTransaction,
+} from "./canonicalIdentityFoundationRepair";
+
 import {
 	provenRenamePairs,
 	type RenameExpectation,
 } from "./classifyCaseTypeChanges";
 import {
 	AppProjectChangedError,
+	acceptedMutationFingerprintMatches,
 	BlueprintCommitRejectedError,
 	batchTargetsMissing,
 	CommitReauthError,
+	MutationBatchIdCollisionError,
 	RunHolderLostError,
 } from "./commitGuard";
 import {
@@ -123,6 +136,7 @@ import {
 	deleteMediaAssetMetadataInTransaction,
 	MediaAssetStillReferencedError,
 } from "./mediaDeletion";
+import { mutationFoldSnapshotDigest } from "./mutationFoldBaseline";
 import { getCurrentPeriod } from "./period";
 import {
 	type AppDatabase,
@@ -772,7 +786,9 @@ export async function createApp(
 	// Atomic creation is the app-lock exception: a SQL retry may re-run the
 	// transaction closure, so the template callback and reducer must stay out of
 	// it. The prepared value is deterministic and safe to evaluate repeatedly.
-	const seedMutations = opts?.seedMutations?.(emptyDoc) ?? [];
+	const seedMutations = admitMutationBatch(
+		opts?.seedMutations?.(emptyDoc) ?? [],
+	);
 	const prepared = prepareMutationCandidate(emptyDoc, seedMutations);
 	const candidateTargets = extractLookupReferenceTargets(prepared.nextDoc);
 	const persistable = toPersistableDoc(prepared.nextDoc);
@@ -792,7 +808,7 @@ export async function createApp(
 				owner,
 				project_id: projectId,
 				...denorm,
-				mutation_seq: 0,
+				mutation_seq: 1,
 				status: opts?.status ?? "generating",
 				awaiting_input: false,
 				error_type: null,
@@ -859,6 +875,28 @@ export async function createApp(
 				)
 				.execute();
 		}
+		const genesisMutations = admitMutationBatch([]);
+		await tx
+			.insertInto("accepted_mutations")
+			.values({
+				app_id: appId,
+				seq: 1,
+				batch_id: `genesis:${appId}`,
+				run_id: runId,
+				actor_id: owner,
+				kind: "migration",
+				mutations: encodeAdmittedMutationEnvelope(genesisMutations).json,
+			})
+			.execute();
+		await tx
+			.insertInto("mutation_fold_baselines")
+			.values({
+				app_id: appId,
+				seq: 1,
+				snapshot: JSON.stringify(persistable),
+				snapshot_digest: mutationFoldSnapshotDigest(persistable),
+			})
+			.execute();
 	});
 	return appId;
 }
@@ -883,7 +921,7 @@ async function writeCommittedBatch(
 		runId?: string;
 		prevDoc: PersistableDoc;
 		committedDoc: PersistedBlueprint;
-		mutations: Mutation[];
+		mutations: AdmittedMutationBatch;
 		actorUserId: string;
 		kind: AcceptedMutationDoc["kind"];
 		/** Exact chat holder authority. The conditional app-row write is the final
@@ -962,7 +1000,7 @@ async function writeCommittedBatch(
 			run_id: args.runId ?? null,
 			actor_id: args.actorUserId,
 			kind: args.kind,
-			mutations: JSON.stringify(args.mutations),
+			mutations: encodeAdmittedMutationEnvelope(args.mutations).json,
 		})
 		.execute();
 	await notifyAppStream(tx, args.appId, args.seq);
@@ -980,7 +1018,7 @@ export interface CommitGuardedBatchArgs {
 	 * GenerationContext supplies it; MCP deliberately never does.
 	 */
 	readonly chatRunHolder?: ChatRunHolderCapability;
-	readonly mutations: Mutation[];
+	readonly mutations: AdmittedMutationBatch;
 	/** The acting user — reauth + attribution key, never the tenant. */
 	readonly actorUserId: string;
 	readonly kind: AcceptedMutationDoc["kind"];
@@ -1089,10 +1127,24 @@ export async function commitGuardedBatch(
 		// happens under the app row lock, so it observes every prior commit.
 		const latch = await tx
 			.selectFrom("accepted_mutations")
-			.select("seq")
+			.select(["seq", "mutations", "actor_id", "kind", "run_id"])
 			.where("app_id", "=", appId)
 			.where("batch_id", "=", batchId)
 			.executeTakeFirst();
+		if (
+			latch !== undefined &&
+			!acceptedMutationFingerprintMatches(
+				{
+					mutations: latch.mutations,
+					actorUserId: latch.actor_id,
+					kind: latch.kind,
+					runId: latch.run_id,
+				},
+				{ mutations, actorUserId, kind, runId },
+			)
+		) {
+			throw new MutationBatchIdCollisionError();
+		}
 		// A migration-bearing saga held this Project while its separately
 		// committed schema Phase A ran. If the app moved after that lock released,
 		// reject so the saga compensates instead of committing mismatched work.
@@ -1436,7 +1488,9 @@ export async function appendSyntheticBatch(
 			entities,
 		);
 		const previousDoc = hydratePersistedBlueprint(previousPersistable);
-		const mutations = diffDocsToMutations(previousDoc, requestedTarget);
+		const mutations = admitMutationBatch(
+			diffDocsToMutations(previousDoc, requestedTarget),
+		);
 		const prepared = prepareMutationCandidate(previousDoc, mutations);
 		const replayed = toPersistableDoc(prepared.nextDoc);
 		const requested = toPersistableDoc(requestedTarget);
@@ -1907,12 +1961,19 @@ export async function commitAppProjectMoveInTransaction(
 	const mappedFreshSources = freshClosure.filter((sourceId) =>
 		args.assetIdMap.has(sourceId),
 	);
-	const destinationIds = mappedFreshSources.map(
-		(sourceId) => args.assetIdMap.get(sourceId) as MediaAssetId,
-	);
+	const destinationIds = mappedFreshSources.map((sourceId) => {
+		const destinationId = args.assetIdMap.get(sourceId);
+		if (destinationId === undefined) {
+			throw new Error(`Missing planned media mapping for ${sourceId}.`);
+		}
+		return destinationId;
+	});
 	const destinationAssets = await getAssetsInTransaction(tx, destinationIds);
 	for (const sourceId of mappedFreshSources) {
-		const destinationId = args.assetIdMap.get(sourceId) as MediaAssetId;
+		const destinationId = args.assetIdMap.get(sourceId);
+		if (destinationId === undefined) {
+			throw new Error(`Missing planned media mapping for ${sourceId}.`);
+		}
 		const asset = destinationAssets.get(destinationId);
 		if (
 			asset === undefined ||
@@ -1936,7 +1997,9 @@ export async function commitAppProjectMoveInTransaction(
 					remapAssetRefs(toPersistableDoc(previousDoc), args.assetIdMap),
 				)
 			: previousDoc;
-	const mutations = diffDocsToMutations(previousDoc, requestedCandidate);
+	const mutations = admitMutationBatch(
+		diffDocsToMutations(previousDoc, requestedCandidate),
+	);
 	const prepared = prepareMutationCandidate(previousDoc, mutations);
 	if (
 		!deepEqual(

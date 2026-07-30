@@ -206,4 +206,39 @@ describe("eventSchema", () => {
 		};
 		expect(() => eventSchema.parse(bad)).toThrow();
 	});
+
+	it("rejects unknown envelope and payload keys", () => {
+		const base = {
+			kind: "conversation" as const,
+			runId: "r",
+			ts: 0,
+			seq: 0,
+			source: "chat" as const,
+			payload: { type: "assistant-text" as const, text: "done" },
+		};
+		expect(() =>
+			eventSchema.parse({ ...base, futureEnvelope: true }),
+		).toThrow();
+		expect(() =>
+			eventSchema.parse({
+				...base,
+				payload: { ...base.payload, futurePayload: true },
+			}),
+		).toThrow();
+	});
+
+	it("keeps archived bytes opaque while enforcing their envelope", () => {
+		const archived = {
+			kind: "archived-mutation" as const,
+			runId: "r",
+			ts: 0,
+			seq: 0,
+			source: "chat" as const,
+			archived: { any: ["pre-cutover", { shape: true }] },
+		};
+		expect(eventSchema.parse(archived)).toEqual(archived);
+		expect(() =>
+			eventSchema.parse({ ...archived, compatibilityHint: "ignore-me" }),
+		).toThrow();
+	});
 });

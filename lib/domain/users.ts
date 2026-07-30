@@ -349,7 +349,7 @@ export type UserProperty = z.infer<typeof userPropertySchema>;
  * self._schema_fields}` before layering authored values over it, while an
  * UNDECLARED key is genuinely absent from the session.
  */
-export const userDataValuesSchema = ownRecordSchema(z.string(), z.string());
+export const userDataValuesSchema = ownRecordSchema(uuidSchema, z.string());
 export type UserDataValues = z.infer<typeof userDataValuesSchema>;
 
 /**

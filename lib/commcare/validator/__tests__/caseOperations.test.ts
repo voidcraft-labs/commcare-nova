@@ -591,18 +591,6 @@ describe("case-operation activation and identity", () => {
 });
 
 describe("case-operation action, catalog, and reserved vocabulary", () => {
-	it("rejects facets that do not belong to the selected action", () => {
-		expectCode("CASE_OPERATION_INVALID_FACETS", [
-			create({ target: { kind: "session" } }),
-		]);
-		expectCode("CASE_OPERATION_INVALID_FACETS", [
-			update({ target: { kind: "new" }, name: term(literal("No")) }),
-		]);
-		expectCode("CASE_OPERATION_INVALID_FACETS", [
-			update({ action: "close", owner: term(literal("owner")) }),
-		]);
-	});
-
 	it("rejects unknown and platform-owned case types", () => {
 		expectCode("CASE_OPERATION_UNKNOWN_CASE_TYPE", [
 			update({ caseType: "missing" }),
@@ -875,6 +863,39 @@ describe("case-operation target and dependency safety", () => {
 		expect(rawKeyIsNotCreatedId).not.toContain(
 			"CASE_OPERATION_TARGET_TYPE_MISMATCH",
 		);
+	});
+
+	it("rejects blank calculated case ids for operation and link targets", () => {
+		expectCode("CASE_OPERATION_TARGET_INVALID", [
+			update({
+				target: { kind: "expression", expr: term(literal(" \t\r\n")) },
+			}),
+		]);
+		expectCode("CASE_OPERATION_TARGET_INVALID", [
+			update({
+				links: [
+					{
+						identifier: "parent",
+						targetType: "patient",
+						target: {
+							kind: "expression",
+							expr: term(literal("\v\f")),
+						},
+						relationship: "child",
+					},
+				],
+			}),
+		]);
+		expect(
+			codesFor([
+				update({
+					target: {
+						kind: "expression",
+						expr: term(literal(` ${"x".repeat(300)} `)),
+					},
+				}),
+			]),
+		).not.toContain("CASE_OPERATION_TARGET_INVALID");
 	});
 
 	it("tracks retypes across later operations on the same known target", () => {

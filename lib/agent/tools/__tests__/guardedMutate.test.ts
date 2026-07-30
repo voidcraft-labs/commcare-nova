@@ -18,6 +18,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
+import type { PreparedMutationCandidate } from "@/lib/doc/commitVerdicts";
+import type { AdmittedMutationStages } from "@/lib/doc/mutationAdmission";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
@@ -79,19 +81,21 @@ function minDoc(): BlueprintDoc {
 function makeCtx() {
 	const recordMutations = vi.fn(
 		async (
-			_mutations: Mutation[],
-			doc: BlueprintDoc,
+			prepared: PreparedMutationCandidate,
 			_stage?: string,
 			_mediaExpectations?: unknown,
 		) => ({
 			events: [],
-			committedDoc: doc,
+			committedDoc: prepared.nextDoc,
 		}),
 	);
 	const recordMutationStages = vi.fn(
-		async (stages: Array<{ doc: BlueprintDoc }>) => ({
+		async (
+			prepared: PreparedMutationCandidate,
+			_stages: AdmittedMutationStages,
+		) => ({
 			events: [],
-			committedDoc: stages[stages.length - 1]?.doc,
+			committedDoc: prepared.nextDoc,
 		}),
 	);
 	const ctx: ToolExecutionContext = {
@@ -145,12 +149,11 @@ describe("guardedMutate", () => {
 
 		expect(outcome.ok).toBe(true);
 		expect(recordMutations).toHaveBeenCalledTimes(1);
-		const [persistedMuts, persistedDoc, stage] =
-			recordMutations.mock.calls[0] ?? [];
-		expect(persistedMuts).toBe(mutations);
+		const [prepared, stage] = recordMutations.mock.calls[0] ?? [];
+		expect(prepared?.mutations).toEqual(mutations);
 		expect(stage).toBe("form:0-0");
 		// The persisted doc IS the post-batch doc the tool continues against.
-		if (outcome.ok) expect(persistedDoc).toBe(outcome.newDoc);
+		if (outcome.ok) expect(prepared?.nextDoc).toBe(outcome.newDoc);
 	});
 
 	it("persists nothing on a gate rejection and returns the findings as prose", async () => {
@@ -197,7 +200,7 @@ describe("guardedMutate", () => {
 		const doc = minDoc();
 		const { ctx, recordMutations } = makeCtx();
 		const outcome = await guardedMutate(ctx, doc, []);
-		expect(outcome).toEqual({ ok: true, newDoc: doc });
+		expect(outcome).toEqual({ ok: true, newDoc: doc, mutations: [] });
 		expect(recordMutations).not.toHaveBeenCalled();
 	});
 });
@@ -225,10 +228,10 @@ describe("tool-level gating (editField through the shared layer)", () => {
 		expect(recordMutations).not.toHaveBeenCalled();
 	});
 
-	it("a multi-stage edit (rename + patch) is atomic — a bad patch leaves zero committed prefix", async () => {
-		// The rename alone is valid; the relevant patch introduces
-		// XPATH_SYNTAX. The whole edit gates as ONE candidate, so the
-		// rename must NOT commit — nothing persists, the doc is untouched,
+	it("an ID-changing edit is atomic — a bad sibling property leaves zero committed prefix", async () => {
+		// The ID change alone is valid; the relevant expression introduces
+		// XPATH_SYNTAX. The whole updateField patch gates as ONE candidate,
+		// so the ID change must NOT commit — nothing persists, the doc is untouched,
 		// and the agent can re-issue the corrected call from the original
 		// state ("a rejected call saved nothing" holds with no asterisk).
 		const doc = minDoc();
@@ -261,7 +264,7 @@ describe("tool-level gating (editField through the shared layer)", () => {
 		expect(renamed).toBeUndefined();
 	});
 
-	it("a passing multi-stage edit persists as ONE save carrying each stage's own tag", async () => {
+	it("a passing ID-and-property edit persists as one canonical update stage", async () => {
 		const doc = minDoc();
 		const { ctx, recordMutationStages } = makeCtx();
 
@@ -279,17 +282,14 @@ describe("tool-level gating (editField through the shared layer)", () => {
 		);
 
 		expect("message" in out.result).toBe(true);
-		// One persistence call for the whole sequence — the stages ride
-		// inside it, in order, each with its own tag.
+		// One persistence call, with ID and label carried by the same
+		// target-kind-aware updateField stage.
 		expect(recordMutationStages).toHaveBeenCalledTimes(1);
-		const stages = recordMutationStages.mock.calls[0]?.[0] as Array<{
-			stage?: string;
-		}>;
+		const stages = recordMutationStages.mock.calls[0]?.[1] as {
+			slices: readonly { stage?: string }[];
+		};
 		const formUuid = villageAddress(doc).formUuid;
-		expect(stages.map((s) => s.stage)).toEqual([
-			`rename:${formUuid}`,
-			`edit:${formUuid}`,
-		]);
+		expect(stages.slices.map((s) => s.stage)).toEqual([`edit:${formUuid}`]);
 	});
 
 	it("commits a clean edit unchanged (the gate is transparent on pass)", async () => {

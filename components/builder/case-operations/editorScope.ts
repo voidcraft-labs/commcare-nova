@@ -45,12 +45,17 @@ export function operationCaseDataScope(caseFirst: boolean): CaseDataScope {
  * Without the flag the value picker's "A value" choice seeds
  * `literal("")` and the gate refuses it the instant it is picked.
  *
- * The operation's own runtime target and a link's deliberately do NOT
- * use this: `validateTextExpression` is not applied to them, and a
- * blank case id there is a submission-time fact the running form
- * refuses inline, not an authoring error.
  */
 export function caseOperationTextConstraint(): SlotConstraint {
+	return { ...storageAssignmentConstraint(["text"]), nonEmpty: true };
+}
+
+/**
+ * A runtime case target is also required authored text. The incomplete empty
+ * literal used to open its editor remains local UI state; it cannot enter the
+ * document, because neither Nova nor CommCare can act on a blank case id.
+ */
+export function caseOperationRuntimeTargetConstraint(): SlotConstraint {
 	return { ...storageAssignmentConstraint(["text"]), nonEmpty: true };
 }
 

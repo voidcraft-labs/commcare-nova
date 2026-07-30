@@ -223,6 +223,53 @@ describe("editField — rename identifier guard", () => {
 		expect(recordSpy).toHaveBeenCalledTimes(1);
 	});
 
+	it("emits id and case_property_on together in one post-declaration updateField patch", async () => {
+		const { ctx } = makeStubToolContext();
+		const doc = makeDoc();
+		doc.modules[MOD] = {
+			...doc.modules[MOD],
+			caseType: "household",
+		};
+		doc.forms[FORM] = {
+			...doc.forms[FORM],
+			type: "survey",
+		};
+		const result = await editFieldTool.execute(
+			{
+				...ADDRESS,
+				updates: {
+					kind: "text",
+					id: "case_name",
+					case_property_on: "household",
+				},
+			},
+			ctx,
+			doc,
+		);
+
+		if ("error" in result.result) throw new Error(result.result.error);
+		expect(result.mutations).toEqual([
+			{ kind: "declareCaseType", caseType: "household" },
+			{
+				kind: "updateField",
+				uuid: FIELD,
+				targetKind: "text",
+				patch: {
+					id: "case_name",
+					case_property_on: "household",
+				},
+			},
+		]);
+		expect(
+			result.mutations.some(
+				(mutation) =>
+					mutation.kind === "updateField" &&
+					Object.hasOwn(mutation.patch, "id") &&
+					Object.hasOwn(mutation.patch, "case_property_on"),
+			),
+		).toBe(true);
+	});
+
 	it("rejects the same conflicting rename through an McpContext (same guard, both surfaces)", async () => {
 		const { ctx } = makeMcpTestContext();
 		const recordSpy = vi.spyOn(ctx, "recordMutationStages");

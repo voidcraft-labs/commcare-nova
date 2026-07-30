@@ -6322,6 +6322,7 @@ describe("loadFilterPreviewAction", () => {
 				label: "Candidate area",
 			},
 		};
+		candidate.userPropertyOrder = [propertyUuid];
 		const store = actionStore({
 			query: vi.fn().mockResolvedValueOnce([]),
 			count: vi.fn().mockResolvedValueOnce(0),

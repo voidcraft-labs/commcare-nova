@@ -34,6 +34,7 @@ import type {
 	Uuid,
 } from "@/lib/domain";
 import {
+	asUuid,
 	CASE_LOADING_FORM_TYPES,
 	casePropertyDataTypes,
 	expressionSource,
@@ -827,7 +828,7 @@ export class FormEngine {
 				}),
 			);
 		}
-		return formUuid as Uuid;
+		return asUuid(formUuid);
 	}
 
 	/**

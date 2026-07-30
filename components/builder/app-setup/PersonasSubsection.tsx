@@ -26,7 +26,7 @@ import {
 	useUserProperties,
 	useUserTypes,
 } from "@/lib/doc/hooks/useUserCollections";
-import type { Uuid } from "@/lib/doc/types";
+import { asUuid } from "@/lib/doc/types";
 import type { Persona, UserProperty, UserType } from "@/lib/domain";
 import { hasOwnRecordKey, ownRecordValue } from "@/lib/domain";
 import { useCanEdit } from "@/lib/session/hooks";
@@ -142,16 +142,12 @@ function PersonaRow({
 
 	const write = (patch: Parameters<typeof mutations.updatePersona>[1]) => {
 		if (!sessionApi.getState().canEdit) return;
-		mutations.updatePersona(persona.uuid as Uuid, patch);
+		mutations.updatePersona(persona.uuid, patch);
 	};
 
 	const setOverride = (propertyUuid: string, value: string | undefined) => {
 		if (!sessionApi.getState().canEdit) return;
-		mutations.updatePersonaValue(
-			persona.uuid as Uuid,
-			propertyUuid as Uuid,
-			value,
-		);
+		mutations.updatePersonaValue(persona.uuid, asUuid(propertyUuid), value);
 	};
 	const selectedRoleIndex =
 		persona.userTypeUuid === undefined
@@ -192,7 +188,7 @@ function PersonaRow({
 									messages: ["You no longer have edit access."],
 								};
 							}
-							return mutations.inline.updatePersona(persona.uuid as Uuid, {
+							return mutations.inline.updatePersona(persona.uuid, {
 								name,
 							});
 						}}

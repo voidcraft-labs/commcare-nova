@@ -979,7 +979,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		[formFrozen],
 	);
 
-	if (!form || !formUuid) return null;
+	if (!form || !formUuid || !moduleUuid) return null;
 
 	/** A NAV-bound case-loading form (followup / close) hitting `unauthenticated` / `error` must surface the failure — the no-preload fallback would hide session expiry and transport failures behind a defaults-rendered form. The guard is scoped to the nav-provided `caseId`: on the auto-select path the form is already usable off the auto-row's bridge preload, and a failed by-id load only means the OPTIONAL ancestor enrichment didn't arrive — blanking a working form for that would be a downgrade. `idle` / `loading` / `missing` fall through (the form renders against defaults during the load window; `missing` shares the "no row" semantic with the next guard). The form-type set comes from `CASE_LOADING_FORM_TYPES` so adding a third case-loading form type in `lib/domain/forms.ts` would extend this guard automatically. */
 	if (mode === "preview" && CASE_LOADING_FORM_TYPES.has(form.type) && caseId) {
@@ -1048,8 +1048,8 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			>
 				<div className="flex items-center gap-2">
 					<FormTypeButton
-						moduleUuid={(moduleUuid ?? "") as Uuid}
-						formUuid={(formUuid ?? "") as Uuid}
+						moduleUuid={moduleUuid}
+						formUuid={formUuid}
 						editable={canEdit}
 					/>
 					{canEdit ? (
@@ -1068,10 +1068,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 						<EditableTitle value={form.name} readOnly ariaLabel="Form name" />
 					)}
 					{canEdit && (
-						<FormSettingsButton
-							moduleUuid={(moduleUuid ?? "") as Uuid}
-							formUuid={(formUuid ?? "") as Uuid}
-						/>
+						<FormSettingsButton moduleUuid={moduleUuid} formUuid={formUuid} />
 					)}
 				</div>
 			</div>

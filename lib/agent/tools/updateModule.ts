@@ -233,14 +233,14 @@ export const updateModuleTool = {
 			if (!newMod) {
 				return {
 					kind: "mutate" as const,
-					mutations,
+					mutations: commit.mutations,
 					newDoc,
 					result: { error: `Module ${moduleUuid} not found after update` },
 				};
 			}
 			return {
 				kind: "mutate" as const,
-				mutations,
+				mutations: commit.mutations,
 				newDoc,
 				result: {
 					message: `Successfully updated module "${newMod.name}" (UUID ${moduleUuid})${

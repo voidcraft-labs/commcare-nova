@@ -92,7 +92,7 @@ function makeFixtureDoc(): BlueprintDoc {
 		fields: {},
 		moduleOrder: [MOD_A],
 		formOrder: { [MOD_A]: [FORM_A] },
-		fieldOrder: {},
+		fieldOrder: { [FORM_A]: [] },
 		fieldParent: {},
 	};
 }
@@ -184,7 +184,7 @@ describe("shared tool modules drive uniform behavior across surfaces", () => {
 		 * per call, so two sequential calls won't match byte-for-byte on
 		 * the uuid field. The rest of the addField mutation (parent, id,
 		 * kind, label) is deterministic and must be identical. */
-		function stripFieldUuid(muts: Mutation[]): unknown[] {
+		function stripFieldUuid(muts: readonly Mutation[]): unknown[] {
 			return muts.map((m) => {
 				if (m.kind === "addField") {
 					const { uuid: _uuid, ...fieldSansUuid } = m.field;

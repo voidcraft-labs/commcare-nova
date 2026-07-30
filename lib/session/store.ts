@@ -32,7 +32,7 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { notifyRejectedCommit } from "@/lib/doc/mutations/notify";
 import { docHasData } from "@/lib/doc/predicates";
 import type { BlueprintDocStore } from "@/lib/doc/provider";
-import type { Mutation, Uuid } from "@/lib/doc/types";
+import { asUuid, type Mutation, type Uuid } from "@/lib/doc/types";
 import { userFacingErrors } from "@/lib/doc/userFacingErrors";
 import type { CommitOutcome, ConnectConfig, ConnectType } from "@/lib/domain";
 import type { MediaKind } from "@/lib/domain/multimedia";
@@ -945,7 +945,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 									mutations.push({
 										kind: "updateForm",
 										uuid: formUuid,
-										patch: { connect: undefined },
+										patch: { connect: null },
 									});
 								}
 							}
@@ -958,8 +958,8 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 								if (docState.forms[formUuid]?.connect !== undefined) {
 									mutations.push({
 										kind: "updateForm",
-										uuid: formUuid as Uuid,
-										patch: { connect: undefined },
+										uuid: asUuid(formUuid),
+										patch: { connect: null },
 									});
 								}
 							}
@@ -1005,7 +1005,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					 * entry) with the batch that produced it — this is an author
 					 * edit, so it joins the command queue persistence sends. THEN
 					 * the stash, a pure state write that can't fail. */
-					docStoreRef.getState().commitDoc(verdict.nextDoc, mutations);
+					docStoreRef.getState().commitDoc(verdict.nextDoc, verdict.mutations);
 					set({
 						connectStash: nextStash,
 						// "Last active connect type" = the mode now in effect, or the

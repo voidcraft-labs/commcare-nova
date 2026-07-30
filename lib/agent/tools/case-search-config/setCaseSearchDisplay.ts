@@ -130,7 +130,7 @@ export const setCaseSearchDisplayTool = {
 
 			return {
 				kind: "mutate" as const,
-				mutations,
+				mutations: commit.mutations,
 				newDoc,
 				result: {
 					message:

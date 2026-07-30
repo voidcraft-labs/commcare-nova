@@ -6,6 +6,13 @@
 // `apps.ts`↔`applyBlueprintChange.ts` cycle. Depends only on the doc/mutation
 // vocabulary — nothing from `apps.ts`.
 
+import { deepEqual } from "@/lib/doc/deepEqual";
+import {
+	type AdmittedMutationBatch,
+	admitMutationBatch,
+} from "@/lib/doc/mutationAdmission";
+import { mutationIdentityAdmissionIssue } from "@/lib/doc/mutationIdentityAdmission";
+import { mutationSequenceAdmissionIssue } from "@/lib/doc/mutationSequenceAdmission";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
 import { assertNever } from "@/lib/utils/assertNever";
@@ -23,6 +30,38 @@ export class BlueprintCommitRejectedError extends Error {
 		super(message);
 		this.name = "BlueprintCommitRejectedError";
 	}
+}
+
+export class MutationBatchIdCollisionError extends Error {
+	constructor() {
+		super("This save reused a batch id for different content.");
+		this.name = "MutationBatchIdCollisionError";
+	}
+}
+
+export interface AcceptedMutationFingerprint {
+	readonly mutations: unknown;
+	readonly actorUserId: string;
+	readonly kind: string;
+	readonly runId: string | null;
+}
+
+export function acceptedMutationFingerprintMatches(
+	stored: AcceptedMutationFingerprint,
+	proposed: {
+		readonly mutations: AdmittedMutationBatch;
+		readonly actorUserId: string;
+		readonly kind: string;
+		readonly runId?: string;
+	},
+): boolean {
+	const storedMutations = admitMutationBatch(stored.mutations);
+	return (
+		deepEqual(storedMutations, proposed.mutations) &&
+		stored.actorUserId === proposed.actorUserId &&
+		stored.kind === proposed.kind &&
+		stored.runId === (proposed.runId ?? null)
+	);
 }
 
 /**
@@ -101,13 +140,15 @@ export class CommitReauthError extends Error {
  */
 export function batchTargetsMissing(
 	doc: BlueprintDoc,
-	mutations: Mutation[],
+	mutations: readonly Mutation[],
 ): boolean {
+	if (mutationIdentityAdmissionIssue(doc, mutations) !== undefined) return true;
+	if (mutationSequenceAdmissionIssue(doc, mutations) !== undefined) return true;
 	const modules = new Set(Object.keys(doc.modules));
 	const forms = new Set(Object.keys(doc.forms));
 	const fields = new Set(Object.keys(doc.fields));
 	// Case-type names present on the doc, plus the ones an earlier
-	// `declareCaseType` / `setCaseTypes` in the same batch brings into being —
+	// `declareCaseType` in the same batch brings into being —
 	// the catalog kinds resolve against this simulated live set the same way
 	// the entity kinds resolve against `modules` / `forms` / `fields`.
 	const caseTypeNames = new Set((doc.caseTypes ?? []).map((ct) => ct.name));
@@ -281,6 +322,13 @@ export function batchTargetsMissing(
 							break;
 						case "add-write":
 							if (writes.has(semantic.value.property) && !born) return true;
+							if (
+								semantic.after !== undefined &&
+								semantic.after !== null &&
+								!writes.has(semantic.after)
+							) {
+								return true;
+							}
 							writes.add(semantic.value.property);
 							break;
 						case "update-write":
@@ -290,15 +338,25 @@ export function batchTargetsMissing(
 							if (!writes.has(semantic.property)) return true;
 							writes.delete(semantic.property);
 							break;
-						case "reorder-writes":
+						case "move-write":
 							if (
-								semantic.properties.some((property) => !writes.has(property))
+								!writes.has(semantic.property) ||
+								(semantic.after !== null &&
+									(semantic.after === semantic.property ||
+										!writes.has(semantic.after)))
 							) {
 								return true;
 							}
 							break;
 						case "add-link":
 							if (links.has(semantic.value.identifier) && !born) return true;
+							if (
+								semantic.after !== undefined &&
+								semantic.after !== null &&
+								!links.has(semantic.after)
+							) {
+								return true;
+							}
 							links.add(semantic.value.identifier);
 							break;
 						case "update-link":
@@ -308,21 +366,24 @@ export function batchTargetsMissing(
 							if (!links.has(semantic.identifier)) return true;
 							links.delete(semantic.identifier);
 							break;
-						case "reorder-links":
+						case "move-link":
 							if (
-								semantic.identifiers.some(
-									(identifier) => !links.has(identifier),
-								)
+								!links.has(semantic.identifier) ||
+								(semantic.after !== null &&
+									(semantic.after === semantic.identifier ||
+										!links.has(semantic.after)))
 							) {
 								return true;
 							}
 							break;
 						case "move":
-							// A placement named by the uuid it follows cannot be shifted
-							// by a peer, so there is no rank to fence and nothing to
-							// defer. The reducer is total: the anchor survives and the
-							// operation lands after it, or it does not and the operation
-							// appends.
+							if (
+								semantic.after !== null &&
+								(semantic.after === semantic.uuid ||
+									!operationUuids.has(semantic.after))
+							) {
+								return true;
+							}
 							break;
 					}
 					break;
@@ -358,7 +419,6 @@ export function batchTargetsMissing(
 			case "moveField":
 				if (!fields.has(m.uuid) || !container(m.toParentUuid)) return true;
 				break;
-			case "renameField":
 			case "updateField":
 			case "convertField":
 				if (!fields.has(m.uuid)) return true;
@@ -369,12 +429,6 @@ export function batchTargetsMissing(
 			// ── Granular case-type catalog ─────────────────────────────
 			case "declareCaseType":
 				caseTypeNames.add(m.caseType);
-				break;
-			case "setCaseTypes":
-				// Wholesale replace (event-log replay only; the live diff never
-				// emits it) — re-seed the simulated catalog names.
-				caseTypeNames.clear();
-				for (const ct of m.caseTypes ?? []) caseTypeNames.add(ct.name);
 				break;
 			case "retireCaseType":
 				if (!caseTypeNames.has(m.caseType)) return true;

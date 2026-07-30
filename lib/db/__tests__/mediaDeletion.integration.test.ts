@@ -12,12 +12,24 @@
 import { Client } from "pg";
 import { describe, expect, it } from "vitest";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import type { Mutation } from "@/lib/doc/types";
 import { asMediaAssetId, type MediaAssetId } from "@/lib/domain/multimedia";
 import { setupAppStateTestDb } from "./appStateTestDb";
 import { createPerTestAppDb } from "./perTestAppDb";
 
-const { commitGuardedBatch, loadApp } = await import("../apps");
+const { commitGuardedBatch: commitGuardedBatchOpaque, loadApp } = await import(
+	"../apps"
+);
+const commitGuardedBatch = (
+	args: Omit<Parameters<typeof commitGuardedBatchOpaque>[0], "mutations"> & {
+		mutations: unknown;
+	},
+) =>
+	commitGuardedBatchOpaque({
+		...args,
+		mutations: admitMutationBatch(args.mutations),
+	});
 const { BlueprintCommitRejectedError } = await import("../commitGuard");
 const {
 	deletePendingAssetForActor,

@@ -148,7 +148,7 @@ export const setCaseListFilterTool = {
 
 			return {
 				kind: "mutate" as const,
-				mutations,
+				mutations: commit.mutations,
 				newDoc,
 				result:
 					filter === null

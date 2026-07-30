@@ -4,7 +4,7 @@
  * These helpers encapsulate the recurring patterns — cascade deletion,
  * sibling id deduplication, field path computation — that multiple
  * mutation kinds need. Keeping them in one place prevents subtle drift
- * (e.g. renameField and moveField both need consistent path logic).
+ * between field moves, duplication, and cascading removals.
  */
 
 import type { Draft } from "immer";
@@ -67,7 +67,7 @@ export function findFieldParent(
 	for (const [parentUuid, order] of Object.entries(doc.fieldOrder)) {
 		const index = order.indexOf(uuid);
 		if (index !== -1) {
-			return { parentUuid: parentUuid as Uuid, index };
+			return { parentUuid: asUuid(parentUuid), index };
 		}
 	}
 	return undefined;
@@ -110,7 +110,8 @@ export function walkFormFieldUuids(doc: BlueprintDoc, formUuid: Uuid): Uuid[] {
 	const result: Uuid[] = [];
 	const stack: Uuid[] = [formUuid];
 	while (stack.length > 0) {
-		const parent = stack.pop() as Uuid;
+		const parent = stack.pop();
+		if (parent === undefined) continue;
 		const order = ownRecordValue(doc.fieldOrder, parent) ?? [];
 		for (const childUuid of order) {
 			result.push(childUuid);
@@ -126,10 +127,9 @@ export function walkFormFieldUuids(doc: BlueprintDoc, formUuid: Uuid): Uuid[] {
  * with any existing sibling id, append `_2`, `_3`, ... until unique.
  *
  * CommCare requires unique field ids within each parent level
- * (cousins can share). This helper enforces that invariant on cross-
- * level moves and on rename; the auto-suffix pairs with an XPath
- * rewrite at the call site so references to the renamed field point
- * at the new id.
+ * (cousins can share). This helper enforces that invariant on cross-level
+ * moves. UUID-backed references reproject through the resulting ID and path,
+ * so no stored expression rewrite is needed.
  */
 export function dedupeSiblingId(
 	draft: Draft<BlueprintDoc>,

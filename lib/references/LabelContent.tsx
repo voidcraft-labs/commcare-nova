@@ -12,8 +12,11 @@ import Markdown, { type MarkdownToJSX, RuleType } from "markdown-to-jsx";
 import { Fragment, type ReactNode, useMemo } from "react";
 import type { ProseReferencePart, ProseTemplate } from "@/lib/domain";
 import { PREVIEW_OPTIONS, withChipInjection } from "@/lib/markdown";
-import type { ReferenceProvider } from "./provider";
-import { ReferenceChip } from "./ReferenceChip";
+import {
+	type ReferenceProvider,
+	unresolvedReferenceProjection,
+} from "./provider";
+import { ReferenceChip, UnresolvedReferenceChip } from "./ReferenceChip";
 import { useCurrentFormUuid, useReferenceProvider } from "./ReferenceContext";
 
 interface LabelContentProps {
@@ -35,13 +38,20 @@ export function textWithChips(
 				<Fragment key={index}>{part.text}</Fragment>
 			);
 		}
-		const ref = provider?.resolvePart(part, formUuid);
-		return ref ? (
+		const projected =
+			provider?.projectPart(part, formUuid) ??
+			({
+				ok: false,
+				unresolved: unresolvedReferenceProjection(part),
+			} as const);
+		return projected.ok ? (
 			// biome-ignore lint/suspicious/noArrayIndexKey: canonical ordered prose parts
-			<ReferenceChip key={index} reference={ref} />
+			<ReferenceChip key={index} reference={projected.reference} />
 		) : (
 			// biome-ignore lint/suspicious/noArrayIndexKey: canonical ordered prose parts
-			<Fragment key={index}>{fallbackProjection(part)}</Fragment>
+			<Fragment key={index}>
+				<UnresolvedReferenceChip unresolved={projected.unresolved} />
+			</Fragment>
 		);
 	});
 }
@@ -90,12 +100,20 @@ function renderMarkedText(
 		const index = text.indexOf(marker, cursor);
 		if (index < 0) continue;
 		if (index > cursor) result.push(text.slice(cursor, index));
-		const ref = provider?.resolvePart(part, formUuid);
+		const projected =
+			provider?.projectPart(part, formUuid) ??
+			({
+				ok: false,
+				unresolved: unresolvedReferenceProjection(part),
+			} as const);
 		result.push(
-			ref ? (
-				<ReferenceChip key={marker} reference={ref} />
+			projected.ok ? (
+				<ReferenceChip key={marker} reference={projected.reference} />
 			) : (
-				<Fragment key={marker}>{fallbackProjection(part)}</Fragment>
+				<UnresolvedReferenceChip
+					key={marker}
+					unresolved={projected.unresolved}
+				/>
 			),
 		);
 		cursor = index + marker.length;
@@ -156,21 +174,4 @@ export function LabelContent({
 			<Markdown options={options}>{rendered.markdown}</Markdown>
 		</div>
 	);
-}
-
-function fallbackProjection(part: ProseReferencePart): string {
-	switch (part.kind) {
-		case "field-ref":
-			return `#form/${part.uuid}`;
-		case "case-ref":
-			return `#${part.caseType}/${part.property}`;
-		case "user-property-ref":
-			return `#user/${part.userPropertyUuid}`;
-		case "user-ref":
-			return `#user/${part.property}`;
-		default: {
-			const _exhaustive: never = part;
-			return _exhaustive;
-		}
-	}
 }

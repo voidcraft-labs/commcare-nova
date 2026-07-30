@@ -199,6 +199,7 @@ describe("renameForm", () => {
 			...docWithModule(M("A")),
 			forms: { [F("1")]: form_(F("1"), "Old") },
 			formOrder: { [M("A")]: [F("1")] },
+			fieldOrder: { [F("1")]: [] },
 		};
 		const next = produce(start, (d) => {
 			applyMutation(d, { kind: "renameForm", uuid: F("1"), newId: "New" });
@@ -214,6 +215,7 @@ describe("updateForm", () => {
 			...docWithModule(M("A")),
 			forms: { [F("1")]: form_(F("1")) },
 			formOrder: { [M("A")]: [F("1")] },
+			fieldOrder: { [F("1")]: [] },
 		};
 		const next = produce(start, (d) => {
 			applyMutation(d, {

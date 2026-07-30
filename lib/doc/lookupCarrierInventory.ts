@@ -26,6 +26,7 @@ import type {
 	Module,
 	Uuid,
 } from "@/lib/domain";
+import { asUuid } from "@/lib/domain";
 import type { Predicate, ValueExpression } from "@/lib/domain/predicate/types";
 import {
 	walkExpressionNodes,
@@ -172,7 +173,7 @@ function parentByField(doc: BlueprintDoc): ReadonlyMap<Uuid, Uuid> {
 	for (const parentUuid of Object.keys(doc.fieldOrder).sort()) {
 		for (const fieldUuid of doc.fieldOrder[parentUuid] ?? []) {
 			if (!parents.has(fieldUuid)) {
-				parents.set(fieldUuid, parentUuid as Uuid);
+				parents.set(fieldUuid, asUuid(parentUuid));
 			}
 		}
 	}

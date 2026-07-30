@@ -29,8 +29,7 @@ export const addCaseOperationsInputSchema = operationAddressSchema.extend({
 		.array(
 			z
 				.object({
-					operationUuid: z
-						.uuid()
+					operationUuid: uuidSchema
 						.optional()
 						.describe(
 							"Stable UUID for the new operation. Supply it when another item in this call references the operation; otherwise Nova mints it.",
@@ -180,9 +179,13 @@ export const addCaseOperationsTool = {
 						},
 					};
 				}
+				const operationUuid = operationUuids[offset];
+				if (operationUuid === undefined) {
+					throw new Error("Case-operation UUID allocation drifted from input.");
+				}
 				const operation = resolveCaseOperationInput(
 					authorOperation,
-					operationUuids[offset] as Uuid,
+					operationUuid,
 				);
 				const planned = addCaseOperationAfterMutations(
 					working,
@@ -212,7 +215,7 @@ export const addCaseOperationsTool = {
 			const operationIds = input.operations.map((item) => item.operation.id);
 			return {
 				kind: "mutate",
-				mutations,
+				mutations: commit.mutations,
 				newDoc: commit.newDoc,
 				result: {
 					message: `Added ${operationIds.length} case ${operationIds.length === 1 ? "operation" : "operations"} to form "${doc.forms[address.formUuid]?.name ?? input.formUuid}": ${operationIds.join(", ")}.`,

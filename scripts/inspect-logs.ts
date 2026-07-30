@@ -27,11 +27,7 @@ import { Command, InvalidArgumentError } from "commander";
 import { closeCaseStoreDatabase } from "@/lib/case-store/postgres/connection";
 import { getAppDb } from "@/lib/db/pg";
 import type { RunSummaryDoc } from "@/lib/db/types";
-import {
-	decodeEventsLenient,
-	readEvents,
-	readRunSummary,
-} from "@/lib/log/reader";
+import { decodeEvents, readEvents, readRunSummary } from "@/lib/log/reader";
 import {
 	duration,
 	pct,
@@ -180,13 +176,7 @@ const runsTableOnly =
  */
 async function loadEvents(): Promise<Event[]> {
 	if (runFilter) {
-		const { events, skipped } = await readEvents(appId, runFilter);
-		if (skipped > 0) {
-			console.warn(
-				`Skipped ${skipped} unparseable event(s) (schema drift / forward-version payload).`,
-			);
-		}
-		return events;
+		return readEvents(appId, runFilter);
 	}
 	const db = await getAppDb();
 	const rows = await db
@@ -196,18 +186,7 @@ async function loadEvents(): Promise<Event[]> {
 		.orderBy("ts")
 		.orderBy("seq")
 		.execute();
-	// Drop-and-warn on any event that fails schema validation (forward-version
-	// payload / schema drift) instead of letting one bad row abort the whole
-	// scan — the failure that made this script crash on attachment-prep events.
-	const { events, skipped, sample } = decodeEventsLenient(
-		rows.map((row) => row.event),
-	);
-	if (skipped > 0) {
-		console.warn(
-			`Skipped ${skipped} unparseable event(s) (schema drift / forward-version payload). First: ${sample}`,
-		);
-	}
-	return events;
+	return decodeEvents(rows.map((row) => row.event));
 }
 
 /**

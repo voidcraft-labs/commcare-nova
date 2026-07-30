@@ -146,6 +146,7 @@ export function buildLongDetail(args: {
 		detailKind: "long",
 		target,
 		caseProperties,
+		proseDoc: args.doc,
 		caseTypes: effectiveCaseTypes(args.doc),
 		currentCaseType: mod.caseType,
 		userPropertySlugs: userPropertySlugsByUuid(args.doc),

@@ -20,7 +20,6 @@ import {
 	useIsCaseFirstModule,
 	useOrderedForms,
 } from "@/lib/doc/hooks/useModuleIds";
-import type { Uuid } from "@/lib/doc/types";
 import { formTypeIcons } from "@/lib/domain/formTypeIcons";
 import { formDisplayVisibility } from "@/lib/preview/engine/displayConditionEvaluation";
 import { previewSessionValues } from "@/lib/preview/engine/identity";
@@ -57,7 +56,7 @@ export function ModuleScreen({ screen: _screen }: ModuleScreenProps) {
 	const moduleUuid = loc.kind === "module" ? loc.moduleUuid : undefined;
 
 	const mod = useModuleEntity(moduleUuid);
-	const forms = useOrderedForms((moduleUuid ?? "") as Uuid);
+	const forms = useOrderedForms(moduleUuid);
 	const lookup = usePreviewLookupStatus();
 	/* Whoever Preview is running as — the member, or the persona they
 	 * picked. One identity across every preview surface. */

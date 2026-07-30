@@ -172,17 +172,18 @@ describe("final mutation envelope", () => {
 				patch: { target: null },
 			},
 		} as const;
-		const reorder = {
+		const move = {
 			kind: "updateForm",
 			uuid: FORM,
 			patch: {},
 			caseOperationPatch: {
-				operation: "reorder-writes",
+				operation: "move-write",
 				uuid: OPERATION,
-				properties: ["status", "visited_on"],
+				property: "visited_on",
+				after: null,
 			},
 		} as const;
 		expect(mutationSchema.parse(unlink)).toEqual(unlink);
-		expect(mutationSchema.parse(reorder)).toEqual(reorder);
+		expect(mutationSchema.parse(move)).toEqual(move);
 	});
 });

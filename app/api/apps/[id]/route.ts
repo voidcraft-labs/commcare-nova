@@ -27,8 +27,12 @@ import {
 	AppProjectChangedError,
 	BlueprintCommitRejectedError,
 	CommitReauthError,
+	MutationBatchIdCollisionError,
 } from "@/lib/db/commitGuard";
-import { mutationSchema } from "@/lib/doc/types";
+import {
+	admitMutationBatch,
+	MutationWireCanonicalityError,
+} from "@/lib/doc/mutationAdmission";
 import { log } from "@/lib/logger";
 
 export async function GET(
@@ -103,25 +107,26 @@ export async function PUT(
 			throw new ApiError("Invalid JSON body", 400);
 		}
 
-		/* The client sends the MUTATION DELTA since its last save (never the
-		 * whole doc — `diffDocsToMutations` in `useAutoSave`) plus a client-minted
-		 * `batchId` for idempotency. Validate the shape before writing; the saga's
-		 * guard mode replays the delta onto the fresh stored blueprint and re-runs
-		 * the validity verdict. */
-		const parsed = z
-			.object({
-				mutations: z.array(mutationSchema),
-				batchId: z.string().uuid(),
-			})
-			.safeParse(body);
-		if (!parsed.success) {
-			/* The client only sees a generic 400. Log the Zod issues server-side
-			 * so a rejected auto-save is debuggable from WHICH mutation failed. */
-			log.warn("[apps] invalid mutations on save", {
-				appId: id,
-				issues: parsed.error.issues,
-			});
-			throw new ApiError("Invalid mutations", 400);
+		if (typeof body !== "object" || body === null || Array.isArray(body)) {
+			throw new ApiError("Invalid save request", 400);
+		}
+		const request = body as Record<string, unknown>;
+		/* Mutation admission is deliberately first. It descriptor-detaches,
+		 * JSON-round-trips, exact-schema-compares, protects, and freezes the
+		 * proposal before batch-id validation, dedup, target inspection, a
+		 * reducer, or the saga can observe mutation content. */
+		const mutations = admitMutationBatch(request.mutations);
+		const requestKeys = Object.keys(request).toSorted((a, b) =>
+			a.localeCompare(b),
+		);
+		const batchId = z.string().uuid().safeParse(request.batchId);
+		if (
+			requestKeys.length !== 2 ||
+			requestKeys[0] !== "batchId" ||
+			requestKeys[1] !== "mutations" ||
+			!batchId.success
+		) {
+			throw new ApiError("Invalid save request", 400);
 		}
 
 		/* Route through the schema saga so a property-surface mutation in
@@ -137,9 +142,9 @@ export async function PUT(
 			userId: session.user.id,
 			expectedProjectId: access.projectId,
 			priorBlueprint: app.blueprint,
-			batchId: parsed.data.batchId,
+			batchId: batchId.data,
 			kind: "autosave",
-			guard: { mutations: parsed.data.mutations },
+			guard: { mutations },
 		});
 		/* The migration outcome rides the response ONLY when the commit's
 		 * row migrations actually touched saved case data — the client
@@ -158,6 +163,28 @@ export async function PUT(
 			...(touchedRows && { migration }),
 		});
 	} catch (err) {
+		if (err instanceof MutationWireCanonicalityError) {
+			return Response.json(
+				{
+					error:
+						"This edit could not be saved because its mutation data was not canonical.",
+					type: "mutation_wire_canonicality_invalid",
+					retryable: false,
+					details: err.details,
+				},
+				{ status: 400 },
+			);
+		}
+		if (err instanceof MutationBatchIdCollisionError) {
+			return Response.json(
+				{
+					error: "This save reused a batch id for different content.",
+					type: "mutation_batch_id_collision",
+					retryable: false,
+				},
+				{ status: 400 },
+			);
+		}
 		/* The early edit gate distinguishes a known member whose role is now
 		 * view-only from absent/non-member apps. The former is a typed capability
 		 * transition the client confirms through an atomic GET; the latter keep the

@@ -230,10 +230,13 @@ export interface AppDoc {
  * both the realtime catch-up stream and the app's durable edit history, so
  * folding every batch from an app's first seq reproduces its entity rows.
  * `UNIQUE (app_id, batch_id)` is the idempotency latch a retried PUT keys on.
- * A `kind: 'migration'` entry tells a live client to reload rather than replay.
- * Blueprint-changing repairs/migrations still carry their real deterministic
- * mutations for durable history; the array may be empty only when the atomic
- * change is outside the blueprint itself (for example, a Project-only move).
+ * A `kind: 'migration'` entry tells a live client to reload rather than replay
+ * that suffix in place.
+ * A migration row with a matching immutable `mutation_fold_baselines` entry
+ * carries an intentionally empty array: its snapshot, not unavailable
+ * pre-horizon history, is the fold start. Other migration rows remain
+ * nonempty replayable durable edits for server-side folding, but still require
+ * the live-client reload and do not establish a baseline.
  */
 export interface AcceptedMutationDoc {
 	seq: number;

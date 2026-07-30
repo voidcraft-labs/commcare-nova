@@ -137,7 +137,7 @@ export const addSearchInputsTool = {
 			const labels = searchInputs.map((s) => `"${s.label}"`).join(", ");
 			return {
 				kind: "mutate" as const,
-				mutations: result.mutations,
+				mutations: commit.mutations,
 				newDoc,
 				result: {
 					message: `Added ${searchInputs.length} search input${searchInputs.length === 1 ? "" : "s"} to module "${mod.name}": ${labels}.`,

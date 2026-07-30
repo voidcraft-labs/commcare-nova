@@ -30,6 +30,11 @@ import type { MutatingToolResult } from "@/lib/agent/tools/common";
 import { AppAccessError, resolveAppAccess } from "@/lib/db/appAccess";
 import { loadApp } from "@/lib/db/apps";
 import type { AppDoc } from "@/lib/db/types";
+import {
+	type PreparedMutationCandidate,
+	prepareMutationCandidate,
+} from "@/lib/doc/commitVerdicts";
+import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
@@ -258,7 +263,10 @@ describe("registerSharedTool — mutating tools", () => {
 			async execute(_input, ctx: ToolExecutionContext, doc: BlueprintDoc) {
 				/* Simulate what every shared mutating tool does: call
 				 * recordMutations inside its own body. */
-				await ctx.recordMutations([mut], doc, "stage:x");
+				await ctx.recordMutations(
+					prepareMutationCandidate(doc, admitMutationBatch([mut])),
+					"stage:x",
+				);
 				toolSawRecordMutations = true;
 				const result: MutatingToolResult<{ ok: true }> = {
 					kind: "mutate",
@@ -278,9 +286,9 @@ describe("registerSharedTool — mutating tools", () => {
 		const originalRecord = McpContext.prototype.recordMutations;
 		McpContext.prototype.recordMutations = vi
 			.fn()
-			.mockImplementation(async (muts: Mutation[]) => {
-				recordedByAdapter.push(muts);
-				return [];
+			.mockImplementation(async (prepared: PreparedMutationCandidate) => {
+				recordedByAdapter.push([...prepared.mutations]);
+				return { events: [], committedDoc: prepared.nextDoc };
 			});
 
 		try {

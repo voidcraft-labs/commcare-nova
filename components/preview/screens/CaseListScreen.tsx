@@ -190,7 +190,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	 *
 	 * A module with no case-loading form has nowhere to continue, so the
 	 * list reads as informational. */
-	const orderedForms = useOrderedForms((moduleUuid ?? "") as Uuid);
+	const orderedForms = useOrderedForms(moduleUuid);
 	const previewCaseTarget = usePreviewCaseTarget();
 	const setPreviewCaseTarget = useSetPreviewCaseTarget();
 	const caseLoadingForms = useMemo(

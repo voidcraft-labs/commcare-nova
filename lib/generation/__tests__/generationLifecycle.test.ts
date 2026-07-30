@@ -133,6 +133,14 @@ const Q_AGE_UUID = testUuid("q-patient-age");
 const CASE_TYPES = [
 	{ name: "patient", properties: [{ name: "name", label: proseText("Name") }] },
 ];
+const CATALOG_MUTATIONS: Mutation[] = [
+	{ kind: "declareCaseType", caseType: "patient" },
+	{
+		kind: "addCaseProperty",
+		caseType: "patient",
+		property: { name: "name", label: proseText("Name") },
+	},
+];
 
 const SCAFFOLD_MUTATIONS: Mutation[] = [
 	{ kind: "setAppName", name: "Health App" },
@@ -205,12 +213,7 @@ describe("generation lifecycle (end-to-end)", () => {
 		expect(docStore.getState().canUndo).toBe(false);
 
 		// ── Schema mutation lands → foundation established ──
-		emitMutations(
-			[{ kind: "setCaseTypes", caseTypes: CASE_TYPES }],
-			"schema",
-			docStore,
-			sessionStore,
-		);
+		emitMutations(CATALOG_MUTATIONS, "schema", docStore, sessionStore);
 		expect(doc().caseTypes).toEqual(CASE_TYPES);
 		expect(deriveAgentStage(s().events)).toBe(GenerationStage.Foundation);
 		expect(derivePhaseLocal(sessionStore, docStore)).toBe(
@@ -293,12 +296,7 @@ describe("generation lifecycle (end-to-end)", () => {
 		const s = () => sessionStore.getState();
 
 		s().beginRun();
-		emitMutations(
-			[{ kind: "setCaseTypes", caseTypes: CASE_TYPES }],
-			"schema",
-			docStore,
-			sessionStore,
-		);
+		emitMutations(CATALOG_MUTATIONS, "schema", docStore, sessionStore);
 		emitMutations(SCAFFOLD_MUTATIONS, "scaffold", docStore, sessionStore);
 		emitMutations(FORM_CONTENT_MUTATIONS, "form:0-0", docStore, sessionStore);
 
@@ -356,12 +354,7 @@ describe("generation lifecycle (end-to-end)", () => {
 		const s = () => sessionStore.getState();
 
 		s().beginRun();
-		emitMutations(
-			[{ kind: "setCaseTypes", caseTypes: CASE_TYPES }],
-			"schema",
-			docStore,
-			sessionStore,
-		);
+		emitMutations(CATALOG_MUTATIONS, "schema", docStore, sessionStore);
 		emitMutations(SCAFFOLD_MUTATIONS, "scaffold", docStore, sessionStore);
 
 		expect(docStore.getState().moduleOrder).toHaveLength(1);
@@ -396,12 +389,7 @@ describe("generation lifecycle (end-to-end)", () => {
 
 		// Full completed build.
 		s().beginRun();
-		emitMutations(
-			[{ kind: "setCaseTypes", caseTypes: CASE_TYPES }],
-			"schema",
-			docStore,
-			sessionStore,
-		);
+		emitMutations(CATALOG_MUTATIONS, "schema", docStore, sessionStore);
 		emitMutations(SCAFFOLD_MUTATIONS, "scaffold", docStore, sessionStore);
 		s().markRunCompleted();
 		s().endRun();
@@ -451,12 +439,7 @@ describe("generation lifecycle (end-to-end)", () => {
 		const s = () => sessionStore.getState();
 
 		s().beginRun();
-		emitMutations(
-			[{ kind: "setCaseTypes", caseTypes: CASE_TYPES }],
-			"schema",
-			docStore,
-			sessionStore,
-		);
+		emitMutations(CATALOG_MUTATIONS, "schema", docStore, sessionStore);
 		emitMutations(SCAFFOLD_MUTATIONS, "scaffold", docStore, sessionStore);
 		emitMutations(FORM_CONTENT_MUTATIONS, "form:0-0", docStore, sessionStore);
 		s().markRunCompleted();

@@ -7,6 +7,7 @@
 import {
 	type ProseTemplate,
 	printProseTemplate,
+	projectProseTemplate,
 	resolveProseTemplate,
 	type XPathPrintableDoc,
 } from "@/lib/domain";
@@ -18,11 +19,16 @@ import {
 export function proseReferenceExpressions(
 	template: ProseTemplate | undefined,
 	doc: XPathPrintableDoc,
+	mode: "strict" | "inspection" = "strict",
 ): string[] {
 	if (!template) return [];
 	return template.parts
 		.filter((part) => part.kind !== "text")
-		.map((part) => printProseTemplate({ parts: [part] }, doc));
+		.map((part) =>
+			mode === "strict"
+				? printProseTemplate({ parts: [part] }, doc)
+				: projectProseTemplate({ parts: [part] }, doc).text,
+		);
 }
 
 /**

@@ -72,7 +72,7 @@ function setup() {
 		fields: {},
 		moduleOrder: [MOD_A, MOD_B],
 		formOrder: { [MOD_A]: [FORM_A], [MOD_B]: [FORM_B] },
-		fieldOrder: {},
+		fieldOrder: { [FORM_A]: [], [FORM_B]: [] },
 		fieldParent: {},
 	};
 	store.getState().load(doc);
@@ -129,7 +129,7 @@ describe("useAppConnectIds", () => {
 			fields: {},
 			moduleOrder: [MOD_A],
 			formOrder: { [MOD_A]: [FORM_A] },
-			fieldOrder: {},
+			fieldOrder: { [FORM_A]: [] },
 		});
 		const wrapper = ({ children }: { children: ReactNode }) => (
 			<BlueprintDocContext.Provider value={store}>

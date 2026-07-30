@@ -51,8 +51,14 @@ import {
 	planCaseTypeRetirementOnRemove,
 	planCaseTypeRetirementOnRetype,
 } from "@/lib/doc/caseTypeRetirement";
+import type { PreparedMutationCandidate } from "@/lib/doc/commitVerdicts";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import {
+	type AdmittedMutationStages,
+	isAdmittedMutationBatch,
+} from "@/lib/doc/mutationAdmission";
 import { buildReferenceIndex } from "@/lib/doc/referenceIndex";
+import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, CaseListConfig, Uuid } from "@/lib/domain";
 import { blueprintDocSchema } from "@/lib/domain";
 import { eq, literal, prop } from "@/lib/domain/predicate";
@@ -85,18 +91,30 @@ function makeCtx(): ToolExecutionContext {
 	// tool's `newDoc` (= committedDoc) into the next op.
 	return {
 		appId: "app-fuzz",
+		projectId: "project-fuzz",
 		userId: "user-fuzz",
 		runId: "run-fuzz",
-		recordMutations: vi.fn(async (_m: unknown, doc: unknown) => ({
+		recordMutations: vi.fn(async (prepared: PreparedMutationCandidate) => ({
 			events: [],
-			committedDoc: doc,
+			committedDoc: prepared.nextDoc,
 		})),
-		recordMutationStages: vi.fn(async (stages: Array<{ doc: unknown }>) => ({
-			events: [],
-			committedDoc: stages[stages.length - 1]?.doc,
-		})),
+		recordMutationStages: vi.fn(
+			async (
+				prepared: PreparedMutationCandidate,
+				_stages: AdmittedMutationStages,
+			) => ({
+				events: [],
+				committedDoc: prepared.nextDoc,
+			}),
+		),
 		recordConversation: vi.fn(),
-	} as unknown as ToolExecutionContext;
+		conversionImpact: vi.fn(async () => ({
+			totalWithValue: 0,
+			uncastable: 0,
+			alreadyHeld: 0,
+			samples: [],
+		})),
+	};
 }
 
 /** The empty doc a fresh app is born as — `createApp`'s shape. */
@@ -701,7 +719,7 @@ async function runParsed<I>(
 			input: I,
 			ctx: ToolExecutionContext,
 			doc: BlueprintDoc,
-		): Promise<{ newDoc: BlueprintDoc }>;
+		): Promise<{ newDoc: BlueprintDoc; mutations: readonly Mutation[] }>;
 	},
 	rawInput: unknown,
 	ctx: ToolExecutionContext,
@@ -710,6 +728,9 @@ async function runParsed<I>(
 	const parsed = tool.inputSchema.safeParse(rawInput);
 	if (!parsed.success) return doc;
 	const out = await tool.execute(parsed.data, ctx, doc);
+	if (out.mutations.length > 0) {
+		expect(isAdmittedMutationBatch(out.mutations)).toBe(true);
+	}
 	return out.newDoc;
 }
 
@@ -1242,7 +1263,7 @@ function assertPersistedShapeParses(doc: BlueprintDoc, context: string): void {
  * deep-equal a from-scratch rebuild. The dedicated raw-mutation fuzz
  * (`lib/doc/__tests__/referenceIndex.fuzz.test.ts`) covers the kinds
  * the tools don't drive; this run covers the real tool batches —
- * atomic creations, the retirement cascade's `setCaseTypes` append,
+ * atomic creations, the retirement cascade's granular catalog batch,
  * multi-stage edits — so the two alphabets meet in the middle.
  */
 function assertIndexParity(doc: BlueprintDoc, context: string): void {
@@ -1665,8 +1686,8 @@ function opCarriesConnect(op: FuzzOp): boolean {
 // module-displacing op's outcome so the run can assert the three
 // retirement arms each actually OCCURRED (≥1 each, occurrence assertions
 // under the pinned seed — not per-run floors): the cascade committed (the
-// catalog shrank — `setCaseTypes` is reachable only through the cascade
-// on this op pool), the planner blocked a displacement over live
+// catalog shrank through the cascade on this op pool), the planner blocked a
+// displacement over live
 // references, and the gate bounced an only-module removal (NO_MODULES).
 
 interface RetirementArmTally {

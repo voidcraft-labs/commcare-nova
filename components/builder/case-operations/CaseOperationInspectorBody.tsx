@@ -57,6 +57,7 @@ import {
 import { useNavigate } from "@/lib/routing/hooks";
 import { useCanEdit } from "@/lib/session/hooks";
 import { useInlineConfirmFocus } from "@/lib/ui/hooks/useInlineConfirmFocus";
+import { useCaseTargetDraft } from "./CaseTargetDraftContext";
 import { CaseTargetPicker } from "./CaseTargetPicker";
 import {
 	identityKeyFieldDecls,
@@ -105,6 +106,7 @@ export function CaseOperationInspectorBody({
 	const navigate = useNavigate();
 	const canEdit = useCanEdit();
 	const [refusal, setRefusal] = useState<string | undefined>(undefined);
+	const targetDraft = useCaseTargetDraft(formUuid, operationUuid);
 
 	const fieldEntries = useFormFieldEntries(formUuid);
 	const caseFirst = useModuleSelectsCaseFirst(moduleUuid);
@@ -315,7 +317,10 @@ export function CaseOperationInspectorBody({
 						operation={operation}
 						canEdit={operationCanEdit}
 						choices={actionChoices}
-						onChange={commit}
+						onChange={(next) => {
+							targetDraft.clear();
+							commit(next);
+						}}
 					/>
 				</Row>
 
@@ -358,8 +363,10 @@ export function CaseOperationInspectorBody({
 									}
 								: view.editVerdict(retarget(target))
 						}
+						onRequestExpression={targetDraft.begin}
 						onChange={(target) => {
 							if (target === null) return;
+							targetDraft.clear();
 							commit(retarget(target));
 						}}
 					/>

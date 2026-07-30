@@ -28,15 +28,24 @@
  *                                exclusively on `mutation` frames.
  *   event: presence            — the full presence roster snapshot.
  *   event: reload              — replay is impossible (below the retention
- *                                efficiency bound, a gap, or a migration
- *                                batch); the client GETs the fresh blueprint.
+ *                                efficiency bound or a gap), or a migration
+ *                                batch requires a fresh snapshot handoff; the
+ *                                client GETs the current blueprint.
  *                                Seq-less, no `id:` line.
+ *   event: protocol-failure    — the complete post-cursor suffix failed the
+ *                                canonical frame grammar. No mutation frame
+ *                                was emitted and the client reloads from its
+ *                                unchanged cursor. Seq-less and terminal.
  *   event: revoked             — access was revoked; the client stops. Seq-less.
  */
 
 import { sql } from "kysely";
 import { ApiError, handleApiError } from "@/lib/apiError";
 import { getSessionSafe, requireSession } from "@/lib/auth-utils";
+import {
+	admitMutationFrame,
+	type MutationFrame,
+} from "@/lib/collab/mutationFrame";
 import type { PresenceEntry } from "@/lib/collab/presenceTypes";
 import { isUserActive } from "@/lib/db/api-keys";
 import {
@@ -254,7 +263,7 @@ function openStream(args: {
 					if (closed) return;
 					let frame = `event: ${event}\n`;
 					/* `revoked` / `reload` are seq-less — no `id:` line, so a reconnect
-					 * never resumes from a migration reload. */
+					 * never advances past a migration that requires a fresh snapshot. */
 					if (seqId !== undefined) frame += `id: ${seqId}\n`;
 					frame += `data: ${JSON.stringify(data)}\n\n`;
 					try {
@@ -306,6 +315,11 @@ function openStream(args: {
 					teardown();
 				}
 
+				function protocolFailureAndClose(reason: string): void {
+					send("protocol-failure", { reason });
+					teardown();
+				}
+
 				/* SELECT every committed batch past the delivered cursor and emit it. The
 				 * `accepted_mutations` log is PERMANENT, so the entries always exist above
 				 * the retention efficiency bound — a gap here means the cursor is a real
@@ -316,17 +330,23 @@ function openStream(args: {
 					const db = await getAppDb();
 					const rows = await db
 						.selectFrom("accepted_mutations")
+						.leftJoin("mutation_fold_baselines as baseline", (join) =>
+							join
+								.onRef("baseline.app_id", "=", "accepted_mutations.app_id")
+								.onRef("baseline.seq", "=", "accepted_mutations.seq"),
+						)
 						.select([
-							"seq",
-							"batch_id",
-							"run_id",
-							"actor_id",
-							"kind",
-							"mutations",
+							"accepted_mutations.seq as seq",
+							"accepted_mutations.batch_id as batch_id",
+							"accepted_mutations.run_id as run_id",
+							"accepted_mutations.actor_id as actor_id",
+							"accepted_mutations.kind as kind",
+							"accepted_mutations.mutations as mutations",
+							"baseline.seq as baseline_seq",
 						])
-						.where("app_id", "=", appId)
-						.where("seq", ">", deliveredThrough)
-						.orderBy("seq")
+						.where("accepted_mutations.app_id", "=", appId)
+						.where("accepted_mutations.seq", ">", deliveredThrough)
+						.orderBy("accepted_mutations.seq")
 						.execute();
 					/* Validate the COMPLETE fetched suffix before emitting any frame. A
 					 * migration marker later in the same SELECT invalidates replay of every
@@ -336,6 +356,7 @@ function openStream(args: {
 					 * by partially applying C+1…M-1 first. */
 					let expectedSeq = deliveredThrough + 1;
 					let containsMigration = false;
+					const parsedFrames: MutationFrame[] = [];
 					for (const row of rows) {
 						const seq = Number(row.seq);
 						if (seq !== expectedSeq) {
@@ -343,14 +364,51 @@ function openStream(args: {
 							return;
 						}
 						expectedSeq += 1;
-						if (row.kind === "migration") containsMigration = true;
+						const parsed = admitMutationFrame({
+							seq,
+							batchId: row.batch_id,
+							actorId: row.actor_id,
+							kind: row.kind,
+							mutations: row.mutations,
+							...(row.run_id === null ? {} : { runId: row.run_id }),
+						});
+						if (parsed === null) {
+							log.error("[stream] malformed durable mutation suffix", {
+								appId,
+								seq,
+							});
+							protocolFailureAndClose("malformed-mutation-suffix");
+							return;
+						}
+						parsedFrames.push(parsed);
+						const isBaseline = row.baseline_seq !== null;
+						if (
+							(isBaseline &&
+								(parsed.kind !== "migration" ||
+									parsed.mutations.length !== 0)) ||
+							(!isBaseline && parsed.mutations.length === 0)
+						) {
+							log.error("[stream] invalid baseline mutation shape", {
+								appId,
+								seq,
+							});
+							protocolFailureAndClose("malformed-mutation-suffix");
+							return;
+						}
+						if (parsed.kind === "migration") containsMigration = true;
 					}
 
 					if (containsMigration) {
-						/* The marker may also represent an app move. Reauthorize before
+						/* A migration batch may also represent an app move. Reauthorize before
 						 * advancing any cursor or emitting any earlier ordinary row. A
 						 * transient failure leaves `deliveredThrough` unchanged and the
-						 * pump retries the whole suffix; a confirmed loss revokes. */
+						 * pump retries the whole suffix; a confirmed loss revokes.
+						 *
+						 * A baseline row is the only legal empty migration and establishes
+						 * a new fold horizon. A nonempty migration remains a replayable
+						 * durable edit, but live clients still cross it through one fresh
+						 * snapshot so authorization and non-blueprint state cannot straddle
+						 * the change. */
 						try {
 							runBeforeMigrationReauthorizationTestHook();
 							await reauthorizeStreamScope(appId, userId);
@@ -366,25 +424,13 @@ function openStream(args: {
 						return;
 					}
 
-					for (const row of rows) {
+					for (const frame of parsedFrames) {
 						if (closed) return;
-						const seq = Number(row.seq);
-						deliveredThrough = seq;
+						deliveredThrough = frame.seq;
 						/* Project the client-relevant shape — the reconciler keys on these
 						 * fields (echo classification, gap detection, apply). The row's
 						 * server-only `ts` is not on the wire. */
-						send(
-							"mutation",
-							{
-								seq,
-								batchId: row.batch_id,
-								runId: row.run_id ?? undefined,
-								actorId: row.actor_id,
-								kind: row.kind,
-								mutations: row.mutations,
-							},
-							seq,
-						);
+						send("mutation", frame, frame.seq);
 					}
 				}
 

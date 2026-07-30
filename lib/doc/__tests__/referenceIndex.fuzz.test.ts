@@ -9,14 +9,14 @@
  *
  * The generator drives one op per applyMutations batch over a
  * reference-rich seed doc, with picks resolved against the RUNNING doc
- * the way the construction fuzz resolves its ops; the `addThenRename`
+ * the way the construction fuzz resolves its ops; the `addThenUpdateFieldId`
  * compound op lowers to a TWO-mutation batch with an intra-batch
- * dependency (the add lands a ref, the same batch renames its target),
- * pinning mid-batch index currency. Reducers are total, so the
- * alphabet deliberately includes shapes the commit gate would reject
- * (sibling-id collisions via rename, dangling refs, case-type flips on
- * referenced types) — the index must stay rebuild-equal through every
- * degenerate state replay can produce, not just gated ones.
+ * dependency (the add lands a case-property ref, the same batch changes its
+ * writer's ID), pinning mid-batch index currency. The alphabet deliberately includes
+ * candidate shapes the commit gate rejects (sibling-ID collisions,
+ * dangling refs, and case-type flips on referenced types): index
+ * maintenance runs while constructing the candidate the gate evaluates,
+ * so it must stay rebuild-equal even when that candidate is rejected.
  *
  * Floors per the fuzz doctrine: the seed is pinned, and the run
  * asserts every op kind INDIVIDUALLY changed the doc at least once
@@ -25,7 +25,7 @@
  * at-a-distance arms that motivated the maintenance buckets, each
  * tied to the shape it names: a root add carrying the predeclared pending
  * UUID that provably materialized the standing dangling carrier's edge, a
- * case-bound rename with a genuinely new id, and a cross-module form
+ * case-bound field-ID change with a genuinely new id, and a cross-module form
  * move.
  */
 
@@ -46,6 +46,7 @@ import { buildReferenceIndex } from "@/lib/doc/referenceIndex";
 import type { Mutation } from "@/lib/doc/types";
 import {
 	type BlueprintDoc,
+	canonicalProseTemplate,
 	entityTargetKey,
 	fieldCasePropertyOn,
 	type Uuid,
@@ -278,7 +279,7 @@ type FuzzOp =
 			asGroup: boolean;
 	  }
 	| { kind: "removeField"; fieldPick: number }
-	| { kind: "renameField"; fieldPick: number; idPick: number }
+	| { kind: "updateFieldId"; fieldPick: number; idPick: number }
 	| { kind: "moveField"; fieldPick: number; parentPick: number; index: number }
 	| { kind: "duplicateField"; fieldPick: number }
 	| { kind: "convertField"; fieldPick: number }
@@ -298,10 +299,10 @@ type FuzzOp =
 	| { kind: "moveModule"; modulePick: number; index: number }
 	| { kind: "renameModule"; modulePick: number }
 	| { kind: "updateModule"; modulePick: number; caseTypePick: number }
-	| { kind: "setCaseTypes"; drop: boolean }
+	| { kind: "editCaseTypes"; drop: boolean }
 	| { kind: "setAppName" }
 	| {
-			kind: "addThenRename";
+			kind: "addThenUpdateFieldId";
 			formPick: number;
 			targetPick: number;
 			idPick: number;
@@ -334,7 +335,7 @@ const opArb: fc.Arbitrary<FuzzOp> = fc.oneof(
 				fieldPick: fc.nat({ max: 30 }),
 				idPick: fc.nat({ max: ID_POOL.length - 1 }),
 			})
-			.map((r) => ({ kind: "renameField" as const, ...r })),
+			.map((r) => ({ kind: "updateFieldId" as const, ...r })),
 	},
 	{
 		weight: 3,
@@ -442,7 +443,7 @@ const opArb: fc.Arbitrary<FuzzOp> = fc.oneof(
 		weight: 1,
 		arbitrary: fc
 			.record({ drop: fc.boolean() })
-			.map((r) => ({ kind: "setCaseTypes" as const, ...r })),
+			.map((r) => ({ kind: "editCaseTypes" as const, ...r })),
 	},
 	{ weight: 1, arbitrary: fc.constant({ kind: "setAppName" as const }) },
 	{
@@ -453,7 +454,7 @@ const opArb: fc.Arbitrary<FuzzOp> = fc.oneof(
 				targetPick: fc.nat({ max: 9 }),
 				idPick: fc.nat({ max: ID_POOL.length - 1 }),
 			})
-			.map((r) => ({ kind: "addThenRename" as const, ...r })),
+			.map((r) => ({ kind: "addThenUpdateFieldId" as const, ...r })),
 	},
 );
 
@@ -551,10 +552,18 @@ function lower(doc: BlueprintDoc, op: FuzzOp): Mutation[] {
 			const uuid = pickField(doc, op.fieldPick);
 			return uuid ? [{ kind: "removeField", uuid }] : [];
 		}
-		case "renameField": {
+		case "updateFieldId": {
 			const uuid = pickField(doc, op.fieldPick);
-			return uuid
-				? [{ kind: "renameField", uuid, newId: ID_POOL[op.idPick] }]
+			const field = uuid ? doc.fields[uuid] : undefined;
+			return field
+				? [
+						{
+							kind: "updateField",
+							uuid: field.uuid,
+							targetKind: field.kind,
+							patch: { id: ID_POOL[op.idPick] },
+						} as Mutation,
+					]
 				: [];
 		}
 		case "moveField": {
@@ -695,28 +704,37 @@ function lower(doc: BlueprintDoc, op: FuzzOp): Mutation[] {
 			const caseType = CASE_TYPE_POOL[op.caseTypePick];
 			return [{ kind: "updateModule", uuid, patch: { caseType } }];
 		}
-		case "setCaseTypes":
-			return [
-				{
-					kind: "setCaseTypes",
-					caseTypes: op.drop ? null : [{ name: "patient", properties: [] }],
-				},
-			];
+		case "editCaseTypes":
+			if (op.drop) {
+				return (doc.caseTypes ?? []).map((caseType) => ({
+					kind: "retireCaseType" as const,
+					caseType: caseType.name,
+				}));
+			}
+			return doc.caseTypes?.some((caseType) => caseType.name === "patient")
+				? []
+				: [{ kind: "declareCaseType", caseType: "patient" }];
 		case "setAppName":
 			return [{ kind: "setAppName", name: "Renamed app" }];
-		case "addThenRename": {
+		case "addThenUpdateFieldId": {
 			// TWO mutations in ONE batch with an intra-batch dependency: the
-			// add lands a ref to an existing root-level field, then the SAME
-			// batch renames that field — the rename's reducer lookup only
-			// finds the fresh carrier if the add's maintenance ran before it
-			// (mid-batch currency).
+			// add lands a typed case-property ref, then the SAME batch changes
+			// that property's writer ID. The update reducer's index lookup only
+			// finds and rewrites the fresh carrier if the add's maintenance ran
+			// before it (mid-batch currency).
 			const formUuid = pickForm(doc, op.formPick);
 			if (!formUuid) return [];
-			const roots = doc.fieldOrder[formUuid] ?? [];
+			const roots = (doc.fieldOrder[formUuid] ?? []).filter((uuid) => {
+				const field = doc.fields[uuid];
+				return field !== undefined && fieldCasePropertyOn(field) !== undefined;
+			});
 			if (roots.length === 0) return [];
 			const target = roots[op.targetPick % roots.length];
-			const targetId = doc.fields[target]?.id;
-			if (!targetId) return [];
+			const targetField = doc.fields[target];
+			if (!targetField) return [];
+			const caseType = fieldCasePropertyOn(targetField);
+			if (caseType === undefined) return [];
+			const targetId = targetField.id;
 			return [
 				{
 					kind: "addField",
@@ -725,18 +743,23 @@ function lower(doc: BlueprintDoc, op: FuzzOp): Mutation[] {
 						uuid: mintUuid(),
 						kind: "text",
 						id: "fresh_ref",
-						// The prose ref is what the rename REWRITES (AST refs
-						// follow at print with no rewrite), so the mid-batch
-						// lookup must surface this fresh carrier.
-						label: `Fresh #form/${targetId}`,
+						label: canonicalProseTemplate([
+							{ kind: "text", text: "Fresh " },
+							{ kind: "case-ref", caseType, property: targetId },
+						]),
 						relevant: parseXPathForForm(
 							doc,
 							formUuid,
-							`#form/${targetId} != ''`,
+							`#${caseType}/${targetId} != ''`,
 						),
 					} as never,
 				},
-				{ kind: "renameField", uuid: target, newId: ID_POOL[op.idPick] },
+				{
+					kind: "updateField",
+					uuid: target,
+					targetKind: targetField.kind,
+					patch: { id: ID_POOL[op.idPick] },
+				} as Mutation,
 			];
 		}
 	}
@@ -747,7 +770,7 @@ function lower(doc: BlueprintDoc, op: FuzzOp): Mutation[] {
 const OP_KINDS = [
 	"addField",
 	"removeField",
-	"renameField",
+	"updateFieldId",
 	"moveField",
 	"duplicateField",
 	"convertField",
@@ -762,9 +785,9 @@ const OP_KINDS = [
 	"moveModule",
 	"renameModule",
 	"updateModule",
-	"setCaseTypes",
+	"editCaseTypes",
 	"setAppName",
-	"addThenRename",
+	"addThenUpdateFieldId",
 ] as const satisfies readonly FuzzOp["kind"][];
 
 describe("reference index fuzz — incremental ≡ rebuild after every batch", () => {
@@ -773,7 +796,7 @@ describe("reference index fuzz — incremental ≡ rebuild after every batch", (
 			OP_KINDS.map((k) => [k, 0]),
 		);
 		let danglingSatisfiedAdds = 0;
-		let caseBoundRenames = 0;
+		let caseBoundIdChanges = 0;
 		let crossModuleFormMoves = 0;
 
 		fc.assert(
@@ -782,7 +805,7 @@ describe("reference index fuzz — incremental ≡ rebuild after every batch", (
 				// credits exactly the op that changed the doc — a kind whose
 				// lowering always no-ops can't ride a changing batch. The
 				// multi-mutation/mid-batch-currency coverage lives in the
-				// `addThenRename` compound op, whose single lowering IS a
+				// `addThenUpdateFieldId` compound op, whose single lowering IS a
 				// two-mutation batch with an intra-batch dependency.
 				fc.array(opArb, { minLength: 1, maxLength: 24 }),
 				(ops) => {
@@ -806,14 +829,17 @@ describe("reference index fuzz — incremental ≡ rebuild after every batch", (
 							) {
 								satisfyingAddUuid = (mut.field as { uuid: string }).uuid;
 							}
-							if (mut.kind === "renameField") {
+							if (
+								mut.kind === "updateField" &&
+								typeof mut.patch.id === "string"
+							) {
 								const field = doc.fields[mut.uuid];
 								if (
 									field &&
-									field.id !== mut.newId &&
+									field.id !== mut.patch.id &&
 									fieldCasePropertyOn(field) !== undefined
 								) {
-									caseBoundRenames++;
+									caseBoundIdChanges++;
 								}
 							}
 							if (mut.kind === "moveForm") {
@@ -863,8 +889,8 @@ describe("reference index fuzz — incremental ≡ rebuild after every batch", (
 			"no add ever satisfied the standing dangling field identity",
 		).toBeGreaterThan(0);
 		expect(
-			caseBoundRenames,
-			"no rename ever hit a case-bound field — the c:-edge re-key arm went unexercised",
+			caseBoundIdChanges,
+			"no field-ID update ever hit a case-bound field — the c:-edge re-key arm went unexercised",
 		).toBeGreaterThan(0);
 		expect(
 			crossModuleFormMoves,

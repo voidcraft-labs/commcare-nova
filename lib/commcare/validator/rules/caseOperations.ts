@@ -246,7 +246,6 @@ function validateOperation(
 	priorCreates: ReadonlyMap<Uuid, CaseOperation>,
 	errors: ValidationError[],
 ): void {
-	validateFacets(ctx, operation, errors);
 	validateCaseType(ctx, operation, operation.caseType, errors);
 	if (operation.retype !== undefined) {
 		validateCaseType(ctx, operation, operation.retype, errors);
@@ -528,36 +527,6 @@ function validateOperation(
 	}
 }
 
-function validateFacets(
-	ctx: OperationRuleContext,
-	operation: CaseOperation,
-	errors: ValidationError[],
-): void {
-	const invalid =
-		operation.action === "create"
-			? operation.target.kind !== "new" ||
-				operation.name === undefined ||
-				operation.rename !== undefined ||
-				operation.retype !== undefined
-			: operation.action === "update"
-				? operation.target.kind === "new" || operation.name !== undefined
-				: operation.target.kind === "new" ||
-					operation.name !== undefined ||
-					operation.owner !== undefined ||
-					operation.rename !== undefined ||
-					operation.retype !== undefined ||
-					(operation.links?.length ?? 0) > 0;
-	if (!invalid) return;
-	errors.push(
-		opError(
-			ctx,
-			operation,
-			"CASE_OPERATION_INVALID_FACETS",
-			`Case operation "${operation.id}" carries facets that are not legal for ${operation.action}.`,
-		),
-	);
-}
-
 function validateCaseType(
 	ctx: OperationRuleContext,
 	operation: CaseOperation,
@@ -625,6 +594,23 @@ function validateTarget(
 			}
 			return;
 		case "expression":
+			if (
+				target.expr.kind === "term" &&
+				target.expr.term.kind === "literal" &&
+				typeof target.expr.term.value === "string"
+			) {
+				const prepared = prepareCaseOperationTextValue(target.expr.term.value);
+				if (!prepared.ok && prepared.reason === "blank") {
+					errors.push(
+						opError(
+							ctx,
+							operation,
+							"CASE_OPERATION_TARGET_INVALID",
+							`Case operation "${operation.id}" has a blank runtime case target. A calculated target must contain a case id after CommCare-compatible boundary whitespace is removed.`,
+						),
+					);
+				}
+			}
 			if (expressionContainsIdOf(target.expr)) {
 				errors.push(
 					opError(

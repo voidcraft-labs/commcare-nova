@@ -218,8 +218,8 @@ describe("classification table", () => {
 		expect(byClass.get("environment")).toHaveLength(9);
 		expect(byClass.get("oracle")).toHaveLength(98);
 		expect(byClass.get("shape")).toHaveLength(6);
-		expect(byClass.get("soundness")).toHaveLength(134);
-		expect(Object.keys(VALIDITY_CLASS_BY_CODE)).toHaveLength(257);
+		expect(byClass.get("soundness")).toHaveLength(138);
+		expect(Object.keys(VALIDITY_CLASS_BY_CODE)).toHaveLength(261);
 	});
 
 	it("keeps the structural image-map rule out of the environment class", () => {
@@ -263,12 +263,16 @@ describe("errorIdentity", () => {
 		const before = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)
 			.map(errorIdentity)
 			.sort();
-		// Unrelated edit: rename the registration form's field — a different
-		// form from the one carrying the EMPTY_FORM finding. The rename keeps
-		// the same id, so nothing about the doc's findings changes.
+		// Unrelated no-op field-ID update in a different form from the one
+		// carrying the EMPTY_FORM finding, so the findings stay unchanged.
 		const fieldUuid = Object.values(doc.fields)[0].uuid;
 		const edited = apply(doc, [
-			{ kind: "renameField", uuid: fieldUuid, newId: "case_name" },
+			{
+				kind: "updateField",
+				uuid: fieldUuid,
+				targetKind: "text",
+				patch: { id: "case_name" },
+			},
 		]);
 		const after = runValidation(edited, LOOKUP_CONTEXT_UNAVAILABLE)
 			.map(errorIdentity)
@@ -536,7 +540,8 @@ describe("evaluateCommit", () => {
 	});
 
 	it("pre-existing errors never block an unrelated edit", () => {
-		// Legacy-safe: the doc already carries an empty form AND a bad ref.
+		// The deliberately damaged candidate already carries an empty form and
+		// a bad reference.
 		const base = docWithEmptyForm("form-e1");
 		const broken = apply(base, [
 			{
@@ -553,9 +558,10 @@ describe("evaluateCommit", () => {
 		);
 		const verdict = gateCommit(broken, [
 			{
-				kind: "renameField",
+				kind: "updateField",
 				uuid: caseNameField?.uuid as Uuid,
-				newId: "case_name",
+				targetKind: "text",
+				patch: { id: "case_name" },
 			},
 		]);
 		expect(verdict).toEqual({ ok: true });
@@ -605,9 +611,9 @@ describe("evaluateCommit", () => {
 		expect(verdict).toEqual({ ok: true });
 	});
 
-	it("catches a DUPLICATE_FIELD_ID the rename cascade introduces in a cross-module peer's form", () => {
+	it("catches a DUPLICATE_FIELD_ID the field-ID cascade introduces in a cross-module peer's form", () => {
 		// Two HOUSEHOLD modules whose forms write the PATIENT type (the
-		// child-case pattern). Renaming F1's `age` cascades to F2's peer by
+		// child-case pattern). Changing F1's `age` ID cascades to F2's peer by
 		// (id, case_property_on) — colliding with F2's sibling `weight`.
 		// The peer's form shares no caseType with the written type, so any
 		// caseType-keyed widening misses it; the derived scope must degrade
@@ -672,7 +678,12 @@ describe("evaluateCommit", () => {
 		});
 		const age = Object.values(doc.fields).find((x) => x.id === "age");
 		const verdict = gateCommit(doc, [
-			{ kind: "renameField", uuid: age?.uuid as Uuid, newId: "weight" },
+			{
+				kind: "updateField",
+				uuid: age?.uuid as Uuid,
+				targetKind: "int",
+				patch: { id: "weight" },
+			},
 		]);
 		expect(verdict.ok).toBe(false);
 		if (!verdict.ok) {

@@ -22,6 +22,7 @@
 
 import type { Mutation } from "@/lib/doc/types";
 import {
+	asUuid,
 	type BlueprintDoc,
 	hasOwnRecordKey,
 	ownRecordValue,
@@ -57,7 +58,7 @@ type UserEntityPatch<T> = {
  */
 function appendAfter(order: readonly Uuid[] | undefined): Uuid | null {
 	const sequence = order ?? [];
-	return sequence.length === 0 ? null : (sequence[sequence.length - 1] as Uuid);
+	return sequence.at(-1) ?? null;
 }
 
 /** Mint the `addUserProperty` for a new piece of worker information. */
@@ -126,7 +127,7 @@ function userDataValueMutations(
 			uuid,
 			patch: {},
 			valuePatch: {
-				userPropertyUuid: propertyUuid as Uuid,
+				userPropertyUuid: asUuid(propertyUuid),
 				value: afterHas ? (afterValue as string) : null,
 			},
 		});

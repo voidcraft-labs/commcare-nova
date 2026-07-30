@@ -98,7 +98,7 @@ export const InteractiveFormRenderer = memo(function InteractiveFormRenderer({
 	instanceScopeKey = "",
 	accessibleContext = "",
 }: InteractiveFormRendererProps) {
-	const fieldUuids = useOrderedFields(parentEntityId as Uuid);
+	const fieldUuids = useOrderedFields(asUuid(parentEntityId));
 
 	// `flow-root` creates a new block formatting context so the last child's
 	// `mb-6` stays contained inside this renderer's box instead of collapsing

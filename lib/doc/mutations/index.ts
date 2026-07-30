@@ -7,9 +7,8 @@
  *
  * `applyMutation` operates on an Immer draft — call sites wrap it in
  * `produce()` or let the Zustand store's Immer middleware handle the
- * drafting. Returns a `MutationResult`: `MoveFieldResult` for `moveField`,
- * `FieldRenameMeta` for `renameField`, and `undefined` for every other
- * kind.
+ * drafting. Returns a `MutationResult`: `MoveFieldResult` for `moveField`
+ * and `undefined` for every other kind.
  *
  * `applyMutations` is the batched variant — it runs the same dispatch
  * loop and returns a parallel `MutationResult[]` (one entry per input
@@ -52,7 +51,6 @@ function dispatchMutation(
 	switch (mut.kind) {
 		case "setAppName":
 		case "setConnectType":
-		case "setCaseTypes":
 		case "setAppLogo":
 		case "declareCaseType":
 		case "retireCaseType":
@@ -90,7 +88,6 @@ function dispatchMutation(
 		case "addField":
 		case "removeField":
 		case "moveField":
-		case "renameField":
 		case "updateField":
 		case "convertField":
 		case "setFieldMedia":
@@ -135,8 +132,8 @@ function applyOne(draft: Draft<BlueprintDoc>, mut: Mutation): MutationResult {
 
 /**
  * Apply a single mutation to an Immer draft and return any metadata the
- * reducer produces. `moveField` returns `MoveFieldResult`;
- * `renameField` returns `FieldRenameMeta`; all others return `undefined`.
+ * reducer produces. `moveField` returns `MoveFieldResult`; all others return
+ * `undefined`.
  *
  * The reference index is seeded (built from the full doc) on first
  * contact and maintained incrementally by the mutation's application;
@@ -182,7 +179,13 @@ export function applyMutations(
 	normalizeBlueprintOwnRecords(draft as unknown as BlueprintDoc);
 	ensureReferenceIndex(draft as unknown as BlueprintDoc);
 	const results: MutationResult[] = [];
-	for (const mut of muts) {
+	// A reducer may retain nested payload values in the candidate document.
+	// Always reduce a detached copy so the candidate never aliases the admitted
+	// command and never inherits its non-enumerable serialization protectors.
+	// The authoritative batch itself remains frozen and byte-stable for its
+	// accepted-row, event, stream, and tool-result consumers.
+	const reductionMutations = structuredClone(muts) as Mutation[];
+	for (const mut of reductionMutations) {
 		results.push(applyOne(draft, mut));
 	}
 	normalizeBlueprintOwnRecords(draft as unknown as BlueprintDoc);

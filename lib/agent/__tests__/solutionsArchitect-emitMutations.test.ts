@@ -52,7 +52,7 @@ import { removeMediaAssetTool } from "../tools/media/removeMediaAsset";
 import { makeTestContext } from "./fixtures";
 
 /* The SA commits every batch through `commitGuardedBatch` (kind:'chat') —
- * except rename-carrying batches, which detour through the cross-store saga
+ * except field-ID-changing batches, which detour through the cross-store saga
  * (`applyBlueprintChange`). Mock both to re-apply the batch onto ONE TRACKED
  * server doc so the SA's working doc advances across tool calls exactly as it
  * would against the real writers. The authorized-snapshot mock backs
@@ -490,22 +490,28 @@ describe("solutionsArchitect — emitMutations migration", () => {
 			formUuid: FORM_A,
 			fieldUuid: VILLAGE,
 			updates: {
-				id: "hamlet", // triggers the rename batch
-				label: proseText("Hamlet"), // triggers the second batch
+				id: "hamlet",
+				label: proseText("Hamlet"),
 			},
 		});
 
 		const muts = mutationEvents(writer);
-		// Under the P3 chat-SA port, `recordMutationStages` concatenates the
-		// convert→rename→patch stages into ONE guarded commit and emits ONE
-		// `data-mutations` frame — preserving editField's atomicity (one seq, one
-		// batchId). The per-stage tags survive on the log envelopes, not the SSE
-		// frame, so the wire frame carries no stage.
+		// `id` and the scalar edit are one target-kind-aware updateField
+		// command. `recordMutationStages` emits one guarded commit and one
+		// `data-mutations` frame (one seq, one batchId).
 		expect(muts).toHaveLength(1);
 		expect(muts[0].stage).toBeUndefined();
-		const kinds = muts[0].mutations.map((m) => m.kind);
-		expect(kinds).toContain("renameField");
-		expect(kinds).toContain("updateField");
+		expect(muts[0].mutations).toEqual([
+			expect.objectContaining({
+				kind: "updateField",
+				uuid: VILLAGE,
+				targetKind: "text",
+				patch: expect.objectContaining({
+					id: "hamlet",
+					label: proseText("Hamlet"),
+				}),
+			}),
+		]);
 		expectNoLegacyEvents(writer);
 	});
 

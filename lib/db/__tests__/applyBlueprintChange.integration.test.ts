@@ -51,6 +51,7 @@ import {
 	hydratePersistedBlueprint,
 	toPersistableDoc,
 } from "@/lib/doc/fieldParent";
+import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import type { BlueprintDoc, CaseType, PersistableDoc } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 
@@ -110,7 +111,24 @@ vi.mock("@/lib/case-store", async () => {
 
 // Import AFTER the mocks are registered so the saga's resolution
 // of `@/lib/db/apps` and `@/lib/case-store` picks up the spies.
-const { applyBlueprintChange } = await import("../applyBlueprintChange");
+const { applyBlueprintChange: applyBlueprintChangeOpaque } = await import(
+	"../applyBlueprintChange"
+);
+const applyBlueprintChange = (
+	args: Omit<Parameters<typeof applyBlueprintChangeOpaque>[0], "guard"> & {
+		guard: Omit<
+			Parameters<typeof applyBlueprintChangeOpaque>[0]["guard"],
+			"mutations"
+		> & { mutations: unknown };
+	},
+) =>
+	applyBlueprintChangeOpaque({
+		...args,
+		guard: {
+			...args.guard,
+			mutations: admitMutationBatch(args.guard.mutations),
+		},
+	});
 
 // ── Postgres harness ──────────────────────────────────────────────
 

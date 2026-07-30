@@ -18,7 +18,7 @@
  *
  * The deep read-evaluate-write behavior the writer itself owns (re-apply on the
  * FRESH stored doc, the concurrent-delete guard, the fresh-doc re-verdict, the
- * per-commit reauth, the legacy-doc hydration) is exercised against a REAL
+ * per-commit reauth, and canonical document hydration) is exercised against a REAL
  * Postgres transaction in `commitGuardedBatch.integration.test.ts`.
  */
 
@@ -26,13 +26,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
-import { applyBlueprintChange } from "../applyBlueprintChange";
+import { applyBlueprintChange as applyBlueprintChangeOpaque } from "../applyBlueprintChange";
 import {
 	BlueprintCommitRejectedError,
 	CommitReauthError,
+	MutationBatchIdCollisionError,
 	RunHolderLostError,
 } from "../commitGuard";
 
@@ -42,6 +44,22 @@ const { loadAppMock, commitGuardedBatchMock, authorizedSideEffectMock } =
 		commitGuardedBatchMock: vi.fn(),
 		authorizedSideEffectMock: vi.fn(),
 	}));
+
+const applyBlueprintChange = (
+	args: Omit<Parameters<typeof applyBlueprintChangeOpaque>[0], "guard"> & {
+		guard: Omit<
+			Parameters<typeof applyBlueprintChangeOpaque>[0]["guard"],
+			"mutations"
+		> & { mutations: unknown };
+	},
+) =>
+	applyBlueprintChangeOpaque({
+		...args,
+		guard: {
+			...args.guard,
+			mutations: admitMutationBatch(args.guard.mutations),
+		},
+	});
 
 const unparkValuesMock = vi.fn(async () => ({ restored: 0, kept: 0 }));
 const {
@@ -101,18 +119,25 @@ vi.mock("@/lib/case-store", async () => {
 });
 
 /**
- * A real rename batch for `minDoc`'s case-bound `village` field. The
+ * A canonical field-ID update for `minDoc`'s case-bound `village` field. The
  * saga replays it onto the prior to derive the prospective, and the
- * classifier proves the village→hamlet rename from the two snapshots
+ * classifier proves the village→hamlet case-property rename from the snapshots
  * (field-uuid evidence) — the migration-bearing path with no hint
  * mechanism involved.
  */
-function renameVillageBatch(doc: BlueprintDoc): Mutation[] {
+function changeVillageIdBatch(doc: BlueprintDoc): Mutation[] {
 	const field = Object.values(doc.fields).find((fl) => fl.id === "village");
 	if (field === undefined) {
 		throw new Error("fixture is missing the case-bound `village` field");
 	}
-	return [{ kind: "renameField", uuid: field.uuid, newId: "hamlet" }];
+	return [
+		{
+			kind: "updateField",
+			uuid: field.uuid,
+			targetKind: "text",
+			patch: { id: "hamlet" },
+		},
+	];
 }
 
 function addHouseholdBatch(): Mutation[] {
@@ -344,11 +369,18 @@ describe("applyBlueprintChange — routes the guard through commitGuardedBatch",
 });
 
 describe("applyBlueprintChange — top-level batchId dedup", () => {
-	it("short-circuits an admission-invalid payload on a pre-existing latch without validating or applying it", async () => {
-		latchRowMock.mockResolvedValue({ seq: 42 });
+	it("short-circuits only an exact content-bound retry without applying it again", async () => {
 		const prior = minDoc();
 		const target = Object.values(prior.fields)[0];
 		if (target === undefined) throw new Error("fixture has no field");
+		const mutations: Mutation[] = [{ kind: "removeField", uuid: target.uuid }];
+		latchRowMock.mockResolvedValue({
+			seq: 42,
+			mutations,
+			actor_id: "user-1",
+			kind: "mcp",
+			run_id: null,
+		});
 
 		const result = await applyBlueprintChange({
 			appId: "app-1",
@@ -358,7 +390,7 @@ describe("applyBlueprintChange — top-level batchId dedup", () => {
 			batchId: "already-committed",
 			kind: "mcp",
 			guard: {
-				mutations: [{ kind: "removeField", uuid: target.uuid }],
+				mutations,
 			},
 		});
 
@@ -366,6 +398,67 @@ describe("applyBlueprintChange — top-level batchId dedup", () => {
 		expect(result).toEqual({ seq: 42 });
 		expect(result.committedDoc).toBeUndefined();
 		// Nothing downstream ran — not even the app-locked Phase-1 admission.
+		expect(commitGuardedBatchMock).not.toHaveBeenCalled();
+		expect(loadAppMock).not.toHaveBeenCalled();
+		expect(authorizedSideEffectMock).not.toHaveBeenCalled();
+		expect(withSchemaContextMock).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		{
+			label: "mutations",
+			stored: {
+				mutations: [{ kind: "setAppName", name: "Stored" }],
+				actor_id: "user-1",
+				kind: "mcp",
+				run_id: null,
+			},
+		},
+		{
+			label: "actor",
+			stored: {
+				mutations: [{ kind: "setAppName", name: "Proposed" }],
+				actor_id: "someone-else",
+				kind: "mcp",
+				run_id: null,
+			},
+		},
+		{
+			label: "kind",
+			stored: {
+				mutations: [{ kind: "setAppName", name: "Proposed" }],
+				actor_id: "user-1",
+				kind: "autosave",
+				run_id: null,
+			},
+		},
+		{
+			label: "run attribution",
+			stored: {
+				mutations: [{ kind: "setAppName", name: "Proposed" }],
+				actor_id: "user-1",
+				kind: "mcp",
+				run_id: "stored-run",
+			},
+		},
+	])("rejects a top-level latch whose $label differs", async ({ stored }) => {
+		const prior = minDoc();
+		latchRowMock.mockResolvedValue({ seq: 42, ...stored });
+
+		await expect(
+			applyBlueprintChange({
+				appId: "app-1",
+				userId: "user-1",
+				expectedProjectId: null,
+				priorBlueprint: toPersistableDoc(prior),
+				batchId: "already-committed",
+				kind: "mcp",
+				guard: {
+					mutations: [{ kind: "setAppName", name: "Proposed" }],
+				},
+			}),
+		).rejects.toBeInstanceOf(MutationBatchIdCollisionError);
+
 		expect(commitGuardedBatchMock).not.toHaveBeenCalled();
 		expect(loadAppMock).not.toHaveBeenCalled();
 		expect(authorizedSideEffectMock).not.toHaveBeenCalled();
@@ -387,13 +480,13 @@ describe("applyBlueprintChange — locked admission before any Postgres DDL", ()
 				userId: "user-1",
 				expectedProjectId: null,
 				priorBlueprint: toPersistableDoc(prior),
-				// The rename batch would otherwise drive Phase-1 DDL — the
+				// The field-ID change would otherwise drive Phase-1 DDL — the
 				// reauth must fire first so no `case_type_schemas` mutation
 				// happens.
 				batchId: "batch-reauth",
 				kind: "autosave",
 				guard: {
-					mutations: renameVillageBatch(prior),
+					mutations: changeVillageIdBatch(prior),
 				},
 			}),
 		).rejects.toBeInstanceOf(CommitReauthError);
@@ -435,7 +528,7 @@ describe("applyBlueprintChange — locked admission before any Postgres DDL", ()
 				chatRunHolder,
 				batchId: "batch-stale-holder",
 				kind: "chat",
-				guard: { mutations: renameVillageBatch(prior) },
+				guard: { mutations: changeVillageIdBatch(prior) },
 			}),
 		).rejects.toBeInstanceOf(RunHolderLostError);
 
@@ -454,7 +547,7 @@ describe("applyBlueprintChange — locked admission before any Postgres DDL", ()
 describe("applyBlueprintChange — Postgres saga around the guarded commit", () => {
 	it("compensates a MIGRATION-BEARING entry via applySchemaChange(prior) when the commit rejects", async () => {
 		const prior = minDoc();
-		// A rename batch drives the ONE migration-bearing Phase-1 call against the
+		// A field-ID change drives the ONE migration-bearing Phase-1 call against the
 		// existing `patient` type. When the writer then rejects, the saga
 		// compensates by re-syncing the type from the CURRENT committed doc (a
 		// fresh `loadApp`, here the same `prior`) — no `change`, no `dropSchema`
@@ -496,7 +589,7 @@ describe("applyBlueprintChange — Postgres saga around the guarded commit", () 
 				batchId: "batch-uuid-4",
 				kind: "mcp",
 				guard: {
-					mutations: renameVillageBatch(prior),
+					mutations: changeVillageIdBatch(prior),
 				},
 			}),
 		).rejects.toBeInstanceOf(BlueprintCommitRejectedError);
@@ -582,7 +675,7 @@ describe("applyBlueprintChange — Postgres saga around the guarded commit", () 
 				priorBlueprint: toPersistableDoc(prior),
 				batchId: "batch-phaseB-fail",
 				kind: "autosave",
-				guard: { mutations: renameVillageBatch(prior) },
+				guard: { mutations: changeVillageIdBatch(prior) },
 			}),
 		).rejects.toThrow("phase B index DDL failed");
 
@@ -838,7 +931,7 @@ describe("applyBlueprintChange — Postgres saga around the guarded commit", () 
 			chatRunHolder,
 			batchId: "batch-order",
 			kind: "chat",
-			guard: { mutations: renameVillageBatch(prior) },
+			guard: { mutations: changeVillageIdBatch(prior) },
 		});
 
 		expect(order[0]).toBe("admission:start");

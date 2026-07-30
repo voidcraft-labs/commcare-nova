@@ -193,7 +193,7 @@ export const moveCaseOperationTool = {
 					: null;
 			return {
 				kind: "mutate",
-				mutations,
+				mutations: commit.mutations,
 				newDoc: commit.newDoc,
 				result: {
 					message:

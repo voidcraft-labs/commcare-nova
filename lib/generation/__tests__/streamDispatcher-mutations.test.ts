@@ -9,8 +9,7 @@
  *
  *   - applies single mutations and multi-mutation atomic batches,
  *   - appends the envelopes to the session events buffer,
- *   - gracefully ignores empty or missing payloads (neither store
- *     changes), and
+ *   - accepts canonical empty batches and rejects a missing batch, and
  *   - carries the optional `stage` tag on each envelope.
  *
  * We use real wired stores (BlueprintDocStore + BuilderSessionStore) so
@@ -21,6 +20,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { createReconciler } from "@/lib/collab/reconciler";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import type { BlueprintDocStoreApi } from "@/lib/doc/store";
 import type { Mutation } from "@/lib/doc/types";
 import {
@@ -31,6 +31,7 @@ import {
 import { proseText } from "@/lib/domain/prose";
 import type { MutationEvent } from "@/lib/log/types";
 import type { BuilderSessionStoreApi } from "@/lib/session/store";
+import { signalGrid } from "@/lib/signalGrid/store";
 import { applyStreamEvent } from "../streamDispatcher";
 import { createWiredStores, hydrateDoc } from "./testHelpers";
 
@@ -169,6 +170,7 @@ describe("applyStreamEvent — data-mutations", () => {
 		const stores = createWiredStores();
 		docStore = stores.docStore;
 		sessionStore = stores.sessionStore;
+		signalGrid.reset();
 	});
 
 	it("applies a single mutation AND appends its envelope to the buffer", () => {
@@ -256,7 +258,7 @@ describe("applyStreamEvent — data-mutations", () => {
 		expect(sessionStore.getState().events).toBe(eventsBefore);
 	});
 
-	it("ignores a payload with missing keys (no throw, no changes)", () => {
+	it("rejects a payload without its canonical mutations member", () => {
 		const appNameBefore = docStore.getState().appName;
 		const eventsBefore = sessionStore.getState().events;
 
@@ -269,10 +271,20 @@ describe("applyStreamEvent — data-mutations", () => {
 				null,
 				undefined,
 			);
-		}).not.toThrow();
+		}).toThrow(
+			expect.objectContaining({
+				code: "MUTATION_WIRE_CANONICALITY_INVALID",
+				details: {
+					mutationIndex: null,
+					pointer: "",
+					reason: "non-json-value",
+				},
+			}),
+		);
 
 		expect(docStore.getState().appName).toBe(appNameBefore);
 		expect(sessionStore.getState().events).toBe(eventsBefore);
+		expect(signalGrid.drainEnergy()).toBe(0);
 	});
 
 	it("stamps the optional `stage` tag onto every envelope", () => {
@@ -443,7 +455,7 @@ describe("applyStreamEvent — data-mutations", () => {
 				actorId: "u1",
 				runId: "run-1",
 				kind: "chat",
-				mutations: addModuleBatch,
+				mutations: admitMutationBatch(addModuleBatch),
 			});
 			expect(docStore.getState().moduleOrder).toEqual([MOD, NEW_MOD]);
 
@@ -507,7 +519,7 @@ describe("applyStreamEvent — data-mutations", () => {
 				actorId: "u1",
 				runId: "run-1",
 				kind: "chat",
-				mutations: addModuleBatch,
+				mutations: admitMutationBatch(addModuleBatch),
 			});
 			expect(docStore.getState().moduleOrder).toEqual([MOD, NEW_MOD]);
 			expect(reconciler.getSnapshot().sentPending).toHaveLength(0);

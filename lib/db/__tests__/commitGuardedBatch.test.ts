@@ -23,6 +23,7 @@ import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import { __setAppDbForTests, type AppDatabase } from "../pg";
+import { commitGuardedBatchProposal as commitGuardedBatch } from "./admittedWriterTestHelpers";
 import { setupAppStateTestDb } from "./appStateTestDb";
 
 const OWNER = "user-owner";
@@ -99,7 +100,6 @@ async function readSeq(appId: string): Promise<number> {
 
 describe("commitGuardedBatch — seq recompute", () => {
 	it("computes the literal (fresh + 1) off whatever mutation_seq the row carries (no cached zero)", async () => {
-		const { commitGuardedBatch } = await import("../apps");
 		const doc = minDoc();
 		// A null-project app (owner path — reauth passes on owner === actor).
 		const appId = await h.seedAppWithBlueprint(doc, {
@@ -129,7 +129,6 @@ describe("commitGuardedBatch — seq recompute", () => {
 	});
 
 	it("two concurrent commits produce gap-free seqs — each re-reads the advanced seq under the app-row lock", async () => {
-		const { commitGuardedBatch } = await import("../apps");
 		const doc = minDoc();
 		const appId = await h.seedAppWithBlueprint(doc, {
 			projectId: null,

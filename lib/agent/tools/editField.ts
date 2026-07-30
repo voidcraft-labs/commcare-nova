@@ -2,12 +2,12 @@
  * SA tool: `editField` — update properties on an existing field.
  *
  * The most complex of the field-edit tools: a single call can carry a
- * kind conversion, an id rename, AND a scalar-property patch. Each of
- * those three concerns produces its own mutation batch with its own
- * stage tag (`convert:M-F`, `rename:M-F`, `edit:M-F`) so the log UI and
- * replay derivations see each lifecycle step distinctly. Both the SA
- * chat factory and the MCP adapter call this through the shared
- * `ToolExecutionContext` interface.
+ * kind conversion, an id change, AND a scalar-property patch. Kind
+ * conversion remains its dedicated mutation; every field property,
+ * including `id` and `case_property_on`, lands in one post-conversion
+ * `updateField` patch so the reducer sees the complete semantic edit
+ * atomically. Both the SA chat factory and the MCP adapter call this
+ * through the shared `ToolExecutionContext` interface.
  *
  * The stages are BUILT sequentially against local candidate docs (a
  * later batch reads the previous batch's result — e.g. a scalar patch
@@ -65,10 +65,7 @@ import {
 	fallbackProseProjection,
 	getConvertibleTypes,
 } from "@/lib/domain";
-import {
-	renameFieldMutations,
-	updateFieldMutations,
-} from "../blueprintHelpers";
+import { updateFieldMutations } from "../blueprintHelpers";
 import { prepareToolOptionsSource } from "../contentProcessing";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import { editFieldUpdatesSchema } from "../toolSchemas";
@@ -129,10 +126,11 @@ export type EditFieldResult =
 	  };
 
 /**
- * Coerce the scalar-patch portion of an `editField` call into the
- * reducer's field-patch shape. `id` and `kind` changes land via
- * dedicated mutations (`renameField`, `convertField`) earlier in the
- * tool body, so neither appears on this shape.
+ * Coerce the property-patch portion of an `editField` call into the
+ * reducer's field-patch shape. `kind` alone lands via its dedicated
+ * `convertField` mutation. `id` remains in this patch alongside
+ * `case_property_on`, allowing the reducer to distinguish a same-property
+ * rename from a writer retarget without reconstructing caller intent.
  *
  * Every clearable key in the edit schema is `.nullable().optional()`:
  *   - absent  → leave the current value alone (key omitted from the
@@ -143,12 +141,8 @@ export type EditFieldResult =
  *     round-trips through the event log.
  *   - a value → set the property (key present with the value)
  */
-/** The edit-patch shape minus identity (`id`/`kind` land via dedicated
- *  mutations earlier in the tool body, so neither appears here). */
-type EditUpdatesPatch = Omit<
-	z.infer<typeof editFieldUpdatesSchema>,
-	"id" | "kind"
->;
+/** The edit-patch shape minus only the conversion discriminator. */
+type EditUpdatesPatch = Omit<z.infer<typeof editFieldUpdatesSchema>, "kind">;
 
 function editPatchToFieldPatch(
 	updates: EditUpdatesPatch,
@@ -157,6 +151,7 @@ function editPatchToFieldPatch(
 	// SA/MCP sends the exact stored structure. A value sets the property,
 	// `null` clears it, and omission leaves it unchanged.
 	const scalarKeys = [
+		"id",
 		"label",
 		"hint",
 		"help",
@@ -207,7 +202,7 @@ function editPatchToFieldPatch(
 
 export const editFieldTool = {
 	description:
-		"Update a field. Pass its current kind to edit in place, or a different kind to convert it. A value sets a property, null REMOVES it, leaving it out keeps it. An id rename propagates every reference automatically. A conversion that would set saved case values aside returns needsConfirmation instead of converting — relay it and re-call with confirmConversion: true once the user agrees.",
+		"Update a field. Pass its current kind to edit in place, or a different kind to convert it. A value sets a property, null REMOVES it, leaving it out keeps it. An id change keeps UUID-backed field references attached; when case_property_on stays the same, it also renames that case property and its peer writers. A conversion that would set saved case values aside returns needsConfirmation instead of converting — relay it and re-call with confirmConversion: true once the user agrees.",
 	inputSchema: editFieldInputSchema,
 	async execute(
 		input: EditFieldInput,
@@ -335,11 +330,24 @@ export const editFieldTool = {
 				// same-call `case_property_on` change (retarget or null-clear)
 				// must not cascade a binding the field is leaving.
 				const nextBinding = fieldUpdates.case_property_on;
+				const currentBinding =
+					"case_property_on" in resolved.field
+						? resolved.field.case_property_on
+						: undefined;
+				const retargetsBinding =
+					nextBinding !== undefined && nextBinding !== currentBinding;
 				const planField =
-					nextBinding === undefined
+					nextBinding === undefined && !retargetsBinding
 						? resolved.field
 						: ({
 								...resolved.field,
+								// Conversion executes before the property patch. For a
+								// same-binding ID change, plan against the old property:
+								// its existing rows and peer writers are what convert,
+								// then the updateField cascade renames that complete pair.
+								// A retarget instead joins the call's final pair, so plan
+								// against the final ID there.
+								...(retargetsBinding && newId !== undefined && { id: newId }),
 								case_property_on: nextBinding ?? undefined,
 							} as Field);
 				const plan = planKindConversion({
@@ -457,7 +465,6 @@ export const editFieldTool = {
 
 				stages.push({
 					mutations: convertMuts,
-					doc: afterConvert,
 					stage: `convert:${resolved.formUuid}`,
 				});
 				workingDoc = afterConvert;
@@ -484,49 +491,36 @@ export const editFieldTool = {
 				}
 			}
 
-			// Id rename next as its own emitted batch. The `renameField`
-			// reducer handles the full cascade on its own — form-local rewrites,
-			// cross-form hashtag and case-list column rewrites for the renamed
-			// case property, and peer-field renames. The client runs the SAME
-			// reducer against `applyMany`, so the cascade reproduces on the
-			// client without needing a full blueprint snapshot.
-			if (newId && newId !== currentId) {
-				const renameMuts = renameFieldMutations(workingDoc, fieldUuid, newId);
-				if (renameMuts.length > 0) {
-					workingDoc = applyToDoc(workingDoc, renameMuts);
-					stages.push({
-						mutations: renameMuts,
-						doc: workingDoc,
-						stage: `rename:${resolved.formUuid}`,
-					});
-				}
-			}
-
-			// Re-read the field record after the convert/rename stages — by
-			// its STABLE uuid, never by id: the just-assigned id could match
-			// another field elsewhere in the form (the sibling-conflict
-			// verdict only scans peers at the field's own level), and a
-			// depth-first id lookup would silently patch that one instead.
+			// Re-read the field record after conversion by its STABLE uuid,
+			// never by id. The one property patch below may change the id, but
+			// address identity remains the uuid throughout.
 			const finalId = newId ?? currentId;
 			const currentField = workingDoc.fields[fieldUuid];
 			if (!currentField) {
-				// The rename stage is candidate-only at this point — nothing
+				// The conversion stage is candidate-only at this point — nothing
 				// has persisted, so the failure reports an untouched doc.
 				return {
 					kind: "mutate" as const,
 					mutations: [],
 					newDoc: doc,
-					result: { error: `Field "${finalId}" not found after rename` },
+					result: { error: `Field "${finalId}" not found after conversion` },
 				};
 			}
 
-			// Remaining scalar-patch keys as a final stage. Convert + rename
-			// are staged candidates above; this covers the leftovers. The reducer
-			// still gates against shape violations via `fieldSchema.safeParse`,
-			// so anything slipping through here that doesn't fit the
-			// (possibly just-converted) kind is logged and no-ops safely.
-			if (Object.keys(fieldUpdates).length > 0) {
-				const patch = editPatchToFieldPatch(fieldUpdates);
+			// Every property, including an ID change, lands in ONE final
+			// updateField patch. Keeping `id` and `case_property_on` together
+			// lets the reducer apply exactly one semantic rule: an unchanged
+			// binding renames the case property; a changed/cleared binding
+			// retargets this writer and does not rewrite the old property.
+			const propertyUpdates: EditUpdatesPatch = {
+				...fieldUpdates,
+				...(newId !== undefined &&
+					newId !== currentId && {
+						id: newId,
+					}),
+			};
+			if (Object.keys(propertyUpdates).length > 0) {
+				const patch = editPatchToFieldPatch(propertyUpdates);
 				if (Object.keys(patch).length > 0) {
 					// Declaration chokepoint: a patch RE-TARGETING `case_property_on`
 					// to a type absent from the catalog declares it FIRST (a stage of
@@ -540,7 +534,6 @@ export const editFieldTool = {
 							workingDoc = applyToDoc(workingDoc, declMuts);
 							stages.push({
 								mutations: declMuts,
-								doc: workingDoc,
 								stage: `edit:${resolved.formUuid}`,
 							});
 						}
@@ -559,7 +552,6 @@ export const editFieldTool = {
 						workingDoc = applyToDoc(workingDoc, updateMuts);
 						stages.push({
 							mutations: updateMuts,
-							doc: workingDoc,
 							stage: `edit:${resolved.formUuid}`,
 						});
 					}
@@ -569,7 +561,6 @@ export const editFieldTool = {
 			// Gate the WHOLE edit as one candidate; persist the stage batches
 			// only after it passes. A rejection leaves zero committed prefix —
 			// the agent re-issues the corrected call from the original state.
-			const allMutations = stages.flatMap((s) => s.mutations);
 			const commit = await guardedMutateStages(ctx, doc, stages);
 			if (!commit.ok) {
 				return {
@@ -588,7 +579,8 @@ export const editFieldTool = {
 				.filter(
 					([k, v]) =>
 						v !== undefined &&
-						(k !== "kind" || newKind !== resolved.field.kind),
+						(k !== "kind" || newKind !== resolved.field.kind) &&
+						(k !== "id" || newId !== currentId),
 				)
 				.map(([k, v]) => (v === null ? `${k} (cleared)` : k));
 			const renameNote =
@@ -612,7 +604,7 @@ export const editFieldTool = {
 					: "No property values changed.";
 			return {
 				kind: "mutate" as const,
-				mutations: allMutations,
+				mutations: commit.mutations,
 				// The SA continues against the guarded writer's committed doc (a
 				// peer's concurrent edit re-applied onto the fresh stored doc merged
 				// in), NOT the tool's local `workingDoc` — every other mutating tool

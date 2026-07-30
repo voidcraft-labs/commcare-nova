@@ -88,6 +88,7 @@ import {
 } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
 import {
+	caseOperationRuntimeTargetConstraint,
 	caseOperationTextConstraint,
 	operationCaseDataScope,
 	RUNTIME_TARGET_OPERATION_SCOPE,
@@ -357,13 +358,13 @@ const TEXT_FACET = caseOperationTextConstraint();
 const EXPRESSION_SLOTS: readonly ExpressionSlot[] = [
 	{
 		name: "which case to change",
-		constraint: TEXT_STORAGE,
+		constraint: caseOperationRuntimeTargetConstraint(),
 		runtimeTarget: true,
 		place: (expr) => subjectOperation({ target: { kind: "expression", expr } }),
 	},
 	{
 		name: "a link's runtime target",
-		constraint: TEXT_STORAGE,
+		constraint: caseOperationRuntimeTargetConstraint(),
 		runtimeTarget: true,
 		place: (expr) =>
 			subjectOperation({

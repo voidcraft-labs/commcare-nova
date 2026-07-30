@@ -6,7 +6,7 @@
 // Text that merely looks like `#form/question` is therefore still text.
 
 import { z } from "zod";
-import { BUILT_IN_USER_PROPERTIES } from "./users";
+import { externalUserPropertyNameSchema } from "./externalUserProperty";
 import { uuidSchema } from "./uuid";
 import { type XPathPrintableDoc, xpathPrintContext } from "./xpath/print";
 
@@ -39,19 +39,16 @@ export const proseUserPropertyRefPartSchema = z
 	})
 	.strict();
 
-const externalWorkerPropertyNames = BUILT_IN_USER_PROPERTIES.map(
-	(property) => property.slug,
-) as [string, ...string[]];
-
 /**
  * External CommCare session properties have no Nova-owned identity. Their
- * stable external name is the reference, and the closed runtime catalog keeps
- * a custom property from being smuggled through this arm.
+ * stable external name is the reference. The schema uses the same open
+ * CommCare/session grammar as Predicate and XPath; document-aware admission
+ * separately rejects a name claimed by Nova-owned worker information.
  */
 export const proseExternalUserRefPartSchema = z
 	.object({
 		kind: z.literal("user-ref"),
-		property: z.enum(externalWorkerPropertyNames),
+		property: externalUserPropertyNameSchema,
 	})
 	.strict();
 
@@ -131,7 +128,14 @@ export function proseTemplateIsEmpty(
 	return template === undefined || template.parts.length === 0;
 }
 
-/** Total identity fallback for UI/log surfaces that have no document context. */
+/**
+ * Context-free diagnostic/search fallback. Reference-capable human surfaces
+ * should use `projectProseTemplate` with the owning document and render its
+ * structured unresolved state; wire/runtime surfaces must use
+ * `printProseTemplate`. This fallback deliberately emits an identity-free
+ * repair marker when a compact caller has no document, never a guessed name or
+ * stored UUID.
+ */
 export function fallbackProseProjection(template: ProseTemplate): string {
 	let out = "";
 	for (const part of template.parts) {
@@ -140,13 +144,13 @@ export function fallbackProseProjection(template: ProseTemplate): string {
 				out += part.text;
 				break;
 			case "field-ref":
-				out += `#form/${part.uuid}`;
+				out += "#form/[reference needs repair]";
 				break;
 			case "case-ref":
 				out += `#${part.caseType}/${part.property}`;
 				break;
 			case "user-property-ref":
-				out += `#user/${part.userPropertyUuid}`;
+				out += "#user/[reference needs repair]";
 				break;
 			case "user-ref":
 				out += `#user/${part.property}`;
@@ -158,6 +162,26 @@ export function fallbackProseProjection(template: ProseTemplate): string {
 		}
 	}
 	return out;
+}
+
+export interface UnresolvedProseProjection {
+	readonly kind: "field-ref" | "user-property-ref";
+	readonly identity: string;
+}
+
+export type ProseProjectionResult =
+	| { readonly ok: true; readonly text: string }
+	| {
+			readonly ok: false;
+			readonly text: string;
+			readonly unresolved: readonly UnresolvedProseProjection[];
+	  };
+
+export class ProseProjectionError extends Error {
+	constructor(readonly unresolved: readonly UnresolvedProseProjection[]) {
+		super("Prose contains an unresolved authored reference.");
+		this.name = "ProseProjectionError";
+	}
 }
 
 export function isProseTemplate(value: unknown): value is ProseTemplate {
@@ -177,30 +201,44 @@ export function proseReferenceParts(
  * Project a template to the canonical human/wire spelling. This is a read
  * projection only: no consumer may parse it back to recover identity.
  */
-export function printProseTemplate(
+export function projectProseTemplate(
 	template: ProseTemplate,
 	doc: XPathPrintableDoc,
-): string {
+): ProseProjectionResult {
 	const ctx = xpathPrintContext(doc);
 	let out = "";
+	const unresolved: UnresolvedProseProjection[] = [];
 	for (const part of template.parts) {
 		switch (part.kind) {
 			case "text":
 				out += part.text;
 				break;
-			case "field-ref":
-				out += `#form/${(ctx.fieldPathSegments(part.uuid) ?? [part.uuid]).join(
-					"/",
-				)}`;
+			case "field-ref": {
+				const path = ctx.fieldPathSegments(part.uuid);
+				if (path === undefined) {
+					unresolved.push({ kind: part.kind, identity: part.uuid });
+					out += "#form/[reference needs repair]";
+				} else {
+					out += `#form/${path.join("/")}`;
+				}
 				break;
+			}
 			case "case-ref":
 				out += `#${part.caseType}/${part.property}`;
 				break;
-			case "user-property-ref":
-				out += `#user/${
-					ctx.userPropertySlug(part.userPropertyUuid) ?? part.userPropertyUuid
-				}`;
+			case "user-property-ref": {
+				const slug = ctx.userPropertySlug(part.userPropertyUuid);
+				if (slug === undefined) {
+					unresolved.push({
+						kind: part.kind,
+						identity: part.userPropertyUuid,
+					});
+					out += "#user/[reference needs repair]";
+				} else {
+					out += `#user/${slug}`;
+				}
 				break;
+			}
 			case "user-ref":
 				out += `#user/${part.property}`;
 				break;
@@ -210,7 +248,19 @@ export function printProseTemplate(
 			}
 		}
 	}
-	return out;
+	return unresolved.length === 0
+		? { ok: true, text: out }
+		: { ok: false, text: out, unresolved };
+}
+
+/** Strict projection for wire/runtime consumers. */
+export function printProseTemplate(
+	template: ProseTemplate,
+	doc: XPathPrintableDoc,
+): string {
+	const projected = projectProseTemplate(template, doc);
+	if (!projected.ok) throw new ProseProjectionError(projected.unresolved);
+	return projected.text;
 }
 
 /**
@@ -232,22 +282,29 @@ export function resolveProseTemplate(
 				out += part.text;
 				break;
 			case "field-ref":
-				out += evaluate(
-					`#form/${(ctx.fieldPathSegments(part.uuid) ?? [part.uuid]).join(
-						"/",
-					)}`,
-				);
+				{
+					const path = ctx.fieldPathSegments(part.uuid);
+					if (path === undefined) {
+						throw new ProseProjectionError([
+							{ kind: part.kind, identity: part.uuid },
+						]);
+					}
+					out += evaluate(`#form/${path.join("/")}`);
+				}
 				break;
 			case "case-ref":
 				out += evaluate(`#${part.caseType}/${part.property}`);
 				break;
-			case "user-property-ref":
-				out += evaluate(
-					`#user/${
-						ctx.userPropertySlug(part.userPropertyUuid) ?? part.userPropertyUuid
-					}`,
-				);
+			case "user-property-ref": {
+				const slug = ctx.userPropertySlug(part.userPropertyUuid);
+				if (slug === undefined) {
+					throw new ProseProjectionError([
+						{ kind: part.kind, identity: part.userPropertyUuid },
+					]);
+				}
+				out += evaluate(`#user/${slug}`);
 				break;
+			}
 			case "user-ref":
 				out += evaluate(`#user/${part.property}`);
 				break;

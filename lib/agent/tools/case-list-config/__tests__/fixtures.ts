@@ -77,7 +77,7 @@ export function makeCaseListDoc(): BlueprintDoc {
 		fields: {},
 		moduleOrder: [MOD_A],
 		formOrder: { [MOD_A]: [FORM_A] },
-		fieldOrder: {},
+		fieldOrder: { [FORM_A]: [] },
 		fieldParent: {},
 	};
 }

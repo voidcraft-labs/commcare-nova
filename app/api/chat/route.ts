@@ -445,7 +445,7 @@ export async function POST(req: Request) {
 				projectId,
 				role: access.role,
 				canEdit: roleAllowsApp(access.role, "edit"),
-				baseSeq: 0,
+				baseSeq: 1,
 			};
 		} catch (err) {
 			if (err instanceof AppAccessError) {

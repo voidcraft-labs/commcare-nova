@@ -232,12 +232,13 @@ describe("granular catalog merges", () => {
 			{
 				kind: "addField",
 				parentUuid: formUuid,
-				field: f({
+				field: {
+					uuid: testUuid("concurrent-retired-age"),
 					kind: "text",
 					id: "age",
 					label: proseText("Age"),
 					case_property_on: "patient",
-				}) as unknown as Field,
+				},
 			},
 		];
 		const verdict = mutationCommitVerdict(
@@ -1406,7 +1407,6 @@ describe("diff round-trip — granular edits", () => {
 		expect(diff.some((m) => m.kind === "setCaseTypeMeta")).toBe(true);
 		expect(diff.some((m) => m.kind === "updateColumn")).toBe(true);
 		expect(diff.some((m) => m.kind === "updateOption")).toBe(true);
-		expect(diff.some((m) => m.kind === "setCaseTypes")).toBe(false);
 		const replayed = apply(prev, diff);
 		// Catalog + config + options reproduced.
 		expect(

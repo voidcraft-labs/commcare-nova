@@ -20,6 +20,8 @@
  */
 
 import type { ConversionImpact } from "@/lib/case-store";
+import type { PreparedMutationCandidate } from "@/lib/doc/commitVerdicts";
+import type { AdmittedMutationStages } from "@/lib/doc/mutationAdmission";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, CasePropertyDataType } from "@/lib/domain";
 import type {
@@ -104,8 +106,7 @@ export interface ToolExecutionContext {
 	 * can't strand a dangling reference (it surfaces here, not at export).
 	 */
 	recordMutations(
-		mutations: Mutation[],
-		doc: BlueprintDoc,
+		prepared: PreparedMutationCandidate,
 		stage?: string,
 		mediaExpectations?: readonly MediaAttachExpectation[],
 	): Promise<RecordMutationsResult>;
@@ -136,7 +137,8 @@ export interface ToolExecutionContext {
 	 * is the blueprint AFTER that stage applied to the previous one's.
 	 */
 	recordMutationStages(
-		stages: StagedMutationBatch[],
+		prepared: PreparedMutationCandidate,
+		stages: AdmittedMutationStages,
 	): Promise<RecordMutationsResult>;
 
 	/** Persist a conversation event (assistant text/reasoning, tool
@@ -185,7 +187,6 @@ export function describeParkedOutcome(outcome: {
  * edit (see `recordMutationStages`).
  */
 export interface StagedMutationBatch {
-	mutations: Mutation[];
-	doc: BlueprintDoc;
-	stage?: string;
+	readonly mutations: Mutation[];
+	readonly stage: string;
 }

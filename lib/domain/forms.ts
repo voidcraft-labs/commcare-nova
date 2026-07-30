@@ -105,12 +105,10 @@ export function defaultPostSubmit(formType: FormType): PostSubmitDestination {
 const closeConditionSchema = z
 	.object({
 		// The checked field, by stable uuid — rename-proof identity, the
-		// same contract as form-link targets. The schema stays permissive
-		// over the string (a legacy doc can carry an unresolvable id or a
-		// transient empty value); the validator's close-condition rules
-		// adjudicate resolution, and every reader resolves through
-		// `doc.fields` with the verbatim text as the dangling fallback.
-		field: z.string().transform((s) => s as Uuid),
+		// same contract as form-link targets. Legacy textual ids are repaired
+		// before this final schema is installed; steady-state documents never
+		// admit an empty or unresolved placeholder.
+		field: uuidSchema,
 		answer: z.string(),
 		operator: z.enum(["=", "selected"]).optional(),
 	})
@@ -191,6 +189,12 @@ export const caseTargetSchema = z.discriminatedUnion("kind", [
 ]);
 export type CaseTarget = z.infer<typeof caseTargetSchema>;
 
+const existingCaseTargetSchema = z.discriminatedUnion("kind", [
+	operationCaseTargetSchema,
+	sessionCaseTargetSchema,
+	expressionCaseTargetSchema,
+]);
+
 export const CASE_OPERATION_ACTIONS = ["create", "update", "close"] as const;
 export type CaseOperationAction = (typeof CASE_OPERATION_ACTIONS)[number];
 
@@ -236,28 +240,92 @@ export type CaseOperationLink = z.infer<typeof caseOperationLinkSchema>;
  *
  * `uuid` is reference identity and `id` is the author-facing/wire slug;
  * execution order is the array's own position, so an operation carries no
- * ordering slot at all. Facet legality intentionally stays out of the shape
- * schema so legacy documents remain parseable and the rule engine can return
- * precise, repairable findings instead of a generic Zod failure.
+ * ordering slot at all. The action is the stored-shape discriminator: each arm
+ * admits only the facets CommCare can execute for that action. The canonical
+ * cutover repairs legacy combinations before this final schema is installed,
+ * so there is no load-tolerant compatibility arm or validator fallback.
  */
-export const caseOperationSchema = z
-	.object({
-		uuid: uuidSchema,
-		id: z.string(),
-		action: z.enum(CASE_OPERATION_ACTIONS),
-		caseType: z.string(),
-		target: caseTargetSchema,
-		condition: predicateSchema.optional(),
-		forEach: z.object({ repeat: uuidSchema }).strict().optional(),
-		name: valueExpressionSchema.optional(),
-		owner: valueExpressionSchema.optional(),
-		rename: valueExpressionSchema.optional(),
-		retype: z.string().optional(),
-		writes: z.array(caseOperationWriteSchema).optional(),
-		links: z.array(caseOperationLinkSchema).optional(),
-	})
-	.strict();
-export type CaseOperation = z.infer<typeof caseOperationSchema>;
+const caseOperationCommonShape = {
+	uuid: uuidSchema,
+	id: z.string(),
+	caseType: z.string(),
+	condition: predicateSchema.optional(),
+	forEach: z.object({ repeat: uuidSchema }).strict().optional(),
+	writes: z.array(caseOperationWriteSchema).optional(),
+} as const;
+
+export const caseOperationSchema = z.discriminatedUnion("action", [
+	z
+		.object({
+			...caseOperationCommonShape,
+			action: z.literal("create"),
+			target: newCaseTargetSchema,
+			name: valueExpressionSchema,
+			owner: valueExpressionSchema.optional(),
+			links: z.array(caseOperationLinkSchema).optional(),
+			rename: z.never().optional(),
+			retype: z.never().optional(),
+		})
+		.strict(),
+	z
+		.object({
+			...caseOperationCommonShape,
+			action: z.literal("update"),
+			target: existingCaseTargetSchema,
+			name: z.never().optional(),
+			owner: valueExpressionSchema.optional(),
+			rename: valueExpressionSchema.optional(),
+			retype: z.string().optional(),
+			links: z.array(caseOperationLinkSchema).optional(),
+		})
+		.strict(),
+	z
+		.object({
+			...caseOperationCommonShape,
+			action: z.literal("close"),
+			target: existingCaseTargetSchema,
+			name: z.never().optional(),
+			owner: z.never().optional(),
+			rename: z.never().optional(),
+			retype: z.never().optional(),
+			links: z.never().optional(),
+		})
+		.strict(),
+]);
+
+/**
+ * The read model shared by operation consumers.
+ *
+ * Runtime admission is deliberately stricter than this convenient projection:
+ * `caseOperationSchema` is the authoritative action-discriminated stored shape.
+ * Keeping the common facet view here lets generic walkers and mutation planners
+ * inspect an already-parsed operation without re-distributing every helper over
+ * the three action arms.
+ */
+export type CaseOperation = {
+	uuid: Uuid;
+	id: string;
+	action: CaseOperationAction;
+	caseType: string;
+	target: CaseTarget;
+	condition?: Predicate;
+	forEach?: { repeat: Uuid };
+	name?: ValueExpression;
+	owner?: ValueExpression;
+	rename?: ValueExpression;
+	retype?: string;
+	writes?: CaseOperationWrite[];
+	links?: CaseOperationLink[];
+};
+
+/**
+ * The same strict runtime parser with its output viewed through the common
+ * read model. Generic containers use this when they do not need arm-specific
+ * construction, while `caseOperationSchema.options` remains available to
+ * action-aware mutation schemas.
+ */
+export const caseOperationReadSchema: z.ZodType<CaseOperation> =
+	caseOperationSchema;
 
 /**
  * The operation sequence — which is simply the array, copied so callers can
@@ -358,7 +426,7 @@ export const formSchema = z
 		formLinks: z.array(formLinkSchema).optional(),
 		/** Ordered, typed case effects: what one submission does to the case
 		 *  universe, in the order the runtime applies it. */
-		caseOperations: z.array(caseOperationSchema).optional(),
+		caseOperations: z.array(caseOperationReadSchema).optional(),
 		/**
 		 * Image shown on the form's menu tile — the per-form
 		 * affordance within a module's menu.

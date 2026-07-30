@@ -82,7 +82,7 @@ export function ConnectSection({
 			// Forward the gated outcome so sub-config editors keep a refused
 			// draft on screen with the finding.
 			return inline.updateForm(asUuid(formUuid), {
-				connect: config ?? undefined,
+				connect: config,
 			});
 		},
 		[inline, formUuid],

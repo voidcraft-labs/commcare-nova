@@ -27,9 +27,10 @@ serializes per user); `seq` tiebreaks events inside a single-millisecond
 SSE burst. The full event rides the `event` jsonb column; the envelope
 fields (`run_id`, `ts`, `seq`, `source`, `kind`) are projected into their
 own columns so reads filter and order without parsing the payload.
-`readEvents` re-validates each payload through `eventSchema.safeParse`
-(`decodeEventsLenient`), dropping and counting any forward-version /
-drifted row rather than failing the whole read.
+`readEvents` strictly validates the complete ordered page through
+`eventSchema.array().parse`. One malformed row fails the whole read; returning
+the valid rows around it would invent a partial history that never existed.
+Pre-cutover mutation payloads use the explicit opaque `archived-mutation` arm.
 
 ## Usage in events — per-step decomposition only
 

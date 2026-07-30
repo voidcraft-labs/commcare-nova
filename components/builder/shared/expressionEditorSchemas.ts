@@ -36,14 +36,7 @@ import tablerUser from "@iconify-icons/tabler/user";
 import tablerUserOff from "@iconify-icons/tabler/user-off";
 import tablerVariable from "@iconify-icons/tabler/variable";
 import { type ComponentType, createElement } from "react";
-import type {
-	CaseProperty,
-	CaseType,
-	LookupColumnId,
-	LookupTableId,
-	UserProperty,
-	Uuid,
-} from "@/lib/domain";
+import type { CaseProperty, CaseType, UserProperty, Uuid } from "@/lib/domain";
 import {
 	isDateTyped,
 	NUMERIC_DATA_TYPES,
@@ -55,7 +48,6 @@ import type {
 	SlotConstraint,
 	ValueExpression,
 } from "@/lib/domain/predicate";
-import { and } from "@/lib/domain/predicate";
 import { ArithCard, arithDefault } from "./cards/expression/ArithCard";
 import { CoalesceCard, coalesceDefault } from "./cards/expression/CoalesceCard";
 import { ConcatCard, concatDefault } from "./cards/expression/ConcatCard";
@@ -301,21 +293,13 @@ function applicableAlways(): boolean {
 	return true;
 }
 
-const DORMANT_LOOKUP_TABLE_ID =
-	"00000000-0000-7000-8000-000000000000" as LookupTableId;
-const DORMANT_LOOKUP_COLUMN_ID =
-	"00000000-0000-7000-8000-000000000001" as LookupColumnId;
-
 function dormantTableLookupDefault(): Extract<
 	ValueExpression,
 	{ kind: "table-lookup" }
 > {
-	return {
-		kind: "table-lookup",
-		tableId: DORMANT_LOOKUP_TABLE_ID,
-		resultColumnId: DORMANT_LOOKUP_COLUMN_ID,
-		where: and(),
-	};
+	throw new Error(
+		"A saved lookup value cannot be created until its table and result column are selected.",
+	);
 }
 
 function DormantTableLookupCard() {

@@ -44,6 +44,7 @@ import {
 	gatingValidationCodes,
 	guardedLegacyEvaluation,
 	guardedRepairApp,
+	planRepair,
 	REPAIR_JUDGMENTS,
 	renderAppRepairReport,
 	repairApp,
@@ -256,6 +257,22 @@ describe("identifier repairs", () => {
 	it("INVALID_FIELD_ID: sanitizes to a legal element name", () => {
 		const doc = minDoc([
 			f({ kind: "text", id: "bad id!", label: proseText("Bad") }),
+		]);
+		const finding = evaluateLegacyFindings(doc).findings.find(
+			(candidate) => candidate.code === "INVALID_FIELD_ID",
+		);
+		if (!finding) throw new Error("fixture missing INVALID_FIELD_ID");
+		const field = Object.values(doc.fields).find(
+			(candidate) => candidate.id === "bad id!",
+		);
+		if (!field) throw new Error("fixture field missing");
+		expect(planRepair(finding, doc)?.mutations).toEqual([
+			{
+				kind: "updateField",
+				uuid: field.uuid,
+				targetKind: "text",
+				patch: { id: "bad_id_" },
+			},
 		]);
 		const outcome = expectRepaired(doc, "INVALID_FIELD_ID");
 		expect(
@@ -950,9 +967,10 @@ describe("guarded per-app entry points — one broken doc never takes down the r
 		return raw;
 	}
 
-	it("the broken fixture genuinely throws when evaluated unguarded", () => {
-		const { doc } = toLegacyBlueprintView(brokenStoredDoc());
-		expect(() => evaluateLegacyFindings(doc)).toThrow();
+	it("the broken fixture genuinely throws when loaded unguarded", () => {
+		expect(() => toLegacyBlueprintView(brokenStoredDoc())).toThrow(
+			/invalid blueprint topology/,
+		);
 	});
 
 	it("guardedLegacyEvaluation returns the error arm instead of throwing", () => {

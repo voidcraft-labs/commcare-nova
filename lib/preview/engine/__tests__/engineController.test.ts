@@ -277,22 +277,17 @@ describe("EngineController", () => {
 			expect(Object.keys(ctrl.store.getState())).toHaveLength(0);
 		});
 
-		it("returns early when the form is not referenced by any module", () => {
-			/* Orphan case: the form entity exists but no module lists it in
-			 * `formOrder`. `findModuleForForm` returns undefined and the
-			 * controller bails before touching the engine — no case-type
-			 * context, no activation. */
+		it("refuses to load a form that is not referenced by any module", () => {
+			/* Closed topology prevents an orphan form from becoming preview
+			 * state at all. The controller's unknown-form guard still covers
+			 * a stale route, while hydration rejects a structurally detached
+			 * entity before the engine can observe it. */
 			const orphanDoc = makeDoc();
 			orphanDoc.formOrder = { [MODULE_UUID]: [] };
 			const store = createBlueprintDocStore();
-			store.getState().load(orphanDoc);
-			store.getState().startTracking();
-
-			const ctrl = new EngineController();
-			ctrl.setDocStore(store);
-			ctrl.activateForm(FORM_UUID);
-
-			expect(Object.keys(ctrl.store.getState())).toHaveLength(0);
+			expect(() => store.getState().load(orphanDoc)).toThrow(
+				/invalid blueprint topology/,
+			);
 		});
 
 		it("returns early when no doc store is installed", () => {
@@ -419,7 +414,7 @@ describe("EngineController", () => {
 						label: proseText("Container"),
 					},
 				},
-				{ [FORM_UUID]: [groupUuid] },
+				{ [FORM_UUID]: [groupUuid], [groupUuid]: [] },
 			);
 			const store = createLoadedStore(doc);
 			const ctrl = new EngineController();
@@ -1758,6 +1753,7 @@ describe("EngineController", () => {
 					label: "Assigned region",
 				},
 			};
+			doc.userPropertyOrder = [REGION_UUID];
 			const identity: ResolvedPreviewIdentity = {
 				actorUserId: ME.id,
 				ownerId: ME.id,

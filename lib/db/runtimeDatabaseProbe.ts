@@ -4,6 +4,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { type Kysely, sql } from "kysely";
 import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import type { AppDatabase } from "@/lib/db/pg";
+import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import { commitGuardedBatchInTransaction, loadAppInTransaction } from "./apps";
 import { projectRoleForInTransaction } from "./projectMembership";
 
@@ -151,7 +152,9 @@ export async function runCanonicalRuntimeDatabaseProbe(
 				appId: candidate.app_id,
 				expectedProjectId: candidate.project_id,
 				batchId,
-				mutations: [],
+				mutations: admitMutationBatch([
+					{ kind: "setAppName", name: app.blueprint.appName },
+				]),
 				actorUserId: candidate.user_id,
 				kind: "migration",
 			});

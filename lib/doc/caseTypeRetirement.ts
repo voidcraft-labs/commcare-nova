@@ -57,6 +57,7 @@ import {
 	type ProseTemplate,
 	readSlotStrings,
 	readSlotValues,
+	uuidSchema,
 	xpathRefParts,
 } from "@/lib/domain";
 import {
@@ -225,7 +226,7 @@ function planRetirement(
 		caseType: displaced,
 		// Granular `retireCaseType` keyed by name (the reducer canonicalizes an
 		// emptied catalog to `null`), so a concurrent edit to a DIFFERENT type
-		// merges rather than being clobbered by a wholesale `setCaseTypes`.
+		// merges rather than being clobbered by a whole-catalog replacement.
 		mutations: [{ kind: "retireCaseType", caseType: displaced }],
 	};
 }
@@ -318,7 +319,9 @@ function findCaseTypeReferences(
 		doc,
 		caseTypeTargetKey(caseType),
 	)) {
-		const placement = placeCarrier(doc, carrierUuid as Uuid, scanIndex);
+		const parsedCarrierUuid = uuidSchema.safeParse(carrierUuid);
+		if (!parsedCarrierUuid.success) continue;
+		const placement = placeCarrier(doc, parsedCarrierUuid.data, scanIndex);
 		if (!placement) continue;
 		if (placement.moduleUuid === opts.excludeModuleUuid) continue;
 		placed.push(placement);

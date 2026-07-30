@@ -137,6 +137,17 @@ export interface AcceptedMutationsTable {
 	ts: Timestamp;
 }
 
+/** Immutable canonical snapshot establishing one explicit mutation fold
+ * horizon. Runtime may read these rows but only a schema migration inserts
+ * them; database triggers reject update/delete. */
+export interface MutationFoldBaselinesTable {
+	app_id: string;
+	seq: BigIntColumn;
+	snapshot: JSONColumnType<Record<string, unknown>>;
+	snapshot_digest: string;
+	created_at: Timestamp;
+}
+
 export interface EventsTable {
 	id: ColumnType<string | number, never, never>;
 	app_id: string;
@@ -458,6 +469,7 @@ export interface AppDatabase {
 	apps: AppsTable;
 	blueprint_entities: BlueprintEntitiesTable;
 	accepted_mutations: AcceptedMutationsTable;
+	mutation_fold_baselines: MutationFoldBaselinesTable;
 	events: EventsTable;
 	threads: ThreadsTable;
 	chat_stream_chunks: ChatStreamChunksTable;

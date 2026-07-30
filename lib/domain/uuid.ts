@@ -28,7 +28,7 @@ export const uuidSchema = z
 	.brand<"Uuid">();
 export type Uuid = z.infer<typeof uuidSchema>;
 
-/** Parse and narrow string → Uuid. Prefer over unchecked `as Uuid`. */
+/** Parse and narrow string → Uuid. Prefer over unchecked type assertions. */
 export function asUuid(s: string): Uuid {
 	return uuidSchema.parse(s);
 }

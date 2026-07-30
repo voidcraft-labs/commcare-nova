@@ -38,6 +38,7 @@ import { BuilderAccessGate } from "@/components/builder/AccessStatus";
 import { BuilderContentArea } from "@/components/builder/BuilderContentArea";
 import { BuilderHeader } from "@/components/builder/BuilderHeader";
 import { BuilderReferenceProvider } from "@/components/builder/BuilderReferenceProvider";
+import { CaseTargetDraftProvider } from "@/components/builder/case-operations/CaseTargetDraftContext";
 import { useRegisterScrollCallback } from "@/components/builder/contexts/ScrollRegistryContext";
 import { useBuilderShortcuts } from "@/components/builder/useBuilderShortcuts";
 import { Logo } from "@/components/ui/Logo";
@@ -45,7 +46,6 @@ import type { CommCareSettingsPublic } from "@/lib/db/settings";
 import type { ThreadDoc, ThreadMeta } from "@/lib/db/types";
 import { useAppStructure } from "@/lib/doc/hooks/useAppStructure";
 import { BlueprintDocContext } from "@/lib/doc/provider";
-import type { Uuid } from "@/lib/doc/types";
 import { useNavigate } from "@/lib/routing/hooks";
 import { BuilderPhase } from "@/lib/session/builderTypes";
 import {
@@ -364,9 +364,9 @@ export function BuilderLayout({
 	useEffect(() => {
 		const wasGenerating = prevPhaseRef.current === BuilderPhase.Generating;
 		if (wasGenerating && phase === BuilderPhase.Completed) {
-			const firstModuleUuid = docModuleOrder[0] as Uuid | undefined;
+			const firstModuleUuid = docModuleOrder[0];
 			const firstFormUuid = firstModuleUuid
-				? (docFormOrder[firstModuleUuid]?.[0] as Uuid | undefined)
+				? docFormOrder[firstModuleUuid]?.[0]
 				: undefined;
 			if (firstModuleUuid && firstFormUuid) {
 				navigate.openForm(firstModuleUuid, firstFormUuid);
@@ -399,28 +399,30 @@ export function BuilderLayout({
 
 	return (
 		<BuilderReferenceProvider>
-			<div className="h-full flex flex-col overflow-hidden">
-				{/* Builder header — logo, centered Preview toggle, doc tools, account.
-				 *  Always rendered: it replaces the site AppHeader inside /build. */}
-				<BuilderHeader
-					commcareConfigured={commcareConfigured}
-					commcareAvailableDomains={commcareAvailableDomains}
-					onSetPreviewing={handleSetPreviewing}
-					impersonating={impersonating ?? null}
-				/>
-
-				<BuilderAccessGate>
-					{/* Content area — self-sufficient, owns sidebar/preview/chat layout */}
-					<BuilderContentArea
-						isCentered={isCentered}
-						isExistingApp={!!isExistingApp}
-						threads={threads}
-						initialThread={initialThread}
-						appGenerating={appGenerating}
-						currentUserId={currentUserId}
+			<CaseTargetDraftProvider>
+				<div className="h-full flex flex-col overflow-hidden">
+					{/* Builder header — logo, centered Preview toggle, doc tools, account.
+					 *  Always rendered: it replaces the site AppHeader inside /build. */}
+					<BuilderHeader
+						commcareConfigured={commcareConfigured}
+						commcareAvailableDomains={commcareAvailableDomains}
+						onSetPreviewing={handleSetPreviewing}
+						impersonating={impersonating ?? null}
 					/>
-				</BuilderAccessGate>
-			</div>
+
+					<BuilderAccessGate>
+						{/* Content area — self-sufficient, owns sidebar/preview/chat layout */}
+						<BuilderContentArea
+							isCentered={isCentered}
+							isExistingApp={!!isExistingApp}
+							threads={threads}
+							initialThread={initialThread}
+							appGenerating={appGenerating}
+							currentUserId={currentUserId}
+						/>
+					</BuilderAccessGate>
+				</div>
+			</CaseTargetDraftProvider>
 		</BuilderReferenceProvider>
 	);
 }

@@ -34,7 +34,7 @@ interface FieldDesc {
 function buildDoc(formUuid: Uuid, descs: FieldDesc[]): BlueprintDoc {
 	const fields: Record<string, Field> = {};
 	const fieldOrder: Record<string, Uuid[]> = {};
-	const fieldParent: Record<Uuid, Uuid | null> = {};
+	const fieldParent: Record<Uuid, Uuid> = {};
 
 	// Accumulate the form's root-level order separately from container orders.
 	const rootOrder: Uuid[] = [];

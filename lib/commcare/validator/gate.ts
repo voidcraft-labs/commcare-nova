@@ -107,7 +107,11 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	MISSING_CHILD_CASE_MODULE: "completeness",
 	RESERVED_CASE_TYPE_NAME: "soundness",
 	CONNECT_NO_PARTICIPATING_FORMS: "completeness",
+	BLUEPRINT_TOPOLOGY_INVALID: "soundness",
 	BLUEPRINT_ENTITY_UUID_DUPLICATE: "soundness",
+	MUTATION_IDENTITY_COLLISION: "soundness",
+	MUTATION_SEQUENCE_ANCHOR_INVALID: "soundness",
+	MUTATION_WIRE_CANONICALITY_INVALID: "soundness",
 	CASE_PROPERTY_REFERENCE_INVALID: "soundness",
 	// Who runs the app. Every one is soundness: an illegal or duplicated
 	// slug is an identity CommCare refuses, a duplicated role or persona

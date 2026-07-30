@@ -40,6 +40,7 @@
 
 import { z } from "zod";
 import {
+	asUuid,
 	type Column,
 	canonicalCasePropertyName,
 	caseTileLayoutSchema,
@@ -491,13 +492,13 @@ export function stampSearchInputUuid(
  * every add path.
  */
 export function newUuid(): Uuid {
-	return crypto.randomUUID() as Uuid;
+	return asUuid(crypto.randomUUID());
 }
 
 // ── Uuid input schema ───────────────────────────────────────────────
 //
 // Tool-addressing UUIDs deliberately stay plain strings at this wire boundary.
-// Tool bodies brand the parsed value with `asUuid(...)` before handing it to
+// Tool bodies narrow the parsed value with `asUuid(...)` before handing it to
 // the blueprintHelpers atomic builders. Keeping the provider input type
 // unbranded also makes that boundary's string-in / branded-domain transition
 // explicit even though the shared domain `uuidSchema` is itself now
@@ -509,7 +510,7 @@ export function newUuid(): Uuid {
 
 /**
  * JSON-Schema-safe Uuid wire schema. Accepts a non-empty string at the
- * SA boundary; tool bodies cast through `asUuid` before threading the
+ * SA boundary; tool bodies parse through `asUuid` before threading the
  * value into the branded `Uuid`-typed mutation builders.
  */
 export const uuidInputSchema = uuidSchema;

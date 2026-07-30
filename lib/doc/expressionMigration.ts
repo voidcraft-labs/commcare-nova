@@ -24,6 +24,7 @@ import {
 } from "@/lib/doc/expressionText";
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
 import {
+	asUuid,
 	FIELD_REFERENCE_SLOTS,
 	FORM_REFERENCE_SLOTS,
 	fieldPathResolver,
@@ -31,6 +32,7 @@ import {
 	type ReferenceSlot,
 	type ResolveFieldPath,
 	rewriteSlotValues,
+	uuidSchema,
 	xpathPrintContext,
 } from "@/lib/domain";
 
@@ -130,7 +132,7 @@ export function migrateDocExpressions(
 		while (stack.length > 0) {
 			const uuid = stack.pop();
 			if (uuid === undefined) continue;
-			formOfField.set(uuid, formUuid as Uuid);
+			formOfField.set(uuid, asUuid(formUuid));
 			for (const child of doc.fieldOrder[uuid] ?? []) stack.push(child);
 		}
 	}
@@ -176,7 +178,8 @@ function migrateCloseCondition(
 		.closeCondition;
 	const ref = closeCondition?.field;
 	if (typeof ref !== "string" || ref.length === 0) return;
-	if (doc.fields[ref as Uuid] !== undefined) {
+	const parsedRef = uuidSchema.safeParse(ref);
+	if (parsedRef.success && doc.fields[parsedRef.data] !== undefined) {
 		result.skipped++;
 		return;
 	}

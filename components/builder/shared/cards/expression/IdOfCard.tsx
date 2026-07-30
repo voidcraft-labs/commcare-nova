@@ -24,7 +24,6 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/shadcn/dropdown-menu";
 import { Input } from "@/components/shadcn/input";
-import { asUuid } from "@/lib/domain";
 import { idOf, type ValueExpression } from "@/lib/domain/predicate";
 import { usePredicateEditContext } from "../../editorContext";
 import type { ExpressionEditContext } from "../../expressionEditorSchemas";
@@ -34,11 +33,14 @@ export function idOfDefault(
 	ctx: ExpressionEditContext,
 ): Extract<ValueExpression, { kind: "id-of" }> {
 	// The nearest earlier create is what an author reaching for this almost
-	// always means. A surface with no creates in scope never offers the kind,
-	// so the placeholder below is unreachable through the menu and exists only
-	// to keep the seed total.
+	// always means. A surface with no creates in scope never offers the kind.
 	const nearest = ctx.operationScope?.creates.at(-1);
-	return idOf(nearest?.uuid ?? asUuid("00000000-0000-4000-8000-000000000000"));
+	if (nearest === undefined) {
+		throw new Error(
+			"Created case ID is unavailable until an earlier change creates a case.",
+		);
+	}
+	return idOf(nearest.uuid);
 }
 
 export function IdOfCard({

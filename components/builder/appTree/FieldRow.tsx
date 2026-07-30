@@ -108,7 +108,7 @@ export const FieldRow = memo(function FieldRow({
 			? (field.label as ProseTemplate)
 			: undefined;
 	const fieldLabel = fieldTemplate
-		? (provider?.projectTemplate(fieldTemplate, formUuid) ??
+		? (provider?.projectTemplate(fieldTemplate, formUuid).text ??
 			fallbackProseProjection(fieldTemplate))
 		: "";
 	const showIdMatch = !!(idIndices && fieldLabel);

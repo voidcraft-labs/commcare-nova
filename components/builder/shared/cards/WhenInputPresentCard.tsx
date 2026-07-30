@@ -19,7 +19,7 @@ import {
 	DropdownMenuPositioner,
 	DropdownMenuTrigger,
 } from "@/components/shadcn/dropdown-menu";
-import { asUuid, type Uuid } from "@/lib/domain";
+import type { Uuid } from "@/lib/domain";
 import { humanizeId } from "@/lib/domain/idSlug";
 import {
 	input as buildInput,
@@ -39,10 +39,13 @@ export function whenInputPresentDefault(
 	ctx: PredicateEditContext,
 ): Extract<Predicate, { kind: "when-input-present" }> {
 	const firstInput = ctx.knownInputs[0];
+	if (firstInput === undefined) {
+		throw new Error(
+			"A search-answer condition is unavailable until a search field exists.",
+		);
+	}
 	return whenInput(
-		buildInput(
-			firstInput?.uuid ?? asUuid("00000000-0000-4000-8000-000000000000"),
-		),
+		buildInput(firstInput.uuid),
 		firstConditionSeed(ctx) ?? matchAll(),
 	);
 }

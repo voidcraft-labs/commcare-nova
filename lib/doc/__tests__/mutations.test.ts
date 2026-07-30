@@ -284,11 +284,12 @@ describe("mutationSchema round-trip", () => {
 			});
 		});
 
-		it("renameField", () => {
+		it("updateField field ID", () => {
 			expectRoundTrip({
-				kind: "renameField",
+				kind: "updateField",
 				uuid: fieldUuid,
-				newId: "full_name",
+				targetKind: "text",
+				patch: { id: "full_name" },
 			});
 		});
 
@@ -336,15 +337,19 @@ describe("mutationSchema round-trip", () => {
 			expectRoundTrip({ kind: "setConnectType", connectType: null });
 		});
 
-		it("setCaseTypes (non-empty)", () => {
+		it("declareCaseType", () => {
 			expectRoundTrip({
-				kind: "setCaseTypes",
-				caseTypes: [{ name: "patient", properties: [] }],
+				kind: "declareCaseType",
+				caseType: "patient",
 			});
 		});
 
-		it("setCaseTypes (null)", () => {
-			expectRoundTrip({ kind: "setCaseTypes", caseTypes: null });
+		it("addCaseProperty", () => {
+			expectRoundTrip({
+				kind: "addCaseProperty",
+				caseType: "patient",
+				property: { name: "name", label: proseText("Name") },
+			});
 		});
 	});
 

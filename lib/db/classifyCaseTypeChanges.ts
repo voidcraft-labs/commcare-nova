@@ -58,12 +58,10 @@
  * under a changed id (old name → new name) is rename evidence,
  * unless the old name is KEPT by another writer whose id did not
  * change (then the property lives on and its data stays). That
- * evidence covers every batch encoding of a rename: the
- * `renameField` gesture (builder, SA/MCP `edit_field`), the
- * `moveField` dedup auto-rename, and the diff-shaped batches
- * undo/redo and the collab reconciler emit (`updateField` id patch
- * + catalog add/remove pairs — `diffDocsToMutations` never emits
- * `renameField`). A same-batch rename CHAIN (A→B→C) collapses for
+ * evidence covers every source of a rename: the canonical
+ * `updateField` ID patch (builder, SA/MCP `edit_field`, undo/redo, and
+ * collaboration reconciliation) and `moveField`'s dedup auto-rename.
+ * A same-batch rename CHAIN (A→B→C) collapses for
  * free: only the endpoints appear in the snapshots. All of a case
  * type's proven pairs ride ONE rename entry and the store applies
  * them SIMULTANEOUSLY per row, so a swap (A→B while B→A) or a

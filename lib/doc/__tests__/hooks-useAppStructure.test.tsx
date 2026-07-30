@@ -38,7 +38,7 @@ function setup() {
 		fields: {},
 		moduleOrder: [MOD_UUID],
 		formOrder: { [MOD_UUID]: [FORM_UUID] },
-		fieldOrder: {},
+		fieldOrder: { [FORM_UUID]: [] },
 		fieldParent: {},
 	};
 	store.getState().load(doc);

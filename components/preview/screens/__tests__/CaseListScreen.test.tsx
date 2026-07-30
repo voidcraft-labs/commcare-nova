@@ -349,25 +349,27 @@ function renderCaseListScreen(opts: {
 									: {}),
 							},
 						},
-				forms: {
-					[FORM_UUID]: {
-						uuid: FORM_UUID,
-						id: "registration_form",
-						name: FIRST_FORM_NAME,
-						type: "registration",
-					},
-					...(includeCaseLoadingForm
-						? {
-								[FOLLOWUP_FORM_UUID]: {
-									uuid: FOLLOWUP_FORM_UUID,
-									id: "followup_form",
-									name: opts.followupFormName ?? "Follow-up Visit",
-									type: "followup" as const,
-								},
-							}
-						: {}),
-					...extraForms,
-				},
+				forms: opts.omitModule
+					? {}
+					: {
+							[FORM_UUID]: {
+								uuid: FORM_UUID,
+								id: "registration_form",
+								name: FIRST_FORM_NAME,
+								type: "registration",
+							},
+							...(includeCaseLoadingForm
+								? {
+										[FOLLOWUP_FORM_UUID]: {
+											uuid: FOLLOWUP_FORM_UUID,
+											id: "followup_form",
+											name: opts.followupFormName ?? "Follow-up Visit",
+											type: "followup" as const,
+										},
+									}
+								: {}),
+							...extraForms,
+						},
 				fields: {},
 				moduleOrder: opts.omitModule ? [] : [MODULE_UUID],
 				formOrder: opts.omitModule
@@ -379,7 +381,13 @@ function renderCaseListScreen(opts: {
 								...extraFormOrder,
 							],
 						},
-				fieldOrder: {},
+				fieldOrder: opts.omitModule
+					? {}
+					: {
+							[FORM_UUID]: [],
+							...(includeCaseLoadingForm ? { [FOLLOWUP_FORM_UUID]: [] } : {}),
+							...(opts.secondCaseLoadingForm ? { [CLOSE_FORM_UUID]: [] } : {}),
+						},
 			}}
 		>
 			<CaptureDocStore />

@@ -185,7 +185,7 @@ function renderShell() {
 				fields: {},
 				moduleOrder: [MODULE_UUID],
 				formOrder: { [MODULE_UUID]: [FORM_UUID] },
-				fieldOrder: {},
+				fieldOrder: { [FORM_UUID]: [] },
 			}}
 		>
 			<PreviewShell />

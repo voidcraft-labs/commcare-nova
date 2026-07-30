@@ -120,7 +120,12 @@ describe("scopeOfMutations", () => {
 		const doc = twoTypeDoc();
 		const inner = fieldByid(doc, "inner");
 		const scope = scopeOfMutations(doc, [
-			{ kind: "renameField", uuid: inner.uuid, newId: "inner2" },
+			{
+				kind: "updateField",
+				uuid: inner.uuid,
+				targetKind: "text",
+				patch: { id: "inner2" },
+			},
 		]);
 		expectScope(scope);
 		expect([...(scope.formUuids ?? [])]).toEqual([
@@ -128,8 +133,8 @@ describe("scopeOfMutations", () => {
 		]);
 	});
 
-	it("a case-property-touching rename maps to full — cascades and readers reach app-wide", () => {
-		// The rename cascade renames peers by (id, case_property_on)
+	it("a case-property-touching field-ID update maps to full — cascades and readers reach app-wide", () => {
+		// The case-property cascade updates peers by (id, case_property_on)
 		// regardless of their module's caseType, and relation-walk readers
 		// (search inputs / predicate ASTs walking to the written type) can
 		// live in modules of ANY type — no widening bounds that reach.
@@ -137,16 +142,26 @@ describe("scopeOfMutations", () => {
 		const caseName = fieldByid(doc, "case_name");
 		expect(
 			scopeOfMutations(doc, [
-				{ kind: "renameField", uuid: caseName.uuid, newId: "full_name" },
+				{
+					kind: "updateField",
+					uuid: caseName.uuid,
+					targetKind: "text",
+					patch: { id: "full_name" },
+				},
 			]),
 		).toBe("full");
 	});
 
-	it("a rename of a NON-case-bound field stays scoped to its form", () => {
+	it("an ID update of a NON-case-bound field stays scoped to its form", () => {
 		const doc = twoTypeDoc();
 		const notes = fieldByid(doc, "notes");
 		const scope = scopeOfMutations(doc, [
-			{ kind: "renameField", uuid: notes.uuid, newId: "remarks" },
+			{
+				kind: "updateField",
+				uuid: notes.uuid,
+				targetKind: "text",
+				patch: { id: "remarks" },
+			},
 		]);
 		expectScope(scope);
 		expect([...(scope.formUuids ?? [])]).toEqual([
@@ -242,10 +257,10 @@ describe("scopeOfMutations", () => {
 		).toBe("full");
 	});
 
-	it("renaming a case-bound field maps to full even when its peers live in OTHER-type modules", () => {
+	it("changing a case-bound field ID maps to full even when its peers live in OTHER-type modules", () => {
 		// Finding-1 repro shape: two HOUSEHOLD modules whose forms write the
 		// PATIENT type (the child-case authoring pattern). The cascade
-		// renames the form-2 peer (`age` → `weight`, colliding with its
+		// updates the form-2 peer (`age` → `weight`, colliding with its
 		// sibling) — a form no caseType-keyed widening would ever cover, so
 		// the only sound scope is full.
 		const doc = buildDoc({
@@ -293,7 +308,12 @@ describe("scopeOfMutations", () => {
 		const age = fieldByid(doc, "age");
 		expect(
 			scopeOfMutations(doc, [
-				{ kind: "renameField", uuid: age.uuid, newId: "weight" },
+				{
+					kind: "updateField",
+					uuid: age.uuid,
+					targetKind: "int",
+					patch: { id: "weight" },
+				},
 			]),
 		).toBe("full");
 	});
@@ -399,7 +419,11 @@ describe("scopeOfMutations", () => {
 				after: null,
 			},
 			{ kind: "setConnectType", connectType: "learn" },
-			{ kind: "setCaseTypes", caseTypes: null },
+			{
+				kind: "removeCaseProperty",
+				caseType: "patient",
+				property: "case_name",
+			},
 		];
 		for (const mutation of fullKinds) {
 			expect(scopeOfMutations(doc, [mutation]), mutation.kind).toBe("full");
@@ -601,7 +625,11 @@ describe("scopeOfMutations", () => {
 					targetKind: "text",
 					patch: { label: proseText("x") },
 				} as Mutation,
-				{ kind: "setCaseTypes", caseTypes: null },
+				{
+					kind: "removeCaseProperty",
+					caseType: "patient",
+					property: "case_name",
+				},
 			]),
 		).toBe("full");
 	});

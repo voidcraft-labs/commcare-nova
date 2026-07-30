@@ -14,12 +14,10 @@
  *      the freshest state, even after intervening mutations.
  *   2. Validates the uuid exists in the current doc (form, field, or
  *      module entity map).
- *   3. Dispatches a `Mutation` through `store.getState().applyMany([...])`
- *      — the ONE public write path — which the reducer in
- *      `lib/doc/mutations/index.ts` translates into draft edits on the
- *      Immer-backed store. The two mutations that produce metadata
- *      (`renameField`, `moveField`) destructure position `[0]` of the
- *      returned `MutationResult[]`.
+ *   3. Dispatches a `Mutation` through the gated store write path, which
+ *      the reducer in `lib/doc/mutations/index.ts` translates into draft
+ *      edits on the Immer-backed store. `moveField` is the sole builder
+ *      action that consumes reducer metadata.
  *
  * Missing references (unknown uuid) are silently swallowed with a
  * `console.warn`. The engine behaved the same way: no-op rather than
@@ -75,7 +73,6 @@ import {
 } from "@/lib/doc/scaffolds";
 import type {
 	BlueprintDoc,
-	FieldRenameMeta,
 	MoveFieldResult,
 	Mutation,
 	MutationResult,
@@ -98,7 +95,6 @@ import {
 import {
 	asUuid,
 	type CaseProperty,
-	type CaseType,
 	type CommitOutcome,
 	type ConnectType,
 	DEFAULT_SELECT_OPTIONS,
@@ -142,60 +138,46 @@ export type { CommitOutcome };
 
 const COMMITTED: CommitOutcome = { ok: true };
 
-/** The silent-no-op rejection (a stale uuid, nothing dispatched) — no
- *  messages, so editors keep the legacy quiet behavior. */
+/**
+ * Preserve top-level clears on the JSON mutation wire.
+ *
+ * Builder call sites should spell a clear as `null`, but optional TypeScript
+ * properties can still carry an explicit `undefined` from a generic control.
+ * The reducer understands that value in memory; JSON drops the key and turns
+ * the accepted command into a no-op. Normalize at the authoring boundary so a
+ * clear can never be recorded in a shape persistence cannot replay.
+ */
+function jsonStableClearPatch(
+	patch: Readonly<Record<string, unknown>>,
+): Record<string, unknown> {
+	return Object.fromEntries(
+		Object.entries(patch).map(([key, value]) => [
+			key,
+			value === undefined ? null : value,
+		]),
+	);
+}
+
+/** The silent-no-op rejection (a stale uuid, nothing dispatched). */
 const NOOP_REJECTION: CommitOutcome & { ok: false } = {
 	ok: false,
 	messages: [],
 };
 
 /**
- * Result of a `renameField` dispatch.
+ * Result of a field-id edit.
  *
- * `conflict: true` short-circuits the dispatch — the hook checks sibling
- * ids BEFORE calling the reducer so the UI can surface a "name already
- * taken" message without unwinding a half-applied mutation. When a
- * conflict is reported, every count field is zero and `newPath` is empty
- * (the rename never ran).
- *
- * The remaining fields carry the reducer's cascade metadata — see
- * `FieldRenameMeta` in `lib/doc/mutations/fields.ts` for the full
- * contract. Callers surface these as toast copy ("N references updated")
- * and to decide whether a cross-form view needs refreshing.
+ * `conflict: true` means the peer-aware sibling verdict stopped the command.
+ * `rejected` means the whole-document commit gate stopped it. An empty result
+ * means either success or a stale UUID no-op; callers that need to present a
+ * rejection use those two explicit arms.
  */
 export interface FieldRenameResult {
-	newPath: FieldPath;
-	xpathFieldsRewritten: number;
-	peerFieldsRenamed: number;
-	columnsRewritten: number;
-	formWiringRewritten: number;
-	moduleRefsRewritten: number;
-	catalogEntryRenamed: boolean;
-	cascadedAcrossForms: boolean;
-	conflict?: boolean;
+	conflict?: true;
 	/** Present when the commit gate rejected the rename — the findings'
 	 *  person-to-person messages. The rename never ran; the caller keeps
 	 *  the user's typed id on screen and surfaces these inline. */
 	rejected?: string[];
-}
-
-/**
- * Shared zero-valued result used when `renameField` short-circuits
- * (unknown uuid or sibling-id conflict). Keeps every exit shape valid
- * against `FieldRenameResult` without scattering literal zeros through
- * the hook body.
- */
-function emptyFieldRenameResult(): FieldRenameResult {
-	return {
-		newPath: "" as FieldPath,
-		xpathFieldsRewritten: 0,
-		peerFieldsRenamed: 0,
-		columnsRewritten: 0,
-		formWiringRewritten: 0,
-		moduleRefsRewritten: 0,
-		catalogEntryRenamed: false,
-		cascadedAcrossForms: false,
-	};
 }
 
 /**
@@ -212,13 +194,17 @@ export interface DuplicateFieldResult {
 }
 
 type ModuleUpdatePatch = ModuleAuthoringPatch;
+type FormMutationPatch = Extract<Mutation, { kind: "updateForm" }>["patch"];
+type FormAuthoringPatch = FormMutationPatch & {
+	/** Form display names persist through the identity-specific rename kind. */
+	name?: Form["name"];
+};
 
 /**
  * The full mutation surface returned by `useBlueprintMutations()`.
  *
- * All signatures take uuids directly — no legacy (mIdx, fIdx, path)
- * resolution. Callers read uuids from `useLocation()` or direct doc
- * store subscriptions, then pass them here.
+ * All signatures take UUID identities directly. Callers read UUIDs from
+ * `useLocation()` or direct doc-store subscriptions, then pass them here.
  */
 export interface BlueprintMutations {
 	// ── Field mutations ───────────────────────────────────────────────────
@@ -309,7 +295,7 @@ export interface BlueprintMutations {
 	 * Update fields on an existing form. Patches use camelCase domain property
 	 * names (e.g. `closeCondition`, `postSubmit`).
 	 */
-	updateForm: (uuid: Uuid, patch: Partial<Omit<Form, "uuid">>) => CommitOutcome;
+	updateForm: (uuid: Uuid, patch: FormAuthoringPatch) => CommitOutcome;
 	/**
 	 * Set or clear form menu media via the dedicated null-carrying mutation
 	 * so clears survive JSON replay.
@@ -466,18 +452,16 @@ export interface BlueprintMutations {
 	 * vs clear) keeps the intent on the wire; the reducer maps `null →
 	 * undefined` so the cleared key falls off the doc. Takes no uuid —
 	 * the logo is a single app-level slot, so there is no entity to
-	 * validate (mirrors `setCaseTypes`, not `setFormMedia`).
+	 * validate.
 	 */
 	setAppLogo: (logo: MediaAssetId | null) => CommitOutcome;
-	setCaseTypes: (caseTypes: CaseType[] | null) => CommitOutcome;
 	/**
 	 * Update a single property on a case type's property list.
 	 *
 	 * Reads the current `caseTypes` from the doc, finds the matching case
-	 * type by name and property by name, merges the updates, and dispatches
-	 * a `setCaseTypes` mutation with the new array. Silently no-ops if the
-	 * case type or property doesn't exist (fail-open, consistent with other
-	 * mutation methods).
+	 * type by name and property by name, merges the updates, and dispatches one
+	 * granular `setCaseProperty`. Silently no-ops if the case type or property
+	 * doesn't exist (fail-open, consistent with other mutation methods).
 	 */
 	updateCaseProperty: (
 		caseTypeName: string,
@@ -492,10 +476,9 @@ export interface BlueprintMutations {
 	 * that need to coordinate several doc changes without fragmenting
 	 * history.
 	 *
-	 * Returns the reducer's per-mutation results in input order. Callers
-	 * that need metadata from specific positions (`renameField`, `moveField`)
-	 * destructure by index and narrow via `as FieldRenameMeta | undefined` /
-	 * `as MoveFieldResult | undefined`.
+	 * Returns the reducer's per-mutation results in input order. Callers that
+	 * need `moveField` metadata destructure by index and narrow it to
+	 * `MoveFieldResult | undefined`.
 	 */
 	applyMany: (mutations: Mutation[]) => MutationResult[];
 	/**
@@ -523,11 +506,10 @@ export type GatedBlueprintMutations = BlueprintMutations & {
 /**
  * Warning for silent no-ops.
  *
- * Every mutation method bails out silently when a uuid can't be found
- * in the current doc — matching the legacy engine's behavior, which the
- * UI relies on so stale selections don't crash the tree. We still want
- * visibility into which lookups are failing so bugs don't hide behind
- * the fail-open contract.
+ * Every mutation method bails out silently when a UUID cannot be found in
+ * the current document, so a stale selection racing a reload cannot crash
+ * the tree. We still want visibility into failed lookups so bugs do not hide
+ * behind that fail-open contract.
  *
  * `console.warn`, not the structured logger: this hook is client-only,
  * and the logger's production path writes to `process.stdout`, which
@@ -653,7 +635,7 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 				// The candidate commits, and the batch that produced it is kept
 				// verbatim. Persistence replays exactly these commands rather than
 				// re-deriving them by diffing the committed document against a base.
-				store.getState().commitDoc(verdict.nextDoc, mutations);
+				store.getState().commitDoc(verdict.nextDoc, verdict.mutations);
 				return { ok: true, results: verdict.results };
 			};
 
@@ -753,7 +735,9 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 								kind: "updateField",
 								uuid,
 								targetKind,
-								patch,
+								patch: jsonStableClearPatch(
+									patch as Readonly<Record<string, unknown>>,
+								) as FieldPatchFor<typeof targetKind>,
 							} as Mutation,
 						]),
 					);
@@ -773,7 +757,7 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 					const field = doc.fields[uuid];
 					if (!field) {
 						warnUnresolved("renameField", { uuid });
-						return emptyFieldRenameResult();
+						return {};
 					}
 
 					// Conflict check: reject the rename before dispatching so the
@@ -786,38 +770,25 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 					// so the store-level backstop can't drift from the surfaces
 					// it backs.
 					if (findRenameSiblingConflict(doc, uuid, newId) !== undefined) {
-						return { ...emptyFieldRenameResult(), conflict: true };
+						return { conflict: true };
 					}
 
-					// Dispatch via the single write path. Position `[0]` of the
-					// returned array carries the reducer's per-mutation result —
-					// narrow it to `FieldRenameMeta` so we can read the cascade
-					// counts. The reducer returns `undefined` if the target entity
-					// vanishes between our pre-check and the Immer draft —
-					// defensive fallback to zero counts so callers always see a
-					// valid result shape.
-					const applied = guardedApply([{ kind: "renameField", uuid, newId }]);
+					// Field ID is an ordinary mutable field slot. Persist exactly
+					// the canonical per-kind update command; UUID identity keeps
+					// references stable while the reducer applies any semantic
+					// case-property consequences atomically.
+					const applied = guardedApply([
+						{
+							kind: "updateField",
+							uuid,
+							targetKind: field.kind,
+							patch: { id: newId },
+						} as Mutation,
+					]);
 					if (!applied.ok) {
-						return { ...emptyFieldRenameResult(), rejected: applied.messages };
+						return { rejected: applied.messages };
 					}
-					const meta = applied.results[0] as FieldRenameMeta | undefined;
-
-					/* Compute the new path AFTER dispatch — the semantic id has
-					 * changed. `renameField` doesn't reparent, so `fieldParent`
-					 * is unchanged, but the walk needs the post-dispatch snapshot
-					 * of `fields` to read the new id. */
-					const after = get();
-					const newPath = (computePathForUuid(after, uuid) ?? "") as FieldPath;
-					return {
-						newPath,
-						xpathFieldsRewritten: meta?.xpathFieldsRewritten ?? 0,
-						peerFieldsRenamed: meta?.peerFieldsRenamed ?? 0,
-						columnsRewritten: meta?.columnsRewritten ?? 0,
-						formWiringRewritten: meta?.formWiringRewritten ?? 0,
-						moduleRefsRewritten: meta?.moduleRefsRewritten ?? 0,
-						catalogEntryRenamed: meta?.catalogEntryRenamed ?? false,
-						cascadedAcrossForms: meta?.cascadedAcrossForms ?? false,
-					};
+					return {};
 				},
 
 				moveField(uuid, opts) {
@@ -981,19 +952,29 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 
 				updateForm(uuid, patch) {
 					const doc = get();
-					if (!doc.forms[uuid]) {
+					const form = doc.forms[uuid];
+					if (!form) {
 						warnUnresolved("updateForm", { uuid });
 						return NOOP_REJECTION;
 					}
-					return toOutcome(
-						guardedApply([
-							{
-								kind: "updateForm",
-								uuid,
-								patch,
-							},
-						]),
-					);
+					const { name, ...metadata } = patch;
+					const mutations: Mutation[] = [];
+					if (name !== undefined && name !== form.name) {
+						mutations.push({
+							kind: "renameForm",
+							uuid,
+							newId: name,
+						});
+					}
+					if (Object.keys(metadata).length > 0) {
+						mutations.push({
+							kind: "updateForm",
+							uuid,
+							patch: jsonStableClearPatch(metadata) as FormMutationPatch,
+						});
+					}
+					if (mutations.length === 0) return COMMITTED;
+					return toOutcome(guardedApply(mutations));
 				},
 
 				setFormMedia(uuid, media) {
@@ -1064,13 +1045,10 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 						if (announce) notifyRejectedCommit([retirement.userMessage]);
 						return { ok: false, messages: [retirement.userMessage] };
 					}
-					/* ONE catalog write covers both the retirement of the orphaned
-					 * old type and the declaration of a brand-new one (re-typing a
-					 * viewer to a fresh type does both at once). A brand-new type
-					 * must be cataloged or the seeded `Name` column can't resolve
-					 * (`CASE_LIST_COLUMN_UNKNOWN_FIELD`); composing into one
-					 * `setCaseTypes` stops the two wholesale writes from clobbering
-					 * each other. */
+					/* One granular catalog batch covers both retirement of an orphaned
+					 * old type and declaration of a brand-new one. A brand-new type
+					 * must be cataloged or the seeded `Name` column cannot resolve
+					 * (`CASE_LIST_COLUMN_UNKNOWN_FIELD`). */
 					const moduleMutations = modulePatchMutations(
 						doc.modules[uuid],
 						patch,
@@ -1379,15 +1357,11 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 
 				setAppLogo(logo) {
 					// No uuid to validate — the logo is a single app-level slot, so
-					// this mirrors `setCaseTypes` (bare dispatch) rather than the
-					// entity-guarded `setFormMedia` / `setModuleMedia`. The payload
-					// carries an explicit `MediaAssetId | null`; the reducer maps `null →
+					// this is a bare dispatch rather than the entity-guarded
+					// `setFormMedia` / `setModuleMedia`. The payload carries an
+					// explicit `MediaAssetId | null`; the reducer maps `null →
 					// undefined` so a clear drops the optional key off the doc.
 					return toOutcome(guardedApply([{ kind: "setAppLogo", logo }]));
-				},
-
-				setCaseTypes(caseTypes) {
-					return toOutcome(guardedApply([{ kind: "setCaseTypes", caseTypes }]));
 				},
 
 				updateCaseProperty(caseTypeName, propertyName, updates) {
@@ -1400,21 +1374,20 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 						});
 						return NOOP_REJECTION;
 					}
-					const ctIndex = currentCaseTypes.findIndex(
-						(ct) => ct.name === caseTypeName,
+					const caseType = currentCaseTypes.find(
+						(candidate) => candidate.name === caseTypeName,
 					);
-					if (ctIndex === -1) {
+					if (caseType === undefined) {
 						warnUnresolved("updateCaseProperty", {
 							caseTypeName,
 							reason: "case type not found",
 						});
 						return NOOP_REJECTION;
 					}
-					const ct = currentCaseTypes[ctIndex];
-					const propIndex = ct.properties.findIndex(
-						(p) => p.name === propertyName,
+					const property = caseType.properties.find(
+						(candidate) => candidate.name === propertyName,
 					);
-					if (propIndex === -1) {
+					if (property === undefined) {
 						warnUnresolved("updateCaseProperty", {
 							caseTypeName,
 							propertyName,
@@ -1422,19 +1395,14 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 						});
 						return NOOP_REJECTION;
 					}
-					// Build a new caseTypes array with the updated property. Immutable
-					// construction avoids mutating the Immer-frozen snapshot.
-					const nextCaseTypes = currentCaseTypes.map((caseType, i) => {
-						if (i !== ctIndex) return caseType;
-						return {
-							...caseType,
-							properties: caseType.properties.map((p, j) =>
-								j === propIndex ? { ...p, ...updates } : p,
-							),
-						};
-					});
 					return toOutcome(
-						guardedApply([{ kind: "setCaseTypes", caseTypes: nextCaseTypes }]),
+						guardedApply([
+							{
+								kind: "setCaseProperty",
+								caseType: caseTypeName,
+								property: { ...property, ...updates },
+							},
+						]),
 					);
 				},
 

@@ -20,7 +20,6 @@ import { type RefObject, useEffect, useState } from "react";
 import { Button } from "@/components/shadcn/button";
 import { Spinner } from "@/components/shadcn/spinner";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
-import type { Uuid } from "@/lib/doc/types";
 import type { Persona } from "@/lib/domain";
 import { countCasesOwnedByAction } from "@/lib/preview/engine/caseDataBinding";
 import { useAppId } from "@/lib/session/hooks";
@@ -162,7 +161,7 @@ function ConfirmPanel({
 						if (owned.state !== "known") return;
 						if (!sessionApi.getState().canEdit) return;
 						returnFocusRef.current?.focus();
-						mutations.removePersona(persona.uuid as Uuid);
+						mutations.removePersona(persona.uuid);
 					}}
 				>
 					Remove

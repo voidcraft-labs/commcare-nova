@@ -132,6 +132,12 @@ export const CASE_CHANGES_SEED = {
 	formUuid: asUuid("1b2c3d4e-5f6a-4b7c-8d9e-0f1a2b3c4d5e"),
 	fieldUuid: asUuid("2c3d4e5f-6a7b-4c8d-9e0f-1a2b3c4d5e6f"),
 	linkTargetFieldUuid: asUuid("3c4d5e6f-7a8b-4d9e-8f0a-1b2c3d4e5f6a"),
+	identityProjection: {
+		formUuid: asUuid("4c5d6e7f-8a9b-4e0f-901a-2b3c4d5e6f7a"),
+		firstNameUuid: asUuid("5d6e7f8a-9b0c-4f1a-812b-3c4d5e6f7a8b"),
+		noteUuid: asUuid("6e7f8a9b-0c1d-402b-923c-4d5e6f7a8b9c"),
+		formName: "Identity-safe close",
+	},
 	caseType: "patient",
 	archivedCaseType: "archived_referral",
 	archivedModuleName: "Archived referrals",
@@ -257,6 +263,25 @@ export function buildCaseChangesBlueprint(
 								kind: "text",
 								id: "related_case_id",
 								label: proseText("Related patient case id"),
+							}),
+						],
+					},
+					{
+						uuid: CASE_CHANGES_SEED.identityProjection.formUuid,
+						name: CASE_CHANGES_SEED.identityProjection.formName,
+						type: "close",
+						fields: [
+							f({
+								uuid: CASE_CHANGES_SEED.identityProjection.firstNameUuid,
+								kind: "text",
+								id: "first_name",
+								label: proseText("First name"),
+							}),
+							f({
+								uuid: CASE_CHANGES_SEED.identityProjection.noteUuid,
+								kind: "text",
+								id: "note",
+								label: proseText("Note"),
 							}),
 						],
 					},
@@ -424,5 +449,18 @@ export function caseChangesRoute(appId: string): string {
 		kind: "form-operations",
 		moduleUuid: CASE_CHANGES_SEED.moduleUuid,
 		formUuid: CASE_CHANGES_SEED.formUuid,
+	});
+}
+
+/** Form screen used to prove that friendly projections survive identity edits. */
+export function identityProjectionRoute(
+	appId: string,
+	selectedUuid?: (typeof CASE_CHANGES_SEED.identityProjection)["firstNameUuid"],
+): string {
+	return buildUrl(`/build/${appId}`, {
+		kind: "form",
+		moduleUuid: CASE_CHANGES_SEED.moduleUuid,
+		formUuid: CASE_CHANGES_SEED.identityProjection.formUuid,
+		...(selectedUuid !== undefined && { selectedUuid }),
 	});
 }

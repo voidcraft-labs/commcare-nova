@@ -7,12 +7,10 @@ import {
 	xp,
 } from "@/lib/__tests__/docHelpers";
 import { duplicateFieldMutations } from "@/lib/doc/duplicateFieldMutations";
+import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import { applyMutation, applyMutations } from "@/lib/doc/mutations";
-import type {
-	FieldRenameMeta,
-	MoveFieldResult,
-} from "@/lib/doc/mutations/fields";
-import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
+import type { MoveFieldResult } from "@/lib/doc/mutations/fields";
+import type { BlueprintDoc, Mutation, Uuid } from "@/lib/doc/types";
 import { mutationSchema } from "@/lib/doc/types";
 import type { Column, Field, Form, Module, ProseTemplate } from "@/lib/domain";
 import { expressionSource } from "@/lib/domain";
@@ -103,6 +101,19 @@ function asNonCalculatedColumn(
 	if (col.kind === "calculated")
 		throw new Error(`fixture: ${label} is calculated`);
 	return col;
+}
+
+function updateFieldIdMutation(
+	doc: BlueprintDoc,
+	uuid: Uuid,
+	id: string,
+): Mutation {
+	return {
+		kind: "updateField",
+		uuid,
+		targetKind: doc.fields[uuid]?.kind ?? "text",
+		patch: { id },
+	} as Mutation;
 }
 
 function docWithForm(): BlueprintDoc {
@@ -241,63 +252,38 @@ describe("updateField", () => {
 		expect(next.fields[Q("h")]?.kind).toBe("hidden");
 	});
 
-	it("never re-kinds through a patch — `kind` is stripped, the rest applies", () => {
+	it("rejects a re-kind patch as one non-canonical command", () => {
 		// `convertField` is the single kind-change path (it owns the
 		// convertibility gate; a patch-merge has no equivalent and would
 		// happily turn a group with children into a leaf, orphaning the
-		// subtree). The per-kind patch schemas omit `kind`, so a wire
-		// round-trip silently drops the key — the reducer must drop it too,
-		// or in-process application and event-log replay diverge.
-		const start: BlueprintDoc = {
-			...docWithForm(),
-			fields: {
-				[Q("grp")]: field_(Q("grp"), "grp", { kind: "group" }),
-				[Q("kid")]: field_(Q("kid"), "kid"),
-			},
-			fieldOrder: { [F("1")]: [Q("grp")], [Q("grp")]: [Q("kid")] },
-		};
-		const next = produce(resolveDocExpressions(start), (d) => {
-			applyMutation(d, {
-				kind: "updateField",
-				uuid: Q("grp"),
-				targetKind: "group",
-				patch: {
-					kind: "text",
-					label: proseText("Renamed"),
-				} as unknown as Partial<{
-					label: ReturnType<typeof proseText>;
-				}>,
-			});
-		});
-		// The group stays a group (children intact); the rest of the patch
-		// landed normally.
-		expect(next.fields[Q("grp")]?.kind).toBe("group");
-		expect(proseSlotText(next, Q("grp"), "label")).toBe("Renamed");
-		expect(next.fieldOrder[Q("grp")]).toEqual([Q("kid")]);
+		// subtree). Admission is strict and atomic: it must not strip `kind`
+		// and apply the remaining label as a partial command.
+		expect(() =>
+			admitMutationBatch([
+				{
+					kind: "updateField",
+					uuid: Q("grp"),
+					targetKind: "group",
+					patch: {
+						kind: "text",
+						label: proseText("Renamed"),
+					},
+				} as unknown as Mutation,
+			]),
+		).toThrow();
 	});
 
 	it("rejects an immutable kind key at the wire boundary", () => {
 		// The final mutation dialect is strict. A kind change has one owner:
 		// `convertField`; `updateField` never accepts an alternate spelling.
-		const start: BlueprintDoc = {
-			...docWithForm(),
-			fields: { [Q("a")]: field_(Q("a"), "name") },
-			fieldOrder: { [F("1")]: [Q("a")] },
-		};
 		const mut = {
 			kind: "updateField",
 			uuid: Q("a"),
 			targetKind: "text",
 			patch: { kind: "int", hint: proseText("patched") },
-		} as unknown as Parameters<typeof applyMutation>[1];
-		const inProcess = produce(resolveDocExpressions(start), (d) => {
-			applyMutation(d, mut);
-		});
-		expect(
-			mutationSchema.safeParse(JSON.parse(JSON.stringify(mut))).success,
-		).toBe(false);
-		expect(inProcess.fields[Q("a")]?.kind).toBe("text");
-		expect(proseSlotText(inProcess, Q("a"), "hint")).toBe("patched");
+		} as unknown as Mutation;
+		expect(() => admitMutationBatch([mut])).toThrow();
+		expect(mutationSchema.safeParse(mut).success).toBe(false);
 	});
 
 	it("drops stale mode-specific keys when repeat_mode changes", () => {
@@ -318,7 +304,7 @@ describe("updateField", () => {
 					repeat_count: xp("5"),
 				} as Field,
 			},
-			fieldOrder: { [F("1")]: [Q("r")] },
+			fieldOrder: { [F("1")]: [Q("r")], [Q("r")]: [] },
 		};
 		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 		const next = produce(resolveDocExpressions(start), (d) => {
@@ -396,25 +382,17 @@ describe("updateField", () => {
 		expect("case_property_on" in (f ?? {})).toBe(false);
 	});
 
-	it("still clears a property when the patch value is undefined (client in-memory edit)", () => {
-		// Client-side edits aren't logged, so they keep using `undefined` to
-		// clear. The reducer must treat `undefined` identically to `null`.
-		const start: BlueprintDoc = {
-			...docWithForm(),
-			fields: {
-				[Q("a")]: field_(Q("a"), "name", { case_property_on: "child" }),
-			},
-			fieldOrder: { [F("1")]: [Q("a")] },
-		};
-		const next = produce(resolveDocExpressions(start), (d) => {
-			applyMutation(d, {
-				kind: "updateField",
-				uuid: Q("a"),
-				targetKind: "text",
-				patch: { case_property_on: undefined },
-			});
-		});
-		expect("case_property_on" in (next.fields[Q("a")] ?? {})).toBe(false);
+	it("rejects undefined instead of treating it as a second clear spelling", () => {
+		expect(() =>
+			admitMutationBatch([
+				{
+					kind: "updateField",
+					uuid: Q("a"),
+					targetKind: "text",
+					patch: { case_property_on: undefined },
+				} as unknown as Mutation,
+			]),
+		).toThrow();
 	});
 
 	it("accepts a null patch value through mutationSchema so a blank round-trips", () => {
@@ -435,6 +413,27 @@ describe("updateField", () => {
 				.case_property_on,
 		).toBeNull();
 	});
+
+	it.each([
+		["null", { id: null }],
+		["undefined", { id: undefined }],
+		["empty", { id: "" }],
+		["unknown key", { id: "years", newId: "alternate-dialect" }],
+	])(
+		"rejects a %s id patch at canonical mutation admission",
+		(_label, patch) => {
+			expect(() =>
+				admitMutationBatch([
+					{
+						kind: "updateField",
+						uuid: Q("a"),
+						targetKind: "text",
+						patch,
+					} as unknown as Mutation,
+				]),
+			).toThrow();
+		},
+	);
 });
 
 describe("removeField", () => {
@@ -607,7 +606,7 @@ describe("moveField", () => {
 	});
 });
 
-describe("renameField", () => {
+describe("updateField id patch", () => {
 	it("updates the field's id", () => {
 		const start: BlueprintDoc = {
 			...docWithForm(),
@@ -615,11 +614,7 @@ describe("renameField", () => {
 			fieldOrder: { [F("1")]: [Q("a")] },
 		};
 		const next = produce(resolveDocExpressions(start), (d) => {
-			applyMutation(d, {
-				kind: "renameField",
-				uuid: Q("a"),
-				newId: "new_name",
-			});
+			applyMutation(d, updateFieldIdMutation(d, Q("a"), "new_name"));
 		});
 		expect(next.fields[Q("a")]?.id).toBe("new_name");
 	});
@@ -637,11 +632,7 @@ describe("renameField", () => {
 			fieldOrder: { [F("1")]: [Q("src"), Q("ref")] },
 		};
 		const next = produce(resolveDocExpressions(start), (d) => {
-			applyMutation(d, {
-				kind: "renameField",
-				uuid: Q("src"),
-				newId: "primary",
-			});
+			applyMutation(d, updateFieldIdMutation(d, Q("src"), "primary"));
 		});
 		expect(slotText(next, Q("ref"), "calculate")).toContain("primary");
 		expect(slotText(next, Q("ref"), "calculate")).not.toContain("source");
@@ -649,11 +640,7 @@ describe("renameField", () => {
 
 	it("is a no-op when the field doesn't exist", () => {
 		const next = produce(docWithForm(), (d) => {
-			applyMutation(d, {
-				kind: "renameField",
-				uuid: Q("missing"),
-				newId: "x",
-			});
+			applyMutation(d, updateFieldIdMutation(d, Q("missing"), "x"));
 		});
 		expect(Object.keys(next.fields)).toHaveLength(0);
 	});
@@ -913,91 +900,6 @@ describe("moveField result metadata", () => {
 	});
 });
 
-describe("renameField result metadata", () => {
-	it("counts zero rewrites for sibling identity refs — they follow at print", () => {
-		const start: BlueprintDoc = {
-			...docWithForm(),
-			fields: {
-				[Q("src")]: field_(Q("src"), "source"),
-				[Q("ref")]: field_(Q("ref"), "ref", {
-					kind: "hidden",
-					calculate: "/data/source * 2",
-				}),
-			},
-			fieldOrder: { [F("1")]: [Q("src"), Q("ref")] },
-		};
-
-		let result: FieldRenameMeta | undefined;
-		const next = produce(resolveDocExpressions(start), (d) => {
-			result = applyMutation(d, {
-				kind: "renameField",
-				uuid: Q("src"),
-				newId: "primary",
-			}) as FieldRenameMeta;
-		});
-
-		expect(result).toBeDefined();
-		expect(result?.xpathFieldsRewritten).toBe(0);
-		expect(slotText(next, Q("ref"), "calculate")).toBe("/data/primary * 2");
-		// No case_property_on set on the renamed field → cascade counts stay zero.
-		expect(result?.peerFieldsRenamed).toBe(0);
-		expect(result?.columnsRewritten).toBe(0);
-		expect(result?.cascadedAcrossForms).toBe(false);
-	});
-
-	it("returns xpathFieldsRewritten === 0 when no references exist", () => {
-		const start: BlueprintDoc = {
-			...docWithForm(),
-			fields: {
-				[Q("a")]: field_(Q("a"), "alpha"),
-				[Q("b")]: field_(Q("b"), "beta"),
-			},
-			fieldOrder: { [F("1")]: [Q("a"), Q("b")] },
-		};
-
-		let result: FieldRenameMeta | undefined;
-		produce(resolveDocExpressions(start), (d) => {
-			result = applyMutation(d, {
-				kind: "renameField",
-				uuid: Q("a"),
-				newId: "gamma",
-			}) as FieldRenameMeta;
-		});
-
-		expect(result).toBeDefined();
-		expect(result?.xpathFieldsRewritten).toBe(0);
-		expect(result?.peerFieldsRenamed).toBe(0);
-		expect(result?.columnsRewritten).toBe(0);
-		expect(result?.cascadedAcrossForms).toBe(false);
-	});
-
-	it("returns zero metadata when renamed to the same id", () => {
-		const start: BlueprintDoc = {
-			...docWithForm(),
-			fields: {
-				[Q("a")]: field_(Q("a"), "alpha", {
-					calculate: "/data/alpha + 1",
-				}),
-			},
-			fieldOrder: { [F("1")]: [Q("a")] },
-		};
-
-		let result: FieldRenameMeta | undefined;
-		produce(resolveDocExpressions(start), (d) => {
-			result = applyMutation(d, {
-				kind: "renameField",
-				uuid: Q("a"),
-				newId: "alpha",
-			}) as FieldRenameMeta;
-		});
-
-		expect(result?.xpathFieldsRewritten).toBe(0);
-		expect(result?.peerFieldsRenamed).toBe(0);
-		expect(result?.columnsRewritten).toBe(0);
-		expect(result?.cascadedAcrossForms).toBe(false);
-	});
-});
-
 /**
  * Build a two-module fixture used by the cross-form cascade tests. Two
  * forms in module X both bind to case type "patient"; module Y binds to a
@@ -1049,7 +951,7 @@ function docWithTwoModulesAndForms(): BlueprintDoc {
 	};
 }
 
-describe("renameField case-property cascade", () => {
+describe("updateField id patch case-property cascade", () => {
 	/**
 	 * Core bug the cascade exists to fix: a field whose id == case property
 	 * name gets renamed in one form; another form in the same case type
@@ -1084,11 +986,7 @@ describe("renameField case-property cascade", () => {
 		};
 
 		const next = produce(resolveDocExpressions(start), (d) => {
-			applyMutation(d, {
-				kind: "renameField",
-				uuid: Q("src"),
-				newId: "age_1",
-			});
+			applyMutation(d, updateFieldIdMutation(d, Q("src"), "age_1"));
 		});
 
 		// Source field's id changed.
@@ -1116,17 +1014,14 @@ describe("renameField case-property cascade", () => {
 				}),
 			},
 			fieldOrder: {
+				...base.fieldOrder,
 				[F("1")]: [Q("src")],
 				[F("2")]: [Q("ref")],
 			},
 		};
 
 		const next = produce(resolveDocExpressions(start), (d) => {
-			applyMutation(d, {
-				kind: "renameField",
-				uuid: Q("src"),
-				newId: "age_1",
-			});
+			applyMutation(d, updateFieldIdMutation(d, Q("src"), "age_1"));
 		});
 
 		expect(slotText(next, Q("ref"), "calculate")).toBe("#patient/age_1 >= 18");
@@ -1182,11 +1077,7 @@ describe("renameField case-property cascade", () => {
 		};
 
 		const next = produce(resolveDocExpressions(start), (d) => {
-			applyMutation(d, {
-				kind: "renameField",
-				uuid: Q("src"),
-				newId: "age_years",
-			});
+			applyMutation(d, updateFieldIdMutation(d, Q("src"), "age_years"));
 		});
 
 		expect(next.fields[Q("src")]?.id).toBe("age_years");
@@ -1208,15 +1099,11 @@ describe("renameField case-property cascade", () => {
 			fields: {
 				[Q("src")]: field_(Q("src"), "age", { case_property_on: "patient" }),
 			},
-			fieldOrder: { [F("1")]: [Q("src")] },
+			fieldOrder: { ...base.fieldOrder, [F("1")]: [Q("src")] },
 		};
 
 		const next = produce(resolveDocExpressions(start), (d) => {
-			applyMutation(d, {
-				kind: "renameField",
-				uuid: Q("src"),
-				newId: "age_1",
-			});
+			applyMutation(d, updateFieldIdMutation(d, Q("src"), "age_1"));
 		});
 
 		// Module X (caseType: patient) columns rewritten. The `field`
@@ -1292,11 +1179,7 @@ describe("renameField case-property cascade", () => {
 		};
 
 		const next = produce(resolveDocExpressions(start), (d) => {
-			applyMutation(d, {
-				kind: "renameField",
-				uuid: Q("src"),
-				newId: "age_1",
-			});
+			applyMutation(d, updateFieldIdMutation(d, Q("src"), "age_1"));
 		});
 
 		const col = next.modules[M("X")]?.caseListConfig?.columns[0];
@@ -1362,13 +1245,8 @@ describe("renameField case-property cascade", () => {
 			fieldParent: {},
 		};
 
-		let result: FieldRenameMeta | undefined;
 		const next = produce(resolveDocExpressions(start), (d) => {
-			result = applyMutation(d, {
-				kind: "renameField",
-				uuid: Q("src"),
-				newId: "age_1",
-			}) as FieldRenameMeta;
+			applyMutation(d, updateFieldIdMutation(d, Q("src"), "age_1"));
 		});
 
 		const cols = next.modules[M("X")]?.caseListConfig?.columns ?? [];
@@ -1384,9 +1262,6 @@ describe("renameField case-property cascade", () => {
 			kind: "plain",
 			field: "age_1",
 		});
-		// Counter reflects the single rewritten plain column; the
-		// calculated arm was skipped without contributing to the count.
-		expect(result?.columnsRewritten).toBe(1);
 	});
 
 	it("renames peer fields that declare the same (id, case_property_on) pair", () => {
@@ -1414,56 +1289,78 @@ describe("renameField case-property cascade", () => {
 			},
 		};
 
-		let result: FieldRenameMeta | undefined;
 		const next = produce(resolveDocExpressions(start), (d) => {
-			result = applyMutation(d, {
-				kind: "renameField",
-				uuid: Q("src"),
-				newId: "age_1",
-			}) as FieldRenameMeta;
+			applyMutation(d, updateFieldIdMutation(d, Q("src"), "age_1"));
 		});
 
 		expect(next.fields[Q("src")]?.id).toBe("age_1");
 		expect(next.fields[Q("peer")]?.id).toBe("age_1");
 		// Non-peer (different case_property_on) stays as-is.
 		expect(next.fields[Q("other")]?.id).toBe("age");
-		expect(result?.peerFieldsRenamed).toBe(1);
-		expect(result?.cascadedAcrossForms).toBe(true);
 	});
 
-	it("sets cascadedAcrossForms=true only when cascade touched other forms/modules", () => {
+	it("treats simultaneous id + case_property_on as a retarget, not an old-property rename", () => {
 		const base = docWithTwoModulesAndForms();
 		const start: BlueprintDoc = {
 			...base,
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [{ name: "age", label: proseText("Age") }],
+				},
+				{ name: "household", properties: [] },
+			],
 			fields: {
-				// Field with case_property_on but no cross-form refs, no peers,
-				// and no columns on any module. A clean case_property_on-bearing
-				// rename that cascades to nothing.
-				[Q("src")]: field_(Q("src"), "lonely", { case_property_on: "patient" }),
+				[Q("src")]: field_(Q("src"), "age", {
+					case_property_on: "patient",
+				}),
+				[Q("peer")]: field_(Q("peer"), "age", {
+					case_property_on: "patient",
+				}),
+				[Q("ref")]: field_(Q("ref"), "display", {
+					label: caseRefProse("Patient age: ", "patient", "age"),
+				}),
 			},
-			fieldOrder: { [F("1")]: [Q("src")] },
-			modules: {
-				...base.modules,
-				// Strip columns off module X so no column match is possible.
-				[M("X")]: {
-					...base.modules[M("X")],
-					caseListConfig: undefined,
-				} as Module,
+			fieldOrder: {
+				...base.fieldOrder,
+				[F("1")]: [Q("src")],
+				[F("2")]: [Q("peer"), Q("ref")],
 			},
 		};
 
-		let result: FieldRenameMeta | undefined;
-		produce(resolveDocExpressions(start), (d) => {
-			result = applyMutation(d, {
-				kind: "renameField",
+		const next = produce(resolveDocExpressions(start), (d) => {
+			applyMutation(d, {
+				kind: "updateField",
 				uuid: Q("src"),
-				newId: "solo",
-			}) as FieldRenameMeta;
+				targetKind: "text",
+				patch: { id: "household_age", case_property_on: "household" },
+			});
 		});
 
-		expect(result?.peerFieldsRenamed).toBe(0);
-		expect(result?.columnsRewritten).toBe(0);
-		expect(result?.cascadedAcrossForms).toBe(false);
+		expect(next.fields[Q("src")]).toMatchObject({
+			id: "household_age",
+			case_property_on: "household",
+		});
+		expect(next.fields[Q("peer")]?.id).toBe("age");
+		expect(proseSlotText(next, Q("ref"), "label")).toBe(
+			"Patient age: #patient/age",
+		);
+		expect(
+			asNonCalculatedColumn(
+				next.modules[M("X")]?.caseListConfig?.columns[0],
+				"patient age column",
+			).field,
+		).toBe("age");
+		expect(
+			next.caseTypes
+				?.find((entry) => entry.name === "patient")
+				?.properties.map((property) => property.name),
+		).toEqual(["age"]);
+		expect(
+			next.caseTypes
+				?.find((entry) => entry.name === "household")
+				?.properties.map((property) => property.name),
+		).toEqual(["household_age"]);
 	});
 
 	it("does not touch refs in form A when a same-named field in form B is renamed", () => {
@@ -1487,17 +1384,14 @@ describe("renameField case-property cascade", () => {
 				}),
 			},
 			fieldOrder: {
+				...base.fieldOrder,
 				[F("1")]: [Q("src_a"), Q("ref_a")],
 				[F("2")]: [Q("src_b"), Q("ref_b")],
 			},
 		};
 
 		const next = produce(resolveDocExpressions(start), (d) => {
-			applyMutation(d, {
-				kind: "renameField",
-				uuid: Q("src_a"),
-				newId: "primary",
-			});
+			applyMutation(d, updateFieldIdMutation(d, Q("src_a"), "primary"));
 		});
 
 		// Form 1 ref resolves to the new name at print.
@@ -1506,11 +1400,10 @@ describe("renameField case-property cascade", () => {
 		expect(slotText(next, Q("ref_b"), "calculate")).toBe("/data/source + 1");
 	});
 
-	it("counts a field with both /data/ and typed case refs exactly once", () => {
+	it("updates a field carrying both /data/ and typed case refs", () => {
 		// A single field with both a form-local path ref AND a cross-form
-		// case hashtag ref gets rewritten by BOTH passes. The distinct-field
-		// counter must dedupe — the UI toast "N references updated" should
-		// report one field updated, not two.
+		// case hashtag ref must project both the local identity and the
+		// structural case-property rename through the same atomic patch.
 		const base = docWithTwoModulesAndForms();
 		const start: BlueprintDoc = {
 			...base,
@@ -1526,29 +1419,21 @@ describe("renameField case-property cascade", () => {
 					label: caseRefProse("Age: ", "patient", "age"),
 				}),
 			},
-			fieldOrder: { [F("1")]: [Q("src"), Q("ref")] },
+			fieldOrder: {
+				...base.fieldOrder,
+				[F("1")]: [Q("src"), Q("ref")],
+			},
 		};
 
-		let result: FieldRenameMeta | undefined;
 		const next = produce(resolveDocExpressions(start), (d) => {
-			result = applyMutation(d, {
-				kind: "renameField",
-				uuid: Q("src"),
-				newId: "age_1",
-			}) as FieldRenameMeta;
+			applyMutation(d, updateFieldIdMutation(d, Q("src"), "age_1"));
 		});
 
-		// Both refs updated…
 		expect(slotText(next, Q("ref"), "relevant")).toBe("/data/age_1 > 1");
 		expect(proseSlotText(next, Q("ref"), "label")).toBe("Age: #patient/age_1");
-		// …but `ref` is still exactly one field → count is 1.
-		expect(result?.xpathFieldsRewritten).toBe(1);
 	});
 
-	it("does not set cascadedAcrossForms when only same-form case refs were rewritten", () => {
-		// `cascadedAcrossForms` tells consumers whether a form-only refresh
-		// is enough. A same-form `#case/` rewrite is still same-form — the
-		// flag must stay false.
+	it("rewrites same-form case refs", () => {
 		const base = docWithTwoModulesAndForms();
 		const start: BlueprintDoc = {
 			...base,
@@ -1561,7 +1446,10 @@ describe("renameField case-property cascade", () => {
 					label: caseRefProse("Age: ", "patient", "age"),
 				}),
 			},
-			fieldOrder: { [F("1")]: [Q("src"), Q("ref")] },
+			fieldOrder: {
+				...base.fieldOrder,
+				[F("1")]: [Q("src"), Q("ref")],
+			},
 			modules: {
 				...base.modules,
 				// Strip columns off module X so the column rewrite doesn't
@@ -1573,44 +1461,33 @@ describe("renameField case-property cascade", () => {
 			},
 		};
 
-		let result: FieldRenameMeta | undefined;
-		produce(resolveDocExpressions(start), (d) => {
-			result = applyMutation(d, {
-				kind: "renameField",
-				uuid: Q("src"),
-				newId: "age_1",
-			}) as FieldRenameMeta;
+		const next = produce(resolveDocExpressions(start), (d) => {
+			applyMutation(d, updateFieldIdMutation(d, Q("src"), "age_1"));
 		});
 
-		expect(result?.xpathFieldsRewritten).toBeGreaterThan(0);
-		expect(result?.cascadedAcrossForms).toBe(false);
+		expect(proseSlotText(next, Q("ref"), "label")).toBe("Age: #patient/age_1");
 	});
 
-	it("sets cascadedAcrossForms=true when only columns changed (no cross-form refs)", () => {
-		// Positive slice: a rename whose ONLY cascade effect is column
-		// rewrites. The flag must fire so consumers do a full-blueprint
-		// refresh (module-level state can't be patched with a form refresh).
+	it("rewrites columns when no cross-form refs exist", () => {
 		const base = docWithTwoModulesAndForms();
 		const start: BlueprintDoc = {
 			...base,
 			fields: {
 				[Q("src")]: field_(Q("src"), "age", { case_property_on: "patient" }),
 			},
-			fieldOrder: { [F("1")]: [Q("src")] },
+			fieldOrder: { ...base.fieldOrder, [F("1")]: [Q("src")] },
 		};
 
-		let result: FieldRenameMeta | undefined;
-		produce(resolveDocExpressions(start), (d) => {
-			result = applyMutation(d, {
-				kind: "renameField",
-				uuid: Q("src"),
-				newId: "age_1",
-			}) as FieldRenameMeta;
+		const next = produce(resolveDocExpressions(start), (d) => {
+			applyMutation(d, updateFieldIdMutation(d, Q("src"), "age_1"));
 		});
 
-		expect(result?.columnsRewritten).toBeGreaterThan(0);
-		expect(result?.peerFieldsRenamed).toBe(0);
-		expect(result?.cascadedAcrossForms).toBe(true);
+		expect(
+			asNonCalculatedColumn(
+				next.modules[M("X")]?.caseListConfig?.columns[0],
+				"module X column 0",
+			).field,
+		).toBe("age_1");
 	});
 
 	it("cascades to the case_property_on's case type, not the primary's module's case type (child-case scenario)", () => {
@@ -1706,13 +1583,8 @@ describe("renameField case-property cascade", () => {
 			fieldParent: {},
 		};
 
-		let result: FieldRenameMeta | undefined;
 		const next = produce(resolveDocExpressions(start), (d) => {
-			result = applyMutation(d, {
-				kind: "renameField",
-				uuid: Q("src"),
-				newId: "visit_date",
-			}) as FieldRenameMeta;
+			applyMutation(d, updateFieldIdMutation(d, Q("src"), "visit_date"));
 		});
 
 		// Primary id updated.
@@ -1739,7 +1611,6 @@ describe("renameField case-property cascade", () => {
 			"host module column 0",
 		);
 		expect(hostCol.field).toBe("date_of_visit");
-		expect(result?.cascadedAcrossForms).toBe(true);
 	});
 
 	it("renames peers across three or more forms", () => {
@@ -1747,7 +1618,10 @@ describe("renameField case-property cascade", () => {
 		const start: BlueprintDoc = {
 			...base,
 			// Add a third form to module X to make three same-case peers.
-			formOrder: { [M("X")]: [F("1"), F("2"), F("3")] },
+			formOrder: {
+				[M("X")]: [F("1"), F("2"), F("3")],
+				[M("Y")]: [],
+			},
 			fields: {
 				[Q("a")]: field_(Q("a"), "age", { case_property_on: "patient" }),
 				[Q("b")]: field_(Q("b"), "age", { case_property_on: "patient" }),
@@ -1760,19 +1634,13 @@ describe("renameField case-property cascade", () => {
 			},
 		};
 
-		let result: FieldRenameMeta | undefined;
 		const next = produce(resolveDocExpressions(start), (d) => {
-			result = applyMutation(d, {
-				kind: "renameField",
-				uuid: Q("a"),
-				newId: "age_1",
-			}) as FieldRenameMeta;
+			applyMutation(d, updateFieldIdMutation(d, Q("a"), "age_1"));
 		});
 
 		expect(next.fields[Q("a")]?.id).toBe("age_1");
 		expect(next.fields[Q("b")]?.id).toBe("age_1");
 		expect(next.fields[Q("c")]?.id).toBe("age_1");
-		expect(result?.peerFieldsRenamed).toBe(2);
 	});
 
 	it("renames a peer in a mismatched-caseType module without rewriting its #case/ refs", () => {
@@ -1832,13 +1700,8 @@ describe("renameField case-property cascade", () => {
 			fieldParent: {},
 		};
 
-		let result: FieldRenameMeta | undefined;
 		const next = produce(resolveDocExpressions(start), (d) => {
-			result = applyMutation(d, {
-				kind: "renameField",
-				uuid: Q("primary"),
-				newId: "age_1",
-			}) as FieldRenameMeta;
+			applyMutation(d, updateFieldIdMutation(d, Q("primary"), "age_1"));
 		});
 
 		// Peer renamed (same id + case_property_on match).
@@ -1847,7 +1710,6 @@ describe("renameField case-property cascade", () => {
 		expect(proseSlotText(next, Q("neighbor"), "label")).toBe(
 			"Household age: #household/age",
 		);
-		expect(result?.peerFieldsRenamed).toBe(1);
 	});
 
 	it("renames the matching entry in doc.caseTypes catalog for the target case type", () => {
@@ -1895,13 +1757,8 @@ describe("renameField case-property cascade", () => {
 			fieldParent: {},
 		};
 
-		let result: FieldRenameMeta | undefined;
 		const next = produce(resolveDocExpressions(start), (d) => {
-			result = applyMutation(d, {
-				kind: "renameField",
-				uuid: Q("src"),
-				newId: "age_1",
-			}) as FieldRenameMeta;
+			applyMutation(d, updateFieldIdMutation(d, Q("src"), "age_1"));
 		});
 
 		const patient = next.caseTypes?.find((c) => c.name === "patient");
@@ -1910,11 +1767,9 @@ describe("renameField case-property cascade", () => {
 		// Other case types must be untouched — `household.age` is a different
 		// property from `patient.age`.
 		expect(household?.properties.map((p) => p.name)).toEqual(["age"]);
-		expect(result?.catalogEntryRenamed).toBe(true);
-		expect(result?.cascadedAcrossForms).toBe(true);
 	});
 
-	it("is a safe no-op on an empty blueprint (no modules, no forms)", () => {
+	it("is a safe no-op for a missing field on an empty blueprint", () => {
 		const start: BlueprintDoc = {
 			appId: "test",
 			appName: "A",
@@ -1922,14 +1777,7 @@ describe("renameField case-property cascade", () => {
 			caseTypes: null,
 			modules: {},
 			forms: {},
-			fields: {
-				// A field with case_property_on but no module references it —
-				// simulates a pre-scaffold / partially-loaded state. The
-				// rename should succeed without iterating empty module state.
-				[Q("orphan")]: field_(Q("orphan"), "age", {
-					case_property_on: "patient",
-				}),
-			},
+			fields: {},
 			moduleOrder: [],
 			formOrder: {},
 			fieldOrder: {},
@@ -1938,11 +1786,7 @@ describe("renameField case-property cascade", () => {
 
 		expect(() =>
 			produce(resolveDocExpressions(start), (d) => {
-				applyMutation(d, {
-					kind: "renameField",
-					uuid: Q("orphan"),
-					newId: "age_1",
-				});
+				applyMutation(d, updateFieldIdMutation(d, Q("orphan"), "age_1"));
 			}),
 		).not.toThrow();
 	});

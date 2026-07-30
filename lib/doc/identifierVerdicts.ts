@@ -43,6 +43,7 @@ import {
 	isCaseOperationIdentifier,
 	isCaseOperationProperty,
 	type Uuid,
+	uuidSchema,
 } from "@/lib/domain";
 
 /** Why an ID was rejected. Useful for tests and for callers that brand
@@ -247,10 +248,12 @@ export function findRenameSiblingConflict(
 	if (caseType !== undefined) {
 		for (const uuid of declarersOf(doc, caseType, field.id)) {
 			if (uuid === fieldUuid) continue;
-			const candidate = doc.fields[uuid as Uuid];
+			const parsedUuid = uuidSchema.safeParse(uuid);
+			if (!parsedUuid.success) continue;
+			const candidate = doc.fields[parsedUuid.data];
 			if (!candidate || candidate.id !== field.id) continue;
 			if (fieldCasePropertyOn(candidate) !== caseType) continue;
-			renaming.add(uuid as Uuid);
+			renaming.add(parsedUuid.data);
 		}
 	}
 

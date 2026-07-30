@@ -21,12 +21,13 @@ import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useState } from "react";
 import { AddPropertyButton } from "@/components/builder/editor/AddPropertyButton";
 import { useFormLintContext } from "@/components/builder/editor/fields/useFormLintContext";
+import { RejectionInline } from "@/components/builder/RejectionNotice";
 import { SaveShortcutHint } from "@/components/builder/SaveShortcutHint";
 import { XPathField } from "@/components/builder/XPathField";
 import { Switch } from "@/components/shadcn/switch";
 import {
 	useParseXPathForField,
-	useXPathText,
+	useXPathProjection,
 } from "@/lib/doc/hooks/useXPathSlots";
 import type { Field, XPathExpression } from "@/lib/domain";
 import type { FieldEditorComponentProps } from "@/lib/domain/kinds";
@@ -57,7 +58,8 @@ export function RequiredEditor<F extends Field>({
 	// The slot stores the expression AST; the tri-state model and the
 	// nested editor both speak its printed TEXT, and every transition's
 	// next value parses back at the commit boundary.
-	const requiredText = useXPathText(value as XPathExpression | undefined);
+	const projection = useXPathProjection(value as XPathExpression | undefined);
+	const requiredText = projection.text;
 	const parseForField = useParseXPathForField(field.uuid);
 	const toStored = useCallback(
 		(next: string | undefined) =>
@@ -182,31 +184,36 @@ export function RequiredEditor<F extends Field>({
 						    phantom 8px when the condition closes. */}
 						<div className="pt-2">
 							{showEditor ? (
-								<div
-									className="flex items-center gap-1.5 group/condition"
-									data-field-id="required_condition"
-								>
-									<div className="flex-1 min-w-0">
-										<XPathField
-											value={conditionValue}
-											onSave={handleConditionSave}
-											getLintContext={getLintContext}
-											autoEdit={addingCondition || shouldOpenCondition}
-											onEditingChange={setEditing}
-										/>
+								<>
+									<div
+										className="flex items-center gap-1.5 group/condition"
+										data-field-id="required_condition"
+									>
+										<div className="flex-1 min-w-0">
+											<XPathField
+												value={conditionValue}
+												onSave={handleConditionSave}
+												getLintContext={getLintContext}
+												autoEdit={addingCondition || shouldOpenCondition}
+												onEditingChange={setEditing}
+											/>
+										</div>
+										{hasCondition && (
+											<button
+												type="button"
+												onClick={handleConditionRemove}
+												aria-label="Remove condition"
+												className="shrink-0 p-0.5 text-nova-text-muted opacity-0 group-hover/condition:opacity-100 hover:text-nova-rose transition-all cursor-pointer"
+												tabIndex={-1}
+											>
+												<Icon icon={tablerTrash} width="12" height="12" />
+											</button>
+										)}
 									</div>
-									{hasCondition && (
-										<button
-											type="button"
-											onClick={handleConditionRemove}
-											aria-label="Remove condition"
-											className="shrink-0 p-0.5 text-nova-text-muted opacity-0 group-hover/condition:opacity-100 hover:text-nova-rose transition-all cursor-pointer"
-											tabIndex={-1}
-										>
-											<Icon icon={tablerTrash} width="12" height="12" />
-										</button>
+									{!projection.ok && (
+										<RejectionInline message="This condition contains a reference that no longer resolves. Re-enter the intended field or worker-information reference." />
 									)}
-								</div>
+								</>
 							) : (
 								<AddPropertyButton
 									label="Condition"

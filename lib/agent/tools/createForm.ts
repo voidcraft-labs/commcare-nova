@@ -325,7 +325,7 @@ export const createFormTool = {
 					: "";
 			return {
 				kind: "mutate" as const,
-				mutations,
+				mutations: commit.mutations,
 				newDoc,
 				result: {
 					message: `Successfully created form "${name}" (${type}, UUID ${formUuid}) with ${fieldCount} field${fieldCount === 1 ? "" : "s"} in module "${mod?.name ?? moduleUuid}". Module now has ${forms.length} form${forms.length === 1 ? "" : "s"}.${skippedNote}`,

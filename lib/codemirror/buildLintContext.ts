@@ -15,11 +15,12 @@
 
 import type { BlueprintDocState } from "@/lib/doc/store";
 import {
+	asUuid,
 	type Field,
 	type FieldKind,
 	type Form,
 	type ProseTemplate,
-	printProseTemplate,
+	projectProseTemplate,
 	reachableCaseTypes,
 	toReachableIndex,
 	type Uuid,
@@ -43,7 +44,7 @@ export function buildLintContext(
 	let moduleUuid: Uuid | undefined;
 	for (const [mUuid, formUuids] of Object.entries(state.formOrder)) {
 		if (formUuids.includes(formUuid)) {
-			moduleUuid = mUuid as Uuid;
+			moduleUuid = asUuid(mUuid);
 			break;
 		}
 	}
@@ -72,7 +73,7 @@ export function buildLintContext(
 				uuid: field.uuid,
 				path: path.slice("/data/".length),
 				label: withLabel.label
-					? printProseTemplate(withLabel.label, state)
+					? projectProseTemplate(withLabel.label, state).text
 					: field.id,
 				kind: field.kind,
 			});

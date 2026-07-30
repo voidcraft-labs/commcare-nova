@@ -21,7 +21,12 @@ import {
 	connectIdError,
 	deriveConnectId,
 } from "@/lib/commcare/connectSlugs";
-import type { BlueprintDoc, ConnectConfig, Uuid } from "@/lib/domain";
+import {
+	asUuid,
+	type BlueprintDoc,
+	type ConnectConfig,
+	type Uuid,
+} from "@/lib/domain";
 
 /** Human-readable label per connect kind for error messages. */
 const KIND_LABEL = {
@@ -62,7 +67,8 @@ export function collectConnectIds(
 ): Set<string> {
 	const ids = new Set<string>();
 	const kinds = liveKinds(doc);
-	for (const formUuid of Object.keys(doc.forms) as Uuid[]) {
+	for (const formKey of Object.keys(doc.forms)) {
+		const formUuid = asUuid(formKey);
 		if (formUuid === exceptFormUuid) continue;
 		const c = doc.forms[formUuid]?.connect;
 		if (!c) continue;

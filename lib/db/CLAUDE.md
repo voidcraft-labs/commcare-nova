@@ -49,11 +49,11 @@ empty) name; list projections apply the `UNTITLED_APP_NAME` display fallback.
 appends one row — no TTL, no prune. It is the realtime catch-up stream AND the
 app's durable edit history from its current fold horizon: folding every
 post-horizon batch reproduces its entity rows. A `migration` row tells live
-clients to reload. It normally stores the deterministic mutations when the
-blueprint changed; an empty migration batch is valid only when it deliberately
-establishes a new snapshot baseline (the canonical-identity cutover) or records
-an atomic non-blueprint change such as a Project-only move. It is never a
-general whole-document replacement mutation.
+clients to reload. It stores deterministic mutations when the blueprint
+changed; an empty migration batch is valid only when its matching immutable
+`mutation_fold_baselines` row deliberately establishes a new snapshot baseline
+(the canonical-identity cutover or app genesis). It is never a Project-move
+placeholder or a general whole-document replacement mutation.
 System repair/migration writers use a named `system:<task>` actor; user-driven
 synthetic writes retain the actual user id. `UNIQUE (app_id, batch_id)` is the idempotency latch (the guarded
 commit reads it under the app row lock; a concurrent same-batch retry that

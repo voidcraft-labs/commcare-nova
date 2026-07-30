@@ -25,6 +25,7 @@ import {
 	type LookupReferenceTargetSet,
 	normalizeLookupReferenceTargetSet,
 } from "@/lib/doc/lookupReferences";
+import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import { blankAppMutations } from "@/lib/doc/scaffolds";
 import type { LookupOptionsSource, Uuid } from "@/lib/domain";
 import {
@@ -53,11 +54,20 @@ vi.mock("@/lib/db/projectMembership", () => ({
 const {
 	appendSyntheticBatch,
 	commitAppProjectMove,
-	commitGuardedBatch,
+	commitGuardedBatch: commitGuardedBatchOpaque,
 	createApp,
 	loadApp,
 	repairLookupReferenceEdges,
 } = await import("../apps");
+const commitGuardedBatch = (
+	args: Omit<Parameters<typeof commitGuardedBatchOpaque>[0], "mutations"> & {
+		mutations: unknown;
+	},
+) =>
+	commitGuardedBatchOpaque({
+		...args,
+		mutations: admitMutationBatch(args.mutations),
+	});
 const { BlueprintCommitRejectedError } = await import("../commitGuard");
 
 const h = setupAppStateTestDb("authoritative_lookup_writers_");

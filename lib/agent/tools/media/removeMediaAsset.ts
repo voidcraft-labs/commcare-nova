@@ -31,7 +31,7 @@ import {
 	MediaAssetStillReferencedError,
 } from "@/lib/db/mediaDeletion";
 import type { BlueprintDoc } from "@/lib/domain";
-import { asMediaAssetId } from "@/lib/domain";
+import { mediaAssetIdSchema } from "@/lib/domain";
 import { extractObjectKeyForAsset } from "@/lib/domain/multimedia";
 import {
 	carriersForAsset,
@@ -44,12 +44,9 @@ import { requireToolProjectId } from "./shared";
 
 export const removeMediaAssetInputSchema = z
 	.object({
-		assetId: z
-			.string()
-			.min(1)
-			.describe(
-				"The id of the media asset to delete (from list_media_assets).",
-			),
+		assetId: mediaAssetIdSchema.describe(
+			"The id of the media asset to delete (from list_media_assets).",
+		),
 	})
 	.strict();
 
@@ -69,7 +66,7 @@ export const removeMediaAssetTool = {
 		ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
 	): Promise<ReadToolResult<RemoveMediaAssetResult>> {
-		const assetId = asMediaAssetId(input.assetId);
+		const assetId = input.assetId;
 
 		const projectId = await requireToolProjectId(ctx.appId);
 

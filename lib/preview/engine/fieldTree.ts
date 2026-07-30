@@ -50,7 +50,7 @@ export function buildFieldTree(
 		if (nestedOrder !== undefined) {
 			nodes.push({
 				field,
-				children: buildFieldTree(uuid as Uuid, fields, fieldOrder),
+				children: buildFieldTree(uuid, fields, fieldOrder),
 			});
 		} else {
 			nodes.push({ field });

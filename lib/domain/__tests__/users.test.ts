@@ -243,20 +243,24 @@ describe("prototype-safe user record parsing", () => {
 		}
 	});
 
-	it("preserves every own hostile key in value bags", () => {
+	it("accepts only canonical property UUID keys in value bags", () => {
+		const north = testUuid("__proto__");
+		const south = testUuid("constructor");
 		const values = Object.fromEntries([
-			["__proto__", "north"],
-			["constructor", "south"],
+			[north, "north"],
+			[south, "south"],
 		]);
 
 		const parsed = userDataValuesSchema.parse(values);
-		expect(Object.keys(parsed).sort()).toEqual(["__proto__", "constructor"]);
-		expect(Object.hasOwn(parsed, "__proto__")).toBe(true);
-		expect(Object.getOwnPropertyDescriptor(parsed, "__proto__")?.value).toBe(
-			"north",
-		);
-		expect(Object.hasOwn(parsed, "constructor")).toBe(true);
-		expect(parsed.constructor).toBe("south");
+		expect(Object.keys(parsed).sort()).toEqual([north, south].sort());
+		expect(Object.getPrototypeOf(parsed)).toBeNull();
+		expect(parsed[north]).toBe("north");
+		expect(parsed[south]).toBe("south");
+		expect(
+			userDataValuesSchema.safeParse(
+				Object.fromEntries([["__proto__", "north"]]),
+			).success,
+		).toBe(false);
 	});
 
 	it("preserves hostile collection identities through the blueprint boundary", () => {
@@ -279,6 +283,7 @@ describe("prototype-safe user record parsing", () => {
 					},
 				],
 			]),
+			userPropertyOrder: [propertyUuid],
 			userTypes: Object.fromEntries([
 				[
 					typeUuid,
@@ -289,6 +294,7 @@ describe("prototype-safe user record parsing", () => {
 					},
 				],
 			]),
+			userTypeOrder: [typeUuid],
 			personas: Object.fromEntries([
 				[
 					personaUuid,
@@ -299,6 +305,7 @@ describe("prototype-safe user record parsing", () => {
 					},
 				],
 			]),
+			personaOrder: [personaUuid],
 		};
 
 		const parsed = blueprintDocSchema.parse(wire);

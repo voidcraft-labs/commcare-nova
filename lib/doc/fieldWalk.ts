@@ -77,7 +77,8 @@ export function countFieldsUnder(doc: BlueprintDoc, parentUuid: Uuid): number {
 	let total = 0;
 	const stack: Uuid[] = [...(ownRecordValue(doc.fieldOrder, parentUuid) ?? [])];
 	while (stack.length > 0) {
-		const uuid = stack.pop() as Uuid;
+		const uuid = stack.pop();
+		if (uuid === undefined) continue;
 		const field = ownRecordValue(doc.fields, uuid);
 		if (!field) continue;
 		total++;

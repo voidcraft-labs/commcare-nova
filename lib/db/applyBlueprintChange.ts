@@ -72,8 +72,9 @@
  *   - `lib/mcp/context.ts` `recordMutations` (MCP tool calls).
  *
  * The chat surface routes only its RENAME-capable batches here
- * (`GenerationContext.commitBatch` detects `renameField` and
- * `moveField` — the latter's cross-parent dedup can rename): a rename's
+ * (`GenerationContext.commitBatch` detects an `updateField` patch that
+ * owns `id`, plus `moveField` — the latter's cross-parent dedup can rename):
+ * a rename's
  * row migration must run while the snapshots still prove it — once the
  * batch commits bare, both sides of every later diff hold the new name
  * and the drain-end additive materialize would strand the rows. Every
@@ -102,8 +103,8 @@ import {
 	SchemaChangePhaseBError,
 	withSchemaContext,
 } from "@/lib/case-store";
+import type { AdmittedMutationBatch } from "@/lib/doc/mutationAdmission";
 import { applyMutations } from "@/lib/doc/mutations";
-import type { Mutation } from "@/lib/doc/types";
 import type {
 	BlueprintDoc,
 	PersistableDoc,
@@ -122,6 +123,10 @@ import {
 	classifyCaseTypeChanges,
 	type RenameExpectation,
 } from "./classifyCaseTypeChanges";
+import {
+	acceptedMutationFingerprintMatches,
+	MutationBatchIdCollisionError,
+} from "./commitGuard";
 import { getAppDb } from "./pg";
 import { isTransientDbError } from "./schemaSyncRetry";
 import type { AcceptedMutationDoc } from "./types";
@@ -184,7 +189,7 @@ export interface ApplyBlueprintChangeArgs {
 	 * auto-save writer that rotates + returns the basis token.
 	 */
 	readonly guard: {
-		readonly mutations: Mutation[];
+		readonly mutations: AdmittedMutationBatch;
 		/**
 		 * Media-attach expectations to re-verify INSIDE the transaction
 		 * (see `lib/media/attachVerdicts.ts`). The asset rows are read via
@@ -286,11 +291,29 @@ export async function applyBlueprintChange(
 	const db = await getAppDb();
 	const latch = await db
 		.selectFrom("accepted_mutations")
-		.select("seq")
+		.select(["seq", "mutations", "actor_id", "kind", "run_id"])
 		.where("app_id", "=", args.appId)
 		.where("batch_id", "=", args.batchId)
 		.executeTakeFirst();
 	if (latch) {
+		if (
+			!acceptedMutationFingerprintMatches(
+				{
+					mutations: latch.mutations,
+					actorUserId: latch.actor_id,
+					kind: latch.kind,
+					runId: latch.run_id,
+				},
+				{
+					mutations: guard.mutations,
+					actorUserId: args.userId,
+					kind: args.kind,
+					runId: args.runId,
+				},
+			)
+		) {
+			throw new MutationBatchIdCollisionError();
+		}
 		return { seq: Number(latch.seq) };
 	}
 	const priorBlueprint = await resolvePriorBlueprint(args);

@@ -2,7 +2,7 @@
  * Staged tool × transactional guard — the composition that makes
  * `editField`'s "a rejected call saved nothing" hold on the MCP surface.
  *
- * `editField` builds up to three stages (convert → rename → patch) and
+ * `editField` builds conversion and property-update stages (when needed) and
  * commits through `guardedMutateStages`, which persists via
  * `ctx.recordMutationStages`. On MCP that MUST be one transactional
  * guarded save over the concatenated sequence: a per-stage save would run
@@ -123,7 +123,7 @@ beforeEach(() => {
 });
 
 describe("editField through McpContext — one transactional save per edit", () => {
-	it("a passing rename+patch edit issues exactly one guarded save over the concatenated batch", async () => {
+	it("a passing ID+label edit issues one guarded save with one canonical field patch", async () => {
 		const doc = minDoc();
 		const { ctx, logEvent } = makeMcpCtx();
 		const moduleUuid = doc.moduleOrder[0];
@@ -151,13 +151,22 @@ describe("editField through McpContext — one transactional save per edit", () 
 		expect("message" in out.result).toBe(true);
 		expect(vi.mocked(applyBlueprintChange)).toHaveBeenCalledTimes(1);
 		const args = vi.mocked(applyBlueprintChange).mock.calls[0]?.[0];
-		// The guard carries the WHOLE edit (rename cascade + scalar patch) so
+		// The guard carries the WHOLE semantic edit in one updateField patch so
 		// the transaction's fresh-doc re-verdict evaluates the same candidate
-		// the optimistic gate approved — never a lone stage.
-		const kinds = (args?.guard?.mutations ?? []).map((m) => m.kind);
-		expect(kinds).toContain("renameField");
-		expect(kinds).toContain("updateField");
-		// The persisted snapshot is the FINAL doc — rename and patch applied.
+		// the optimistic gate approved. ID and case binding must remain together
+		// for the reducer to distinguish a property rename from a retarget.
+		expect(args?.guard?.mutations).toEqual([
+			expect.objectContaining({
+				kind: "updateField",
+				uuid: fieldUuid,
+				targetKind: "text",
+				patch: expect.objectContaining({
+					id: "village_name",
+					label: proseText("Home village"),
+				}),
+			}),
+		]);
+		// The persisted snapshot is the FINAL doc — ID and label applied.
 		const persisted = args?.prospective as PersistableDoc;
 		const renamed = Object.values(persisted.fields).find(
 			(fl) => fl.id === "village_name",
@@ -167,13 +176,11 @@ describe("editField through McpContext — one transactional save per edit", () 
 				? fallbackProseProjection(renamed.label)
 				: undefined,
 		).toBe("Home village");
-		// Both stages' envelopes reached the log, tagged per stage.
+		// The one canonical edit stage reached the log.
 		const stages = logEvent.mock.calls.map(
 			(c) => (c[0] as { stage?: string }).stage,
 		);
-		expect(new Set(stages)).toEqual(
-			new Set([`rename:${formUuid}`, `edit:${formUuid}`]),
-		);
+		expect(new Set(stages)).toEqual(new Set([`edit:${formUuid}`]));
 	});
 
 	it("a contention rejection PROPAGATES out of the tool with ZERO persisted prefix", async () => {
@@ -218,8 +225,8 @@ describe("editField through McpContext — one transactional save per edit", () 
 
 		// "Nothing was saved" is structurally true: the ONE transactional save
 		// was the call's only write, it never committed, and no envelope reached
-		// the event log — there is no committed rename for the agent to trip over
-		// on its corrected re-issue.
+		// the event log — there is no committed field edit for the agent to trip
+		// over on its corrected re-issue.
 		expect(vi.mocked(applyBlueprintChange)).toHaveBeenCalledTimes(1);
 		expect(logEvent).not.toHaveBeenCalled();
 	});

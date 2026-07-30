@@ -107,7 +107,7 @@ export const removeCaseListColumnTool = {
 				newDoc.modules[moduleUuid]?.caseListConfig?.columns.length ?? 0;
 			return {
 				kind: "mutate" as const,
-				mutations: result.mutations,
+				mutations: commit.mutations,
 				newDoc,
 				result: {
 					message: `Removed case list column ${columnUuid} on module "${mod.name}". ${remaining} column${remaining === 1 ? "" : "s"} remain.`,

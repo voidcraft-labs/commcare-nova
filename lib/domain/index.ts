@@ -18,6 +18,7 @@ export * from "./commCareDatePattern";
 export * from "./dateFormats";
 export * from "./effectiveCaseTypes";
 export * from "./expressionSource";
+export * from "./externalUserProperty";
 export * from "./fields";
 export * from "./forms";
 export * from "./hashtagSegments";

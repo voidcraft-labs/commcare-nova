@@ -356,13 +356,22 @@ function caseListTarget(
 	}
 }
 
+function requireRetainedModuleUuid(moduleUuid: Uuid | undefined): Uuid {
+	if (moduleUuid === undefined) {
+		throw new Error(
+			"Case-list workspace action requires a retained module identity",
+		);
+	}
+	return moduleUuid;
+}
+
 function useController(
 	target: { moduleUuid: Uuid; tab: CaseListWorkspaceTab } | null,
 ) {
 	/* Retain the last case-list module + tab so navigating away and back keeps
 	 * the selection (this controller never unmounts). Sticky `tab` also keeps the
 	 * tab-change deselect below from firing on a mere navigation away. */
-	const stickyModuleRef = useRef<Uuid>(target?.moduleUuid ?? ("" as Uuid));
+	const stickyModuleRef = useRef<Uuid | undefined>(target?.moduleUuid);
 	if (target) stickyModuleRef.current = target.moduleUuid;
 	const moduleUuid = stickyModuleRef.current;
 	const stickyTabRef = useRef<CaseListWorkspaceTab>(target?.tab ?? "list");
@@ -708,7 +717,11 @@ function useController(
 			// owner-only provenance bit while preserving every real setting.
 			const { searchActionEnabled: _previousIntent, ...enabled } = next;
 			commitMany(
-				caseSearchConfigPatchMutations(moduleUuid, searchConfig, enabled),
+				caseSearchConfigPatchMutations(
+					requireRetainedModuleUuid(moduleUuid),
+					searchConfig,
+					enabled,
+				),
 			);
 		},
 		[commitMany, moduleUuid, searchConfig],
@@ -725,38 +738,55 @@ function useController(
 							? ({ searchActionEnabled: false } as const)
 							: normalizeOwnerOnlyCaseSearchConfig(searchConfig);
 					commitMany([
-						setOwnerOnlyCaseSearchMutation(moduleUuid, {
-							...base,
-							excludedOwnerIds: next,
-						}),
+						setOwnerOnlyCaseSearchMutation(
+							requireRetainedModuleUuid(moduleUuid),
+							{
+								...base,
+								excludedOwnerIds: next,
+							},
+						),
 					]);
 					return;
 				}
 				commitMany(
-					caseSearchConfigPatchMutations(moduleUuid, searchConfig, {
-						...searchConfig,
-						excludedOwnerIds: next,
-					}),
+					caseSearchConfigPatchMutations(
+						requireRetainedModuleUuid(moduleUuid),
+						searchConfig,
+						{
+							...searchConfig,
+							excludedOwnerIds: next,
+						},
+					),
 				);
 				return;
 			}
 			if (searchConfig === undefined) return;
 			if (isOwnerOnlyCaseSearchConfig(searchConfig)) {
 				commitMany(
-					clearCaseSearchConfigSettingsMutations(moduleUuid, searchConfig),
+					clearCaseSearchConfigSettingsMutations(
+						requireRetainedModuleUuid(moduleUuid),
+						searchConfig,
+					),
 				);
 				return;
 			}
 			const { excludedOwnerIds: _previous, ...rest } = searchConfig;
 			commitMany(
-				caseSearchConfigPatchMutations(moduleUuid, searchConfig, rest),
+				caseSearchConfigPatchMutations(
+					requireRetainedModuleUuid(moduleUuid),
+					searchConfig,
+					rest,
+				),
 			);
 		},
 		[commitMany, moduleUuid, searchConfig],
 	);
 	const configureSearchAction = useCallback(() => {
 		const outcome = commitMany([
-			enableCaseSearchMutation(moduleUuid, searchConfig),
+			enableCaseSearchMutation(
+				requireRetainedModuleUuid(moduleUuid),
+				searchConfig,
+			),
 		]);
 		if (outcome.ok) setSel({ type: "search-panel" });
 	}, [commitMany, moduleUuid, searchConfig]);
@@ -832,7 +862,13 @@ function useController(
 		const repair =
 			sel?.type === "column" && sel.uuid === uuid ? sel.reveal : undefined;
 		if (repair === undefined) {
-			commitMany(columnSnapshotMutations(moduleUuid, current, replacement));
+			commitMany(
+				columnSnapshotMutations(
+					requireRetainedModuleUuid(moduleUuid),
+					current,
+					replacement,
+				),
+			);
 			return;
 		}
 
@@ -862,7 +898,11 @@ function useController(
 			return;
 		}
 		const revealOutcome = inline.commitMany(
-			columnSnapshotMutations(moduleUuid, current, revealTarget),
+			columnSnapshotMutations(
+				requireRetainedModuleUuid(moduleUuid),
+				current,
+				revealTarget,
+			),
 		);
 		if (revealOutcome.ok) {
 			setWorkspaceAnnouncement(
@@ -873,7 +913,11 @@ function useController(
 		}
 
 		const repairOutcome = inline.commitMany(
-			columnSnapshotMutations(moduleUuid, current, replacement),
+			columnSnapshotMutations(
+				requireRetainedModuleUuid(moduleUuid),
+				current,
+				replacement,
+			),
 		);
 		setSel({
 			type: "column",
@@ -895,7 +939,12 @@ function useController(
 			setWorkspaceAnnouncement(TILE_FULL_REASON);
 			return;
 		}
-		const mutation = seededColumnAddMutation(moduleUuid, config, surface, seed);
+		const mutation = seededColumnAddMutation(
+			requireRetainedModuleUuid(moduleUuid),
+			config,
+			surface,
+			seed,
+		);
 		const outcome = commitMany([mutation]);
 		if (outcome.ok) {
 			setWorkspaceAnnouncement(
@@ -932,11 +981,17 @@ function useController(
 		surface: CaseDisplaySurface,
 		uuid: Column["uuid"],
 		toIndex: number,
-	) => moveColumnOnSurface(moduleUuid, uuid, surface, toIndex);
+	) =>
+		moveColumnOnSurface(
+			requireRetainedModuleUuid(moduleUuid),
+			uuid,
+			surface,
+			toIndex,
+		);
 	const updateColumns = (next: readonly Column[]) => {
 		commitMany(
 			columnSnapshotBatchMutations(
-				moduleUuid,
+				requireRetainedModuleUuid(moduleUuid),
 				config.columns,
 				pruneStoppedSortOrphans(config.columns, next),
 			),
@@ -956,7 +1011,11 @@ function useController(
 		).find((candidate) => candidate.uuid === column.uuid);
 		if (hidden === undefined) return;
 		const outcome = commitMany(
-			columnSnapshotMutations(moduleUuid, column, hidden),
+			columnSnapshotMutations(
+				requireRetainedModuleUuid(moduleUuid),
+				column,
+				hidden,
+			),
 		);
 		if (!outcome.ok) return;
 		pendingCanvasFocusRef.current = surface;
@@ -971,7 +1030,11 @@ function useController(
 			...(column.visibleInDetail !== false ? ["Details"] : []),
 		];
 		const outcome = commitMany([
-			{ kind: "removeColumn", moduleUuid, uuid: column.uuid },
+			{
+				kind: "removeColumn",
+				moduleUuid: requireRetainedModuleUuid(moduleUuid),
+				uuid: column.uuid,
+			},
 		]);
 		if (!outcome.ok) return;
 		pendingCanvasFocusRef.current = surface;
@@ -1006,7 +1069,11 @@ function useController(
 		 * config warnings. Ask the SAME gate silently before revealing one: a
 		 * refusal becomes a repair route, never a toast plus a dead click. */
 		const outcome = inline.commitMany(
-			columnSnapshotMutations(moduleUuid, column, target),
+			columnSnapshotMutations(
+				requireRetainedModuleUuid(moduleUuid),
+				column,
+				target,
+			),
 		);
 		if (!outcome.ok) {
 			routeColumnToRepair(surface, column, outcome.messages);
@@ -1024,7 +1091,7 @@ function useController(
 		if (current === undefined) return;
 		commitMany([
 			searchInputUpdateMutation(
-				moduleUuid,
+				requireRetainedModuleUuid(moduleUuid),
 				current,
 				withPreservedIdentity(current, next),
 			),
@@ -1049,12 +1116,16 @@ function useController(
 				)
 			: searchConfig;
 		const mutations: Mutation[] = [
-			{ kind: "removeSearchInput", moduleUuid, uuid },
+			{
+				kind: "removeSearchInput",
+				moduleUuid: requireRetainedModuleUuid(moduleUuid),
+				uuid,
+			},
 		];
 		if (removesVisibleSearchScreen && searchConfig !== undefined) {
 			mutations.push(
 				cleanupCaseSearchAfterFinalInputMutation({
-					uuid: moduleUuid,
+					uuid: requireRetainedModuleUuid(moduleUuid),
 					config: searchConfig,
 					hasCasesAvailableCondition,
 				}),
@@ -1136,7 +1207,7 @@ function useController(
 				return;
 			}
 			deselect();
-			navigate.openCaseList(moduleUuid);
+			navigate.openCaseList(requireRetainedModuleUuid(moduleUuid));
 		},
 		[deselect, inputRemovalReview, moduleUuid, navigate, openSearchCondition],
 	);
@@ -1165,7 +1236,7 @@ function useController(
 				uuid: inputRemovalReview.inputUuid,
 			});
 		} else {
-			navigate.openSearchConfig(moduleUuid);
+			navigate.openSearchConfig(requireRetainedModuleUuid(moduleUuid));
 		}
 	}, [
 		config,
@@ -1181,9 +1252,14 @@ function useController(
 		// working input with a unique internal name, a matching widget, and the
 		// established per-type match default.
 		const seed = seedSearchInputForProperty(config, property);
+		const retainedModuleUuid = requireRetainedModuleUuid(moduleUuid);
 		const outcome = commitMany([
-			enableCaseSearchMutation(moduleUuid, searchConfig),
-			{ kind: "addSearchInput", moduleUuid, searchInput: seed },
+			enableCaseSearchMutation(retainedModuleUuid, searchConfig),
+			{
+				kind: "addSearchInput",
+				moduleUuid: retainedModuleUuid,
+				searchInput: seed,
+			},
 		]);
 		// Never select an identity the gate refused to create. The gate can still
 		// reject a concurrent structural edit even though the seed was valid when
@@ -1191,13 +1267,17 @@ function useController(
 		if (outcome.ok) setSel({ type: "input", uuid: seed.uuid });
 	};
 	const moveInput = (uuid: SearchInputDef["uuid"], toIndex: number) =>
-		moveSearchInputToIndex(moduleUuid, uuid, toIndex);
+		moveSearchInputToIndex(
+			requireRetainedModuleUuid(moduleUuid),
+			uuid,
+			toIndex,
+		);
 	const clearFilter = useCallback(
 		(nextFilter: Predicate | undefined) => {
 			const mutations: Mutation[] = [
 				{
 					kind: "setCaseListMeta",
-					uuid: moduleUuid,
+					uuid: requireRetainedModuleUuid(moduleUuid),
 					patch: { filter: nextFilter ?? null },
 				},
 			];
@@ -1212,7 +1292,7 @@ function useController(
 			commitMany([
 				{
 					kind: "setCaseListMeta",
-					uuid: moduleUuid,
+					uuid: requireRetainedModuleUuid(moduleUuid),
 					patch: { filter: nextFilter ?? null },
 				},
 			]),
@@ -1226,7 +1306,7 @@ function useController(
 	// it off touches only the layout slot, so every cell survives and the
 	// drawing comes back intact.
 	const tileDisabledReason = useMemo(() => {
-		if (config.tile !== undefined) return undefined;
+		if (config.tile !== undefined || moduleUuid === undefined) return undefined;
 		const plan = planTileLayoutEnable({ moduleUuid, config });
 		return plan.ok ? undefined : plan.reason;
 	}, [config, moduleUuid]);
@@ -1236,7 +1316,7 @@ function useController(
 			if (next === "tile") {
 				if (config.tile !== undefined) return;
 				const plan = planTileLayoutEnable({
-					moduleUuid,
+					moduleUuid: requireRetainedModuleUuid(moduleUuid),
 					config,
 				});
 				if (!plan.ok) {
@@ -1252,7 +1332,11 @@ function useController(
 			}
 			const persisted = config.tile?.persistOnForms === true;
 			if (config.tile === undefined) return;
-			if (commitMany([...planTileLayoutDisable(moduleUuid)]).ok) {
+			if (
+				commitMany([
+					...planTileLayoutDisable(requireRetainedModuleUuid(moduleUuid)),
+				]).ok
+			) {
 				// Every cell survives, but the tile's own setting cannot: with no
 				// tile there is nothing to keep on screen. Say so rather than
 				// letting it disappear quietly.
@@ -1272,7 +1356,13 @@ function useController(
 				(candidate) => candidate.uuid === uuid,
 			);
 			if (column === undefined) return;
-			commitMany([...tileCellMutations(moduleUuid, column, cell)]);
+			commitMany([
+				...tileCellMutations(
+					requireRetainedModuleUuid(moduleUuid),
+					column,
+					cell,
+				),
+			]);
 		},
 		[commitMany, config.columns, moduleUuid],
 	);
@@ -1284,7 +1374,13 @@ function useController(
 			);
 			if (column === undefined) return;
 			if (
-				commitMany([...tileCellMutations(moduleUuid, column, undefined)]).ok
+				commitMany([
+					...tileCellMutations(
+						requireRetainedModuleUuid(moduleUuid),
+						column,
+						undefined,
+					),
+				]).ok
 			) {
 				setWorkspaceAnnouncement(
 					`${columnDisplayLabel(column)} no longer has a saved tile place`,
@@ -1297,7 +1393,7 @@ function useController(
 	const putColumnOnTile = useCallback(
 		(uuid: Column["uuid"]) => {
 			const plan = planTilePlaceField({
-				moduleUuid,
+				moduleUuid: requireRetainedModuleUuid(moduleUuid),
 				config,
 				uuid,
 			});
@@ -1325,7 +1421,7 @@ function useController(
 			);
 			if (preset === undefined) return;
 			const plan = planTilePreset({
-				moduleUuid,
+				moduleUuid: requireRetainedModuleUuid(moduleUuid),
 				config,
 				preset,
 			});
@@ -1342,7 +1438,13 @@ function useController(
 
 	const setTilePersistOnForms = useCallback(
 		(persist: boolean) => {
-			commitMany([...planTilePersistOnForms(moduleUuid, persist, config.tile)]);
+			commitMany([
+				...planTilePersistOnForms(
+					requireRetainedModuleUuid(moduleUuid),
+					persist,
+					config.tile,
+				),
+			]);
 		},
 		[commitMany, config.tile, moduleUuid],
 	);
@@ -1740,16 +1842,17 @@ export function CaseListWorkspaceCanvas() {
 		};
 	}, [moduleUuid, visibleTab]);
 
-	// Guard the deletion-in-flight window: a peer cleared the case type on the
-	// module this URL points at (dropping caseListConfig with it), before
-	// LocationRecoveryEffect degrades the URL. `ws.caseType` is `caseType ?? ""`,
-	// so `=== ""` means "no case type" — render nothing rather than stand the
-	// whole workspace up against EMPTY_CONFIG with live mutation controls and no
-	// case type behind them. Deliberately NOT gated on `active` (which also goes
-	// false on navigate-away): the sticky module keeps rendering while
-	// Activity-hidden so its scroll survives. (`ws` is non-null for the builder's
-	// whole life.)
-	if (ws === null || ws.caseType === "") return null;
+	// Guard both the never-visited state and the deletion-in-flight window: a
+	// peer may clear the case type on the retained module before
+	// LocationRecoveryEffect degrades the URL. Render nothing rather than stand
+	// EMPTY_CONFIG up with live mutation controls and no real module identity.
+	// Deliberately NOT gated on `active` (which also goes false on navigate-away):
+	// after the first visit the sticky module keeps rendering while
+	// Activity-hidden so its scroll survives.
+	if (ws === null || ws.moduleUuid === undefined || ws.caseType === "") {
+		return null;
+	}
+	const workspaceModuleUuid = ws.moduleUuid;
 	const {
 		tab,
 		errorAreas,
@@ -1808,7 +1911,7 @@ export function CaseListWorkspaceCanvas() {
 			<WorkspaceTabs
 				moduleSettings={
 					isBareCaseList ? (
-						<ModuleSettingsButton moduleUuid={ws.moduleUuid} />
+						<ModuleSettingsButton moduleUuid={workspaceModuleUuid} />
 					) : null
 				}
 				compactHeight={compactHeight}
@@ -1824,9 +1927,9 @@ export function CaseListWorkspaceCanvas() {
 					 * author's visible position.
 					 */
 					captureScroll(tab);
-					if (next === "search") navigate.openSearchConfig(ws.moduleUuid);
-					else if (next === "list") navigate.openCaseList(ws.moduleUuid);
-					else navigate.openDetailConfig(ws.moduleUuid);
+					if (next === "search") navigate.openSearchConfig(workspaceModuleUuid);
+					else if (next === "list") navigate.openCaseList(workspaceModuleUuid);
+					else navigate.openDetailConfig(workspaceModuleUuid);
 				}}
 			/>
 

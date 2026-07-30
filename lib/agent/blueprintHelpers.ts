@@ -728,17 +728,6 @@ export function removeFieldMutations(
 	return [{ kind: "removeField", uuid: fieldUuid }];
 }
 
-/** Rename a field's semantic id. The reducer rewrites XPath references
- *  to the old id across the entire doc atomically. */
-export function renameFieldMutations(
-	doc: BlueprintDoc,
-	fieldUuid: Uuid,
-	newId: string,
-): Mutation[] {
-	if (doc.fields[fieldUuid] === undefined) return [];
-	return [{ kind: "renameField", uuid: fieldUuid, newId }];
-}
-
 /** Patch arbitrary fields on a field entity. The `Field` union is
  *  discriminated by `kind`; the helper takes the target kind as an
  *  explicit generic so the patch type narrows to that variant's

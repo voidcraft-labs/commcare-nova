@@ -109,7 +109,7 @@ import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
 import {
 	type CaseProperty,
 	type Column,
-	fallbackProseProjection,
+	printProseTemplate,
 	resolveCommCareDatePattern,
 	TIME_SINCE_UNIT_DAYS,
 	tileCellFor,
@@ -427,6 +427,7 @@ function plainDisplayXpath(field: string): string {
 export function plainSelectDisplayXpath(
 	field: string,
 	property: CaseProperty,
+	doc: CaseListEmitContext["proseDoc"],
 ): string {
 	const options = property.options ?? [];
 	if (options.length === 0) return plainDisplayXpath(field);
@@ -442,7 +443,7 @@ export function plainSelectDisplayXpath(
 		return options.reduceRight((elseArm, option) => {
 			const value = quoteLiteral(option.value, "case-list-filter");
 			const label = quoteLiteral(
-				fallbackProseProjection(option.label),
+				printProseTemplate(option.label, doc),
 				"case-list-filter",
 			);
 			return `if(${field} = ${value}, ${label}, ${elseArm})`;
@@ -461,7 +462,7 @@ export function plainSelectDisplayXpath(
 		field,
 		tokenOptions.map((option) => ({
 			value: option.value,
-			label: fallbackProseProjection(option.label),
+			label: printProseTemplate(option.label, doc),
 		})),
 	);
 	// Double-space the normalized value so every token owns BOTH of its
@@ -726,7 +727,7 @@ function propertyDisplayXpath(
 			);
 			return property?.data_type === "single_select" ||
 				property?.data_type === "multi_select"
-				? plainSelectDisplayXpath(field, property)
+				? plainSelectDisplayXpath(field, property, ctx.proseDoc)
 				: plainDisplayXpath(field);
 		}
 		case "date":

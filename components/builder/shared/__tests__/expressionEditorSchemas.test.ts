@@ -75,6 +75,9 @@ const ctx: ExpressionEditContext = {
 	caseTypes: [PATIENT],
 	currentCaseType: "patient",
 	knownInputs: KNOWN_INPUTS,
+	operationScope: {
+		creates: [{ uuid: testUuid("earlier-create"), label: "Create a referral" }],
+	},
 };
 
 describe("expressionCardSchemas — registry exhaustivity", () => {
@@ -119,6 +122,12 @@ describe("expressionCardSchemas — defaultValue parses through the schema", () 
 	) as ValueExpression["kind"][]) {
 		it(`${kind}: default value parses through valueExpressionSchema`, () => {
 			const entry = expressionCardSchemas[kind];
+			if (kind === "table-lookup") {
+				expect(() => entry.defaultValue(ctx)).toThrow(
+					/cannot be created until its table and result column are selected/,
+				);
+				return;
+			}
 			const value = entry.defaultValue(ctx);
 			expect(() => valueExpressionSchema.parse(value)).not.toThrow();
 			expect(value.kind).toBe(kind);
@@ -129,6 +138,7 @@ describe("expressionCardSchemas — defaultValue parses through the schema", () 
 		for (const kind of Object.keys(
 			expressionCardSchemas,
 		) as ValueExpression["kind"][]) {
+			if (kind === "table-lookup") continue;
 			const refs: string[] = [];
 			walkExpressionTerms(
 				expressionCardSchemas[kind].defaultValue(ctx),

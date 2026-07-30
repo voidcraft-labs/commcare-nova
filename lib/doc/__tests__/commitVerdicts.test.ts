@@ -248,7 +248,9 @@ describe("mutationCommitVerdict", () => {
 	it("passes an empty batch through without validating", () => {
 		const doc = minDoc();
 		const verdict = mutationCommitVerdict(doc, [], LOOKUP_CONTEXT_UNAVAILABLE);
-		expect(verdict).toEqual({ ok: true, nextDoc: doc, results: [] });
+		expect(verdict).toMatchObject({ ok: true, nextDoc: doc, results: [] });
+		if (!verdict.ok) throw new Error("empty batch rejected");
+		expect(verdict.mutations).toEqual([]);
 		// Reference equality — no candidate apply ran.
 		expect(verdict.nextDoc).toBe(doc);
 	});
@@ -355,12 +357,19 @@ describe("stored-reference bounce prose", () => {
 		expect(message).not.toContain(village?.uuid as string);
 	});
 
-	it("a same-batch rename of a resolved reference still lands (identity needs no repair)", () => {
+	it("a same-batch field-ID update of a resolved reference still lands (identity needs no repair)", () => {
 		const doc = docWithReference();
 		const village = Object.values(doc.fields).find((fl) => fl.id === "village");
 		const verdict = mutationCommitVerdict(
 			doc,
-			[{ kind: "renameField", uuid: village?.uuid as never, newId: "town" }],
+			[
+				{
+					kind: "updateField",
+					uuid: village?.uuid as never,
+					targetKind: "text",
+					patch: { id: "town" },
+				},
+			],
 			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		// The identity leaf re-prints under the new name — nothing dangles.

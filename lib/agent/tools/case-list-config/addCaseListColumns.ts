@@ -135,7 +135,7 @@ export const addCaseListColumnsTool = {
 			const headers = columns.map((c) => `"${c.header}"`).join(", ");
 			return {
 				kind: "mutate" as const,
-				mutations: result.mutations,
+				mutations: commit.mutations,
 				newDoc,
 				result: {
 					message: `Added ${columns.length} column${columns.length === 1 ? "" : "s"} to module "${mod.name}": ${headers}.`,

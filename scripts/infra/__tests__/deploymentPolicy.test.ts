@@ -61,6 +61,12 @@ describe("durable deployment policy", () => {
 		expect(dockerfile).not.toContain("rollout.cjs");
 		expect(dockerfile).not.toContain("capacity-preflight.cjs");
 		expect(cloudBuild).toContain("python3 scripts/rollout/deploy-cloud-run.py");
+		const migrateStep = cloudBuild.slice(
+			stepOffset("migrate"),
+			stepOffset("capture-cleanup"),
+		);
+		expect(migrateStep).toContain("--max-retries=0");
+		expect(migrateStep).not.toContain("--max-retries=1");
 		expect(dockerignore).toContain("!scripts/infra/databaseOwnerBootstrap.ts");
 		expect(cloudBuild).toContain("https://commcare.app/");
 		expect(cloudBuild).toContain("https://docs.commcare.app/");
@@ -244,7 +250,7 @@ describe("durable deployment policy", () => {
 		expect(cloudBuild).toContain("NOVA_DB_WORKLOAD=service");
 		expect(prodDb).toContain('process.env.NOVA_DB_WORKLOAD = "operator"');
 		expect(packageJson).toContain(
-			'"db:migrate": "NOVA_DB_WORKLOAD=migration tsx scripts/migrate.ts"',
+			'"db:migrate": "NOVA_DB_WORKLOAD=migration tsx --conditions=react-server scripts/migrate.ts"',
 		);
 		expect(cloudBuild.match(/--tasks=1 --parallelism=1/g)).toHaveLength(2);
 		expect(cloudBuild).toContain(

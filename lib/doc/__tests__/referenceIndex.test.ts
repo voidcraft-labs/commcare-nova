@@ -352,7 +352,12 @@ describe("index-driven rewrites — slash-path descendants and mid-batch currenc
 		const slashWatcher = uuidByFieldId(doc, "slash_watcher");
 
 		const renamed = apply(doc, [
-			{ kind: "renameField", uuid: grp, newId: "grp2" },
+			{
+				kind: "updateField",
+				uuid: grp,
+				targetKind: "group",
+				patch: { id: "grp2" },
+			},
 		]);
 		expect(printedRelevant(renamed, slashWatcher)).toBe(
 			"/data/grp2/inner != ''",
@@ -387,11 +392,11 @@ describe("index-driven rewrites — slash-path descendants and mid-batch currenc
 		expect(moved.refIndex).toEqual(buildReferenceIndex(moved));
 	});
 
-	it("a rename later in the SAME batch rewrites a ref the batch itself just added", () => {
+	it("a field-ID update later in the SAME batch reprojects a ref the batch itself just added", () => {
 		// Mid-batch currency is what lets reducers be lookup-driven at all:
-		// the add's maintenance must land its edges BEFORE the rename's
+		// the add's maintenance must land its edges BEFORE the ID update's
 		// reducer looks carriers up, inside one applyMutations call. The
-		// fresh prose and XPath refs both store identity and follow the rename
+		// fresh prose and XPath refs both store identity and follow the ID change
 		// at projection time without rewriting stored bytes.
 		const doc = richDoc();
 		const caseName = uuidByFieldId(doc, "case_name");
@@ -412,7 +417,12 @@ describe("index-driven rewrites — slash-path descendants and mid-batch currenc
 					relevant: parseXPathForForm(doc, formUuid, "#form/case_name != ''"),
 				} as never,
 			},
-			{ kind: "renameField", uuid: caseName, newId: "full_name" },
+			{
+				kind: "updateField",
+				uuid: caseName,
+				targetKind: "text",
+				patch: { id: "full_name" },
+			},
 		]);
 		const fresh = next.fields[mintedUuid as never];
 		expect(
@@ -428,13 +438,18 @@ describe("index-driven rewrites — slash-path descendants and mid-batch currenc
 });
 
 describe("declarations index", () => {
-	it("lists case-property declarers and follows renames", () => {
+	it("lists case-property declarers and follows field-ID changes", () => {
 		const doc = richDoc();
 		const caseName = uuidByFieldId(doc, "case_name");
 		expect(declarersOf(doc, "patient", "case_name")).toEqual([caseName]);
 
 		const renamed = apply(doc, [
-			{ kind: "renameField", uuid: caseName, newId: "full_name" },
+			{
+				kind: "updateField",
+				uuid: caseName,
+				targetKind: "text",
+				patch: { id: "full_name" },
+			},
 		]);
 		expect(declarersOf(renamed, "patient", "case_name")).toEqual([]);
 		expect(declarersOf(renamed, "patient", "full_name")).toEqual([caseName]);

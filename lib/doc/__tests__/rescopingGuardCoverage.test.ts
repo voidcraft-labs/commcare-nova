@@ -18,8 +18,8 @@ import { proseText } from "@/lib/domain/prose";
  * `fullScope` are the validation re-scopers (the gate would go STALE on
  * them under any entity-keyed narrowing): `removeModule`, `moveForm`,
  * `removeForm`, `updateModule({caseType})`, `updateForm({type})`,
- * `setCaseTypes`, `setConnectType`, and the case-property-writer field
- * mutations.
+ * the granular case-type catalog mutations, `setConnectType`, and the
+ * case-property-writer field mutations.
  */
 
 import { describe, expect, it } from "vitest";
@@ -151,8 +151,8 @@ function richDoc(): BlueprintDoc {
 	});
 }
 
-/** A field's relevant expression referencing the catalog — the
- *  `setCaseTypes` probe's tripwire. */
+/** A field's relevant expression referencing the catalog — the granular
+ *  property-removal probe's tripwire. */
 function caseRefDoc(): BlueprintDoc {
 	const doc = richDoc();
 	const status = byId(doc, "status");
@@ -525,25 +525,6 @@ const GUARD_COVERAGE = {
 		expectCodes: ["PRIMARY_CASE_FIELD_IN_REPEAT"],
 		fullScope: true,
 	},
-	renameField: {
-		build: () => {
-			const doc = richDoc();
-			return {
-				doc,
-				// Renaming a case-bound writer renames the case PROPERTY —
-				// `date` is on CommCare's reserved list.
-				batch: [
-					{
-						kind: "renameField",
-						uuid: byId(doc, "village").uuid,
-						newId: "date",
-					},
-				],
-			};
-		},
-		expectCodes: ["RESERVED_CASE_PROPERTY"],
-		fullScope: true,
-	},
 	convertField: {
 		build: () => {
 			const doc = richDoc();
@@ -569,18 +550,32 @@ const GUARD_COVERAGE = {
 			const doc = richDoc();
 			return {
 				doc,
-				// Re-target a writer at a case type with no module/name writer.
+				// The one canonical field-edit dialect covers both semantic
+				// identity changes and writer retargeting. A case-bound ID
+				// change cascades its case property; `date` is reserved. A
+				// separate writer retarget names a case type with no module
+				// or name writer.
 				batch: [
 					{
 						kind: "updateField",
 						uuid: byId(doc, "village").uuid,
+						targetKind: "text",
+						patch: { id: "date" },
+					} as Mutation,
+					{
+						kind: "updateField",
+						uuid: byId(doc, "status").uuid,
 						targetKind: "text",
 						patch: { case_property_on: "stranger" },
 					} as Mutation,
 				],
 			};
 		},
-		expectCodes: ["CHILD_CASE_NO_NAME_FIELD", "MISSING_CHILD_CASE_MODULE"],
+		expectCodes: [
+			"RESERVED_CASE_PROPERTY",
+			"CHILD_CASE_NO_NAME_FIELD",
+			"MISSING_CHILD_CASE_MODULE",
+		],
 		fullScope: true,
 	},
 	setFieldMedia: {
@@ -631,39 +626,6 @@ const GUARD_COVERAGE = {
 		expectCodes: ["CONNECT_NO_PARTICIPATING_FORMS"],
 		fullScope: true,
 	},
-	setCaseTypes: {
-		build: () => {
-			const doc = caseRefDoc();
-			return {
-				doc,
-				// Drop `village` from the catalog while a field's relevant
-				// still reads `#patient/village` — the reference resolution
-				// flips in an entity the batch never names.
-				batch: [
-					{
-						kind: "setCaseTypes",
-						caseTypes: [
-							{
-								name: "patient",
-								properties: [
-									{ name: "case_name", label: proseText("Name") },
-									{ name: "dob", label: proseText("Date of birth") },
-									{ name: "status", label: proseText("Status") },
-								],
-							},
-						],
-					},
-				],
-			};
-		},
-		expectCodes: [
-			"INVALID_CASE_REF",
-			"INVALID_REF",
-			"CASE_PROPERTY_MISSING_FIELD",
-		],
-		fullScope: true,
-	},
-
 	// ── Granular case-type catalog (all re-scope to FULL) ────────────
 	declareCaseType: {
 		neverGates:
@@ -678,8 +640,28 @@ const GUARD_COVERAGE = {
 			"replaces a property by name — introduces no finding on its own; full-scoped",
 	},
 	removeCaseProperty: {
-		neverGates:
-			"drops a catalog property — a stranded reference is the REFERENCING entity's finding, caught under the full scope; full-scoped",
+		build: () => {
+			const doc = caseRefDoc();
+			return {
+				doc,
+				// Drop `village` from the catalog while a field's relevant still
+				// reads it — the reference resolution flips in an entity this
+				// batch never names.
+				batch: [
+					{
+						kind: "removeCaseProperty",
+						caseType: "patient",
+						property: "village",
+					},
+				],
+			};
+		},
+		expectCodes: [
+			"INVALID_CASE_REF",
+			"INVALID_REF",
+			"CASE_PROPERTY_MISSING_FIELD",
+		],
+		fullScope: true,
 	},
 	setCaseTypeMeta: {
 		neverGates:

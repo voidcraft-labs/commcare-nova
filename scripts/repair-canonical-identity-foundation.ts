@@ -1,32 +1,25 @@
 /**
  * ⚠️ WRITES WITH --apply — exact, all-app-atomic canonical identity repair.
  *
- * This is not a general repair utility. It accepts only the checked-in,
- * content-free manifest and aborts on any source, finding, consumer, reverse
- * index, or result digest drift. Production apply belongs inside the reviewed
- * maintenance fence after the authoritative post-quiescence backup completes.
+ * The operator surface owns orchestration only. Both dry-run and apply invoke
+ * the same reviewed SQL authority; dry-run executes every real write/proof and
+ * then deliberately rolls the caller-owned transaction back.
  */
 
 import "dotenv/config";
 import { Command } from "commander";
-import { sql, type Transaction } from "kysely";
-import { applyFrozenCanonicalIdentityRepair } from "@/lib/case-store/migrations/20260728000000_canonical_identity_foundation/frozenRepair";
+import { sql } from "kysely";
+import { FROZEN_OCCURRENCE_TABLES } from "@/lib/case-store/migrations/20260728000000_canonical_identity_foundation/frozenOccurrenceManifest";
 import {
-	CANONICAL_IDENTITY_AFFECTED_APPS,
 	CANONICAL_IDENTITY_REPAIR_RESULT_DIGEST,
 	CANONICAL_IDENTITY_REPAIR_VERSION,
-	CANONICAL_IDENTITY_ROW_DELETES,
 } from "@/lib/case-store/migrations/20260728000000_canonical_identity_foundation/frozenRepairManifest";
-import {
-	canonicalIdentityDigest,
-	type LegacyAppSnapshot,
-	type LegacyEntityKind,
-	type LegacyEntityRow,
-	planCanonicalAppMigration,
-} from "@/lib/case-store/migrations/20260728000000_canonical_identity_foundation/frozenTransform";
 import { closeCaseStoreDatabase } from "@/lib/case-store/postgres/connection";
-import { type AppDatabase, getAppDb } from "@/lib/db/pg";
-import { asUuid } from "@/lib/domain";
+import {
+	applyCanonicalIdentityFoundationRepairInTransaction,
+	loadCanonicalIdentityRepairSnapshotsInTransaction,
+} from "@/lib/db/apps";
+import { getAppDb } from "@/lib/db/pg";
 import { runMain } from "./lib/main";
 import { targetProdDb } from "./lib/prodDb";
 
@@ -43,7 +36,7 @@ program
 		"Verify or atomically apply the exact canonical identity repair manifest.",
 	)
 	.option("--prod", "target production through the operator IAM connection")
-	.option("--apply", "write the repair; default is a rolled-back dry run")
+	.option("--apply", "write the repair; default executes and rolls back")
 	.option(
 		"--confirm <version>",
 		`required with --apply; must equal ${CANONICAL_IDENTITY_REPAIR_VERSION}`,
@@ -57,326 +50,74 @@ if (options.apply && options.confirm !== CANONICAL_IDENTITY_REPAIR_VERSION) {
 	);
 }
 
-type DbTx = Transaction<AppDatabase>;
-
-async function loadSnapshots(tx: DbTx): Promise<LegacyAppSnapshot[]> {
-	const apps = await tx
-		.selectFrom("apps")
-		.select([
-			"id",
-			"app_name",
-			"connect_type",
-			"case_types",
-			"logo",
-			"mutation_seq",
-		])
-		.orderBy("id")
-		.execute();
-	const entityRows = await tx
-		.selectFrom("blueprint_entities")
-		.select(["app_id", "uuid", "kind", "parent_uuid", "ordinal", "data"])
-		.orderBy("app_id")
-		.orderBy("kind")
-		.orderBy("parent_uuid")
-		.orderBy("ordinal")
-		.orderBy("uuid")
-		.execute();
-	const byApp = new Map<string, LegacyEntityRow[]>();
-	for (const row of entityRows) {
-		const values = byApp.get(row.app_id) ?? [];
-		values.push({
-			appId: row.app_id,
-			uuid: row.uuid,
-			kind: row.kind as LegacyEntityKind,
-			parentUuid: row.parent_uuid,
-			ordinal: row.ordinal,
-			data: row.data,
-		});
-		byApp.set(row.app_id, values);
-	}
-	return apps.map((app) => ({
-		appId: app.id,
-		appName: app.app_name,
-		connectType: app.connect_type,
-		caseTypes: app.case_types,
-		logo: app.logo,
-		mutationSeq: app.mutation_seq,
-		rows: byApp.get(app.id) ?? [],
-	}));
-}
-
-async function reverseIndexDigest(
-	tx: DbTx,
-	appIds: readonly string[],
-): Promise<string> {
-	const media = await tx
-		.selectFrom("media_asset_refs")
-		.select(["app_id", "asset_id"])
-		.where("app_id", "in", appIds)
-		.orderBy("app_id")
-		.orderBy("asset_id")
-		.execute();
-	const tables = await tx
-		.selectFrom("lookup_table_references")
-		.select(["app_id", "project_id", "table_id"])
-		.where("app_id", "in", appIds)
-		.orderBy("app_id")
-		.orderBy("project_id")
-		.orderBy("table_id")
-		.execute();
-	const columns = await tx
-		.selectFrom("lookup_column_references")
-		.select(["app_id", "project_id", "table_id", "column_id"])
-		.where("app_id", "in", appIds)
-		.orderBy("app_id")
-		.orderBy("project_id")
-		.orderBy("table_id")
-		.orderBy("column_id")
-		.execute();
-	return canonicalIdentityDigest({ media, tables, columns });
-}
-
-function digestByApp(
-	snapshots: readonly LegacyAppSnapshot[],
-): ReadonlyMap<string, string> {
-	return new Map(
-		snapshots.map((snapshot) => [
-			snapshot.appId,
-			planCanonicalAppMigration(snapshot).beforeDigest,
-		]),
-	);
-}
-
-async function applyRepair(
-	tx: DbTx,
-	before: readonly LegacyAppSnapshot[],
-): Promise<{
+interface RepairReport {
+	readonly mode: "dry-run" | "applied";
+	readonly version: typeof CANONICAL_IDENTITY_REPAIR_VERSION;
 	readonly affectedApps: number;
 	readonly deletedRows: number;
 	readonly updatedEntityRows: number;
 	readonly updatedCatalogs: number;
-}> {
-	const repair = applyFrozenCanonicalIdentityRepair(before);
-	const beforeById = new Map(
-		before.map((snapshot) => [snapshot.appId, snapshot]),
-	);
-	const afterById = new Map(
-		repair.snapshots.map((snapshot) => [snapshot.appId, snapshot]),
-	);
-	const affectedIds = repair.affected.map((entry) => entry.appId);
-	const reverseBefore = await reverseIndexDigest(tx, affectedIds);
+	readonly resultDigest: string;
+	readonly occurrenceSourceDigest: string;
+	readonly occurrenceResultDigest: string;
+}
 
-	const orphanUuids = CANONICAL_IDENTITY_ROW_DELETES.map(([, uuid]) =>
-		asUuid(uuid),
-	);
-	const attachmentConsumers = await tx
-		.selectFrom("form_attachments")
-		.select(({ fn }) => fn.countAll<string>().as("count"))
-		.where("field_uuid", "in", orphanUuids)
-		.executeTakeFirstOrThrow();
-	if (Number(attachmentConsumers.count) !== 0) {
-		throw new Error(
-			"Canonical identity repair blocked: a deleted field gained a form attachment consumer",
-		);
+class DryRunRollback extends Error {
+	constructor(readonly report: RepairReport) {
+		super("Rollback the verified canonical identity repair rehearsal.");
 	}
-
-	let updatedCatalogs = 0;
-	let updatedEntityRows = 0;
-	for (const appId of affectedIds) {
-		const oldSnapshot = beforeById.get(appId);
-		const newSnapshot = afterById.get(appId);
-		if (oldSnapshot === undefined || newSnapshot === undefined) {
-			throw new Error("Canonical identity repair lost an affected snapshot");
-		}
-		if (
-			canonicalIdentityDigest(oldSnapshot.caseTypes) !==
-			canonicalIdentityDigest(newSnapshot.caseTypes)
-		) {
-			await tx
-				.updateTable("apps")
-				.set({ case_types: JSON.stringify(newSnapshot.caseTypes) })
-				.where("id", "=", appId)
-				.executeTakeFirstOrThrow();
-			updatedCatalogs++;
-		}
-		const oldRows = new Map(oldSnapshot.rows.map((row) => [row.uuid, row]));
-		for (const row of newSnapshot.rows) {
-			const old = oldRows.get(row.uuid);
-			if (
-				old !== undefined &&
-				canonicalIdentityDigest(old.data) !== canonicalIdentityDigest(row.data)
-			) {
-				const result = await tx
-					.updateTable("blueprint_entities")
-					.set({ data: JSON.stringify(row.data) })
-					.where("app_id", "=", appId)
-					.where("uuid", "=", asUuid(row.uuid))
-					.executeTakeFirstOrThrow();
-				if (Number(result.numUpdatedRows) !== 1) {
-					throw new Error(
-						`Canonical identity repair could not update row ${row.uuid}`,
-					);
-				}
-				updatedEntityRows++;
-			}
-		}
-	}
-
-	for (const [
-		appDigest,
-		rowUuid,
-		rowDigest,
-	] of CANONICAL_IDENTITY_ROW_DELETES) {
-		const app = repair.affected.find((entry) => entry.appDigest === appDigest);
-		if (app === undefined) {
-			throw new Error("Canonical identity repair row-delete app disappeared");
-		}
-		const row = beforeById
-			.get(app.appId)
-			?.rows.find((candidate) => candidate.uuid === rowUuid);
-		if (row === undefined || canonicalIdentityDigest(row) !== rowDigest) {
-			throw new Error(
-				`Canonical identity repair row ${rowUuid} changed before delete`,
-			);
-		}
-		const result = await tx
-			.deleteFrom("blueprint_entities")
-			.where("app_id", "=", app.appId)
-			.where("uuid", "=", asUuid(rowUuid))
-			.executeTakeFirstOrThrow();
-		if (Number(result.numDeletedRows) !== 1) {
-			throw new Error(
-				`Canonical identity repair could not delete row ${rowUuid}`,
-			);
-		}
-	}
-
-	const storedBeforeHorizon = await loadSnapshots(tx);
-	const storedDigests = digestByApp(storedBeforeHorizon);
-	for (const repaired of repair.affected) {
-		if (storedDigests.get(repaired.appId) !== repaired.afterDigest) {
-			throw new Error(
-				`Canonical identity repair stored result drifted for ${repaired.appDigest}`,
-			);
-		}
-	}
-	if ((await reverseIndexDigest(tx, affectedIds)) !== reverseBefore) {
-		throw new Error("Canonical identity repair changed a reverse index");
-	}
-
-	for (const repaired of repair.affected) {
-		const marker = await sql<{ seq: string }>`
-			WITH appended AS (
-				INSERT INTO accepted_mutations
-					(app_id, seq, batch_id, run_id, actor_id, kind, mutations)
-				SELECT
-					id,
-					mutation_seq + 1,
-					'migration:canonical-identity-repair-v1',
-					NULL,
-					'system:canonical-identity-repair',
-					'migration',
-					'[]'::jsonb
-				FROM apps
-				WHERE id = ${repaired.appId}
-				RETURNING app_id, seq
-			), advanced AS (
-				UPDATE apps
-				SET mutation_seq = appended.seq
-				FROM appended
-				WHERE apps.id = appended.app_id
-				RETURNING apps.mutation_seq::text AS seq
-			)
-			SELECT seq FROM advanced
-		`.execute(tx);
-		if (marker.rows.length !== 1) {
-			throw new Error(
-				`Canonical identity repair could not append horizon for ${repaired.appDigest}`,
-			);
-		}
-	}
-
-	const markerCount = await tx
-		.selectFrom("accepted_mutations")
-		.select(({ fn }) => fn.countAll<string>().as("count"))
-		.where("app_id", "in", affectedIds)
-		.where("batch_id", "=", "migration:canonical-identity-repair-v1")
-		.where("actor_id", "=", "system:canonical-identity-repair")
-		.where("kind", "=", "migration")
-		.executeTakeFirstOrThrow();
-	if (Number(markerCount.count) !== repair.affected.length) {
-		throw new Error("Canonical identity repair horizon cardinality drifted");
-	}
-
-	return {
-		affectedApps: repair.affected.length,
-		deletedRows: repair.deletedRows,
-		updatedEntityRows,
-		updatedCatalogs,
-	};
 }
 
 async function main(): Promise<void> {
 	const db = await getAppDb();
-	const report = await db
-		.transaction()
-		.setIsolationLevel("serializable")
-		.execute(async (tx) => {
-			if (options.apply) {
+	let report: RepairReport;
+	try {
+		report = await db
+			.transaction()
+			.setIsolationLevel("serializable")
+			.execute(async (tx) => {
+				const existingOccurrenceTables = (
+					await sql<{ table_name: string }>`
+						SELECT class.relname AS table_name
+						FROM pg_catalog.pg_class AS class
+						JOIN pg_catalog.pg_namespace AS namespace
+						  ON namespace.oid = class.relnamespace
+						WHERE namespace.nspname = 'public'
+						  AND class.relkind IN ('r', 'p')
+						  AND class.relname = ANY(
+							${sql.val([...FROZEN_OCCURRENCE_TABLES])}
+						  )
+						ORDER BY class.relname
+					`.execute(tx)
+				).rows.map((row) => row.table_name);
 				await sql`
-					LOCK TABLE
-						apps,
-						blueprint_entities,
-						accepted_mutations,
-						media_asset_refs,
-						lookup_table_references,
-						lookup_column_references,
-						form_attachments
+					LOCK TABLE ${sql.join(
+						existingOccurrenceTables.map((table) => sql.table(table)),
+					)}
 					IN SHARE ROW EXCLUSIVE MODE
 				`.execute(tx);
-			}
-			const generating = await tx
-				.selectFrom("apps")
-				.select(({ fn }) => fn.countAll<string>().as("count"))
-				.where("status", "=", "generating")
-				.executeTakeFirstOrThrow();
-			const activeStreams = await tx
-				.selectFrom("threads")
-				.select(({ fn }) => fn.countAll<string>().as("count"))
-				.where("active_stream_id", "is not", null)
-				.executeTakeFirstOrThrow();
-			if (Number(generating.count) !== 0 || Number(activeStreams.count) !== 0) {
-				throw new Error(
-					"Canonical identity repair requires zero generating apps and zero active streams",
+				await sql`SELECT id FROM apps ORDER BY id FOR UPDATE`.execute(tx);
+				const before =
+					await loadCanonicalIdentityRepairSnapshotsInTransaction(tx);
+				const proof = await applyCanonicalIdentityFoundationRepairInTransaction(
+					tx,
+					before,
 				);
-			}
-			const before = await loadSnapshots(tx);
-			const verified = applyFrozenCanonicalIdentityRepair(before);
-			if (
-				verified.resultDigest !== CANONICAL_IDENTITY_REPAIR_RESULT_DIGEST ||
-				verified.affected.length !== CANONICAL_IDENTITY_AFFECTED_APPS.length
-			) {
-				throw new Error("Canonical identity repair manifest result drifted");
-			}
-			if (!options.apply) {
-				return {
-					mode: "dry-run",
-					version: verified.version,
-					affectedApps: verified.affected.length,
-					deletedRows: verified.deletedRows,
-					appendedProperties: verified.appendedProperties,
-					repairedLabelTokens: verified.repairedLabelTokens,
-					clearedCatalogSlots: verified.clearedCatalogSlots,
-					resultDigest: verified.resultDigest,
+				if (proof.resultDigest !== CANONICAL_IDENTITY_REPAIR_RESULT_DIGEST) {
+					throw new Error("Canonical identity repair manifest result drifted.");
+				}
+				const completed: RepairReport = {
+					mode: options.apply ? "applied" : "dry-run",
+					version: CANONICAL_IDENTITY_REPAIR_VERSION,
+					...proof,
 				};
-			}
-			return {
-				mode: "applied",
-				version: verified.version,
-				resultDigest: verified.resultDigest,
-				...(await applyRepair(tx, before)),
-			};
-		});
+				if (!options.apply) throw new DryRunRollback(completed);
+				return completed;
+			});
+	} catch (error) {
+		if (!(error instanceof DryRunRollback)) throw error;
+		report = error.report;
+	}
 	console.log(JSON.stringify(report, null, 2));
 	await closeCaseStoreDatabase();
 }

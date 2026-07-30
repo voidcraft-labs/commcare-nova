@@ -38,7 +38,10 @@ import {
 } from "@/lib/commcare/predicate";
 import { matchModeRunsOnDevice } from "@/lib/commcare/predicate/matchModes";
 import type { ValidationScope } from "@/lib/commcare/validator";
-import type { ValidationError } from "@/lib/commcare/validator/errors";
+import {
+	type ValidationError,
+	validationError,
+} from "@/lib/commcare/validator/errors";
 import {
 	evaluateBoundary,
 	evaluateCommit,
@@ -51,9 +54,22 @@ import {
 	type LookupValidationContext,
 	PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS,
 } from "@/lib/doc/lookupReferences";
+import {
+	type AdmittedMutationBatch,
+	admitMutationBatch,
+	MutationWireCanonicalityError,
+} from "@/lib/doc/mutationAdmission";
+import {
+	type MutationIdentityAdmissionIssue,
+	mutationIdentityAdmissionIssue,
+} from "@/lib/doc/mutationIdentityAdmission";
+import {
+	type MutationSequenceAdmissionIssue,
+	mutationSequenceAdmissionIssue,
+} from "@/lib/doc/mutationSequenceAdmission";
 import { applyMutations } from "@/lib/doc/mutations";
-import type { Mutation, MutationResult } from "@/lib/doc/types";
-import type { BlueprintDoc, Uuid } from "@/lib/domain";
+import type { MutationResult } from "@/lib/doc/types";
+import { type BlueprintDoc, type Uuid, uuidSchema } from "@/lib/domain";
 import type { MatchMode, Predicate } from "@/lib/domain/predicate";
 
 export type PredicateEditVerdict =
@@ -243,9 +259,8 @@ export function caseWorkspaceBoundaryVerdicts(
 		}
 		const columnUuid =
 			finding.details?.columnUuid ?? finding.details?.carrierUuid;
-		if (typeof columnUuid === "string") {
-			brokenColumnUuids.add(columnUuid as Uuid);
-		}
+		const parsedColumnUuid = uuidSchema.safeParse(columnUuid);
+		if (parsedColumnUuid.success) brokenColumnUuids.add(parsedColumnUuid.data);
 	}
 
 	const verdicts: CaseWorkspaceBoundaryVerdicts = {
@@ -283,7 +298,13 @@ export function caseWorkspaceBoundaryVerdicts(
  * never needs a second reducer pass to recover them.
  */
 export type MutationCommitVerdict =
-	| { ok: true; nextDoc: BlueprintDoc; results: MutationResult[] }
+	| {
+			ok: true;
+			nextDoc: BlueprintDoc;
+			results: MutationResult[];
+			mutations: AdmittedMutationBatch;
+			prepared: PreparedMutationCandidate;
+	  }
 	| { ok: false; nextDoc: BlueprintDoc; introduced: ValidationError[] };
 
 /**
@@ -292,10 +313,13 @@ export type MutationCommitVerdict =
  * no mutation batch to re-apply and therefore cannot invoke the reducer.
  */
 export interface PreparedMutationCandidate {
+	readonly mutations: AdmittedMutationBatch;
 	readonly nextDoc: BlueprintDoc;
 	readonly results: MutationResult[];
 	readonly scope: ValidationScope | "full";
 	readonly mutationCount: number;
+	readonly identityAdmissionIssue?: MutationIdentityAdmissionIssue;
+	readonly sequenceAdmissionIssue?: MutationSequenceAdmissionIssue;
 }
 
 /**
@@ -305,14 +329,38 @@ export interface PreparedMutationCandidate {
  */
 export function prepareMutationCandidate(
 	prevDoc: BlueprintDoc,
-	mutations: readonly Mutation[],
+	mutations: AdmittedMutationBatch,
 ): PreparedMutationCandidate {
 	if (mutations.length === 0) {
 		return {
+			mutations,
 			nextDoc: prevDoc,
 			results: [],
 			scope: scopeOfMutations(prevDoc, mutations),
 			mutationCount: 0,
+		};
+	}
+
+	const identityIssue = mutationIdentityAdmissionIssue(prevDoc, mutations);
+	if (identityIssue !== undefined) {
+		return {
+			mutations,
+			nextDoc: prevDoc,
+			results: [],
+			scope: "full",
+			mutationCount: mutations.length,
+			identityAdmissionIssue: identityIssue,
+		};
+	}
+	const sequenceIssue = mutationSequenceAdmissionIssue(prevDoc, mutations);
+	if (sequenceIssue !== undefined) {
+		return {
+			mutations,
+			nextDoc: prevDoc,
+			results: [],
+			scope: "full",
+			mutationCount: mutations.length,
+			sequenceAdmissionIssue: sequenceIssue,
 		};
 	}
 
@@ -321,6 +369,7 @@ export function prepareMutationCandidate(
 		results = applyMutations(draft, mutations);
 	});
 	return {
+		mutations,
 		nextDoc,
 		results,
 		scope: scopeOfMutations(prevDoc, mutations),
@@ -342,6 +391,51 @@ export function evaluatePreparedMutationCandidate(
 			ok: true,
 			nextDoc: prepared.nextDoc,
 			results: prepared.results,
+			mutations: prepared.mutations,
+			prepared,
+		};
+	}
+	if (prepared.identityAdmissionIssue !== undefined) {
+		const issue = prepared.identityAdmissionIssue;
+		return {
+			ok: false,
+			nextDoc: prepared.nextDoc,
+			introduced: [
+				validationError(
+					"MUTATION_IDENTITY_COLLISION",
+					"app",
+					`This change tried to create a ${issue.incomingKind} with identity "${issue.uuid}", but that identity already belongs to a ${issue.existingKind}. Every authored app object must have its own stable identity.`,
+					{},
+					{
+						mutationIndex: String(issue.mutationIndex),
+						mutationKind: issue.mutationKind,
+						entityUuid: issue.uuid,
+						existingKind: issue.existingKind,
+						incomingKind: issue.incomingKind,
+					},
+				),
+			],
+		};
+	}
+	if (prepared.sequenceAdmissionIssue !== undefined) {
+		const issue = prepared.sequenceAdmissionIssue;
+		return {
+			ok: false,
+			nextDoc: prepared.nextDoc,
+			introduced: [
+				validationError(
+					"MUTATION_SEQUENCE_ANCHOR_INVALID",
+					"app",
+					`This change tried to place an item after "${issue.anchor}", but that neighbor is not in ${issue.collection}. Reload the latest app and choose a current neighbor.`,
+					{},
+					{
+						mutationIndex: String(issue.mutationIndex),
+						mutationKind: issue.mutationKind,
+						collection: issue.collection,
+						anchor: issue.anchor,
+					},
+				),
+			],
 		};
 	}
 
@@ -356,6 +450,8 @@ export function evaluatePreparedMutationCandidate(
 				ok: true,
 				nextDoc: prepared.nextDoc,
 				results: prepared.results,
+				mutations: prepared.mutations,
+				prepared,
 			}
 		: {
 				ok: false,
@@ -371,14 +467,47 @@ export function evaluatePreparedMutationCandidate(
  */
 export function mutationCommitVerdict(
 	prevDoc: BlueprintDoc,
-	mutations: readonly Mutation[],
+	mutations: unknown,
 	lookupContext: LookupValidationContext,
 ): MutationCommitVerdict {
+	let admitted: AdmittedMutationBatch;
+	try {
+		admitted = admitMutationBatch(mutations);
+	} catch (error) {
+		if (!(error instanceof MutationWireCanonicalityError)) throw error;
+		return mutationWireCanonicalityRejection(prevDoc, error);
+	}
 	return evaluatePreparedMutationCandidate(
 		prevDoc,
-		prepareMutationCandidate(prevDoc, mutations),
+		prepareMutationCandidate(prevDoc, admitted),
 		lookupContext,
 	);
+}
+
+export function mutationWireCanonicalityRejection(
+	prevDoc: BlueprintDoc,
+	error: MutationWireCanonicalityError,
+): MutationCommitVerdict {
+	return {
+		ok: false,
+		nextDoc: prevDoc,
+		introduced: [
+			validationError(
+				"MUTATION_WIRE_CANONICALITY_INVALID",
+				"app",
+				"This edit could not be saved because its mutation data was not canonical.",
+				{},
+				{
+					mutationIndex:
+						error.details.mutationIndex === null
+							? "root"
+							: String(error.details.mutationIndex),
+					pointer: error.details.pointer,
+					reason: error.details.reason,
+				},
+			),
+		],
+	};
 }
 
 /**

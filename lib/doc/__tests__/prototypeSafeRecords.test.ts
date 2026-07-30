@@ -176,7 +176,7 @@ describe("prototype-safe normalized blueprint records", () => {
 				userType: {
 					uuid: USER_TYPE_UUID,
 					name: "Worker",
-					values: Object.fromEntries([["__proto__", "north"]]),
+					values: Object.fromEntries([[USER_PROPERTY_UUID, "north"]]),
 				},
 			},
 			{
@@ -185,7 +185,7 @@ describe("prototype-safe normalized blueprint records", () => {
 					uuid: PERSONA_UUID,
 					name: "Asha",
 					userTypeUuid: USER_TYPE_UUID,
-					values: Object.fromEntries([["__proto__", "south"]]),
+					values: Object.fromEntries([[USER_PROPERTY_UUID, "south"]]),
 				},
 			},
 		]);
@@ -203,13 +203,13 @@ describe("prototype-safe normalized blueprint records", () => {
 		expect(
 			Object.hasOwn(
 				hydrated.userTypes?.[USER_TYPE_UUID]?.values ?? {},
-				"__proto__",
+				USER_PROPERTY_UUID,
 			),
 		).toBe(true);
 		expect(
 			Object.hasOwn(
 				hydrated.personas?.[PERSONA_UUID]?.values ?? {},
-				"__proto__",
+				USER_PROPERTY_UUID,
 			),
 		).toBe(true);
 		for (const record of [
@@ -247,7 +247,7 @@ describe("prototype-safe normalized blueprint records", () => {
 					userType: {
 						uuid: USER_TYPE_UUID,
 						name: "Worker",
-						values: Object.fromEntries([["constructor", "north"]]),
+						values: Object.fromEntries([[USER_PROPERTY_UUID, "north"]]),
 					},
 				},
 			]),
@@ -275,7 +275,7 @@ describe("prototype-safe normalized blueprint records", () => {
 		expect(
 			Object.hasOwn(
 				transport.userTypes?.[USER_TYPE_UUID]?.values ?? {},
-				"constructor",
+				USER_PROPERTY_UUID,
 			),
 		).toBe(true);
 		expectNullPrototype(normalized.modules);
@@ -347,9 +347,10 @@ describe("prototype-safe normalized blueprint records", () => {
 			initial,
 			parsed([
 				{
-					kind: "renameField",
+					kind: "updateField",
 					uuid: STATUS_UUID,
-					newId: "current_status",
+					targetKind: "text",
+					patch: { id: "current_status" },
 				},
 				{
 					kind: "moveField",

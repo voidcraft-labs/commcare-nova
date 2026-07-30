@@ -11,7 +11,8 @@ import {
 	authoredBlueprintIdentities,
 	type BlueprintAuthoredIdentityKind,
 	type BlueprintDoc,
-	printXPath,
+	blueprintTopologyIssues,
+	projectXPath,
 	type Uuid,
 	xpathPrintContext,
 } from "@/lib/domain";
@@ -23,6 +24,18 @@ import {
 	readCasePropertyOn,
 } from "./fieldKindMatchesPropertyType";
 import { USER_RULES } from "./users";
+
+function closedBlueprintTopology(doc: BlueprintDoc): ValidationError[] {
+	return blueprintTopologyIssues(doc).map((issue) =>
+		validationError(
+			"BLUEPRINT_TOPOLOGY_INVALID",
+			"app",
+			`The app document has invalid membership topology. ${issue.message}`,
+			{},
+			{ path: issue.path.join(".") },
+		),
+	);
+}
 
 /**
  * Every authorable Blueprint object shares one identity namespace. Nested
@@ -107,7 +120,17 @@ function canonicalCasePropertyDefaults(doc: BlueprintDoc): ValidationError[] {
 					);
 					continue;
 				}
-				const source = printXPath(expression, printContext);
+				const projection = projectXPath(expression, printContext);
+				if (!projection.ok) {
+					flag(
+						caseType.name,
+						property.name,
+						slot,
+						"The XPath contains an unresolved authored reference.",
+					);
+					continue;
+				}
+				const source = projection.text;
 				const parsed = parseXPathExpressionWithIssues(
 					source,
 					() => undefined,
@@ -135,15 +158,24 @@ function canonicalCasePropertyDefaults(doc: BlueprintDoc): ValidationError[] {
 				),
 			] as const) {
 				if (template === undefined) continue;
+				const hasExternalUserCollision = template.parts.some(
+					(part) =>
+						part.kind === "user-ref" &&
+						userProperties.some(
+							(property) =>
+								property?.slug.toLowerCase() === part.property.toLowerCase(),
+						),
+				);
 				if (
 					!proseTemplateSurvivesTiptapRoundTrip(template) ||
-					template.parts.some((part) => part.kind === "field-ref")
+					template.parts.some((part) => part.kind === "field-ref") ||
+					hasExternalUserCollision
 				) {
 					flag(
 						caseType.name,
 						property.name,
 						slot,
-						"Catalog text must survive the reference editor round trip and cannot read a form answer.",
+						"Catalog text must survive the reference editor round trip, cannot read a form answer, and must store Nova-owned worker information by UUID.",
 					);
 				}
 			}
@@ -483,6 +515,7 @@ function connectNoParticipatingForms(doc: BlueprintDoc): ValidationError[] {
 }
 
 export const APP_RULES = [
+	closedBlueprintTopology,
 	globallyUniqueEntityUuids,
 	canonicalCasePropertyDefaults,
 	noModules,

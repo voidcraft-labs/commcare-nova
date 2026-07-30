@@ -65,24 +65,18 @@ import {
 	hydratePersistedBlueprint,
 	toPersistableDoc,
 } from "@/lib/doc/fieldParent";
+import type {
+	AdmittedMutationBatch,
+	MutationWireCanonicalityReason,
+} from "@/lib/doc/mutationAdmission";
 import { applyMutations } from "@/lib/doc/mutations";
 import { buildReferenceIndex } from "@/lib/doc/referenceIndex";
 import { type BlueprintDocStoreApi, isDocDataKey } from "@/lib/doc/store";
-import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
+import type { BlueprintDoc } from "@/lib/doc/types";
 import type { PersistableDoc } from "@/lib/domain";
+import type { MutationFrame } from "./mutationFrame";
 
-/** A projected `mutation` frame off the durable stream (see the `/stream`
- *  route's `send("mutation", …)` — the raw stream row's timestamp is
- *  stripped before the wire). */
-export interface MutationFrame {
-	readonly seq: number;
-	readonly batchId: string;
-	readonly actorId: string;
-	/** Present on a chat-SA frame; absent on an autosave/MCP frame. */
-	readonly runId?: string;
-	readonly kind: "autosave" | "mcp" | "chat" | "migration";
-	readonly mutations: Mutation[];
-}
+export type { MutationFrame } from "./mutationFrame";
 
 /** A batch this tab has PUT (or a chat run has committed) whose own echo
  *  hasn't returned. It stays folded into `localBase()` until its echo drops
@@ -93,7 +87,7 @@ interface SentBatch {
 	 *  registration symmetric with the frame's `runId`; echo matching keys on
 	 *  `batchId ∈ awaitingEcho`. */
 	readonly runId?: string;
-	readonly mutations: Mutation[];
+	readonly mutations: AdmittedMutationBatch;
 	/** The `seq` the server assigned (PUT 200, or the chat `data-mutations`
 	 *  committed seq). Set once known; a reload drops batches with
 	 *  `ackedSeq <= M`. Undefined until acked. */
@@ -124,12 +118,16 @@ export type PutOutcome =
 	| { ok: false; kind: "scopeChanged" }
 	| { ok: false; kind: "reauth" }
 	| { ok: false; kind: "notFound" }
-	/** A PERMANENT rejection — specifically a 400 "Invalid mutations": the
-	 *  CLIENT commit gate passed but the server refused, a genuine gate
-	 *  disagreement (a bug). TERMINAL: freeze + surface + report (re-sending
-	 *  re-hits it forever, and dropping-one would silently lose a dependent
-	 *  stacked batch). `detail` carries the status/body. */
-	| { ok: false; kind: "permanent"; detail?: string }
+	| {
+			ok: false;
+			kind: "canonicality";
+			details: {
+				readonly mutationIndex: number | null;
+				readonly pointer: string;
+				readonly reason: MutationWireCanonicalityReason;
+			};
+	  }
+	| { ok: false; kind: "batchCollision" }
 	/** A 413 — the accumulated unsaved delta exceeds the request cap. Retrying
 	 *  the same body won't shrink it, so it STOPS the retry loop (no 413-storm)
 	 *  and surfaces clearly, but does NOT discard the edits — a reload is the
@@ -153,7 +151,7 @@ export type SaveSignal =
 	/** The server permanently rejected the batch (a 400 "Invalid mutations");
 	 *  saving is frozen. `useAutoSave` shows a terminal "reload to continue"
 	 *  error. */
-	| { kind: "permanent" }
+	| { kind: "permanent"; message: string }
 	/** The unsaved delta is too large (413); the retry loop stops but the edits
 	 *  are kept. `useAutoSave` surfaces a "too large — reload" error. */
 	| { kind: "tooLarge" }
@@ -184,7 +182,10 @@ export type ReloadOutcome =
  *  supply synchronous fakes so the state machine runs headless. */
 export interface ReconcilerDeps {
 	/** PUT `{ mutations, batchId }` to `/api/apps/{appId}`. */
-	put: (batchId: string, mutations: Mutation[]) => Promise<PutOutcome>;
+	put: (
+		batchId: string,
+		mutations: AdmittedMutationBatch,
+	) => Promise<PutOutcome>;
 	/** GET the fresh blueprint + head seq for a reload. */
 	reload: () => Promise<ReloadOutcome>;
 	/** Live capability gate from BuilderSession. */
@@ -283,7 +284,7 @@ export interface Reconciler {
 	registerChatBatch(args: {
 		batchId: string;
 		runId: string | undefined;
-		mutations: Mutation[];
+		mutations: AdmittedMutationBatch;
 		seq: number;
 	}): { alreadyConfirmed: boolean };
 	/** Handle one inbound `mutation` frame. */
@@ -333,7 +334,7 @@ export interface Reconciler {
  *  the same shape), so the cast lives in this one place. It also maintains
  *  `fieldParent` + `refIndex` incrementally, so a folded doc stays a fully
  *  hydrated working doc. */
-function applyBatch(draft: BlueprintDoc, batch: Mutation[]): void {
+function applyBatch(draft: BlueprintDoc, batch: AdmittedMutationBatch): void {
 	applyMutations(draft as Parameters<typeof applyMutations>[0], batch);
 }
 
@@ -342,7 +343,7 @@ function applyBatch(draft: BlueprintDoc, batch: Mutation[]): void {
  *  the input doc is never mutated. */
 function foldBatches(
 	doc: BlueprintDoc,
-	batches: readonly Mutation[][],
+	batches: readonly AdmittedMutationBatch[],
 ): BlueprintDoc {
 	let acc = doc;
 	for (const batch of batches) {
@@ -406,6 +407,8 @@ export function createReconciler(
 	 *  post-freeze edit warns "reload to continue", never the false "your edit
 	 *  access may have been removed". */
 	let frozenPermanently = false;
+	let frozenPermanentMessage =
+		"These edits could not be saved safely. Reload the app to continue from the last saved version.";
 	/** Set once `dispose()` runs (provider unmount). A reload/PUT promise that
 	 *  resolves after this must NOT resubscribe (a leaked EventSource) or write
 	 *  into the torn-down store — every async continuation checks it. */
@@ -437,7 +440,7 @@ export function createReconciler(
 		return docStore.getState();
 	}
 
-	function pendingBatches(): Mutation[][] {
+	function pendingBatches(): AdmittedMutationBatch[] {
 		return sentPending.map((b) => b.mutations);
 	}
 
@@ -457,7 +460,7 @@ export function createReconciler(
 	 * (is there anything to save, is there an unsaved delta to warn about) far
 	 * more often than to send, and only the send takes the queue.
 	 */
-	function humanUncommitted(): readonly Mutation[] {
+	function humanUncommitted(): AdmittedMutationBatch {
 		return docStore.getState().peekCommands();
 	}
 
@@ -468,9 +471,9 @@ export function createReconciler(
 	 *  base — the author's own edits land on top of the peer's, which is what
 	 *  makes the merge their edit rather than a re-derived approximation of
 	 *  it. They stay queued: the fold does not persist them. */
-	function refoldDisplayed(humanDelta: readonly Mutation[]): void {
+	function refoldDisplayed(humanDelta: AdmittedMutationBatch): void {
 		const target = produce(localBase(), (draft) => {
-			applyBatch(draft, [...humanDelta]);
+			applyBatch(draft, humanDelta);
 		});
 		// Short-circuit when the fold already equals the displayed doc — the solo
 		// hot path (an echo with no pending peer edit + no human delta) owes
@@ -555,7 +558,12 @@ export function createReconciler(
 			// unsaved delta; dormant / no-appId stay clean no-ops.
 			if (revoked && appId !== undefined && humanUncommitted().length > 0) {
 				effectiveObserver?.({
-					kind: frozenPermanently ? "permanent" : "accessChanged",
+					...(frozenPermanently
+						? {
+								kind: "permanent" as const,
+								message: frozenPermanentMessage,
+							}
+						: { kind: "accessChanged" as const }),
 				});
 			}
 			return undefined;
@@ -691,9 +699,9 @@ export function createReconciler(
 			requestReload();
 			return;
 		}
-		if (outcome.kind === "permanent") {
-			// A 400 "Invalid mutations": the client commit gate PASSED but the
-			// server refused — a genuine client↔server gate disagreement (a bug).
+		if (outcome.kind === "canonicality" || outcome.kind === "batchCollision") {
+			// A canonicality or idempotency-protocol rejection means the client
+			// and server cannot safely agree on this retained batch.
 			// Re-sending re-hits it forever, and dropping ONLY this batch would
 			// SILENTLY lose a dependent later batch (a B2 editing a field B1 added
 			// no-ops once B1 is gone, with no error). So this is TERMINAL, not a
@@ -707,12 +715,21 @@ export function createReconciler(
 			// continue"), never the false "edit access removed" warning.
 			revoked = true;
 			frozenPermanently = true;
+			frozenPermanentMessage =
+				outcome.kind === "canonicality"
+					? `This edit could not be saved because its mutation data was not canonical. Safe location: mutation ${outcome.details.mutationIndex ?? "root"}, pointer ${outcome.details.pointer || "(root)"}, reason ${outcome.details.reason}.`
+					: "This save reused a batch id for different content. Saving is paused; reload the app to continue from the last saved version.";
 			reloadPending = false;
 			cancelRetry?.();
 			cancelRetry = undefined;
-			batch.observe?.({ kind: "permanent" });
+			batch.observe?.({
+				kind: "permanent",
+				message: frozenPermanentMessage,
+			});
 			deps.onSaveError?.(
-				`auto-save PUT permanently rejected — ${outcome.detail ?? "400"}`,
+				outcome.kind === "canonicality"
+					? `auto-save mutation canonicality rejected — mutation=${outcome.details.mutationIndex ?? "root"} pointer=${outcome.details.pointer} reason=${outcome.details.reason}`
+					: "auto-save batch id collision",
 			);
 			return;
 		}
@@ -1041,11 +1058,11 @@ export function createReconciler(
 	 *  store inside a remote-apply bracket, optionally clearing the undo stacks
 	 *  (a reload / data-done reseed is a new baseline). */
 	function reseedConfirmed(
-		humanDelta: readonly Mutation[],
+		humanDelta: AdmittedMutationBatch,
 		clearUndo: boolean,
 	): void {
 		const target = produce(localBase(), (draft) => {
-			applyBatch(draft, [...humanDelta]);
+			applyBatch(draft, humanDelta);
 		});
 		reseedStore(target, clearUndo);
 	}
@@ -1076,7 +1093,7 @@ export function createReconciler(
 	function registerChatBatch(args: {
 		batchId: string;
 		runId: string | undefined;
-		mutations: Mutation[];
+		mutations: AdmittedMutationBatch;
 		seq: number;
 	}): { alreadyConfirmed: boolean } {
 		// The server already committed this batch (the chat commit is

@@ -53,7 +53,7 @@ function resolveUserFacing(dest: PostSubmitDestination): PostSubmitDestination {
 
 /**
  * Dropdown for "After Submit" — what screen the user lands on after the
- * form is submitted. Writes `undefined` when the choice matches the
+ * form is submitted. Writes the JSON-stable clear `null` when the choice matches the
  * form-type default so the doc doesn't carry redundant state (a close
  * form defaults to "parent_module"; a registration form defaults to
  * "app_home", etc.).
@@ -70,7 +70,7 @@ export function AfterSubmitSection({ formUuid }: FormSettingsSectionProps) {
 	const handleSelect = useCallback(
 		(dest: PostSubmitDestination) => {
 			updateForm(asUuid(formUuid), {
-				postSubmit: dest === defaultPostSubmit(formType) ? undefined : dest,
+				postSubmit: dest === defaultPostSubmit(formType) ? null : dest,
 			});
 		},
 		[updateForm, formUuid, formType],

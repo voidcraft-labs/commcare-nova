@@ -85,25 +85,20 @@ export type CaseType = z.infer<typeof caseTypeSchema>;
 export const CONNECT_TYPES = ["learn", "deliver"] as const;
 export type ConnectType = (typeof CONNECT_TYPES)[number];
 
-// z.record() in Zod 4 requires an explicit key schema as the first argument.
-// `uuidSchema` is a transform-free structural string with a compile-time Zod
-// brand. Record keys deliberately remain plain strings because JavaScript
-// object keys lose value-level brands; ordered UUID values use `uuidSchema`
-// below and retain the `Uuid` type.
-export const blueprintDocSchema = z
+const blueprintDocObjectSchema = z
 	.object({
 		appId: z.string(),
 		appName: z.string(),
 		connectType: z.enum(CONNECT_TYPES).nullable(),
 		caseTypes: z.array(caseTypeSchema).nullable(),
 
-		modules: ownRecordSchema(z.string(), moduleSchema),
-		forms: ownRecordSchema(z.string(), formSchema),
-		fields: ownRecordSchema(z.string(), fieldSchema),
+		modules: ownRecordSchema(uuidSchema, moduleSchema),
+		forms: ownRecordSchema(uuidSchema, formSchema),
+		fields: ownRecordSchema(uuidSchema, fieldSchema),
 
 		moduleOrder: z.array(uuidSchema),
-		formOrder: ownRecordSchema(z.string(), z.array(uuidSchema)),
-		fieldOrder: ownRecordSchema(z.string(), z.array(uuidSchema)),
+		formOrder: ownRecordSchema(uuidSchema, z.array(uuidSchema)),
+		fieldOrder: ownRecordSchema(uuidSchema, z.array(uuidSchema)),
 
 		/**
 		 * App-level logo for the web-apps surface. A single image —
@@ -129,16 +124,277 @@ export const blueprintDocSchema = z
 		 * throws on exactly that mismatch, which is the guard the hierarchical
 		 * collections have always relied on.
 		 */
-		userProperties: ownRecordSchema(z.string(), userPropertySchema).optional(),
+		userProperties: ownRecordSchema(uuidSchema, userPropertySchema).optional(),
 		userPropertyOrder: z.array(uuidSchema).optional(),
-		userTypes: ownRecordSchema(z.string(), userTypeSchema).optional(),
+		userTypes: ownRecordSchema(uuidSchema, userTypeSchema).optional(),
 		userTypeOrder: z.array(uuidSchema).optional(),
-		personas: ownRecordSchema(z.string(), personaSchema).optional(),
+		personas: ownRecordSchema(uuidSchema, personaSchema).optional(),
 		personaOrder: z.array(uuidSchema).optional(),
 
 		// fieldParent is NOT persisted — derived from fieldOrder on load.
 	})
 	.strict();
+
+type BlueprintTopologyInput = z.output<typeof blueprintDocObjectSchema>;
+
+export interface BlueprintTopologyIssue {
+	readonly path: readonly (string | number)[];
+	readonly message: string;
+}
+
+function topologyIssue(
+	issues: BlueprintTopologyIssue[],
+	path: readonly (string | number)[],
+	message: string,
+): void {
+	issues.push({ path, message });
+}
+
+/**
+ * The one normalized-document closure proof.
+ *
+ * Records own identity; membership arrays own both parentage and sequence.
+ * This function deliberately reports every deterministic finding in collection
+ * order so the domain parser, commit gate, validator, assembly, and
+ * decomposition cannot disagree about which topology is constructible.
+ */
+export function blueprintTopologyIssues(
+	doc: BlueprintTopologyInput,
+): readonly BlueprintTopologyIssue[] {
+	const issues: BlueprintTopologyIssue[] = [];
+	const globalIdentities = new Map<string, string>();
+	const registerRecord = (
+		recordName: string,
+		record: Readonly<Record<string, { readonly uuid: string }>>,
+	): void => {
+		for (const [key, entity] of Object.entries(record)) {
+			if (key !== entity.uuid) {
+				topologyIssue(
+					issues,
+					[recordName, key, "uuid"],
+					`${recordName} record key ${key} must equal embedded uuid ${entity.uuid}.`,
+				);
+			}
+			const previous = globalIdentities.get(entity.uuid);
+			if (previous !== undefined) {
+				topologyIssue(
+					issues,
+					[recordName, key],
+					`Authored uuid ${entity.uuid} appears in both ${previous} and ${recordName}.`,
+				);
+			} else {
+				globalIdentities.set(entity.uuid, recordName);
+			}
+		}
+	};
+
+	registerRecord("modules", doc.modules);
+	registerRecord("forms", doc.forms);
+	registerRecord("fields", doc.fields);
+	registerRecord("userProperties", doc.userProperties ?? {});
+	registerRecord("userTypes", doc.userTypes ?? {});
+	registerRecord("personas", doc.personas ?? {});
+
+	const exactSequence = (
+		recordName: string,
+		record: Readonly<Record<string, unknown>>,
+		sequenceName: string,
+		sequence: readonly string[],
+	): void => {
+		const seen = new Set<string>();
+		for (const [index, uuid] of sequence.entries()) {
+			if (seen.has(uuid)) {
+				topologyIssue(
+					issues,
+					[sequenceName, index],
+					`${sequenceName} contains duplicate member ${uuid}.`,
+				);
+			}
+			seen.add(uuid);
+			if (!Object.hasOwn(record, uuid)) {
+				topologyIssue(
+					issues,
+					[sequenceName, index],
+					`${sequenceName} member ${uuid} does not exist in ${recordName}.`,
+				);
+			}
+		}
+		for (const uuid of Object.keys(record)) {
+			if (!seen.has(uuid)) {
+				topologyIssue(
+					issues,
+					[recordName, uuid],
+					`${recordName} member ${uuid} is absent from ${sequenceName}.`,
+				);
+			}
+		}
+	};
+
+	exactSequence("modules", doc.modules, "moduleOrder", doc.moduleOrder);
+
+	const expectedFormParents = new Set(Object.keys(doc.modules));
+	for (const parentUuid of Object.keys(doc.formOrder)) {
+		if (!expectedFormParents.has(parentUuid)) {
+			topologyIssue(
+				issues,
+				["formOrder", parentUuid],
+				`formOrder key ${parentUuid} is not a module.`,
+			);
+		}
+	}
+	for (const moduleUuid of expectedFormParents) {
+		if (!Object.hasOwn(doc.formOrder, moduleUuid)) {
+			topologyIssue(
+				issues,
+				["formOrder"],
+				`Module ${moduleUuid} has no formOrder membership array.`,
+			);
+		}
+	}
+	const seenForms = new Map<string, string>();
+	for (const moduleUuid of doc.moduleOrder) {
+		for (const [index, formUuid] of (
+			doc.formOrder[moduleUuid] ?? []
+		).entries()) {
+			const previousParent = seenForms.get(formUuid);
+			if (previousParent !== undefined) {
+				topologyIssue(
+					issues,
+					["formOrder", moduleUuid, index],
+					`Form ${formUuid} appears under both ${previousParent} and ${moduleUuid}.`,
+				);
+			} else {
+				seenForms.set(formUuid, moduleUuid);
+			}
+			if (!Object.hasOwn(doc.forms, formUuid)) {
+				topologyIssue(
+					issues,
+					["formOrder", moduleUuid, index],
+					`formOrder member ${formUuid} does not exist in forms.`,
+				);
+			}
+		}
+	}
+	for (const formUuid of Object.keys(doc.forms)) {
+		if (!seenForms.has(formUuid)) {
+			topologyIssue(
+				issues,
+				["forms", formUuid],
+				`Form ${formUuid} is absent from every formOrder membership array.`,
+			);
+		}
+	}
+
+	const containerUuids = new Set(
+		Object.entries(doc.fields)
+			.filter(([, field]) => field.kind === "group" || field.kind === "repeat")
+			.map(([uuid]) => uuid),
+	);
+	const expectedFieldParents = new Set([
+		...Object.keys(doc.forms),
+		...containerUuids,
+	]);
+	for (const parentUuid of Object.keys(doc.fieldOrder)) {
+		if (!expectedFieldParents.has(parentUuid)) {
+			topologyIssue(
+				issues,
+				["fieldOrder", parentUuid],
+				`fieldOrder key ${parentUuid} is neither a form nor a container field.`,
+			);
+		}
+	}
+	for (const parentUuid of expectedFieldParents) {
+		if (!Object.hasOwn(doc.fieldOrder, parentUuid)) {
+			topologyIssue(
+				issues,
+				["fieldOrder"],
+				`Field parent ${parentUuid} has no fieldOrder membership array.`,
+			);
+		}
+	}
+	const fieldParent = new Map<string, string>();
+	for (const parentUuid of expectedFieldParents) {
+		for (const [index, fieldUuid] of (
+			doc.fieldOrder[parentUuid] ?? []
+		).entries()) {
+			const previousParent = fieldParent.get(fieldUuid);
+			if (previousParent !== undefined) {
+				topologyIssue(
+					issues,
+					["fieldOrder", parentUuid, index],
+					`Field ${fieldUuid} appears under both ${previousParent} and ${parentUuid}.`,
+				);
+			} else {
+				fieldParent.set(fieldUuid, parentUuid);
+			}
+			if (!Object.hasOwn(doc.fields, fieldUuid)) {
+				topologyIssue(
+					issues,
+					["fieldOrder", parentUuid, index],
+					`fieldOrder member ${fieldUuid} does not exist in fields.`,
+				);
+			}
+		}
+	}
+	for (const fieldUuid of Object.keys(doc.fields)) {
+		if (!fieldParent.has(fieldUuid)) {
+			topologyIssue(
+				issues,
+				["fields", fieldUuid],
+				`Field ${fieldUuid} is absent from every fieldOrder membership array.`,
+			);
+		}
+	}
+	for (const fieldUuid of Object.keys(doc.fields)) {
+		const ancestors = new Set<string>([fieldUuid]);
+		let parent = fieldParent.get(fieldUuid);
+		while (parent !== undefined && containerUuids.has(parent)) {
+			if (ancestors.has(parent)) {
+				topologyIssue(
+					issues,
+					["fields", fieldUuid],
+					`Field membership cycle reaches ${parent}.`,
+				);
+				break;
+			}
+			ancestors.add(parent);
+			parent = fieldParent.get(parent);
+		}
+	}
+
+	exactSequence(
+		"userProperties",
+		doc.userProperties ?? {},
+		"userPropertyOrder",
+		doc.userPropertyOrder ?? [],
+	);
+	exactSequence(
+		"userTypes",
+		doc.userTypes ?? {},
+		"userTypeOrder",
+		doc.userTypeOrder ?? [],
+	);
+	exactSequence(
+		"personas",
+		doc.personas ?? {},
+		"personaOrder",
+		doc.personaOrder ?? [],
+	);
+
+	return issues;
+}
+
+export const blueprintDocSchema = blueprintDocObjectSchema.superRefine(
+	(doc, ctx) => {
+		for (const issue of blueprintTopologyIssues(doc)) {
+			ctx.addIssue({
+				code: "custom",
+				path: [...issue.path],
+				message: issue.message,
+			});
+		}
+	},
+);
 
 /**
  * The persisted shape of the blueprint doc.
@@ -175,7 +431,7 @@ export type BlueprintDoc = PersistableDoc & {
 	/** Reverse index: field uuid → parent uuid (form or container). Maintained
 	 *  atomically by every mutation that touches fieldOrder. Rebuilt by
 	 *  rebuildFieldParent() on load. Not persisted. */
-	fieldParent: Record<Uuid, Uuid | null>;
+	fieldParent: Record<Uuid, Uuid>;
 	/**
 	 * The reference + declarations index (`lib/domain/referenceIndex.ts`)
 	 * — derived state, never persisted. Seeded by every apply entry

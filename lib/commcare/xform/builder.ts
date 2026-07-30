@@ -142,9 +142,10 @@ function buildLabelNodes(
 			if (editorRef !== undefined) outputAttribs["vellum:value"] = editorRef;
 			nodes.push(el("output", outputAttribs));
 		} else {
-			// Corrupt/dangling identities are rejected by the validation gate.
-			// Keep the emitter total for diagnostics by rendering their projection
-			// as inert text instead of emitting invalid XPath.
+			// A valid non-expanding external/case reference remains literal text.
+			// UUID-backed identities were resolved by `printProseTemplate` above;
+			// a dangling one throws there, so wire emission cannot serialize a
+			// UUID or repair marker into the form.
 			nodes.push(text(decodeXML(original)));
 		}
 	}

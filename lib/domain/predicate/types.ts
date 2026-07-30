@@ -66,6 +66,10 @@ import { z } from "zod";
 // import back into `blueprint.ts` and break module-load order.
 import { casePropertyDataTypeSchema } from "../casePropertyTypes";
 import { COMMCARE_DATE_PATTERN_REGEX } from "../commCareDatePattern";
+import { externalUserPropertyNameSchema } from "../externalUserProperty";
+
+export { SESSION_USER_FIELD_PATTERN } from "../externalUserProperty";
+
 import {
 	type LookupColumnId,
 	type LookupTableId,
@@ -147,14 +151,6 @@ export const CASE_PROPERTY_PATTERN = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
  */
 export const XML_ELEMENT_NAME_PATTERN = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 
-/**
- * Open worker-data names share the XML-safe leading character above, while
- * HQ's worker-data slug vocabulary also admits hyphens after it. Keep this
- * separate from `XML_ELEMENT_NAME_PATTERN`: search-input names and relation
- * identifiers intentionally retain their narrower authored grammar.
- */
-export const SESSION_USER_FIELD_PATTERN = /^[a-zA-Z_][-a-zA-Z0-9_]*$/;
-
 // ---------- Identifier-field schema helpers ----------
 //
 // Every identifier slot in the AST (case types, properties, search-input
@@ -191,13 +187,6 @@ const xmlElementNameField = (label: string) =>
 			XML_ELEMENT_NAME_PATTERN,
 			`${label} must start with a letter or underscore and contain only letters, digits, or underscores.`,
 		);
-
-const sessionUserField = z
-	.string()
-	.regex(
-		SESSION_USER_FIELD_PATTERN,
-		"Session-user field must start with a letter or underscore and contain only letters, digits, underscores, or hyphens.",
-	);
 
 /**
  * Builder for a Zod string-with-regex schema constrained to CommCare
@@ -563,7 +552,7 @@ export type SessionContextField = (typeof SESSION_CONTEXT_FIELDS)[number];
 export const sessionUserSchema = z
 	.object({
 		kind: z.literal("session-user"),
-		field: sessionUserField,
+		field: externalUserPropertyNameSchema,
 	})
 	.strict();
 export type SessionUserRef = z.infer<typeof sessionUserSchema>;

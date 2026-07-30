@@ -29,11 +29,11 @@ import {
 	FORM_REFERENCE_SLOTS,
 	type Form,
 	fieldReferenceSlotsFor,
-	formExpressionSource,
+	formExpressionValue,
 	type Module,
 	POST_SUBMIT_DESTINATIONS,
 	type ProseTemplate,
-	printXPath,
+	projectXPath,
 	readSlotValues,
 	type Uuid,
 	type XPathExpression,
@@ -547,7 +547,7 @@ function formLinkValidation(
 	for (let lIdx = 0; lIdx < form.formLinks.length; lIdx++) {
 		const link = form.formLinks[lIdx];
 		const conditionText = link.condition
-			? printXPath(link.condition, xpathPrintContext(doc))
+			? projectXPath(link.condition, xpathPrintContext(doc)).text
 			: undefined;
 		const linkLabel = conditionText
 			? `form link ${lIdx + 1} (condition: "${conditionText.slice(0, 40)}${conditionText.length > 40 ? "..." : ""}")`
@@ -759,6 +759,14 @@ function connectValidation(
 	//      parses as an XPath identifier, not a literal value.
 	type ConnectXPath = { label: string; expr: string | undefined };
 	const connectXPaths: ConnectXPath[] = [];
+	const projectConnectXPath = (
+		slot: "assessment_user_score" | "deliver_entity_id" | "deliver_entity_name",
+	): string | undefined => {
+		const expression = formExpressionValue(form, slot);
+		return expression === undefined
+			? undefined
+			: projectXPath(expression, xpathPrintContext(doc)).text;
+	};
 	if (form.connect.assessment) {
 		// `user_score` is optional in the domain — an absent value skips both
 		// checks below (the wire layer substitutes the canonical default),
@@ -766,18 +774,18 @@ function connectValidation(
 		// their printed text through the shared accessor.
 		connectXPaths.push({
 			label: "Connect assessment user_score",
-			expr: formExpressionSource(form, "assessment_user_score", doc),
+			expr: projectConnectXPath("assessment_user_score"),
 		});
 	}
 	if (form.connect.deliver_unit) {
 		connectXPaths.push(
 			{
 				label: "Connect deliver entity_id",
-				expr: formExpressionSource(form, "deliver_entity_id", doc),
+				expr: projectConnectXPath("deliver_entity_id"),
 			},
 			{
 				label: "Connect deliver entity_name",
-				expr: formExpressionSource(form, "deliver_entity_name", doc),
+				expr: projectConnectXPath("deliver_entity_name"),
 			},
 		);
 	}

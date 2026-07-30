@@ -219,13 +219,11 @@ describe("LogWriter default pgSink", () => {
 			),
 		).toEqual([LOOKUP_SOURCE_A, LOOKUP_SOURCE_B, INLINE_SOURCE]);
 
-		/* readEvents performs the production jsonb decode plus
-		 * canonical mutationSchema validation. A skipped clear would make the
-		 * persisted run stream partial, so assert both the count and exact shape. */
+		/* readEvents performs the production jsonb decode plus canonical
+		 * mutationSchema validation and never returns partial history. */
 		const read = await readEvents(APP, "run-lookup-carriers");
-		expect(read.skipped).toBe(0);
-		expect(read.events).toHaveLength(3);
-		const decodedMutations = read.events.map((event) => {
+		expect(read).toHaveLength(3);
+		const decodedMutations = read.map((event) => {
 			if (event.kind !== "mutation") {
 				throw new Error("decoded carrier event is not a mutation");
 			}

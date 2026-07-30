@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
-import type { Mutation } from "@/lib/doc/types";
+import type { PreparedMutationCandidate } from "@/lib/doc/commitVerdicts";
 import type { BlueprintDoc } from "@/lib/domain";
 import { eq, literal, sessionUserProperty } from "@/lib/domain/predicate";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
@@ -25,9 +25,9 @@ import {
 
 function makeCtx() {
 	const recordMutations = vi.fn(
-		async (_mutations: Mutation[], doc: BlueprintDoc) => ({
+		async (prepared: PreparedMutationCandidate) => ({
 			events: [],
-			committedDoc: doc,
+			committedDoc: prepared.nextDoc,
 		}),
 	);
 	const ctx = {

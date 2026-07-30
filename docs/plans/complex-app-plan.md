@@ -152,14 +152,11 @@ condition decides), the form itself for a form — and leaves the URL alone, so
 exiting Preview returns to the condition being edited.
 
 Removing a condition is an explicit `null` on the `updateModule` / `updateForm`
-patch (`lib/doc/displayConditionMutations.ts`), never an omitted key. The
-reducers delete on either spelling, so the distinction bites only where a
-mutation object is itself the durable event — the SSE frame and the persisted
-jsonb are both `JSON.stringify`, which drops an `undefined`-valued key and turns
-a clear into "no change". The builder persists a document diff instead, and
-`diffDocsToMutations` reaches the same `null` independently; the planners keep
-the mutation correct on its own so a durable emitter inherits the right spelling
-rather than rediscovering it.
+patch (`lib/doc/displayConditionMutations.ts`), never an omitted key or
+`undefined`. The canonical mutation admission boundary rejects an own
+`undefined` before reduction; reducers therefore implement only the explicit
+`null` clear spelling that survives JSONB, SSE, replay, and every authoring
+surface unchanged.
 
 `content/docs/display-conditions.mdx` is the user-facing guide.
 
@@ -170,11 +167,13 @@ retypes, and owner assignment — validated by
 `lib/commcare/validator/rules/caseOperations.ts` and emitted by
 `lib/commcare/xform/caseOps.ts`.
 
-Facet legality by action is closed and enforced: `create` requires a new target
-and a name and forbids rename/retype; `update` forbids a new target and a name;
-`close` forbids a new target, name, owner, rename, retype, **and** links — so
-unlinking is always a separate operation from closing, while close may still
-carry final property writes.
+Facet legality by action is closed in the stored action-discriminated schema:
+`create` requires a new target and a name and forbids rename/retype; `update`
+forbids a new target and a name; `close` forbids a new target, name, owner,
+rename, retype, **and** links — so unlinking is always a separate operation from
+closing, while close may still carry final property writes. There is no
+load-tolerant legacy operation arm in the live domain schema; pre-cutover bytes
+are transformed before this schema is installed.
 
 Reserved case types are `commcare-user`, `commcare-case-claim`, and
 `user-owner-mapping-case`. Reserved write properties are
@@ -322,8 +321,13 @@ rebase only the slots changed from their render snapshot onto the
 invocation-time operation; peer-deleted targets and same-key write/link adds
 fail before local state changes. There is one mutation dialect:
 `caseOperationPatch` carries granular edits, while `caseOperationChange`
-contains only add/remove. Moves name the UUID the operation should follow, so
-there is no numeric rank or whole-operation fallback to race with peer inserts.
+contains only add/remove. A scalar update carries the required destination
+`targetAction` exactly once and a patch drawn from that action's legal slots;
+the reducer builds and parses the complete prospective operation before
+installing it, so an action transition cannot leave forbidden facets behind or
+temporarily persist an incomplete destination arm. Moves name the UUID the
+operation should follow, so there is no numeric rank or whole-operation
+fallback to race with peer inserts.
 The authoritative commit guard tracks operation UUIDs and
 write-property/link-identifier sets through the batch, rejecting peer-deleted
 targets and same-key peer adds instead of allowing a total reducer no-op to
@@ -339,12 +343,10 @@ replay/import backstop. Case types separately admit hyphens, so chooser-created
 operation ids normalize each hyphen to an underscore for every create, update,
 and close seed before the first commit.
 
-Lookup-backed predicates and expressions already persisted on a case operation
-remain preserved as their exact canonical AST. `getCaseOperations` and
-`getForm` return that complete ordered shape, including lookup carriers, so
-SA/MCP reads round-trip directly through the full-shape UUID-addressed update
-without a hidden or partial author dialect. Unit 2 adds builder authoring for
-those table terms and filters.
+Lookup-backed predicates and expressions remain their exact canonical AST.
+Unit 18 and Unit 2 reach production together in one final cutover image: the
+existing runtime vocabulary and Unit 2's complete builder, SA, MCP, Preview,
+SQL, and wire behavior have no lookup-removing or read-only interval.
 
 `content/docs/case-changes.mdx` is the user-facing guide.
 
@@ -1352,33 +1354,25 @@ Request and run timings are three independently authored fields in
 
 ## What remains
 
-Fifteen units, one file each. **Every entry below is a pointer, not a summary of
+Fourteen units, one file each. **Every entry below is a pointer, not a summary of
 record** — the contract, the binding CommCare facts, the wire shapes, and the
 observed outcome live only in the linked file, and each entry names what it is
 withholding so you can tell when you need it. Read that file, and
 [`00-contracts.md`](complex-app/00-contracts.md), before you plan or implement.
 
-### 2 — Project data tables workspace
+### 2 — Project data tables workspace, SA, MCP, and docs
 
 [`complex-app/02-project-data-workspace.md`](complex-app/02-project-data-workspace.md)
-· depends on unit 18 · blocks unit 3
+· depends on unit 18 · ships in the same final cutover · blocks nothing
 
 The Project data workspace — schema and row grid, atomic CSV import, revisions,
 conflict handling, permissions — plus the select options-source editor and the
 confirmation UX that lets lookup schema governance leave package-private scope.
-**The file holds** the exclusive `inline`/`lookup` source union and the atomic,
-complete mode replacement that keeps a switch valid by construction.
-
-### 3 — SA, MCP, and docs for conditions and lookups
-
-[`complex-app/03-sa-mcp-and-docs-for-conditions-lookups.md`](complex-app/03-sa-mcp-and-docs-for-conditions-lookups.md)
-· depends on units 2 and 18 · blocks nothing
-
-Expose the shipped condition and lookup vocabulary through both the
-camelCase chat tools and the snake_case MCP projection, with public docs and one
-integrated end-to-end flow. **The file holds** the two pieces of engineering under
-that packaging: canonical identity reuse, null-clears for genuinely optional
-settings, and whole-arm replacement for required select sources.
+It ships the same condition and lookup vocabulary through the builder, SA, and
+MCP, with public docs and an integrated end-to-end flow. **The file holds** the
+exclusive `inline`/`lookup` source union, atomic complete mode replacement,
+row-scope admission, canonical identity reuse, null-clears for genuinely
+optional settings, and the exact three-surface packaging.
 
 ### 4 — Grouped case tiles
 
@@ -1512,7 +1506,7 @@ fields that must never be modeled.
 ### 18 — Canonical identity and expression foundation
 
 [`complex-app/18-canonical-identity-and-expression-foundation.md`](complex-app/18-canonical-identity-and-expression-foundation.md)
-· depends on nothing · blocks units 2, 3, 8, 14
+· depends on nothing · blocks units 2, 8, 14
 
 Make UUID syntax, uploaded-media identity, machine-authored XPath, and
 reference-bearing prose canonical at every storage and editor boundary, collapse
@@ -1535,7 +1529,6 @@ Each unit's prerequisites, matching the "Depends on" line in its file:
 | Unit | Needs |
 | --- | --- |
 | [2 Project data workspace](complex-app/02-project-data-workspace.md) | 18 |
-| [3 SA, MCP, docs](complex-app/03-sa-mcp-and-docs-for-conditions-lookups.md) | 2, 18 |
 | [4 grouped case tiles](complex-app/04-case-tiles.md) | — |
 | [6 save-to-case and attachment link UX](complex-app/06-attachment-emission-and-link-ux.md) | 11 |
 | [8 organization and locations store](complex-app/08-organization-model-and-locations-store.md) | 18 |
@@ -1559,13 +1552,13 @@ units 6, 13, and 16, so anything needing a real HQ target waits on it. The
 navigation chain (18 → 14 → 15) runs independently after the shared foundation
 until unit 16, which needs both.
 
-Units 3, 4, 6, 13, 16, and 17 are leaves — nothing waits on them, so each can land
+Units 2, 4, 6, 13, 16, and 17 are leaves — nothing waits on them, so each can land
 whenever its own prerequisites are met. Grouped case tiles (unit 4) are both an
 entry point and a leaf: nothing blocks them and nothing waits on them, which makes
 them the natural filler whenever the deployment chain is blocked on something
 external. Unit 9 sits off the critical path too — only the App setup UI waits on
 it, so it can follow unit 8 without holding up unit 11. Unit 18 is the shared
-identity and select-source foundation for units 2, 3, 8, and 14.
+identity and select-source foundation for units 2, 8, and 14.
 
 ---
 

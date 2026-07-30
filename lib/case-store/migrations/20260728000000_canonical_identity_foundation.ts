@@ -15,6 +15,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 }
 
 export async function down(): Promise<void> {
-	// Forward-only. Restoring the authoritative quiescent backup is the only
-	// rollback after this transaction commits.
+	throw new Error(
+		"Canonical identity foundation is forward-only; restore the authoritative quiescent backup instead.",
+	);
 }

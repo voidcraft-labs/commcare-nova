@@ -194,7 +194,7 @@ export const generateSchemaTool = {
 			};
 			return {
 				kind: "mutate" as const,
-				mutations,
+				mutations: commit.mutations,
 				newDoc: commit.newDoc,
 				result: {
 					message: `Recorded the data model: ${typeNames.length} case type${typeNames.length === 1 ? "" : "s"} (${typeNames.join(", ")}) with ${propertyCount} properties.${enriched.length > 0 ? ` ${enriched.map((n) => `"${n}"`).join(", ")} existed as a bare declaration and now carries the recorded model.` : ""} createModule now references these by name; fields writing a recorded property inherit its label, options, and validation.`,

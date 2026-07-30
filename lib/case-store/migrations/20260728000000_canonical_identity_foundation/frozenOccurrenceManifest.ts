@@ -440,6 +440,7 @@ export interface FrozenStorageOccurrence {
 		| "operational"
 		| "media"
 		| "lookup"
+		| "fold-baseline"
 		| "sql-authored-identity";
 }
 
@@ -489,6 +490,13 @@ export const FROZEN_STORAGE_OCCURRENCES = [
 		path: "kind|mutations",
 		disposition: "preserve-exact",
 		semantic: "mutation",
+	},
+	{
+		id: "mutation_fold_baselines.snapshot-and-ddl",
+		table: "mutation_fold_baselines",
+		path: "app_id|seq|snapshot|snapshot_digest|created_at",
+		disposition: "DDL",
+		semantic: "fold-baseline",
 	},
 	{
 		id: "events.mutation",
@@ -639,7 +647,6 @@ export const FROZEN_FINAL_MUTATION_KINDS = [
 	"setAppName",
 	"setConnectType",
 	"setAppLogo",
-	"setCaseTypes",
 	"declareCaseType",
 	"retireCaseType",
 	"addCaseProperty",

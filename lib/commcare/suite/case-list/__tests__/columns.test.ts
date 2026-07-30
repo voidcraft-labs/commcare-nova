@@ -27,6 +27,7 @@ import {
 	idMappingColumn,
 	idMappingEntry,
 	intervalColumn,
+	ProseProjectionError,
 	phoneColumn,
 	plainColumn,
 	type Uuid,
@@ -61,6 +62,7 @@ const emptyCtx: CaseListEmitContext = {
 	detailKind: "short",
 	target: "case",
 	caseProperties: [],
+	proseDoc: { fields: {}, forms: {}, fieldOrder: {} },
 };
 
 /** Build a single-entry sort map keyed under a column's uuid. */
@@ -124,6 +126,38 @@ describe("emitColumnField — plain", () => {
 		// Preview's exact-match projection.
 		expect(out.xml).toContain(
 			"if(priority = &apos;routine&apos;, &apos;Routine&apos;, if(priority = &apos;urgent&apos;, &apos;Urgent&apos;, priority))",
+		);
+	});
+
+	it("fails closed when a select label's authored identity is unresolved", () => {
+		const missingPropertyUuid = testUuid("missing-worker-property");
+		const col = plainColumn(COL_UUIDS.a, "priority", "Priority");
+		const ctx: CaseListEmitContext = {
+			...emptyCtx,
+			caseProperties: [
+				{
+					name: "priority",
+					label: proseText("Priority"),
+					data_type: "single_select",
+					options: [
+						{
+							value: "urgent",
+							label: {
+								parts: [
+									{
+										kind: "user-property-ref",
+										userPropertyUuid: missingPropertyUuid,
+									},
+								],
+							},
+						},
+					],
+				},
+			],
+		};
+
+		expect(() => emitColumnField({ column: col, position: 1, ctx })).toThrow(
+			ProseProjectionError,
 		);
 	});
 
@@ -454,6 +488,7 @@ describe("emitColumnField — calculated", () => {
 			detailKind: "short",
 			target: "case",
 			caseProperties: [],
+			proseDoc: emptyCtx.proseDoc,
 			sortByUuid: singleSort(calc.uuid, {
 				kind: "calculated",
 				order: 1,
@@ -505,6 +540,7 @@ describe("emitColumnField — sort integration", () => {
 			detailKind: "short",
 			target: "case",
 			caseProperties: [],
+			proseDoc: emptyCtx.proseDoc,
 			sortByUuid: singleSort(col.uuid, {
 				kind: "property",
 				order: 1,
@@ -534,6 +570,7 @@ describe("emitColumnField — sort integration", () => {
 			detailKind: "short",
 			target: "case",
 			caseProperties: [],
+			proseDoc: emptyCtx.proseDoc,
 			sortByUuid: singleSort(col.uuid, {
 				kind: "property",
 				order: 1,
@@ -558,6 +595,7 @@ describe("emitColumnField — sort integration", () => {
 			detailKind: "short",
 			target: "case",
 			caseProperties: [],
+			proseDoc: emptyCtx.proseDoc,
 			sortByUuid: singleSort(otherUuid, {
 				kind: "property",
 				order: 1,

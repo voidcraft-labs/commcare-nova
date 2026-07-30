@@ -28,7 +28,6 @@ import { useMaterializableCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useDocHasData } from "@/lib/doc/hooks/useDocHasData";
 import { useModule } from "@/lib/doc/hooks/useEntity";
 import { useOrderedForms } from "@/lib/doc/hooks/useModuleIds";
-import type { Uuid } from "@/lib/doc/types";
 import { useBreadcrumbs, useLocation, useNavigate } from "@/lib/routing/hooks";
 import {
 	type PreviewBreadcrumbItem,
@@ -126,7 +125,7 @@ export function BreadcrumbStrip() {
 	const hasLinkedChildren = materializableCaseTypes.some(
 		(candidate) => candidate.parent_type === caseType?.name,
 	);
-	const moduleForms = useOrderedForms((moduleUuid ?? "") as Uuid);
+	const moduleForms = useOrderedForms(moduleUuid);
 
 	const effectiveBreadcrumbs: PreviewBreadcrumbItem[] = useMemo(() => {
 		if (!previewing) return breadcrumbs;

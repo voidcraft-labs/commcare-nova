@@ -151,9 +151,7 @@ function subtreeWritesCaseProperty(
 
 /**
  * Whether `patch` touches `key` — the key is present AND its value differs
- * from the entity's current one. An in-memory clear travels as an explicit
- * `undefined`-valued key (see `lib/doc/CLAUDE.md`), so presence is tested
- * with `Object.hasOwn`, never truthiness.
+ * from the entity's current one.
  */
 function patchTouches(
 	patch: Record<string, unknown>,
@@ -341,13 +339,9 @@ export function scopeOfMutations(
 				}
 				break;
 			}
-			case "renameField":
 			case "convertField": {
 				scopeFieldTarget(prevDoc, acc, mut.uuid);
-				// Renaming a case-bound field renames the case PROPERTY
-				// (peer cascade + catalog rename); converting one changes the
-				// writer's data type. Container renames stay form-local:
-				// descendants keep their ids, so the writer set is untouched.
+				// Converting a case-bound field changes the writer's data type.
 				const field = resolveField(prevDoc, acc, mut.uuid);
 				if (field && casePropertyOn(field) !== undefined) {
 					acc.full = true;
@@ -361,10 +355,8 @@ export function scopeOfMutations(
 				// (case type, property name) while either side of the change
 				// is case-bound: re-targeting `case_property_on` (set, change,
 				// or `null`/empty clear) or renaming `id` on a bound field.
-				// `kind` never changes through a patch — the wire schema
-				// strips the key (the per-kind partial schemas omit it) and
-				// the reducer ignores it for replay-equivalence; `convertField`
-				// is the single kind-change path and maps to full above. So
+				// `kind` never changes through a patch; `convertField` is the
+				// single kind-change path and maps to full above. So
 				// patches that leave the pair alone (labels, expressions,
 				// options) can only flip form-local findings — with ONE
 				// exception below.
@@ -420,10 +412,8 @@ export function scopeOfMutations(
 				// as `moveModule`.
 				break;
 			case "setConnectType":
-			case "setCaseTypes":
-				// App-level state that feeds rules across every entity
-				// (`connectType` gates the per-form Connect rules; the
-				// catalog feeds every case-reference admission set).
+				// App-level state that feeds rules across every entity:
+				// `connectType` gates the per-form Connect rules.
 				acc.full = true;
 				break;
 
@@ -434,8 +424,7 @@ export function scopeOfMutations(
 			case "setCaseProperty":
 			case "removeCaseProperty":
 			case "setCaseTypeMeta":
-				// Catalog edits feed every case-reference admission set
-				// app-wide — the same cross-entity reach as `setCaseTypes`.
+				// Catalog edits feed every case-reference admission set app-wide.
 				acc.full = true;
 				break;
 

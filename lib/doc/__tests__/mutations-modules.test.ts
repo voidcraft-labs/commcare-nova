@@ -128,7 +128,7 @@ describe("moveModule", () => {
 		expect(next.moduleOrder).toEqual([M("B"), M("C"), M("A")]);
 	});
 
-	it("appends when the anchor is gone", () => {
+	it("leaves the sequence unchanged when an unguarded anchor is gone", () => {
 		const start: BlueprintDoc = {
 			...emptyDoc(),
 			modules: {
@@ -139,11 +139,11 @@ describe("moveModule", () => {
 			formOrder: { [M("A")]: [], [M("B")]: [] },
 		};
 		const next = produce(start, (d) => {
-			// A peer removed the anchor before this move replayed. Appending keeps
-			// the reducer total, so historical replay never fails.
+			// Live admission rejects this. The reducer remains total for replay,
+			// but cannot translate the requested placement into append.
 			applyMutation(d, { kind: "moveModule", uuid: M("A"), after: M("gone") });
 		});
-		expect(next.moduleOrder).toEqual([M("B"), M("A")]);
+		expect(next.moduleOrder).toEqual([M("A"), M("B")]);
 	});
 
 	it("is a no-op when the module isn't in moduleOrder", () => {

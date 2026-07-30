@@ -9,9 +9,9 @@
  * store imports from both `mutations/` and `fieldParent`.
  */
 
-import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
+import { asUuid, type BlueprintDoc, type Uuid } from "@/lib/doc/types";
 import {
-	hasOwnRecordKey,
+	blueprintTopologyIssues,
 	type PersistableDoc,
 	recordFromEntries,
 } from "@/lib/domain";
@@ -28,28 +28,27 @@ import { normalizeBlueprintOwnRecords } from "./ownRecords";
  * uuids (for nested fields under group/repeat). Both are recorded in the
  * same `fieldOrder` map, keyed by parent uuid.
  *
- * Orphan guard: any field in `doc.fields` that doesn't appear in any
- * fieldOrder entry gets `null`. In a well-formed doc this never fires,
- * but it's cheap insurance against bugs that would otherwise leave
- * parent lookup undefined.
+ * Closed topology guarantees every field occurs exactly once under a form or
+ * container. Rebuilding refuses an invalid document rather than manufacturing
+ * an orphan sentinel that could survive into UI or persistence.
  */
 export function rebuildFieldParent(doc: BlueprintDoc): void {
-	const fieldParent = recordFromEntries<Uuid | null>([]) as Record<
-		Uuid,
-		Uuid | null
-	>;
+	const topologyIssues = blueprintTopologyIssues(doc);
+	if (topologyIssues.length > 0) {
+		throw new Error(
+			`[rebuildFieldParent] invalid blueprint topology: ${topologyIssues
+				.map((issue) => issue.message)
+				.join(" ")}`,
+		);
+	}
+	const fieldParent = recordFromEntries<Uuid>([]) as Record<Uuid, Uuid>;
 
 	// Every field uuid that appears as a child of some parent gets that
 	// parent recorded.
 	for (const [parentUuid, fieldUuids] of Object.entries(doc.fieldOrder)) {
 		for (const fieldUuid of fieldUuids) {
-			fieldParent[fieldUuid as Uuid] = parentUuid as Uuid;
+			fieldParent[fieldUuid] = asUuid(parentUuid);
 		}
-	}
-
-	// Orphan guard: fields in doc.fields not referenced by any fieldOrder entry.
-	for (const uuid of Object.keys(doc.fields)) {
-		if (!hasOwnRecordKey(fieldParent, uuid)) fieldParent[uuid as Uuid] = null;
 	}
 	doc.fieldParent = fieldParent;
 }
@@ -92,7 +91,7 @@ export function hydratePersistedBlueprint(
 	persisted: PersistableDoc,
 ): BlueprintDoc {
 	const doc = structuredClone(persisted) as unknown as BlueprintDoc;
-	doc.fieldParent = recordFromEntries([]) as Record<Uuid, Uuid | null>;
+	doc.fieldParent = recordFromEntries([]) as Record<Uuid, Uuid>;
 	normalizeBlueprintOwnRecords(doc);
 	rebuildFieldParent(doc);
 	return doc;

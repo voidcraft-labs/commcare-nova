@@ -9,6 +9,7 @@ import {
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import { settleBaseUiTransitions } from "@/__tests__/helpers/baseUiInteractions";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import type {
 	CaseListConfig,
@@ -16,6 +17,7 @@ import type {
 	CaseType,
 	CommitOutcome,
 } from "@/lib/domain";
+import { lookupColumnIdSchema, lookupTableIdSchema } from "@/lib/domain";
 import {
 	ancestorPath,
 	and,
@@ -34,6 +36,7 @@ import {
 	prop,
 	relationStep,
 	term,
+	type ValueExpression,
 } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
 import { loadFilterPreviewAction } from "@/lib/preview/engine/caseDataBinding";
@@ -694,12 +697,27 @@ describe("Results Cases available composer", () => {
 			caseTypes: CASE_TYPES,
 			currentCaseType: "patient",
 			knownInputs: [],
+			operationScope: {
+				creates: [
+					{ uuid: testUuid("earlier-create"), label: "Create a referral" },
+				],
+			},
 		};
 		for (const schema of expressionCardSchemaList) {
-			const value = eq(
-				term(prop("patient", "region")),
-				schema.defaultValue(editContext),
-			);
+			const calculated: ValueExpression =
+				schema.kind === "table-lookup"
+					? {
+							kind: "table-lookup",
+							tableId: lookupTableIdSchema.parse(
+								"018f3e8a-7b2c-7def-8abc-1234567890ab",
+							),
+							resultColumnId: lookupColumnIdSchema.parse(
+								"018f3e8a-7b2c-7def-8abc-1234567890ac",
+							),
+							where: and(),
+						}
+					: schema.defaultValue(editContext);
+			const value = eq(term(prop("patient", "region")), calculated);
 			const view = render(
 				<PredicateWorkbench
 					value={value}

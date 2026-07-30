@@ -174,16 +174,10 @@ function useSelectedCaseOperation():
 	| (SelectedCaseOperationTarget & { readonly title: string })
 	| null {
 	const target = useSelectedCaseOperationTarget();
-	const context = useOperationSentenceContext(
-		target?.formUuid ?? EMPTY_FORM_UUID,
-	);
+	const context = useOperationSentenceContext(target?.formUuid);
 	if (target === null) return null;
 	return {
 		...target,
 		title: operationSentence(target.operation, context).lead,
 	};
 }
-
-/** A form uuid that resolves to nothing, for the hook-order-preserving
- *  call the sentence context makes while no change is selected. */
-const EMPTY_FORM_UUID = "" as Uuid;

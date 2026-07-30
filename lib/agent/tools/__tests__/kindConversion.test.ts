@@ -206,7 +206,7 @@ describe("editField — convert to single_select", () => {
 			doc,
 		);
 		if (!("error" in result.result)) throw new Error("expected error");
-		expect(result.result.error).toContain("target kind's schema");
+		expect(result.result.error).toContain("mutation data was not canonical");
 		expect(recordMutationStages).not.toHaveBeenCalled();
 	});
 });
@@ -645,6 +645,7 @@ describe("editField — demotions", () => {
 				...address(doc, "status"),
 				updates: {
 					kind: "single_select",
+					id: "local_status",
 					optionsSource: toolInlineOptions(
 						["open", "Open"],
 						["closed", "Closed"],
@@ -663,13 +664,148 @@ describe("editField — demotions", () => {
 		const addressed =
 			result.newDoc.fields[registerStatus?.uuid ?? ("" as never)];
 		expect(addressed?.kind).toBe("single_select");
+		expect(addressed?.id).toBe("local_status");
 		expect(
 			(addressed as { case_property_on?: string }).case_property_on,
 		).toBeUndefined();
+		expect(result.mutations).toEqual([
+			expect.objectContaining({
+				kind: "convertField",
+				uuid: registerStatus?.uuid,
+				toKind: "single_select",
+			}),
+			expect.objectContaining({
+				kind: "updateField",
+				uuid: registerStatus?.uuid,
+				targetKind: "single_select",
+				patch: expect.objectContaining({
+					id: "local_status",
+					case_property_on: null,
+				}),
+			}),
+		]);
 		const peer = Object.values(result.newDoc.fields).find(
 			(fld) => fld.id === "status" && fld.uuid !== registerStatus?.uuid,
 		);
 		expect(peer?.kind).toBe("text");
+	});
+
+	it("plans conversion against the final pair when id and case_property_on retarget together", async () => {
+		const doc = buildDoc({
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{ name: "case_name", label: proseText("Patient name") },
+						{
+							name: "risk_score",
+							label: proseText("Risk score"),
+							data_type: "text",
+						},
+					],
+				},
+			],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					forms: [
+						{
+							name: "Register patient",
+							type: "registration",
+							fields: [
+								f({
+									id: "case_name",
+									kind: "text",
+									label: proseText("Patient name"),
+									case_property_on: "patient",
+								}),
+								f({
+									id: "score",
+									kind: "text",
+									label: proseText("Patient score"),
+								}),
+							],
+						},
+						{
+							name: "Follow up",
+							type: "followup",
+							fields: [
+								f({
+									id: "risk_score",
+									kind: "text",
+									label: proseText("Risk score"),
+									case_property_on: "patient",
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const addressed = Object.values(doc.fields).find(
+			(field) =>
+				field.id === "score" &&
+				"label" in field &&
+				field.label !== undefined &&
+				fallbackProseProjection(field.label) === "Patient score",
+		);
+		const targetPeer = Object.values(doc.fields).find(
+			(field) =>
+				field.id === "risk_score" &&
+				"label" in field &&
+				field.label !== undefined &&
+				fallbackProseProjection(field.label) === "Risk score",
+		);
+		if (!addressed || !targetPeer) throw new Error("fixture fields missing");
+		const patientModule = doc.moduleOrder[0];
+		const patientForm = doc.formOrder[patientModule]?.[0];
+		if (!patientForm) throw new Error("fixture patient form missing");
+
+		const { ctx } = makeStubToolContext();
+		const result = await editFieldTool.execute(
+			{
+				moduleUuid: patientModule,
+				formUuid: patientForm,
+				fieldUuid: addressed.uuid,
+				updates: {
+					kind: "single_select",
+					id: "risk_score",
+					case_property_on: "patient",
+					optionsSource: toolInlineOptions(["low", "Low"], ["high", "High"]),
+				},
+			},
+			ctx,
+			doc,
+		);
+		if ("error" in result.result) throw new Error(result.result.error);
+
+		expect(result.newDoc.fields[addressed.uuid]).toMatchObject({
+			id: "risk_score",
+			kind: "single_select",
+			case_property_on: "patient",
+		});
+		// Planning against the call's final pair carries the existing
+		// household writer across too; planning against the abandoned
+		// patient/score pair would leave this peer as text.
+		expect(result.newDoc.fields[targetPeer.uuid]?.kind).toBe("single_select");
+		expect(
+			result.mutations.some(
+				(mutation) =>
+					mutation.kind === "convertField" &&
+					mutation.uuid === targetPeer.uuid &&
+					mutation.toKind === "single_select",
+			),
+		).toBe(true);
+		expect(result.mutations.at(-1)).toEqual({
+			kind: "updateField",
+			uuid: addressed.uuid,
+			targetKind: "single_select",
+			patch: {
+				id: "risk_score",
+				case_property_on: "patient",
+			},
+		});
 	});
 
 	it("escorts the value-reshaping single→multi flip past a declared type", async () => {

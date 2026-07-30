@@ -257,17 +257,15 @@ function renderFormScreen(opts: {
 		formUuid: opts.formUuid,
 		selectedUuid: opts.selectedUuid,
 	};
-	/* The required-form arm registers `FIELD_REQUIRED_UUID`; every
-	 *  other arm registers the non-required `FIELD_UUID`. The active
-	 *  form's `fieldOrder` is the only entry the engine reads on
-	 *  activation, so only the active form's list needs the entry. */
-	const isRequiredForm = opts.formUuid === REQUIRED_FORM_UUID;
-	const activeFieldUuids =
-		opts.formUuid === STRUCTURE_FORM_UUID
-			? [GROUP_ONE_UUID, GROUP_TWO_UUID, REPEAT_UUID]
-			: opts.formUuid === CAPTURE_REQUIRED_FORM_UUID
-				? [REQUIRED_PHOTO_UUID, REQUIRED_SIGNATURE_UUID]
-				: [isRequiredForm ? FIELD_REQUIRED_UUID : FIELD_UUID];
+	/* The ordinary non-required field belongs to the active ordinary form.
+	 * Special fixture forms own their dedicated fields below, so the ordinary
+	 * field remains attached to Registration to keep the whole doc canonical. */
+	const ordinaryFieldFormUuid =
+		opts.formUuid === REQUIRED_FORM_UUID ||
+		opts.formUuid === STRUCTURE_FORM_UUID ||
+		opts.formUuid === CAPTURE_REQUIRED_FORM_UUID
+			? REG_FORM_UUID
+			: opts.formUuid;
 	return render(
 		<BlueprintDocProvider
 			appId={APP_ID}
@@ -281,6 +279,7 @@ function renderFormScreen(opts: {
 						name: "Persona B",
 					},
 				},
+				personaOrder: [PERSONA_UUID],
 				caseTypes: [
 					{
 						name: CASE_TYPE,
@@ -439,7 +438,17 @@ function renderFormScreen(opts: {
 					],
 				},
 				fieldOrder: {
-					[opts.formUuid]: activeFieldUuids,
+					[REG_FORM_UUID]: [],
+					[FOLLOWUP_FORM_UUID]: [],
+					[CLOSE_FORM_UUID]: [],
+					[SURVEY_FORM_UUID]: [],
+					[REQUIRED_FORM_UUID]: [FIELD_REQUIRED_UUID],
+					[STRUCTURE_FORM_UUID]: [GROUP_ONE_UUID, GROUP_TWO_UUID, REPEAT_UUID],
+					[CAPTURE_REQUIRED_FORM_UUID]: [
+						REQUIRED_PHOTO_UUID,
+						REQUIRED_SIGNATURE_UUID,
+					],
+					[ordinaryFieldFormUuid]: [FIELD_UUID],
 					[GROUP_ONE_UUID]: [GROUP_ONE_PHOTO_UUID],
 					[GROUP_TWO_UUID]: [GROUP_TWO_PHOTO_UUID, GROUP_TWO_SIGNATURE_UUID],
 					[REPEAT_UUID]: [REPEAT_PHOTO_UUID],

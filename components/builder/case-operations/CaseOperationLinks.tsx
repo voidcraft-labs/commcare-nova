@@ -43,10 +43,13 @@ import {
 	type CaseOperationLink,
 	RESERVED_CASE_OPERATION_TYPES,
 } from "@/lib/domain";
-import { storageAssignmentConstraint } from "@/lib/domain/predicate";
+import { literal, term, type ValueExpression } from "@/lib/domain/predicate";
 import { useRemovedRowFocus } from "@/lib/ui/hooks/useRemovedRowFocus";
 import { CaseTargetPicker, type TargetChoiceContext } from "./CaseTargetPicker";
-import { RUNTIME_TARGET_OPERATION_SCOPE } from "./editorScope";
+import {
+	caseOperationRuntimeTargetConstraint,
+	RUNTIME_TARGET_OPERATION_SCOPE,
+} from "./editorScope";
 import { nextLinkIdentifier, seedCaseOperationLink } from "./seeds";
 
 /** What a LINK's target picker needs: everything but the two axes the link
@@ -222,6 +225,7 @@ function LinkRow({
 	readonly onRemove: () => void;
 }) {
 	const [rejection, setRejection] = useState<string | undefined>(undefined);
+	const [targetDraft, setTargetDraft] = useState<ValueExpression | undefined>();
 	const taken = useMemo(() => {
 		const others = new Set(siblings);
 		others.delete(link.identifier);
@@ -236,6 +240,8 @@ function LinkRow({
 					precedingOperations,
 					initialSessionCaseType,
 				);
+	const runtimeTargetExpression =
+		link.target?.kind === "expression" ? link.target.expr : targetDraft;
 
 	return (
 		<div className="space-y-3 rounded-xl border border-white/[0.07] bg-nova-deep/30 p-3 @sm:p-4">
@@ -293,22 +299,62 @@ function LinkRow({
 					disabled={!canEdit}
 					context={{ ...targetContext, newOnly: false, allowsNone: true }}
 					choiceVerdict={(target) => linkVerdict(retarget(target))}
-					onChange={(target) => onChange(retarget(target))}
+					onRequestExpression={() => setTargetDraft(term(literal("")))}
+					onChange={(target) => {
+						setTargetDraft(undefined);
+						setRejection(undefined);
+						onChange(retarget(target));
+					}}
 				/>
-				{link.target?.kind === "expression" && (
+				{runtimeTargetExpression !== undefined && (
 					<div className="mt-3 rounded-lg border border-white/[0.06] bg-nova-deep/35 p-3">
-						<p className="mb-2 text-[13px] leading-relaxed text-nova-text-muted">
-							Work out the id of the case at the other end.
-						</p>
+						<div className="mb-2 flex items-start justify-between gap-2">
+							<p className="text-[13px] leading-relaxed text-nova-text-muted">
+								Work out the id of the case at the other end.
+							</p>
+							{link.target?.kind !== "expression" && canEdit && (
+								<Button
+									type="button"
+									variant="ghost"
+									size="xl"
+									onClick={() => {
+										setTargetDraft(undefined);
+										setRejection(undefined);
+									}}
+								>
+									Cancel
+								</Button>
+							)}
+						</div>
 						<ExpressionCardEditor
-							value={link.target.expr}
-							onChange={(expr) =>
-								onChange({
-									...link,
-									target: { kind: "expression", expr },
-								})
-							}
-							constraint={storageAssignmentConstraint(["text"])}
+							value={runtimeTargetExpression}
+							onChange={(expr) => {
+								if (link.target?.kind === "expression") {
+									const candidate = {
+										...link,
+										target: { kind: "expression", expr } as const,
+									};
+									const verdict = linkVerdict(candidate);
+									if (!verdict.ok) {
+										setRejection(verdict.reason);
+										return;
+									}
+									setRejection(undefined);
+									onChange(candidate);
+									return;
+								}
+								setTargetDraft(expr);
+								const candidate = retarget({ kind: "expression", expr });
+								const verdict = linkVerdict(candidate);
+								if (!verdict.ok) {
+									setRejection(verdict.reason);
+									return;
+								}
+								setRejection(undefined);
+								onChange(candidate);
+								setTargetDraft(undefined);
+							}}
+							constraint={caseOperationRuntimeTargetConstraint()}
 							{...editorScope}
 							operationScope={RUNTIME_TARGET_OPERATION_SCOPE}
 						/>

@@ -141,7 +141,7 @@ steps:
           --command=node \
           --args=migrate.cjs \
           --tasks=1 --parallelism=1 \
-          --max-retries=1 \
+          --max-retries=0 \
           --task-timeout=1020
         gcloud run jobs execute commcare-nova-migrate --region=us-central1 --wait
 

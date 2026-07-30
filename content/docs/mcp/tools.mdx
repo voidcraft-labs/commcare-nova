@@ -178,12 +178,10 @@ the complete list is checked and saved atomically.
 
 Operation ids and link identifiers contain letters, numbers, and underscores
 and start with a letter or underscore. Write-property names use the same
-characters and start with a letter. An operation that already contains
-lookup-table logic is preserved in its exact list position and remains movable
-by id. Its read shape keeps `id`, `action`, and `caseType`, adds
-`unavailable.kind: "lookup-table-logic"` plus an explanation, and withholds the
-lookup AST. A full-shape update is refused rather than dropping logic the author
-projection cannot represent.
+characters and start with a letter. These are readable, editable values rather
+than object addresses: reads return the complete canonical Predicate and
+ValueExpression ASTs, including lookup-table terms, and subsequent calls keep
+targeting the operation by `operationUuid`.
 
 | Tool | What it does |
 |---|---|

@@ -27,7 +27,7 @@ import {
 	formExpressionSource,
 	formExpressionValue,
 	type ProseTemplate,
-	printXPath,
+	projectXPath,
 	reachableCaseTypes,
 	toReachableIndex,
 	type Uuid,
@@ -216,6 +216,17 @@ function canonicalXPathError(
 			message: "This expression is not stored as Nova's canonical XPath AST.",
 		};
 	}
+	const projection = projectXPath(expr, xpathPrintContext(doc));
+	if (!projection.ok) {
+		const danglingField = projection.unresolved.some(
+			(part) => part.kind === "field-ref" || part.kind === "path-ref",
+		);
+		return {
+			code: "INVALID_REF",
+			message: "An identity-backed reference no longer resolves in this app.",
+			...(danglingField && { storedRef: "dangling-identity" as const }),
+		};
+	}
 	const userProperties = Object.values(doc.userProperties ?? {});
 	const parsed = parseXPathExpressionWithIssues(
 		text,
@@ -275,7 +286,7 @@ function canonicalXPathError(
 	}
 	if (
 		JSON.stringify(parsed.expression) !== JSON.stringify(expr) ||
-		printXPath(parsed.expression, xpathPrintContext(doc)) !== text
+		projectXPath(parsed.expression, xpathPrintContext(doc)).text !== text
 	) {
 		return {
 			code: "INVALID_REF",
@@ -461,9 +472,12 @@ export function validateBlueprintDeep(
 			// not a prose label.
 			if (connect) {
 				for (const slot of CONNECT_XPATH_SLOT_IDS) {
-					const text = formExpressionSource(form, slot, doc);
-					if (!text) continue;
 					const expr = formExpressionValue(form, slot);
+					const text =
+						expr === undefined
+							? formExpressionSource(form, slot, doc)
+							: projectXPath(expr, xpathPrintContext(doc)).text;
+					if (!text) continue;
 					const canonicalError = canonicalXPathError(
 						doc,
 						formUuid,
@@ -691,7 +705,20 @@ function validateTreeProse(
 					}
 					break;
 				case "user-ref":
-					// The schema closes this arm over external runtime names.
+					if (
+						Object.values(doc.userProperties ?? {}).some(
+							(property) =>
+								property?.slug.toLowerCase() === part.property.toLowerCase(),
+						)
+					) {
+						error = {
+							code: "INVALID_REF",
+							message:
+								"This worker information name belongs to the app and must use its stable identity-backed reference.",
+							position: partIndex,
+							ref: `#user/${part.property}`,
+						};
+					}
 					break;
 				default: {
 					const _exhaustive: never = part;

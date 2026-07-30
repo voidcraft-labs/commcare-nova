@@ -273,12 +273,14 @@ export function applyModuleMutation(
 			// slots so a clear survives JSON over the SSE wire — a generic
 			// `updateModule` patch would encode the clear as `{ key: undefined }`,
 			// which `JSON.stringify` drops, leaving the stale ref on the client.
-			// Each `null` maps to `undefined` here so the cleared slot drops off
-			// the module (both slots are `.optional()`, never a stored `null`).
+			// A `null` clear deletes the optional property; canonical documents
+			// never retain own `undefined` values.
 			const mod = draft.modules[mut.uuid];
 			if (!mod) return;
-			mod.icon = mut.icon ?? undefined;
-			mod.audioLabel = mut.audioLabel ?? undefined;
+			if (mut.icon === null) delete mod.icon;
+			else mod.icon = mut.icon;
+			if (mut.audioLabel === null) delete mod.audioLabel;
+			else mod.audioLabel = mut.audioLabel;
 			return;
 		}
 		case "addColumn": {

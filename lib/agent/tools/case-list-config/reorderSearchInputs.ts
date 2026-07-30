@@ -107,7 +107,7 @@ export const reorderSearchInputsTool = {
 
 			return {
 				kind: "mutate" as const,
-				mutations: result.mutations,
+				mutations: commit.mutations,
 				newDoc,
 				result: {
 					message: `Reordered ${searchInputUuids.length} search input${searchInputUuids.length === 1 ? "" : "s"} on module "${mod.name}".`,

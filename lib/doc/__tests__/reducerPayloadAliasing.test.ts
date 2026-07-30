@@ -6,11 +6,11 @@
  * `commitGuardedBatch` applies the SAME batch again onto the freshly loaded
  * document — so every server-side save runs the reducers over one batch twice.
  *
- * Both runs go through Immer's `produce`, which FREEZES what it returns. So a
- * reducer that splices its mutation's payload object straight into the draft
- * makes that payload part of a frozen state; the second run's in-place edit of
- * the same object then throws `Cannot assign to read only property`, and the
- * save 500s. The rule is simply: a reducer clones what it stores.
+ * Both runs go through Immer's `produce`, which FREEZES what it returns.
+ * `applyMutations` therefore detaches its admitted command before any reducer
+ * sees it. A reducer can never splice the protected command object itself into
+ * state, and the candidate never retains admission's non-enumerable
+ * serialization protectors.
  *
  * The batches below are the shapes that reach the server: the builder persists
  * the commands it dispatched, so an add and a later edit of the same thing land
@@ -21,6 +21,7 @@ import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import { literal, term } from "@/lib/domain/predicate";
@@ -84,6 +85,33 @@ function applyTwice(batch: Mutation[]): BlueprintDoc {
 }
 
 describe("a batch applies twice", () => {
+	it("never aliases an admitted payload into the candidate document", () => {
+		const admitted = admitMutationBatch([
+			{
+				kind: "addField",
+				parentUuid: FORM,
+				field: {
+					uuid: FIELD,
+					kind: "text",
+					id: "notes",
+					label: proseText("Notes"),
+				},
+			},
+		]);
+		const next = produce(base(), (draft) => {
+			applyMutations(draft, admitted);
+		});
+		const commandField = (
+			admitted[0] as Extract<Mutation, { kind: "addField" }>
+		).field;
+		const candidateField = next.fields[FIELD];
+
+		expect(candidateField).toEqual(commandField);
+		expect(candidateField).not.toBe(commandField);
+		expect(Object.hasOwn(candidateField, "toJSON")).toBe(false);
+		expect(Object.hasOwn(commandField, "toJSON")).toBe(true);
+	});
+
 	it("adds a case-operation link and then edits it", () => {
 		const doc = applyTwice([
 			{
@@ -114,7 +142,7 @@ describe("a batch applies twice", () => {
 						target: null,
 						relationship: "child",
 					},
-					index: 0,
+					after: null,
 				},
 			},
 			{
@@ -159,7 +187,7 @@ describe("a batch applies twice", () => {
 					operation: "add-write",
 					uuid: OPERATION,
 					value: write,
-					index: 0,
+					after: null,
 				},
 			},
 			{

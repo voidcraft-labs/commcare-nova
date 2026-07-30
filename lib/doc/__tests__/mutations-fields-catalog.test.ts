@@ -216,7 +216,7 @@ describe("updateField catalog sync", () => {
 		]);
 	});
 
-	it("appends the new pair when a patch changes the field id, without pruning the old one", () => {
+	it("moves the catalog entry when an id patch preserves case_property_on", () => {
 		const start = produce(
 			docWithForms([
 				{
@@ -240,8 +240,7 @@ describe("updateField catalog sync", () => {
 			patch: { id: "years" },
 		});
 		expect(catalogProps(next, "patient")).toEqual([
-			{ name: "age", label: proseText("age"), data_type: "text" },
-			{ name: "years", label: proseText("years"), data_type: "text" },
+			{ name: "years", label: proseText("age"), data_type: "text" },
 		]);
 	});
 });
@@ -406,8 +405,8 @@ describe("removeField — catalog is never pruned", () => {
 	});
 });
 
-describe("renameField interplay", () => {
-	it("the rename cascade moves the synced entry instead of duplicating it", () => {
+describe("updateField id patch interplay", () => {
+	it("the same-binding id cascade moves the synced entry instead of duplicating it", () => {
 		// "patient" declared up front so the writer's catalog sync appends "age".
 		const start = docWithForms([{ name: "patient", properties: [] }]);
 		const next = apply(
@@ -416,7 +415,12 @@ describe("renameField interplay", () => {
 				F("1"),
 				field_(Q("a"), "age", { kind: "int", case_property_on: "patient" }),
 			),
-			{ kind: "renameField", uuid: Q("a"), newId: "years" },
+			{
+				kind: "updateField",
+				uuid: Q("a"),
+				targetKind: "int",
+				patch: { id: "years" },
+			},
 		);
 		expect(catalogProps(next, "patient")).toEqual([
 			{ name: "years", label: proseText("age"), data_type: "int" },
@@ -447,7 +451,12 @@ describe("renameField interplay", () => {
 				F("1"),
 				field_(Q("a"), "age", { kind: "int", case_property_on: "patient" }),
 			),
-			{ kind: "renameField", uuid: Q("a"), newId: "name" },
+			{
+				kind: "updateField",
+				uuid: Q("a"),
+				targetKind: "int",
+				patch: { id: "name" },
+			},
 		);
 		expect(catalogProps(next, "patient")).toEqual([
 			{ name: "name", label: proseText("Name"), data_type: "text" },
@@ -455,11 +464,11 @@ describe("renameField interplay", () => {
 	});
 });
 
-describe("acceptance — a writer-introduced property validates without setCaseTypes", () => {
+describe("acceptance — a writer-introduced property validates through granular catalog edits", () => {
 	/**
 	 * A followup form references `#patient/age` while `age` only exists as
 	 * a field writer (`case_property_on: "patient"`) added AFTER the doc
-	 * was scaffolded — no `setCaseTypes` ever runs. The deep validator
+	 * was scaffolded — no whole-catalog replacement exists. The deep validator
 	 * reads the catalog (`reachableCaseTypes` over `doc.caseTypes`), so
 	 * pre-sync the ref is rejected as INVALID_CASE_REF; the reducer-side
 	 * catalog sync makes it validate clean.
@@ -470,7 +479,7 @@ describe("acceptance — a writer-introduced property validates without setCaseT
 			// auto-creates the type, so the writer's catalog sync appends "age" to
 			// THIS existing type. Pre-sync the ref `#patient/age` is still invalid
 			// (the property is absent); landing the writer makes it resolve, all
-			// without a `setCaseTypes`.
+			// through the granular property declaration.
 			caseTypes: [{ name: "patient", properties: [] }],
 			modules: [
 				{

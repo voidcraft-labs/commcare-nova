@@ -82,143 +82,79 @@ export function blueprintScalars(doc: PersistableDoc): BlueprintScalars {
  * Decompose a persistable doc into its entity rows. Parentage comes from the
  * membership arrays (`formOrder` keyed by module, `fieldOrder` keyed by form
  * or container field); `ordinal` is the array index, so the arrays round-trip
- * exactly. A field present in `fields` but in no `fieldOrder` array (the
- * orphan the parent rebuild guards) persists with a null parent and rides
- * only the record map on assembly.
+ * exactly. The domain parser closes topology before row construction: every
+ * entity is present exactly once in its owning sequence, every parent is the
+ * expected kind, and no orphan row can be constructed.
  */
 export function decomposeBlueprint(doc: PersistableDoc): EntityRow[] {
-	/*
-	 * The database primary key is `(app_id, uuid)` across EVERY entity kind.
-	 * Refuse identity collisions using each entity's own UUID before deriving
-	 * rows from record keys; otherwise a malformed record keyed under an alias
-	 * could evade the row-key duplicate check and persist an entity whose
-	 * durable identity disagrees with its JSON body.
-	 */
-	const entityIdentity = new Map<string, EntityRowKind>();
-	const assertIdentity = (
-		kind: EntityRowKind,
-		recordKey: string,
-		entityUuid: string,
-	): void => {
-		const previousKind = entityIdentity.get(entityUuid);
-		if (previousKind !== undefined) {
-			throw new Error(
-				`[decomposeBlueprint] duplicate entity uuid ${entityUuid} appears as both ${previousKind} and ${kind}; refusing to collapse two entities into one durable row.`,
-			);
-		}
-		if (recordKey !== entityUuid) {
-			throw new Error(
-				`[decomposeBlueprint] ${kind} record key ${recordKey} disagrees with entity uuid ${entityUuid}; refusing to persist an aliased identity.`,
-			);
-		}
-		entityIdentity.set(entityUuid, kind);
-	};
-	for (const [uuid, module] of Object.entries(doc.modules)) {
-		assertIdentity("module", uuid, module.uuid);
-	}
-	for (const [uuid, form] of Object.entries(doc.forms)) {
-		assertIdentity("form", uuid, form.uuid);
-	}
-	for (const [uuid, field] of Object.entries(doc.fields)) {
-		assertIdentity("field", uuid, field.uuid);
-	}
-	for (const [kind, slot] of FLAT_COLLECTIONS) {
-		for (const [uuid, entity] of Object.entries(doc[slot] ?? {})) {
-			assertIdentity(kind, uuid, entity.uuid);
-		}
-	}
-
+	const canonicalDoc = blueprintDocSchema.parse(doc);
 	const rows: EntityRow[] = [];
-	const placedModules = new Set<string>(doc.moduleOrder);
-	const placedForms = new Set<string>(Object.values(doc.formOrder).flat());
-	for (const uuid of Object.keys(doc.modules)) {
-		if (!placedModules.has(uuid)) {
+	canonicalDoc.moduleOrder.forEach((uuid, i) => {
+		const mod = ownRecordValue(canonicalDoc.modules, uuid);
+		if (mod === undefined) {
 			throw new Error(
-				`[decomposeBlueprint] module ${uuid} is in \`modules\` but absent from \`moduleOrder\` — refusing to persist a doc that would lose it.`,
+				`[decomposeBlueprint] validated module ${uuid} is unavailable.`,
 			);
 		}
-	}
-	for (const uuid of Object.keys(doc.forms)) {
-		if (!placedForms.has(uuid)) {
-			throw new Error(
-				`[decomposeBlueprint] form ${uuid} is in \`forms\` but absent from every \`formOrder\` — refusing to persist a doc that would lose it.`,
-			);
-		}
-	}
-	doc.moduleOrder.forEach((uuid, i) => {
-		const mod = ownRecordValue(doc.modules, uuid);
-		if (mod) {
-			rows.push({
-				uuid,
-				kind: "module",
-				parent_uuid: null,
-				ordinal: i,
-				data: mod as unknown as Record<string, unknown>,
-			});
-		}
+		rows.push({
+			uuid,
+			kind: "module",
+			parent_uuid: null,
+			ordinal: i,
+			data: mod as unknown as Record<string, unknown>,
+		});
 	});
-	for (const [moduleUuid, formUuids] of Object.entries(doc.formOrder)) {
+	for (const [moduleUuid, formUuids] of Object.entries(
+		canonicalDoc.formOrder,
+	)) {
 		formUuids.forEach((uuid, i) => {
-			const form = ownRecordValue(doc.forms, uuid);
-			if (form) {
-				rows.push({
-					uuid,
-					kind: "form",
-					parent_uuid: asUuid(moduleUuid),
-					ordinal: i,
-					data: form as unknown as Record<string, unknown>,
-				});
-			}
-		});
-	}
-	const placedFields = new Set<string>();
-	for (const [parentUuid, fieldUuids] of Object.entries(doc.fieldOrder)) {
-		fieldUuids.forEach((uuid, i) => {
-			const field = ownRecordValue(doc.fields, uuid);
-			if (field) {
-				placedFields.add(uuid);
-				rows.push({
-					uuid,
-					kind: "field",
-					parent_uuid: asUuid(parentUuid),
-					ordinal: i,
-					data: field as unknown as Record<string, unknown>,
-				});
-			}
-		});
-	}
-	// Orphans — in the record map but in no membership array.
-	for (const [uuid, field] of Object.entries(doc.fields)) {
-		if (!placedFields.has(uuid)) {
-			rows.push({
-				uuid: field.uuid,
-				kind: "field",
-				parent_uuid: null,
-				ordinal: 0,
-				data: field as unknown as Record<string, unknown>,
-			});
-		}
-	}
-	for (const [kind, slot, orderSlot] of FLAT_COLLECTIONS) {
-		const record = doc[slot] ?? {};
-		const sequence = doc[orderSlot] ?? [];
-		// The same guard the hierarchical collections carry: an entity the
-		// membership array does not name has no position, and persisting it would
-		// silently drop it from the sequence on the way back in.
-		const placed = new Set<string>(sequence);
-		for (const uuid of Object.keys(record)) {
-			if (!placed.has(uuid)) {
+			const form = ownRecordValue(canonicalDoc.forms, uuid);
+			if (form === undefined) {
 				throw new Error(
-					`[decomposeBlueprint] ${kind} ${uuid} is in \`${slot}\` but absent from \`${orderSlot}\` — refusing to persist a doc that would lose its place.`,
+					`[decomposeBlueprint] validated form ${uuid} is unavailable.`,
 				);
 			}
-		}
+			rows.push({
+				uuid,
+				kind: "form",
+				parent_uuid: asUuid(moduleUuid),
+				ordinal: i,
+				data: form as unknown as Record<string, unknown>,
+			});
+		});
+	}
+	for (const [parentUuid, fieldUuids] of Object.entries(
+		canonicalDoc.fieldOrder,
+	)) {
+		fieldUuids.forEach((uuid, i) => {
+			const field = ownRecordValue(canonicalDoc.fields, uuid);
+			if (field === undefined) {
+				throw new Error(
+					`[decomposeBlueprint] validated field ${uuid} is unavailable.`,
+				);
+			}
+			rows.push({
+				uuid,
+				kind: "field",
+				parent_uuid: asUuid(parentUuid),
+				ordinal: i,
+				data: field as unknown as Record<string, unknown>,
+			});
+		});
+	}
+	for (const [kind, slot, orderSlot] of FLAT_COLLECTIONS) {
+		const record = canonicalDoc[slot] ?? {};
+		const sequence = canonicalDoc[orderSlot] ?? [];
 		sequence.forEach((uuid, ordinal) => {
 			const entity = ownRecordValue(
 				record as Readonly<Record<string, unknown>>,
 				uuid,
 			);
-			if (entity === undefined) return;
+			if (entity === undefined) {
+				throw new Error(
+					`[decomposeBlueprint] validated ${kind} ${uuid} is unavailable.`,
+				);
+			}
 			rows.push({
 				uuid,
 				kind,
@@ -302,13 +238,17 @@ export function assembleBlueprint(
 				list.push(row);
 				formsByModule.set(row.parent_uuid, list);
 			}
-		} else {
+		} else if (row.kind === "field") {
 			fields = recordWithValue<unknown>(fields, row.uuid, row.data);
 			if (row.parent_uuid !== null) {
 				const list = fieldsByParent.get(row.parent_uuid) ?? [];
 				list.push(row);
 				fieldsByParent.set(row.parent_uuid, list);
 			}
+		} else {
+			throw new Error(
+				`[assembleBlueprint] unsupported entity row kind ${String(row.kind)}.`,
+			);
 		}
 	}
 

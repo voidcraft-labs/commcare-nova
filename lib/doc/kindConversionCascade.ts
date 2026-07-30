@@ -197,10 +197,10 @@ export function planKindConversion(args: {
 		(uuid) => uuid !== field.uuid,
 	);
 	const declarers = declarerUuids
-		.map((uuid) => doc.fields[uuid as Uuid])
+		.map((uuid) => doc.fields[asUuid(uuid)])
 		.filter((f): f is Field => f !== undefined);
 	const operationBlocker = declarerUuids
-		.map((uuid) => doc.forms[uuid as Uuid])
+		.map((uuid) => doc.forms[asUuid(uuid)])
 		.filter((form) => form !== undefined)
 		.flatMap((form) => form.caseOperations ?? [])
 		.find(

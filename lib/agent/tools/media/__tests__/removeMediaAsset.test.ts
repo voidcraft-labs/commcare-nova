@@ -15,7 +15,10 @@ import type { ListAppsResult } from "@/lib/db/apps";
 import { RunHolderLostError } from "@/lib/db/commitGuard";
 import type { MediaAssetRecord } from "@/lib/db/mediaAssets";
 import type { BlueprintDoc } from "@/lib/domain";
-import { removeMediaAssetTool } from "../removeMediaAsset";
+import {
+	removeMediaAssetInputSchema,
+	removeMediaAssetTool,
+} from "../removeMediaAsset";
 import { makeMediaFixture, TEXT_FIELD } from "./fixtures";
 
 // `vi.hoisted` lifts the mock fns above the hoisted `vi.mock` factories so
@@ -124,6 +127,10 @@ function docReferencing(assetId: string, base: BlueprintDoc): BlueprintDoc {
 	};
 }
 
+function removeInput(assetId: string) {
+	return removeMediaAssetInputSchema.parse({ assetId });
+}
+
 describe("removeMediaAsset", () => {
 	it("deletes the GCS object and the row when unreferenced", async () => {
 		const { doc, ctx } = makeMediaFixture();
@@ -132,7 +139,7 @@ describe("removeMediaAsset", () => {
 		);
 
 		const result = await removeMediaAssetTool.execute(
-			{ assetId: "40000000-0000-4000-8000-000000000001" },
+			removeInput("40000000-0000-4000-8000-000000000001"),
 			ctx,
 			doc,
 		);
@@ -166,7 +173,7 @@ describe("removeMediaAsset", () => {
 		hasOtherAssetForGcsObjectKey.mockResolvedValue(true);
 
 		const result = await removeMediaAssetTool.execute(
-			{ assetId: "40000000-0000-4000-8000-000000000002" },
+			removeInput("40000000-0000-4000-8000-000000000002"),
 			ctx,
 			doc,
 		);
@@ -196,7 +203,7 @@ describe("removeMediaAsset", () => {
 		);
 
 		const result = await removeMediaAssetTool.execute(
-			{ assetId: "40000000-0000-4000-8000-000000000003" },
+			removeInput("40000000-0000-4000-8000-000000000003"),
 			{ ...ctx, chatRunHolder },
 			doc,
 		);
@@ -226,7 +233,7 @@ describe("removeMediaAsset", () => {
 
 		await expect(
 			removeMediaAssetTool.execute(
-				{ assetId: "40000000-0000-4000-8000-000000000004" },
+				removeInput("40000000-0000-4000-8000-000000000004"),
 				{
 					...ctx,
 					chatRunHolder: {
@@ -251,7 +258,7 @@ describe("removeMediaAsset", () => {
 		const doc = docReferencing("40000000-0000-4000-8000-000000000005", baseDoc);
 
 		const result = await removeMediaAssetTool.execute(
-			{ assetId: "40000000-0000-4000-8000-000000000005" },
+			removeInput("40000000-0000-4000-8000-000000000005"),
 			ctx,
 			doc,
 		);
@@ -283,7 +290,7 @@ describe("removeMediaAsset", () => {
 		});
 
 		const result = await removeMediaAssetTool.execute(
-			{ assetId: "40000000-0000-4000-8000-000000000006" },
+			removeInput("40000000-0000-4000-8000-000000000006"),
 			ctx,
 			doc,
 		);
@@ -310,7 +317,7 @@ describe("removeMediaAsset", () => {
 		});
 
 		const result = await removeMediaAssetTool.execute(
-			{ assetId: "40000000-0000-4000-8000-000000000007" },
+			removeInput("40000000-0000-4000-8000-000000000007"),
 			ctx,
 			doc,
 		);
@@ -326,7 +333,7 @@ describe("removeMediaAsset", () => {
 		loadAssetById.mockResolvedValue(null);
 
 		const result = await removeMediaAssetTool.execute(
-			{ assetId: "40000000-0000-4000-8000-000000000008" },
+			removeInput("40000000-0000-4000-8000-000000000008"),
 			ctx,
 			doc,
 		);
@@ -348,7 +355,7 @@ describe("removeMediaAsset", () => {
 		});
 
 		const result = await removeMediaAssetTool.execute(
-			{ assetId: "40000000-0000-4000-8000-000000000009" },
+			removeInput("40000000-0000-4000-8000-000000000009"),
 			ctx,
 			doc,
 		);

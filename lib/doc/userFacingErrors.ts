@@ -125,6 +125,14 @@ const USER_MESSAGE_BY_CODE: Partial<
 		"You've turned Connect on for the app, but no form is using it yet. Set up Connect on at least one form, or turn it off for the app.",
 	BLUEPRINT_ENTITY_UUID_DUPLICATE: () =>
 		"Two parts of this app share the same internal identity. Retry the change so Nova can keep them distinct.",
+	BLUEPRINT_TOPOLOGY_INVALID: () =>
+		"Part of this app is no longer attached where it belongs. Reload the app and try the change again.",
+	MUTATION_IDENTITY_COLLISION: () =>
+		"That change tried to reuse one part of the app as another. Retry the change so Nova can keep them distinct.",
+	MUTATION_SEQUENCE_ANCHOR_INVALID: () =>
+		"That change was placed next to something that has moved or disappeared. Reload the app and try again.",
+	MUTATION_WIRE_CANONICALITY_INVALID: () =>
+		"That change was not represented exactly enough to save safely. Retry it so Nova can preserve every value as authored.",
 	CASE_PROPERTY_REFERENCE_INVALID: (e) =>
 		`${q(det(e, "caseType", "A case type"))}.${det(e, "property", "property")}'s ${det(e, "slot", "default")} setting contains a reference that isn't available there. Replace it with case, worker, or fixed information that exists in every form using this property.`,
 

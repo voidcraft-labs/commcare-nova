@@ -27,7 +27,7 @@ const NO_FIELDS: BlueprintDoc["fields"] = {};
  * than rendering the uuid.
  */
 export function useOperationSentenceContext(
-	formUuid: Uuid,
+	formUuid: Uuid | undefined,
 ): OperationSentenceContext {
 	/* The label lookup is over a uuid the caller supplies, so it genuinely
 	 * needs the whole record — but only once a form resolves. A caller that
@@ -35,7 +35,7 @@ export function useOperationSentenceContext(
 	 * selected) would otherwise subscribe every builder screen to every field
 	 * in the app, and re-render the layout on each keystroke in any label. */
 	const { form, fields } = useBlueprintDocShallow((state) => {
-		const form = state.forms[formUuid];
+		const form = formUuid === undefined ? undefined : state.forms[formUuid];
 		return { form, fields: form === undefined ? NO_FIELDS : state.fields };
 	});
 

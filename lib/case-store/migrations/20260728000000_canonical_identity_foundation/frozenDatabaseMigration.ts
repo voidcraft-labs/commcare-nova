@@ -9,6 +9,11 @@
 
 import { type Kysely, sql } from "kysely";
 import {
+	captureFrozenStorageSnapshot,
+	compareFrozenStorageOccurrences,
+	dispatchFrozenStorageOccurrences,
+} from "./frozenOccurrenceDispatcher";
+import {
 	FROZEN_ENTITY_OCCURRENCES,
 	FROZEN_OCCURRENCE_TABLES,
 } from "./frozenOccurrenceManifest";
@@ -91,10 +96,242 @@ interface FrozenMigrationReport {
 	readonly rewriteBytes: number;
 	readonly beforeDigest: string;
 	readonly afterDigest: string;
+	readonly occurrenceSourceDigest: string;
+	readonly occurrenceResultDigest: string;
+	readonly occurrencePlanDigest: string;
 }
+
+export interface FrozenAppliedSuffixRow {
+	readonly seq: string;
+	readonly batch_id: string;
+	readonly actor_id: string;
+	readonly kind: string;
+	readonly mutations: unknown;
+}
+
+export interface FrozenAppliedSuffixReplayInput {
+	readonly baselineSnapshot: unknown;
+	readonly baselineSeq: string;
+	readonly expectedHeadSeq: string | number;
+	readonly suffix: readonly FrozenAppliedSuffixRow[];
+}
+
+export type FrozenAppliedSuffixReplayer = (
+	input: FrozenAppliedSuffixReplayInput,
+) => { readonly snapshot: unknown };
+
+export type FrozenMigrationFailureStage = "carriers" | "horizon" | "ddl";
+
+export interface FrozenMigrationOptions {
+	/**
+	 * The one steady-state mutation fold authority. Required only when a direct
+	 * already-applied audit finds accepted rows after the immutable baseline.
+	 * The first-run legacy migration never calls it.
+	 */
+	readonly replayAppliedSuffix?: FrozenAppliedSuffixReplayer;
+	/**
+	 * Deterministic transaction-atomicity proof hook. Production callers omit
+	 * it; integration tests exercise a real late throw after each write stage.
+	 */
+	readonly failAfterStage?: FrozenMigrationFailureStage;
+}
+
+function injectReviewedFailure(
+	options: FrozenMigrationOptions,
+	stage: FrozenMigrationFailureStage,
+): void {
+	if (options.failAfterStage === stage) {
+		throw new Error(
+			`Injected canonical identity migration failure after ${stage}.`,
+		);
+	}
+}
+
+interface FrozenSqlConstraint {
+	readonly schema_name: string;
+	readonly table_name: string;
+	readonly constraint_name: string;
+	readonly constraint_type: string;
+	readonly definition: string;
+	readonly deferrable: boolean;
+	readonly initially_deferred: boolean;
+	readonly validated: boolean;
+	readonly local: boolean;
+	readonly touches_target: boolean;
+	readonly columns: readonly string[];
+	readonly referenced_schema: string | null;
+	readonly referenced_table: string | null;
+	readonly referenced_columns: readonly string[];
+}
+
+interface FrozenSqlIdentitySchema {
+	readonly columns: readonly Record<string, unknown>[];
+	readonly constraints: readonly FrozenSqlConstraint[];
+	readonly indexes: readonly Record<string, unknown>[];
+	readonly triggers: readonly Record<string, unknown>[];
+	readonly dependency_edges: readonly Record<string, unknown>[];
+}
+
+type FrozenJsonRecord = Record<string, unknown>;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+const FLAT_COLLECTIONS = [
+	["user_property", "userProperties", "userPropertyOrder"],
+	["user_type", "userTypes", "userTypeOrder"],
+	["persona", "personas", "personaOrder"],
+] as const;
+
+function recordFromPairs(
+	pairs: Iterable<readonly [string, unknown]>,
+): FrozenJsonRecord {
+	return Object.fromEntries(pairs);
+}
+
+export function frozenPersistableSnapshot(
+	app: Pick<
+		StoredAppRow,
+		"id" | "app_name" | "connect_type" | "case_types" | "logo"
+	>,
+	plan: CanonicalAppPlan,
+): FrozenJsonRecord {
+	const byOrdinal = (left: LegacyEntityRow, right: LegacyEntityRow) =>
+		left.ordinal - right.ordinal || left.uuid.localeCompare(right.uuid);
+	const modules = plan.rows
+		.filter((row) => row.kind === "module")
+		.sort(byOrdinal);
+	const forms = plan.rows.filter((row) => row.kind === "form");
+	const fields = plan.rows.filter((row) => row.kind === "field");
+
+	const moduleRecord = recordFromPairs(
+		modules.map((row) => [row.uuid, row.data] as const),
+	);
+	const formRecord = recordFromPairs(
+		forms.map((row) => [row.uuid, row.data] as const),
+	);
+	const fieldRecord = recordFromPairs(
+		fields.map((row) => [row.uuid, row.data] as const),
+	);
+	const formOrder: FrozenJsonRecord = {};
+	for (const module of modules) {
+		formOrder[module.uuid] = forms
+			.filter((row) => row.parentUuid === module.uuid)
+			.sort(byOrdinal)
+			.map((row) => row.uuid);
+	}
+	const fieldOrder: FrozenJsonRecord = {};
+	for (const parent of [
+		...forms,
+		...fields.filter(
+			(row) => row.data.kind === "group" || row.data.kind === "repeat",
+		),
+	]) {
+		fieldOrder[parent.uuid] = fields
+			.filter((row) => row.parentUuid === parent.uuid)
+			.sort(byOrdinal)
+			.map((row) => row.uuid);
+	}
+
+	const snapshot: FrozenJsonRecord = {
+		appId: app.id,
+		appName: app.app_name,
+		connectType: app.connect_type,
+		caseTypes: plan.caseTypes,
+		modules: moduleRecord,
+		forms: formRecord,
+		fields: fieldRecord,
+		moduleOrder: modules.map((row) => row.uuid),
+		formOrder,
+		fieldOrder,
+	};
+	if (app.logo !== null) snapshot.logo = app.logo;
+	for (const [kind, recordSlot, orderSlot] of FLAT_COLLECTIONS) {
+		const rows = plan.rows.filter((row) => row.kind === kind).sort(byOrdinal);
+		if (rows.length === 0) continue;
+		snapshot[recordSlot] = recordFromPairs(
+			rows.map((row) => [row.uuid, row.data] as const),
+		);
+		snapshot[orderSlot] = rows.map((row) => row.uuid);
+	}
+	return snapshot;
+}
+
+async function createFoldBaselineDdl(db: Kysely<unknown>): Promise<void> {
+	await sql`
+		CREATE TABLE IF NOT EXISTS mutation_fold_baselines (
+			app_id text NOT NULL,
+			seq bigint NOT NULL,
+			snapshot jsonb NOT NULL,
+			snapshot_digest text NOT NULL
+				CHECK (snapshot_digest ~ '^[0-9a-f]{64}$'),
+			created_at timestamptz(3) NOT NULL DEFAULT now(),
+			PRIMARY KEY (app_id, seq),
+			CONSTRAINT mutation_fold_baselines_mutation_fkey
+				FOREIGN KEY (app_id, seq)
+				REFERENCES accepted_mutations(app_id, seq)
+				ON DELETE CASCADE
+		);
+
+		CREATE OR REPLACE FUNCTION nova_reject_mutation_fold_baseline_change()
+		RETURNS trigger
+		LANGUAGE plpgsql
+		AS $function$
+		BEGIN
+			RAISE EXCEPTION 'mutation_fold_baselines rows are immutable';
+		END
+		$function$;
+
+		CREATE OR REPLACE FUNCTION nova_admit_mutation_fold_baseline_insert()
+		RETURNS trigger
+		LANGUAGE plpgsql
+		AS $function$
+		BEGIN
+			IF NOT EXISTS (
+				SELECT 1
+				FROM accepted_mutations AS marker
+				JOIN apps AS app ON app.id = marker.app_id
+				WHERE marker.app_id = NEW.app_id
+					AND marker.seq = NEW.seq
+					AND marker.kind = 'migration'
+					AND marker.mutations = '[]'::jsonb
+					AND app.mutation_seq = NEW.seq
+					AND (
+						(
+							marker.batch_id = 'migration:canonical-identity-foundation'
+							AND marker.actor_id = 'system:canonical-identity-foundation'
+							AND marker.run_id IS NULL
+						)
+						OR
+						(
+							NEW.seq = 1
+							AND marker.batch_id = 'genesis:' || marker.app_id
+							AND marker.actor_id = app.owner
+							AND marker.run_id = app.run_id
+						)
+					)
+			) THEN
+				RAISE EXCEPTION 'mutation_fold_baselines insert requires an exact horizon or genesis marker';
+			END IF;
+			RETURN NEW;
+		END
+		$function$;
+
+		DROP TRIGGER IF EXISTS mutation_fold_baselines_immutable
+			ON mutation_fold_baselines;
+		CREATE TRIGGER mutation_fold_baselines_immutable
+			BEFORE UPDATE OR DELETE ON mutation_fold_baselines
+			FOR EACH ROW
+			EXECUTE FUNCTION nova_reject_mutation_fold_baseline_change();
+
+		DROP TRIGGER IF EXISTS mutation_fold_baselines_admit_insert
+			ON mutation_fold_baselines;
+		CREATE TRIGGER mutation_fold_baselines_admit_insert
+			BEFORE INSERT ON mutation_fold_baselines
+			FOR EACH ROW
+			EXECUTE FUNCTION nova_admit_mutation_fold_baseline_insert();
+	`.execute(db);
 }
 
 function requireInvariant(
@@ -301,15 +538,338 @@ function assertSqlIdentitySchema(
 	}
 }
 
-async function convertSqlIdentityColumns(db: Kysely<unknown>): Promise<void> {
-	// The three foreign keys couple media identity columns. Drop only those
-	// named dependencies, convert every semantic column, then restore them.
-	await sql`
-		ALTER TABLE media_asset_refs
-			DROP CONSTRAINT media_asset_refs_asset_id_fkey;
-		ALTER TABLE media_upload_aliases
-			DROP CONSTRAINT media_upload_aliases_canonical_asset_id_fkey;
+const sqlIdentityTargetValues = sql.join(
+	SQL_IDENTITY_COLUMNS.map(
+		([table, column]) => sql`(${table}::text, ${column}::text)`,
+	),
+);
 
+/**
+ * Freeze a catalog-derived dependency closure around every semantic SQL
+ * identity column. The snapshot deliberately captures a superset of direct
+ * dependents (all constraints, indexes, and non-internal triggers on a target
+ * relation, plus foreign keys that point at one) so an unanticipated object can
+ * never disappear merely because its dependency spelling differs.
+ *
+ * OIDs are excluded: dropping and recreating a foreign key necessarily assigns
+ * new catalog identities. Stable schema/table/object names, exact definitions,
+ * ownership, ACLs, affected columns, flags, and non-internal pg_depend
+ * descriptions are the comparison surface.
+ */
+async function captureSqlIdentitySchema(
+	db: Kysely<unknown>,
+): Promise<FrozenSqlIdentitySchema> {
+	const columns = await sql<Record<string, unknown>>`
+		WITH target_names(table_name, column_name) AS (
+			VALUES ${sqlIdentityTargetValues}
+		)
+		SELECT
+			n.nspname AS schema_name,
+			c.relname AS table_name,
+			a.attname AS column_name,
+			format_type(a.atttypid, a.atttypmod) AS data_type,
+			a.attnotnull AS not_null,
+			pg_get_expr(ad.adbin, ad.adrelid) AS default_expression,
+			pg_get_userbyid(c.relowner) AS table_owner,
+			COALESCE(to_jsonb(c.relacl), '[]'::jsonb) AS table_acl,
+			COALESCE(to_jsonb(a.attacl), '[]'::jsonb) AS column_acl
+		FROM target_names target
+		JOIN pg_namespace n ON n.nspname = 'public'
+		JOIN pg_class c
+		  ON c.relnamespace = n.oid
+		 AND c.relname = target.table_name
+		 AND c.relkind IN ('r', 'p')
+		JOIN pg_attribute a
+		  ON a.attrelid = c.oid
+		 AND a.attname = target.column_name
+		 AND a.attnum > 0
+		 AND NOT a.attisdropped
+		LEFT JOIN pg_attrdef ad
+		  ON ad.adrelid = a.attrelid
+		 AND ad.adnum = a.attnum
+		ORDER BY n.nspname, c.relname, a.attname
+	`.execute(db);
+
+	requireInvariant(
+		columns.rows.length === SQL_IDENTITY_COLUMNS.length,
+		"every SQL identity column must exist exactly once",
+	);
+
+	const constraints = await sql<FrozenSqlConstraint>`
+		WITH target_names(table_name, column_name) AS (
+			VALUES ${sqlIdentityTargetValues}
+		),
+		targets AS (
+			SELECT c.oid AS relid, a.attnum
+			FROM target_names target
+			JOIN pg_namespace n ON n.nspname = 'public'
+			JOIN pg_class c
+			  ON c.relnamespace = n.oid
+			 AND c.relname = target.table_name
+			JOIN pg_attribute a
+			  ON a.attrelid = c.oid
+			 AND a.attname = target.column_name
+			 AND a.attnum > 0
+			 AND NOT a.attisdropped
+		)
+		SELECT
+			n.nspname AS schema_name,
+			rel.relname AS table_name,
+			con.conname AS constraint_name,
+			con.contype::text AS constraint_type,
+			pg_get_constraintdef(con.oid, false) AS definition,
+			con.condeferrable AS deferrable,
+			con.condeferred AS initially_deferred,
+			con.convalidated AS validated,
+			con.conislocal AS local,
+			(
+				EXISTS (
+					SELECT 1
+					FROM unnest(COALESCE(con.conkey, '{}'::smallint[])) key(attnum)
+					JOIN targets target
+					  ON target.relid = con.conrelid
+					 AND target.attnum = key.attnum
+				)
+				OR EXISTS (
+					SELECT 1
+					FROM unnest(COALESCE(con.confkey, '{}'::smallint[])) key(attnum)
+					JOIN targets target
+					  ON target.relid = con.confrelid
+					 AND target.attnum = key.attnum
+				)
+			) AS touches_target,
+			COALESCE(
+				ARRAY(
+					SELECT attribute.attname
+					FROM unnest(COALESCE(con.conkey, '{}'::smallint[]))
+						WITH ORDINALITY key(attnum, ordinal)
+					JOIN pg_attribute attribute
+					  ON attribute.attrelid = con.conrelid
+					 AND attribute.attnum = key.attnum
+					ORDER BY key.ordinal
+				),
+				'{}'::text[]
+			) AS columns,
+			referenced_namespace.nspname AS referenced_schema,
+			referenced_relation.relname AS referenced_table,
+			COALESCE(
+				ARRAY(
+					SELECT attribute.attname
+					FROM unnest(COALESCE(con.confkey, '{}'::smallint[]))
+						WITH ORDINALITY key(attnum, ordinal)
+					JOIN pg_attribute attribute
+					  ON attribute.attrelid = con.confrelid
+					 AND attribute.attnum = key.attnum
+					ORDER BY key.ordinal
+				),
+				'{}'::text[]
+			) AS referenced_columns
+		FROM pg_constraint con
+		JOIN pg_class rel ON rel.oid = con.conrelid
+		JOIN pg_namespace n ON n.oid = rel.relnamespace
+		LEFT JOIN pg_class referenced_relation
+		  ON referenced_relation.oid = con.confrelid
+		LEFT JOIN pg_namespace referenced_namespace
+		  ON referenced_namespace.oid = referenced_relation.relnamespace
+		WHERE con.conrelid IN (SELECT relid FROM targets)
+		   OR con.confrelid IN (SELECT relid FROM targets)
+		ORDER BY n.nspname, rel.relname, con.conname
+	`.execute(db);
+
+	const indexes = await sql<Record<string, unknown>>`
+		WITH target_names(table_name, column_name) AS (
+			VALUES ${sqlIdentityTargetValues}
+		),
+		target_relations AS (
+			SELECT DISTINCT c.oid AS relid
+			FROM target_names target
+			JOIN pg_namespace n ON n.nspname = 'public'
+			JOIN pg_class c
+			  ON c.relnamespace = n.oid
+			 AND c.relname = target.table_name
+		)
+		SELECT
+			n.nspname AS schema_name,
+			table_relation.relname AS table_name,
+			index_relation.relname AS index_name,
+			pg_get_indexdef(index_relation.oid, 0, false) AS definition,
+			index_info.indisprimary AS primary,
+			index_info.indisunique AS unique,
+			index_info.indisvalid AS valid,
+			index_info.indisready AS ready,
+			pg_get_expr(index_info.indpred, index_info.indrelid) AS predicate,
+			pg_get_expr(index_info.indexprs, index_info.indrelid) AS expressions,
+			pg_get_userbyid(index_relation.relowner) AS owner
+		FROM pg_index index_info
+		JOIN target_relations target
+		  ON target.relid = index_info.indrelid
+		JOIN pg_class table_relation
+		  ON table_relation.oid = index_info.indrelid
+		JOIN pg_class index_relation
+		  ON index_relation.oid = index_info.indexrelid
+		JOIN pg_namespace n
+		  ON n.oid = table_relation.relnamespace
+		ORDER BY n.nspname, table_relation.relname, index_relation.relname
+	`.execute(db);
+
+	const triggers = await sql<Record<string, unknown>>`
+		WITH target_names(table_name, column_name) AS (
+			VALUES ${sqlIdentityTargetValues}
+		),
+		target_relations AS (
+			SELECT DISTINCT c.oid AS relid
+			FROM target_names target
+			JOIN pg_namespace n ON n.nspname = 'public'
+			JOIN pg_class c
+			  ON c.relnamespace = n.oid
+			 AND c.relname = target.table_name
+		)
+		SELECT
+			n.nspname AS schema_name,
+			relation.relname AS table_name,
+			trigger.tgname AS trigger_name,
+			pg_get_triggerdef(trigger.oid, false) AS definition,
+			trigger.tgenabled::text AS enabled,
+			function_namespace.nspname AS function_schema,
+			function.proname AS function_name,
+			pg_get_function_identity_arguments(function.oid) AS function_arguments,
+			pg_get_userbyid(function.proowner) AS function_owner,
+			COALESCE(to_jsonb(function.proacl), '[]'::jsonb) AS function_acl
+		FROM pg_trigger trigger
+		JOIN target_relations target ON target.relid = trigger.tgrelid
+		JOIN pg_class relation ON relation.oid = trigger.tgrelid
+		JOIN pg_namespace n ON n.oid = relation.relnamespace
+		JOIN pg_proc function ON function.oid = trigger.tgfoid
+		JOIN pg_namespace function_namespace
+		  ON function_namespace.oid = function.pronamespace
+		WHERE NOT trigger.tgisinternal
+		ORDER BY n.nspname, relation.relname, trigger.tgname
+	`.execute(db);
+
+	const dependencyEdges = await sql<Record<string, unknown>>`
+		WITH RECURSIVE target_names(table_name, column_name) AS (
+			VALUES ${sqlIdentityTargetValues}
+		),
+		targets AS (
+			SELECT c.oid AS relid, a.attnum
+			FROM target_names target
+			JOIN pg_namespace n ON n.nspname = 'public'
+			JOIN pg_class c
+			  ON c.relnamespace = n.oid
+			 AND c.relname = target.table_name
+			JOIN pg_attribute a
+			  ON a.attrelid = c.oid
+			 AND a.attname = target.column_name
+			 AND a.attnum > 0
+			 AND NOT a.attisdropped
+		),
+		closure(classid, objid, objsubid, refclassid, refobjid, refobjsubid, deptype) AS (
+			SELECT
+				dependency.classid,
+				dependency.objid,
+				dependency.objsubid,
+				dependency.refclassid,
+				dependency.refobjid,
+				dependency.refobjsubid,
+				dependency.deptype
+			FROM pg_depend dependency
+			JOIN targets target
+			  ON dependency.refclassid = 'pg_class'::regclass
+			 AND dependency.refobjid = target.relid
+			 AND dependency.refobjsubid = target.attnum
+			UNION
+			SELECT
+				dependency.classid,
+				dependency.objid,
+				dependency.objsubid,
+				dependency.refclassid,
+				dependency.refobjid,
+				dependency.refobjsubid,
+				dependency.deptype
+			FROM pg_depend dependency
+			JOIN closure parent
+			  ON dependency.refclassid = parent.classid
+			 AND dependency.refobjid = parent.objid
+			 AND (
+					parent.objsubid = 0
+					OR dependency.refobjsubid = parent.objsubid
+					OR dependency.refobjsubid = 0
+			 )
+		)
+		SELECT DISTINCT
+			classid::regclass::text AS dependent_catalog,
+			pg_describe_object(classid, objid, objsubid) AS dependent,
+			refclassid::regclass::text AS referenced_catalog,
+			pg_describe_object(refclassid, refobjid, refobjsubid) AS referenced,
+			deptype::text AS dependency_type
+		FROM closure
+		WHERE NOT (
+			classid = 'pg_trigger'::regclass
+			AND EXISTS (
+				SELECT 1
+				FROM pg_trigger trigger
+				WHERE trigger.oid = closure.objid
+				  AND trigger.tgisinternal
+			)
+		)
+		ORDER BY
+			dependent_catalog,
+			dependent,
+			referenced_catalog,
+			referenced,
+			dependency_type
+	`.execute(db);
+
+	return {
+		columns: columns.rows,
+		constraints: constraints.rows,
+		indexes: indexes.rows,
+		triggers: triggers.rows,
+		dependency_edges: dependencyEdges.rows,
+	};
+}
+
+function expectedUuidSqlIdentitySchema(
+	source: FrozenSqlIdentitySchema,
+): FrozenSqlIdentitySchema {
+	return {
+		...source,
+		columns: source.columns.map((column) => ({
+			...column,
+			data_type: "uuid",
+		})),
+	};
+}
+
+function schemaQualifiedName(schemaName: string, objectName: string) {
+	return sql.id(schemaName, objectName);
+}
+
+async function convertSqlIdentityColumns(db: Kysely<unknown>): Promise<void> {
+	const source = await captureSqlIdentitySchema(db);
+	const sourceDigest = canonicalIdentityDigest(source);
+	const expected = expectedUuidSqlIdentitySchema(source);
+	const expectedDigest = canonicalIdentityDigest(expected);
+	requireInvariant(
+		sourceDigest !== expectedDigest,
+		"SQL identity source and UUID target catalog digests must differ",
+	);
+
+	const blockingForeignKeys = source.constraints.filter(
+		(constraint) =>
+			constraint.constraint_type === "f" && constraint.touches_target,
+	);
+	for (const constraint of blockingForeignKeys) {
+		await sql`
+			ALTER TABLE ${schemaQualifiedName(
+				constraint.schema_name,
+				constraint.table_name,
+			)}
+			DROP CONSTRAINT ${sql.id(constraint.constraint_name)}
+		`.execute(db);
+	}
+
+	await sql`
 		ALTER TABLE apps
 			ALTER COLUMN logo TYPE uuid USING logo::uuid;
 		ALTER TABLE blueprint_entities
@@ -325,29 +885,44 @@ async function convertSqlIdentityColumns(db: Kysely<unknown>): Promise<void> {
 		ALTER TABLE form_submission_intents
 			ALTER COLUMN form_uuid TYPE uuid USING form_uuid::uuid;
 		ALTER TABLE form_attachments
-			ALTER COLUMN field_uuid TYPE uuid USING field_uuid::uuid;
-
-		ALTER TABLE media_asset_refs
-			ADD CONSTRAINT media_asset_refs_asset_id_fkey
-			FOREIGN KEY (asset_id) REFERENCES media_assets(id) ON DELETE CASCADE;
-		ALTER TABLE media_upload_aliases
-			ADD CONSTRAINT media_upload_aliases_canonical_asset_id_fkey
-			FOREIGN KEY (canonical_asset_id) REFERENCES media_assets(id) ON DELETE CASCADE
+			ALTER COLUMN field_uuid TYPE uuid USING field_uuid::uuid
 	`.execute(db);
+
+	for (const constraint of blockingForeignKeys) {
+		await sql`
+			ALTER TABLE ${schemaQualifiedName(
+				constraint.schema_name,
+				constraint.table_name,
+			)}
+			ADD CONSTRAINT ${sql.id(constraint.constraint_name)}
+			${sql.raw(constraint.definition)}
+		`.execute(db);
+	}
+
+	const actual = await captureSqlIdentitySchema(db);
+	requireInvariant(
+		canonicalIdentityDigest(actual) === expectedDigest,
+		"SQL identity dependency closure changed outside the exact UUID type conversion",
+	);
 }
 
 async function appliedForEveryApp(db: Kysely<unknown>): Promise<boolean> {
-	const row = await sql<{ apps: string; horizons: string }>`
+	const row = await sql<{ apps: string; horizons: string; baselines: string }>`
 		SELECT
 			(SELECT count(*)::text FROM apps) AS apps,
 			(
 				SELECT count(*)::text
 				FROM accepted_mutations
 				WHERE batch_id = ${HORIZON_BATCH_ID}
-			) AS horizons
+			) AS horizons,
+			(SELECT count(*)::text FROM mutation_fold_baselines) AS baselines
 	`.execute(db);
 	const counts = row.rows[0];
-	return counts !== undefined && counts.apps === counts.horizons;
+	return (
+		counts !== undefined &&
+		counts.apps === counts.horizons &&
+		counts.apps === counts.baselines
+	);
 }
 
 function planDigest(plans: readonly CanonicalAppPlan[]): string {
@@ -361,14 +936,153 @@ function planDigest(plans: readonly CanonicalAppPlan[]): string {
 	);
 }
 
+async function assertAlreadyAppliedState(
+	db: Kysely<unknown>,
+	options: FrozenMigrationOptions,
+): Promise<void> {
+	requireInvariant(
+		await appliedForEveryApp(db),
+		"the exact one-baseline-per-app applied state is absent",
+	);
+	const appResult = await sql<StoredAppRow>`
+		SELECT id, app_name, connect_type, case_types, logo, mutation_seq,
+		       status, lock_run_id
+		FROM apps
+		ORDER BY id
+	`.execute(db);
+	const entityResult = await sql<StoredEntityRow>`
+		SELECT app_id, uuid::text AS uuid, kind, parent_uuid::text AS parent_uuid,
+		       ordinal, data
+		FROM blueprint_entities
+		ORDER BY app_id, kind, parent_uuid NULLS FIRST, ordinal, uuid
+	`.execute(db);
+	const baselineResult = await sql<{
+		app_id: string;
+		seq: string;
+		snapshot: FrozenJsonRecord;
+		snapshot_digest: string;
+		batch_id: string;
+		run_id: string | null;
+		actor_id: string;
+		kind: string;
+		mutations: unknown;
+	}>`
+		SELECT baseline.app_id, baseline.seq::text, baseline.snapshot,
+		       baseline.snapshot_digest, marker.batch_id, marker.run_id,
+		       marker.actor_id, marker.kind, marker.mutations
+		FROM mutation_fold_baselines AS baseline
+		JOIN accepted_mutations AS marker
+		  ON marker.app_id = baseline.app_id
+		 AND marker.seq = baseline.seq
+		ORDER BY baseline.app_id, baseline.seq
+	`.execute(db);
+	const baselineByApp = new Map(
+		baselineResult.rows.map((row) => [row.app_id, row] as const),
+	);
+	const suffixResult = await sql<FrozenAppliedSuffixRow & { app_id: string }>`
+		SELECT mutation.app_id, mutation.seq::text, mutation.batch_id,
+		       mutation.actor_id, mutation.kind, mutation.mutations
+		FROM accepted_mutations AS mutation
+		JOIN mutation_fold_baselines AS baseline
+		  ON baseline.app_id = mutation.app_id
+		 AND mutation.seq > baseline.seq
+		ORDER BY mutation.app_id, mutation.seq
+	`.execute(db);
+	const suffixByApp = new Map<string, FrozenAppliedSuffixRow[]>();
+	for (const row of suffixResult.rows) {
+		const suffix = suffixByApp.get(row.app_id) ?? [];
+		suffix.push({
+			seq: row.seq,
+			batch_id: row.batch_id,
+			actor_id: row.actor_id,
+			kind: row.kind,
+			mutations: row.mutations,
+		});
+		suffixByApp.set(row.app_id, suffix);
+	}
+	const rowsByApp = new Map<string, LegacyEntityRow[]>();
+	for (const row of entityResult.rows) {
+		const rows = rowsByApp.get(row.app_id) ?? [];
+		rows.push({
+			appId: row.app_id,
+			uuid: row.uuid,
+			kind: row.kind as LegacyEntityKind,
+			parentUuid: row.parent_uuid,
+			ordinal: row.ordinal,
+			data: row.data,
+		});
+		rowsByApp.set(row.app_id, rows);
+	}
+	for (const app of appResult.rows) {
+		const baseline = baselineByApp.get(app.id);
+		requireInvariant(
+			baseline !== undefined,
+			`app ${canonicalIdentityDigest(app.id)} has no fold baseline`,
+		);
+		requireInvariant(
+			baseline.batch_id === HORIZON_BATCH_ID &&
+				baseline.run_id === null &&
+				baseline.actor_id === HORIZON_ACTOR_ID &&
+				baseline.kind === "migration" &&
+				Array.isArray(baseline.mutations) &&
+				baseline.mutations.length === 0,
+			`app ${canonicalIdentityDigest(app.id)} has a malformed fold marker`,
+		);
+		const plan = planCanonicalAppMigration({
+			appId: app.id,
+			appName: app.app_name,
+			connectType: app.connect_type,
+			caseTypes: app.case_types,
+			logo: app.logo,
+			mutationSeq: app.mutation_seq,
+			rows: rowsByApp.get(app.id) ?? [],
+		});
+		requireInvariant(
+			plan.findings.length === 0 && plan.beforeDigest === plan.afterDigest,
+			`app ${canonicalIdentityDigest(app.id)} is not canonical after the cutover`,
+		);
+		const expectedSnapshot = frozenPersistableSnapshot(app, plan);
+		const expectedDigest = canonicalIdentityDigest(expectedSnapshot);
+		requireInvariant(
+			canonicalIdentityDigest(baseline.snapshot) === baseline.snapshot_digest,
+			`app ${canonicalIdentityDigest(app.id)} baseline digest drifted`,
+		);
+		const suffix = suffixByApp.get(app.id) ?? [];
+		if (suffix.length === 0) {
+			requireInvariant(
+				String(app.mutation_seq) === baseline.seq &&
+					baseline.snapshot_digest === expectedDigest,
+				`app ${canonicalIdentityDigest(app.id)} baseline does not equal its current no-suffix snapshot`,
+			);
+			continue;
+		}
+		requireInvariant(
+			options.replayAppliedSuffix !== undefined,
+			`app ${canonicalIdentityDigest(app.id)} has a post-baseline suffix but no canonical replay authority`,
+		);
+		const replayed = options.replayAppliedSuffix({
+			baselineSnapshot: baseline.snapshot,
+			baselineSeq: baseline.seq,
+			expectedHeadSeq: app.mutation_seq,
+			suffix,
+		});
+		requireInvariant(
+			canonicalIdentityDigest(replayed.snapshot) === expectedDigest,
+			`app ${canonicalIdentityDigest(app.id)} post-baseline replay does not equal current state`,
+		);
+	}
+}
+
 export async function runFrozenCanonicalIdentityMigration(
 	db: Kysely<unknown>,
+	options: FrozenMigrationOptions = {},
 ): Promise<FrozenMigrationReport> {
 	// Kysely's Migrator invokes each `up` inside one transaction already.
 	// Starting another transaction from that Transaction handle is forbidden;
 	// the complete deterministic table lock below supplies the immutable
 	// authoritative snapshot after Kysely has touched its migration ledger.
 	const tx = db;
+	await createFoldBaselineDdl(tx);
 	// One deterministic lock statement, projected from the frozen
 	// occurrence manifest. SHARE ROW EXCLUSIVE blocks every application
 	// writer before the authoritative scan; later ALTERs promote their
@@ -387,10 +1101,11 @@ export async function runFrozenCanonicalIdentityMigration(
 	);
 	if (typeSet.has("uuid")) {
 		assertSqlIdentitySchema(initialTypes, "uuid");
-		requireInvariant(
-			await appliedForEveryApp(tx),
-			"UUID columns exist but one or more app horizons are absent",
+		await assertAlreadyAppliedState(tx, options);
+		const observedOccurrences = dispatchFrozenStorageOccurrences(
+			await captureFrozenStorageSnapshot(tx),
 		);
+		const observedDigest = canonicalIdentityDigest(observedOccurrences);
 		return {
 			version: CANONICAL_IDENTITY_MIGRATION_VERSION,
 			alreadyApplied: true,
@@ -400,35 +1115,68 @@ export async function runFrozenCanonicalIdentityMigration(
 			rewriteBytes: 0,
 			beforeDigest: canonicalIdentityDigest("already-applied"),
 			afterDigest: canonicalIdentityDigest("already-applied"),
+			occurrenceSourceDigest: observedDigest,
+			occurrenceResultDigest: observedDigest,
+			occurrencePlanDigest: canonicalIdentityDigest(observedOccurrences),
 		};
 	}
 	assertSqlIdentitySchema(initialTypes, "text");
+	const occurrenceSource = await captureFrozenStorageSnapshot(tx);
 
 	const active = await sql<{
-		generating: string;
+		lease_blockers: string;
 		active_streams: string;
+		unterminated_chunks: string;
 	}>`
 				SELECT
 					(
 						SELECT count(*)::text
 						FROM apps
-						WHERE status = 'generating'
-						   OR lock_run_id IS NOT NULL
-					) AS generating,
+						WHERE
+							status = 'generating'
+							OR awaiting_input
+							OR lock_run_id IS NOT NULL
+							OR lock_actor_user_id IS NOT NULL
+							OR lock_expire_at IS NOT NULL
+							OR NOT (
+								(
+									res_period IS NULL
+									AND res_reserved IS NULL
+									AND res_settled IS NULL
+									AND res_user_id IS NULL
+									AND res_run_id IS NULL
+								)
+								OR (
+									res_period IS NOT NULL
+									AND res_reserved IS NOT NULL
+									AND res_settled IS TRUE
+									AND res_user_id IS NOT NULL
+								)
+							)
+					) AS lease_blockers,
 					(
 						SELECT count(*)::text
 						FROM threads
 						WHERE active_stream_id IS NOT NULL
 						   OR active_holder_nonce IS NOT NULL
-					) AS active_streams
+					) AS active_streams,
+					(
+						SELECT count(*)::text
+						FROM chat_stream_chunks
+						WHERE terminal IS NOT TRUE
+					) AS unterminated_chunks
 			`.execute(tx);
 	requireInvariant(
-		active.rows[0]?.generating === "0",
-		"one or more app run holders remain live",
+		active.rows[0]?.lease_blockers === "0",
+		"one or more app lease/reservation rows are present or corrupt",
 	);
 	requireInvariant(
 		active.rows[0]?.active_streams === "0",
 		"one or more thread stream holders remain live",
+	);
+	requireInvariant(
+		active.rows[0]?.unterminated_chunks === "0",
+		"one or more unterminated stream chunks remain",
 	);
 
 	const appResult = await sql<StoredAppRow>`
@@ -791,7 +1539,22 @@ export async function runFrozenCanonicalIdentityMigration(
 				DELETE FROM chat_stream_chunks;
 				DELETE FROM presence
 			`.execute(tx);
+	injectReviewedFailure(options, "carriers");
 
+	const baselinePayload = plans.map((plan) => {
+		const app = appResult.rows.find((row) => row.id === plan.appId);
+		requireInvariant(
+			app !== undefined,
+			`planned app ${canonicalIdentityDigest(plan.appId)} disappeared`,
+		);
+		const snapshot = frozenPersistableSnapshot(app, plan);
+		return {
+			app_id: plan.appId,
+			seq: String(BigInt(app.mutation_seq) + BigInt(1)),
+			snapshot,
+			snapshot_digest: canonicalIdentityDigest(snapshot),
+		};
+	});
 	await sql`
 				WITH appended AS (
 					INSERT INTO accepted_mutations
@@ -805,7 +1568,6 @@ export async function runFrozenCanonicalIdentityMigration(
 						'migration',
 						'[]'::jsonb
 					FROM apps
-					ON CONFLICT (app_id, batch_id) DO NOTHING
 					RETURNING app_id, seq
 				)
 				UPDATE apps
@@ -813,9 +1575,30 @@ export async function runFrozenCanonicalIdentityMigration(
 				FROM appended
 				WHERE apps.id = appended.app_id
 			`.execute(tx);
+	if (baselinePayload.length > 0) {
+		await sql`
+			WITH incoming AS (
+				SELECT *
+				FROM jsonb_to_recordset(${JSON.stringify(baselinePayload)}::jsonb)
+					AS value(
+						app_id text,
+						seq bigint,
+						snapshot jsonb,
+						snapshot_digest text
+					)
+			)
+			INSERT INTO mutation_fold_baselines
+				(app_id, seq, snapshot, snapshot_digest)
+			SELECT app_id, seq, snapshot, snapshot_digest
+			FROM incoming
+			ORDER BY app_id
+		`.execute(tx);
+	}
+	injectReviewedFailure(options, "horizon");
 
 	await convertSqlIdentityColumns(tx);
 	assertSqlIdentitySchema(await sqlColumnTypes(tx), "uuid");
+	injectReviewedFailure(options, "ddl");
 
 	const archivedAfter = await sql<{
 		id: string | number;
@@ -862,7 +1645,7 @@ export async function runFrozenCanonicalIdentityMigration(
 	);
 	requireInvariant(
 		await appliedForEveryApp(tx),
-		"the canonical fold horizon was not appended exactly once per app",
+		"the canonical fold horizon and baseline were not appended exactly once per app",
 	);
 
 	const operational = await sql<{
@@ -939,6 +1722,7 @@ export async function runFrozenCanonicalIdentityMigration(
 		actualPost === expectedPost,
 		"stored current snapshots or heads differ from the frozen migration plan",
 	);
+	await assertAlreadyAppliedState(tx, options);
 
 	const afterDigest = canonicalIdentityDigest({
 		current: actualPost,
@@ -947,8 +1731,17 @@ export async function runFrozenCanonicalIdentityMigration(
 			row.archived_text,
 		]),
 		oldAccepted: oldAcceptedAfter.rows,
+		baselines: baselinePayload.map((row) => ({
+			app_id: row.app_id,
+			seq: row.seq,
+			snapshot_digest: row.snapshot_digest,
+		})),
 		horizon: HORIZON_BATCH_ID,
 	});
+	const occurrencePlan = compareFrozenStorageOccurrences(
+		occurrenceSource,
+		await captureFrozenStorageSnapshot(tx),
+	);
 
 	return {
 		version: CANONICAL_IDENTITY_MIGRATION_VERSION,
@@ -959,5 +1752,8 @@ export async function runFrozenCanonicalIdentityMigration(
 		rewriteBytes,
 		beforeDigest,
 		afterDigest,
+		occurrenceSourceDigest: occurrencePlan.sourceDigest,
+		occurrenceResultDigest: occurrencePlan.resultDigest,
+		occurrencePlanDigest: occurrencePlan.planDigest,
 	};
 }

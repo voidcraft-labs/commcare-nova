@@ -26,6 +26,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, ConnectConfig } from "@/lib/domain";
+import { commitGuardedBatchProposal as commitGuardedBatch } from "./admittedWriterTestHelpers";
 import { setupAppStateTestDb } from "./appStateTestDb";
 
 // Reauth reads the actor's role from `auth_member` via `projectRoleFor`; grant
@@ -44,6 +45,7 @@ const HOLDER_NONCE = "00000000-0000-4000-8000-000000000001";
 
 const MODULE_UUID = testUuid("11111111-1111-4111-8111-111111111111");
 const FORM_UUID = testUuid("22222222-2222-4222-8222-222222222222");
+const FIELD_UUID = testUuid("33333333-3333-4333-8333-333333333333");
 
 /** A minimal legal Connect learn-module block. */
 const CONNECT: ConnectConfig = {
@@ -76,16 +78,23 @@ function populatedBlueprint(): BlueprintDoc {
 				name: "Form 1",
 				type: "survey" as const,
 				connect: CONNECT,
-				closeCondition: { field: "done", answer: "yes" },
+				closeCondition: { field: FIELD_UUID, answer: "yes" },
 				postSubmit: "app_home",
 				purpose: "Captures intake data",
 			},
 		},
-		fields: {},
+		fields: {
+			[FIELD_UUID]: {
+				uuid: FIELD_UUID,
+				id: "done",
+				kind: "text" as const,
+				label: { parts: [{ kind: "text" as const, text: "Done" }] },
+			},
+		},
 		moduleOrder: [MODULE_UUID],
 		formOrder: { [MODULE_UUID]: [FORM_UUID] },
-		fieldOrder: {},
-		fieldParent: {},
+		fieldOrder: { [FORM_UUID]: [FIELD_UUID] },
+		fieldParent: { [FIELD_UUID]: FORM_UUID },
 	};
 	return doc as unknown as BlueprintDoc;
 }
@@ -121,7 +130,6 @@ describe("blueprint clear nested field", () => {
 	beforeEach(seedPopulatedApp);
 
 	it("the guarded writer clears every nested form field wholesale — no stale-key survivor", async () => {
-		const { commitGuardedBatch } = await import("../apps");
 		// One `updateForm` mutation clearing every nullable slot. Each clear carries
 		// an explicit `null` (the wire-safe delete signal); the reducer maps
 		// `null → undefined`, and the entity-row write's `JSON.stringify` drops the
@@ -163,7 +171,6 @@ describe("blueprint clear nested field", () => {
 	});
 
 	it("outer app-row fields the writer does not pass survive the guarded commit", async () => {
-		const { commitGuardedBatch } = await import("../apps");
 		const before = await h.readAppRow(APP_ID);
 
 		await commitGuardedBatch({
