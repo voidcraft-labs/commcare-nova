@@ -205,6 +205,11 @@ function collectLeaves(
 		record(out, path, s);
 		return;
 	}
+	// A `z.never()` slot is an action arm's explicit prohibition (a `close`
+	// operation may carry no `links`, no `name`, no `rename`, no `retype`). It
+	// can hold no value at all, so there is nothing to classify — descending
+	// would demand a reason for a key that is unrepresentable by construction.
+	if (s instanceof z.ZodNever) return;
 	if (s instanceof z.ZodObject) {
 		for (const [key, child] of Object.entries(s.shape)) {
 			collectLeaves(
@@ -458,9 +463,18 @@ describe("module slots — paths resolve with the promised shape", () => {
 			for (const arm of searchInputDefSchema.options as readonly z.ZodObject[]) {
 				const armKind = (arm.shape.kind as z.ZodLiteral)
 					.value as SearchInputDef["kind"];
-				expect(key in arm.shape).toBe(
-					slot?.searchInputKinds?.includes(armKind) ?? false,
-				);
+				// The union's second axis: an arm whose `type` is the
+				// `date-range` literal is the range widget; the scalar arms
+				// enumerate `SCALAR_SEARCH_INPUT_TYPES`.
+				const armWidget =
+					arm.shape.type instanceof z.ZodLiteral &&
+					arm.shape.type.value === "date-range"
+						? "date-range"
+						: "scalar";
+				const applies =
+					(slot?.searchInputKinds?.includes(armKind) ?? false) &&
+					(slot?.searchInputWidgets?.includes(armWidget) ?? true);
+				expect(key in arm.shape).toBe(applies);
 			}
 		}
 	});

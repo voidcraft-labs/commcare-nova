@@ -132,9 +132,19 @@ export interface FormReferenceSlot {
 type SearchInputArmKind = SearchInputDef["kind"];
 
 /**
+ * The search-input union's second axis. `searchInputDefSchema` is four arms over
+ * TWO independent dimensions — `kind` (simple | advanced) and widget shape
+ * (scalar | date-range) — because a range default and a scalar range mode both
+ * have to be unrepresentable. Applicability has to name both: `default` lives on
+ * the two SCALAR arms regardless of kind, so no set of `kind` values alone can
+ * describe it.
+ */
+type SearchInputWidget = "scalar" | "date-range";
+
+/**
  * One reference-carrying slot on a `Module`. `columnKinds` /
- * `searchInputKinds` narrow applicability within the case-list
- * column union and the search-input union — same role `repeatModes`
+ * `searchInputKinds` / `searchInputWidgets` narrow applicability within the
+ * case-list column union and the search-input union — same role `repeatModes`
  * plays on field slots; absent means every arm declares the path.
  */
 export interface ModuleReferenceSlot {
@@ -144,6 +154,7 @@ export interface ModuleReferenceSlot {
 	readonly kind: ReferenceSurfaceKind;
 	readonly columnKinds?: readonly ColumnKind[];
 	readonly searchInputKinds?: readonly SearchInputArmKind[];
+	readonly searchInputWidgets?: readonly SearchInputWidget[];
 }
 
 export type ReferenceSlot =
@@ -626,6 +637,9 @@ export const MODULE_REFERENCE_SLOTS = [
 		path: "caseListConfig.searchInputs[].default",
 		kind: "predicate-ast",
 		searchInputKinds: ["simple", "advanced"],
+		// Scalar widgets only. A date-range input owns its range mode and never
+		// carries a scalar default, so the two date-range arms declare no key.
+		searchInputWidgets: ["scalar"],
 	},
 	{
 		entity: "module",
@@ -1011,7 +1025,6 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	"caseListConfig.searchInputs[].label": "display-text",
 	"caseListConfig.searchInputs[].type": "config",
 	"caseListConfig.searchInputs[].mode.kind": "discriminator",
-	"caseListConfig.searchInputs[].mode.quantifier": "config",
 	"caseSearchConfig.searchActionEnabled": "config",
 	"caseSearchConfig.searchScreenTitle": "display-text",
 	"caseSearchConfig.searchScreenSubtitle": "display-text",

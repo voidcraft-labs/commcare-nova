@@ -109,6 +109,18 @@ export interface AppStateTestDb {
 		projectId: string,
 		role?: "viewer" | "editor" | "admin" | "owner",
 	): Promise<void>;
+	/**
+	 * Move an app (and its case rows) to another Project the way the database
+	 * requires. A bare `UPDATE apps SET project_id` is refused: the app-Project
+	 * trigger demands an exact same-sequence `project-move` app change whose
+	 * `from`/`to` match the transition. Tests that only need an app to have
+	 * changed Projects call this instead of writing the flip by hand.
+	 */
+	moveAppToProject(
+		appId: string,
+		toProjectId: string,
+		actorUserId: string,
+	): Promise<void>;
 	/** Insert (or replace) a `credit_months` row for a user's current/other period. */
 	seedCreditMonth(
 		userId: string,
@@ -322,6 +334,48 @@ export function setupAppStateTestDb(prefix = "app_state_"): AppStateTestDb {
 		`.execute(db());
 	}
 
+	async function moveAppToProject(
+		appId: string,
+		toProjectId: string,
+		actorUserId: string,
+	): Promise<void> {
+		await db()
+			.transaction()
+			.execute(async (tx) => {
+				const app = await tx
+					.selectFrom("apps")
+					.select(["project_id", "mutation_seq"])
+					.where("id", "=", appId)
+					.forUpdate()
+					.executeTakeFirstOrThrow();
+				const seq = Number(app.mutation_seq) + 1;
+				// The change row must exist before the app row moves: the trigger
+				// looks for it at exactly `NEW.mutation_seq`.
+				await tx
+					.insertInto("app_changes")
+					.values({
+						app_id: appId,
+						seq,
+						batch_id: crypto.randomUUID(),
+						run_id: null,
+						actor_id: actorUserId,
+						kind: "project-move",
+						mutations: "[]",
+						from_project_id: app.project_id,
+						to_project_id: toProjectId,
+					})
+					.execute();
+				await tx
+					.updateTable("apps")
+					.set({ project_id: toProjectId, mutation_seq: seq })
+					.where("id", "=", appId)
+					.execute();
+				await sql`
+					UPDATE cases SET project_id = ${toProjectId} WHERE app_id = ${appId}
+				`.execute(tx);
+			});
+	}
+
 	async function seedCreditMonth(
 		userId: string,
 		period: string,
@@ -413,6 +467,7 @@ export function setupAppStateTestDb(prefix = "app_state_"): AppStateTestDb {
 		seedRawApp,
 		seedAppWithBlueprint,
 		seedProjectMember,
+		moveAppToProject,
 		seedCreditMonth,
 		readConsumed,
 		readAppRow,

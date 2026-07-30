@@ -144,7 +144,7 @@ describe("lookup reference extraction", () => {
 								"simple",
 								"Simple",
 								"text",
-								"name",
+								"case_name",
 								{ default: lookupExpression(6) },
 							),
 							advancedSearchInputDef(

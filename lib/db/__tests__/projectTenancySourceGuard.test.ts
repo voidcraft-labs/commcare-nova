@@ -6,12 +6,17 @@ function source(path: string): string {
 	return readFileSync(join(process.cwd(), path), "utf8");
 }
 
+// `app_changes.from_project_id` / `.to_project_id` ARE nullable by contract —
+// they are null for every kind but `project-move`. A bare substring search for
+// `project_id: string | null` matches those two legitimate columns, so the fence
+// is anchored to the start of the declaration: a prefixed column name never
+// matches, while a bare `project_id` still does.
+const NULLABLE_PROJECT_TENANT = /(?:^|[^\w])project_id\??: string \| null/m;
+
 describe("steady-state app Project tenancy source guard", () => {
 	it("keeps persisted app and authoritative write scopes non-nullable", () => {
-		expect(source("lib/db/pg.ts")).not.toContain("project_id: string | null");
-		expect(source("lib/db/types.ts")).not.toContain(
-			"project_id: string | null",
-		);
+		expect(source("lib/db/pg.ts")).not.toMatch(NULLABLE_PROJECT_TENANT);
+		expect(source("lib/db/types.ts")).not.toMatch(NULLABLE_PROJECT_TENANT);
 		expect(source("lib/db/applyBlueprintChange.ts")).not.toContain(
 			"expectedProjectId: string | null",
 		);
