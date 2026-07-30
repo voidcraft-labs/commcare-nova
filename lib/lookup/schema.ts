@@ -5,6 +5,7 @@ import {
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
 import {
+	isReservedInstanceTag,
 	LOOKUP_DATA_TYPES,
 	LOOKUP_MAX_CELL_BYTES,
 	LOOKUP_MAX_COLUMN_LABEL_LENGTH,
@@ -144,6 +145,14 @@ function wireIdentifierSchema(kind: "tag" | "column") {
 		.refine(
 			(value) => !LOOKUP_XML_PREFIX_PATTERN.test(value),
 			`${label} may not start with xml.`,
+		)
+		.refine(
+			(value) => kind !== "tag" || !isReservedInstanceTag(value),
+			// A tag is the fixture's instance id on the device, and the runtime
+			// registers instances into one map by that id — so a reserved tag would
+			// replace the real one and every form using the table would silently
+			// stop writing cases.
+			`${label} is a name CommCare reserves for its own data, so a table cannot use it. Pick another tag.`,
 		);
 }
 
