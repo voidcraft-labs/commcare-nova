@@ -44,6 +44,7 @@ import {
 	AppProjectChangedError,
 	BlueprintCommitRejectedError,
 	CommitReauthError,
+	MutationBatchIdCollisionError,
 } from "@/lib/db/commitGuard";
 import { log } from "@/lib/logger";
 import { McpAccessError } from "./ownership";
@@ -248,6 +249,38 @@ export function toMcpErrorResult(
 				{
 					type: "text",
 					text: JSON.stringify(payload("invalid_input", err.message)),
+				},
+			],
+		};
+	}
+
+	if (err instanceof MutationBatchIdCollisionError) {
+		/* A batch id is server-minted, so reusing one for different content is a
+		 * Nova protocol failure, never a client mistake. It must not read as
+		 * `invalid_input` (which says "fix your arguments") and must not read as a
+		 * reloadable conflict (which says "re-read and retry") — both would send a
+		 * client back around a loop it cannot win. `internal` is the honest
+		 * category, and `isError` matters most of all: without this branch the
+		 * collision fell through to a plain success envelope and told the caller
+		 * its edit had landed when nothing was written.
+		 *
+		 * Logged at `error`: unlike an invalid input, this one is our bug. The
+		 * stored payloads stay out of the message. */
+		log.error("[mcp] mutation batch id collision", {
+			userId: ctx?.userId ?? null,
+			appId: ctx?.appId ?? null,
+		});
+		return {
+			isError: true,
+			content: [
+				{
+					type: "text",
+					text: JSON.stringify(
+						payload(
+							"internal",
+							"This edit could not be saved because Nova reused a save id for different content. Nothing was written. Please retry the request.",
+						),
+					),
 				},
 			],
 		};

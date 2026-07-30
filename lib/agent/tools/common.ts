@@ -12,6 +12,7 @@ import {
 	AppProjectChangedError,
 	BlueprintCommitRejectedError,
 	CommitReauthError,
+	MutationBatchIdCollisionError,
 	RunHolderLostError,
 } from "@/lib/db/commitGuard";
 import {
@@ -260,7 +261,13 @@ export function toToolErrorResult(
 		err instanceof AppProjectChangedError ||
 		err instanceof BlueprintCommitRejectedError ||
 		err instanceof CommitReauthError ||
-		err instanceof RunHolderLostError
+		err instanceof RunHolderLostError ||
+		// A batch id is server-minted, so reusing one for different content is an
+		// internal protocol failure rather than anything the model did. Returning
+		// the ordinary `{ error }` envelope would hand it a message it reads as
+		// retryable and invite it to remint the id and call again — turning one
+		// broken write into a loop. Re-thrown so the run aborts instead.
+		err instanceof MutationBatchIdCollisionError
 	) {
 		throw err;
 	}

@@ -23,6 +23,7 @@ import { MESSAGES } from "@/lib/agent/errorClassifier";
 import {
 	AppProjectChangedError,
 	BlueprintCommitRejectedError,
+	MutationBatchIdCollisionError,
 } from "@/lib/db/commitGuard";
 import { toMcpErrorResult } from "../errors";
 import { McpAccessError } from "../ownership";
@@ -204,5 +205,28 @@ describe("toMcpErrorResult", () => {
 		>;
 		expect(payload.error_type).toBe("scope_missing");
 		expect("app_id" in payload).toBe(false);
+	});
+});
+
+describe("mutation batch id collision", () => {
+	// A batch id is server-minted, so a collision is Nova's bug, not the
+	// caller's. Before this branch existed the collision fell through to a plain
+	// success envelope — the caller was told its edit had landed when nothing was
+	// written, which is the one outcome an API client cannot detect for itself.
+	it("is a typed internal error, never a silent success", () => {
+		const result = toMcpErrorResult(new MutationBatchIdCollisionError());
+		expect(result.isError).toBe(true);
+		const payload = JSON.parse(result.content[0].text) as {
+			error_type: string;
+			message: string;
+		};
+		expect(payload.error_type).toBe("internal");
+		// Not `invalid_input` ("fix your arguments") and not a reloadable
+		// conflict ("re-read and retry") — both send a client round a loop it
+		// cannot win.
+		expect(payload.error_type).not.toBe("invalid_input");
+		expect(payload.message).toContain("Nothing was written");
+		// No stored payload or batch id may reach the caller.
+		expect(payload.message).not.toMatch(/batch id [0-9a-f-]{8}/i);
 	});
 });
