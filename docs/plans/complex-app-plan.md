@@ -408,6 +408,12 @@ reader, reducer, writer, UI, Preview, SA/MCP surface, and emitter rejects it.
 Runtime code and documentation do not call a supported shape "legacy" — an old
 shape is either consumed once, there, or it is refused.
 
+Applying that migration to production is a maintenance cutover, not an ordinary
+merge — it closes public ingress, fences the database ACL, and runs a forensic
+repair that transaction rollback cannot undo once committed. The procedure lives
+in [`docs/runbooks/canonical-identity-cutover.md`](../runbooks/canonical-identity-cutover.md)
+and that file is deleted once the cutover has run.
+
 ### Lookup tables
 
 Lookup tables are Project-scoped app-state data with stable table, column, and row
