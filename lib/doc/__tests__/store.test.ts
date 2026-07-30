@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { BlueprintDoc } from "@/lib/doc/types";
+import { blueprintDocSchema } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 
 // ── Fixtures ────────────────────────────────────────────────────────────
 
@@ -30,6 +32,32 @@ function makeEmptyDoc(
 	};
 }
 
+function makeCatalogDoc(): BlueprintDoc {
+	return {
+		...makeEmptyDoc(),
+		caseTypes: [
+			{
+				name: "patient",
+				properties: ["a", "b", "c"].map((name) => ({
+					name,
+					label: proseText(name.toUpperCase()),
+				})),
+			},
+		],
+	};
+}
+
+function persistedSnapshot(doc: BlueprintDoc) {
+	return blueprintDocSchema.parse(
+		Object.fromEntries(
+			Object.keys(blueprintDocSchema.shape).map((key) => [
+				key,
+				(doc as unknown as Record<string, unknown>)[key],
+			]),
+		),
+	);
+}
+
 describe("the command queue is current when the write is announced", () => {
 	// `useAutoSave` subscribes to the store and dispatches the save SYNCHRONOUSLY
 	// from the write that changed the document, so the queue has to already hold
@@ -45,7 +73,7 @@ describe("the command queue is current when the write is announced", () => {
 		store.getState().startTracking();
 		let seen = -1;
 		const unsubscribe = store.subscribe(() => {
-			if (seen === -1) seen = store.getState().peekCommands().length;
+			if (seen === -1) seen = store.getState().peekCommandBatches().length;
 		});
 		write(store);
 		unsubscribe();
@@ -75,6 +103,40 @@ describe("the command queue is current when the write is announced", () => {
 					);
 			}),
 		).toBe(1);
+	});
+
+	it("rename then undo wakes the queue although the optimistic Blueprint returns byte-identical", () => {
+		const store = createBlueprintDocStore();
+		store.getState().load(makeCatalogDoc());
+		store.getState().startTracking();
+		const before = persistedSnapshot(store.getState());
+		const rename = admitMutationBatch([
+			{
+				kind: "renameCaseProperties",
+				renames: [{ caseType: "patient", from: "a", to: "fresh" }],
+			},
+		]);
+		let notifications = 0;
+		const unsubscribe = store.subscribe(() => {
+			notifications += 1;
+		});
+
+		store.getState().applyMany(rename);
+		store.getState().undo();
+		unsubscribe();
+
+		expect(persistedSnapshot(store.getState())).toEqual(before);
+		expect(notifications).toBeGreaterThan(0);
+		expect(store.getState().peekCommandBatches()).toEqual([
+			rename,
+			admitMutationBatch([
+				{
+					kind: "renameCaseProperties",
+					renames: [{ caseType: "patient", from: "fresh", to: "a" }],
+				},
+			]),
+		]);
+		expect(store.getState().commandQueueRevision).toBe(2);
 	});
 });
 
@@ -212,6 +274,50 @@ describe("createBlueprintDocStore", () => {
 		expect(store.getState().connectType).toBe(null);
 		expect(store.getState().canUndo).toBe(false);
 	});
+
+	it.each([
+		["beginning", "a", ["b", "c", "fresh"]],
+		["middle", "b", ["a", "c", "fresh"]],
+		["end", "c", ["a", "b", "fresh"]],
+	] as const)(
+		"undoes an exact non-rename catalog replacement at the %s and redoes the original batch",
+		(_position, removed, replacedOrder) => {
+			const store = createBlueprintDocStore();
+			store.getState().load(makeCatalogDoc());
+			store.getState().startTracking();
+			const initial = persistedSnapshot(store.getState());
+			const forward = admitMutationBatch([
+				{
+					kind: "removeCaseProperty",
+					caseType: "patient",
+					property: removed,
+				},
+				{
+					kind: "addCaseProperty",
+					caseType: "patient",
+					property: { name: "fresh", label: proseText("Fresh") },
+				},
+			]);
+
+			store.getState().applyMany(forward);
+			expect(
+				store.getState().caseTypes?.[0]?.properties.map(({ name }) => name),
+			).toEqual(replacedOrder);
+			const replaced = persistedSnapshot(store.getState());
+			expect(store.getState().takeCommandBatches()).toEqual([forward]);
+
+			store.getState().undo();
+			expect(persistedSnapshot(store.getState())).toEqual(initial);
+			const [inverse] = store.getState().takeCommandBatches();
+			expect(inverse).not.toContainEqual(
+				expect.objectContaining({ kind: "renameCaseProperties" }),
+			);
+
+			store.getState().redo();
+			expect(persistedSnapshot(store.getState())).toEqual(replaced);
+			expect(store.getState().takeCommandBatches()).toEqual([forward]);
+		},
+	);
 
 	it("an agent run is one step, however many writes it streams", () => {
 		const store = createBlueprintDocStore();

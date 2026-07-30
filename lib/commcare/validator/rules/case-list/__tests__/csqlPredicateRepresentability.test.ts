@@ -23,7 +23,6 @@ import {
 	exists,
 	gt,
 	isIn,
-	isNull,
 	literal,
 	lt,
 	matchAll,
@@ -38,7 +37,7 @@ import {
 	term,
 	today,
 } from "@/lib/domain/predicate";
-import { classifyError, errorIdentity, evaluateBoundary } from "../../../gate";
+import { classifyError, evaluateBoundary } from "../../../gate";
 import { runValidation } from "../../../runner";
 
 const CODE = "CASE_LIST_CSQL_NOT_REPRESENTABLE" as const;
@@ -51,7 +50,7 @@ const standardForm = {
 			kind: "text" as const,
 			id: "case_name",
 			label: "Name",
-			case_property_on: "patient",
+			caseWrite: { caseType: "patient", property: "case_name" },
 		}),
 	],
 };
@@ -193,7 +192,7 @@ describe("csqlPredicateRepresentability", () => {
 		);
 		expect(rejected.ok).toBe(false);
 		if (rejected.ok) throw new Error("Expected search-backed edit to fail");
-		expect(rejected.introduced.map((error) => error.code)).toContain(CODE);
+		expect(rejected.findings.map((error) => error.code)).toContain(CODE);
 
 		expect(
 			mutationCommitVerdict(
@@ -385,21 +384,6 @@ describe("csqlPredicateRepresentability", () => {
 		expect(csqlFindings(doc)).toEqual([]);
 	});
 
-	it("delegates strict-null to the portable-null rule without a duplicate CSQL finding", () => {
-		const doc = docWithAdvancedPredicate(isNull(prop("patient", "case_name")));
-
-		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
-		expect(errors.filter((error) => error.code === CODE)).toHaveLength(0);
-		const portableHits = errors.filter(
-			(error) => error.code === "CASE_LIST_STRICT_NULL_NOT_PORTABLE",
-		);
-		expect(portableHits).toHaveLength(1);
-		expect(userFacingError(portableHits[0])).toContain(
-			'search field "Condition value"',
-		);
-		expect(userFacingError(portableHits[0])).not.toContain("CCHQ");
-	});
-
 	it("rejects a self relationship envelope", () => {
 		const doc = docWithFilter(
 			exists(selfPath(), eq(prop("patient", "case_name"), literal("Alice"))),
@@ -479,16 +463,9 @@ describe("csqlPredicateRepresentability", () => {
 		expect(inputHit.message).toContain('advanced search input "Minimum score"');
 		expect(userFacingError(inputHit)).toContain('search field "Minimum score"');
 		expect(userFacingError(inputHit)).not.toContain("minimum_score");
-		expect(new Set(hits.map(errorIdentity))).toHaveLength(2);
 		expect(
-			errorIdentity({
-				...inputHit,
-				details: {
-					...inputHit.details,
-					slot: "caseListConfig.searchInputs[7].predicate",
-				},
-			}),
-		).toBe(errorIdentity(inputHit));
+			hits.filter((hit) => hit.details?.inputUuid === inputUuid),
+		).toHaveLength(1);
 	});
 
 	it("is a soundness finding that rejects the zero-tolerance export boundary", () => {

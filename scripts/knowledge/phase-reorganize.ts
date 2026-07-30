@@ -185,7 +185,7 @@ KEEP — Instance declarations:
 "Instance ID: locations, Instance URI: jr://fixture/locations"
 
 KEEP — XPath expression patterns:
-"#form/field_id → shorthand for /data/field_id; #case/case_property_name → load from current case; In validation conditions, . (dot) refers to the current field's value."
+"#form/field_id → shorthand for /data/field_id; #<case_type>/case_property_name → load from that explicit reachable case type; In validation conditions, . (dot) refers to the current field's value."
 
 KEEP — Blueprint-level design guidance:
 "A case list has a case type. Each column can be a case property or a calculate condition. In calculate conditions, the calculation runs over each row — use current()/property_name to reference the current row. If a parent case property is needed for display or search, denormalize it."`;
@@ -385,7 +385,7 @@ KEEP:
 "Instance ID: locations, Instance URI: jr://fixture/locations"
 
 KEEP:
-"#form/field_id → shorthand for /data/field_id; #case/case_property_name → load from current case; In validation conditions, . (dot) refers to the current field's value."
+"#form/field_id → shorthand for /data/field_id; #<case_type>/case_property_name → load from that explicit reachable case type; In validation conditions, . (dot) refers to the current field's value."
 
 KEEP:
 "A case list has a case type. Each column can be a case property or a calculate condition. In calculate conditions, the calculation runs over each row — use current()/property_name to reference the current row. If a parent case property is needed for display or search, denormalize it."

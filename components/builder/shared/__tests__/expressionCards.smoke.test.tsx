@@ -34,7 +34,7 @@ import {
 const PATIENT: CaseType = {
 	name: "patient",
 	properties: [
-		{ name: "name", label: proseText("Name"), data_type: "text" },
+		{ name: "case_name", label: proseText("Case name"), data_type: "text" },
 		{ name: "age", label: proseText("Age"), data_type: "int" },
 		{ name: "weight", label: proseText("Weight"), data_type: "decimal" },
 		{ name: "dob", label: proseText("Date of birth"), data_type: "date" },

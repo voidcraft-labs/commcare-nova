@@ -5,11 +5,11 @@ import {
 	caseOperationSchema,
 	effectiveCaseTypes,
 	type Form,
-	MAX_CASE_OPERATION_TEXT_LENGTH,
+	MAX_CASE_SCALAR_TEXT_LENGTH,
 	materializableCaseTypes,
 	orderedCaseOperations,
 	planCaseRetype,
-	prepareCaseOperationTextValue,
+	prepareCaseScalarTextValue,
 } from "@/lib/domain";
 import {
 	actingUser,
@@ -24,34 +24,42 @@ const A = testUuid("11111111-1111-4111-8111-111111111111");
 const B = testUuid("22222222-2222-4222-8222-222222222222");
 
 describe("case-operation domain vocabulary", () => {
-	it("normalizes and bounds case name/owner facets with Java-compatible whitespace", () => {
-		expect(prepareCaseOperationTextValue("\t Alice  Smith \r\n")).toEqual({
+	it("normalizes and bounds fixed-column case text with Java String.trim semantics", () => {
+		expect(
+			prepareCaseScalarTextValue("\u0000\u001f Alice  Smith \r\n", "reject"),
+		).toEqual({
 			ok: true,
 			value: "Alice  Smith",
 		});
-		expect(prepareCaseOperationTextValue(" \t\n\v\f\r ")).toEqual({
+		expect(prepareCaseScalarTextValue(" \t\n\v\f\r ", "reject")).toEqual({
 			ok: false,
 			value: "",
 			reason: "blank",
 		});
 		expect(
-			prepareCaseOperationTextValue("x".repeat(MAX_CASE_OPERATION_TEXT_LENGTH)),
-		).toMatchObject({ ok: true });
-		expect(
-			prepareCaseOperationTextValue(
-				`  ${"x".repeat(MAX_CASE_OPERATION_TEXT_LENGTH)}  `,
+			prepareCaseScalarTextValue(
+				"x".repeat(MAX_CASE_SCALAR_TEXT_LENGTH),
+				"reject",
 			),
 		).toMatchObject({ ok: true });
 		expect(
-			prepareCaseOperationTextValue(
-				"x".repeat(MAX_CASE_OPERATION_TEXT_LENGTH + 1),
+			prepareCaseScalarTextValue(
+				`  ${"x".repeat(MAX_CASE_SCALAR_TEXT_LENGTH)}  `,
+				"reject",
+			),
+		).toMatchObject({ ok: true });
+		expect(
+			prepareCaseScalarTextValue(
+				"x".repeat(MAX_CASE_SCALAR_TEXT_LENGTH + 1),
+				"reject",
 			),
 		).toMatchObject({ ok: false, reason: "too-long" });
-		// Java regex's default `\\s` does not include NBSP. Keep that exact
-		// rather than silently adopting JavaScript's broader `\\s` semantics.
-		expect(prepareCaseOperationTextValue("\u00a0name\u00a0")).toMatchObject({
+		expect(
+			prepareCaseScalarTextValue("\u00a0name\u00a0", "reject"),
+		).toMatchObject({ ok: true, value: "\u00a0name\u00a0" });
+		expect(prepareCaseScalarTextValue("\u0000 \u001f", "allow")).toEqual({
 			ok: true,
-			value: "\u00a0name\u00a0",
+			value: "",
 		});
 	});
 
@@ -175,7 +183,7 @@ describe("case-operation domain vocabulary", () => {
 									kind: "int",
 									id: "score",
 									label: proseText("Score"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "score" },
 								}),
 							],
 						},

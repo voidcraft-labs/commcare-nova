@@ -35,8 +35,33 @@ AJV's strict-mode constraints rule out the alternatives: `null`
 fails `integer` / `number` types; `""` fails `format: date` /
 `format: time` / `format: date-time` / the geopoint pattern.
 Omission is the only shape that passes validation AND aligns
-with Postgres-strict `is-null` semantics ("absent" ≡ "not
-present in the JSONB document").
+with Postgres missing-value semantics ("absent" ≡ "not present
+in the JSONB document").
+
+Case-write collection is not a second Preview model. `FormEngine` derives
+`lib/domain/caseWriteInventory.ts` for its active form and immediately crosses
+the shared `assertAndProjectCaseWriteInventory` boundary used by CommCare
+lowering. That boundary admits the exact own/direct-child bucket membership and
+forces every writer/repeat path through the private typed `FormPath` projection
+once. Preview then materializes those admitted bucket objects against live
+values: it trusts `bucket.kind`, carries the writer's explicit destination
+property, and asserts that the runtime's nearest repeat UUID equals the
+bucket's nearest repeat UUID before creating a concrete per-iteration child.
+It never reclassifies primary/child membership from case-type text, field ids,
+or rendered paths. The engine input uses `materializableCaseTypes(doc)`, so
+writer-derived properties are typed without inventing a separate unknown-
+property admission rule.
+
+The standard writable scalars are a separate, explicit projection:
+`case_name` and `external_id` never enter the JSONB `properties` object.
+Preview routes them through the primary/child scalar slots that the submission
+envelope maps to `cases.case_name` and `cases.external_id`. Both use the shared
+Java `String.trim` boundary (only U+0000 through U+0020) and the 255 UTF-16-unit
+limit. An active blank `case_name` is invalid; an active blank `external_id` is
+a real `""` write that clears the value. A missing or irrelevant writer is no
+intent and preserves the existing scalar. When an ordinary field writer and a
+case operation both target `external_id`, the ordinary form action runs last
+and wins, matching the emitted CommCare transaction.
 
 Form completion produces only 2 of the 3 spec-defined JSONB
 states (absent / null / present-and-empty) — the
@@ -347,7 +372,7 @@ Navigation display conditions (`displayConditionEvaluation.ts`) evaluate at
 render through the same printing path: module conditions gate the home
 screen's module list; form conditions gate the case-list screen's
 post-selection form menu + single-form auto-continue (against the selected
-row's projection, self reads printed as `#case/` hashtags) and the module
+row's projection, with a private evaluator token for typed self reads) and the module
 screen's forms-first list. Raw absent-node semantics hold — absent
 string-unpacks to `""`, numeric ordering yields NaN, no presence guards.
 Visibility is three-valued: a carrier-bearing condition without loaded data
@@ -408,13 +433,25 @@ Three things the rest of the preview has to know:
 
 The nav stack carries only `caseId`. Case data is looked up by id at the point of use, not stored in navigation state. Swapping the data source (dummy → real API) only requires changing the lookup functions.
 
-**Per-case-type refs resolve at every reachable depth, positionally.** The engine's case data is a per-case-type map (`CaseDataByType`, case-type name → property map) built by `caseRowsToFormPreloads` with the WIRE's semantic: each reachable type's namespace binds to the row at that type's blueprint depth — `expandCaseToWire` emits a blueprint-fixed `index/parent × depth` casedb walk with no case-type filter, so when the live parent chain doesn't mirror the blueprint's `parent_type` chain, preview and device read the SAME row at the hop count (and a depth past the chain's end reads blank on both). The rows come from `readCaseData`, which walks the bound case's `parent_case_id` chain server-side through the `parent` index edges, exactly `ancestorDepth` hops (the form's `reachableCaseTypes(...).length - 1`, client-supplied, server-clamped at 64 — any deeper `parent_type` chain is pathological authoring); the chain is ENRICHMENT — a dangling parent or a mid-walk failure degrades to the rows already fetched, never fails the load. The hashtag resolver (`formEngine.ts::createEvalContext`) looks a `#<case_type>/<prop>` namespace up by type name; the transitional `#case/` spelling aliases the own type; `caseRefAcceptMap` decides at authoring time which namespaces a form may reference. Both case-loading form types preload (`followup` AND `close`) — from the OWN type's entry only, since ancestor namespaces are read-only reference data, and only while the engine's supplied-under type still matches the module's (a mid-preview module retype withholds preload rather than seed field values from an ancestor's row — `ownCaseData`). Each per-row map (`caseRowToFormPreload`) carries the JSONB document PLUS the reserved scalar columns under their standard names (`date_opened`, `last_modified`, `case_id`, …), mirroring what the device's casedb exposes.
+**Per-case-type refs resolve at every reachable depth, positionally.** The engine's case data is a per-case-type map (`CaseDataByType`, case-type name → property map) built by `caseRowsToFormPreloads` with the WIRE's semantic: each reachable type's namespace binds to the row at that type's blueprint depth — `expandCaseToWire` emits a blueprint-fixed `index/parent × depth` casedb walk with no case-type filter, so when the live parent chain doesn't mirror the blueprint's `parent_type` chain, preview and device read the SAME row at the hop count (and a depth past the chain's end reads blank on both). The rows come from `readCaseData`, which walks the bound case's `parent_case_id` chain server-side through the `parent` index edges, exactly `ancestorDepth` hops (the form's `reachableCaseTypes(...).length - 1`, client-supplied, server-clamped at 64 — any deeper `parent_type` chain is pathological authoring); the chain is ENRICHMENT — a dangling parent or a mid-walk failure degrades to the rows already fetched, never fails the load. The hashtag resolver (`formEngine.ts::createEvalContext`) looks an explicit `#<case_type>/<prop>` namespace up by type name and throws on raw `#case/...`; `caseRefAcceptMap` decides at authoring time which namespaces a form may reference. Both case-loading form types preload (`followup` AND `close`) — from the OWN type's entry only, since ancestor namespaces are read-only reference data, and only while the engine's supplied-under type still matches the module's (a mid-preview module retype withholds preload rather than seed field values from an ancestor's row — `ownCaseData`). Each per-row map (`caseRowToFormPreload`) carries the JSONB document PLUS the reserved scalar columns under their canonical Nova names (`date_opened`, `last_modified`, `case_id`, …), mirroring what the device's casedb exposes.
 
 Case-list sorting belongs to the Results composition. Equal authored sort priorities tie-break by Results position (`listColumnOrder`), never by Details; this is shared with the short-detail wire emitter. The confirmation screen independently renders `detailColumnOrder`, so rearranging Details has no effect on row query order. Both are read through `orderedColumns(config, surface)`.
 
 Case-data authoring is builder chrome, never simulated-app UI. `BreadcrumbStrip` owns the single persistent **Case data** manager: `loadCaseCountAction` reports the complete unfiltered population, an empty type may create samples, and replacing a populated type requires an explicit warning that ALL rows (including hand-entered / Preview-entered cases) are deleted. Successful populate/reset hooks advance `caseDataInvalidation` for `(appId, caseType)`; `useCases`, `useCaseData`, and `useCaseCount` all subscribe to that revision so one write refreshes every real-data representation instead of manually reloading the surface that launched it. Results and Details edit canvases do not query one case for decoration; real values belong to the running Preview.
 
-Case-search scalar prompt defaults run through `engine/searchExpressionEvaluation.ts`: it emits the authored `ValueExpression` to the same XPath shape as the device and evaluates it with the preview XPath evaluator plus the authenticated user's session values. Date range is deliberately excluded: CommCare binds one paired start/end answer, while the historical domain slot can store only one scalar, so Preview never invents a From-only default. `hooks/useSearchInputRunState.ts` applies supported defaults once per module, refreshes only untouched prompts when a default/session value changes, and resets submitted state on a module switch; the flipbook therefore preserves worker edits without leaking the prior module's query. `caseSearchConfig.excludedOwnerIds` evaluates once at the authenticated Server Action boundary (so `session-context(userid)` is real), before any case row exists; the shared gate rejects property and relationship reads, while literals/session/Search values and pure calculations remain available. The result splits exactly like CCHQ on whitespace and joins `caseListConfig.filter` + submitted prompts as one Postgres predicate — never a client-side post-filter.
+The Case data manager's app-wide property-rename review uses
+`engine/casePropertyRenamePreflight.ts`, not an optimistic client row count.
+The action authorizes current Project view access, loads the authoritative
+Blueprint and mutation sequence, admits the exact exclusive rename, evaluates
+the complete candidate with the current lookup-definition snapshot, and reads
+all live and parked storage counts in that same transaction. Its result is
+explanatory only: no write token exists. A scope change makes
+`hooks/useCasePropertyRenamePreflight.ts` discard the report, and the dialog
+compares its returned `mutationSeq` to the reconciler's current base sequence
+so any intervening app commit requires Review again. The later save rechecks
+every fact under the authoritative write locks.
+
+Case-search scalar prompt defaults run through `engine/searchExpressionEvaluation.ts`: it emits the authored `ValueExpression` to the same XPath shape as the device and evaluates it with the preview XPath evaluator plus the authenticated user's session values. Date range is deliberately excluded: CommCare binds one paired start/end answer, and the final date-range arm has no scalar default slot, so Preview never invents a From-only default. `hooks/useSearchInputRunState.ts` applies supported defaults once per module, refreshes only untouched prompts when a default/session value changes, and resets submitted state on a module switch; the flipbook therefore preserves worker edits without leaking the prior module's query. `caseSearchConfig.excludedOwnerIds` evaluates once at the authenticated Server Action boundary (so `session-context(userid)` is real), before any case row exists; the shared gate rejects property and relationship reads, while literals/session/Search values and pure calculations remain available. The result splits exactly like CCHQ on whitespace and joins `caseListConfig.filter` + submitted prompts as one Postgres predicate — never a client-side post-filter.
 
 Preview derives navigation from the effective Search action, not from the mere presence of the compatibility settings bag. An explicit zero-input Search action with no Results filter renders one functional manual Search action; with an effective Results filter it submits automatically once for that module/config state. An owner-only exclusion still constrains every Results query, but it mounts no Search screen and triggers no automatic transition by itself. For a prompted Search, `searchButtonDisplayCondition` gates the whole combined Search pane from the case-list action's pre-prompt session/global context; it never reacts to the pane's draft, and the pane's single authored-label submit remains available whenever the action is relevant.
 

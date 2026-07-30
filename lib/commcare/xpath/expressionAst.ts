@@ -23,9 +23,8 @@
 //     so no doc lookup gates this.
 //   - `#user/<prop>` → `user-property-ref` when it names Nova-authored
 //     worker information, otherwise the final raw `user-ref` form.
-//   - `#case/...` (contextual — follows mutable module state),
-//     multi-segment non-form shapes, and unknown namespaces are reported as
-//     parse issues and cannot enter a stored expression.
+//   - Raw `#case/...`, multi-segment non-form shapes, and unknown namespaces
+//     are reported as parse issues and cannot enter a stored expression.
 //
 // A source with any Lezer parse error stays ONE opaque text run: ref
 // classification over a broken tree is unreliable, and the syntax
@@ -255,10 +254,8 @@ function classifyHashtag(
 		return { kind: "unresolved-reference", namespace, segments };
 	}
 	if (namespace === "case") {
-		// Contextual — follows the owning module's CURRENT case type
-		// rather than naming the canonical `(caseType, property)` identity.
-		// Report it as unresolved; the machine-authoring gate does not admit
-		// a mutable contextual-reference dialect.
+		// CommCare-private projection vocabulary, not a canonical
+		// `(caseType, property)` identity. It cannot enter authored storage.
 		return { kind: "unresolved-reference", namespace, segments };
 	}
 	if (segments.length === 1) {

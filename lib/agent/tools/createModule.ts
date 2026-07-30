@@ -24,15 +24,9 @@
  * goes through the case-list-config tools once the module exists; this
  * tool's `case_list_columns` exists so the module can BE BORN complete.
  *
- * Each form's `connect` block carries the exact canonical expression AST
- * (`shared/connectInput.ts::buildConnectConfig`, same as `updateForm` /
- * `createForm`). A reference to a field landing in the same form uses
- * that field's predeclared final UUID, so no name/path resolution occurs
- * here. The merged block then runs through
- * `enforceConnectIds` (the agent-path source guard). One app-wide id
- * set threads through every form in the call, so an omitted id
- * autofills valid + unique across the whole creation and an explicit
- * invalid or duplicate id fails the call.
+ * New forms are auxiliary on a Connect app. After their final UUIDs exist,
+ * `configureConnect` can replace the complete participant set atomically;
+ * module creation cannot become a second owner of participation.
  *
  * Both the SA chat factory and the MCP adapter call this through the
  * shared `ToolExecutionContext` interface. Exit branches:
@@ -41,29 +35,24 @@
  *      pointing at generateSchema, no mutations.
  *   2. Identifier guard rejection in any form's fields → `{ error }`
  *      naming every failing item, nothing persisted.
- *   3. An explicit connect id is invalid/duplicate → `{ error }`, no
- *      mutations.
- *   4. Commit-gate rejection → `{ error }` listing each finding,
+ *   3. Commit-gate rejection → `{ error }` listing each finding,
  *      nothing persisted.
- *   5. Unexpected runtime error → `{ error }`, no mutations.
- *   6. Success → a human-readable `message` (+ a UI `summary`) carrying
+ *   4. Unexpected runtime error → `{ error }`, no mutations.
+ *   5. Success → a human-readable `message` (+ a UI `summary`) carrying
  *      the new module's index + structure counts, stage `module:create`.
  */
 
 import { z } from "zod";
-import type { BlueprintDoc, ConnectConfig } from "@/lib/domain";
+import type { BlueprintDoc } from "@/lib/domain";
 import {
 	asUuid,
 	FORM_TYPES,
 	findAuthoredBlueprintIdentity,
-	USER_FACING_DESTINATIONS,
+	POST_SUBMIT_DESTINATIONS,
 	uuidSchema,
 } from "@/lib/domain";
 import { addFormMutations, addModuleMutations } from "../blueprintHelpers";
-import {
-	closeConditionInputSchema,
-	connectFormConfigSchema,
-} from "../planningSchemas";
+import { closeConditionInputSchema } from "../planningSchemas";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import { addFieldsItemSchema } from "../toolSchemas";
 import {
@@ -76,10 +65,9 @@ import {
 	type MutatingToolResult,
 	toToolErrorResult,
 } from "./common";
-import { collectConnectIds, enforceConnectIds } from "./shared/connectIds";
-import { buildConnectConfig } from "./shared/connectInput";
 import {
 	assembleFieldMutations,
+	type CreatedFieldIdentity,
 	describeRejectedFieldIds,
 	resolveCloseCondition,
 } from "./shared/fieldAssembly";
@@ -116,7 +104,7 @@ const createModuleFormSchema = z
 				"Brief description of what this form collects and why. null when there's nothing to add.",
 			),
 		post_submit: z
-			.enum(USER_FACING_DESTINATIONS)
+			.enum(POST_SUBMIT_DESTINATIONS)
 			.nullable()
 			.optional()
 			.describe(
@@ -127,12 +115,6 @@ const createModuleFormSchema = z
 			.optional()
 			.describe(
 				"Close forms only — close the case only when the UUID-addressed field matches (the field may be predeclared in this same call). null for an unconditional close.",
-			),
-		connect: connectFormConfigSchema
-			.nullable()
-			.optional()
-			.describe(
-				"Per-form Connect config — a block opts the form INTO Connect, and a participating form lands with its block in this call. Pass null on a form that shouldn't participate (a Connect app just needs at least one participating form), and always on standard apps.",
 			),
 	})
 	.strict();
@@ -194,7 +176,7 @@ export type CreateModuleResult =
 			forms: Array<{
 				uuid: string;
 				name: string;
-				fields: Array<{ uuid: string; id: string }>;
+				fields: CreatedFieldIdentity[];
 			}>;
 			columns: Array<{ uuid: string }>;
 	  })
@@ -282,7 +264,7 @@ export const createModuleTool = {
 			const createdForms: Array<{
 				uuid: string;
 				name: string;
-				fields: Array<{ uuid: string; id: string }>;
+				fields: CreatedFieldIdentity[];
 			}> = [];
 			const skipped: Array<{ id: string; reason: string }> = [];
 			const callEntityUuids = new Set([
@@ -323,12 +305,6 @@ export const createModuleTool = {
 					},
 				};
 			}
-			// One app-wide id set threads through every form in this call:
-			// `enforceConnectIds` adds each autofilled/explicit-valid id as it
-			// goes, so two id-less blocks across sibling forms can't derive the
-			// same slug. No exclusion — none of this call's forms exist in the
-			// doc yet.
-			const takenConnectIds = collectConnectIds(doc);
 			// The module + all its forms land in ONE batch. Each `addForm`
 			// appends, so emitting them in order is what orders them — they no
 			// longer need to derive keys off each other.
@@ -348,8 +324,7 @@ export const createModuleTool = {
 					};
 				}
 				callEntityUuids.add(formUuid);
-				// Assemble fields first so their predeclared UUIDs are present
-				// in the same atomic mutation batch as connect references.
+				// Assemble every field into the same atomic module-creation batch.
 				// Catalog defaulting reads `doc.caseTypes` — the records
 				// generateSchema committed ahead of this call.
 				const assembly = assembleFieldMutations({
@@ -389,29 +364,6 @@ export const createModuleTool = {
 						},
 					};
 				}
-				// Connect XPath slots already carry canonical AST, including
-				// predeclared UUIDs for same-call fields. Then apply the id
-				// source guard against the call-wide threaded set.
-				let enforcedConnect: ConnectConfig | undefined;
-				if (formInput.connect) {
-					const enforced = enforceConnectIds(
-						buildConnectConfig(formInput.connect, undefined),
-						name,
-						formInput.name,
-						takenConnectIds,
-					);
-					if (!enforced.ok) {
-						return {
-							kind: "mutate" as const,
-							mutations: [],
-							newDoc: doc,
-							result: {
-								error: `Module "${name}" wasn't created — form "${formInput.name}": ${enforced.error}`,
-							},
-						};
-					}
-					enforcedConnect = enforced.config;
-				}
 				if (
 					formInput.close_condition &&
 					!assembly.created.some(
@@ -443,7 +395,6 @@ export const createModuleTool = {
 								postSubmit: formInput.post_submit,
 							}),
 							...(closeCondition && { closeCondition }),
-							...(enforcedConnect && { connect: enforcedConnect }),
 						},
 						// The module is created by THIS batch — skip the
 						// doc-existence guard that would otherwise reject it.
@@ -456,6 +407,12 @@ export const createModuleTool = {
 					name: formInput.name,
 					fields: assembly.created,
 				});
+				for (const field of assembly.created) {
+					callEntityUuids.add(field.uuid);
+					for (const option of field.options) {
+						callEntityUuids.add(option.uuid);
+					}
+				}
 				// Count the fields, not the batch: the assembly prepends the
 				// declaration chokepoint's catalog mutations for undeclared
 				// types.

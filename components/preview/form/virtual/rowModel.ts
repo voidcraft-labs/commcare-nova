@@ -185,12 +185,8 @@ function walk(
 	rows: FormRow[],
 	options: BuildFormRowsOptions,
 ): void {
-	// DISPLAY order (`sort-by-(order, uuid)`), not `fieldOrder` array position —
-	// a same-parent `moveField` reorder writes only the field's `order` and
-	// leaves the array untouched, so the edit canvas re-sequences because this
-	// walk sorts; the insertion-point `beforeIndex` values below are positions
-	// in this sorted sequence (which the add gesture resolves against the same
-	// sorted siblings).
+	// `fieldOrder` array position is the display sequence. The insertion-point
+	// `beforeIndex` values below address that same sequence.
 	const childUuids = [...(src.fieldOrder[parentUuid] ?? [])];
 
 	// Leading insertion point (edit mode only).

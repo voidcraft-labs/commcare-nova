@@ -250,6 +250,61 @@ describe("HeuristicCaseGenerator", () => {
 		}
 	});
 
+	it("keeps explicitly declared scalar properties out of generated JSONB", () => {
+		const caseType: CaseType = {
+			name: "patient",
+			properties: [
+				{ name: "case_id", label: proseText("Case ID"), data_type: "text" },
+				{
+					name: "case_type",
+					label: proseText("Case type"),
+					data_type: "text",
+				},
+				{
+					name: "case_name",
+					label: proseText("Case name"),
+					data_type: "text",
+				},
+				{
+					name: "date_opened",
+					label: proseText("Date opened"),
+					data_type: "datetime",
+				},
+				{
+					name: "last_modified",
+					label: proseText("Last modified"),
+					data_type: "datetime",
+				},
+				{ name: "owner_id", label: proseText("Owner"), data_type: "text" },
+				{
+					name: "external_id",
+					label: proseText("External ID"),
+					data_type: "text",
+				},
+				{ name: "status", label: proseText("Status"), data_type: "text" },
+				{ name: "notes", label: proseText("Notes"), data_type: "text" },
+			],
+		};
+		const rows = generator.generate({
+			appId: "app-1",
+			caseType,
+			count: 2,
+			seed: "explicit-scalars",
+		});
+		const validate = new Ajv2020({ strict: false }).compile(
+			caseTypeToJsonSchema(caseType),
+		);
+
+		for (const row of rows) {
+			expect(row.properties).toEqual({
+				notes: expect.any(String),
+			});
+			expect(row.external_id).toMatch(/^PAT-\d{4,}$/);
+			expect(row.status).toBe("open");
+			expect(validate(row.properties)).toBe(true);
+		}
+	});
+
 	it("does not consume the existing property, name, or parent PRNG stream", () => {
 		const rows = generator.generate({
 			appId: "app-1",

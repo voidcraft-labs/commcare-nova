@@ -95,7 +95,7 @@ async function seedReadyDocument(assetId: MediaAssetId): Promise<void> {
 			size_bytes: 128,
 			dimensions: null,
 			duration_ms: null,
-			kind: "document",
+			kind: "pdf",
 			gcs_object_key: `projects/project-test/${assetId}.pdf`,
 			original_filename: "requirements.pdf",
 			display_name: "Requirements",
@@ -119,8 +119,17 @@ const OTHER_NONCE = "00000000-0000-4000-8000-000000000002";
  * at rest.
  */
 async function upsertThreadTurn(
-	args: Parameters<typeof persistOwnedThreadTurn>[0],
+	args: Omit<
+		Parameters<typeof persistOwnedThreadTurn>[0],
+		"expectedProjectId"
+	> & {
+		expectedProjectId?: string;
+	},
 ): Promise<boolean> {
+	const admittedArgs = {
+		expectedProjectId: "project-test",
+		...args,
+	};
 	const db = await getAppDb();
 	const original = await db
 		.selectFrom("apps")
@@ -169,7 +178,7 @@ async function upsertThreadTurn(
 		}
 	});
 
-	const written = await persistOwnedThreadTurn(args);
+	const written = await persistOwnedThreadTurn(admittedArgs);
 	if (wasAtRest) {
 		await db.transaction().execute(async (tx) => {
 			await tx
@@ -292,7 +301,7 @@ describe("mergeTranscript", () => {
 });
 
 describe("thread attachment admission", () => {
-	it("locks and indexes new attachments and deletion re-walks old thread history", async () => {
+	it("locks and exactly indexes attachments so deletion re-walks the thread carrier", async () => {
 		const assetId = testMediaAssetId("70000000-0000-4000-8000-000000000001");
 		await seedReadyDocument(assetId);
 		await upsertThreadTurn({
@@ -308,18 +317,14 @@ describe("thread attachment admission", () => {
 		const edge = await h
 			.db()
 			.selectFrom("media_asset_refs")
-			.select(["asset_id", "app_id"])
+			.select(["project_id", "asset_id", "app_id"])
 			.where("asset_id", "=", assetId)
 			.executeTakeFirst();
-		expect(edge).toEqual({ asset_id: assetId, app_id: APP });
-
-		// Simulate pre-index history while the completeness marker is still null:
-		// authoritative deletion must still inspect the canonical thread carrier.
-		await h
-			.db()
-			.deleteFrom("media_asset_refs")
-			.where("asset_id", "=", assetId)
-			.execute();
+		expect(edge).toEqual({
+			project_id: "project-test",
+			asset_id: assetId,
+			app_id: APP,
+		});
 		await expect(
 			deleteMediaAssetForActor({
 				assetId,
@@ -350,6 +355,30 @@ describe("thread attachment admission", () => {
 			}),
 		).rejects.toBeInstanceOf(ThreadAttachmentUnavailableError);
 		expect(await loadThread(APP, "thread-missing-document")).toBeNull();
+	});
+
+	it("rejects an attachment whose stored asset kind does not match metadata", async () => {
+		const assetId = testMediaAssetId("70000000-0000-4000-8000-000000000009");
+		await seedReadyDocument(assetId);
+		await h
+			.db()
+			.updateTable("media_assets")
+			.set({ kind: "image" })
+			.where("id", "=", assetId)
+			.execute();
+
+		await expect(
+			upsertThreadTurn({
+				appId: APP,
+				threadId: "thread-kind-mismatch",
+				runId: "run-kind-mismatch",
+				streamId: "stream-kind-mismatch",
+				holderNonce: NONCE,
+				threadType: "build",
+				messages: [attachmentMsg("message-kind-mismatch", assetId)],
+			}),
+		).rejects.toBeInstanceOf(ThreadAttachmentUnavailableError);
+		expect(await loadThread(APP, "thread-kind-mismatch")).toBeNull();
 	});
 });
 
@@ -543,6 +572,7 @@ describe("upsertThreadTurn", () => {
 				holderNonce: NONCE,
 				threadType: "build",
 				messages: [userMsg("mx", "must not cross apps")],
+				expectedProjectId: "project-test",
 			}),
 		).rejects.toMatchObject({
 			name: new RunHolderLostError().name,
@@ -954,6 +984,7 @@ describe("loaders", () => {
 			appId: app,
 			threadId: "t-bail",
 			messages: [userMsg("m1", "build it"), assistantMsg("m2", "answered")],
+			expectedProjectId: "project-test",
 		});
 
 		const db = await getAppDb();
@@ -976,6 +1007,7 @@ describe("loaders", () => {
 			appId: other,
 			threadId: "t-bail",
 			messages: [userMsg("mx", "cross-app forge")],
+			expectedProjectId: "project-test",
 		});
 		const unchanged = await db
 			.selectFrom("threads")
@@ -993,6 +1025,7 @@ describe("loaders", () => {
 			appId: app,
 			threadId: "t-never-existed",
 			messages: [userMsg("m1", "hello")],
+			expectedProjectId: "project-test",
 		});
 		const ghost = await db
 			.selectFrom("threads")

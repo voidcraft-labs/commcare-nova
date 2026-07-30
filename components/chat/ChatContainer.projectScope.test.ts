@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { NovaUIMessage } from "@/lib/chat/attachmentRefs";
+import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { canonicalAppGenesis } from "@/lib/doc/scaffolds";
+import type { BlueprintDoc } from "@/lib/doc/types";
 import {
 	authoritativeThreadActivationOptions,
 	chatCallbackCanPublish,
@@ -70,19 +75,54 @@ describe("new-app Project handoff", () => {
 	});
 
 	it("accepts only a complete authoritative activation receipt", () => {
+		const empty: BlueprintDoc = {
+			appId: "app-1",
+			appName: "",
+			connectType: null,
+			caseTypes: null,
+			modules: {},
+			forms: {},
+			fields: {},
+			moduleOrder: [],
+			formOrder: {},
+			fieldOrder: {},
+			fieldParent: {},
+		};
+		const genesis = canonicalAppGenesis(empty);
+		const verdict = mutationCommitVerdict(
+			empty,
+			genesis.mutations,
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(verdict.ok).toBe(true);
 		const receipt = {
 			appId: "app-1",
 			projectId: "project-1",
 			role: "editor",
 			canEdit: true,
-			baseSeq: 0,
+			baseSeq: 1,
+			blueprint: toPersistableDoc(verdict.nextDoc),
+			starter: {
+				moduleUuid: genesis.moduleUuid,
+				formUuid: genesis.formUuid,
+				fieldUuid: genesis.fieldUuid,
+			},
 		};
 
 		expect(parseCreatedAppActivation(receipt)).toEqual(receipt);
 		expect(
 			parseCreatedAppActivation({ ...receipt, role: undefined }),
 		).toBeNull();
-		expect(parseCreatedAppActivation({ ...receipt, baseSeq: -1 })).toBeNull();
+		expect(parseCreatedAppActivation({ ...receipt, baseSeq: 0 })).toBeNull();
+		expect(
+			parseCreatedAppActivation({
+				...receipt,
+				starter: { ...receipt.starter, fieldUuid: genesis.formUuid },
+			}),
+		).toBeNull();
+		expect(
+			parseCreatedAppActivation({ ...receipt, unexpected: true }),
+		).toBeNull();
 	});
 });
 

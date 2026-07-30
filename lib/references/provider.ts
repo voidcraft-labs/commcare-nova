@@ -443,6 +443,9 @@ export class ReferenceProvider {
 		if (slashIdx < 0) return null;
 		const ns = raw.slice(1, slashIdx);
 		if (!NAMESPACE_RE.test(ns)) return null;
+		// `case` is CommCare-private projection vocabulary, never an authored
+		// Nova namespace. Canonical case refs name their actual case type.
+		if (ns === "case") return null;
 		const path = raw.slice(slashIdx + 1);
 		if (!path) return null;
 		const family = classifyNamespace(ns);

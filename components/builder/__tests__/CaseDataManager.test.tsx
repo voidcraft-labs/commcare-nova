@@ -106,10 +106,24 @@ function renderManager(
 		>
 			<CaseDataManager
 				appId="app-case-manager"
-				moduleUuid={"00000000-0000-7000-8000-000000000001" as Uuid}
-				caseType={caseType}
+				caseTypes={
+					hasLinkedChildren
+						? [
+								caseType,
+								{
+									name: "visit",
+									parent_type: caseType.name,
+									properties: [],
+								},
+							]
+						: [caseType]
+				}
+				effectiveCaseTypes={[caseType]}
+				moduleUuidByCaseType={{
+					[caseType.name]: "00000000-0000-7000-8000-000000000001" as Uuid,
+				}}
+				initialCaseType={caseType.name}
 				canEdit={canEdit}
-				hasLinkedChildren={hasLinkedChildren}
 			/>
 		</BuilderSessionProvider>,
 	);

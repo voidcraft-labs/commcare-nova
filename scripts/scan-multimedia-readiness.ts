@@ -524,13 +524,7 @@ async function scanApp(appId: string): Promise<void> {
 		process.exit(1);
 	}
 
-	const projectId = app.project_id ?? undefined;
-	if (!projectId) {
-		console.error(
-			`App "${appId}" has no project_id, so its media assets can't be resolved (every asset read is Project-scoped).`,
-		);
-		process.exit(1);
-	}
+	const projectId = app.project_id;
 
 	printKV([
 		["App ID", appId],

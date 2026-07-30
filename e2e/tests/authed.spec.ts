@@ -315,10 +315,10 @@ test.describe("authenticated builder", () => {
 		await page.getByRole("link", { name: `Open ${seed.openAppName}` }).click();
 		await page.waitForURL(new RegExp(`/build/${seed.openAppId}`));
 
-		// An empty app opens into the chat-first builder (the structural
-		// canvas/sidebar only appears once it has content). Assert the builder
-		// chrome (Account menu) AND the page content (the chat composer) mounted —
-		// the latter proves we rendered the page, not the error boundary.
+		// A born-valid canonical starter opens in the builder with chat available
+		// for refinement. Assert the builder chrome (Account menu) AND the page
+		// content (the chat composer) mounted — the latter proves we rendered the
+		// page, not the error boundary.
 		await expect(
 			page.getByRole("button", { name: "Account menu" }),
 		).toBeVisible({ timeout: 20_000 });
@@ -1810,7 +1810,7 @@ test.describe("authenticated builder", () => {
 		});
 	});
 
-	test("case changes add, retarget, preserve dormant logic, and stay navigable to viewers", async ({
+	test("case changes add, retarget, preserve table lookups, and stay navigable to viewers", async ({
 		page,
 		browser,
 		baseURL,
@@ -1914,7 +1914,7 @@ test.describe("authenticated builder", () => {
 				page.getByText(beforeDeep.id, { exact: true }),
 			).toBeVisible();
 
-			// Two forward lands on the dormant change, which is last — so the
+			// Two forward lands on the table-lookup change, which is last — so the
 			// traversal ends rather than wrapping, and says so by going dead.
 			const next = page.getByRole("button", { name: "Next change" });
 			await next.click();
@@ -1994,7 +1994,7 @@ test.describe("authenticated builder", () => {
 			await page.getByRole("button", { name: "All case changes" }).click();
 			await page
 				.locator(
-					`[data-case-operation-select="${CASE_CHANGES_SEED.operations.dormant}"]`,
+					`[data-case-operation-select="${CASE_CHANGES_SEED.operations.tableLookup}"]`,
 				)
 				.click();
 			const notes = page
@@ -2014,7 +2014,7 @@ test.describe("authenticated builder", () => {
 			await expect(
 				page.getByRole("button", {
 					name: new RegExp(
-						`^Move ${CASE_CHANGES_SEED.ids.dormant}\\. Runs ${CASE_CHANGES_SEQUENCE_LENGTH} of ${CASE_CHANGES_SEQUENCE_LENGTH}`,
+						`^Move ${CASE_CHANGES_SEED.ids.tableLookup}\\. Runs ${CASE_CHANGES_SEQUENCE_LENGTH} of ${CASE_CHANGES_SEQUENCE_LENGTH}`,
 					),
 				}),
 			).toBeVisible();
@@ -2249,15 +2249,15 @@ test.describe("authenticated builder", () => {
 		).toBeVisible();
 	});
 
-	test("the blank-app escape hatch mints a real app and opens it (no LLM)", async ({
+	test("the from-scratch escape hatch mints the canonical starter and opens it (no LLM)", async ({
 		page,
 	}) => {
 		await page.goto("/build/new");
 
-		const startBlank = page.getByRole("button", {
-			name: "Start with a blank app",
+		const startFromScratch = page.getByRole("button", {
+			name: "Start from scratch",
 		});
-		await expect(startBlank).toBeVisible({ timeout: 20_000 });
+		await expect(startFromScratch).toBeVisible({ timeout: 20_000 });
 
 		// The chat owns the screen until an app exists, so the sidebar chrome is
 		// absent here — this is the "centered, phase = Idle" state.
@@ -2265,19 +2265,18 @@ test.describe("authenticated builder", () => {
 			page.getByRole("button", { name: "Collapse chat sidebar" }),
 		).toHaveCount(0);
 
-		await startBlank.click();
+		await startFromScratch.click();
 
-		// The real createBlankApp Server Action → createApp → router.replace.
+		// The real createStarterApp Server Action → createApp → router.replace.
 		await page.waitForURL(/\/build\/(?!new)[\w-]+$/, { timeout: 30_000 });
 
 		// The chat DOCKED, which only happens once `docHasData` (moduleOrder is
-		// non-empty). That is the load-bearing assertion: a blank app that shipped
-		// with zero modules would render the centered chat again — and would fail
-		// the export validator with NO_MODULES.
+		// non-empty). That is the load-bearing assertion: the from-scratch path
+		// opens the canonical starter rather than reconstructing a zero-module app.
 		await expect(
 			page.getByRole("button", { name: "Collapse chat sidebar" }),
 		).toBeVisible({ timeout: 20_000 });
-		await expect(startBlank).toHaveCount(0);
+		await expect(startFromScratch).toHaveCount(0);
 	});
 
 	test("conversations open at the bottom and switch without exposing the prior transcript", async ({

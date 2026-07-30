@@ -9,7 +9,6 @@ import type {
 } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import { buildDoc, caseListConfig, f, xp } from "../../__tests__/docHelpers";
-import { errorIdentity, evaluateBoundary } from "../validator/gate";
 import { runValidation } from "../validator/runner";
 
 // ── Helpers ────────────────────────────────────────────────────────
@@ -39,7 +38,7 @@ function minDoc(): BlueprintDoc {
 								kind: "text",
 								id: "case_name",
 								label: proseText("Name"),
-								case_property_on: "patient",
+								caseWrite: { caseType: "patient", property: "case_name" },
 							}),
 						],
 					},
@@ -187,13 +186,13 @@ describe("app rules", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Name"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 								f({
 									kind: "text",
 									id: "visit_note",
 									label: proseText("Visit note"),
-									case_property_on: "visit",
+									caseWrite: { caseType: "visit", property: "visit_note" },
 								}),
 							],
 						},
@@ -217,7 +216,7 @@ describe("app rules", () => {
 
 	it("a survey form's case annotations don't demand a module — they are wire-inert", () => {
 		// deriveCaseConfig derives an empty case config for a survey form, so a
-		// case_property_on there never creates a case. The written-type rule
+		// caseWrite there never creates a case. The written-type rule
 		// must not count it — otherwise flipping a form to survey (making its
 		// writes inert) would still demand a module for cases that never exist.
 		const surveyAnnotated = buildDoc({
@@ -234,7 +233,7 @@ describe("app rules", () => {
 									kind: "text",
 									id: "visit_note",
 									label: proseText("Visit note"),
-									case_property_on: "visit",
+									caseWrite: { caseType: "visit", property: "visit_note" },
 								}),
 							],
 						},
@@ -387,13 +386,13 @@ describe("form rules", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Name"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 								f({
 									kind: "int",
 									id: "age",
 									label: proseText("Age"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "status" },
 								}),
 							],
 						},
@@ -409,7 +408,7 @@ describe("form rules", () => {
 		});
 		expect(
 			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
-				(e) => e.code === "DUPLICATE_CASE_PROPERTY",
+				(e) => e.code === "CASE_WRITE_DUPLICATE_PROPERTY",
 			),
 		).toBe(false);
 	});
@@ -433,13 +432,13 @@ describe("form rules", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Name"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 								f({
 									kind: "text",
 									id: "123bad",
 									label: proseText("Bad"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "123bad" },
 								}),
 							],
 						},
@@ -481,13 +480,13 @@ describe("form rules", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Name"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 								f({
 									kind: "text",
 									id: longId,
 									label: proseText("Long"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: longId },
 								}),
 							],
 						},
@@ -919,7 +918,7 @@ describe("field rules", () => {
 
 describe("post_submit validation", () => {
 	it("accepts valid destinations without errors", () => {
-		for (const dest of ["app_home", "root", "module", "previous"] as const) {
+		for (const dest of ["app_home", "module", "previous"] as const) {
 			const doc = update(minDoc(), (d) => {
 				d.forms[d.formOrder[d.moduleOrder[0]][0]].postSubmit = dest;
 			});
@@ -950,19 +949,21 @@ describe("post_submit validation", () => {
 		expect(err?.message).toContain("previous");
 	});
 
-	it("errors on parent_module since parent modules are not yet supported", () => {
-		const doc = update(minDoc(), (d) => {
-			d.forms[d.formOrder[d.moduleOrder[0]][0]].postSubmit = "parent_module";
-		});
-		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
-		const err = errors.find(
-			(e) => e.code === "POST_SUBMIT_PARENT_MODULE_UNSUPPORTED",
-		);
-		expect(err).toBeDefined();
-		expect(err?.message).toContain("has no parent module");
-		expect(err?.message).toContain('"module"');
-		expect(err?.message).toContain('"previous"');
-	});
+	it.each(["root", "parent_module"])(
+		"rejects the retired %s stored destination",
+		(destination) => {
+			const doc = update(minDoc(), (d) => {
+				const formUuid = d.formOrder[d.moduleOrder[0]][0];
+				(
+					d.forms[formUuid] as unknown as {
+						postSubmit: string;
+					}
+				).postSubmit = destination;
+			});
+			const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
+			expect(errors.some((e) => e.code === "INVALID_POST_SUBMIT")).toBe(true);
+		},
+	);
 
 	it("catches module destination on case_list_only modules", () => {
 		const doc = buildDoc({
@@ -1374,7 +1375,7 @@ describe("FIXTURE_REFERENCE_NOT_MODELED", () => {
 		);
 		expect(fixture).toBeDefined();
 		expect(fixture?.message).toContain("item-list:countries");
-		expect(fixture?.message).toContain("lookup-table");
+		expect(fixture?.message).toContain("data table lookup");
 	});
 
 	it("rejects instance('commcare:reports') in a calculate", () => {
@@ -1452,7 +1453,7 @@ describe("FIXTURE_REFERENCE_NOT_MODELED", () => {
 
 describe("PRIMARY_CASE_FIELD_IN_REPEAT", () => {
 	/**
-	 * A primary case field (one whose `case_property_on` equals the
+	 * A primary case field (one whose `caseWrite.caseType` equals the
 	 * module's case type) placed inside a repeat is structurally
 	 * invalid. Vellum + CCHQ enforce the same invariant upstream; Nova
 	 * mirrors at edit time so the error lands in the editor, not at
@@ -1469,7 +1470,7 @@ describe("PRIMARY_CASE_FIELD_IN_REPEAT", () => {
 				kind: "text",
 				id: "extra_property",
 				label: proseText("Extra primary property"),
-				case_property_on: "parent",
+				caseWrite: { caseType: "parent", property: "extra_property" },
 			}),
 		];
 		const repeatField =
@@ -1519,7 +1520,7 @@ describe("PRIMARY_CASE_FIELD_IN_REPEAT", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Parent name"),
-									case_property_on: "parent",
+									caseWrite: { caseType: "parent", property: "case_name" },
 								}),
 								repeatField,
 							],
@@ -1573,13 +1574,16 @@ describe("PRIMARY_CASE_FIELD_IN_REPEAT", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Parent name"),
-									case_property_on: "parent",
+									caseWrite: { caseType: "parent", property: "case_name" },
 								}),
 								f({
 									kind: "text",
 									id: "extra_property",
 									label: proseText("Extra primary property"),
-									case_property_on: "parent",
+									caseWrite: {
+										caseType: "parent",
+										property: "extra_property",
+									},
 								}),
 							],
 						},
@@ -1604,7 +1608,7 @@ describe("PRIMARY_CASE_FIELD_IN_REPEAT", () => {
 
 	it("does not fire on a survey form (case mappings are ignored there)", () => {
 		// A survey form carries no case actions — deriveCaseConfig returns {}
-		// for it, so a `case_property_on` annotation never becomes a case
+		// for it, so a `caseWrite` destination never becomes a case
 		// property. Flagging a survey field would be a false positive.
 		const doc = buildDoc({
 			appName: "T",
@@ -1632,7 +1636,10 @@ describe("PRIMARY_CASE_FIELD_IN_REPEAT", () => {
 											label: proseText("Note"),
 											// Module's own case type, inside a repeat — would fire
 											// the rule on a non-survey form, but survey ignores it.
-											case_property_on: "parent",
+											caseWrite: {
+												caseType: "parent",
+												property: "note",
+											},
 										}),
 									],
 								}),
@@ -1655,10 +1662,10 @@ describe("PRIMARY_CASE_FIELD_IN_REPEAT", () => {
 	});
 
 	it("does not fire on a cross-case-type field inside a repeat (subcase shape)", () => {
-		// `case_property_on != mod.caseType` is the supported subcase-creation
+		// `caseWrite.caseType != mod.caseType` is the supported subcase-creation
 		// shape (one new child case per iteration) — out of scope for this
 		// rule. The splice algorithm in `xform/caseBlocks.ts::addCaseBlocks`
-		// handles it; `CHILD_CASE_NO_NAME_FIELD` guards the bucket-must-have-a-
+		// handles it; `CASE_CREATE_NAME_MISSING` guards the bucket-must-have-a-
 		// case_name invariant.
 		const doc = buildDoc({
 			appName: "T",
@@ -1678,7 +1685,7 @@ describe("PRIMARY_CASE_FIELD_IN_REPEAT", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Parent name"),
-									case_property_on: "parent",
+									caseWrite: { caseType: "parent", property: "case_name" },
 								}),
 								f({
 									kind: "repeat",
@@ -1690,7 +1697,10 @@ describe("PRIMARY_CASE_FIELD_IN_REPEAT", () => {
 											kind: "text",
 											id: "child_name",
 											label: proseText("Child name"),
-											case_property_on: "child",
+											caseWrite: {
+												caseType: "child",
+												property: "case_name",
+											},
 										}),
 									],
 								}),
@@ -1717,9 +1727,9 @@ describe("PRIMARY_CASE_FIELD_IN_REPEAT", () => {
 	});
 });
 
-describe("CHILD_CASE_NO_NAME_FIELD", () => {
+describe("CASE_CREATE_NAME_MISSING for child buckets", () => {
 	/**
-	 * Every derived child-case bucket needs a field id'd `case_name` so
+	 * Every derived child-case bucket needs one field writing `case_name` so
 	 * the new case has a display name. The bucket key is
 	 * `(case_type, repeat_ancestor)`, so a primary form authoring two
 	 * repeats targeting the same child case type produces two buckets,
@@ -1747,13 +1757,16 @@ describe("CHILD_CASE_NO_NAME_FIELD", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Parent name"),
-									case_property_on: "parent",
+									caseWrite: { caseType: "parent", property: "case_name" },
 								}),
 								f({
 									kind: "text",
 									id: "child_label",
 									label: proseText("Child label"),
-									case_property_on: "child",
+									caseWrite: {
+										caseType: "child",
+										property: "child_label",
+									},
 								}),
 							],
 						},
@@ -1767,12 +1780,13 @@ describe("CHILD_CASE_NO_NAME_FIELD", () => {
 				},
 				{
 					name: "child",
+					parent_type: "parent",
 					properties: [{ name: "child_label", label: proseText("Label") }],
 				},
 			],
 		});
 		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
-		const offender = errors.find((e) => e.code === "CHILD_CASE_NO_NAME_FIELD");
+		const offender = errors.find((e) => e.code === "CASE_CREATE_NAME_MISSING");
 		expect(offender).toBeDefined();
 		expect(offender?.message).toContain("child");
 	});
@@ -1805,7 +1819,7 @@ describe("CHILD_CASE_NO_NAME_FIELD", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Family name"),
-									case_property_on: "family",
+									caseWrite: { caseType: "family", property: "case_name" },
 								}),
 								f({
 									kind: "repeat",
@@ -1817,7 +1831,10 @@ describe("CHILD_CASE_NO_NAME_FIELD", () => {
 											kind: "text",
 											id: "kid_age",
 											label: proseText("Age"),
-											case_property_on: "child",
+											caseWrite: {
+												caseType: "child",
+												property: "kid_age",
+											},
 										}),
 									],
 								}),
@@ -1833,12 +1850,13 @@ describe("CHILD_CASE_NO_NAME_FIELD", () => {
 				},
 				{
 					name: "child",
+					parent_type: "family",
 					properties: [{ name: "kid_age", label: proseText("Age") }],
 				},
 			],
 		});
 		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
-		const offender = errors.find((e) => e.code === "CHILD_CASE_NO_NAME_FIELD");
+		const offender = errors.find((e) => e.code === "CASE_CREATE_NAME_MISSING");
 		expect(offender).toBeDefined();
 		expect(offender?.message).toContain('"kids"');
 		expect(offender?.message).not.toMatch(/\/data\/kids/);
@@ -1864,7 +1882,7 @@ describe("CHILD_CASE_NO_NAME_FIELD", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Parent name"),
-									case_property_on: "parent",
+									caseWrite: { caseType: "parent", property: "case_name" },
 								}),
 								f({
 									kind: "group",
@@ -1875,7 +1893,10 @@ describe("CHILD_CASE_NO_NAME_FIELD", () => {
 											kind: "text",
 											id: "case_name",
 											label: proseText("Child name"),
-											case_property_on: "child",
+											caseWrite: {
+												caseType: "child",
+												property: "case_name",
+											},
 										}),
 									],
 								}),
@@ -1891,12 +1912,13 @@ describe("CHILD_CASE_NO_NAME_FIELD", () => {
 				},
 				{
 					name: "child",
+					parent_type: "parent",
 					properties: [{ name: "case_name", label: proseText("Name") }],
 				},
 			],
 		});
 		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
-		expect(errors.some((e) => e.code === "CHILD_CASE_NO_NAME_FIELD")).toBe(
+		expect(errors.some((e) => e.code === "CASE_CREATE_NAME_MISSING")).toBe(
 			false,
 		);
 	});
@@ -1920,7 +1942,7 @@ describe("CHILD_CASE_NO_NAME_FIELD", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Parent name"),
-									case_property_on: "parent",
+									caseWrite: { caseType: "parent", property: "case_name" },
 								}),
 							],
 						},
@@ -1935,7 +1957,7 @@ describe("CHILD_CASE_NO_NAME_FIELD", () => {
 			],
 		});
 		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
-		expect(errors.some((e) => e.code === "CHILD_CASE_NO_NAME_FIELD")).toBe(
+		expect(errors.some((e) => e.code === "CASE_CREATE_NAME_MISSING")).toBe(
 			false,
 		);
 	});
@@ -2040,7 +2062,7 @@ describe("CASE_HASHTAG_ON_CREATE_FORM", () => {
 			kind: "text",
 			id: "case_name",
 			label: proseText("Name"),
-			case_property_on: "patient",
+			caseWrite: { caseType: "patient", property: "case_name" },
 		};
 		const fields: Parameters<typeof f>[0][] = [caseNameField];
 		if (surface === "calculate") {
@@ -2149,7 +2171,7 @@ describe("CASE_HASHTAG_ON_CREATE_FORM", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Name"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},
@@ -2332,7 +2354,7 @@ describe("prose case-ref validation", () => {
 		"Priority: #priority/high", // not a case type this form knows
 		"Typo: #mothre/code", // misspelled type name — left literal by the emitter
 		"Child: #child/name", // child type, created fresh, never loaded
-		"Hello #case/case_name", // transitional #case/ — the wire still resolves it
+		"Hello #case/case_name", // plain prose text, never a machine reference
 	]) {
 		it(`leaves unresolved prose untouched: "${text}"`, () => {
 			const doc = followupWithProse({
@@ -2345,8 +2367,8 @@ describe("prose case-ref validation", () => {
 	}
 
 	it("flags ONLY the bad-property token among mixed prose", () => {
-		// `#N/A` is innocent prose, `#case/case_name` resolves on the wire, but
-		// `#mother/typoprop` is a reachable type with a bogus property.
+		// Both text fragments stay literal; the typed mother atom is the only
+		// machine reference and names a bogus property.
 		const doc = followupWithProse({
 			surface: "label",
 			value: prose(
@@ -2384,7 +2406,7 @@ describe("RESERVED_CASE_TYPE_NAME", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Name"),
-									case_property_on: name,
+									caseWrite: { caseType: name, property: "case_name" },
 								}),
 							],
 						},
@@ -2547,44 +2569,69 @@ describe("connect rules", () => {
 		expect(errors).toEqual([]);
 	});
 
-	it("keeps an EMPTY Connect app clean — the floor binds only once forms exist", () => {
-		/* A Connect build flips `connect_type` first, on the empty app
-		 * (`updateApp`), then creates participating forms with their
-		 * blocks. Firing the floor on the empty app would bounce that
-		 * documented first move. */
+	it("rejects a mode-only Connect app with no participants", () => {
+		/* Connect mode and its complete participant set land through one atomic
+		 * target-state command, so a mode-only intermediate is never valid. */
 		const doc = buildDoc({ appName: "Connect App", connectType: "learn" });
 		expect(
 			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
 				(e) => e.code === "CONNECT_NO_PARTICIPATING_FORMS",
 			),
-		).toBe(false);
-	});
-
-	it("a cross-mode stray block does not count as participation", () => {
-		/* A learn app's form carrying only a deliver_unit contributes
-		 * nothing Connect's learn ingestion reads — the app still has zero
-		 * participation, and the stray block's own malformedness is the
-		 * per-form CONNECT_MISSING_LEARN finding. */
-		const doc = connectDoc({
-			connectType: "learn",
-			formConnect: { deliver_unit: { id: "stray", name: "Stray" } },
-		});
-		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
-		expect(
-			errors.some((e) => e.code === "CONNECT_NO_PARTICIPATING_FORMS"),
 		).toBe(true);
-		expect(errors.some((e) => e.code === "CONNECT_MISSING_LEARN")).toBe(true);
 	});
 
-	it("does not fire the per-form sub-config rules when the whole connect block is absent", () => {
-		/* A blockless form is auxiliary, not malformed — CONNECT_MISSING_*
-		 * adjudicate a block that IS present. */
-		const doc = connectDoc({ connectType: "deliver" });
-		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
-		expect(errors.some((e) => e.code === "CONNECT_MISSING_DELIVER")).toBe(
-			false,
-		);
-		expect(errors.some((e) => e.code === "CONNECT_MISSING_LEARN")).toBe(false);
+	it("rejects a dormant form block while Connect is off", () => {
+		const baseline = buildDoc({
+			appName: "Standard App",
+			connectType: null,
+			modules: [
+				{
+					name: "Main",
+					forms: [
+						{
+							name: "Dormant",
+							type: "survey",
+							fields: [f({ kind: "text", id: "q", label: proseText("Q") })],
+						},
+					],
+				},
+			],
+		});
+		const doc = update(baseline, (draft) => {
+			const moduleUuid = draft.moduleOrder[0];
+			const formUuid = draft.formOrder[moduleUuid]?.[0];
+			if (!formUuid) throw new Error("dormant fixture form missing");
+			draft.forms[formUuid].connect = {
+				learn_module: {
+					id: "dormant",
+					name: "Dormant",
+					description: "Not active",
+					time_estimate: 5,
+				},
+			};
+		});
+		expect(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+				(error) => error.code === "CONNECT_MODE_MISMATCH",
+			),
+		).toHaveLength(1);
+	});
+
+	it("rejects a form block from the other Connect mode", () => {
+		const baseline = connectDoc({ connectType: "learn" });
+		const doc = update(baseline, (draft) => {
+			const moduleUuid = draft.moduleOrder[0];
+			const formUuid = draft.formOrder[moduleUuid]?.[0];
+			if (!formUuid) throw new Error("wrong-mode fixture form missing");
+			draft.forms[formUuid].connect = {
+				deliver_unit: { id: "delivery", name: "Delivery" },
+			};
+		});
+		expect(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+				(error) => error.code === "CONNECT_MODE_MISMATCH",
+			),
+		).toHaveLength(1);
 	});
 
 	it("flags an explicit empty entity_id as CONNECT_EMPTY_XPATH", () => {
@@ -2732,89 +2779,6 @@ describe("connect rules", () => {
 		expect(errors).toEqual([]);
 	});
 
-	it("reports an id-less connect block as CONNECT_ID_MISSING, not a format error", () => {
-		// Every source path leaves the id set (tool autofill, UI seed/restore)
-		// and nothing downstream supplies a default — the emit resolver THROWS
-		// on a missing id. So an id-less block in a stored doc is its own
-		// finding here, the backstop that turns the would-be export 500 into
-		// an actionable message. The format rule still skips it (there is no
-		// id value to judge).
-		const doc = connectDoc({
-			connectType: "learn",
-			formConnect: {
-				learn_module: { name: "Intake", description: "x", time_estimate: 5 },
-			},
-		});
-		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
-		expect(
-			errors.filter((e) => e.code === "CONNECT_ID_INVALID_FORMAT"),
-		).toEqual([]);
-		const missing = errors.filter((e) => e.code === "CONNECT_ID_MISSING");
-		expect(missing).toHaveLength(1);
-		expect(missing[0].message).toContain("learn-module");
-		expect(missing[0].message).toContain("First Form");
-	});
-
-	it("keeps two id-less blocks on one form as distinct CONNECT_ID_MISSING findings", () => {
-		const doc = connectDoc({
-			connectType: "learn",
-			formConnect: {
-				learn_module: { name: "Intake", description: "x", time_estimate: 5 },
-				assessment: { user_score: xp("100") },
-			},
-		});
-		const missing = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(e) => e.code === "CONNECT_ID_MISSING",
-		);
-		expect(missing).toHaveLength(2);
-		// The identity discriminator is the sub-config kind — the gate must
-		// never collapse the two into one finding.
-		expect(new Set(missing.map((e) => errorIdentity(e))).size).toBe(2);
-	});
-
-	it("does not flag an id-less CROSS-MODE stray (it never emits, so its id breaks nothing)", () => {
-		// Mirrors the emit resolver: only mode-matching kinds ship, so a stray
-		// deliver_unit on a learn app needs no id. The learn arm still needs
-		// its block — give it a valid one so the only candidate finding is the
-		// stray's.
-		const doc = connectDoc({
-			connectType: "learn",
-			formConnect: {
-				learn_module: {
-					id: "intake",
-					name: "Intake",
-					description: "x",
-					time_estimate: 5,
-				},
-				deliver_unit: { name: "Stray" },
-			},
-		});
-		expect(
-			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-				(e) => e.code === "CONNECT_ID_MISSING",
-			),
-		).toEqual([]);
-	});
-
-	it("surfaces the id-less block at the export boundary as a finding, never the emitter throw", () => {
-		// The zero-tolerance boundary run is what every export entry point
-		// consults BEFORE expansion — it must report the state the emit
-		// resolver would otherwise throw on, so a stored id-less doc gets an
-		// actionable rejection instead of a 500.
-		const doc = connectDoc({
-			connectType: "learn",
-			formConnect: {
-				learn_module: { name: "Intake", description: "x", time_estimate: 5 },
-			},
-		});
-		const findings = evaluateBoundary(
-			doc,
-			new Map(),
-			LOOKUP_CONTEXT_UNAVAILABLE,
-		);
-		expect(findings.some((e) => e.code === "CONNECT_ID_MISSING")).toBe(true);
-	});
-
 	it("flags bad ids on assessment, deliver_unit, and task too", () => {
 		// All four connect kinds emit their id as an element name, so the
 		// rule covers every kind, not just learn_module.
@@ -2932,7 +2896,7 @@ describe("connect rules", () => {
 	// forms), the surface that gives the user a fixable error.
 
 	it("flags a connect id duplicated across two forms, citing both sites", () => {
-		const doc = buildDoc({
+		const baseline = buildDoc({
 			connectType: "learn",
 			modules: [
 				{
@@ -2960,7 +2924,7 @@ describe("connect rules", () => {
 							type: "survey",
 							connect: {
 								learn_module: {
-									id: "shared_slug",
+									id: "lesson_b",
 									name: "B",
 									description: "x",
 									time_estimate: 5,
@@ -2970,6 +2934,20 @@ describe("connect rules", () => {
 					],
 				},
 			],
+		});
+		const doc = update(baseline, (draft) => {
+			const moduleUuid = draft.moduleOrder[1];
+			const formUuid = draft.formOrder[moduleUuid]?.[0];
+			const connect = formUuid ? draft.forms[formUuid]?.connect : undefined;
+			if (
+				!formUuid ||
+				connect === undefined ||
+				!("learn_module" in connect) ||
+				connect.learn_module === undefined
+			) {
+				throw new Error("duplicate-id fixture form missing");
+			}
+			connect.learn_module.id = "shared_slug";
 		});
 		const dups = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
 			(e) => e.code === "CONNECT_ID_DUPLICATE",

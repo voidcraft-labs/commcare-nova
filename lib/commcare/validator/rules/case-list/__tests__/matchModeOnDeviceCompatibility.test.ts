@@ -37,7 +37,6 @@ import {
 	subcasePath,
 	term,
 } from "@/lib/domain/predicate";
-import { errorIdentity } from "../../../gate";
 import { runValidation } from "../../../runner";
 
 const CODE = "CASE_LIST_MATCH_MODE_NOT_ON_DEVICE" as const;
@@ -50,7 +49,7 @@ const standardForm = {
 			kind: "text" as const,
 			id: "case_name",
 			label: "Name",
-			case_property_on: "patient",
+			caseWrite: { caseType: "patient", property: "case_name" },
 		}),
 	],
 };
@@ -666,7 +665,7 @@ describe("matchModeOnDeviceCompatibility", () => {
 		expect(userFacingError(hits[0])).not.toContain("advanced search");
 	});
 
-	it("ignores a fully off-screen unsorted calculated definition", () => {
+	it("checks a fully off-screen unsorted calculated definition", () => {
 		const doc = buildDoc({
 			appName: "T",
 			modules: [
@@ -695,11 +694,15 @@ describe("matchModeOnDeviceCompatibility", () => {
 			caseTypes: standardCaseTypes,
 		});
 
-		expect(
-			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-				(error) => error.code === CODE,
-			),
-		).toEqual([]);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+			(error) => error.code === CODE,
+		);
+		expect(hits).toHaveLength(1);
+		expect(hits[0].details).toMatchObject({
+			columnLabel: "Retired",
+			columnUuid: testUuid("column-retired"),
+			surface: "calculated-column",
+		});
 	});
 
 	it("rejects nested unsupported matches in every search-input default", () => {
@@ -757,15 +760,6 @@ describe("matchModeOnDeviceCompatibility", () => {
 		expect(userFacingError(hits[1])).toContain(
 			'The default for search field "Similar name"',
 		);
-
-		const moved = {
-			...hits[1],
-			details: {
-				...hits[1].details,
-				slot: "caseListConfig.searchInputs[99].default",
-			},
-		};
-		expect(errorIdentity(moved)).toBe(errorIdentity(hits[1]));
 	});
 
 	it("rejects a nested unsupported match in the assigned-cases expression", () => {

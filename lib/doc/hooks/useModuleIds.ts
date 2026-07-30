@@ -20,12 +20,8 @@ import {
 	useBlueprintDocShallow,
 } from "./useBlueprintDoc";
 
-/**
- * Module uuids in DISPLAY order (`sort-by-(order, uuid)`, not `moduleOrder`
- * array position — a reorder leaves the array untouched and only changes a
- * module's `order`). Reference-stable when the sorted uuid sequence is
- * unchanged.
- */
+/** Module UUIDs in `moduleOrder` sequence. Reference-stable while that sequence
+ * is unchanged. */
 export function useModuleIds(): Uuid[] {
 	return useBlueprintDocEq((s) => [...s.moduleOrder], sameSequenceByIdentity);
 }

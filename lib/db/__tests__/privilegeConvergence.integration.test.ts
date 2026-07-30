@@ -12,6 +12,7 @@ import { runAuthAppMigrations } from "@/lib/auth/migrate";
 import { authMigrateOptions } from "@/lib/auth-migrate-options";
 import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
 import {
+	AUDIT_DB_ROLE_CONNECTION_LIMIT,
 	CAPTURE_CLEANUP_DB_ROLE_CONNECTION_LIMIT,
 	CASE_RUNTIME_SCHEMA,
 	DATABASE_CONNECTION_OPTIONS,
@@ -24,8 +25,9 @@ import {
 	executeDatabaseOwnerBootstrap,
 	quoteIdentifier,
 } from "@/scripts/infra/databaseOwnerBootstrap";
+import { createApp } from "../apps";
 import { runCaptureCleanupSchemaProbe } from "../captureCleanupSchemaProbe";
-import type { AppDatabase } from "../pg";
+import { __setAppDbForTests, type AppDatabase } from "../pg";
 import {
 	convergeDatabasePrivileges,
 	type DatabasePrivilegeRoleConfig,
@@ -34,6 +36,7 @@ import { runCanonicalRuntimeDatabaseProbe } from "../runtimeDatabaseProbe";
 
 const h = setupPerTestDatabase({
 	databaseNamePrefix: "privilege_convergence_",
+	establishLocalMigrationAuthority: true,
 });
 
 type BootstrapTestRoleConfig = DatabasePrivilegeRoleConfig;
@@ -60,13 +63,26 @@ async function createRoles(
 		migrationRole: `nova_migrate_${suffix}`,
 		runtimeRole: `nova_runtime_${suffix}`,
 		cleanupRole: `nova_cleanup_${suffix}`,
+		auditRole: `nova_audit_${suffix}`,
 	};
 	for (const role of [
 		config.migrationRole,
 		config.runtimeRole,
 		config.cleanupRole,
+		config.auditRole,
 	]) {
 		await sql`CREATE ROLE ${sql.id(role)} LOGIN`.execute(db);
+	}
+	for (const [role, connectionLimit] of [
+		[config.migrationRole, MIGRATION_DB_ROLE_CONNECTION_LIMIT],
+		[config.runtimeRole, RUNTIME_DB_ROLE_CONNECTION_LIMIT],
+		[config.cleanupRole, CAPTURE_CLEANUP_DB_ROLE_CONNECTION_LIMIT],
+		[config.auditRole, AUDIT_DB_ROLE_CONNECTION_LIMIT],
+	] as const) {
+		await sql`
+			ALTER ROLE ${sql.id(role)}
+			CONNECTION LIMIT ${sql.raw(String(connectionLimit))}
+		`.execute(db);
 	}
 	await sql`
 		GRANT ${sql.id(config.runtimeRole)}
@@ -80,6 +96,7 @@ async function createRoles(
 	await sql`
 		GRANT ${sql.id(config.runtimeRole)}, ${sql.id(config.migrationRole)},
 			${sql.id(config.cleanupRole)}
+			, ${sql.id(config.auditRole)}
 		TO ${sql.id(bootstrapUser)}
 	`.execute(db);
 	return config;
@@ -97,6 +114,7 @@ async function createLegacyBootstrapRoles(db: Kysely<unknown>): Promise<{
 		migrationRole: `nova_migrate_legacy_${suffix}`,
 		runtimeRole: `nova_runtime_legacy_${suffix}`,
 		cleanupRole: `nova_cleanup_legacy_${suffix}`,
+		auditRole: `nova_audit_legacy_${suffix}`,
 	};
 	const cleanupRole = convergence.cleanupRole;
 	const legacyRole = `nova_legacy_${suffix}`;
@@ -105,6 +123,7 @@ async function createLegacyBootstrapRoles(db: Kysely<unknown>): Promise<{
 		convergence.migrationRole,
 		convergence.runtimeRole,
 		cleanupRole,
+		convergence.auditRole,
 	]) {
 		await sql`CREATE ROLE ${sql.id(role)} LOGIN`.execute(db);
 	}
@@ -119,7 +138,7 @@ async function createLegacyBootstrapRoles(db: Kysely<unknown>): Promise<{
 	await sql`
 		GRANT ${sql.id(convergence.runtimeRole)},
 			${sql.id(convergence.migrationRole)}, ${sql.id(cleanupRole)},
-			${sql.id(legacyRole)}
+			${sql.id(convergence.auditRole)}, ${sql.id(legacyRole)}
 		TO ${sql.id(bootstrapRole)}
 	`.execute(db);
 	await sql`
@@ -135,10 +154,12 @@ async function createLegacyBootstrapRoles(db: Kysely<unknown>): Promise<{
 			migrationRole: convergence.migrationRole,
 			runtimeRole: convergence.runtimeRole,
 			cleanupRole,
+			auditRole: convergence.auditRole,
 			legacyRole,
 			migrationConnectionLimit: MIGRATION_DB_ROLE_CONNECTION_LIMIT,
 			runtimeConnectionLimit: RUNTIME_DB_ROLE_CONNECTION_LIMIT,
 			cleanupConnectionLimit: CAPTURE_CLEANUP_DB_ROLE_CONNECTION_LIMIT,
+			auditConnectionLimit: AUDIT_DB_ROLE_CONNECTION_LIMIT,
 			// The pinned test image intentionally exercises the compiler's three
 			// data extensions but does not package Cloud SQL's pgAudit library.
 			// Production uses DATABASE_OWNER_BOOTSTRAP_CONFIG's four-extension
@@ -190,6 +211,8 @@ async function dropRoles(
 	const requestedRoles = [
 		config.migrationRole,
 		config.runtimeRole,
+		config.cleanupRole,
+		config.auditRole,
 		...extraRoles,
 	];
 	const existing = await sql<{ name: string }>`
@@ -379,7 +402,7 @@ describe("database privilege convergence", () => {
 		}
 	});
 
-	test("converges from the database-owning migration identity to the two-role boundary", async () => {
+	test("converges from the database-owning migration identity to the complete role boundary", async () => {
 		const config = await createRoles(h.db);
 		const bootstrapRole = `nova_bootstrap_fresh_${Math.random()
 			.toString(36)
@@ -393,7 +416,7 @@ describe("database privilege convergence", () => {
 		`.execute(h.db);
 		await sql`
 				GRANT ${sql.id(config.runtimeRole)}, ${sql.id(config.migrationRole)},
-					${sql.id(config.cleanupRole)}
+					${sql.id(config.cleanupRole)}, ${sql.id(config.auditRole)}
 				TO ${sql.id(bootstrapRole)}
 			`.execute(h.db);
 		const bootstrapClient = new Client({ connectionString: h.uri });
@@ -401,6 +424,9 @@ describe("database privilege convergence", () => {
 			| { readonly db: Kysely<unknown>; readonly pool: Pool }
 			| undefined;
 		let cleanup:
+			| { readonly db: Kysely<unknown>; readonly pool: Pool }
+			| undefined;
+		let runtime:
 			| { readonly db: Kysely<unknown>; readonly pool: Pool }
 			| undefined;
 		try {
@@ -425,10 +451,12 @@ describe("database privilege convergence", () => {
 					migrationRole: config.migrationRole,
 					runtimeRole: config.runtimeRole,
 					cleanupRole: config.cleanupRole,
+					auditRole: config.auditRole,
 					legacyRole: `absent_${config.migrationRole}`,
 					migrationConnectionLimit: MIGRATION_DB_ROLE_CONNECTION_LIMIT,
 					runtimeConnectionLimit: RUNTIME_DB_ROLE_CONNECTION_LIMIT,
 					cleanupConnectionLimit: CAPTURE_CLEANUP_DB_ROLE_CONNECTION_LIMIT,
+					auditConnectionLimit: AUDIT_DB_ROLE_CONNECTION_LIMIT,
 					requiredExtensions: [],
 				},
 			);
@@ -440,6 +468,7 @@ describe("database privilege convergence", () => {
 				`ALTER ROLE "${config.runtimeRole}" CONNECTION LIMIT ${RUNTIME_DB_ROLE_CONNECTION_LIMIT}`,
 				`ALTER ROLE "${config.migrationRole}" CONNECTION LIMIT ${MIGRATION_DB_ROLE_CONNECTION_LIMIT}`,
 				`ALTER ROLE "${config.cleanupRole}" CONNECTION LIMIT ${CAPTURE_CLEANUP_DB_ROLE_CONNECTION_LIMIT}`,
+				`ALTER ROLE "${config.auditRole}" CONNECTION LIMIT ${AUDIT_DB_ROLE_CONNECTION_LIMIT}`,
 				`ALTER DATABASE "${h.databaseName}" OWNER TO "${config.migrationRole}"`,
 				`REASSIGN OWNED BY "${bootstrapRole}" TO "${config.migrationRole}"`,
 				`DROP OWNED BY "${bootstrapRole}" RESTRICT`,
@@ -468,7 +497,7 @@ describe("database privilege convergence", () => {
 
 			await convergeDatabasePrivileges(migration.db, config);
 
-			const probeAppId = crypto.randomUUID();
+			const missingProbeAppId = crypto.randomUUID();
 			const probeUserId = crypto.randomUUID();
 			const probeProjectId = crypto.randomUUID();
 			await sql`
@@ -490,15 +519,6 @@ describe("database privilege convergence", () => {
 				)
 			`.execute(migration.db);
 			await sql`
-				INSERT INTO apps (
-					id, owner, project_id, app_name, app_name_lower
-				)
-				VALUES (
-					${probeAppId}, ${probeUserId}, ${probeProjectId},
-					'Runtime probe', 'runtime probe'
-				)
-			`.execute(migration.db);
-			await sql`
 				INSERT INTO auth_member (
 					id, "userId", "organizationId", role, "createdAt"
 				)
@@ -507,6 +527,14 @@ describe("database privilege convergence", () => {
 					'editor', now()
 				)
 			`.execute(migration.db);
+			__setAppDbForTests(migration.db as Kysely<AppDatabase>);
+			const probeApp = await createApp(
+				probeUserId,
+				probeProjectId,
+				crypto.randomUUID(),
+				{ status: "complete", name: "Runtime probe" },
+			);
+			__setAppDbForTests(null);
 
 			const runtimeProbe = await runCanonicalRuntimeDatabaseProbe(
 				migration.db,
@@ -526,15 +554,95 @@ describe("database privilege convergence", () => {
 					app.mutation_seq,
 					(
 						SELECT count(*)
-						FROM accepted_mutations
+						FROM app_changes
 						WHERE app_id = app.id
 					) AS mutation_count
 				FROM apps AS app
-				WHERE app.id = ${probeAppId}
+				WHERE app.id = ${probeApp.appId}
 			`.execute(migration.db);
 			expect(runtimeProbeResidue.rows).toEqual([
-				{ mutation_seq: "0", mutation_count: "0" },
+				{ mutation_seq: "1", mutation_count: "1" },
 			]);
+
+			runtime = await createRoleDatabase(config.runtimeRole);
+			__setAppDbForTests(runtime.db as Kysely<AppDatabase>);
+			const genesis = await createApp(
+				probeUserId,
+				probeProjectId,
+				crypto.randomUUID(),
+				{ status: "complete", name: "Runtime genesis" },
+			);
+			__setAppDbForTests(null);
+			const genesisProof = await sql<{
+				baselines: string;
+				digest_matches: boolean;
+			}>`
+				SELECT
+					count(*)::text AS baselines,
+					bool_and(
+						baseline.snapshot_digest =
+						encode(
+							sha256(convert_to(baseline.snapshot::text, 'UTF8')),
+							'hex'
+						)
+					) AS digest_matches
+				FROM app_change_fold_baselines AS baseline
+				WHERE baseline.app_id = ${genesis.appId}
+			`.execute(migration.db);
+			expect(genesisProof.rows).toEqual([
+				{ baselines: "1", digest_matches: true },
+			]);
+			await expect(
+				sql`
+					INSERT INTO app_change_fold_baselines
+						(app_id, seq, project_id, snapshot, snapshot_digest)
+					VALUES (
+						${genesis.appId},
+						2,
+						${probeProjectId},
+						'{}'::jsonb,
+						repeat('0', 64)
+					)
+				`.execute(runtime.db),
+			).rejects.toMatchObject({ code: "42501" });
+			await expect(
+				sql`
+					UPDATE app_change_fold_baselines
+					SET snapshot = snapshot
+					WHERE app_id = ${genesis.appId}
+				`.execute(runtime.db),
+			).rejects.toMatchObject({ code: "42501" });
+			await expect(
+				sql`
+					DELETE FROM app_change_fold_baselines
+					WHERE app_id = ${genesis.appId}
+				`.execute(runtime.db),
+			).rejects.toMatchObject({ code: "42501" });
+			await expect(
+				sql`
+					UPDATE app_changes
+					SET actor_id = actor_id
+					WHERE app_id = ${genesis.appId}
+				`.execute(runtime.db),
+			).rejects.toMatchObject({ code: "42501" });
+			await expect(
+				sql`
+					DELETE FROM app_changes
+					WHERE app_id = ${genesis.appId}
+				`.execute(runtime.db),
+			).rejects.toMatchObject({ code: "42501" });
+			await expect(
+				sql`
+					SELECT nova_insert_app_change_genesis_fold_baseline(${missingProbeAppId})
+				`.execute(runtime.db),
+			).rejects.toThrow(/current sequence-one app/);
+			await expect(
+				sql`
+					SELECT nova_insert_app_change_genesis_fold_baseline(${genesis.appId})
+				`.execute(runtime.db),
+			).rejects.toThrow(
+				/snapshot does not equal current app state|exact horizon or genesis marker|duplicate key/,
+			);
 
 			cleanup = await createRoleDatabase(config.cleanupRole);
 			const cleanupProbe = await runCaptureCleanupSchemaProbe(
@@ -594,9 +702,9 @@ describe("database privilege convergence", () => {
 				FROM pg_catalog.pg_class AS class
 				JOIN pg_catalog.pg_namespace AS namespace
 					ON namespace.oid = class.relnamespace
-				WHERE namespace.nspname IN ('public', ${CASE_RUNTIME_SCHEMA})
-					AND class.relname IN ('cases', 'apps', 'auth_member',
-						'kysely_migration', 'media_reference_index_state')
+					WHERE namespace.nspname IN ('public', ${CASE_RUNTIME_SCHEMA})
+						AND class.relname IN ('cases', 'apps', 'auth_member',
+							'kysely_migration', 'media_asset_refs')
 			`.execute(h.db);
 			expect(
 				Object.fromEntries(
@@ -616,7 +724,7 @@ describe("database privilege convergence", () => {
 					owner: config.migrationRole,
 					schema: "public",
 				},
-				media_reference_index_state: {
+				media_asset_refs: {
 					owner: config.migrationRole,
 					schema: "public",
 				},
@@ -628,10 +736,14 @@ describe("database privilege convergence", () => {
 					can_insert_auth: boolean;
 					can_update_auth: boolean;
 					can_delete_auth: boolean;
-					can_select_media_reference_index_state: boolean;
-					can_insert_media_reference_index_state: boolean;
-					can_update_media_reference_index_state: boolean;
-					can_delete_media_reference_index_state: boolean;
+					can_select_media_asset_refs: boolean;
+					can_insert_media_asset_refs: boolean;
+					can_update_media_asset_refs: boolean;
+					can_delete_media_asset_refs: boolean;
+					can_select_index_deletions: boolean;
+					can_insert_index_deletions: boolean;
+					can_update_index_deletions: boolean;
+					can_delete_index_deletions: boolean;
 					can_create_public: boolean;
 					can_create_case_schema: boolean;
 				}>`
@@ -648,26 +760,46 @@ describe("database privilege convergence", () => {
 						pg_catalog.has_table_privilege(
 							current_user, 'public.auth_user', 'DELETE'
 						) AS can_delete_auth,
+							pg_catalog.has_table_privilege(
+								current_user,
+								'public.media_asset_refs',
+								'SELECT'
+							) AS can_select_media_asset_refs,
 						pg_catalog.has_table_privilege(
 							current_user,
-							'public.media_reference_index_state',
+								'public.media_asset_refs',
+								'INSERT'
+							) AS can_insert_media_asset_refs,
+						pg_catalog.has_table_privilege(
+							current_user,
+								'public.media_asset_refs',
+								'UPDATE'
+							) AS can_update_media_asset_refs,
+						pg_catalog.has_table_privilege(
+							current_user,
+								'public.media_asset_refs',
+								'DELETE'
+							) AS can_delete_media_asset_refs,
+						pg_catalog.has_table_privilege(
+							current_user,
+							'public.case_schema_index_deletions',
 							'SELECT'
-						) AS can_select_media_reference_index_state,
+						) AS can_select_index_deletions,
 						pg_catalog.has_table_privilege(
 							current_user,
-							'public.media_reference_index_state',
+							'public.case_schema_index_deletions',
 							'INSERT'
-						) AS can_insert_media_reference_index_state,
+						) AS can_insert_index_deletions,
 						pg_catalog.has_table_privilege(
 							current_user,
-							'public.media_reference_index_state',
+							'public.case_schema_index_deletions',
 							'UPDATE'
-						) AS can_update_media_reference_index_state,
+						) AS can_update_index_deletions,
 						pg_catalog.has_table_privilege(
 							current_user,
-							'public.media_reference_index_state',
+							'public.case_schema_index_deletions',
 							'DELETE'
-						) AS can_delete_media_reference_index_state,
+						) AS can_delete_index_deletions,
 						pg_catalog.has_schema_privilege(
 							current_user, 'public', 'CREATE'
 						) AS can_create_public,
@@ -680,10 +812,14 @@ describe("database privilege convergence", () => {
 					can_insert_auth: true,
 					can_update_auth: true,
 					can_delete_auth: true,
-					can_select_media_reference_index_state: true,
-					can_insert_media_reference_index_state: false,
-					can_update_media_reference_index_state: false,
-					can_delete_media_reference_index_state: false,
+					can_select_media_asset_refs: true,
+					can_insert_media_asset_refs: true,
+					can_update_media_asset_refs: false,
+					can_delete_media_asset_refs: true,
+					can_select_index_deletions: true,
+					can_insert_index_deletions: true,
+					can_update_index_deletions: false,
+					can_delete_index_deletions: true,
 					can_create_public: false,
 					can_create_case_schema: true,
 				});
@@ -694,11 +830,31 @@ describe("database privilege convergence", () => {
 				await sql`
 					DROP INDEX ${sql.id(CASE_RUNTIME_SCHEMA)}.privilege_probe_idx
 				`.execute(tx);
+				await sql`SELECT project_id FROM public.media_asset_refs`.execute(tx);
 				await sql`
-					SELECT audited_complete_at
-					FROM public.media_reference_index_state
+					INSERT INTO public.case_schema_index_deletions
+						(app_id, case_type)
+					VALUES ('privilege-probe', 'patient')
+				`.execute(tx);
+				await sql`
+					SELECT case_type
+					FROM public.case_schema_index_deletions
+					WHERE app_id = 'privilege-probe'
+				`.execute(tx);
+				await sql`
+					DELETE FROM public.case_schema_index_deletions
+					WHERE app_id = 'privilege-probe'
 				`.execute(tx);
 			});
+			await expect(
+				asRole(h.db, config.runtimeRole, async (tx) => {
+					await sql`
+						UPDATE public.case_schema_index_deletions
+						SET case_type = case_type
+						WHERE app_id = 'privilege-probe'
+					`.execute(tx);
+				}),
+			).rejects.toMatchObject({ code: "42501" });
 
 			await asRole(h.db, config.cleanupRole, async (tx) => {
 				const grants = await sql<{
@@ -813,9 +969,11 @@ describe("database privilege convergence", () => {
 				ALTER TABLE public.apps DROP COLUMN migration_probe
 			`.execute(migration.db);
 		} finally {
+			__setAppDbForTests(null);
 			await bootstrapClient.query("RESET ROLE").catch(() => undefined);
 			await bootstrapClient.end().catch(() => undefined);
 			await cleanup?.db.destroy().catch(() => undefined);
+			await runtime?.db.destroy().catch(() => undefined);
 			await migration?.db.destroy().catch(() => undefined);
 			await dropRoles(h.db, config, [config.cleanupRole, bootstrapRole]);
 		}

@@ -3,15 +3,16 @@
 // Unit tests for `preservedColumnSwap` — the pure column
 // kind-replace transformation in `ColumnEditor`. Given a current
 // Column, a target kind, and the editor context, it returns the
-// rebuilt Column under the target kind. The transformation is total
-// (no `null` arm) and enforces three preservation tiers:
+// rebuilt Column under the target kind, or `undefined` when the
+// target cannot be built from declared compatible information. The
+// transformation enforces three preservation tiers:
 //
 //   - **Universal header + uuid + common slots** — every kind
 //     transition threads `header`, `uuid`, and the optional common
-//     slots (`sort`, visibility, and independent Results/Details order) through
+//     slots (`sort`, visibility, and tile presentation) through
 //     verbatim. They're identity / surface-visibility shape, not
 //     kind-specific.
-//   - **Field preservation** — the five non-calc kinds all carry
+//   - **Field preservation** — the six non-calc kinds all carry
 //     `field: string`, so a swap among them preserves `field`
 //     verbatim. Calc has no field: swapping TO calc drops it;
 //     swapping FROM calc seeds the new field from the target
@@ -28,7 +29,7 @@
 // contract without mounting a Base UI floating tree (which schedules
 // microtask / rAF work that leaks under `--detect-async-leaks`). The
 // non-twin reset values (threshold 7, unit "days", display "always",
-// empty mapping, the seeded `name` field) all originate in
+// empty mapping, the seeded `case_name` field) all originate in
 // `columnCardSchemas[target].defaultValue(ctx)`, so calling the pure
 // function with the same `ctx` reproduces them exactly.
 
@@ -36,11 +37,15 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	type CaseType,
+	type Column,
 	calculatedColumn,
 	dateColumn,
 	idMappingColumn,
+	imageMapColumn,
 	intervalColumn,
+	phoneColumn,
 	plainColumn,
+	tileCell,
 } from "@/lib/domain";
 import { literal, term } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
@@ -52,7 +57,7 @@ const TEST_UUID = testUuid("00000000-0000-0000-0000-000000000001");
 const PATIENT: CaseType = {
 	name: "patient",
 	properties: [
-		{ name: "name", label: proseText("Name"), data_type: "text" },
+		{ name: "case_name", label: proseText("Name"), data_type: "text" },
 		{ name: "dob", label: proseText("Date of birth"), data_type: "date" },
 	],
 };
@@ -65,14 +70,88 @@ const CTX: ColumnEditContext = {
 	caseTypes: [PATIENT],
 	currentCaseType: "patient",
 };
+const TILE = tileCell(2, 1, 5, 2, {
+	horizontalAlign: "right",
+	verticalAlign: "middle",
+	fontSize: "large",
+	showBorder: true,
+	showShading: true,
+});
+
+const TILED_SOURCE_COLUMNS: readonly Column[] = [
+	plainColumn(TEST_UUID, "case_name", "Name", { tile: TILE }),
+	phoneColumn(TEST_UUID, "case_name", "Phone", { tile: TILE }),
+	dateColumn(TEST_UUID, "dob", "Birthday", "%Y-%m-%d", { tile: TILE }),
+	idMappingColumn(TEST_UUID, "case_name", "Name", [], { tile: TILE }),
+	imageMapColumn(TEST_UUID, "case_name", "Image", [], { tile: TILE }),
+	intervalColumn(TEST_UUID, "dob", "Age", 7, "days", "always", "Old", {
+		tile: TILE,
+	}),
+	calculatedColumn(TEST_UUID, "Summary", term(literal("Ready")), {
+		tile: TILE,
+	}),
+];
+const TARGET_KINDS = [
+	"plain",
+	"phone",
+	"date",
+	"id-mapping",
+	"image-map",
+	"interval",
+	"calculated",
+] as const;
+
+function swapped(
+	source: Column,
+	target: (typeof TARGET_KINDS)[number],
+	ctx: ColumnEditContext = CTX,
+): Column {
+	const next = preservedColumnSwap(source, target, ctx);
+	expect(next).toBeDefined();
+	if (next === undefined) throw new Error(`expected ${target} swap`);
+	return next;
+}
 
 describe("preservedColumnSwap — universal field + header preservation", () => {
+	it.each(
+		TILED_SOURCE_COLUMNS.flatMap((source) =>
+			TARGET_KINDS.filter(
+				(target) =>
+					target === "calculated" ||
+					source.kind === "calculated" ||
+					(source.field === "dob"
+						? target !== "phone"
+						: target !== "date" && target !== "interval"),
+			).map((target) => [source.kind, target, source] as const),
+		),
+	)(
+		"%s → %s preserves the complete tile presentation",
+		(_sourceKind, targetKind, source) => {
+			expect(swapped(source, targetKind).tile).toEqual(TILE);
+		},
+	);
+
+	it("refuses an incompatible source/display pair instead of rewriting its field", () => {
+		expect(
+			preservedColumnSwap(
+				plainColumn(TEST_UUID, "case_name", "Name", { tile: TILE }),
+				"date",
+				CTX,
+			),
+		).toBeUndefined();
+		expect(
+			preservedColumnSwap(
+				dateColumn(TEST_UUID, "dob", "Birthday", "%Y-%m-%d", {
+					tile: TILE,
+				}),
+				"phone",
+				CTX,
+			),
+		).toBeUndefined();
+	});
+
 	it("Plain → Interval preserves field + header + uuid", () => {
-		const next = preservedColumnSwap(
-			plainColumn(TEST_UUID, "dob", "Birthday"),
-			"interval",
-			CTX,
-		);
+		const next = swapped(plainColumn(TEST_UUID, "dob", "Birthday"), "interval");
 		expect(next.kind).toBe("interval");
 		if (next.kind !== "interval") throw new Error("expected interval");
 		expect(next.field).toBe("dob");
@@ -81,11 +160,7 @@ describe("preservedColumnSwap — universal field + header preservation", () => 
 	});
 
 	it("Plain → Date preserves field + header + uuid", () => {
-		const next = preservedColumnSwap(
-			plainColumn(TEST_UUID, "dob", "Birthday"),
-			"date",
-			CTX,
-		);
+		const next = swapped(plainColumn(TEST_UUID, "dob", "Birthday"), "date");
 		expect(next.kind).toBe("date");
 		if (next.kind !== "date") throw new Error("expected date");
 		expect(next.field).toBe("dob");
@@ -94,10 +169,9 @@ describe("preservedColumnSwap — universal field + header preservation", () => 
 	});
 
 	it("Interval → Plain preserves field + header + uuid", () => {
-		const next = preservedColumnSwap(
+		const next = swapped(
 			intervalColumn(TEST_UUID, "dob", "Birthday", 30, "days", "flag", "Old"),
 			"plain",
-			CTX,
 		);
 		expect(next.kind).toBe("plain");
 		if (next.kind !== "plain") throw new Error("expected plain");
@@ -107,24 +181,24 @@ describe("preservedColumnSwap — universal field + header preservation", () => 
 	});
 
 	it("ID Mapping → Plain preserves field + header (mapping table dropped)", () => {
-		const next = preservedColumnSwap(
-			idMappingColumn(TEST_UUID, "name", "Name", [{ value: "x", label: "X" }]),
+		const next = swapped(
+			idMappingColumn(TEST_UUID, "case_name", "Name", [
+				{ value: "x", label: "X" },
+			]),
 			"plain",
-			CTX,
 		);
 		expect(next.kind).toBe("plain");
 		if (next.kind !== "plain") throw new Error("expected plain");
-		expect(next.field).toBe("name");
+		expect(next.field).toBe("case_name");
 		expect(next.header).toBe("Name");
 	});
 });
 
 describe("preservedColumnSwap — calc transitions", () => {
 	it("Plain → Calculated drops the field; preserves header + uuid", () => {
-		const next = preservedColumnSwap(
-			plainColumn(TEST_UUID, "name", "Name column"),
+		const next = swapped(
+			plainColumn(TEST_UUID, "case_name", "Name column"),
 			"calculated",
-			CTX,
 		);
 		expect(next.kind).toBe("calculated");
 		if (next.kind !== "calculated") throw new Error("expected calculated");
@@ -133,28 +207,48 @@ describe("preservedColumnSwap — calc transitions", () => {
 	});
 
 	it("Calculated → Plain seeds the field from the target schema", () => {
-		const next = preservedColumnSwap(
+		const next = swapped(
 			calculatedColumn(TEST_UUID, "Computed", term(literal("hi"))),
 			"plain",
-			CTX,
 		);
 		expect(next.kind).toBe("plain");
 		if (next.kind !== "plain") throw new Error("expected plain");
 		expect(next.header).toBe("Computed");
 		expect(next.uuid).toBe(TEST_UUID);
-		// The legacy `name` catalog entry is exposed through Nova's one
-		// canonical standard name.
+		// The catalog exposes only Nova's canonical standard name.
 		expect(next.field).toBe("case_name");
+	});
+
+	it("Calculated → required display seeds a declared honest-unknown property", () => {
+		const unknownCtx: ColumnEditContext = {
+			currentCaseType: "patient",
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{
+							name: "untyped_value",
+							label: proseText("Imported value"),
+						},
+					],
+				},
+			],
+		};
+		const source = calculatedColumn(TEST_UUID, "Computed", term(literal("hi")));
+
+		for (const target of ["date", "phone", "interval"] as const) {
+			const next = swapped(source, target, unknownCtx);
+			if (next.kind === "calculated") {
+				throw new Error(`expected field-bearing ${target} column`);
+			}
+			expect(next.field).toBe("untyped_value");
+		}
 	});
 });
 
 describe("preservedColumnSwap — non-twin transitions reset extras", () => {
 	it("Plain → Interval reseeds threshold + unit + display from defaults", () => {
-		const next = preservedColumnSwap(
-			plainColumn(TEST_UUID, "dob", "Birthday"),
-			"interval",
-			CTX,
-		);
+		const next = swapped(plainColumn(TEST_UUID, "dob", "Birthday"), "interval");
 		expect(next.kind).toBe("interval");
 		if (next.kind !== "interval") throw new Error("expected interval");
 		expect(next.field).toBe("dob");
@@ -169,10 +263,9 @@ describe("preservedColumnSwap — non-twin transitions reset extras", () => {
 	});
 
 	it("Date → ID Mapping resets the mapping table but preserves field + header", () => {
-		const next = preservedColumnSwap(
+		const next = swapped(
 			dateColumn(TEST_UUID, "dob", "Birthday", "%d-%b-%Y"),
 			"id-mapping",
-			CTX,
 		);
 		expect(next.kind).toBe("id-mapping");
 		if (next.kind !== "id-mapping") throw new Error("expected id-mapping");
@@ -180,5 +273,20 @@ describe("preservedColumnSwap — non-twin transitions reset extras", () => {
 		expect(next.header).toBe("Birthday");
 		// Non-twin (date) source → empty mapping table from the schema.
 		expect(next.mapping).toEqual([]);
+	});
+
+	it("returns unavailable instead of inventing a field for a calculated source", () => {
+		const noProperties: ColumnEditContext = {
+			currentCaseType: "patient",
+			caseTypes: [{ name: "patient", properties: [] }],
+		};
+
+		expect(
+			preservedColumnSwap(
+				calculatedColumn(TEST_UUID, "Computed", term(literal("hi"))),
+				"plain",
+				noProperties,
+			),
+		).toBeUndefined();
 	});
 });

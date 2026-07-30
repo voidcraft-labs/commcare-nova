@@ -16,6 +16,10 @@ const cloudSqlProvisioning = readFileSync(
 );
 const prodDb = readFileSync("scripts/lib/prodDb.ts", "utf8");
 const migrateEntrypoint = readFileSync("scripts/migrate.ts", "utf8");
+const auditEntrypoint = readFileSync(
+	"scripts/audit-canonical-identity-foundation.ts",
+	"utf8",
+);
 const cleanupEntrypoint = readFileSync(
 	"scripts/cleanup-form-attachments.ts",
 	"utf8",
@@ -30,7 +34,7 @@ const deployPolicy = readFileSync(
 );
 
 function stepOffset(id: string): number {
-	const offset = cloudBuild.indexOf(`- id: ${id}`);
+	const offset = cloudBuild.indexOf(`  - id: ${id}\n`);
 	expect(offset, `missing Cloud Build step ${id}`).toBeGreaterThanOrEqual(0);
 	return offset;
 }
@@ -41,7 +45,13 @@ describe("durable deployment policy", () => {
 			stepOffset("build"),
 		);
 		expect(stepOffset("build")).toBeLessThan(stepOffset("push"));
-		expect(stepOffset("push")).toBeLessThan(stepOffset("media-policy"));
+		expect(stepOffset("push")).toBeLessThan(stepOffset("resolve-image"));
+		expect(stepOffset("resolve-image")).toBeLessThan(
+			stepOffset("deployment-prestate"),
+		);
+		expect(stepOffset("deployment-prestate")).toBeLessThan(
+			stepOffset("media-policy"),
+		);
 		expect(stepOffset("media-policy")).toBeLessThan(stepOffset("migrate"));
 		expect(stepOffset("migrate")).toBeLessThan(stepOffset("capture-cleanup"));
 		expect(stepOffset("capture-cleanup")).toBeLessThan(stepOffset("deploy"));
@@ -75,7 +85,10 @@ describe("durable deployment policy", () => {
 
 	test("pins one image and the final runtime platform limits", () => {
 		expect(cloudBuild).not.toContain("app:$COMMIT_SHA");
-		expect(cloudBuild.match(/app:\$BUILD_ID/g)).toHaveLength(6);
+		expect(cloudBuild.match(/app:\$BUILD_ID/g)).toHaveLength(3);
+		expect(cloudBuild.match(/\$\${NOVA_IMMUTABLE_IMAGE}/g)).toHaveLength(7);
+		expect(cloudBuild).toContain("--resolve-image");
+		expect(cloudBuild).toContain("--output=/workspace/image.env");
 		expect(cloudBuild).toContain('--build-arg NOVA_BUILD_ID="$$NOVA_BUILD_ID"');
 		expect(cloudBuild).toContain(
 			'--timeout="$${NOVA_CLOUD_RUN_REQUEST_SECONDS}s"',
@@ -115,8 +128,16 @@ describe("durable deployment policy", () => {
 			'"The exact candidate must own 100% traffic and every old revision "',
 		);
 		expect(deployPolicy).toContain(
-			'"Scaling-only update created or removed a revision."',
+			'"Cloud Run removed a tagged or traffic-owning revision: "',
 		);
+		expect(deployPolicy).toContain(
+			'"Cloud Run revision inventory added an unexpected revision: "',
+		);
+		expect(deployPolicy).toContain("RECOVERABLE_PHASES");
+		expect(deployPolicy).toContain("finally:");
+		expect(deployPolicy).toContain('"etag": etag');
+		expect(deployPolicy).toContain("_run_all_recovery_actions");
+		expect(deployPolicy).toContain("attempted_recovery_actions =");
 		expect(deployPolicy).toContain('"--scaling=auto"');
 		expect(deployPolicy).toContain("NOVA_DEPLOY_PRESTATE=");
 		expect(deployPolicy).toContain("NOVA_DEPLOY_CANDIDATE=");
@@ -159,10 +180,12 @@ describe("durable deployment policy", () => {
 		expect(cloudSqlProvisioning).toContain(
 			'CAPTURE_CLEANUP_SA_EMAIL="nova-capture-cleanup@',
 		);
+		expect(cloudSqlProvisioning).toContain('AUDIT_SA_EMAIL="nova-audit@');
 		expect(cloudSqlProvisioning).toContain('assign-roles "$RUNTIME_SA_DBUSER"');
 		expect(cloudSqlProvisioning).toContain(
 			'assign-roles "$CAPTURE_CLEANUP_SA_DBUSER"',
 		);
+		expect(cloudSqlProvisioning).toContain('assign-roles "$AUDIT_SA_DBUSER"');
 		expect(cloudSqlProvisioning).not.toContain("compute@developer");
 	});
 
@@ -173,6 +196,7 @@ describe("durable deployment policy", () => {
 		expect(esbuildEntrypoints).toEqual([
 			"scripts/migrate.ts",
 			"scripts/cleanup-form-attachments.ts",
+			"scripts/audit-canonical-identity-foundation.ts",
 			"scripts/infra/apply-media-bucket-policy.ts",
 		]);
 		for (const entrypoint of esbuildEntrypoints) {
@@ -191,7 +215,7 @@ describe("durable deployment policy", () => {
 		);
 	});
 
-	test("keeps build, migration, runtime, and cleanup authority distinct", () => {
+	test("keeps build, migration, runtime, cleanup, and audit authority distinct", () => {
 		expect(cloudBuild).toContain(
 			"--service-account=nova-migrate@commcare-nova.iam.gserviceaccount.com",
 		);
@@ -211,6 +235,7 @@ describe("durable deployment policy", () => {
 		expect(provisioning).toContain(
 			'CAPTURE_CLEANUP_ACCOUNT="nova-capture-cleanup@',
 		);
+		expect(provisioning).toContain('AUDIT_ACCOUNT="nova-audit@');
 		expect(provisioning).toContain(
 			'CAPTURE_SCHEDULER_ACCOUNT="nova-capture-scheduler@',
 		);
@@ -223,6 +248,14 @@ describe("durable deployment policy", () => {
 		expect(provisioning).toContain('bind_act_as "$CAPTURE_CLEANUP_ACCOUNT"');
 		expect(provisioning).toContain('bind_act_as "$CAPTURE_SCHEDULER_ACCOUNT"');
 		expect(provisioning).not.toContain('bind_act_as "$BUILD_ACCOUNT"');
+		expect(provisioning).not.toContain('bind_act_as "$AUDIT_ACCOUNT"');
+		expect(cloudBuild).not.toContain(
+			"--service-account=nova-audit@commcare-nova.iam.gserviceaccount.com",
+		);
+		expect(dockerfile).toContain("canonical-identity-audit.cjs");
+		expect(auditEntrypoint).toContain('readCaseStoreWorkload() !== "audit"');
+		expect(auditEntrypoint).toContain("databaseUser !== auditUser");
+		expect(auditEntrypoint).toContain("SET default_transaction_read_only = on");
 	});
 
 	test("deploys the storage policy and one scheduled retry worker", () => {
@@ -230,13 +263,17 @@ describe("durable deployment policy", () => {
 		expect(dockerfile).toContain("scripts/cleanup-form-attachments.ts");
 		expect(dockerfile).toContain("media-bucket-policy.cjs");
 		expect(dockerfile).toContain("capture-cleanup.cjs");
-		expect(cloudBuild).toContain(
-			"gcloud run jobs execute commcare-nova-media-policy --region=us-central1 --wait",
-		);
+		expect(cloudBuild.match(/--execute-job/g)).toHaveLength(3);
+		expect(cloudBuild).not.toContain("gcloud run jobs execute");
 		expect(cloudBuild).not.toContain(
 			"gcloud run jobs execute commcare-nova-capture-cleanup",
 		);
-		expect(cloudBuild).toContain("--args=capture-cleanup.cjs,--probe-schema");
+		expect(cloudBuild).toContain("--execution-arg=capture-cleanup.cjs");
+		expect(cloudBuild).toContain("--execution-arg=--probe-schema");
+		expect(cloudBuild).toContain("--read-scaling-prestate");
+		expect(cloudBuild).toContain(
+			"Maintenance requires a pre-existing PAUSED cleanup scheduler.",
+		);
 		expect(cloudBuild).toContain(
 			'scheduler_state_after="$$(gcloud scheduler jobs describe',
 		);
@@ -248,6 +285,7 @@ describe("durable deployment policy", () => {
 		expect(cloudBuild).toContain("NOVA_DB_WORKLOAD=capture-cleanup");
 		expect(cloudBuild).toContain("NOVA_DB_WORKLOAD=migration");
 		expect(cloudBuild).toContain("NOVA_DB_WORKLOAD=service");
+		expect(cloudBuild).not.toContain("NOVA_DB_WORKLOAD=audit");
 		expect(prodDb).toContain('process.env.NOVA_DB_WORKLOAD = "operator"');
 		expect(packageJson).toContain(
 			'"db:migrate": "NOVA_DB_WORKLOAD=migration tsx --conditions=react-server scripts/migrate.ts"',

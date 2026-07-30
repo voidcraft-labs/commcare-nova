@@ -5,21 +5,17 @@
  *
  * The generalization of the `identifierVerdicts.ts` pattern from one
  * rule family (field ids) to the whole validator: apply the batch to a
- * candidate doc, run the introduced-error gate
- * (`lib/commcare/validator/gate.ts::evaluateCommit`) under the scope the
- * batch can affect (`scopeOfMutations`), and return a typed verdict.
+ * candidate doc, run the absolute whole-candidate gate
+ * (`lib/commcare/validator/gate.ts::evaluateCommit`), and return a typed verdict.
  * One verdict, every caller — the SA/MCP tool layer
  * (`lib/agent/tools/common.ts::guardedMutate`) and the builder's
  * dispatch hook (`useBlueprintMutations`) consume the same function, so
  * "rejected here, accepted there" can't drift between surfaces.
  *
- * Semantics live entirely in `evaluateCommit` — introduced-error
- * diffing and the gating-class filter are never re-derived here.
- * Reducers stay total and never call this: a degenerate historical
- * event must still replay.
- *
- * Bypasses: undo/redo, hydration, the agent stream, and replay write
- * through the store directly — they replay already-committed states.
+ * Semantics live entirely in `evaluateCommit` — whole-document validation
+ * and the gating-class filter are never re-derived here. Reducers do not
+ * validate; every lifecycle path must prepare and evaluate before accepting
+ * a state.
  *
  * Pure — the candidate `nextDoc` is computed via Immer `produce` over
  * the same `applyMutations` reducer every committed batch runs through.
@@ -37,7 +33,6 @@ import {
 	checkCsqlRepresentability,
 } from "@/lib/commcare/predicate";
 import { matchModeRunsOnDevice } from "@/lib/commcare/predicate/matchModes";
-import type { ValidationScope } from "@/lib/commcare/validator";
 import {
 	type ValidationError,
 	validationError,
@@ -49,7 +44,11 @@ import {
 import { validateLookupReferences } from "@/lib/commcare/validator/lookupReferences";
 import { lookupTypeIndex } from "@/lib/commcare/validator/lookupTypeContext";
 import { MODULE_RULES } from "@/lib/commcare/validator/rules/module";
-import { scopeOfMutations } from "@/lib/commcare/validator/scopeOfMutations";
+import {
+	type CasePropertyRenamePlan,
+	type CasePropertyRenamePlanIssue,
+	planCasePropertyRenames,
+} from "@/lib/doc/casePropertyRenames";
 import {
 	type LookupValidationContext,
 	PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS,
@@ -68,6 +67,7 @@ import {
 	mutationSequenceAdmissionIssue,
 } from "@/lib/doc/mutationSequenceAdmission";
 import { applyMutations } from "@/lib/doc/mutations";
+import { mutationTargetsInvalid } from "@/lib/doc/mutationTargetAdmission";
 import type { MutationResult } from "@/lib/doc/types";
 import { type BlueprintDoc, type Uuid, uuidSchema } from "@/lib/domain";
 import type { MatchMode, Predicate } from "@/lib/domain/predicate";
@@ -75,10 +75,6 @@ import type { MatchMode, Predicate } from "@/lib/domain/predicate";
 export type PredicateEditVerdict =
 	| { readonly ok: true }
 	| { readonly ok: false; readonly reason: string };
-
-function representabilityIssueKey(issue: CsqlRepresentabilityIssue): string {
-	return `${issue.reason}\0${issue.path.map(String).join("\0")}`;
-}
 
 function predicateEditIssueReason(issue: CsqlRepresentabilityIssue): string {
 	if (issue.reason === "case-property-on-value-side") {
@@ -94,26 +90,17 @@ function predicateEditIssueReason(issue: CsqlRepresentabilityIssue): string {
  * Decide whether one in-place edit may be offered inside a case-search rule.
  *
  * The builder deliberately asks this domain-facing question instead of
- * importing or re-implementing CommCare's CSQL grammar. Comparing the current
- * and candidate trees is load-bearing for recovery: an imported rule may
- * already contain a finding, and changing a different value must remain
- * possible as long as that edit introduces nothing new. This mirrors the
- * commit gate's delta semantics while giving a picker a concise reason before
- * the author chooses an unsupported value source.
+ * importing or re-implementing CommCare's CSQL grammar. The complete candidate
+ * must be representable; an invalid existing arm cannot be carried forward by
+ * changing a different value.
  */
 export function caseSearchPredicateEditVerdict(
-	current: Predicate,
 	candidate: Predicate,
 ): PredicateEditVerdict {
-	const existing = new Set(
-		checkCsqlRepresentability(current).map(representabilityIssueKey),
-	);
-	const introduced = checkCsqlRepresentability(candidate).find(
-		(issue) => !existing.has(representabilityIssueKey(issue)),
-	);
-	return introduced === undefined
+	const finding = checkCsqlRepresentability(candidate)[0];
+	return finding === undefined
 		? { ok: true }
-		: { ok: false, reason: predicateEditIssueReason(introduced) };
+		: { ok: false, reason: predicateEditIssueReason(finding) };
 }
 
 /**
@@ -134,8 +121,8 @@ export function matchModeAvailableOnDevice(mode: MatchMode): boolean {
 
 /** Absolute readiness verdict for a predicate that will execute as a remote
  * case-search query. Whole-config status surfaces use this to mark an imported
- * unsupported rule before the author touches it; edit menus use the delta
- * verdict above so that same rule remains repairable. */
+ * unsupported rule before the author touches it; edit menus use the same
+ * absolute verdict so an invalid rule cannot be retained. */
 export function caseSearchPredicateVerdict(
 	predicate: Predicate,
 ): PredicateEditVerdict {
@@ -145,9 +132,8 @@ export function caseSearchPredicateVerdict(
 		: { ok: false, reason: predicateEditIssueReason(issue) };
 }
 
-/** Absolute validator projection for the case-list workspace. The commit gate
- * is deliberately delta-based, while workspace status must expose existing
- * imported findings. Running the actual module rules keeps that status aligned
+/** Absolute validator projection for the case-list workspace. Running the
+ * actual module rules keeps that status aligned
  * with every type, wire, and on-device constraint without recreating their
  * private walkers in React code. */
 export interface CaseWorkspaceBoundaryVerdicts {
@@ -291,7 +277,7 @@ export function caseWorkspaceBoundaryVerdicts(
 /**
  * The verdict shape every commit surface consumes. `nextDoc` is always
  * present: an accepting caller commits/persists it; a rejecting caller
- * discards it and renders the `introduced` findings (each carries the
+ * discards it and renders the candidate's findings (each carries the
  * validator's person-to-person `message`). The accepting arm also
  * carries the reducers' per-mutation `results` (rename/move metadata)
  * from the candidate run, so a caller that commits `nextDoc` directly
@@ -305,21 +291,22 @@ export type MutationCommitVerdict =
 			mutations: AdmittedMutationBatch;
 			prepared: PreparedMutationCandidate;
 	  }
-	| { ok: false; nextDoc: BlueprintDoc; introduced: ValidationError[] };
+	| { ok: false; nextDoc: BlueprintDoc; findings: ValidationError[] };
 
 /**
  * Candidate prepared exactly once for one commit attempt. Evaluation consumes
- * the candidate doc, reducer results, and precomputed validation scope; it has
- * no mutation batch to re-apply and therefore cannot invoke the reducer.
+ * the candidate doc and reducer results; it has no mutation batch to re-apply
+ * and therefore cannot invoke the reducer.
  */
 export interface PreparedMutationCandidate {
 	readonly mutations: AdmittedMutationBatch;
 	readonly nextDoc: BlueprintDoc;
 	readonly results: MutationResult[];
-	readonly scope: ValidationScope | "full";
-	readonly mutationCount: number;
 	readonly identityAdmissionIssue?: MutationIdentityAdmissionIssue;
 	readonly sequenceAdmissionIssue?: MutationSequenceAdmissionIssue;
+	readonly targetAdmissionIssue?: true;
+	readonly renamePlanIssue?: CasePropertyRenamePlanIssue;
+	readonly casePropertyRenamePlan?: CasePropertyRenamePlan;
 }
 
 /**
@@ -331,24 +318,12 @@ export function prepareMutationCandidate(
 	prevDoc: BlueprintDoc,
 	mutations: AdmittedMutationBatch,
 ): PreparedMutationCandidate {
-	if (mutations.length === 0) {
-		return {
-			mutations,
-			nextDoc: prevDoc,
-			results: [],
-			scope: scopeOfMutations(prevDoc, mutations),
-			mutationCount: 0,
-		};
-	}
-
 	const identityIssue = mutationIdentityAdmissionIssue(prevDoc, mutations);
 	if (identityIssue !== undefined) {
 		return {
 			mutations,
 			nextDoc: prevDoc,
 			results: [],
-			scope: "full",
-			mutationCount: mutations.length,
 			identityAdmissionIssue: identityIssue,
 		};
 	}
@@ -358,9 +333,37 @@ export function prepareMutationCandidate(
 			mutations,
 			nextDoc: prevDoc,
 			results: [],
-			scope: "full",
-			mutationCount: mutations.length,
 			sequenceAdmissionIssue: sequenceIssue,
+		};
+	}
+	if (mutationTargetsInvalid(prevDoc, mutations)) {
+		return {
+			mutations,
+			nextDoc: prevDoc,
+			results: [],
+			targetAdmissionIssue: true,
+		};
+	}
+	const renameMutation =
+		mutations.length === 1 && mutations[0]?.kind === "renameCaseProperties"
+			? mutations[0]
+			: undefined;
+	const renamePlan =
+		renameMutation === undefined
+			? undefined
+			: planCasePropertyRenames(prevDoc, renameMutation);
+	if (renamePlan !== undefined && !renamePlan.ok)
+		return {
+			mutations,
+			nextDoc: prevDoc,
+			results: [],
+			renamePlanIssue: renamePlan.issue,
+		};
+	if (mutations.length === 0) {
+		return {
+			mutations,
+			nextDoc: prevDoc,
+			results: [],
 		};
 	}
 
@@ -372,35 +375,26 @@ export function prepareMutationCandidate(
 		mutations,
 		nextDoc,
 		results,
-		scope: scopeOfMutations(prevDoc, mutations),
-		mutationCount: mutations.length,
+		...(renamePlan !== undefined && {
+			casePropertyRenamePlan: renamePlan.plan,
+		}),
 	};
 }
 
 /**
- * Evaluate a prepared candidate without applying its mutations again. Previous
- * and candidate validation receive the exact same context object.
+ * Evaluate a prepared candidate without applying its mutations again. The
+ * complete candidate is validated under the authoritative context object.
  */
 export function evaluatePreparedMutationCandidate(
-	prevDoc: BlueprintDoc,
 	prepared: PreparedMutationCandidate,
 	lookupContext: LookupValidationContext,
 ): MutationCommitVerdict {
-	if (prepared.mutationCount === 0) {
-		return {
-			ok: true,
-			nextDoc: prepared.nextDoc,
-			results: prepared.results,
-			mutations: prepared.mutations,
-			prepared,
-		};
-	}
 	if (prepared.identityAdmissionIssue !== undefined) {
 		const issue = prepared.identityAdmissionIssue;
 		return {
 			ok: false,
 			nextDoc: prepared.nextDoc,
-			introduced: [
+			findings: [
 				validationError(
 					"MUTATION_IDENTITY_COLLISION",
 					"app",
@@ -422,7 +416,7 @@ export function evaluatePreparedMutationCandidate(
 		return {
 			ok: false,
 			nextDoc: prepared.nextDoc,
-			introduced: [
+			findings: [
 				validationError(
 					"MUTATION_SEQUENCE_ANCHOR_INVALID",
 					"app",
@@ -438,11 +432,46 @@ export function evaluatePreparedMutationCandidate(
 			],
 		};
 	}
+	if (prepared.targetAdmissionIssue === true) {
+		return {
+			ok: false,
+			nextDoc: prepared.nextDoc,
+			findings: [
+				validationError(
+					"MUTATION_TARGET_INVALID",
+					"app",
+					"This change refers to a target whose identity, kind, scope, action, or collection membership is not valid in the current app.",
+					{},
+				),
+			],
+		};
+	}
+	if (prepared.renamePlanIssue !== undefined) {
+		const issue = prepared.renamePlanIssue;
+		return {
+			ok: false,
+			nextDoc: prepared.nextDoc,
+			findings: [
+				validationError(
+					"MUTATION_CASE_PROPERTY_RENAME_INVALID",
+					"app",
+					"This change does not define one lossless case-property rename for the batch.",
+					{},
+					{
+						mutationIndex: String(issue.mutationIndex),
+						renameIndex: String(issue.renameIndex),
+						caseType: issue.caseType,
+						from: issue.from,
+						to: issue.to,
+						reason: issue.reason,
+					},
+				),
+			],
+		};
+	}
 
 	const verdict = evaluateCommit({
-		prevDoc,
 		nextDoc: prepared.nextDoc,
-		scope: prepared.scope,
 		lookupContext,
 	});
 	return verdict.ok
@@ -456,14 +485,14 @@ export function evaluatePreparedMutationCandidate(
 		: {
 				ok: false,
 				nextDoc: prepared.nextDoc,
-				introduced: verdict.introduced,
+				findings: verdict.findings,
 			};
 }
 
 /**
- * Gate one mutation batch against the doc it would apply to. An empty
- * batch passes without running validation — there is nothing to
- * introduce.
+ * Gate one mutation batch against the doc it would apply to. Empty batches
+ * still validate the unchanged candidate, so no lifecycle path can preserve
+ * an invalid document by doing nothing.
  */
 export function mutationCommitVerdict(
 	prevDoc: BlueprintDoc,
@@ -478,7 +507,6 @@ export function mutationCommitVerdict(
 		return mutationWireCanonicalityRejection(prevDoc, error);
 	}
 	return evaluatePreparedMutationCandidate(
-		prevDoc,
 		prepareMutationCandidate(prevDoc, admitted),
 		lookupContext,
 	);
@@ -491,7 +519,7 @@ export function mutationWireCanonicalityRejection(
 	return {
 		ok: false,
 		nextDoc: prevDoc,
-		introduced: [
+		findings: [
 			validationError(
 				"MUTATION_WIRE_CANONICALITY_INVALID",
 				"app",
@@ -514,16 +542,15 @@ export function mutationWireCanonicalityRejection(
  * The EXPORT-readiness findings for a whole doc — the zero-tolerance bar the
  * compile / upload / export boundary applies.
  *
- * `mutationCommitVerdict` cannot answer this question. It is DELTA-based: a
- * pre-existing finding never blocks a commit, so an empty app's `NO_MODULES` /
- * `EMPTY_APP_NAME` survive every batch that doesn't introduce something new.
- * A caller that must establish "this doc is exportable" as a fact — rather
- * than "this batch made nothing worse" — asks here.
+ * `mutationCommitVerdict` is also absolute: it rejects unless the complete
+ * candidate has zero shape, soundness, or completeness findings, including for
+ * an empty batch. This separate boundary function exists because export
+ * readiness additionally evaluates manifest-gated environment rules. With the
+ * deliberately empty manifest below, any media reference is reported missing.
  *
- * The manifest is empty, so a doc carrying media references reports them
- * missing. Only callers whose docs hold no media may use this (today: the
- * creation templates in `scaffolds.ts`). The real export path threads the
- * Project's external-resource snapshots through `lib/export/boundaryValidation.ts`.
+ * Only callers whose docs hold no media may use this helper (today: canonical
+ * app genesis). The real export path threads the Project's external-resource
+ * snapshots through `lib/export/boundaryValidation.ts`.
  */
 export function exportReadinessFindings(
 	doc: BlueprintDoc,
@@ -539,12 +566,12 @@ export function exportReadinessFindings(
  * a self-contained sentence naming what's wrong and where it lives; this
  * adds only the frame: nothing was changed, fix the edit and retry.
  */
-export function describeIntroducedErrors(
-	introduced: readonly ValidationError[],
+export function describeCommitFindings(
+	findings: readonly ValidationError[],
 ): string {
-	const lines = introduced.map((err) => `- ${err.message}`).join("\n");
-	const plural = introduced.length === 1 ? "a new problem" : "new problems";
-	return `This change wasn't applied — it would introduce ${plural}:\n${lines}\nNothing was changed. Adjust the edit so it doesn't create ${
-		introduced.length === 1 ? "this problem" : "these problems"
+	const lines = findings.map((err) => `- ${err.message}`).join("\n");
+	const plural = findings.length === 1 ? "a problem" : "problems";
+	return `This change wasn't applied because the resulting app has ${plural}:\n${lines}\nNothing was changed. Fix ${
+		findings.length === 1 ? "this problem" : "these problems"
 	}, then try again.`;
 }

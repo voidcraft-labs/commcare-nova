@@ -56,9 +56,9 @@ import { nextLinkIdentifier, seedCaseOperationLink } from "./seeds";
  *  itself fixes (never a new case, always able to unlink). */
 type LinkTargetContext = Omit<TargetChoiceContext, "newOnly" | "allowsNone">;
 /** The only editor a link mounts is its RUNTIME TARGET, so `operationScope`
- *  is deliberately absent from what the parent hands down: this file fixes
- *  it to the target scope, which withholds `id-of` (the gate refuses one
- *  anywhere in a target tree) while keeping the owner sentinels. */
+ * is deliberately absent from what the parent hands down: this file fixes it
+ * to the target scope, which withholds `id-of`; owner sentinels are also
+ * unavailable because this is not an owner-value slot. */
 type LinkEditorScope = Pick<
 	ComponentProps<typeof ExpressionCardEditor>,
 	| "caseTypes"

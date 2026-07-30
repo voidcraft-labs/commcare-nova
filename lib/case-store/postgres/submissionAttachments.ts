@@ -13,6 +13,7 @@ import {
 	MAX_SUBMITTED_CAPTURE_BYTES,
 	MAX_SUBMITTED_CAPTURE_COUNT,
 } from "@/lib/domain/captureFormats";
+import { safePersistedSequence } from "@/lib/utils/persistedSequence";
 import { CaptureSubmissionRejectedError } from "../errors";
 import type { Database } from "../sql/database";
 import type { ApplySubmissionArgs } from "../submission";
@@ -137,7 +138,10 @@ export async function reserveCaptureSubmission(
 		.executeTakeFirst();
 	if (
 		app?.project_id !== args.projectId ||
-		Number(app.mutation_seq) !== args.intent.expectedAppMutationSeq
+		safePersistedSequence(
+			app.mutation_seq,
+			`apps.mutation_seq for app ${args.appId}`,
+		) !== args.intent.expectedAppMutationSeq
 	) {
 		reject(
 			"The form changed while it was being submitted. Reload the running app and try again.",

@@ -28,12 +28,39 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
 import {
 	fallbackProseProjection,
+	type ProseTemplate,
 	type SelectOptionsSource,
 	type SingleSelectField,
 } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import { BuilderSessionProvider } from "@/lib/session/provider";
 import { OptionsEditor } from "../OptionsEditor";
+
+/* Label editing has its own RefLabelInput coverage. Keep this widget suite
+ * focused on option-list semantics without mounting TipTap's deferred DOM
+ * observer/timer machinery in every test. */
+vi.mock("@/components/builder/RefLabelInput", () => ({
+	RefLabelInput: ({
+		label,
+		value,
+		autoFocus,
+	}: {
+		label: string;
+		value: ProseTemplate;
+		autoFocus?: boolean;
+	}) => (
+		<input
+			ref={(node) => {
+				if (node !== null && autoFocus) node.focus();
+			}}
+			aria-label={label}
+			readOnly
+			value={value.parts
+				.map((part) => (part.kind === "text" ? part.text : ""))
+				.join("")}
+		/>
+	),
+}));
 
 /** Option rows mount `MediaSlot`, whose staged-upload chip reads the
  *  session store and whose attach budget check reads the doc store —
@@ -113,8 +140,8 @@ describe("OptionsEditor", () => {
 			{ wrapper },
 		);
 		const labelEditors = screen.getAllByRole("textbox", { name: "Label" });
-		expect(labelEditors[0]?.textContent).toBe("Red");
-		expect(labelEditors[1]?.textContent).toBe("Blue");
+		expect((labelEditors[0] as HTMLInputElement).value).toBe("Red");
+		expect((labelEditors[1] as HTMLInputElement).value).toBe("Blue");
 	});
 
 	it("wraps the widget in a data-field-id=options container", () => {
@@ -259,7 +286,7 @@ describe("OptionsEditor", () => {
 		expect(fallbackProseProjection(last.options[0]?.label)).toBe("Blue");
 	});
 
-	it("preserves the canonical inline source when a row is removed", () => {
+	it("keeps the canonical two-option floor by disabling both remove buttons", () => {
 		const onChange = vi.fn(
 			(_next: SelectOptionsSource) => ({ ok: true }) as const,
 		);
@@ -273,18 +300,16 @@ describe("OptionsEditor", () => {
 			/>,
 			{ wrapper },
 		);
-		// The adapter preserves the source discriminant and the surviving
-		// option's UUID. The real doc gate decides whether the resulting
-		// single-option field is admissible.
-		// Query the <fieldset> element directly: the per-option MediaSlot
-		// now carries role="group" too, so getByRole("group") is ambiguous.
-		const fieldset = document.querySelector("fieldset") as HTMLElement;
-		const buttons = fieldset.querySelectorAll("button[type='button']");
-		fireEvent.click(buttons[0] as HTMLButtonElement);
-		const last = onChange.mock.calls[onChange.mock.calls.length - 1][0];
-		expect(last).toEqual({
-			kind: "inline",
-			options: [baseSource.options[1]],
-		});
+		expect(
+			screen
+				.getByRole("button", { name: "Remove Red" })
+				.hasAttribute("disabled"),
+		).toBe(true);
+		expect(
+			screen
+				.getByRole("button", { name: "Remove Blue" })
+				.hasAttribute("disabled"),
+		).toBe(true);
+		expect(onChange).not.toHaveBeenCalled();
 	});
 });

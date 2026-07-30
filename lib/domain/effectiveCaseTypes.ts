@@ -27,7 +27,7 @@
 //
 // **Unknown is honest.** A property whose type nothing pins —
 // hidden-only writers whose expressions defeat inference, or writer
-// disagreement on a legacy doc — keeps `data_type` ABSENT. It is
+// disagreement on an invalid candidate — keeps `data_type` ABSENT. It is
 // never stamped `"text"`: value-semantics consumers (the predicate
 // type checker, the SQL compiler, JSON-schema generation) still
 // read absent as text via the `effectiveDataType` convention, but
@@ -57,24 +57,21 @@
 // Everything else — arithmetic, concat, conditionals, form-field
 // references — resolves unknown. Form-field refs are EXCLUDED on
 // purpose, not for difficulty: keeping the derived state a function
-// of catalog + bound-writer state only is what lets the incremental
-// validator's scoping (`scopeOfMutations.ts`) stay sound — its
-// existing full-run triggers cover exactly those inputs, while an
-// unbound reference target's edits would leak past any entity-keyed
-// scope. Deeper inference belongs to a real expression type checker
+// of catalog + bound-writer state only keeps it stable and cheap for every
+// validation and compiler consumer. Deeper inference belongs to a real
+// expression type checker
 // over the parsed grammar (a `lib/commcare` concern), and
 // unknown-is-permissive means its absence never blocks an author.
 
 import type { CaseProperty, CaseType, PersistableDoc } from "./blueprint";
 import type { CasePropertyDataType } from "./casePropertyTypes";
-import { caseDataTypeForFieldKind, fieldCasePropertyOn } from "./caseTypes";
+import { caseDataTypeForFieldKind, fieldCaseWrite } from "./caseTypes";
 import type { Field, HiddenField } from "./fields";
 import { orderedCaseOperations } from "./forms";
 import {
 	ANY_TYPE,
 	type CheckError,
 	checkExpression,
-	SEQUENCE_TYPE,
 } from "./predicate/typeChecker";
 import { proseText } from "./prose";
 import {
@@ -134,7 +131,7 @@ const CONCRETE_WRITER_TYPES_CACHE = new WeakMap<
  * reference on every mutation, so staleness is unreachable).
  *
  * Only DECLARED case types appear — a field writing to an undeclared
- * type is a validator finding (`CASE_PROPERTY_ON_UNKNOWN_TYPE`), not
+ * type is a validator finding (`CASE_WRITE_UNKNOWN_TYPE`), not
  * a type this view invents.
  */
 export function effectiveCaseTypes(doc: PersistableDoc): readonly CaseType[] {
@@ -146,27 +143,16 @@ export function effectiveCaseTypes(doc: PersistableDoc): readonly CaseType[] {
 }
 
 /**
- * The effective view MINUS the standard-only entries — what the
- * case-store's schema materialization (`case_type_schemas` rows,
- * JSON-schema insert validation, per-property expression indexes)
- * derives from. The standard properties are CommCare runtime
- * metadata, not stored JSONB values: materializing them would put
- * `format` constraints on keys inserts never carry and mint a
- * per-case-type expression INDEX for every text-typed standard name
- * (real write-amplification for keys that are never populated). A
- * DECLARED standard-named property (`case_name`) still materializes
- * — only the implicit injections drop. (A written-but-undeclared
- * standard name doesn't materialize in either flavor's writer arm:
- * `case_name` routes to the `cases.case_name` COLUMN, not the JSONB
- * document, so a schema entry for it would constrain a key inserts
- * never carry.)
+ * The effective view minus standard-only injected entries. A DECLARED
+ * standard-named entry remains because the catalog owns authoring metadata and
+ * order. Storage projections are narrower still: `caseTypeToJsonSchema` and
+ * `computeDesiredIndexSet` independently exclude every scalar-backed name, so
+ * no declared standard entry becomes a JSONB key or expression index.
  *
- * The SQL compiler's schema map consumes this flavor too: standard
- * values are not stored in the JSONB document, so resolving one
- * would compile a silently-NULL read — the loud `lookupDataType`
- * failure is the honest behavior until standard names map onto
- * their scalar columns. Only the type CHECKER's admission set
- * (`effectiveCaseTypes`) carries the standard entries.
+ * The SQL compiler consumes this flavor too. Standard-name reads resolve
+ * through `RESERVED_SCALAR_COLUMN_BY_PROPERTY` before catalog lookup, so an
+ * explicit standard entry retains its authoring projection while runtime SQL
+ * still reads the first-class case column.
  */
 export function materializableCaseTypes(
 	doc: PersistableDoc,
@@ -287,8 +273,8 @@ function writerTypeResolver(
 				if (t !== undefined) types.add(t);
 			}
 			// Exactly one resolved opinion is a fact; zero is unknown;
-			// disagreement (a legacy doc the writer-agreement rules
-			// haven't repaired) is unknown rather than a coin flip.
+			// disagreement (an invalid candidate the writer-agreement rules
+			// reject) is unknown rather than a coin flip.
 			const resolved = types.size === 1 ? [...types][0] : undefined;
 			// Memoize only at the OUTERMOST frame. A nested resolution can
 			// have been truncated by the cycle guard above (an in-flight
@@ -431,9 +417,9 @@ interface OperationWriteToInfer {
 function buildFieldWriterIndex(doc: PersistableDoc): MutableWriterIndex {
 	const index = new Map<string, Map<string, PropertyWriter[]>>();
 	for (const field of Object.values(doc.fields)) {
-		const caseType = fieldCasePropertyOn(field);
-		if (caseType === undefined || field.id.length === 0) continue;
-		addWriter(index, caseType, field.id, { kind: "field", field });
+		const write = fieldCaseWrite(field);
+		if (write === undefined) continue;
+		addWriter(index, write.caseType, write.property, { kind: "field", field });
 	}
 	return index;
 }
@@ -479,15 +465,11 @@ function inferOperationWriteType(
 			currentCaseType: write.currentCaseType,
 			formFields: write.formFields,
 			operationIds: write.operationIds,
-			caseOperationValues: true,
 		},
 		errors,
 		[],
 	);
-	return errors.length === 0 &&
-		resolved !== undefined &&
-		resolved !== ANY_TYPE &&
-		resolved !== SEQUENCE_TYPE
+	return errors.length === 0 && resolved !== undefined && resolved !== ANY_TYPE
 		? resolved
 		: undefined;
 }

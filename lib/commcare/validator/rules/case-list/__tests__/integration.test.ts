@@ -45,8 +45,8 @@ describe("case-list validator — cross-rule integration", () => {
 								testUuid("si-name-range"),
 								"name_range",
 								"Name range",
-								"text",
-								"name",
+								"date-range",
+								"full_name",
 								{ mode: rangeMode() },
 							),
 						],
@@ -60,7 +60,7 @@ describe("case-list validator — cross-rule integration", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Name"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 								// Kind-mismatch — `text` field writing to an `int`
 								// property. Surfaces FIELD_KIND_PROPERTY_TYPE_MISMATCH.
@@ -68,7 +68,7 @@ describe("case-list validator — cross-rule integration", () => {
 									kind: "text",
 									id: "age",
 									label: proseText("Age"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "age" },
 								}),
 								// Drives the mode-mismatch — `name` is text-typed, so
 								// `range` is structurally rejected. Surfaces
@@ -77,7 +77,7 @@ describe("case-list validator — cross-rule integration", () => {
 									kind: "text",
 									id: "name",
 									label: proseText("Name (full)"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "full_name" },
 								}),
 							],
 						},
@@ -90,7 +90,7 @@ describe("case-list validator — cross-rule integration", () => {
 					properties: [
 						{ name: "case_name", label: proseText("Name"), data_type: "text" },
 						{ name: "age", label: proseText("Age"), data_type: "int" },
-						{ name: "name", label: proseText("Name"), data_type: "text" },
+						{ name: "full_name", label: proseText("Name"), data_type: "text" },
 					],
 				},
 			],
@@ -129,13 +129,13 @@ describe("case-list validator — cross-rule integration", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Name"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 								f({
 									kind: "int",
 									id: "weight",
 									label: proseText("Weight"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "weight" },
 								}),
 							],
 						},
@@ -147,7 +147,7 @@ describe("case-list validator — cross-rule integration", () => {
 									kind: "decimal",
 									id: "weight",
 									label: proseText("Weight"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "weight" },
 								}),
 							],
 						},
@@ -213,7 +213,7 @@ describe("case-list validator — cross-rule integration", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Name"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},
@@ -225,7 +225,7 @@ describe("case-list validator — cross-rule integration", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Name"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},
@@ -254,7 +254,7 @@ describe("case-list validator — cross-rule integration", () => {
 		expect(errors.filter((e) => newCodes.has(e.code))).toEqual([]);
 	});
 
-	it("ignores malformed legacy columns that have no running-app role", () => {
+	it("validates every dormant column definition before it can be revealed", () => {
 		const dormant = {
 			visibleInList: false,
 			visibleInDetail: false,
@@ -271,19 +271,19 @@ describe("case-list validator — cross-rule integration", () => {
 							plainColumn(
 								testUuid("col-unknown"),
 								"missing_property",
-								"Old field",
+								"Saved field",
 								dormant,
 							),
 							dateColumn(
 								testUuid("col-wrong-kind"),
 								"case_name",
-								"Old date",
+								"Saved date",
 								"%Y-%m-%d",
 								dormant,
 							),
 							calculatedColumn(
 								testUuid("col-bad-calc"),
-								"Old calculation",
+								"Saved calculation",
 								arith(
 									"+",
 									term(prop("patient", "case_name")),
@@ -293,7 +293,7 @@ describe("case-list validator — cross-rule integration", () => {
 							),
 							calculatedColumn(
 								testUuid("col-bare-input"),
-								"Old input calculation",
+								"Saved input calculation",
 								term(input(testUuid("missing_search_input"))),
 								dormant,
 							),
@@ -301,7 +301,7 @@ describe("case-list validator — cross-rule integration", () => {
 								kind: "id-mapping",
 								uuid: testUuid("col-bad-map"),
 								field: "case_name",
-								header: "Old labels",
+								header: "Saved labels",
 								mapping: [idMappingEntry("", "Blank")],
 								...dormant,
 							},
@@ -309,7 +309,7 @@ describe("case-list validator — cross-rule integration", () => {
 								kind: "image-map",
 								uuid: testUuid("col-bad-images"),
 								field: "case_name",
-								header: "Old images",
+								header: "Saved images",
 								mapping: [
 									imageMapEntry("same", testMediaAssetId("missing-image-a")),
 									imageMapEntry("same", testMediaAssetId("missing-image-b")),
@@ -328,7 +328,7 @@ describe("case-list validator — cross-rule integration", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Name"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},
@@ -352,12 +352,12 @@ describe("case-list validator — cross-rule integration", () => {
 			"CASE_LIST_BARE_SEARCH_INPUT_REF",
 			"CASE_LIST_ID_MAPPING_EMPTY_VALUE",
 			"CASE_LIST_IMAGE_MAP_DUPLICATE_VALUE",
-			"MEDIA_ASSET_NOT_FOUND",
 		]);
-		expect(
-			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((error) =>
-				dormantColumnCodes.has(error.code),
-			),
-		).toEqual([]);
+		const codes = new Set(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)
+				.filter((error) => dormantColumnCodes.has(error.code))
+				.map((error) => error.code),
+		);
+		expect(codes).toEqual(dormantColumnCodes);
 	});
 });

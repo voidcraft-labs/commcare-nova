@@ -107,7 +107,10 @@ function richDoc(): BlueprintDoc {
 								kind: "text",
 								id: "case_name",
 								label: proseText("Name"),
-								case_property_on: "patient",
+								caseWrite: {
+									caseType: "patient",
+									property: "case_name",
+								},
 							}),
 							f({
 								kind: "group",
@@ -438,7 +441,7 @@ describe("index-driven rewrites — slash-path descendants and mid-batch currenc
 });
 
 describe("declarations index", () => {
-	it("lists case-property declarers and follows field-ID changes", () => {
+	it("lists case-property declarers independently of field-ID changes", () => {
 		const doc = richDoc();
 		const caseName = uuidByFieldId(doc, "case_name");
 		expect(declarersOf(doc, "patient", "case_name")).toEqual([caseName]);
@@ -451,8 +454,8 @@ describe("declarations index", () => {
 				patch: { id: "full_name" },
 			},
 		]);
-		expect(declarersOf(renamed, "patient", "case_name")).toEqual([]);
-		expect(declarersOf(renamed, "patient", "full_name")).toEqual([caseName]);
+		expect(declarersOf(renamed, "patient", "case_name")).toEqual([caseName]);
+		expect(declarersOf(renamed, "patient", "full_name")).toEqual([]);
 	});
 });
 

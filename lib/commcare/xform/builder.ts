@@ -55,8 +55,8 @@ import {
 	vellumShorthandInContext,
 } from "@/lib/commcare/hashtags/formContext";
 import {
-	LOOKUP_FIXTURE_ID_PREFIX,
 	type LookupWireNaming,
+	lookupFixtureSrc,
 } from "@/lib/commcare/lookup/naming";
 import type { AssetManifest } from "@/lib/commcare/multimedia/assetWirePath";
 import { itextMediaValues } from "@/lib/commcare/multimedia/itextMedia";
@@ -175,7 +175,7 @@ class InstanceTracker {
 	/**
 	 * `caseTypeNames` is the form's reachable case-type namespaces (the keys of
 	 * `FormHashtagContext.caseTypeDepths`). A `#<case_type>/<prop>` ref expands
-	 * to a casedb walk exactly like `#case/`, so the scanners must force the
+	 * to the casedb walk whose private HQ spelling is `#case/`, so the scanners must force the
 	 * `casedb` `<instance>` for it too — otherwise a form whose ONLY case
 	 * reference is a per-type ref would emit a casedb lookup with no instance
 	 * declaration, an invalid form JavaRosa rejects at install.
@@ -187,7 +187,7 @@ class InstanceTracker {
 		if (id === "casedb") this.ids.add("commcaresession");
 	}
 
-	/** Declare a lookup-fixture instance (`item-list:<tag>`). Idempotent. */
+	/** Declare a lookup XForm instance (`<tag>` → item-list fixture). */
 	requireFixture(id: string, src: string): void {
 		this.fixtures.set(id, src);
 	}
@@ -195,7 +195,6 @@ class InstanceTracker {
 	/** Scan a pre-expansion XPath expression for instance references. */
 	scanXPath(expr: string): void {
 		if (
-			expr.includes("#case/") ||
 			expr.includes("#user/") ||
 			expr.includes("instance('casedb')") ||
 			this.referencesCaseType(expr)
@@ -394,9 +393,8 @@ export interface BuildXFormOptions {
 	/**
 	 * The owning module's case type — the form's own loaded case. Drives the
 	 * reachable-case-type depth map so `#<case_type>/<prop>` refs resolve to the
-	 * right parent-index walk. `undefined` for survey-only / case-less modules:
-	 * the depth map is then empty and only `#form/` (and the transitional
-	 * `#case/` / `#user/`) refs resolve.
+	 * right parent-index walk. `undefined` for survey-only/case-less modules:
+	 * the depth map is then empty and only `#form/` and `#user/` resolve.
 	 */
 	moduleCaseType?: string;
 	/**
@@ -467,7 +465,7 @@ export function buildXForm(
 	// every helper (binds, defaults, itext prose, connect exprs, repeat counts).
 	// It carries `caseTypeDepths`, so a `#<case_type>/<prop>` ref resolves to the
 	// right parent-index walk. On case-create (registration) forms,
-	// `#case/case_id` / `#<own_type>/case_id` rewrite to `/data/case/@case_id`
+	// `#<own_type>/case_id` rewrites to `/data/case/@case_id`
 	// (populated by the case-create scaffolding's setvalue chain); the
 	// case-loading lookup shape is reserved for forms that load an existing case.
 	const formCtx: FormHashtagContext = {
@@ -703,10 +701,9 @@ function readOptions(
 	) {
 		return undefined;
 	}
-	// Return options in DISPLAY (`sort-by-(order, uuid)`) order. Sorting HERE,
-	// at the one accessor, keeps the per-option index keys consistent between
-	// the itext-registration pass and the `<item>`-emission pass — sorting only
-	// one would dangle a `<label ref>`. `order` never reaches the wire.
+	// The inline array is the authored display sequence. This one accessor feeds
+	// both itext registration and `<item>` emission, so their positional keys
+	// cannot diverge.
 	return [...field.optionsSource.options];
 }
 
@@ -863,8 +860,8 @@ function buildFieldParts(
 	const hasHint = hasItextContent(hint, hintMedia, assets);
 	const hasHelp = hasItextContent(help, helpMedia, assets);
 
-	// Secondary-instance requirements: any XPath that mentions `#case/`,
-	// `#user/`, or a raw `instance('casedb')` / `instance('commcaresession')`
+	// Secondary-instance requirements: any XPath that mentions `#user/`, a
+	// typed readable case namespace, or a raw casedb/session `instance()`
 	// reference forces us to declare the matching `<instance>` later. Prose
 	// surfaces (label / hint / help / validate_msg / option labels) are scanned
 	// inside `addItext`, the single place they're lowered, so the two can't drift.
@@ -1127,8 +1124,8 @@ function buildLookupItemset(
 ): Element {
 	const table = lookupSelects.naming.tableFor(source.tableId);
 	instances.requireFixture(
-		table.instanceId,
-		instanceSourceFor(table.instanceId),
+		table.xformInstanceId,
+		lookupFixtureSrc(table.fixtureId),
 	);
 	let filterText = "";
 	if (source.filter !== undefined) {
@@ -1144,6 +1141,7 @@ function buildLookupItemset(
 					userPropertySlugs: lookupSelects.userPropertySlugs,
 					lookup: {
 						naming: lookupSelects.naming,
+						instanceScope: "xform",
 						rowScope: {
 							tableId: source.tableId,
 							caseAnchor: { kind: "unaddressable" },
@@ -1154,11 +1152,15 @@ function buildLookupItemset(
 			for (const id of collectPredicateInstances(
 				filter,
 				lookupSelects.naming,
+				"xform",
 			)) {
 				if (id === "casedb" || id === "commcaresession") {
 					instances.require(id);
-				} else if (id.startsWith(LOOKUP_FIXTURE_ID_PREFIX)) {
-					instances.requireFixture(id, instanceSourceFor(id));
+				} else {
+					instances.requireFixture(
+						id,
+						instanceSourceFor(id, lookupSelects.naming),
+					);
 				}
 			}
 		}
@@ -1166,7 +1168,7 @@ function buildLookupItemset(
 	return el(
 		"itemset",
 		{
-			nodeset: `instance('${table.instanceId}')/${table.listElementName}/${table.rowElementName}${filterText}`,
+			nodeset: `instance('${table.xformInstanceId}')/${table.listElementName}/${table.rowElementName}${filterText}`,
 		},
 		[
 			el("label", { ref: table.wireNameFor(source.labelColumnId) }),

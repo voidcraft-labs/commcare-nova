@@ -20,6 +20,7 @@ export const MUTATION_SEQUENCE_INVENTORY = [
 	{ path: "moveForm.after", mode: "required-neighbor" },
 	{ path: "addField.after", mode: "optional-neighbor" },
 	{ path: "moveField.after", mode: "required-neighbor" },
+	{ path: "addCaseProperty.after", mode: "optional-neighbor" },
 	{ path: "addUserProperty.after", mode: "optional-neighbor" },
 	{ path: "addUserType.after", mode: "optional-neighbor" },
 	{ path: "addPersona.after", mode: "optional-neighbor" },
@@ -75,6 +76,7 @@ interface SequenceState {
 	userPropertyOrder: string[];
 	userTypeOrder: string[];
 	personaOrder: string[];
+	casePropertyOrder: Map<string, string[]>;
 	columnListOrder: Map<string, string[]>;
 	columnDetailOrder: Map<string, string[]>;
 	columnOwner: Map<string, string>;
@@ -135,6 +137,13 @@ function stateFromDoc(doc: BlueprintDoc): SequenceState {
 		}
 	}
 
+	const casePropertyOrder = new Map(
+		(doc.caseTypes ?? []).map((caseType) => [
+			caseType.name,
+			caseType.properties.map((property) => property.name),
+		]),
+	);
+
 	const operationOrder = new Map<string, string[]>();
 	const operationWrites = new Map<string, string[]>();
 	const operationLinks = new Map<string, string[]>();
@@ -166,6 +175,7 @@ function stateFromDoc(doc: BlueprintDoc): SequenceState {
 		userPropertyOrder: [...(doc.userPropertyOrder ?? [])],
 		userTypeOrder: [...(doc.userTypeOrder ?? [])],
 		personaOrder: [...(doc.personaOrder ?? [])],
+		casePropertyOrder,
 		columnListOrder,
 		columnDetailOrder,
 		columnOwner,
@@ -768,12 +778,37 @@ export function mutationSequenceAdmissionIssue(
 			case "setAppName":
 			case "setConnectType":
 			case "setAppLogo":
+			case "renameCaseProperties":
+				break;
 			case "declareCaseType":
+				state.casePropertyOrder.set(mutation.caseType, []);
+				break;
 			case "retireCaseType":
-			case "addCaseProperty":
+				state.casePropertyOrder.delete(mutation.caseType);
+				break;
+			case "addCaseProperty": {
+				const order = state.casePropertyOrder.get(mutation.caseType);
+				if (
+					order === undefined ||
+					!place(order, mutation.property.name, mutation.after)
+				) {
+					return issue(
+						mutation,
+						mutationIndex,
+						`case type ${mutation.caseType} properties`,
+						mutation.after,
+					);
+				}
+				break;
+			}
 			case "setCaseProperty":
-			case "removeCaseProperty":
 			case "setCaseTypeMeta":
+				break;
+			case "removeCaseProperty":
+				removeMember(
+					state.casePropertyOrder.get(mutation.caseType),
+					mutation.property,
+				);
 				break;
 			default:
 				assertNever(mutation, "mutationSequenceAdmissionIssue");

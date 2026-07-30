@@ -68,13 +68,8 @@
 // `starts-with` / `phonetic` / `fuzzy-date` / `range`. The
 // validator's `searchInputViaModeCompatibility` rule rejects
 // `range` on non-self vias (the two-value wire shape can't ride on
-// a single prompt binding) and rejects `multi-select-contains` on
-// every simple-arm input (the AST stores the values list as
-// literals, so the simple-arm derivation has no operator that
-// admits `input(name)` as the membership source — authors who need
-// token containment compose `selected(prop, input(name))` on the
-// advanced arm). Both rejections fire before this helper runs; the
-// helper still names the closed mode set explicitly so a future
+// a single prompt binding). That rejection fires before this helper
+// runs; the helper still names the closed mode set explicitly so a future
 // `SearchInputMode` arm surfaces here as a compile-time `never`
 // error rather than silently dropping.
 //
@@ -90,12 +85,9 @@
 // authoring.
 
 import {
-	canonicalCasePropertyName,
 	DEFAULT_SEARCH_MODE_KIND,
-	effectiveSimpleSearchModeKind,
 	type SearchInputMode,
 	type SimpleSearchInputDef,
-	simpleSearchInputHasCoherentRangeWidget,
 } from "@/lib/domain";
 import type { Predicate, TypeContext } from "@/lib/domain/predicate";
 import {
@@ -160,11 +152,6 @@ import { emitCasePropertyWirePath } from "../../casePropertyWire";
  *     reach the runtime through an explicit XPath function call
  *     inside `_xpath_query`.
  *
- *   - **`multi-select-contains`** — rejected upstream by the
- *     validator on every simple-arm input. The helper should never
- *     see this mode kind; reaching it surfaces as a structural
- *     failure in `deriveSimpleArmPredicate`'s defensive throw.
- *
  * In short: the bare prompt is correct only when CCHQ's
  * `case_property_query(<prompt key>, <typed value>)` IS the authored
  * comparison — non-date `exact` (or `range`-as-daterange) AND
@@ -172,30 +159,14 @@ import { emitCasePropertyWirePath } from "../../casePropertyWire";
  * every other shape route through `_xpath_query`, and the prompt rides
  * `exclude="true()"`.
  *
- * Blank-property inputs ride the bare prompt slot as well. The schema
- * admits `property === ""` as the "row added, not yet picked"
- * transient editor state (`lib/domain/modules.ts::simpleSearchInputSchema`),
- * and the validator surfaces the unset property as
- * `CASE_LIST_SEARCH_INPUT_UNKNOWN_PROPERTY`. Deriving a predicate
- * against a `prop(caseType, "", …)` reference would emit malformed
- * XPath (`<empty> = instance(...)`) and crash the runtime; the wire
- * emitter falls back to the bare-prompt shape so the compile path
- * stays clean while the validator carries the authoring signal.
  */
 export function simpleArmNeedsXPathQueryEmission(
 	authored: SimpleSearchInputDef,
 ): boolean {
-	if (!simpleSearchInputHasCoherentRangeWidget(authored)) {
-		throw new Error(
-			`Cannot emit search input "${authored.name}": mode "${effectiveSimpleSearchModeKind(authored)}" and widget "${authored.type}" do not collect the same value shape. Range mode requires the date-range widget, and the date-range widget requires range mode. Run validation and repair the imported input before wire emission.`,
-		);
-	}
-	if (authored.property === "") return false;
 	const modeKind = authored.mode?.kind ?? defaultModeKind(authored.type);
 	const via = authored.via;
 	const viaIsSelfOrAbsent = via === undefined || via.kind === "self";
-	const nameMatchesProperty =
-		authored.name === canonicalCasePropertyName(authored.property);
+	const nameMatchesProperty = authored.name === authored.property;
 	if (modeKind === "exact") {
 		// A calendar-day prompt cannot faithfully ride CCHQ's implicit exact
 		// matcher. Date properties need an explicit typed comparison, while a
@@ -207,8 +178,8 @@ export function simpleArmNeedsXPathQueryEmission(
 		// current case AND the prompt key names the same property the
 		// author targeted AND that property is already the runtime's
 		// searchable key. Attribute-backed metadata (`status`, `owner_id`)
-		// and old detail aliases need the explicit predicate so the shared
-		// wire mapper can emit `@status` / `@owner_id` / canonical leaves.
+		// need the explicit predicate so the shared wire mapper can emit
+		// `@status` / `@owner_id`.
 		// Any constraint missing means the
 		// auto-match queries the wrong case property (or no case
 		// property at all); the explicit `_xpath_query` route + the
@@ -221,17 +192,11 @@ export function simpleArmNeedsXPathQueryEmission(
 	}
 	if (modeKind === "range") {
 		// Date-range is the one prompt-native two-value widget and has no
-		// explicit-predicate equivalent. Compare against the canonical property
-		// name so a legacy `date-opened` target can ride the valid
-		// `date_opened` prompt key instead of being rejected or querying a key
-		// that CCHQ never indexed.
+		// explicit-predicate equivalent.
 		return !viaIsSelfOrAbsent || !nameMatchesProperty;
 	}
 	// `fuzzy` / `starts-with` / `phonetic` / `fuzzy-date` always need
-	// the explicit XPath function call. `multi-select-contains` is
-	// rejected by the validator on every simple-arm input; if it
-	// reaches here, the `deriveSimpleArmPredicate` defensive throw
-	// surfaces the validator-bypass.
+	// the explicit XPath function call.
 	return true;
 }
 
@@ -322,12 +287,10 @@ export function deriveSimpleArmPredicate(
 		case "fuzzy-date":
 			return whenInput(inputRef, match(propertyRef, inputRef, "fuzzy-date"));
 		case "range":
-		case "multi-select-contains":
-			// Both modes are rejected at the validator layer
+			// This shape is rejected at the validator layer
 			// (`searchInputViaModeCompatibility`): `range` whenever the
 			// bare prompt can't carry the comparison faithfully (non-self
-			// via, OR `name !== property`); `multi-select-contains` on
-			// every simple-arm input. A defensive throw here surfaces a
+			// via, OR `name !== property`). A defensive throw here surfaces a
 			// validator regression as a structural failure at emission
 			// time rather than a silent runtime mismatch.
 			throw new Error(

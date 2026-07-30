@@ -127,7 +127,7 @@ describe("the case-changes smoke fixture", () => {
 			ids.note,
 			ids.file,
 			...CASE_CHANGES_ROUTINE.map((routine) => routine.id),
-			ids.dormant,
+			ids.tableLookup,
 		]);
 		expect(
 			orderedCaseOperations(withLookup.forms[formUuid] ?? {}),

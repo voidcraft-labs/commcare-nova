@@ -42,7 +42,21 @@ export function formatCommCareDate(
 	value: XPathDate,
 	authoredPattern: string,
 ): CommCareDateFormatResult {
-	const pattern = resolveCommCareDatePattern(authoredPattern);
+	return formatConcreteCommCareDate(
+		value,
+		resolveCommCareDatePattern(authoredPattern),
+	);
+}
+
+/**
+ * Format a value using the exact JavaRosa pattern supplied. Case-list date
+ * columns store this concrete wire pattern directly; unlike `format-date`
+ * expressions, their string slot has no semantic-preset vocabulary.
+ */
+export function formatConcreteCommCareDate(
+	value: XPathDate,
+	pattern: string,
+): CommCareDateFormatResult {
 	const parsed = parseCommCareDatePattern(pattern);
 	if (parsed.kind === "unsupported-pattern") {
 		return { kind: "unsupported-pattern" };

@@ -19,7 +19,7 @@ const PATIENT: CaseType = {
 	name: "patient",
 	properties: [
 		{ name: "age", label: proseText("Age"), data_type: "int" },
-		{ name: "name", label: proseText("Name"), data_type: "text" },
+		{ name: "case_name", label: proseText("Case name"), data_type: "text" },
 	],
 };
 

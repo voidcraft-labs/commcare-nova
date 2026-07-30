@@ -21,7 +21,6 @@ import {
 	input,
 	isBlank,
 	isIn,
-	isNull,
 	literal,
 	match,
 	matchAll,
@@ -35,7 +34,6 @@ import {
 	switchExpr,
 	term,
 	today,
-	unwrapList,
 	whenInput,
 	within,
 } from "@/lib/domain/predicate/builders";
@@ -58,7 +56,7 @@ const CASE_TYPES: CaseType[] = [
 		name: "patient",
 		parent_type: "household",
 		properties: [
-			{ name: "name", label: proseText("Name"), data_type: "text" },
+			{ name: "case_name", label: proseText("Case name"), data_type: "text" },
 			{ name: "nickname", label: proseText("Nickname"), data_type: "text" },
 			{ name: "age", label: proseText("Age"), data_type: "int" },
 			{ name: "status", label: proseText("Status"), data_type: "text" },
@@ -69,7 +67,9 @@ const CASE_TYPES: CaseType[] = [
 	{
 		name: "visit",
 		parent_type: "household",
-		properties: [{ name: "name", label: proseText("Name"), data_type: "text" }],
+		properties: [
+			{ name: "case_name", label: proseText("Case name"), data_type: "text" },
+		],
 	},
 	{
 		name: "encounter",
@@ -125,23 +125,26 @@ function expectOnePatientScope(
 
 describe("normalizeRelationEvaluationScopes — one row per scalar leaf", () => {
 	it("uses one exists envelope for two properties read through the same relation", () => {
-		const authored = eq(relatedPatient("name"), relatedPatient("nickname"));
+		const authored = eq(
+			relatedPatient("case_name"),
+			relatedPatient("nickname"),
+		);
 		expect(normalizeRelationEvaluationScopes(authored, CONTEXT)).toEqual(
 			exists(
 				PATIENTS,
-				eq(prop("patient", "name"), prop("patient", "nickname")),
+				eq(prop("patient", "case_name"), prop("patient", "nickname")),
 			),
 		);
 	});
 
 	it("keeps separate boolean leaves independently quantified", () => {
 		const authored = and(
-			eq(relatedPatient("name"), literal("Alice")),
+			eq(relatedPatient("case_name"), literal("Alice")),
 			eq(relatedPatient("status"), literal("open")),
 		);
 		expect(normalizeRelationEvaluationScopes(authored, CONTEXT)).toEqual(
 			and(
-				exists(PATIENTS, eq(prop("patient", "name"), literal("Alice"))),
+				exists(PATIENTS, eq(prop("patient", "case_name"), literal("Alice"))),
 				exists(PATIENTS, eq(prop("patient", "status"), literal("open"))),
 			),
 		);
@@ -171,10 +174,12 @@ describe("normalizeRelationEvaluationScopes — one row per scalar leaf", () => 
 	});
 
 	it.each([
-		["in", isIn(relatedPatient("name"), literal("Alice"))],
-		["is blank", isBlank(relatedPatient("name"))],
-		["is null", isNull(relatedPatient("name"))],
-		["match", match(relatedPatient("name"), literal("Ali"), "starts-with")],
+		["in", isIn(relatedPatient("case_name"), literal("Alice"))],
+		["is blank", isBlank(relatedPatient("case_name"))],
+		[
+			"match",
+			match(relatedPatient("case_name"), literal("Ali"), "starts-with"),
+		],
 		[
 			"multi-select",
 			multiSelectAll(
@@ -205,14 +210,18 @@ describe("normalizeRelationEvaluationScopes — one row per scalar leaf", () => 
 		["datetime-coerce", datetimeCoerce(term(relatedPatient("status")))],
 		["double", double(term(relatedPatient("age")))],
 		["arith", arith("+", term(relatedPatient("age")), term(literal(1)))],
-		["concat", concat(term(relatedPatient("name")), term(literal("!")))],
+		["concat", concat(term(relatedPatient("case_name")), term(literal("!")))],
 		[
 			"coalesce",
 			coalesce(term(relatedPatient("nickname")), term(literal("Unknown"))),
 		],
 		[
 			"if branch",
-			ifExpr(matchAll(), term(relatedPatient("name")), term(literal("none"))),
+			ifExpr(
+				matchAll(),
+				term(relatedPatient("case_name")),
+				term(literal("none")),
+			),
 		],
 		[
 			"switch discriminator",
@@ -222,7 +231,6 @@ describe("normalizeRelationEvaluationScopes — one row per scalar leaf", () => 
 				term(literal("no")),
 			),
 		],
-		["unwrap-list", unwrapList(term(relatedPatient("tags")))],
 		[
 			"format-date",
 			formatDate(dateCoerce(term(relatedPatient("status"))), "iso"),
@@ -239,7 +247,7 @@ describe("normalizeRelationEvaluationScopes — one row per scalar leaf", () => 
 	});
 
 	it("is idempotent", () => {
-		const authored = eq(relatedPatient("name"), literal("Alice"));
+		const authored = eq(relatedPatient("case_name"), literal("Alice"));
 		const once = normalizeRelationEvaluationScopes(authored, CONTEXT);
 		expect(normalizeRelationEvaluationScopes(once, CONTEXT)).toEqual(once);
 	});
@@ -250,7 +258,7 @@ describe("normalizeRelationEvaluationScopes — relation identity", () => {
 		const singleChildContext = {
 			caseTypes: CASE_TYPES.filter((caseType) => caseType.name !== "visit"),
 		};
-		const inferred = prop("household", "name", subcasePath("parent"));
+		const inferred = prop("household", "case_name", subcasePath("parent"));
 		const explicit = prop(
 			"household",
 			"nickname",
@@ -264,7 +272,7 @@ describe("normalizeRelationEvaluationScopes — relation identity", () => {
 		).toEqual(
 			exists(
 				subcasePath("parent", "patient"),
-				eq(prop("patient", "name"), prop("patient", "nickname")),
+				eq(prop("patient", "case_name"), prop("patient", "nickname")),
 			),
 		);
 	});
@@ -299,11 +307,14 @@ describe("normalizeRelationEvaluationScopes — relation identity", () => {
 		const qualifiedChild = subcasePath("parent", "patient");
 		expect(
 			normalizeRelationEvaluationScopes(
-				exists(unqualifiedChild, eq(prop("patient", "name"), literal("A"))),
+				exists(
+					unqualifiedChild,
+					eq(prop("patient", "case_name"), literal("A")),
+				),
 				context,
 			),
 		).toEqual(
-			exists(qualifiedChild, eq(prop("patient", "name"), literal("A"))),
+			exists(qualifiedChild, eq(prop("patient", "case_name"), literal("A"))),
 		);
 		expect(
 			normalizeRelationEvaluationScopes(
@@ -345,7 +356,7 @@ describe("normalizeRelationEvaluationScopes — relation identity", () => {
 		} as const;
 		const unqualified = anyRelationPath("parent");
 		const qualified = ancestorPath(relationStep("parent", "patient"));
-		const where = eq(prop("patient", "name"), literal("Alice"));
+		const where = eq(prop("patient", "case_name"), literal("Alice"));
 		expect(
 			normalizeRelationEvaluationScopes(exists(unqualified, where), context),
 		).toEqual(exists(qualified, where));
@@ -438,8 +449,8 @@ describe("normalizeRelationEvaluationScopes — relation identity", () => {
 
 	it("does not conflate same-identifier paths to different child types", () => {
 		const authored = eq(
-			prop("household", "name", subcasePath("parent", "patient")),
-			prop("household", "name", subcasePath("parent", "visit")),
+			prop("household", "case_name", subcasePath("parent", "patient")),
+			prop("household", "case_name", subcasePath("parent", "visit")),
 		);
 		expect(() =>
 			normalizeRelationEvaluationScopes(authored, CONTEXT),
@@ -506,14 +517,14 @@ describe("normalizeRelationEvaluationScopes — independent boundaries", () => {
 		const authored = not(
 			whenInput(
 				input(testUuid("name")),
-				eq(relatedPatient("name"), literal("Alice")),
+				eq(relatedPatient("case_name"), literal("Alice")),
 			),
 		);
 		expect(normalizeRelationEvaluationScopes(authored, CONTEXT)).toEqual(
 			not(
 				whenInput(
 					input(testUuid("name")),
-					exists(PATIENTS, eq(prop("patient", "name"), literal("Alice"))),
+					exists(PATIENTS, eq(prop("patient", "case_name"), literal("Alice"))),
 				),
 			),
 		);
@@ -522,7 +533,10 @@ describe("normalizeRelationEvaluationScopes — independent boundaries", () => {
 
 describe("normalizeRelationEvaluationScopes — fail-closed shapes", () => {
 	it("rejects a scalar leaf that mixes this case and a related case", () => {
-		const authored = eq(prop("household", "region"), relatedPatient("name"));
+		const authored = eq(
+			prop("household", "region"),
+			relatedPatient("case_name"),
+		);
 		expect(() =>
 			normalizeRelationEvaluationScopes(authored, CONTEXT),
 		).toThrowError(RelationEvaluationScopeError);
@@ -553,7 +567,7 @@ describe("normalizeRelationEvaluationScopes — fail-closed shapes", () => {
 		const authored = eq(
 			ifExpr(
 				exists(PATIENTS, eq(prop("patient", "status"), literal("open"))),
-				term(relatedPatient("name")),
+				term(relatedPatient("case_name")),
 				term(literal("none")),
 			),
 			literal("Alice"),
@@ -572,7 +586,7 @@ describe("normalizeRelationEvaluationScopes — fail-closed shapes", () => {
 	it("does not mistake runtime-only constants for additional case scopes", () => {
 		const authored = eq(
 			concat(
-				term(relatedPatient("name")),
+				term(relatedPatient("case_name")),
 				today(),
 				now(),
 				term(input(testUuid("suffix"))),

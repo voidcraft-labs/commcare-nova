@@ -150,7 +150,9 @@ export const generateSchemaTool = {
 				const record = cleanCaseTypeRecord(raw) as CaseType;
 				const bareExisting = existingByName.has(record.name);
 				if (bareExisting) enriched.push(record.name);
-				mutations.push({ kind: "declareCaseType", caseType: record.name });
+				if (!bareExisting) {
+					mutations.push({ kind: "declareCaseType", caseType: record.name });
+				}
 				if (record.parent_type != null || record.relationship != null) {
 					mutations.push({
 						kind: "setCaseTypeMeta",

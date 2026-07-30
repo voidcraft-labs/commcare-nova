@@ -132,6 +132,8 @@ export type InstanceRoot = "casedb" | "results";
  */
 export interface OnDeviceLookupEmissionContext {
 	readonly naming: LookupWireNaming;
+	/** XForms use the tag as local id; suite expressions use fixture id. */
+	readonly instanceScope: "xform" | "suite";
 	readonly rowScope?: {
 		readonly tableId: LookupTableId;
 		readonly caseAnchor: OnDeviceCaseAnchor;
@@ -159,7 +161,13 @@ export function clearLookupRowScope(
 	context: OnDeviceTermEmissionContext,
 ): OnDeviceTermEmissionContext {
 	if (context.lookup?.rowScope === undefined) return context;
-	return { ...context, lookup: { naming: context.lookup.naming } };
+	return {
+		...context,
+		lookup: {
+			naming: context.lookup.naming,
+			instanceScope: context.lookup.instanceScope,
+		},
+	};
 }
 
 /** Default instance root — every on-device emission outside a
@@ -606,7 +614,7 @@ export function emitTermSegment(
 			return emitCsqlLiteralSegment(t.value);
 		case "table-column":
 			throw new Error(
-				"emitTermSegment: lookup-table column terms are dormant until fixture emission lands; validation should reject them before CSQL emission.",
+				"emitTermSegment: a lookup-table column term is valid only inside its table-lookup row predicate. It cannot be emitted directly into a case-query CSQL value; validation should reject the escaped table-row term before emission.",
 			);
 		default: {
 			const _exhaustive: never = t;
@@ -758,9 +766,9 @@ export function wrapTermAsSegmentList(term: TermEmission): CsqlSegment[] {
  * The final wrapper consumes `rejectWhen` before evaluating the query-building
  * concat. This is intentionally not sanitization: removing or replacing quote
  * characters would silently change exact-match semantics. The preferred style
- * defaults to CCHQ's documented double-quoted runtime scalar form; callers
- * interpolating JSON (notably `unwrap-list`) prefer single quotes because JSON
- * necessarily carries double quotes.
+ * defaults to CCHQ's documented double-quoted runtime scalar form. Callers
+ * that interpolate JSON may prefer single quotes because JSON necessarily
+ * carries double quotes.
  */
 export function quoteRuntimeCsqlValue(
 	xpath: string,

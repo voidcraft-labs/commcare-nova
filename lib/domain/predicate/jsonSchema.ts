@@ -23,6 +23,7 @@
 // the same bridge between blueprint and runtime.
 
 import {
+	CASE_SCALAR_PROPERTY_NAMES,
 	type CaseProperty,
 	type CasePropertyDataType,
 	type CaseType,
@@ -132,10 +133,9 @@ export type CaseTypePropertyJsonSchema =
 			/**
 			 * Lossless data-type marker for string flavors whose VALIDATION
 			 * shape is identical to plain text (`single_select` — no enum,
-			 * see the arm below). Ajv ignores it (every compile site runs
-			 * `strict: false`); the case-store's `dataTypeTokenOf` reads it
-			 * so a park's recorded transition names the type the user
-			 * authored instead of collapsing selects to "text".
+			 * see the arm below). Ajv ignores it, while the case-store's exact
+			 * canonical stored-schema decoder requires it to distinguish the
+			 * authored select token from plain text.
 			 */
 			"x-novaDataType"?: "single_select";
 	  }
@@ -150,27 +150,19 @@ export type CaseTypePropertyJsonSchema =
  * order (object insertion order), which downstream snapshot tests can
  * rely on.
  *
- * `case_name` is filtered out of the property output. The blueprint
- * surface admits `case_name` on a case type's `properties[]` (the SA
- * + author UI treat it as a regular declaration so the field-editor
- * can carry its label, default value, etc.), but the case-store
- * stores `case_name` as a top-level scalar column on `cases` —
- * `properties` JSONB never carries it. The JSON Schema validator
- * runs against the JSONB document only, so emitting `case_name` here
- * would force every write to land an unwanted JSONB key.
- * `additionalProperties: false` would then reject any write that
- * routes `case_name` to its column rather than the document. The
- * column's non-empty CHECK constraint is the structural guarantee
- * for the field; the AJV schema covers user-defined properties only.
+ * Every standard scalar is filtered out of the property output. An explicit
+ * standard entry may remain in the effective/materializable catalog so
+ * authoring keeps its label and order, but the case store persists that value
+ * in a first-class `cases` column — never in the `properties` JSONB document.
+ * The JSON Schema validator runs against that JSONB document only, so emitting
+ * a scalar here would require an impossible duplicate JSONB key and would make
+ * the exact stored-schema decoder reject Nova's own output. Column constraints
+ * own the scalar guarantees; AJV covers user-defined properties only.
  */
-export const RESERVED_NON_PROPERTY_NAMES: ReadonlySet<string> = new Set([
-	"case_name",
-]);
-
 export function caseTypeToJsonSchema(caseType: CaseType): CaseTypeJsonSchema {
 	const properties: Record<string, CaseTypePropertyJsonSchema> = {};
 	for (const prop of caseType.properties) {
-		if (RESERVED_NON_PROPERTY_NAMES.has(prop.name)) continue;
+		if (CASE_SCALAR_PROPERTY_NAMES.has(prop.name)) continue;
 		properties[prop.name] = propertyToSchema(prop);
 	}
 	return {

@@ -11,7 +11,6 @@ import {
 	or,
 	prop,
 	term,
-	unwrapList,
 	whenInput,
 } from "@/lib/domain/predicate";
 import { evaluate } from "@/lib/preview/xpath/evaluator";
@@ -31,7 +30,7 @@ const CONTEXT: EvalContext = {
 	size: 1,
 };
 
-const TEST_INPUTS = ["query", "selected_tags"].map((name) => ({
+const TEST_INPUTS = ["query"].map((name) => ({
 	uuid: testUuid(name),
 	name,
 	data_type: "text" as const,
@@ -147,20 +146,5 @@ describe("runtime CSQL value quoting", () => {
 			),
 		);
 		expect(rendered).toBe(expected);
-	});
-
-	it("prefers single quotes for JSON passed to unwrap-list", () => {
-		const wrapper = emitCsql(
-			eq(
-				prop("patient", "tags"),
-				unwrapList(term(input(testUuid("selected_tags")))),
-			),
-		).wrapper;
-		expect(resolveInput(wrapper, "selected_tags", '["alpha","beta"]')).toBe(
-			`tags = unwrap-list('["alpha","beta"]')`,
-		);
-		expect(resolveInput(wrapper, "selected_tags", `["O'Connor"]`)).toBe(
-			CSQL_UNREPRESENTABLE_RUNTIME_STRING,
-		);
 	});
 });

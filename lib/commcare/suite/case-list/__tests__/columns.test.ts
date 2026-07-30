@@ -228,23 +228,23 @@ describe("emitColumnField — plain", () => {
 });
 
 describe("emitColumnField — date", () => {
-	it("lowers a semantic preset to the same supported pattern as Preview", () => {
-		const col = dateColumn(COL_UUIDS.a, "opened_on", "Opened", "long");
+	it("preserves the stored concrete CommCare pattern", () => {
+		const col = dateColumn(COL_UUIDS.a, "date_opened", "Opened", "%B %e, %Y");
 		const out = emitColumnField({ column: col, position: 1, ctx: emptyCtx });
 		expect(out.xml).toContain(
-			"format-date(date(opened_on), &apos;%B %e, %Y&apos;)",
+			"format-date(date(date_opened), &apos;%B %e, %Y&apos;)",
 		);
 	});
 
 	it("wraps the property in CCHQ's empty-string-guarded format-date shape", () => {
-		const col = dateColumn(COL_UUIDS.a, "opened_on", "Opened", "%d/%m/%Y");
+		const col = dateColumn(COL_UUIDS.a, "date_opened", "Opened", "%d/%m/%Y");
 		const out = emitColumnField({ column: col, position: 1, ctx: emptyCtx });
 		// CCHQ's date-format wire shape: per
 		// `detail_screen.py::Date`, `if({xpath} = '', '', format-date(date({xpath}), 'pattern'))`.
 		// XPath single-quote literals round-trip through the serializer
 		// as `&apos;` inside the double-quoted attribute value.
 		expect(out.xml).toContain(
-			"if(opened_on = &apos;&apos;, &apos;&apos;, format-date(date(opened_on), &apos;%d/%m/%Y&apos;))",
+			"if(date_opened = &apos;&apos;, &apos;&apos;, format-date(date(date_opened), &apos;%d/%m/%Y&apos;))",
 		);
 	});
 
@@ -252,7 +252,12 @@ describe("emitColumnField — date", () => {
 		// `'em%dpattern` would break the `format-date(date(...), '<pattern>')`
 		// shape if the helper interpolated naively; the concat-fallback
 		// shape preserves the literal.
-		const col = dateColumn(COL_UUIDS.a, "opened_on", "Opened", "'em%dpattern");
+		const col = dateColumn(
+			COL_UUIDS.a,
+			"date_opened",
+			"Opened",
+			"'em%dpattern",
+		);
 		const out = emitColumnField({ column: col, position: 1, ctx: emptyCtx });
 		expect(out.xml).toContain("concat(");
 		// The concat-fallback's literal-quote separator is `"'"` which
@@ -307,7 +312,7 @@ describe("emitColumnField — interval (display: always)", () => {
 	it("uses 30.4375 (365.25/12) as the divisor for months-unit columns", () => {
 		const col = intervalColumn(
 			COL_UUIDS.a,
-			"opened_on",
+			"date_opened",
 			"Months open",
 			3,
 			"months",
@@ -316,8 +321,8 @@ describe("emitColumnField — interval (display: always)", () => {
 		);
 		const out = emitColumnField({ column: col, position: 1, ctx: emptyCtx });
 		// Divisor for months = 365.25 / 12 = 30.4375; threshold = 3 * 30.4375 = 91.3125.
-		expect(out.xml).toContain("(today() - date(opened_on)) div 30.4375");
-		expect(out.xml).toContain("today() - date(opened_on) &gt; 91.3125");
+		expect(out.xml).toContain("(today() - date(date_opened)) div 30.4375");
+		expect(out.xml).toContain("today() - date(date_opened) &gt; 91.3125");
 	});
 
 	it("uses 1 as the divisor for days-unit columns", () => {
@@ -564,7 +569,7 @@ describe("emitColumnField — sort integration", () => {
 		// lexicographic ordering matches calendar order. The directive
 		// builder writes the raw property into `directive.xpath`; the
 		// emitter passes it through verbatim.
-		const col = dateColumn(COL_UUIDS.a, "opened_on", "Opened", "%d/%m/%Y");
+		const col = dateColumn(COL_UUIDS.a, "date_opened", "Opened", "%d/%m/%Y");
 		const ctx: CaseListEmitContext = {
 			moduleIndex: 0,
 			detailKind: "short",
@@ -576,14 +581,14 @@ describe("emitColumnField — sort integration", () => {
 				order: 1,
 				direction: "desc",
 				type: "date",
-				xpath: "opened_on",
+				xpath: "date_opened",
 			}),
 		};
 		const out = emitColumnField({ column: col, position: 1, ctx });
 		// Display xpath is the wrapped format-date shape; sort xpath
 		// is the bare property.
 		const sortMatches = out.xml.match(/<sort[\s\S]*?<\/sort>/);
-		expect(sortMatches?.[0]).toContain('<xpath function="opened_on"/>');
+		expect(sortMatches?.[0]).toContain('<xpath function="date_opened"/>');
 		expect(sortMatches?.[0]).not.toContain("format-date");
 	});
 

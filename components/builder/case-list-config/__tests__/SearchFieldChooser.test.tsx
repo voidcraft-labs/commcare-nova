@@ -14,19 +14,9 @@ const CASE_NAME: CaseProperty = {
 	label: proseText("case_name"),
 	data_type: "text",
 };
-const LEGACY_NAME: CaseProperty = {
-	name: "name",
-	label: proseText("name"),
-	data_type: "text",
-};
 const EXTERNAL_ID: CaseProperty = {
 	name: "external_id",
 	label: proseText("external_id"),
-	data_type: "text",
-};
-const LEGACY_EXTERNAL_ID: CaseProperty = {
-	name: "external-id",
-	label: proseText("external-id"),
 	data_type: "text",
 };
 const DATE_OF_BIRTH: CaseProperty = {
@@ -59,17 +49,11 @@ async function openChooser(): Promise<HTMLInputElement> {
 }
 
 describe("AddSearchFieldControl", () => {
-	it("asks which information to search, collapses aliases, and puts case name first", async () => {
+	it("asks which information to search and puts case name first", async () => {
 		const onChoose = vi.fn();
 		render(
 			<AddSearchFieldControl
-				properties={[
-					LEGACY_EXTERNAL_ID,
-					COMMUNITY,
-					LEGACY_NAME,
-					EXTERNAL_ID,
-					CASE_NAME,
-				]}
+				properties={[COMMUNITY, EXTERNAL_ID, CASE_NAME]}
 				onChoose={onChoose}
 				disabledReason={undefined}
 			/>,
@@ -91,7 +75,6 @@ describe("AddSearchFieldControl", () => {
 		expect(visibleCopy).toContain("Case name");
 		expect(visibleCopy).toContain("External ID");
 		expect(visibleCopy).not.toContain("case_name");
-		expect(visibleCopy).not.toContain("external-id");
 		expect(onChoose).not.toHaveBeenCalled();
 		await closeChooser();
 	});
@@ -236,14 +219,11 @@ describe("seedSearchInputForProperty", () => {
 		expect(date.mode).toBeUndefined();
 	});
 
-	it("canonicalizes legacy choices and keeps repeated internal names unique", () => {
-		const first = seedSearchInputForProperty(
-			emptyCaseListConfig(),
-			LEGACY_NAME,
-		);
+	it("keeps repeated internal names unique", () => {
+		const first = seedSearchInputForProperty(emptyCaseListConfig(), CASE_NAME);
 		const second = seedSearchInputForProperty(
 			resolveCaseListConfig({ columns: [], searchInputs: [first] }),
-			LEGACY_NAME,
+			CASE_NAME,
 		);
 
 		expect(first).toMatchObject({

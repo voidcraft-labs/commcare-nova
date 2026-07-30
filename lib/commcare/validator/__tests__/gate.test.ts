@@ -9,18 +9,14 @@ import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, Field, Uuid } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import { buildDoc, caseListConfig, f, xp } from "../../../__tests__/docHelpers";
-import { MEDIA_VALIDATION_CODES, type ValidationError } from "../errors";
+import { MEDIA_VALIDATION_CODES } from "../errors";
 import {
 	classifyError,
-	diffIntroduced,
-	errorIdentity,
 	evaluateBoundary,
 	evaluateCommit,
-	replaceLoneSurrogates,
 	VALIDITY_CLASS_BY_CODE,
 } from "../gate";
 import { runValidation } from "../runner";
-import { scopeOfMutations } from "../scopeOfMutations";
 
 // ── Fixtures ───────────────────────────────────────────────────────
 
@@ -44,7 +40,7 @@ function minDoc(): BlueprintDoc {
 								kind: "text",
 								id: "case_name",
 								label: proseText("Name"),
-								case_property_on: "patient",
+								caseWrite: { caseType: "patient", property: "case_name" },
 							}),
 							// A second case-writing field, for a realistic registration
 							// form (a name-only create is also valid — see form.ts).
@@ -52,7 +48,7 @@ function minDoc(): BlueprintDoc {
 								kind: "text",
 								id: "village",
 								label: proseText("Village"),
-								case_property_on: "patient",
+								caseWrite: { caseType: "patient", property: "village" },
 							}),
 						],
 					},
@@ -96,14 +92,11 @@ function textField(
 	} as Field;
 }
 
-/** Run the full pipeline: derive scope, apply, gate. */
+/** Run the full pipeline: apply, then validate the complete candidate. */
 function gateCommit(prevDoc: BlueprintDoc, mutations: Mutation[]) {
-	const scope = scopeOfMutations(prevDoc, mutations);
 	const nextDoc = apply(prevDoc, mutations);
 	return evaluateCommit({
-		prevDoc,
 		nextDoc,
-		scope,
 		lookupContext: LOOKUP_CONTEXT_UNAVAILABLE,
 	});
 }
@@ -150,13 +143,9 @@ describe("classification table", () => {
 				"NO_MODULES",
 				"EMPTY_FORM",
 				"MISSING_CASE_LIST_COLUMNS",
-				"NO_CASE_NAME_FIELD",
-				"CHILD_CASE_NO_NAME_FIELD",
+				"CASE_CREATE_NAME_MISSING",
 				"MISSING_CHILD_CASE_MODULE",
-				"CASE_SEARCH_CONFIG_NO_SEARCHABLE_SURFACE",
 				"CONNECT_NO_PARTICIPATING_FORMS",
-				"CONNECT_MISSING_LEARN",
-				"CONNECT_MISSING_DELIVER",
 			].sort(),
 		);
 	});
@@ -214,12 +203,12 @@ describe("classification table", () => {
 			"SELECT_NO_OPTIONS",
 			"VALIDATION_ON_NON_INPUT_KIND",
 		]);
-		expect(byClass.get("completeness")).toHaveLength(10);
+		expect(byClass.get("completeness")).toHaveLength(6);
 		expect(byClass.get("environment")).toHaveLength(9);
 		expect(byClass.get("oracle")).toHaveLength(98);
 		expect(byClass.get("shape")).toHaveLength(6);
 		expect(byClass.get("soundness")).toHaveLength(138);
-		expect(Object.keys(VALIDITY_CLASS_BY_CODE)).toHaveLength(261);
+		expect(Object.keys(VALIDITY_CLASS_BY_CODE)).toHaveLength(257);
 	});
 
 	it("keeps the structural image-map rule out of the environment class", () => {
@@ -232,275 +221,6 @@ describe("classification table", () => {
 		expect(classifyError("CASE_LIST_IMAGE_MAP_DUPLICATE_VALUE")).toBe(
 			"soundness",
 		);
-	});
-});
-
-// ── Identity ───────────────────────────────────────────────────────
-
-describe("errorIdentity", () => {
-	it("is deterministic across runs on the same doc", () => {
-		const doc = docWithEmptyForm();
-		const a = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).map(errorIdentity);
-		const b = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).map(errorIdentity);
-		expect(a.length).toBeGreaterThan(0);
-		expect(a).toEqual(b);
-	});
-
-	it("ignores message wording — only structure enters the key", () => {
-		const base: ValidationError = {
-			code: "EMPTY_FORM",
-			scope: "form",
-			message: "original wording",
-			location: { moduleUuid: testUuid("m-1"), formUuid: testUuid("f-1") },
-		};
-		const reworded = { ...base, message: "completely different prose" };
-		expect(errorIdentity(base)).toBe(errorIdentity(reworded));
-		expect(errorIdentity(base)).not.toContain("wording");
-	});
-
-	it("is unchanged by an unrelated edit elsewhere in the doc", () => {
-		const doc = docWithEmptyForm();
-		const before = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)
-			.map(errorIdentity)
-			.sort();
-		// Unrelated no-op field-ID update in a different form from the one
-		// carrying the EMPTY_FORM finding, so the findings stay unchanged.
-		const fieldUuid = Object.values(doc.fields)[0].uuid;
-		const edited = apply(doc, [
-			{
-				kind: "updateField",
-				uuid: fieldUuid,
-				targetKind: "text",
-				patch: { id: "case_name" },
-			},
-		]);
-		const after = runValidation(edited, LOOKUP_CONTEXT_UNAVAILABLE)
-			.map(errorIdentity)
-			.sort();
-		expect(after).toEqual(before);
-	});
-
-	it("keys value-keyed findings by their value, stable under reorder", () => {
-		// A reserved case-type name reported across two modules dedups to one
-		// finding whose identity is the NAME, not the flagged site — so
-		// reordering the modules can't make a pre-existing finding read as
-		// introduced. (Pins the location-free identity for value-keyed codes.)
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "One",
-					caseType: "case",
-					forms: [
-						{
-							name: "A",
-							type: "survey",
-							fields: [f({ kind: "text", id: "q1" })],
-						},
-					],
-				},
-				{
-					name: "Two",
-					caseType: "case",
-					forms: [
-						{
-							name: "B",
-							type: "survey",
-							fields: [f({ kind: "text", id: "q2" })],
-						},
-					],
-				},
-			],
-		});
-		const before = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)
-			.filter((e) => e.code === "RESERVED_CASE_TYPE_NAME")
-			.map(errorIdentity);
-		expect(before).toHaveLength(1);
-		const reordered = apply(doc, [
-			{ kind: "moveModule", uuid: doc.moduleOrder[1], after: null },
-		]);
-		const after = runValidation(reordered, LOOKUP_CONTEXT_UNAVAILABLE)
-			.filter((e) => e.code === "RESERVED_CASE_TYPE_NAME")
-			.map(errorIdentity);
-		expect(after).toEqual(before);
-	});
-
-	it("excludes positional indices: id-mapping findings collapse per column", () => {
-		const err = (entryIndex: string): ValidationError => ({
-			code: "CASE_LIST_ID_MAPPING_EMPTY_VALUE",
-			scope: "module",
-			message: `row ${entryIndex}`,
-			location: { moduleUuid: testUuid("m-1") },
-			details: { columnIndex: "0", entryIndex, columnUuid: "col-1" },
-		});
-		// Two empty rows in ONE column share an identity — fixing the first
-		// must not make the second (its index now shifted) look introduced.
-		expect(errorIdentity(err("1"))).toBe(errorIdentity(err("4")));
-	});
-
-	it("keeps distinct case-list expression repairs distinct", () => {
-		const finding = (reason: string): ValidationError => ({
-			code: "CASE_LIST_EXPRESSION_NOT_ON_DEVICE",
-			scope: "module",
-			message: reason,
-			location: { moduleUuid: testUuid("m-1") },
-			details: { surface: "filter", reason },
-		});
-		expect(errorIdentity(finding("mixed-property-scopes"))).not.toBe(
-			errorIdentity(finding("invalid-geopoint-center")),
-		);
-	});
-
-	it("keys lookup-filter policy findings by stable field and referenced leaf", () => {
-		const finding = (
-			code:
-				| "LOOKUP_SELECT_FILTER_TERM_NOT_ALLOWED"
-				| "LOOKUP_SELECT_FILTER_FIELD_NOT_EARLIER",
-			details: Record<string, string>,
-		): ValidationError => ({
-			code,
-			scope: "field",
-			message: "lookup policy",
-			location: {
-				moduleUuid: testUuid("m-1"),
-				formUuid: testUuid("f-1"),
-				fieldUuid: testUuid("select-1"),
-				field: "optionsSource.filter",
-			},
-			details,
-		});
-
-		expect(
-			errorIdentity(
-				finding("LOOKUP_SELECT_FILTER_TERM_NOT_ALLOWED", {
-					reason: "case-data",
-					target: "case-data",
-					path: "eq.left",
-				}),
-			),
-		).not.toBe(
-			errorIdentity(
-				finding("LOOKUP_SELECT_FILTER_TERM_NOT_ALLOWED", {
-					reason: "search-input",
-					target: "input:region",
-					path: "eq.right",
-				}),
-			),
-		);
-		expect(
-			errorIdentity(
-				finding("LOOKUP_SELECT_FILTER_FIELD_NOT_EARLIER", {
-					referencedFieldUuid: "field-a",
-					path: "and.0",
-				}),
-			),
-		).toBe(
-			errorIdentity(
-				finding("LOOKUP_SELECT_FILTER_FIELD_NOT_EARLIER", {
-					referencedFieldUuid: "field-a",
-					path: "and.1",
-				}),
-			),
-		);
-	});
-
-	it("is total over lone UTF-16 surrogates in authored discriminators", () => {
-		// JSON legally transports unpaired surrogates ('"Visits \ud83d"'
-		// parses fine), so a truncated-emoji module name reaches the gate
-		// through SA tool calls and replayed events. The identity encoder
-		// must render a key, never throw — a throwing encoder would crash
-		// `diffIntroduced` / `evaluateCommit` instead of producing a verdict.
-		const err: ValidationError = {
-			code: "RESERVED_CASE_TYPE_NAME",
-			scope: "app",
-			message: "reserved",
-			location: {},
-			details: { caseType: "case \ud83d" },
-		};
-		expect(() => errorIdentity(err)).not.toThrow();
-		expect(errorIdentity(err)).toBe(errorIdentity({ ...err }));
-		expect(diffIntroduced([], [err])).toEqual([err]);
-		// Well-formed strings keep their exact pre-existing identity shape
-		// (the rule keys on the lowercased case-type name).
-		const wellFormed: ValidationError = {
-			...err,
-			details: { caseType: "Patient" },
-		};
-		expect(errorIdentity(wellFormed)).toBe(
-			`RESERVED_CASE_TYPE_NAME|caseType=${encodeURIComponent("patient")}`,
-		);
-	});
-
-	it("replaceLoneSurrogates is byte-identical to String.prototype.toWellFormed", () => {
-		// The sanitizer is hand-rolled because `toWellFormed` is ES2024 and
-		// unpolyfilled here (Firefox ≤118 / Safari ≤16.3 lack it — and the
-		// gate runs client-side once wired into the builder commit path).
-		// Identity must be deterministic across environments, so the regex
-		// pass must agree with the native method wherever the native one
-		// exists — this corpus pins that equivalence.
-		const samples = [
-			"",
-			"plain ascii",
-			"emoji 👍🏽 and text",
-			"\ud83d", // lone high
-			"\udc00", // lone low
-			"trailing high \ud83d",
-			"\udc00 leading low",
-			"a\ud800b", // lone high mid-string
-			"😀", // well-formed pair
-			"\ud800𐀀\udc00", // lone-high, pair, lone-low
-			"\udfff\ud800", // low-then-high (reversed — both lone)
-			"� already a replacement char",
-			"mixé Unicode ñ 中文 👍",
-		];
-		for (const sample of samples) {
-			expect(replaceLoneSurrogates(sample)).toBe(sample.toWellFormed());
-		}
-	});
-});
-
-// ── diffIntroduced ─────────────────────────────────────────────────
-
-describe("diffIntroduced", () => {
-	it("fixing one of two same-code findings introduces nothing", () => {
-		const base = docWithEmptyForm("form-e1");
-		const twoEmpty = apply(base, [
-			{
-				kind: "addForm",
-				moduleUuid: base.moduleOrder[0],
-				form: surveyForm("form-e2", "E2"),
-			},
-		]);
-		const fixedOne = apply(twoEmpty, [
-			{
-				kind: "addField",
-				parentUuid: testUuid("form-e1"),
-				field: textField("fld-fill", "q1"),
-			},
-		]);
-		expect(
-			diffIntroduced(
-				runValidation(twoEmpty, LOOKUP_CONTEXT_UNAVAILABLE),
-				runValidation(fixedOne, LOOKUP_CONTEXT_UNAVAILABLE),
-			),
-		).toEqual([]);
-	});
-
-	it("a second instance of an existing code at a NEW location IS introduced", () => {
-		const oneEmpty = docWithEmptyForm("form-e1");
-		const twoEmpty = apply(oneEmpty, [
-			{
-				kind: "addForm",
-				moduleUuid: oneEmpty.moduleOrder[0],
-				form: surveyForm("form-e2", "E2"),
-			},
-		]);
-		const introduced = diffIntroduced(
-			runValidation(oneEmpty, LOOKUP_CONTEXT_UNAVAILABLE),
-			runValidation(twoEmpty, LOOKUP_CONTEXT_UNAVAILABLE),
-		).filter((e) => e.code === "EMPTY_FORM");
-		expect(introduced).toHaveLength(1);
-		expect(introduced[0].location.formUuid).toBe(testUuid("form-e2"));
 	});
 });
 
@@ -518,7 +238,7 @@ describe("evaluateCommit", () => {
 		]);
 		expect(verdict.ok).toBe(false);
 		if (!verdict.ok) {
-			expect(verdict.introduced.map((e) => e.code)).toContain("EMPTY_FORM");
+			expect(verdict.findings.map((e) => e.code)).toContain("EMPTY_FORM");
 		}
 	});
 
@@ -535,11 +255,11 @@ describe("evaluateCommit", () => {
 		]);
 		expect(verdict.ok).toBe(false);
 		if (!verdict.ok) {
-			expect(verdict.introduced.map((e) => e.code)).toContain("INVALID_REF");
+			expect(verdict.findings.map((e) => e.code)).toContain("INVALID_REF");
 		}
 	});
 
-	it("pre-existing errors never block an unrelated edit", () => {
+	it("rejects an unrelated edit when the complete candidate remains invalid", () => {
 		// The deliberately damaged candidate already carries an empty form and
 		// a bad reference.
 		const base = docWithEmptyForm("form-e1");
@@ -547,7 +267,9 @@ describe("evaluateCommit", () => {
 			{
 				kind: "addField",
 				parentUuid: testUuid("form-e1"),
-				field: textField("fld-bad", "q1", { relevant: "#form/missing = '1'" }),
+				field: textField("fld-bad", "q1", {
+					relevant: xp("#form/missing = '1'"),
+				}),
 			},
 		]);
 		expect(
@@ -564,7 +286,9 @@ describe("evaluateCommit", () => {
 				patch: { id: "case_name" },
 			},
 		]);
-		expect(verdict).toEqual({ ok: true });
+		expect(verdict.ok).toBe(false);
+		if (verdict.ok) return;
+		expect(verdict.findings.length).toBeGreaterThan(0);
 	});
 
 	it("fixing an error passes", () => {
@@ -579,19 +303,13 @@ describe("evaluateCommit", () => {
 		expect(gateCommit(broken, fix)).toEqual({ ok: true });
 	});
 
-	it("setAppName's empty derived scope still catches EMPTY_APP_NAME (app rules always run)", () => {
-		// `setAppName` derives the app-rules-only empty scope (nothing
-		// module/form-shaped reads the name); the gate must still reject an
-		// empty-name introduction through it, because app rules run on
-		// every scoped pass.
+	it("setAppName catches EMPTY_APP_NAME on the complete candidate", () => {
 		const doc = minDoc();
 		const mutations: Mutation[] = [{ kind: "setAppName", name: "" }];
-		const scope = scopeOfMutations(doc, mutations);
-		expect(scope).not.toBe("full");
 		const verdict = gateCommit(doc, mutations);
 		expect(verdict.ok).toBe(false);
 		if (!verdict.ok) {
-			expect(verdict.introduced.map((e) => e.code)).toEqual(["EMPTY_APP_NAME"]);
+			expect(verdict.findings.map((e) => e.code)).toEqual(["EMPTY_APP_NAME"]);
 		}
 	});
 
@@ -611,19 +329,16 @@ describe("evaluateCommit", () => {
 		expect(verdict).toEqual({ ok: true });
 	});
 
-	it("catches a DUPLICATE_FIELD_ID the field-ID cascade introduces in a cross-module peer's form", () => {
-		// Two HOUSEHOLD modules whose forms write the PATIENT type (the
-		// child-case pattern). Changing F1's `age` ID cascades to F2's peer by
-		// (id, case_property_on) — colliding with F2's sibling `weight`.
-		// The peer's form shares no caseType with the written type, so any
-		// caseType-keyed widening misses it; the derived scope must degrade
-		// to full so the introduced soundness error reaches the verdict.
+	it("keeps field-id edits local when peer fields share an explicit case destination", () => {
+		// Two PATIENT modules contain fields with the same canonical
+		// `patient.age` destination. Changing F1's editable field id must not
+		// rewrite F2.
 		const doc = buildDoc({
 			appName: "Peers",
 			modules: [
 				{
-					name: "Households A",
-					caseType: "household",
+					name: "Patients A",
+					caseType: "patient",
 					caseListConfig: caseListConfig([
 						{ field: "case_name", header: "Name" },
 					]),
@@ -636,15 +351,15 @@ describe("evaluateCommit", () => {
 									kind: "int",
 									id: "age",
 									label: proseText("Age"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "age" },
 								}),
 							],
 						},
 					],
 				},
 				{
-					name: "Households B",
-					caseType: "household",
+					name: "Patients B",
+					caseType: "patient",
 					caseListConfig: caseListConfig([
 						{ field: "case_name", header: "Name" },
 					]),
@@ -657,7 +372,7 @@ describe("evaluateCommit", () => {
 									kind: "int",
 									id: "age",
 									label: proseText("Age"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "age" },
 								}),
 								f({ kind: "int", id: "weight", label: proseText("Weight") }),
 							],
@@ -667,12 +382,11 @@ describe("evaluateCommit", () => {
 			],
 			caseTypes: [
 				{
-					name: "household",
-					properties: [{ name: "case_name", label: proseText("N") }],
-				},
-				{
 					name: "patient",
-					properties: [{ name: "age", label: proseText("Age") }],
+					properties: [
+						{ name: "case_name", label: proseText("N") },
+						{ name: "age", label: proseText("Age") },
+					],
 				},
 			],
 		});
@@ -685,12 +399,7 @@ describe("evaluateCommit", () => {
 				patch: { id: "weight" },
 			},
 		]);
-		expect(verdict.ok).toBe(false);
-		if (!verdict.ok) {
-			expect(verdict.introduced.map((e) => e.code)).toContain(
-				"DUPLICATE_FIELD_ID",
-			);
-		}
+		expect(verdict).toEqual({ ok: true });
 	});
 
 	it("catches a search-input finding a new writer flips in a relation-walking module of another type", () => {
@@ -718,7 +427,7 @@ describe("evaluateCommit", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Name"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},
@@ -782,13 +491,13 @@ describe("evaluateCommit", () => {
 					kind: "date",
 					id: "age",
 					label: proseText("Age"),
-					case_property_on: "patient",
+					caseWrite: { caseType: "patient", property: "age" },
 				} as Field,
 			},
 		]);
 		expect(verdict.ok).toBe(false);
 		if (!verdict.ok) {
-			expect(verdict.introduced.map((e) => e.code)).toContain(
+			expect(verdict.findings.map((e) => e.code)).toContain(
 				"CASE_LIST_SEARCH_INPUT_MODE_PROPERTY_TYPE_MISMATCH",
 			);
 		}
@@ -821,7 +530,7 @@ describe("evaluateCommit", () => {
 									kind: "int",
 									id: "score",
 									label: proseText("Score"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "score" },
 								}),
 							],
 						},
@@ -842,7 +551,7 @@ describe("evaluateCommit", () => {
 									kind: "int",
 									id: "score",
 									label: proseText("Score"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "score" },
 								}),
 							],
 						},
@@ -864,11 +573,10 @@ describe("evaluateCommit", () => {
 				toKind: "decimal",
 			},
 		];
-		expect(scopeOfMutations(doc, mutations)).toBe("full");
 		const verdict = gateCommit(doc, mutations);
 		expect(verdict.ok).toBe(false);
 		if (!verdict.ok) {
-			const disagreements = verdict.introduced.filter(
+			const disagreements = verdict.findings.filter(
 				(e) => e.code === "FIELD_KIND_WRITERS_DISAGREE",
 			);
 			// One finding per writer — both sides of the conflict surface.

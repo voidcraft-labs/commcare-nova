@@ -36,14 +36,52 @@ describe("thread attachment identity", () => {
 		},
 	];
 
-	it("walks only the canonical metadata attachment path", () => {
+	it("walks only the strict canonical metadata attachment path", () => {
 		expect(
 			collectThreadAttachmentAssetIds([
 				...messages,
-				{ metadata: { attachments: [{ filename: "missing id" }] } },
 				{ attachments: [{ assetId: "legacy-wrong-path" }] },
 			]),
 		).toEqual([imageSource, documentSource]);
+		expect(() =>
+			collectThreadAttachmentAssetIds([
+				...messages,
+				{ metadata: { attachments: [{ filename: "missing id" }] } },
+			]),
+		).toThrow();
+		expect(() =>
+			collectThreadAttachmentAssetIds([
+				{
+					metadata: {
+						attachments: [
+							{
+								assetId: imageSource,
+								kind: "audio",
+								filename: "recording.mp3",
+								mimeType: "audio/mpeg",
+							},
+						],
+					},
+				},
+			]),
+		).toThrow();
+	});
+
+	it("fails closed on malformed transcript carrier containers", () => {
+		expect(() => collectThreadAttachmentAssetIds({ messages: [] })).toThrow(
+			"messages are not an array",
+		);
+		expect(() => collectThreadAttachmentAssetIds([null])).toThrow(
+			"message 0 is not an object",
+		);
+		expect(() => collectThreadAttachmentAssetIds([{ metadata: null }])).toThrow(
+			"message 0 metadata is not an object",
+		);
+		expect(() =>
+			collectThreadAttachmentAssetIds([
+				{ metadata: { attachments: { assetId: imageSource } } },
+			]),
+		).toThrow("message 0 attachments are not an array");
 	});
 
 	it("rewrites only assetId while preserving the transcript payload", () => {

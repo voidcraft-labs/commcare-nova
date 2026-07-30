@@ -14,7 +14,6 @@ describe("moduleTypeContext search-input runtime values", () => {
 	it("pins every widget's runtime scalar type", () => {
 		expect(SEARCH_INPUT_RUNTIME_VALUE_TYPES).toEqual({
 			text: "text",
-			select: "text",
 			date: "date",
 			"date-range": "text",
 			barcode: "text",

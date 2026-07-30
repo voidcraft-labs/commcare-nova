@@ -10,7 +10,7 @@
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { caseOperationTargetTypeAfter } from "@/lib/doc/caseOperationIntents";
 import {
 	addCaseOperationMutations,
@@ -62,6 +62,9 @@ function caseFirstDoc(): {
 			{
 				name: "Patients",
 				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "nickname", header: "Nickname" },
+				]),
 				forms: [
 					{
 						name: "Edit",
@@ -72,7 +75,10 @@ function caseFirstDoc(): {
 								kind: "text",
 								id: "nickname",
 								label: proseText("Nickname"),
-								case_property_on: "patient",
+								caseWrite: {
+									caseType: "patient",
+									property: "nickname",
+								},
 							}),
 						],
 					},
@@ -175,7 +181,22 @@ describe("case-operation seeds", () => {
 					{
 						name: "Patients",
 						caseType: "patient",
-						forms: [{ name: "Edit", type: "followup" }],
+						caseListConfig: caseListConfig([
+							{ field: "case_name", header: "Case name" },
+						]),
+						forms: [
+							{
+								name: "Edit",
+								type: "followup",
+								fields: [
+									f({
+										kind: "text",
+										id: "note",
+										label: proseText("Note"),
+									}),
+								],
+							},
+						],
 					},
 				],
 			});
@@ -261,38 +282,46 @@ describe("the value a fresh write starts from", () => {
 				{
 					name: "Patients",
 					caseType: "patient",
+					caseListConfig: caseListConfig([{ field: "p", header: "P" }]),
 					forms: [
 						{
 							name: "Edit",
 							type: "followup",
-							fields: fields.map((field, index) =>
+							fields: [
 								f({
-									uuid: field.uuid,
-									kind: field.dataType === "int" ? "int" : field.dataType,
-									id: `answer_${index}`,
-									label: proseText(`Answer ${index}`),
-									...(field.dataType === "single_select" ||
-									field.dataType === "multi_select"
-										? {
-												optionsSource: {
-													kind: "inline" as const,
-													options: [
-														{
-															uuid: testUuid(`answer-${index}-yes`),
-															value: "yes",
-															label: proseText("Yes"),
-														},
-														{
-															uuid: testUuid(`answer-${index}-no`),
-															value: "no",
-															label: proseText("No"),
-														},
-													],
-												},
-											}
-										: {}),
+									kind: "text",
+									id: "note",
+									label: proseText("Note"),
 								}),
-							),
+								...fields.map((field, index) =>
+									f({
+										uuid: field.uuid,
+										kind: field.dataType === "int" ? "int" : field.dataType,
+										id: `answer_${index}`,
+										label: proseText(`Answer ${index}`),
+										...(field.dataType === "single_select" ||
+										field.dataType === "multi_select"
+											? {
+													optionsSource: {
+														kind: "inline" as const,
+														options: [
+															{
+																uuid: testUuid(`answer-${index}-yes`),
+																value: "yes",
+																label: proseText("Yes"),
+															},
+															{
+																uuid: testUuid(`answer-${index}-no`),
+																value: "no",
+																label: proseText("No"),
+															},
+														],
+													},
+												}
+											: {}),
+									}),
+								),
+							],
 						},
 					],
 				},

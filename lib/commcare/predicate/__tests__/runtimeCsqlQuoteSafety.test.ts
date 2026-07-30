@@ -59,7 +59,7 @@ describe("collectRuntimeCsqlStringInputNames", () => {
 	it("collects direct and native-function input values", () => {
 		expect(
 			collectRuntimeCsqlStringInputNames(
-				eq(prop("patient", "name"), input(testUuid("direct"))),
+				eq(prop("patient", "case_name"), input(testUuid("direct"))),
 			),
 		).toEqual(new Set(["direct"]));
 		expect(
@@ -119,7 +119,7 @@ describe("collectRuntimeCsqlStringInputNames", () => {
 				subcasePath("visit"),
 				whenInput(
 					input(testUuid("visit_name")),
-					eq(prop("visit", "name"), input(testUuid("visit_name"))),
+					eq(prop("visit", "case_name"), input(testUuid("visit_name"))),
 				),
 			),
 		);
@@ -178,7 +178,7 @@ describe("collectRuntimeCsqlStringInputNames", () => {
 					"query",
 					"Query",
 					"text",
-					whenInput(input(u(4)), eq(prop("patient", "name"), input(u(4)))),
+					whenInput(input(u(4)), eq(prop("patient", "case_name"), input(u(4)))),
 				),
 			],
 		});

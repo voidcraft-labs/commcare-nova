@@ -30,7 +30,12 @@ vi.mock("@/lib/db/apps", () => ({
 	completeApp: vi.fn(() => Promise.resolve()),
 }));
 vi.mock("@/lib/db/applyBlueprintChange", () => ({
-	applyBlueprintChange: vi.fn(() => Promise.resolve({ seq: 0 })),
+	applyBlueprintChange: vi.fn(async (args) => {
+		const { commitApplyBlueprintChangeTestBatch } = await import(
+			"@/lib/db/__tests__/applyBlueprintChangeTestWriter"
+		);
+		return commitApplyBlueprintChangeTestBatch(args);
+	}),
 }));
 
 const MOD = testUuid("11111111-1111-1111-1111-111111111111");
@@ -46,13 +51,12 @@ function makeDoc(): BlueprintDoc {
 		uuid: MOD,
 		id: "patients",
 		name: "Patients",
-		caseType: "patient",
 	};
 	const form: Form = {
 		uuid: FORM,
 		id: "register",
 		name: "Register",
-		type: "registration",
+		type: "survey",
 	};
 	const age = {
 		uuid: AGE,
@@ -208,12 +212,13 @@ describe("addFields — identifier guard (chat surface)", () => {
 
 describe("addFields — identifier guard (MCP surface, same tool body)", () => {
 	it("rejects the same duplicate sibling id through an McpContext", async () => {
-		const { ctx } = makeMcpTestContext();
+		const doc = makeDoc();
+		const { ctx } = makeMcpTestContext({ initialDoc: doc });
 		const recordSpy = vi.spyOn(ctx, "recordMutations");
 		const result = await addFieldsTool.execute(
 			{ ...ADDRESS, fields: [textItem("age")] },
 			ctx,
-			makeDoc(),
+			doc,
 		);
 
 		const error = (result.result as { error: string }).error;

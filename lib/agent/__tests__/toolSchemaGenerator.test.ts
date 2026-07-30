@@ -14,9 +14,18 @@ import { xp } from "@/lib/__tests__/docHelpers";
 import { fieldKinds, fieldRegistry } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import { buildSolutionsArchitectPrompt } from "../prompts";
-import { fieldKindGuide, generateToolSchemas } from "../toolSchemaGenerator";
+import {
+	fieldKindGuide,
+	generateToolSchemas,
+	projectedOptionsSourceSchema,
+} from "../toolSchemaGenerator";
+import { addFieldsInputSchema } from "../tools/addFields";
+import { createFormInputSchema } from "../tools/createForm";
+import { createModuleInputSchema } from "../tools/createModule";
+import { editFieldInputSchema } from "../tools/editField";
 
 const generated = generateToolSchemas();
+const retiredCaseWriteKey = ["case", "property", "on"].join("_");
 
 /**
  * A minimal VALID add payload for a kind, respecting that kind's required
@@ -77,14 +86,14 @@ describe("toolSchemaGenerator", () => {
 			generated.addFieldsItemSchema.safeParse({
 				id: "blood_type",
 				kind: "single_select",
-				case_property_on: "patient",
+				caseWrite: { caseType: "patient", property: "blood_type" },
 			}).success,
 		).toBe(true);
 		expect(
 			generated.addFieldsItemSchema.safeParse({
 				id: "age",
 				kind: "int",
-				case_property_on: "patient",
+				caseWrite: { caseType: "patient", property: "age" },
 			}).success,
 		).toBe(true);
 		// Without the case binding the label/options floors still hold.
@@ -100,11 +109,58 @@ describe("toolSchemaGenerator", () => {
 			generated.addFieldsItemSchema.safeParse({
 				id: "blood_type",
 				kind: "single_select",
-				case_property_on: "patient",
+				caseWrite: { caseType: "patient", property: "blood_type" },
 				optionsSource: {
 					kind: "inline",
 					options: [{ value: "a", label: proseText("A") }],
 				},
+			}).success,
+		).toBe(false);
+	});
+
+	it("keeps a friendly field id independent from its complete case destination", () => {
+		expect(
+			generated.addFieldsItemSchema.safeParse({
+				id: "name",
+				kind: "text",
+				caseWrite: { caseType: "patient", property: "case_name" },
+			}).success,
+		).toBe(true);
+	});
+
+	it.each(["name", "external-id", "date-opened"])(
+		"rejects retired case-property spelling %s without restricting the field id",
+		(property) => {
+			expect(
+				generated.addFieldsItemSchema.safeParse({
+					id: "friendly_name",
+					kind: "text",
+					caseWrite: { caseType: "patient", property },
+				}).success,
+			).toBe(false);
+		},
+	);
+
+	it("requires caseWrite as one complete pair and rejects the removed key", () => {
+		expect(
+			generated.addFieldsItemSchema.safeParse({
+				id: "phone",
+				kind: "text",
+				caseWrite: { caseType: "patient" },
+			}).success,
+		).toBe(false);
+		expect(
+			generated.addFieldsItemSchema.safeParse({
+				id: "phone",
+				kind: "text",
+				caseWrite: { property: "phone" },
+			}).success,
+		).toBe(false);
+		expect(
+			generated.addFieldsItemSchema.safeParse({
+				id: "phone",
+				kind: "text",
+				[retiredCaseWriteKey]: "patient",
 			}).success,
 		).toBe(false);
 	});
@@ -289,5 +345,180 @@ describe("toolSchemaGenerator", () => {
 				default_value: null,
 			}).success,
 		).toBe(true);
+	});
+
+	it("edits field id and caseWrite independently, with null clearing the writer", () => {
+		expect(
+			generated.editFieldUpdatesSchema.safeParse({
+				kind: "text",
+				id: "friendly_name",
+				caseWrite: { caseType: "patient", property: "case_name" },
+			}).success,
+		).toBe(true);
+		expect(
+			generated.editFieldUpdatesSchema.safeParse({
+				kind: "text",
+				caseWrite: null,
+			}).success,
+		).toBe(true);
+	});
+
+	it("rejects partial, retired, and removed case-write shapes on edit", () => {
+		for (const caseWrite of [
+			{ caseType: "patient" },
+			{ property: "phone" },
+			{ caseType: "patient", property: "external-id" },
+		]) {
+			expect(
+				generated.editFieldUpdatesSchema.safeParse({
+					kind: "text",
+					caseWrite,
+				}).success,
+			).toBe(false);
+		}
+		expect(
+			generated.editFieldUpdatesSchema.safeParse({
+				kind: "text",
+				[retiredCaseWriteKey]: "patient",
+			}).success,
+		).toBe(false);
+	});
+
+	it("uses one strict projected option/source contract across all four field writers", () => {
+		const moduleUuid = "11111111-1111-4111-8111-111111111111";
+		const formUuid = "22222222-2222-4222-8222-222222222222";
+		const fieldUuid = "33333333-3333-4333-8333-333333333333";
+		const optionUuid = "44444444-4444-4444-8444-444444444444";
+		const inline = {
+			kind: "inline" as const,
+			options: [
+				{ optionUuid, value: "yes", label: proseText("Yes") },
+				{ value: "no", label: proseText("No") },
+			],
+		};
+		const select = {
+			kind: "single_select" as const,
+			id: "answer",
+			label: proseText("Answer"),
+			optionsSource: inline,
+		};
+		const writerInputs = [
+			{
+				schema: addFieldsInputSchema,
+				input: { moduleUuid, formUuid, fields: [select] },
+			},
+			{
+				schema: createFormInputSchema,
+				input: {
+					moduleUuid,
+					name: "Questions",
+					type: "survey",
+					fields: [select],
+				},
+			},
+			{
+				schema: createModuleInputSchema,
+				input: {
+					name: "Questions",
+					forms: [
+						{
+							name: "Questions",
+							type: "survey",
+							fields: [select],
+						},
+					],
+				},
+			},
+			{
+				schema: editFieldInputSchema,
+				input: {
+					moduleUuid,
+					formUuid,
+					fieldUuid,
+					updates: {
+						kind: "single_select",
+						optionsSource: inline,
+					},
+				},
+			},
+		] as const;
+
+		for (const { schema, input } of writerInputs) {
+			expect(schema.safeParse(input).success).toBe(true);
+		}
+		const fieldInputOf = (
+			copy: Record<string, unknown>,
+		): Record<string, unknown> | undefined =>
+			"fields" in copy
+				? (copy.fields as Array<Record<string, unknown>>)[0]
+				: "forms" in copy
+					? (
+							(copy.forms as Array<Record<string, unknown>>)[0].fields as Array<
+								Record<string, unknown>
+							>
+						)[0]
+					: (copy.updates as Record<string, unknown>);
+
+		const forbiddenOptionKeys = [
+			{ uuid: optionUuid },
+			{ media: { image: "asset-id" } },
+			{ option_id: optionUuid },
+		];
+		for (const forbidden of forbiddenOptionKeys) {
+			expect(
+				projectedOptionsSourceSchema.safeParse({
+					kind: "inline",
+					options: [
+						{ value: "yes", label: proseText("Yes"), ...forbidden },
+						{ value: "no", label: proseText("No") },
+					],
+				}).success,
+			).toBe(false);
+			for (const { schema, input } of writerInputs) {
+				const copy = structuredClone(input) as Record<string, unknown>;
+				const field = fieldInputOf(copy);
+				const source = field?.optionsSource as {
+					options: Array<Record<string, unknown>>;
+				};
+				Object.assign(source.options[0], forbidden);
+				expect(schema.safeParse(copy).success).toBe(false);
+			}
+		}
+
+		const canonicalLookup = {
+			kind: "lookup" as const,
+			tableId: "018f0000-0000-7000-8000-000000000001",
+			valueColumnId: "018f0000-0000-7000-8000-000000000002",
+			labelColumnId: "018f0000-0000-7000-8000-000000000003",
+		};
+		expect(
+			projectedOptionsSourceSchema.safeParse(canonicalLookup).success,
+		).toBe(true);
+		expect(
+			projectedOptionsSourceSchema.safeParse({
+				kind: "lookup",
+				tableUuid: canonicalLookup.tableId,
+				valueColumnUuid: canonicalLookup.valueColumnId,
+				labelColumnUuid: canonicalLookup.labelColumnId,
+			}).success,
+		).toBe(false);
+		for (const { schema, input } of writerInputs) {
+			const canonicalCopy = structuredClone(input) as Record<string, unknown>;
+			const canonicalField = fieldInputOf(canonicalCopy);
+			if (!canonicalField) throw new Error("writer field fixture missing");
+			canonicalField.optionsSource = canonicalLookup;
+			expect(schema.safeParse(canonicalCopy).success).toBe(true);
+
+			const aliasCopy = structuredClone(input) as Record<string, unknown>;
+			const aliasField = fieldInputOf(aliasCopy);
+			if (!aliasField) throw new Error("writer field fixture missing");
+			aliasField.optionsSource = {
+				kind: "lookup",
+				tableUuid: canonicalLookup.tableId,
+				valueColumnUuid: canonicalLookup.valueColumnId,
+				labelColumnUuid: canonicalLookup.labelColumnId,
+			};
+			expect(schema.safeParse(aliasCopy).success).toBe(false);
+		}
 	});
 });

@@ -40,7 +40,6 @@ import {
 	type SearchableChoice,
 	SearchableChoiceCombobox,
 } from "@/components/builder/case-list-config/SearchableChoiceCombobox";
-import { SegmentedRow } from "@/components/builder/inspector/inspectorChrome";
 import { ExpressionCardEditor } from "@/components/builder/shared/ExpressionCardEditor";
 import {
 	buildValidityIndex,
@@ -82,14 +81,11 @@ import {
 import {
 	advancedSearchInputDef,
 	applicableSearchModes,
-	authorableCaseProperties,
 	type CaseProperty,
 	type CasePropertyDataType,
 	type CaseType,
-	canonicalCasePropertyName,
 	DEFAULT_SEARCH_MODE_KIND,
 	effectiveDataType,
-	type MultiSelectQuantifier,
 	SEARCH_INPUT_TYPE_PROPERTY_TYPES,
 	SEARCH_INPUT_TYPES,
 	SEARCH_MODE_PROPERTY_TYPES,
@@ -97,6 +93,7 @@ import {
 	type SearchInputMode,
 	type SearchInputType,
 	type SimpleSearchInputDef,
+	searchInputDefault,
 	simpleSearchInputDef,
 	type UserProperty,
 } from "@/lib/domain";
@@ -249,15 +246,17 @@ export function SearchInputEditor({
 		targetDescription: string,
 	) => {
 		if (searchInputsMatch(value, next)) return;
+		const currentDefault = searchInputDefault(value);
+		const nextDefault = searchInputDefault(next);
 		const modeChanged =
 			value.kind === "simple" &&
 			next.kind === "simple" &&
 			value.mode !== undefined &&
 			!searchModesMatch(value.mode, next.mode);
 		const meaningfulDefaultRemoved =
-			value.default !== undefined &&
-			next.default === undefined &&
-			expressionHasMeaningfulContent(value.default);
+			currentDefault !== undefined &&
+			nextDefault === undefined &&
+			expressionHasMeaningfulContent(currentDefault);
 		if (!modeChanged && !meaningfulDefaultRemoved) {
 			onChange(next);
 			return;
@@ -291,9 +290,10 @@ export function SearchInputEditor({
 			value.kind !== "simple" ||
 			value.mode === undefined ||
 			applicableSearchModes(type).includes(value.mode.kind);
+		const currentDefault = searchInputDefault(value);
 		const keepDefault =
-			value.default === undefined ||
-			defaultFitsInputType(value.default, type, caseTypes, currentCaseType);
+			currentDefault === undefined ||
+			defaultFitsInputType(currentDefault, type, caseTypes, currentCaseType);
 		const next = rebuildRow(value, {
 			type,
 			...(keepMode ? {} : { mode: undefined }),
@@ -317,7 +317,6 @@ export function SearchInputEditor({
 	 */
 	const setBinding = (property: string, scope: "self" | "parent") => {
 		if (value.kind !== "simple") return;
-		const canonicalProperty = canonicalCasePropertyName(property);
 		const via: RelationPath | undefined =
 			scope === "self"
 				? undefined
@@ -333,7 +332,7 @@ export function SearchInputEditor({
 			default?: ValueExpression | undefined;
 			label?: string;
 			name?: string;
-		} = { property: canonicalProperty, via };
+		} = { property, via };
 		let nextType = value.type;
 
 		const destination = resolveDestinationCaseType(
@@ -341,9 +340,9 @@ export function SearchInputEditor({
 			via,
 			currentCaseType,
 		);
-		const propertyDef = authorableCaseProperties(
-			caseTypes.find((c) => c.name === destination)?.properties ?? [],
-		).find((p) => p.name === canonicalProperty);
+		const propertyDef = (
+			caseTypes.find((c) => c.name === destination)?.properties ?? []
+		).find((p) => p.name === property);
 		if (propertyDef !== undefined) {
 			const dataType = effectiveDataType(propertyDef);
 			const typeAllowed =
@@ -363,9 +362,15 @@ export function SearchInputEditor({
 					nextType === "text" && fuzzyAdmitted ? buildMode("fuzzy") : undefined;
 			}
 		}
+		const currentDefault = searchInputDefault(value);
 		if (
-			value.default !== undefined &&
-			!defaultFitsInputType(value.default, nextType, caseTypes, currentCaseType)
+			currentDefault !== undefined &&
+			!defaultFitsInputType(
+				currentDefault,
+				nextType,
+				caseTypes,
+				currentCaseType,
+			)
 		) {
 			patch.default = undefined;
 		}
@@ -377,18 +382,16 @@ export function SearchInputEditor({
 			patch.label =
 				propertyDef !== undefined
 					? propertyDisplayLabel(propertyDef)
-					: labelFromProperty(canonicalProperty);
+					: labelFromProperty(property);
 		}
-		const oldBase =
-			value.property === "" ? "" : xmlNameFromProperty(value.property);
+		const oldBase = xmlNameFromProperty(value.property);
 		const nameDerived =
 			value.name === "" ||
-			(oldBase !== "" &&
-				(value.name === oldBase ||
-					new RegExp(`^${oldBase}_\\d+$`).test(value.name)));
+			value.name === oldBase ||
+			new RegExp(`^${oldBase}_\\d+$`).test(value.name);
 		if (nameDerived) {
 			patch.name = uniqueInputName(
-				xmlNameFromProperty(canonicalProperty),
+				xmlNameFromProperty(property),
 				siblings.filter((s) => s.uuid !== value.uuid),
 			);
 		}
@@ -396,7 +399,7 @@ export function SearchInputEditor({
 		const next = rebuildRow(value, patch);
 		const targetLabel =
 			propertyDef === undefined
-				? propertyFallbackDisplayLabel(canonicalProperty)
+				? propertyFallbackDisplayLabel(property)
 				: propertyDisplayLabel(propertyDef);
 		requestInputTransition(next, "binding", targetLabel);
 	};
@@ -419,20 +422,11 @@ export function SearchInputEditor({
 			requestInputTransition(next, "match", SEARCH_MODE_LABELS.range);
 			return;
 		}
-		const isParameterless = kind !== "multi-select-contains";
 		const mode =
-			isParameterless && kind === DEFAULT_SEARCH_MODE_KIND[value.type]
+			kind === DEFAULT_SEARCH_MODE_KIND[value.type]
 				? undefined
 				: buildMode(kind);
 		onChange(rebuildRow(value, { mode }));
-	};
-	const setQuantifier = (quantifier: MultiSelectQuantifier) => {
-		if (value.kind !== "simple") return;
-		onChange(
-			rebuildRow(value, {
-				mode: buildMode("multi-select-contains", quantifier),
-			}),
-		);
 	};
 
 	// ── Match-picker arm conversion ──
@@ -457,7 +451,7 @@ export function SearchInputEditor({
 				source.type,
 				seedCustomCondition(source, currentCaseType),
 				{
-					default: source.type === "date-range" ? undefined : source.default,
+					default: searchInputDefault(source),
 				},
 			),
 		);
@@ -485,29 +479,20 @@ export function SearchInputEditor({
 		// anchor property when it has the round-trip shape; otherwise
 		// seed the way a fresh field would.
 		const ct = caseTypes.find((c) => c.name === currentCaseType);
-		const authorableProperties = authorableCaseProperties(ct?.properties ?? []);
+		const properties = ct?.properties ?? [];
 		const used = new Set(
 			siblings.flatMap((s) =>
-				s.kind === "simple" && s.uuid !== value.uuid && s.property !== ""
-					? [canonicalCasePropertyName(s.property)]
-					: [],
+				s.kind === "simple" && s.uuid !== value.uuid ? [s.property] : [],
 			),
 		);
-		const recoveredRaw = recoverAnchoredProperty(value.predicate);
-		const recovered =
-			recoveredRaw === undefined
-				? undefined
-				: canonicalCasePropertyName(recoveredRaw);
+		const recovered = recoverAnchoredProperty(value.predicate);
 		const propertyDef =
 			(recovered !== undefined
-				? authorableProperties.find((p) => p.name === recovered)
+				? properties.find((p) => p.name === recovered)
 				: undefined) ?? pickSeedProperty(ct, used);
-		const inferredType =
-			propertyDef !== undefined
-				? widgetTypeForProperty(propertyDef)
-				: value.type;
-		const dataType =
-			propertyDef !== undefined ? effectiveDataType(propertyDef) : undefined;
+		if (propertyDef === undefined) return null;
+		const inferredType = widgetTypeForProperty(propertyDef);
+		const dataType = effectiveDataType(propertyDef);
 		const type =
 			kind === "range" &&
 			(dataType === undefined || dataType === "date" || dataType === "datetime")
@@ -517,33 +502,38 @@ export function SearchInputEditor({
 			applicableSearchModes(type).includes(kind) &&
 			(dataType === undefined ||
 				(SEARCH_MODE_PROPERTY_TYPES[kind]?.includes(dataType) ?? true));
-		const isParameterless = kind !== "multi-select-contains";
 		const mode = !kindAdmitted
 			? undefined
-			: isParameterless && kind === DEFAULT_SEARCH_MODE_KIND[type]
+			: kind === DEFAULT_SEARCH_MODE_KIND[type]
 				? undefined
 				: buildMode(kind);
+		const currentDefault = searchInputDefault(value);
 		const keepDefault =
-			value.default === undefined ||
-			defaultFitsInputType(value.default, type, caseTypes, currentCaseType);
-		const next = simpleSearchInputDef(
-			value.uuid,
-			value.name,
-			value.label,
-			type,
-			canonicalCasePropertyName(propertyDef?.name ?? recovered ?? ""),
-			{
-				default: keepDefault ? value.default : undefined,
-				...(mode !== undefined ? { mode } : {}),
-			},
-		);
+			currentDefault === undefined ||
+			defaultFitsInputType(currentDefault, type, caseTypes, currentCaseType);
+		const next =
+			type === "date-range"
+				? simpleSearchInputDef(
+						value.uuid,
+						value.name,
+						value.label,
+						type,
+						propertyDef.name,
+						{ mode: { kind: "range" } },
+					)
+				: simpleSearchInputDef(
+						value.uuid,
+						value.name,
+						value.label,
+						type,
+						propertyDef.name,
+						{
+							default: keepDefault ? currentDefault : undefined,
+							...(mode !== undefined && mode.kind !== "range" ? { mode } : {}),
+						},
+					);
 		const resultingMode = effectiveModeKind(next);
-		const targetPropertyLabel =
-			propertyDef !== undefined
-				? propertyDisplayLabel(propertyDef)
-				: next.property === ""
-					? "the replacement information"
-					: propertyFallbackDisplayLabel(next.property);
+		const targetPropertyLabel = propertyDisplayLabel(propertyDef);
 		return {
 			source: value,
 			next,
@@ -555,8 +545,8 @@ export function SearchInputEditor({
 					}),
 			meaningfulDefaultRemoved:
 				!keepDefault &&
-				value.default !== undefined &&
-				expressionHasMeaningfulContent(value.default),
+				currentDefault !== undefined &&
+				expressionHasMeaningfulContent(currentDefault),
 		};
 	};
 
@@ -643,18 +633,6 @@ export function SearchInputEditor({
 						}
 						onPickCustom={toCustomCondition}
 					/>
-					{value.kind === "simple" &&
-						value.mode?.kind === "multi-select-contains" && (
-							<SegmentedRow
-								legend="How many of the chosen options a case needs"
-								options={[
-									{ value: "any", label: "Any of them" },
-									{ value: "all", label: "All of them" },
-								]}
-								value={value.mode.quantifier}
-								onChange={setQuantifier}
-							/>
-						)}
 				</FieldRow>
 
 				{value.kind === "advanced" && (
@@ -686,16 +664,9 @@ export function SearchInputEditor({
 
 				<InlineError errors={resolved.typeCouplingErrors} />
 
-				{value.type === "date-range" ? (
-					value.default !== undefined ? (
-						<LegacyDateRangeDefaultRepair
-							rowIndex={index}
-							onRemove={() => setDefault(undefined)}
-						/>
-					) : null
-				) : (
+				{value.type === "date-range" ? null : (
 					<DefaultValueSlot
-						value={value.default}
+						value={searchInputDefault(value)}
 						inputType={value.type}
 						caseTypes={caseTypes}
 						currentCaseType={currentCaseType}
@@ -923,16 +894,12 @@ function FieldRow({
 	);
 }
 
-/** The person-to-person line under an unbound / dangling property —
+/** The person-to-person line under a dangling property —
  *  names what's wrong AND what it costs at runtime. */
 function propertyErrors(state: PropertyState): readonly string[] {
 	switch (state.kind) {
 		case "ok":
 			return [];
-		case "empty":
-			return [
-				"Choose information to search. Until then, this field matches nothing.",
-			];
 		case "dangling":
 			return [
 				"That information is no longer available. Choose something else.",
@@ -976,27 +943,21 @@ function BindingPicker({
 			? caseTypes.find((c) => c.name === ct.parent_type)
 			: undefined;
 
-	const thisCaseProperties = authorableCaseProperties(ct?.properties ?? []);
-	const parentCaseProperties = authorableCaseProperties(
-		parentCt?.properties ?? [],
-	);
+	const thisCaseProperties = ct?.properties ?? [];
+	const parentCaseProperties = parentCt?.properties ?? [];
 	const hasAnyProperties =
 		thisCaseProperties.length + parentCaseProperties.length > 0;
 	const destinationProperties =
 		scope === "parent" ? parentCaseProperties : thisCaseProperties;
 	const selectedDef = destinationProperties.find(
-		(p) => p.name === canonicalCasePropertyName(row.property),
+		(p) => p.name === row.property,
 	);
-	const selectedPropertyName = canonicalCasePropertyName(row.property);
+	const selectedPropertyName = row.property;
 	const selectedLabel =
 		scope === "custom"
-			? row.property.trim() === ""
-				? "Unavailable information"
-				: propertyFallbackDisplayLabel(row.property)
+			? propertyFallbackDisplayLabel(row.property)
 			: selectedDef === undefined
-				? row.property.trim() === ""
-					? "Unavailable information"
-					: propertyDisplayLabelForName(row.property, destinationProperties)
+				? propertyDisplayLabelForName(row.property, destinationProperties)
 				: propertyDisplayLabel(selectedDef);
 	const selectedQualifier =
 		scope === "custom" || selectedDef === undefined
@@ -1016,7 +977,7 @@ function BindingPicker({
 	>(
 		() => [
 			...thisCaseProperties.map((property) => ({
-				id: `self:${canonicalCasePropertyName(property.name)}`,
+				id: `self:${property.name}`,
 				label: propertyDisplayLabel(property),
 				detail: [
 					friendlyPropertyDisambiguator(property, thisCaseProperties),
@@ -1030,7 +991,7 @@ function BindingPicker({
 				value: { property, scope: "self" as const },
 			})),
 			...parentCaseProperties.map((property) => ({
-				id: `parent:${canonicalCasePropertyName(property.name)}`,
+				id: `parent:${property.name}`,
 				label: propertyDisplayLabel(property),
 				detail: [
 					friendlyPropertyDisambiguator(property, parentCaseProperties),
@@ -1077,28 +1038,20 @@ function BindingPicker({
 						className="text-nova-violet-bright shrink-0"
 					/>
 					<span className="flex-1 min-w-0 text-left">
-						{row.property === "" ? (
-							<span className="block text-nova-text-muted">
-								Choose information
-							</span>
-						) : (
-							<>
-								<span className="block break-words font-medium text-nova-text">
-									{selectedLabel}
-								</span>
-								<span className="block break-words text-[12px] text-nova-text-muted">
-									{[
-										sourceLabel,
-										selectedQualifier,
-										scope === "custom" || selectedDef === undefined
-											? undefined
-											: propertyTypeLabel(selectedDef),
-									]
-										.filter(Boolean)
-										.join(" · ")}
-								</span>
-							</>
-						)}
+						<span className="block break-words font-medium text-nova-text">
+							{selectedLabel}
+						</span>
+						<span className="block break-words text-[12px] text-nova-text-muted">
+							{[
+								sourceLabel,
+								selectedQualifier,
+								scope === "custom" || selectedDef === undefined
+									? undefined
+									: propertyTypeLabel(selectedDef),
+							]
+								.filter(Boolean)
+								.join(" · ")}
+						</span>
 					</span>
 				</>
 			}
@@ -1188,11 +1141,6 @@ function searchModeDescription(
 	type: SearchInputType,
 ): string {
 	const kind = mode?.kind ?? DEFAULT_SEARCH_MODE_KIND[type];
-	if (kind === "multi-select-contains") {
-		return mode?.kind === "multi-select-contains" && mode.quantifier === "all"
-			? "All chosen options"
-			: "Any chosen option";
-	}
 	return SEARCH_MODE_LABELS[kind];
 }
 
@@ -1236,36 +1184,58 @@ interface RowPatch {
 	readonly name?: string;
 	readonly label?: string;
 	readonly type?: SearchInputType;
-	readonly property?: string | undefined;
+	readonly property?: string;
 	readonly via?: RelationPath | undefined;
 	readonly mode?: SearchInputMode | undefined;
 	readonly default?: ValueExpression | undefined;
 }
 
 function rebuildRow(value: SearchInputDef, patch: RowPatch): SearchInputDef {
+	const type = patch.type ?? value.type;
 	if (value.kind === "simple") {
-		const property = "property" in patch ? patch.property : value.property;
+		const property = patch.property ?? value.property;
 		const via = "via" in patch ? patch.via : value.via;
 		const mode = "mode" in patch ? patch.mode : value.mode;
-		const dflt = "default" in patch ? patch.default : value.default;
-		return simpleSearchInputDef(
-			value.uuid,
-			patch.name ?? value.name,
-			patch.label ?? value.label,
-			patch.type ?? value.type,
-			property ?? "",
-			{ via, mode, default: dflt },
-		);
+		const dflt = "default" in patch ? patch.default : searchInputDefault(value);
+		return type === "date-range"
+			? simpleSearchInputDef(
+					value.uuid,
+					patch.name ?? value.name,
+					patch.label ?? value.label,
+					type,
+					property,
+					{ via, mode: { kind: "range" } },
+				)
+			: simpleSearchInputDef(
+					value.uuid,
+					patch.name ?? value.name,
+					patch.label ?? value.label,
+					type,
+					property,
+					{
+						via,
+						...(mode !== undefined && mode.kind !== "range" ? { mode } : {}),
+						default: dflt,
+					},
+				);
 	}
-	const dflt = "default" in patch ? patch.default : value.default;
-	return advancedSearchInputDef(
-		value.uuid,
-		patch.name ?? value.name,
-		patch.label ?? value.label,
-		patch.type ?? value.type,
-		value.predicate,
-		{ default: dflt },
-	);
+	const dflt = "default" in patch ? patch.default : searchInputDefault(value);
+	return type === "date-range"
+		? advancedSearchInputDef(
+				value.uuid,
+				patch.name ?? value.name,
+				patch.label ?? value.label,
+				type,
+				value.predicate,
+			)
+		: advancedSearchInputDef(
+				value.uuid,
+				patch.name ?? value.name,
+				patch.label ?? value.label,
+				type,
+				value.predicate,
+				{ default: dflt },
+			);
 }
 
 // ── Field-type picker ─────────────────────────────────────────────
@@ -1289,13 +1259,6 @@ function TypePicker({
 	rowIndex,
 	triggerRef,
 }: TypePickerProps) {
-	// Choice lists are not emitted as a real choice widget today. Keep them out
-	// of normal creation; only a saved legacy row sees the disabled current type
-	// so it can understand the repair and choose a supported replacement.
-	const visibleTypes =
-		value === "select"
-			? SEARCH_INPUT_TYPES
-			: SEARCH_INPUT_TYPES.filter((type) => type !== "select");
 	return (
 		<DropdownMenu>
 			<DropdownMenuTrigger
@@ -1330,25 +1293,18 @@ function TypePicker({
 					value={value}
 					onValueChange={(next) => onChange(next as SearchInputType)}
 				>
-					{visibleTypes.map((t) => {
+					{SEARCH_INPUT_TYPES.map((t) => {
 						const isActive = t === value;
-						// Wire-level gate — the wire prompt carries no itemset
-						// slot, so a `select` input renders as plain text at
-						// runtime and the commit gate rejects it
-						// (`searchInputSelectWidgetNotSupported`). Disabled
-						// with the reason, never selectable into a rejection.
-						const wireSupported = t !== "select";
 						// Property-level gate — a field the bound property's
 						// data type can't run (a calendar over a text
 						// property, say) is disabled with the reason rather
 						// than selectable into a validation error.
 						const admitted =
-							wireSupported &&
-							(propertyDataType === undefined ||
-								(SEARCH_INPUT_TYPE_PROPERTY_TYPES[t]?.includes(
-									propertyDataType,
-								) ??
-									true));
+							propertyDataType === undefined ||
+							(SEARCH_INPUT_TYPE_PROPERTY_TYPES[t]?.includes(
+								propertyDataType,
+							) ??
+								true);
 						return (
 							<DropdownMenuRadioItem
 								key={t}
@@ -1379,9 +1335,7 @@ function TypePicker({
 									>
 										{admitted
 											? SEARCH_INPUT_TYPE_DESCRIPTIONS[t]
-											: wireSupported
-												? "This field type doesn’t work with this information"
-												: "Choose another type because this saved field isn’t supported"}
+											: "This field type doesn’t work with this information"}
 									</div>
 								</span>
 							</DropdownMenuRadioItem>
@@ -1544,32 +1498,6 @@ interface DefaultValueSlotProps {
 	readonly userProperties: readonly UserProperty[];
 	readonly rowIndex: number;
 	readonly onChange: (next: ValueExpression | undefined) => void;
-}
-
-function LegacyDateRangeDefaultRepair({
-	rowIndex,
-	onRemove,
-}: {
-	readonly rowIndex: number;
-	readonly onRemove: () => void;
-}) {
-	return (
-		<FieldRow
-			label="Starting value needs attention"
-			hint="This older setting contains one date, but a date range needs both dates"
-		>
-			<Button
-				type="button"
-				onClick={onRemove}
-				variant="destructive"
-				size="xl"
-				className="w-full px-3 text-[14px]"
-				aria-label={`Remove the incompatible starting value from search field ${rowIndex + 1}`}
-			>
-				Remove starting value
-			</Button>
-		</FieldRow>
-	);
 }
 
 function DefaultValueSlot({

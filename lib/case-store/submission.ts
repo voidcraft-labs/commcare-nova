@@ -42,6 +42,7 @@ import type { JsonObject } from "./sql/database";
 export interface SubmissionCaseSeed {
 	readonly caseType: string;
 	readonly caseName?: string;
+	readonly externalId?: string;
 	readonly properties: JsonObject;
 }
 
@@ -81,6 +82,7 @@ export type OrdinarySubmissionAction =
 			readonly caseType?: string;
 			readonly patch: {
 				readonly caseName?: string;
+				readonly externalId?: string;
 				readonly properties: JsonObject;
 			};
 			readonly children: ReadonlyArray<

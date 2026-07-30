@@ -43,7 +43,10 @@ describe("useBlueprintMutations.moveColumnOnSurface", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Name"),
-									case_property_on: "patient",
+									caseWrite: {
+										caseType: "patient",
+										property: "case_name",
+									},
 								}),
 							],
 						},
@@ -134,7 +137,9 @@ describe("useBlueprintMutations.moveSearchInputToIndex", () => {
 				{
 					name: "Patients",
 					caseType: "patient",
+					caseListOnly: true,
 					caseListConfig: config,
+					caseSearchConfig: {},
 				},
 			],
 		});
@@ -154,13 +159,17 @@ describe("useBlueprintMutations.moveSearchInputToIndex", () => {
 		const before = result.current.store?.getState();
 		if (before === undefined) throw new Error("store missing");
 
+		let outcome:
+			| ReturnType<typeof result.current.mutations.moveSearchInputToIndex>
+			| undefined;
 		act(() => {
-			result.current.mutations.moveSearchInputToIndex(
+			outcome = result.current.mutations.moveSearchInputToIndex(
 				moduleUuid,
 				first.uuid,
 				1,
 			);
 		});
+		expect(outcome).toEqual({ ok: true });
 
 		const after = result.current.store?.getState();
 		if (after === undefined) throw new Error("store missing after move");

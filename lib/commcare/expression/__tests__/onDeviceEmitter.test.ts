@@ -59,7 +59,6 @@ import {
 	switchExpr,
 	term,
 	today,
-	unwrapList,
 } from "@/lib/domain/predicate/builders";
 import { emitOnDeviceExpression as emitOnDeviceExpressionRaw } from "../onDeviceEmitter";
 
@@ -360,15 +359,6 @@ describe("emitOnDeviceExpression — date-add", () => {
 		);
 		expect(emitOnDeviceExpression(expr)).toBe(
 			"date(floor('1969-12-31' + -0.5))",
-		);
-	});
-});
-
-describe("emitOnDeviceExpression — unwrap-list", () => {
-	it("rejects the CSQL-only function instead of emitting an unknown Core call", () => {
-		const expr = unwrapList(term(prop("p", "tags")));
-		expect(() => emitOnDeviceExpression(expr)).toThrow(
-			/unwrap-list.*server-side/i,
 		);
 	});
 });

@@ -16,6 +16,7 @@ import type { Transaction } from "kysely";
 import { getAuthDb } from "@/lib/auth/db";
 import { type AppCapability, roleAllowsApp } from "@/lib/auth/projectRoles";
 import { loadApp, loadAppInTransaction, loadAppProjectId } from "./apps";
+import { safePersistedSequence } from "./persistedJson";
 import type { AppDatabase } from "./pg";
 import { withAppTx } from "./pg";
 import {
@@ -117,7 +118,7 @@ export async function resolveAppAccess(
 	opts?: { app?: AppDoc },
 ): Promise<AppAccess> {
 	const app = opts?.app ?? (await loadApp(appId));
-	if (!app?.project_id) throw new AppAccessError("not_found");
+	if (!app) throw new AppAccessError("not_found");
 	const role = await projectRoleFor(userId, app.project_id);
 	assertCapability(role, required);
 	return { app, projectId: app.project_id, role, actorUserId: userId };
@@ -146,7 +147,7 @@ export async function resolveAppScopeInTransaction(
 		.where("id", "=", appId)
 		.forShare()
 		.executeTakeFirst();
-	if (!app?.project_id || app.deleted_at !== null) {
+	if (!app || app.deleted_at !== null) {
 		throw new AppAccessError("not_found");
 	}
 
@@ -156,7 +157,10 @@ export async function resolveAppScopeInTransaction(
 		projectId: app.project_id,
 		role,
 		canEdit: roleAllowsApp(role, "edit"),
-		baseSeq: Number(app.mutation_seq),
+		baseSeq: safePersistedSequence(
+			app.mutation_seq,
+			`apps.mutation_seq for app ${appId}`,
+		),
 		actorUserId: userId,
 	};
 }
@@ -201,11 +205,11 @@ export async function resolveAppScope(
 	userId: string,
 	required: AppCapability = "view",
 ): Promise<ProjectAccess> {
-	const projectId = await loadAppProjectId(appId);
-	if (projectId === null) throw new AppAccessError("not_found");
-	const role = await projectRoleFor(userId, projectId);
+	const lookup = await loadAppProjectId(appId);
+	if (lookup.kind === "not-found") throw new AppAccessError("not_found");
+	const role = await projectRoleFor(userId, lookup.projectId);
 	assertCapability(role, required);
-	return { projectId, role, actorUserId: userId };
+	return { projectId: lookup.projectId, role, actorUserId: userId };
 }
 
 /**

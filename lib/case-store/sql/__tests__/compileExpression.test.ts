@@ -65,7 +65,6 @@ import {
 	term,
 	today,
 	unowned,
-	unwrapList,
 } from "@/lib/domain/predicate/builders";
 import type { ArithOp, DateAddInterval } from "@/lib/domain/predicate/types";
 import { proseText } from "@/lib/domain/prose";
@@ -887,29 +886,6 @@ describe("compileExpression — format-date arm", () => {
 		expect(compiled.parameters).toEqual(
 			expect.arrayContaining(["YYYY", "MS", "dow", "epoch", "%"]),
 		);
-	});
-});
-
-// ---------------------------------------------------------------
-// `unwrap-list` — defensive throw (no SQL-side consumer)
-// ---------------------------------------------------------------
-//
-// `unwrap-list` resolves to the type checker's `_sequence`
-// sentinel; no AST operator on the Predicate side or the
-// Expression side consumes a sequence (`in.values` and
-// `multi-select-contains.values` stay
-// literal-only). The CSQL hoist pass routes the arm into
-// `selected-any(prop, unwrap-list(...))` at the wire-emission
-// boundary; that path does not flow through the SQL compiler.
-// Reaching this arm in `compileExpression` is an invariant
-// violation, so the compiler throws with a descriptive error
-// rather than emit ambiguous SQL.
-
-describe("compileExpression — unwrap-list arm", () => {
-	it("throws because no AST consumer wires unwrap-list to a SQL value position", () => {
-		expect(() =>
-			compileExpression(unwrapList(term(prop("patient", "tags"))), makeCtx()),
-		).toThrow(/unwrap-list/i);
 	});
 });
 

@@ -16,8 +16,8 @@
  * Both variants support `breaks: true` semantics (single newlines → `<br>`)
  * via a custom `renderRule`, since markdown-to-jsx has no native breaks option.
  *
- * Reference chip injection (for `#form/x`, `#case/x`, `#user/x` patterns) is
- * composed on top of either variant via `withChipInjection()` — used by
+ * Reference chip injection (for `#form/x`, `#patient/x`, `#user/x` patterns)
+ * is composed on top of either variant via `withChipInjection()` — used by
  * `LabelContent` to render chips inline within markdown formatting.
  *
  * tiptap-markdown handles editor I/O (markdown ↔ ProseMirror) separately —

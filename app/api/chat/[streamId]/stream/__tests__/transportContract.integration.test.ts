@@ -216,7 +216,7 @@ describe("WorkflowChatTransport against the real resume route", () => {
 		 * `reconnectToStream({chatId})` with the Chat instance's id — the
 		 * THREAD id — and the endpoint resolves the thread's live stream and
 		 * replays it whole. */
-		const appId = await createApp(USER, "project-1", "run-1");
+		const { appId } = await createApp(USER, "project-1", "run-1");
 		await upsertThreadTurn({
 			appId,
 			threadId: "thread-1",
@@ -225,6 +225,7 @@ describe("WorkflowChatTransport against the real resume route", () => {
 			holderNonce: await holderNonceFor(appId),
 			threadType: "build",
 			messages: [{ id: "m1", role: "user", parts: [] }],
+			expectedProjectId: "project-1",
 		});
 		await appendStreamChunks({
 			streamId: STREAM_ID,
@@ -272,7 +273,7 @@ describe("WorkflowChatTransport against the real resume route", () => {
 		/* The transport THROWS on any non-OK reconnect response, so "nothing
 		 * to resume" must be a 200 that terminates on its first chunk — this
 		 * pins that the real parser consumes it without erroring or looping. */
-		const appId = await createApp(USER, "project-1", "run-2");
+		const { appId } = await createApp(USER, "project-1", "run-2");
 		await upsertThreadTurn({
 			appId,
 			threadId: "thread-2",
@@ -281,6 +282,7 @@ describe("WorkflowChatTransport against the real resume route", () => {
 			holderNonce: await holderNonceFor(appId),
 			threadType: "build",
 			messages: [{ id: "m1", role: "user", parts: [] }],
+			expectedProjectId: "project-1",
 		});
 		await appendThreadResponse({
 			appId,

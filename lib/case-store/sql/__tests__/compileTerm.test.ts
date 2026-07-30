@@ -77,6 +77,7 @@ import { proseText } from "@/lib/domain/prose";
 import { RELATION_PATH_LEAF_ALIAS } from "../compileRelationPath";
 import { compileTerm, type TermCompileContext } from "../compileTerm";
 import type { Database } from "../database";
+import { RESERVED_SCALAR_COLUMN_BY_PROPERTY } from "../dataTypeTokens";
 
 // ---------------------------------------------------------------
 // Shared fixture
@@ -243,11 +244,8 @@ describe("compileTerm — prop (self via) reserved scalar columns", () => {
 		["owner_id", "owner_id"],
 		["status", "status"],
 		["case_name", "case_name"],
-		["name", "case_name"],
 		["external_id", "external_id"],
-		["external-id", "external_id"],
 		["date_opened", "opened_on"],
-		["date-opened", "opened_on"],
 		["last_modified", "modified_on"],
 	];
 
@@ -263,6 +261,13 @@ describe("compileTerm — prop (self via) reserved scalar columns", () => {
 			expect(compiled.sql).not.toContain('"properties" ->>');
 		});
 	}
+
+	it.each(["name", "external-id", "date-opened"])(
+		"has no scalar mapping for the retired spelling %s",
+		(property) => {
+			expect(RESERVED_SCALAR_COLUMN_BY_PROPERTY.has(property)).toBe(false);
+		},
+	);
 
 	it("shadows a blueprint-declared property with the same name", () => {
 		// The blueprint validator owns rejecting reserved-column

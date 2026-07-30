@@ -384,8 +384,8 @@ export function CaseOperationDetailCanvas({
 							constraint={caseOperationRuntimeTargetConstraint()}
 							{...editorScope}
 							// A runtime target may not name a create's output — target
-							// that create directly instead. The empty scope withholds
-							// `id-of` while keeping the owner sentinels available.
+							// that create directly instead. Owner sentinels are withheld
+							// because this is not an owner-value slot.
 							operationScope={RUNTIME_TARGET_OPERATION_SCOPE}
 						/>
 					</Section>
@@ -438,6 +438,7 @@ export function CaseOperationDetailCanvas({
 						onChange={(owner) => commit({ ...operation, owner })}
 						constraint={caseOperationTextConstraint()}
 						editorScope={editorScope}
+						ownerValues
 					/>
 				)}
 
@@ -637,6 +638,7 @@ function OptionalExpressionSection({
 	onChange,
 	constraint,
 	editorScope,
+	ownerValues = false,
 }: {
 	readonly title: string;
 	readonly description: string;
@@ -650,6 +652,7 @@ function OptionalExpressionSection({
 	readonly onChange: (next: ValueExpression | undefined) => void;
 	readonly constraint: ReturnType<typeof storageAssignmentConstraint>;
 	readonly editorScope: EditorScope;
+	readonly ownerValues?: boolean;
 }) {
 	const { addRef, onCleared } = useClearedSlotFocus(value);
 	return (
@@ -684,6 +687,7 @@ function OptionalExpressionSection({
 					onChange={onChange}
 					constraint={constraint}
 					{...editorScope}
+					ownerValues={ownerValues}
 				/>
 			)}
 		</Section>

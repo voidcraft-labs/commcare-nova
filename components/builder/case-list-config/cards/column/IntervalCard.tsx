@@ -224,15 +224,17 @@ function DisplayToggle({ value, onChange }: DisplayToggleProps) {
 /** Re-extract the column's optional common slots so each builder call
  *  threads through them verbatim. The schema's strip-mode parse omits
  *  absent keys; the builder's `slots` object preserves whichever slots
- *  the value already carries (sort, visibleInList, visibleInDetail). */
+ *  the value already carries (sort, visibility, and tile presentation). */
 function slotsFrom(value: Extract<Column, { kind: "interval" }>): {
 	sort?: typeof value.sort;
 	visibleInList?: typeof value.visibleInList;
 	visibleInDetail?: typeof value.visibleInDetail;
+	tile?: typeof value.tile;
 } {
 	return {
 		sort: value.sort,
 		visibleInList: value.visibleInList,
 		visibleInDetail: value.visibleInDetail,
+		tile: value.tile,
 	};
 }

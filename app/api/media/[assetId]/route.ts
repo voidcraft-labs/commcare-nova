@@ -145,7 +145,7 @@ export async function DELETE(
 			);
 		}
 
-		const deleted = await purgeAssetStorage(asset, {
+		const deleted = await purgeAssetStorage({
 			alsoDeleteForAsset: (deletedAsset) => [
 				extractObjectKeyForAsset(deletedAsset),
 			],

@@ -31,7 +31,7 @@ import { PredicateCardEditor } from "../../PredicateCardEditor";
 const PATIENT: CaseType = {
 	name: "patient",
 	properties: [
-		{ name: "name", label: proseText("Name"), data_type: "text" },
+		{ name: "case_name", label: proseText("Case name"), data_type: "text" },
 		{ name: "status", label: proseText("Status"), data_type: "text" },
 	],
 };
@@ -40,7 +40,7 @@ describe("MatchCard — inline value-slot errors", () => {
 	it("labels its subject as case information", () => {
 		render(
 			<PredicateCardEditor
-				value={match(prop("patient", "name"), literal("Alice"), "fuzzy")}
+				value={match(prop("patient", "case_name"), literal("Alice"), "fuzzy")}
 				onChange={() => {}}
 				caseTypes={[PATIENT]}
 				currentCaseType="patient"
@@ -58,7 +58,7 @@ describe("MatchCard — inline value-slot errors", () => {
 		// prefix-capture lookup must reach it so the inline diagnostic
 		// renders next to the value picker.
 		const value = match(
-			prop("patient", "name"),
+			prop("patient", "case_name"),
 			{
 				kind: "term",
 				term: prop("patient", "DOES_NOT_EXIST"),
@@ -82,7 +82,7 @@ describe("MatchCard — inline value-slot errors", () => {
 		// level slot path). Verifies the card still picks up errors
 		// at the slot's own path alongside the deeper term-side
 		// errors.
-		const value = match(prop("patient", "name"), literal(""), "fuzzy");
+		const value = match(prop("patient", "case_name"), literal(""), "fuzzy");
 		const { container } = render(
 			<PredicateCardEditor
 				value={value}
@@ -95,7 +95,11 @@ describe("MatchCard — inline value-slot errors", () => {
 	});
 
 	it("renders no error rows for a well-typed match", () => {
-		const value = match(prop("patient", "name"), literal("Alice"), "fuzzy");
+		const value = match(
+			prop("patient", "case_name"),
+			literal("Alice"),
+			"fuzzy",
+		);
 		const { container } = render(
 			<PredicateCardEditor
 				value={value}

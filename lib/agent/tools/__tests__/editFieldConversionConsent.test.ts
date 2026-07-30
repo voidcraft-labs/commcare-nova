@@ -15,7 +15,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import type { BlueprintDoc } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import { makeStubToolContext } from "../../__tests__/fixtures";
@@ -25,7 +25,12 @@ vi.mock("@/lib/db/apps", () => ({
 	completeApp: vi.fn(() => Promise.resolve()),
 }));
 vi.mock("@/lib/db/applyBlueprintChange", () => ({
-	applyBlueprintChange: vi.fn(() => Promise.resolve({ seq: 0 })),
+	applyBlueprintChange: vi.fn(async (args) => {
+		const { commitApplyBlueprintChangeTestBatch } = await import(
+			"@/lib/db/__tests__/applyBlueprintChangeTestWriter"
+		);
+		return commitApplyBlueprintChangeTestBatch(args);
+	}),
 }));
 
 /** A patient module whose followup form writes `score` (a decimal case
@@ -46,6 +51,9 @@ function makeCaseBoundDoc(): BlueprintDoc {
 			{
 				name: "Patients",
 				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
 				forms: [
 					{
 						name: "Register",
@@ -55,19 +63,19 @@ function makeCaseBoundDoc(): BlueprintDoc {
 								id: "case_name",
 								kind: "text",
 								label: proseText("Name"),
-								case_property_on: "patient",
+								caseWrite: { caseType: "patient", property: "case_name" },
 							}),
 							f({
 								id: "score",
 								kind: "decimal",
 								label: proseText("Score"),
-								case_property_on: "patient",
+								caseWrite: { caseType: "patient", property: "score" },
 							}),
 							f({
 								id: "visit_on",
 								kind: "date",
 								label: proseText("Visited"),
-								case_property_on: "patient",
+								caseWrite: { caseType: "patient", property: "visit_on" },
 							}),
 						],
 					},

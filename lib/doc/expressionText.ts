@@ -1,9 +1,9 @@
 // lib/doc/expressionText.ts
 //
 // The doc-aware text ⇄ AST bridge for human builder editors. SA/MCP tools
-// receive the canonical AST directly and never call this parser. The legacy
-// operator repair helper also uses this boundary on its private clone; Unit
-// 18's canonical production migration owns a frozen parser copy instead.
+// receive the canonical AST directly and never call this parser. The operator
+// repair helper also uses this boundary on its private clone; Unit 18's
+// canonical production migration owns a frozen parser copy instead.
 //
 // Parsing is total as a projection: a reference-shaped span that does not
 // resolve remains text, and a syntax-broken source stays one opaque text run.
@@ -106,10 +106,9 @@ export function resolveCloseFieldRef(
 ): Uuid | string {
 	if (ref.length === 0) return ref;
 	const find = (parentUuid: string): Uuid | undefined => {
-		// DISPLAY order (`sort-by-(order, uuid)`), not array position — the
-		// pre-order first-match must agree with the wire emitter's `findField`
-		// (which sorts the same way), so a close-field ref resolves to the same
-		// uuid at commit time and at emit time even when cousins share an id.
+		// Membership-array order: the pre-order first match must agree with the
+		// wire emitter's `findField`, so a close-field ref resolves to the same
+		// UUID at commit time and at emit time even when cousins share an id.
 		const ordered = [...(doc.fieldOrder[parentUuid] ?? [])];
 		for (const uuid of ordered) {
 			const field = doc.fields[uuid];

@@ -80,18 +80,12 @@ describe("assessment user_score wire default", () => {
 		const EMPTY_DOC = { forms: {}, fields: {}, fieldOrder: {} };
 		expect(
 			effectiveAssessmentUserScore(
-				{ user_score: xp("#form/score") },
+				{ id: "quiz", user_score: xp("#form/score") },
 				EMPTY_DOC,
 			),
 		).toBe("#form/score");
-		expect(effectiveAssessmentUserScore({}, EMPTY_DOC)).toBe(
+		expect(effectiveAssessmentUserScore({ id: "quiz" }, EMPTY_DOC)).toBe(
 			DEFAULT_ASSESSMENT_USER_SCORE,
 		);
-		// An explicit empty expression still falls through — `<bind
-		// calculate=""/>` is a CCHQ build rejection, and the validator's
-		// CONNECT_EMPTY_XPATH flags the doc state itself.
-		expect(
-			effectiveAssessmentUserScore({ user_score: xp("") }, EMPTY_DOC),
-		).toBe(DEFAULT_ASSESSMENT_USER_SCORE);
 	});
 });

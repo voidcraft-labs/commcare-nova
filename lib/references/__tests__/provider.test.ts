@@ -171,6 +171,7 @@ describe("ReferenceProvider.parse — namespace classification", () => {
 	it("rejects a malformed namespace or empty path", () => {
 		expect(ReferenceProvider.parse("#1bad/x")).toBeNull();
 		expect(ReferenceProvider.parse("#mother/")).toBeNull();
+		expect(ReferenceProvider.parse("#case/name")).toBeNull();
 		expect(ReferenceProvider.parse("no-hash")).toBeNull();
 	});
 });

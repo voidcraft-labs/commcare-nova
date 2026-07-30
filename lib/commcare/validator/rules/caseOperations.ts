@@ -3,7 +3,6 @@ import {
 	MAX_CASE_INDEX_IDENTIFIER_LENGTH,
 	MAX_CASE_PROPERTY_LENGTH,
 	MAX_CASE_TYPE_LENGTH,
-	RESERVED_CASE_PROPERTIES,
 	RESERVED_XFORM_NODE_PREFIX,
 } from "@/lib/commcare/constants";
 import { emitOnDeviceExpression } from "@/lib/commcare/expression";
@@ -23,18 +22,20 @@ import {
 	caseDataTypeForFieldKind,
 	concreteCasePropertyWriterTypes,
 	effectiveCaseTypes,
+	FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES,
 	type Form,
 	formFieldCanKeyCreate,
 	formFieldCorrelatesWithCreate,
 	isCaseFirstModule,
 	isCaseOperationIdentifier,
 	isCaseOperationProperty,
-	MAX_CASE_OPERATION_TEXT_LENGTH,
+	isWritableStandardCaseProperty,
+	MAX_CASE_SCALAR_TEXT_LENGTH,
 	type Module,
 	operationCanReadFormField,
 	orderedCaseOperations,
 	planCaseRetype,
-	prepareCaseOperationTextValue,
+	prepareCaseScalarTextValue,
 	RESERVED_CASE_OPERATION_TYPES,
 	type Uuid,
 	userPropertySlugsByUuid,
@@ -61,23 +62,6 @@ import {
 	type LookupTypeIndex,
 	semanticCheckErrors,
 } from "../lookupTypeContext";
-
-/**
- * Case properties an operation may never write, because the operation's
- * own facets own them (`case_name` is the name/rename slot, `owner_id`
- * the owner slot) or the two runtimes disagree about what they mean
- * (`category` / `state`). Exported so the authoring surfaces disable
- * them in the property picker rather than letting the commit gate
- * reject the write afterwards.
- */
-export const RESERVED_OPERATION_PROPERTIES: ReadonlySet<string> = new Set([
-	...RESERVED_CASE_PROPERTIES,
-	"location_id",
-	"hq_user_id",
-	"external_id",
-	"category",
-	"state",
-]);
 
 interface OperationFieldContext {
 	readonly dataType: ReturnType<typeof caseDataTypeForFieldKind>;
@@ -379,7 +363,7 @@ function validateOperation(
 		operation,
 		operation.owner,
 		"owner",
-		typeContext,
+		{ ...typeContext, ownerValues: true },
 		errors,
 	);
 	validateTextExpression(
@@ -412,7 +396,8 @@ function validateOperation(
 		if (
 			invalidPropertyFormat ||
 			propertyTooLong ||
-			!persistedProperties.has(write.property)
+			(!persistedProperties.has(write.property) &&
+				!isWritableStandardCaseProperty(write.property))
 		) {
 			errors.push(
 				opError(
@@ -427,7 +412,7 @@ function validateOperation(
 				),
 			);
 		}
-		if (RESERVED_OPERATION_PROPERTIES.has(write.property)) {
+		if (FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES.has(write.property)) {
 			errors.push(
 				opError(
 					ctx,
@@ -599,7 +584,10 @@ function validateTarget(
 				target.expr.term.kind === "literal" &&
 				typeof target.expr.term.value === "string"
 			) {
-				const prepared = prepareCaseOperationTextValue(target.expr.term.value);
+				const prepared = prepareCaseScalarTextValue(
+					target.expr.term.value,
+					"reject",
+				);
 				if (!prepared.ok && prepared.reason === "blank") {
 					errors.push(
 						opError(
@@ -679,17 +667,6 @@ function validateExpressionSlot(
 		);
 	} else if (result.ok) {
 		validateOnDeviceExpression(ctx, operation, expression, typeContext, errors);
-		let strictNull = false;
-		walkExpressionPredicateNodes(expression, (node) => {
-			if (node.kind === "is-null") strictNull = true;
-		});
-		validateStrictNullPortability(
-			ctx,
-			operation,
-			"expression",
-			strictNull,
-			errors,
-		);
 	}
 	validateCaseSnapshotUse(
 		ctx,
@@ -726,7 +703,7 @@ function validateTextExpression(
 	) {
 		return;
 	}
-	const prepared = prepareCaseOperationTextValue(expression.term.value);
+	const prepared = prepareCaseScalarTextValue(expression.term.value, "reject");
 	if (prepared.ok) return;
 	errors.push(
 		opError(
@@ -735,7 +712,7 @@ function validateTextExpression(
 			"CASE_OPERATION_EXPRESSION_TYPE",
 			prepared.reason === "blank"
 				? `Case operation "${operation.id}" has a blank ${facet}. Names, renames, and explicit owners must contain a value after CommCare-compatible boundary whitespace is removed.`
-				: `Case operation "${operation.id}" has a ${facet} longer than ${MAX_CASE_OPERATION_TEXT_LENGTH} UTF-16 code units after boundary whitespace is removed.`,
+				: `Case operation "${operation.id}" has a ${facet} longer than ${MAX_CASE_SCALAR_TEXT_LENGTH} UTF-16 code units after boundary control characters are removed.`,
 		),
 	);
 }
@@ -761,17 +738,6 @@ function validatePredicateSlot(
 		);
 	} else if (result.ok) {
 		validateOnDevicePredicate(ctx, operation, predicate, typeContext, errors);
-		let strictNull = false;
-		walkPredicateNodes(predicate, (node) => {
-			if (node.kind === "is-null") strictNull = true;
-		});
-		validateStrictNullPortability(
-			ctx,
-			operation,
-			"condition",
-			strictNull,
-			errors,
-		);
 	}
 	validateCaseSnapshotUse(
 		ctx,
@@ -808,7 +774,10 @@ function validateOnDeviceExpression(
 		emitOnDeviceExpression(expression, "casedb", typeContext, undefined, {
 			formFields: identityBindings(typeContext.formFields?.keys() ?? []),
 			operationIds: identityBindings(typeContext.operationIds ?? []),
-			lookup: { naming: inertLookupWireNaming() },
+			lookup: {
+				naming: inertLookupWireNaming(),
+				instanceScope: "xform",
+			},
 		});
 	} catch (error) {
 		errors.push(
@@ -833,7 +802,10 @@ function validateOnDevicePredicate(
 		emitCaseListFilter(predicate, "casedb", typeContext, undefined, {
 			formFields: identityBindings(typeContext.formFields?.keys() ?? []),
 			operationIds: identityBindings(typeContext.operationIds ?? []),
-			lookup: { naming: inertLookupWireNaming() },
+			lookup: {
+				naming: inertLookupWireNaming(),
+				instanceScope: "xform",
+			},
 		});
 	} catch (error) {
 		errors.push(
@@ -845,36 +817,6 @@ function validateOnDevicePredicate(
 			),
 		);
 	}
-}
-
-/**
- * Strict `is-null` has no portable spelling in an operation's lowered
- * XPath, and unlike the unrunnable match modes the emitter cannot catch
- * it: `caseListFilterEmitter` emits `<term> = ''` for `is-null` and
- * `is-blank` ALIKE, so the dry-run succeeds and the wire quietly answers
- * a different question from the one the author asked.
- *
- * Preview and Postgres can tell an absent property from a stored blank;
- * CommCare's emitted dialects collapse both. `strictNullPortability`
- * states the same rule for every module wire slot — case operations are
- * a form-carried slot, so they need their own walk, not a wider one.
- */
-function validateStrictNullPortability(
-	ctx: OperationRuleContext,
-	operation: CaseOperation,
-	facet: "condition" | "expression",
-	found: boolean,
-	errors: ValidationError[],
-): void {
-	if (!found) return;
-	errors.push(
-		opError(
-			ctx,
-			operation,
-			"CASE_OPERATION_EXPRESSION_TYPE",
-			`A ${facet} in case operation "${operation.id}" checks whether a value is missing, but on a device CommCare cannot tell a missing value from one saved as blank — both read as empty. Use the blank check instead, which is true for either.`,
-		),
-	);
 }
 
 function identityBindings(values: Iterable<Uuid>): ReadonlyMap<Uuid, string> {
@@ -1112,7 +1054,6 @@ function expressionContext(
 				.map(([uuid, field]) => [uuid, field.dataType]),
 		),
 		operationIds: new Set(priorCreates.keys()),
-		caseOperationValues: true,
 		...(ctx.lookupTables !== undefined && {
 			lookupTables: ctx.lookupTables,
 		}),

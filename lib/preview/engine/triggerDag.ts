@@ -260,7 +260,7 @@ export class TriggerDag {
 		// Collect all XPath expressions that create dependency edges
 		const allDepExprs = expressions.map((e) => e.expr);
 
-		// Scan label and hint for bare hashtag refs (#form/x, #case/x, #user/x)
+		// Project typed label/hint atoms to their dependency expressions.
 		const allLabelRefs = proseReferenceExpressions(
 			fieldProseTemplate(f, "label"),
 			this.doc,

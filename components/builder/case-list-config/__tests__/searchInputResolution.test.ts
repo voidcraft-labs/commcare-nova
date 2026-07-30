@@ -25,20 +25,15 @@ import {
 	checkPredicate,
 	eq,
 	input,
-	literal,
 	match,
-	matchAll,
 	prop,
 	relationStep,
-	term,
 	whenInput,
 } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
 import {
 	canSeedCustomConditionFaithfully,
 	recoverAnchoredProperty,
-	resolveProperty,
-	resolveRows,
 	searchInputDecls,
 	seedCustomCondition,
 } from "../searchInputResolution";
@@ -112,65 +107,6 @@ describe("seedCustomCondition", () => {
 		);
 	});
 
-	it("seeds a nameless row against a literal, carrying no input ref", () => {
-		// A row the author hasn't named yet has no input to gate on; the
-		// comparison reads against an empty literal and needs no envelope.
-		const row = simpleSearchInputDef(
-			testUuid("si-1"),
-			"",
-			"Name",
-			"text",
-			"case_name",
-		);
-		const seeded = seedCustomCondition(row, CASE_TYPE);
-
-		expect(seeded).toEqual(eq(prop(CASE_TYPE, "case_name"), term(literal(""))));
-	});
-
-	it("keeps a nameless fuzzy row type-valid without inventing an input ref", () => {
-		const row = simpleSearchInputDef(
-			testUuid("si-1"),
-			"",
-			"Name",
-			"text",
-			"case_name",
-			{ mode: { kind: "fuzzy" } },
-		);
-		const seeded = seedCustomCondition(row, CASE_TYPE);
-
-		expect(seeded).toEqual(eq(prop(CASE_TYPE, "case_name"), literal("")));
-		expect(
-			checkPredicate(seeded, {
-				caseTypes: CASE_TYPES,
-				knownInputs: [],
-				currentCaseType: CASE_TYPE,
-			}).ok,
-		).toBe(true);
-	});
-
-	it("seeds an unbound row as match-all", () => {
-		const row = simpleSearchInputDef(
-			testUuid("si-1"),
-			"case_name",
-			"Client name",
-			"text",
-			"",
-		);
-		expect(seedCustomCondition(row, CASE_TYPE)).toEqual(matchAll());
-	});
-
-	it("keeps an unbound non-exact row as the same valid match-all seed", () => {
-		const row = simpleSearchInputDef(
-			testUuid("si-1"),
-			"case_name",
-			"Name",
-			"text",
-			"",
-			{ mode: { kind: "phonetic" } },
-		);
-		expect(seedCustomCondition(row, CASE_TYPE)).toEqual(matchAll());
-	});
-
 	it("preserves a parent-case walk in the seeded property ref", () => {
 		// A row bound to a parent property keeps its relation walk, so
 		// the seed reads the property on the case it actually searches —
@@ -216,20 +152,14 @@ describe("canSeedCustomConditionFaithfully", () => {
 		},
 	);
 
-	it.each([
-		{ mode: { kind: "range" } as const, type: "date-range" as const },
-		{
-			mode: { kind: "multi-select-contains", quantifier: "all" } as const,
-			type: "select" as const,
-		},
-	])("reports $mode.kind as requiring confirmation", ({ mode, type }) => {
+	it("reports range as requiring confirmation", () => {
 		const row = simpleSearchInputDef(
-			testUuid(`si-${mode.kind}`),
+			testUuid("si-range-confirmation"),
 			"query",
 			"Query",
-			type,
+			"date-range",
 			"case_name",
-			{ mode },
+			{ mode: { kind: "range" } },
 		);
 		expect(canSeedCustomConditionFaithfully(row)).toBe(false);
 	});
@@ -286,14 +216,6 @@ describe("searchInputDecls", () => {
 		).toBe(true);
 	});
 
-	it("skips rows that have no reference name yet", () => {
-		const named = simpleSearchInputDef(testUuid("si-1"), "a", "A", "text", "");
-		const unnamed = simpleSearchInputDef(testUuid("si-2"), "", "B", "text", "");
-		expect(searchInputDecls([named, unnamed]).map((d) => d.name)).toEqual([
-			"a",
-		]);
-	});
-
 	it("uses the widget's runtime scalar type for every editor and verdict", () => {
 		const date = simpleSearchInputDef(
 			testUuid("date-input"),
@@ -324,43 +246,6 @@ describe("searchInputDecls", () => {
 				data_type: "text",
 			},
 		]);
-	});
-});
-
-describe("legacy standard-property resolution", () => {
-	it("uses canonical date_opened metadata instead of a stale date-opened declaration", () => {
-		const caseTypes: CaseType[] = [
-			{
-				name: "patient",
-				properties: [
-					{
-						name: "date-opened",
-						label: proseText("Legacy date opened"),
-						data_type: "text",
-					},
-					{
-						name: "date_opened",
-						label: proseText("Date opened"),
-						data_type: "datetime",
-					},
-				],
-			} as CaseType,
-		];
-		const row = simpleSearchInputDef(
-			testUuid("legacy-date-opened-search"),
-			"opened",
-			"Opened",
-			"date",
-			"date-opened",
-		);
-
-		expect(resolveProperty(caseTypes, row, "patient")).toMatchObject({
-			name: "date_opened",
-			data_type: "datetime",
-		});
-		expect(
-			resolveRows([row], caseTypes, "patient")[0]?.typeCouplingErrors,
-		).toEqual([]);
 	});
 });
 

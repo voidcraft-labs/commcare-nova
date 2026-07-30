@@ -2,8 +2,7 @@
  * `GET /api/apps/{id}` — authoritative builder-snapshot wire contract.
  *
  * The database transaction is covered by the app-state integration suite; this
- * route test pins the projection that rolling browser revisions consume: the
- * new Project/role/edit/cursor fields and the legacy scalar/cursor aliases.
+ * route test pins the one current Project/role/edit/document/cursor projection.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -15,7 +14,10 @@ import {
 	resolveAuthorizedAppSnapshot,
 } from "@/lib/db/appAccess";
 import { applyBlueprintChange } from "@/lib/db/applyBlueprintChange";
-import { MutationBatchIdCollisionError } from "@/lib/db/commitGuard";
+import {
+	BlueprintCommitRejectedError,
+	MutationBatchIdCollisionError,
+} from "@/lib/db/commitGuard";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { GET, PUT } from "../route";
 
@@ -35,9 +37,8 @@ vi.mock("@/lib/db/applyBlueprintChange", () => ({
 }));
 
 const SESSION = { user: { id: "user-1" } };
-const BLUEPRINT = toPersistableDoc(
-	buildDoc({ appName: "Nutrition visits", modules: [] }),
-);
+const DOC = buildDoc({ appName: "Nutrition visits", modules: [] });
+const BLUEPRINT = toPersistableDoc(DOC);
 
 function request(): Request {
 	return new Request("http://localhost/api/apps/app-1");
@@ -99,11 +100,14 @@ beforeEach(() => {
 			updated_at: new Date("2026-07-22T00:00:00Z"),
 		},
 	} as never);
-	vi.mocked(applyBlueprintChange).mockResolvedValue({ seq: 43 });
+	vi.mocked(applyBlueprintChange).mockResolvedValue({
+		seq: 43,
+		committedDoc: DOC,
+	});
 });
 
 describe("GET /api/apps/[id]", () => {
-	it("returns one authorization/document/cursor tuple with rolling aliases", async () => {
+	it("returns exactly one authorization/document/cursor tuple", async () => {
 		const response = await GET(request(), params());
 		const body = await response.json();
 
@@ -121,11 +125,10 @@ describe("GET /api/apps/[id]", () => {
 			canEdit: false,
 			blueprint: BLUEPRINT,
 			baseSeq: 42,
-			app_name: "Nutrition visits",
-			status: "complete",
-			error_type: null,
-			mutation_seq: 42,
 		});
+		expect(Object.keys(body).toSorted()).toEqual(
+			["projectId", "role", "canEdit", "blueprint", "baseSeq"].toSorted(),
+		);
 	});
 
 	it("keeps authorization denial IDOR-opaque", async () => {
@@ -239,6 +242,31 @@ describe("PUT /api/apps/[id]", () => {
 			error: "This save reused a batch id for different content.",
 			type: "mutation_batch_id_collision",
 			retryable: false,
+		});
+	});
+
+	it("returns authoritative rename occupancy as the standard commit conflict", async () => {
+		const message =
+			'Saved parked data now occupies "village" on "patient". Review the rename conflicts and try again.';
+		vi.mocked(applyBlueprintChange).mockRejectedValueOnce(
+			new BlueprintCommitRejectedError(message),
+		);
+		const response = await PUT(
+			new Request("http://localhost/api/apps/app-1", {
+				method: "PUT",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					batchId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+					mutations: [{ kind: "setAppName", name: "Renamed" }],
+				}),
+			}),
+			params(),
+		);
+
+		expect(response.status).toBe(409);
+		expect(await response.json()).toEqual({
+			error: message,
+			type: "commit_rejected",
 		});
 	});
 });

@@ -9,11 +9,10 @@
 //      fixture field of EVERY kind (and repeat mode) it claims —
 //      nested paths (`data_source.ids_query`) and fan-out paths
 //      (`options[].label`, with pairing indices) included.
-//   2. The single-slot reads are TOTAL (they report whatever string is
-//      stored, including the empty string, without applicability
-//      gating) while `expressionSurfaceReads` IS gated by the per-kind
-//      projection — the split the validator's scans and the emitters'
-//      `readFieldString` delegation both rely on.
+//   2. The single-slot reads are TOTAL over the typed AST/template shapes
+//      (including an empty printed expression) without applicability gating,
+//      while `expressionSurfaceReads` IS gated by the per-kind projection.
+//      Neither surface activates a raw string parked in a structured slot.
 //   3. The form-level Connect slots resolve on a schema-valid form.
 
 import { describe, expect, it } from "vitest";
@@ -289,19 +288,26 @@ describe("single-slot reads are total", () => {
 		expect(expressionSource(field, "relevant", EMPTY_DOC)).toBe("");
 	});
 
-	it("reads whatever is stored even when the kind's schema lacks the slot", () => {
-		// Off-schema docs (fixture builders, replay, recovery scripts)
-		// behave exactly like the direct property reads this accessor
-		// replaced: the value is visible to a single-slot read…
+	it("does not activate a raw string parked in an AST-only slot", () => {
 		const field = parseFixture(rawFixture("text"), "text");
 		(field as Record<string, unknown>).calculate = "1 + 1";
-		expect(expressionSource(field, "calculate", EMPTY_DOC)).toBe("1 + 1");
+		expect(expressionSource(field, "calculate", EMPTY_DOC)).toBeUndefined();
 	});
 });
 
 // ── Registry-projection iteration (gated) ─────────────────────────
 
 describe("expressionSurfaceReads", () => {
+	it("does not activate raw strings parked in AST-only or prose slots", () => {
+		const field = parseFixture(rawFixture("text"), "text");
+		const malformed = field as unknown as Record<string, unknown>;
+		malformed.relevant = "1 = 1";
+		malformed.label = "Raw label";
+
+		expect(expressionSurfaceReads(field, "xpath", EMPTY_DOC)).toEqual([]);
+		expect(expressionSurfaceReads(field, "prose", EMPTY_DOC)).toEqual([]);
+	});
+
 	it("walks xpath slots in registry order", () => {
 		const raw = rawFixture("text");
 		for (const path of ["relevant", "validate", "default_value"]) {
@@ -379,29 +385,41 @@ describe("expressionSurfaceReads", () => {
 
 describe("formExpressionSource", () => {
 	it("resolves each Connect xpath slot on a schema-valid form", () => {
-		const form: Form = formSchema.parse({
+		const assessmentForm: Form = formSchema.parse({
 			uuid: crypto.randomUUID(),
-			id: "fixture_form",
-			name: "Fixture",
+			id: "assessment_form",
+			name: "Assessment",
 			type: "followup",
 			connect: {
-				assessment: { user_score: opaqueXPathExpression("#form/score") },
+				assessment: {
+					id: "assessment",
+					user_score: opaqueXPathExpression("#form/score"),
+				},
+			},
+		});
+		const deliverForm: Form = formSchema.parse({
+			uuid: crypto.randomUUID(),
+			id: "deliver_form",
+			name: "Deliver",
+			type: "followup",
+			connect: {
 				deliver_unit: {
+					id: "deliver_unit",
 					name: "Unit",
 					entity_id: opaqueXPathExpression("#form/entity"),
 					entity_name: opaqueXPathExpression("#form/entity_name"),
 				},
 			},
 		});
-		expect(formExpressionSource(form, "assessment_user_score", EMPTY_DOC)).toBe(
-			"#form/score",
-		);
-		expect(formExpressionSource(form, "deliver_entity_id", EMPTY_DOC)).toBe(
-			"#form/entity",
-		);
-		expect(formExpressionSource(form, "deliver_entity_name", EMPTY_DOC)).toBe(
-			"#form/entity_name",
-		);
+		expect(
+			formExpressionSource(assessmentForm, "assessment_user_score", EMPTY_DOC),
+		).toBe("#form/score");
+		expect(
+			formExpressionSource(deliverForm, "deliver_entity_id", EMPTY_DOC),
+		).toBe("#form/entity");
+		expect(
+			formExpressionSource(deliverForm, "deliver_entity_name", EMPTY_DOC),
+		).toBe("#form/entity_name");
 	});
 
 	it("reads undefined when the connect block is absent", () => {
@@ -440,7 +458,7 @@ describe("isScalarFieldExpressionSlotId", () => {
 
 	it("rejects fan-out slots and non-expression keys", () => {
 		expect(isScalarFieldExpressionSlotId("option_label")).toBe(false);
-		expect(isScalarFieldExpressionSlotId("case_property_on")).toBe(false);
+		expect(isScalarFieldExpressionSlotId("caseWrite")).toBe(false);
 		expect(isScalarFieldExpressionSlotId("id")).toBe(false);
 		expect(isScalarFieldExpressionSlotId("options")).toBe(false);
 	});

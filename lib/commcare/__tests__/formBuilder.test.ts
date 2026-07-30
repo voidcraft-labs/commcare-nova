@@ -17,11 +17,12 @@ import {
 	addFieldMutations,
 	updateFormMutations,
 } from "@/lib/agent/blueprintHelpers";
+import { assertAndProjectCaseWriteInventory } from "@/lib/commcare/caseWriteAdmission";
 import { deriveCaseConfig } from "@/lib/commcare/deriveCaseConfig";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
 import type { Field, Form, FormType } from "@/lib/domain";
-import { expressionSource } from "@/lib/domain";
+import { deriveCaseWriteInventory, expressionSource } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 
 // ── Fixture builders ──────────────────────────────────────────────────
@@ -108,7 +109,7 @@ describe("Form Builder Agent Integration — mutation-builder helpers", () => {
 		it("adds a simple text field", () => {
 			const doc0 = makeShellDoc();
 			const field = textField("case_name", "Patient Name", {
-				case_property_on: "case_name",
+				caseWrite: { caseType: "patient", property: "case_name" },
 			} as Partial<Field>);
 			const muts = addFieldMutations(doc0, { parentUuid: FORM, field });
 			const doc1 = apply(doc0, muts);
@@ -118,9 +119,10 @@ describe("Form Builder Agent Integration — mutation-builder helpers", () => {
 			const added = doc1.fields[order[0]];
 			expect(added.id).toBe("case_name");
 			expect(added.kind).toBe("text");
-			expect((added as { case_property_on?: string }).case_property_on).toBe(
-				"case_name",
-			);
+			expect("caseWrite" in added ? added.caseWrite : undefined).toEqual({
+				caseType: "patient",
+				property: "case_name",
+			});
 		});
 
 		it("adds fields in sequence", () => {
@@ -173,7 +175,7 @@ describe("Form Builder Agent Integration — mutation-builder helpers", () => {
 						},
 					],
 				},
-				case_property_on: "gender",
+				caseWrite: { caseType: "patient", property: "gender" },
 			} as Field;
 			const doc1 = apply(
 				doc0,
@@ -208,7 +210,7 @@ describe("Form Builder Agent Integration — mutation-builder helpers", () => {
 				id: "age_group",
 				kind: "hidden",
 				calculate: xpIn(doc, FORM, "if(/data/age < 18, 'child', 'adult')"),
-				case_property_on: "age_group",
+				caseWrite: { caseType: "patient", property: "age_group" },
 			} as Field;
 			doc = apply(
 				doc,
@@ -333,10 +335,10 @@ describe("Form Builder Agent Integration — mutation-builder helpers", () => {
 // ── deriveCaseConfig tests (doc-native helper) ───────────────────────
 //
 // `deriveCaseConfig` walks `doc.fieldOrder[formUuid]` and reads domain
-// field keys (kind, id, case_property_on). The tests feed it the same
+// field keys (kind, id, caseWrite). The tests feed it the same
 // normalized doc shape that the expander + validator use in production.
 
-describe("child case derivation via case_property_on annotations", () => {
+describe("child case derivation via explicit case destinations", () => {
 	const caseTypes = [
 		{
 			name: "patient",
@@ -344,11 +346,12 @@ describe("child case derivation via case_property_on annotations", () => {
 		},
 		{
 			name: "referral",
+			parent_type: "patient",
 			properties: [{ name: "case_name", label: proseText("Referral Name") }],
 		},
 	];
 
-	it("derives a child case from case_property_on annotations", () => {
+	it("derives a child case from caseWrite destinations", () => {
 		const doc = buildDoc({
 			appName: "Test App",
 			modules: [
@@ -362,15 +365,30 @@ describe("child case derivation via case_property_on annotations", () => {
 							fields: [
 								f({
 									kind: "text",
+									id: "patient_name",
+									label: proseText("Patient Name"),
+									caseWrite: {
+										caseType: "patient",
+										property: "case_name",
+									},
+								}),
+								f({
+									kind: "text",
 									id: "case_name",
 									label: proseText("Referral Name"),
-									case_property_on: "referral",
+									caseWrite: {
+										caseType: "referral",
+										property: "case_name",
+									},
 								}),
 								f({
 									kind: "text",
 									id: "referral_reason",
 									label: proseText("Referral Reason"),
-									case_property_on: "referral",
+									caseWrite: {
+										caseType: "referral",
+										property: "referral_reason",
+									},
 								}),
 							],
 						},
@@ -382,11 +400,21 @@ describe("child case derivation via case_property_on annotations", () => {
 
 		const moduleUuid = doc.moduleOrder[0];
 		const formUuid = doc.formOrder[moduleUuid][0];
-		const config = deriveCaseConfig(doc, formUuid, "patient", "registration");
+		const config = deriveCaseConfig(
+			doc,
+			assertAndProjectCaseWriteInventory(
+				deriveCaseWriteInventory(
+					doc,
+					formUuid,
+					{ caseType: "patient" },
+					"registration",
+				),
+			),
+		);
 
-		expect(config.child_cases).toHaveLength(1);
-		expect(config.child_cases?.[0].case_type).toBe("referral");
-		expect(config.child_cases?.[0].case_name_field).toBe("case_name");
+		expect(config.childCases).toHaveLength(1);
+		expect(config.childCases?.[0].caseType).toBe("referral");
+		expect(config.childCases?.[0].caseNames[0]?.property).toBe("case_name");
 	});
 
 	it("separates primary and child case properties", () => {
@@ -405,19 +433,28 @@ describe("child case derivation via case_property_on annotations", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Patient Name"),
-									case_property_on: "patient",
+									caseWrite: {
+										caseType: "patient",
+										property: "case_name",
+									},
 								}),
 								f({
 									kind: "text",
 									id: "case_name",
 									label: proseText("Referral Name"),
-									case_property_on: "referral",
+									caseWrite: {
+										caseType: "referral",
+										property: "case_name",
+									},
 								}),
 								f({
 									kind: "text",
 									id: "referral_reason",
 									label: proseText("Reason"),
-									case_property_on: "referral",
+									caseWrite: {
+										caseType: "referral",
+										property: "referral_reason",
+									},
 								}),
 							],
 						},
@@ -429,13 +466,26 @@ describe("child case derivation via case_property_on annotations", () => {
 
 		const moduleUuid = doc.moduleOrder[0];
 		const formUuid = doc.formOrder[moduleUuid][0];
-		const config = deriveCaseConfig(doc, formUuid, "patient", "registration");
+		const config = deriveCaseConfig(
+			doc,
+			assertAndProjectCaseWriteInventory(
+				deriveCaseWriteInventory(
+					doc,
+					formUuid,
+					{ caseType: "patient" },
+					"registration",
+				),
+			),
+		);
 
-		expect(config.case_name_field).toBe("case_name");
-		expect(config.child_cases).toHaveLength(1);
-		expect(config.child_cases?.[0].case_type).toBe("referral");
-		expect(config.child_cases?.[0].case_properties).toEqual([
-			{ case_property: "referral_reason", question_id: "referral_reason" },
-		]);
+		expect(config.caseNames?.[0]?.property).toBe("case_name");
+		expect(config.childCases).toHaveLength(1);
+		expect(config.childCases?.[0].caseType).toBe("referral");
+		expect(
+			config.childCases?.[0].caseProperties.map((binding) => ({
+				property: binding.property,
+				path: binding.path.toXPath(),
+			})),
+		).toEqual([{ property: "referral_reason", path: "/data/referral_reason" }]);
 	});
 });

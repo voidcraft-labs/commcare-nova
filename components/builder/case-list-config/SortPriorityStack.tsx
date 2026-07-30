@@ -53,12 +53,7 @@ import type {
 	ColumnSort,
 	SortDirection,
 } from "@/lib/domain";
-import {
-	authorableCaseProperties,
-	type CaseListConfig,
-	canonicalCasePropertyName,
-	orderedColumns,
-} from "@/lib/domain";
+import { type CaseListConfig, orderedColumns } from "@/lib/domain";
 import { effectiveDataType } from "@/lib/domain/casePropertyTypes";
 import { checkExpression } from "@/lib/domain/predicate";
 import { useCanEdit } from "@/lib/session/hooks";
@@ -119,29 +114,24 @@ export function CaseOrderingComposer({
 	);
 	const orderChoices = useMemo<readonly SearchableChoice<OrderChoice>[]>(() => {
 		const choices: SearchableChoice<OrderChoice>[] = [];
-		const properties = authorableCaseProperties(caseType?.properties ?? []);
+		const properties = caseType?.properties ?? [];
 		const propertyByName = new Map(
-			properties.map((property) => [
-				canonicalCasePropertyName(property.name),
-				property,
-			]),
+			properties.map((property) => [property.name, property]),
 		);
 		const sortedPropertyNames = new Set(
 			sorted.flatMap((column) =>
-				column.kind === "calculated"
-					? []
-					: [canonicalCasePropertyName(column.field)],
+				column.kind === "calculated" ? [] : [column.field],
 			),
 		);
 		const unsortedByProperty = new Map<string, Column>();
 		for (const column of unsorted) {
 			if (column.kind === "calculated") continue;
-			const name = canonicalCasePropertyName(column.field);
+			const name = column.field;
 			if (!unsortedByProperty.has(name)) unsortedByProperty.set(name, column);
 		}
 
 		for (const property of properties) {
-			const name = canonicalCasePropertyName(property.name);
+			const name = property.name;
 			if (sortedPropertyNames.has(name)) continue;
 			const existing = unsortedByProperty.get(name);
 			choices.push({
@@ -159,10 +149,7 @@ export function CaseOrderingComposer({
 		}
 
 		for (const column of unsorted) {
-			if (
-				column.kind !== "calculated" &&
-				propertyByName.has(canonicalCasePropertyName(column.field))
-			) {
+			if (column.kind !== "calculated" && propertyByName.has(column.field)) {
 				continue;
 			}
 			choices.push({
@@ -755,8 +742,8 @@ function columnDataType(
 		return undefined;
 	}
 	if (!("field" in column)) return undefined;
-	const property = authorableCaseProperties(caseType?.properties ?? []).find(
-		(candidate) => candidate.name === canonicalCasePropertyName(column.field),
+	const property = (caseType?.properties ?? []).find(
+		(candidate) => candidate.name === column.field,
 	);
 	return property === undefined ? undefined : effectiveDataType(property);
 }

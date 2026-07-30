@@ -1,16 +1,13 @@
 /**
- * `nova.create_app` — mint an empty Nova app owned by the authenticated
- * user. Born `complete`: an empty app is at rest and valid (its
- * nameless, moduleless state is a pre-existing finding that only ever
- * shrinks), and every subsequent tool call gates on its own merits —
- * there is no draft window, no finishing step, and status never feeds
- * the gate. Exports gate on FINDINGS: an app whose content passes the
- * boundary review exports; one with findings doesn't, whatever its age.
+ * `nova.create_app` — mint a born-export-ready Nova app owned by the
+ * authenticated user. Every app starts with a real name plus one survey
+ * module, survey form, and text question. There is no empty persisted state,
+ * draft window, or finishing step.
  *
  * Scope: `nova.write`.
  *
- * Returns the new `app_id` so the caller can thread it into subsequent
- * tool calls (`update_app`, `create_module`, etc.).
+ * Returns the committed sequence-1 blueprint and starter UUIDs with the new
+ * `app_id`, so callers continue from exact identity without rediscovery.
  *
  * No ownership check: there's nothing to own yet — the app is being
  * created in this call. Scope gating happens at the route layer via
@@ -22,10 +19,10 @@
  * window (see `lib/mcp/runId.ts`) read the id off the app doc and reuse
  * it, so the whole build groups onto a single event-log run.
  *
- * **No event-log write on success.** `create_app` is atomic: the app
- * row itself is the record of creation (via its `created_at` + `owner`
- * fields), so duplicating that into the event log would add no
- * information.
+ * Genesis does not replay its construction mutations. `createApp` writes the
+ * canonical result as the immutable Project-bearing sequence-one baseline and
+ * app/entity rows, with one attributed `fold-baseline` app change so all later
+ * authored mutations begin after that baseline.
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -43,20 +40,21 @@ import type { ToolContext } from "../types";
  * Register the `create_app` tool on an `McpServer`.
  *
  * The only input is an optional name; the underlying `createApp`
- * helper mints the app id (a `crypto.randomUUID()`) and inserts the apps row.
+ * helper mints the app id (a `crypto.randomUUID()`) and commits canonical
+ * genesis atomically.
  */
 export function registerCreateApp(server: McpServer, ctx: ToolContext): void {
 	server.registerTool(
 		"create_app",
 		{
 			description:
-				"Create an empty Nova app owned by you and return its app_id for subsequent tool calls. Build it up with the other tools — every change is checked as it lands, so the app is always export-ready as far as it goes. Exports (compile_app / upload_app_to_hq) succeed once the content passes the full review.",
+				"Create a Nova app with the canonical export-ready survey starter and return its exact sequence-1 blueprint and starter UUIDs for subsequent tool calls. Every later change is checked as it lands.",
 			inputSchema: {
 				app_name: z
 					.string()
 					.optional()
 					.describe(
-						"Optional initial name. If omitted, the app name starts blank — set it with update_app before exporting.",
+						'Optional initial name. Omitted or whitespace-only names become the real persisted name "Untitled".',
 					),
 			},
 		},
@@ -66,25 +64,27 @@ export function registerCreateApp(server: McpServer, ctx: ToolContext): void {
 			 * for the duration of the sliding inactivity window. */
 			const runId = crypto.randomUUID();
 			try {
-				/* Normalize the optional name: `trim()` collapses surrounding
-				 * whitespace, `|| undefined` maps the empty string (and the
-				 * original omitted case) to undefined so the DB helper's
-				 * `""` default kicks in. Whitespace-only names are treated
-				 * as empty — otherwise the list row would show a blank with
-				 * no visible way to rename. */
-				const appName = args.app_name?.trim() || undefined;
-
 				/* MCP-created apps land in the caller's personal Project. */
 				const projectId = await ensurePersonalProject(ctx.userId);
-				const appId = await createApp(ctx.userId, projectId, runId, {
-					appName,
+				const receipt = await createApp(ctx.userId, projectId, runId, {
+					name: args.app_name,
 					status: "complete",
 				});
 				return {
 					content: [
 						{
 							type: "text",
-							text: JSON.stringify({ stage: "app_created", app_id: appId }),
+							text: JSON.stringify({
+								stage: "app_created",
+								app_id: receipt.appId,
+								base_seq: receipt.baseSeq,
+								blueprint: receipt.blueprint,
+								starter: {
+									module_uuid: receipt.starter.moduleUuid,
+									form_uuid: receipt.starter.formUuid,
+									field_uuid: receipt.starter.fieldUuid,
+								},
+							}),
 						},
 					],
 				};

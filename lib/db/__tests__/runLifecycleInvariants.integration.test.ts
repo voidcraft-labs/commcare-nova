@@ -152,9 +152,8 @@ async function seedApp(
 	over: Parameters<typeof h.seedApp>[0] = {},
 ): Promise<void> {
 	await h.seedApp({ id: appId, owner: OWNER, ...over });
-	const projectId =
-		over.project_id === undefined ? PROJECT_ID : over.project_id;
-	if (projectId !== null) await h.seedProjectMember(MEMBER, projectId);
+	const projectId = over.project_id ?? PROJECT_ID;
+	await h.seedProjectMember(MEMBER, projectId);
 }
 /** The full AppDoc — reservation/run_lock reassembled — for `runLeaseState`. */
 const readApp = (appId: string): Promise<AppDoc | null> => loadApp(appId);

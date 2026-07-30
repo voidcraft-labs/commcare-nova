@@ -86,8 +86,6 @@ export const DATE_DATA_TYPES: ReadonlySet<string> = new Set([
  *   - `Match` text-mode picker filter (fuzzy / phonetic /
  *     starts-with) and the type-checker's match-property rule.
  *   - `concat` / `format-date` author-time applicability gates.
- *   - `unwrap-list` operand seed (CSQL-only operator targeting
- *     a JSON-encoded array stored on a text-shaped property).
  */
 export const TEXT_SHAPED_DATA_TYPES: ReadonlySet<string> = new Set([
 	"text",

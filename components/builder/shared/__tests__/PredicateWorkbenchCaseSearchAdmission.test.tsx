@@ -75,6 +75,19 @@ describe("PredicateWorkbench case-search admission", () => {
 		expect(otherCaseInformation.getAttribute("aria-disabled")).not.toBe("true");
 	});
 
+	it("applies case-search admission when the rule also runs on device", () => {
+		renderWorkbench({ target: "on-device-and-case-search" });
+
+		const otherCaseInformation = openValueSource(
+			screen.getByRole("button", { name: "Value source: A value" }),
+		);
+
+		expect(otherCaseInformation.getAttribute("aria-disabled")).toBe("true");
+		expect(otherCaseInformation.textContent).toContain(
+			"This condition already uses case information",
+		);
+	});
+
 	it("catches a case-information source nested inside a calculation", async () => {
 		renderWorkbench({
 			value: eq(
@@ -95,7 +108,7 @@ describe("PredicateWorkbench case-search admission", () => {
 		);
 	});
 
-	it("keeps an imported unsupported source open so the author can replace it", () => {
+	it("does not re-admit an unsupported current source", () => {
 		renderWorkbench({
 			value: eq(prop("patient", "age"), prop("patient", "score")),
 		});
@@ -111,7 +124,7 @@ describe("PredicateWorkbench case-search admission", () => {
 			name: /^A value/,
 		});
 
-		expect(activeSource.getAttribute("aria-disabled")).not.toBe("true");
+		expect(activeSource.getAttribute("aria-disabled")).toBe("true");
 		expect(replacement.getAttribute("aria-disabled")).not.toBe("true");
 	});
 });

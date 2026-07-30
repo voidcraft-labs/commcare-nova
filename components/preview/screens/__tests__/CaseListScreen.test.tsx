@@ -186,10 +186,11 @@ function makeRow(
 	properties: Record<string, unknown>,
 	calculated: Record<string, unknown> = {},
 ): CaseRowWithCalculated {
+	const { case_name: caseName, ...customProperties } = properties;
 	return {
 		case_id: caseId,
 		case_type: "patient",
-		case_name: (properties.name as string) ?? "Unnamed",
+		case_name: typeof caseName === "string" ? caseName : "Unnamed",
 		app_id: APP_ID,
 		owner_id: "owner-test",
 		status: "open",
@@ -198,7 +199,7 @@ function makeRow(
 		closed_on: null,
 		external_id: null,
 		parent_case_id: null,
-		properties: properties as never,
+		properties: customProperties as never,
 		calculated: calculated as never,
 	} as CaseRowWithCalculated;
 }
@@ -244,8 +245,8 @@ function renderCaseListScreen(opts: {
 	searchButtonLabel?: string;
 	searchButtonDisplayCondition?: Predicate;
 	excludedOwnerIds?: ValueExpression;
-	/** Store the explicit zero-input Search marker, or its internal
-	 * owner-only provenance marker. Omit to exercise legacy/absent config. */
+	/** Store the explicit zero-input Search arm, or its exact internal
+	 * owner-only arm. Omit to exercise the no-Search-action shape. */
 	searchAction?: "enabled" | "disabled";
 	caseProperties?: readonly CaseProperty[];
 	moduleName?: string;
@@ -286,7 +287,7 @@ function renderCaseListScreen(opts: {
 							? [...opts.caseProperties]
 							: [
 									{
-										name: "name",
+										name: "case_name",
 										label: proseText("Name"),
 										data_type: "text",
 									},
@@ -447,11 +448,11 @@ describe("CaseListScreen — heading", () => {
 			constraintSource: "unconstrained",
 			kind: "rows",
 			rows: [
-				makeRow("11111111-1111-1111-1111-111111111111", { name: "Alice" }),
+				makeRow("11111111-1111-1111-1111-111111111111", { case_name: "Alice" }),
 			],
 		});
 		renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			columns: [plainColumn(COL_NAME_UUID, "case_name", "Name")],
 		});
 		await waitFor(() => {
 			expect(
@@ -469,13 +470,19 @@ describe("CaseListScreen — heading", () => {
 			constraintSource: "unconstrained",
 			kind: "rows",
 			rows: [
-				makeRow("11111111-1111-1111-1111-111111111111", { name: "Alice" }),
+				makeRow("11111111-1111-1111-1111-111111111111", { case_name: "Alice" }),
 			],
 		});
 		renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			columns: [plainColumn(COL_NAME_UUID, "case_name", "Name")],
 			searchInputs: [
-				simpleSearchInputDef(SEARCH_NAME_UUID, "name", "Name", "text", "name"),
+				simpleSearchInputDef(
+					SEARCH_NAME_UUID,
+					"name",
+					"Name",
+					"text",
+					"case_name",
+				),
 			],
 		});
 
@@ -504,10 +511,10 @@ describe("CaseListScreen — heading", () => {
 		vi.mocked(loadCasesAction).mockResolvedValue({
 			constraintSource: "unconstrained",
 			kind: "rows",
-			rows: [makeRow(SELECTED_CASE_ID, { name: longCaseName })],
+			rows: [makeRow(SELECTED_CASE_ID, { case_name: longCaseName })],
 		});
 		const { container } = renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			columns: [plainColumn(COL_NAME_UUID, "case_name", "Name")],
 			moduleName: longModuleName,
 			followupFormName: longFormName,
 			secondCaseLoadingForm: true,
@@ -579,7 +586,7 @@ describe("CaseListScreen — heading", () => {
 
 	it("explains when the module's case type is no longer available", () => {
 		renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			columns: [plainColumn(COL_NAME_UUID, "case_name", "Name")],
 			moduleCaseType: "missing_patient_type",
 		});
 
@@ -596,7 +603,7 @@ describe("CaseListScreen — heading", () => {
 
 	it("explains when the current module is no longer available", () => {
 		renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			columns: [plainColumn(COL_NAME_UUID, "case_name", "Name")],
 			omitModule: true,
 		});
 
@@ -625,7 +632,7 @@ describe("CaseListScreen — empty case type", () => {
 			constraintSource: "unconstrained",
 		});
 		renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			columns: [plainColumn(COL_NAME_UUID, "case_name", "Name")],
 		});
 
 		expect(
@@ -653,7 +660,7 @@ describe("CaseListScreen — empty case type", () => {
 			constraintSource: "unconstrained",
 		});
 		renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			columns: [plainColumn(COL_NAME_UUID, "case_name", "Name")],
 		});
 
 		expect(await screen.findByText("No cases yet")).toBeDefined();
@@ -673,8 +680,8 @@ describe("CaseListScreen — empty case type", () => {
 			constraintSource: "authored-rules",
 		});
 		renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
-			filter: eq(prop("patient", "name"), literal("Nobody")),
+			columns: [plainColumn(COL_NAME_UUID, "case_name", "Name")],
+			filter: eq(prop("patient", "case_name"), literal("Nobody")),
 		});
 
 		expect(
@@ -700,8 +707,8 @@ describe("CaseListScreen — empty case type", () => {
 			constraintSource: "authored-rules",
 		});
 		renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
-			filter: eq(prop("patient", "name"), literal("Nobody")),
+			columns: [plainColumn(COL_NAME_UUID, "case_name", "Name")],
+			filter: eq(prop("patient", "case_name"), literal("Nobody")),
 		});
 
 		expect(
@@ -725,7 +732,7 @@ describe("CaseListScreen — empty case type", () => {
 			"name",
 			"Name",
 			"text",
-			"name",
+			"case_name",
 		);
 		vi.mocked(loadCaseCountAction).mockResolvedValue({
 			kind: "count",
@@ -746,9 +753,9 @@ describe("CaseListScreen — empty case type", () => {
 			),
 		);
 		renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			columns: [plainColumn(COL_NAME_UUID, "case_name", "Name")],
 			searchInputs: [availabilitySearch],
-			filter: eq(prop("patient", "name"), literal("Unavailable")),
+			filter: eq(prop("patient", "case_name"), literal("Unavailable")),
 		});
 
 		expect(
@@ -797,14 +804,14 @@ describe("CaseListScreen — empty case type", () => {
 				constraintSource: "worker-search",
 			});
 			renderCaseListScreen({
-				columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+				columns: [plainColumn(COL_NAME_UUID, "case_name", "Name")],
 				searchInputs: [
 					simpleSearchInputDef(
 						testUuid("00000000-0000-0000-0000-000000000d92"),
 						"name",
 						"Name",
 						"text",
-						"name",
+						"case_name",
 					),
 				],
 			});
@@ -826,8 +833,8 @@ describe("CaseListScreen — empty case type", () => {
 			constraintSource: "authored-rules",
 		});
 		renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
-			filter: eq(prop("patient", "name"), literal("Nobody")),
+			columns: [plainColumn(COL_NAME_UUID, "case_name", "Name")],
+			filter: eq(prop("patient", "case_name"), literal("Nobody")),
 		});
 
 		expect(await screen.findByText("No cases yet")).toBeDefined();
@@ -852,8 +859,8 @@ describe("CaseListScreen — empty case type", () => {
 			constraintSource: "authored-rules",
 		});
 		renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
-			filter: eq(prop("patient", "name"), literal("Nobody")),
+			columns: [plainColumn(COL_NAME_UUID, "case_name", "Name")],
+			filter: eq(prop("patient", "case_name"), literal("Nobody")),
 		});
 
 		const loadingStatus = await screen.findByRole("status");
@@ -878,7 +885,7 @@ describe("CaseListScreen — empty case type", () => {
 					? {
 							constraintSource: "unconstrained",
 							kind: "rows",
-							rows: [makeRow(SELECTED_CASE_ID, { name: "Alice" })],
+							rows: [makeRow(SELECTED_CASE_ID, { case_name: "Alice" })],
 						}
 					: {
 							kind: "error",
@@ -887,7 +894,7 @@ describe("CaseListScreen — empty case type", () => {
 			),
 		);
 		renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			columns: [plainColumn(COL_NAME_UUID, "case_name", "Name")],
 		});
 
 		expect(await screen.findByText("This case list didn’t load")).toBeDefined();
@@ -902,7 +909,7 @@ describe("CaseListScreen — empty case type", () => {
 	it("offers the shared sign-in action when the case session has ended", async () => {
 		vi.mocked(loadCasesAction).mockResolvedValue({ kind: "unauthenticated" });
 		renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			columns: [plainColumn(COL_NAME_UUID, "case_name", "Name")],
 		});
 
 		expect(await screen.findByText("You’re signed out")).toBeDefined();
@@ -927,8 +934,8 @@ describe("CaseListScreen — empty case type", () => {
 			),
 		);
 		renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
-			filter: eq(prop("patient", "name"), literal("Nobody")),
+			columns: [plainColumn(COL_NAME_UUID, "case_name", "Name")],
+			filter: eq(prop("patient", "case_name"), literal("Nobody")),
 		});
 
 		expect(
@@ -958,14 +965,14 @@ describe("CaseListScreen — visibleInList filter", () => {
 			kind: "rows",
 			rows: [
 				makeRow("11111111-1111-1111-1111-111111111111", {
-					name: "Alice",
+					case_name: "Alice",
 					age: 30,
 				}),
 			],
 		});
 		renderCaseListScreen({
 			columns: [
-				plainColumn(COL_NAME_UUID, "name", "Name"),
+				plainColumn(COL_NAME_UUID, "case_name", "Name"),
 				plainColumn(COL_HIDDEN_UUID, "age", "Age", {
 					visibleInList: false,
 				}),
@@ -991,14 +998,14 @@ describe("CaseListScreen — visibleInList filter", () => {
 			kind: "rows",
 			rows: [
 				makeRow("11111111-1111-1111-1111-111111111111", {
-					name: "Alice",
+					case_name: "Alice",
 					age: 30,
 				}),
 			],
 		});
 		renderCaseListScreen({
 			columns: [
-				plainColumn(COL_NAME_UUID, "name", "Name"),
+				plainColumn(COL_NAME_UUID, "case_name", "Name"),
 				plainColumn(COL_AGE_UUID, "age", "Age"),
 			],
 		});
@@ -1070,14 +1077,14 @@ describe("CaseListScreen — per-surface field order", () => {
 			kind: "rows",
 			rows: [
 				makeRow(SELECTED_CASE_ID, {
-					name: "Alice",
+					case_name: "Alice",
 					age: 30,
 				}),
 			],
 		});
 		const { container } = renderCaseListScreen({
 			columns: [
-				plainColumn(COL_NAME_UUID, "name", "Name", {}),
+				plainColumn(COL_NAME_UUID, "case_name", "Name", {}),
 				plainColumn(COL_AGE_UUID, "age", "Age", {}),
 			],
 			// Results shows Age above Name; Details keeps the written order.
@@ -1118,14 +1125,14 @@ describe("CaseListScreen — calculated columns", () => {
 			rows: [
 				makeRow(
 					"11111111-1111-1111-1111-111111111111",
-					{ name: "Alice", age: 30 },
+					{ case_name: "Alice", age: 30 },
 					{ [COL_CALC_UUID]: "Alice — overdue" },
 				),
 			],
 		});
 		renderCaseListScreen({
 			columns: [
-				plainColumn(COL_NAME_UUID, "name", "Name"),
+				plainColumn(COL_NAME_UUID, "case_name", "Name"),
 				calculatedColumn(COL_CALC_UUID, "Status", term(literal(""))),
 			],
 		});
@@ -1146,12 +1153,16 @@ describe("CaseListScreen — calculated columns", () => {
 			constraintSource: "unconstrained",
 			kind: "rows",
 			rows: [
-				makeRow("11111111-1111-1111-1111-111111111111", { name: "Alice" }, {}),
+				makeRow(
+					"11111111-1111-1111-1111-111111111111",
+					{ case_name: "Alice" },
+					{},
+				),
 			],
 		});
 		renderCaseListScreen({
 			columns: [
-				plainColumn(COL_NAME_UUID, "name", "Name"),
+				plainColumn(COL_NAME_UUID, "case_name", "Name"),
 				calculatedColumn(COL_CALC_UUID, "Status", term(literal(""))),
 			],
 		});
@@ -1179,14 +1190,14 @@ describe("CaseListScreen — responsive results", () => {
 			rows: [
 				makeRow(
 					SELECTED_CASE_ID,
-					{ name: "Alice", age: 30 },
+					{ case_name: "Alice", age: 30 },
 					{ [COL_CALC_UUID]: "Needs follow-up" },
 				),
 			],
 		});
 		const { container } = renderCaseListScreen({
 			columns: [
-				plainColumn(COL_NAME_UUID, "name", "Name"),
+				plainColumn(COL_NAME_UUID, "case_name", "Name"),
 				plainColumn(COL_AGE_UUID, "age", "Age"),
 				calculatedColumn(COL_CALC_UUID, "Status", term(literal(""))),
 			],
@@ -1274,7 +1285,7 @@ describe("CaseListScreen — responsive results", () => {
 describe("CaseListScreen — bounded result pages", () => {
 	const population = Array.from({ length: 55 }, (_, index) =>
 		makeRow(`case-${String(index + 1).padStart(3, "0")}`, {
-			name: `Case ${index + 1}`,
+			case_name: `Case ${index + 1}`,
 		}),
 	);
 	function mockPagedPopulation() {
@@ -1295,7 +1306,7 @@ describe("CaseListScreen — bounded result pages", () => {
 	it("renders one bounded page, keeps the quick filter page-local, and moves focus on paging", async () => {
 		mockPagedPopulation();
 		renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			columns: [plainColumn(COL_NAME_UUID, "case_name", "Name")],
 		});
 
 		const cases = await screen.findByRole("list", { name: "Cases" });
@@ -1354,14 +1365,14 @@ describe("CaseListScreen — bounded result pages", () => {
 	it("uses a singular case count when filtering a one-row page", async () => {
 		vi.mocked(loadCasesAction).mockResolvedValueOnce({
 			kind: "rows",
-			rows: [makeRow("case-001", { name: "Case 1" })],
+			rows: [makeRow("case-001", { case_name: "Case 1" })],
 			totalCount: 1,
 			pageOffset: 0,
 			pageSize: 50,
 			constraintSource: "unconstrained",
 		});
 		renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			columns: [plainColumn(COL_NAME_UUID, "case_name", "Name")],
 		});
 
 		await screen.findByText("Case 1");
@@ -1377,7 +1388,7 @@ describe("CaseListScreen — bounded result pages", () => {
 		const originalOwnerRule = term(literal("owner-a"));
 		const nextOwnerRule = term(literal("owner-b"));
 		renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			columns: [plainColumn(COL_NAME_UUID, "case_name", "Name")],
 			excludedOwnerIds: originalOwnerRule,
 		});
 
@@ -1416,7 +1427,7 @@ describe("CaseListScreen — bounded result pages", () => {
 	it("returns to page one after destructive case-data replacement", async () => {
 		mockPagedPopulation();
 		renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			columns: [plainColumn(COL_NAME_UUID, "case_name", "Name")],
 		});
 
 		await screen.findByText("Case 1");
@@ -1456,7 +1467,7 @@ describe("CaseListScreen — bounded result pages", () => {
 			});
 		});
 		renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			columns: [plainColumn(COL_NAME_UUID, "case_name", "Name")],
 		});
 
 		await screen.findByText("Case 1");
@@ -1487,17 +1498,17 @@ const SEARCH_NAME_UUID = testUuid("00000000-0000-0000-0000-000000000d01");
 /** Two-row population used across the typing / clearing tests.
  *  `loadCasesAction`'s mock implementation reads the inbound
  *  `inputValues` map and narrows the return set to rows whose
- *  `name` property matches — the screen's contract is that a
+ *  canonical case name matches — the screen's contract is that a
  *  fresh-reference `inputValues` triggers the action's re-fire,
  *  and the test asserts the resulting render reflects the new
  *  row set. The mock stands in for the runtime-bindings predicate
  *  + Postgres execution path; the wire-side filtering is exercised
  *  by the runtime-bindings unit tests. */
 const ALICE_ROW = makeRow("11111111-1111-1111-1111-111111111111", {
-	name: "Alice",
+	case_name: "Alice",
 });
 const BOB_ROW = makeRow("22222222-2222-2222-2222-222222222222", {
-	name: "Bob",
+	case_name: "Bob",
 });
 
 /** Mock implementation for `loadCasesAction` that filters the
@@ -1521,9 +1532,7 @@ function filterByNameInputValue(
 			constraintSource: "unconstrained",
 		});
 	}
-	const matched = [ALICE_ROW, BOB_ROW].filter(
-		(row) => (row.properties as Record<string, unknown>).name === typed,
-	);
+	const matched = [ALICE_ROW, BOB_ROW].filter((row) => row.case_name === typed);
 	if (matched.length === 0) {
 		return Promise.resolve({
 			kind: "empty",
@@ -1544,13 +1553,13 @@ describe("CaseListScreen — search-input form", () => {
 		"name",
 		"Name",
 		"text",
-		"name",
+		"case_name",
 	);
 
 	it("announces a positive settled result after Search", async () => {
 		vi.mocked(loadCasesAction).mockImplementation(filterByNameInputValue);
 		renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			columns: [plainColumn(COL_NAME_UUID, "case_name", "Name")],
 			searchInputs: [searchInput],
 		});
 
@@ -1573,7 +1582,7 @@ describe("CaseListScreen — search-input form", () => {
 			repair: "inputs",
 		});
 		renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			columns: [plainColumn(COL_NAME_UUID, "case_name", "Name")],
 			searchInputs: [searchInput],
 		});
 
@@ -1601,7 +1610,7 @@ describe("CaseListScreen — search-input form", () => {
 			repair: "settings",
 		});
 		renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			columns: [plainColumn(COL_NAME_UUID, "case_name", "Name")],
 			searchInputs: [searchInput],
 		});
 
@@ -1626,7 +1635,7 @@ describe("CaseListScreen — search-input form", () => {
 			repair: "settings",
 		});
 		const { container } = renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			columns: [plainColumn(COL_NAME_UUID, "case_name", "Name")],
 			searchInputs: [],
 			searchScreenTitle: "Search",
 		});
@@ -1649,7 +1658,7 @@ describe("CaseListScreen — search-input form", () => {
 			rows: [ALICE_ROW],
 		});
 		const { container } = renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			columns: [plainColumn(COL_NAME_UUID, "case_name", "Name")],
 			searchInputs: [searchInput],
 			searchScreenTitle:
 				"Find clients who need a follow-up visit in this community",
@@ -1681,7 +1690,7 @@ describe("CaseListScreen — search-input form", () => {
 			rows: [ALICE_ROW],
 		});
 		renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			columns: [plainColumn(COL_NAME_UUID, "case_name", "Name")],
 			searchInputs: [searchInput],
 			searchButtonDisplayCondition: {
 				kind: "not",
@@ -1711,7 +1720,7 @@ describe("CaseListScreen — search-input form", () => {
 		});
 		expect(() =>
 			renderCaseListScreen({
-				columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+				columns: [plainColumn(COL_NAME_UUID, "case_name", "Name")],
 				searchInputs: [searchInput],
 				searchButtonDisplayCondition: eq(
 					dateAdd(today(), "months", term(literal(1))),
@@ -1724,7 +1733,7 @@ describe("CaseListScreen — search-input form", () => {
 	it("keeps the pane's sole submit available while a relevant Search draft changes", async () => {
 		vi.mocked(loadCasesAction).mockImplementation(filterByNameInputValue);
 		renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			columns: [plainColumn(COL_NAME_UUID, "case_name", "Name")],
 			searchInputs: [searchInput],
 			searchButtonDisplayCondition: eq(
 				sessionContext("userid"),
@@ -1755,7 +1764,7 @@ describe("CaseListScreen — search-input form", () => {
 			rows: [ALICE_ROW],
 		});
 		renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			columns: [plainColumn(COL_NAME_UUID, "case_name", "Name")],
 			searchInputs: [searchInput],
 			searchButtonDisplayCondition: eq(
 				sessionContext("userid"),
@@ -1774,7 +1783,7 @@ describe("CaseListScreen — search-input form", () => {
 			rows: [ALICE_ROW],
 		});
 		renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			columns: [plainColumn(COL_NAME_UUID, "case_name", "Name")],
 			searchInputs: [searchInput],
 			searchButtonDisplayCondition: eq(
 				sessionContext("userid"),
@@ -1791,7 +1800,7 @@ describe("CaseListScreen — search-input form", () => {
 	it("suspends and restores a retained submission with the action's relevance", async () => {
 		vi.mocked(loadCasesAction).mockImplementation(filterByNameInputValue);
 		renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			columns: [plainColumn(COL_NAME_UUID, "case_name", "Name")],
 			searchInputs: [searchInput],
 			searchButtonDisplayCondition: { kind: "match-all" },
 		});
@@ -1861,9 +1870,15 @@ describe("CaseListScreen — search-input form", () => {
 			rows: [ALICE_ROW],
 		});
 		const { container } = renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			columns: [plainColumn(COL_NAME_UUID, "case_name", "Name")],
 			searchInputs: [
-				simpleSearchInputDef(SEARCH_NAME_UUID, "name", "Name", "text", "name"),
+				simpleSearchInputDef(
+					SEARCH_NAME_UUID,
+					"name",
+					"Name",
+					"text",
+					"case_name",
+				),
 			],
 			searchButtonLabel: "Find patients",
 		});
@@ -1898,12 +1913,12 @@ describe("CaseListScreen — search-input form", () => {
 			"name",
 			"Name",
 			"text",
-			"name",
+			"case_name",
 			{ default: term(literal("Alice")) },
 		);
 
 		renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			columns: [plainColumn(COL_NAME_UUID, "case_name", "Name")],
 			searchInputs: [literalSeed, sessionSeed],
 		});
 
@@ -1938,7 +1953,7 @@ describe("CaseListScreen — search-input form", () => {
 		});
 		const excludedOwnerIds = term(sessionContext("userid"));
 		renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			columns: [plainColumn(COL_NAME_UUID, "case_name", "Name")],
 			searchInputs: [searchInput],
 			excludedOwnerIds,
 		});
@@ -1975,7 +1990,7 @@ describe("CaseListScreen — search-input form", () => {
 			),
 		);
 		renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			columns: [plainColumn(COL_NAME_UUID, "case_name", "Name")],
 			searchInputs: [searchInput],
 			excludedOwnerIds,
 		});
@@ -1997,7 +2012,7 @@ describe("CaseListScreen — search-input form", () => {
 			constraintSource: "unconstrained",
 		});
 		renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			columns: [plainColumn(COL_NAME_UUID, "case_name", "Name")],
 			searchInputs: [searchInput],
 		});
 
@@ -2025,7 +2040,7 @@ describe("CaseListScreen — search-input form", () => {
 			),
 		);
 		renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			columns: [plainColumn(COL_NAME_UUID, "case_name", "Name")],
 			searchInputs: [searchInput],
 			excludedOwnerIds,
 		});
@@ -2041,9 +2056,9 @@ describe("CaseListScreen — search-input form", () => {
 			rows: [ALICE_ROW],
 		});
 		renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			columns: [plainColumn(COL_NAME_UUID, "case_name", "Name")],
 			searchInputs: [searchInput],
-			filter: eq(prop("patient", "name"), literal("Alice")),
+			filter: eq(prop("patient", "case_name"), literal("Alice")),
 		});
 
 		await screen.findByText("Alice");
@@ -2079,9 +2094,9 @@ describe("CaseListScreen — search-input form", () => {
 		});
 		const excludedOwnerIds = term(sessionContext("userid"));
 		renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			columns: [plainColumn(COL_NAME_UUID, "case_name", "Name")],
 			searchInputs: [],
-			filter: eq(prop("patient", "name"), literal("Alice")),
+			filter: eq(prop("patient", "case_name"), literal("Alice")),
 			excludedOwnerIds,
 		});
 
@@ -2099,7 +2114,7 @@ describe("CaseListScreen — search-input form", () => {
 		});
 		const excludedOwnerIds = term(sessionContext("userid"));
 		renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			columns: [plainColumn(COL_NAME_UUID, "case_name", "Name")],
 			searchInputs: [],
 			excludedOwnerIds,
 			searchAction: "disabled",
@@ -2122,7 +2137,7 @@ describe("CaseListScreen — search-input form", () => {
 		});
 		const excludedOwnerIds = term(sessionContext("userid"));
 		renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			columns: [plainColumn(COL_NAME_UUID, "case_name", "Name")],
 			searchInputs: [searchInput],
 			excludedOwnerIds,
 		});
@@ -2168,9 +2183,15 @@ describe("CaseListScreen — search-input form", () => {
 		vi.mocked(loadCasesAction).mockImplementation(filterByNameInputValue);
 
 		renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			columns: [plainColumn(COL_NAME_UUID, "case_name", "Name")],
 			searchInputs: [
-				simpleSearchInputDef(SEARCH_NAME_UUID, "name", "Name", "text", "name"),
+				simpleSearchInputDef(
+					SEARCH_NAME_UUID,
+					"name",
+					"Name",
+					"text",
+					"case_name",
+				),
 			],
 		});
 
@@ -2210,7 +2231,7 @@ describe("CaseListScreen — search-input form", () => {
 					}),
 		);
 		const { container } = renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			columns: [plainColumn(COL_NAME_UUID, "case_name", "Name")],
 			searchInputs: [searchInput],
 		});
 
@@ -2249,7 +2270,7 @@ describe("CaseListScreen — search-input form", () => {
 	it("keeps zero-result guidance worker-facing and exposes no authoring fixes", async () => {
 		vi.mocked(loadCasesAction).mockImplementation(filterByNameInputValue);
 		renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			columns: [plainColumn(COL_NAME_UUID, "case_name", "Name")],
 			searchInputs: [searchInput],
 		});
 
@@ -2281,9 +2302,15 @@ describe("CaseListScreen — search-input form", () => {
 		vi.mocked(loadCasesAction).mockImplementation(filterByNameInputValue);
 
 		renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			columns: [plainColumn(COL_NAME_UUID, "case_name", "Name")],
 			searchInputs: [
-				simpleSearchInputDef(SEARCH_NAME_UUID, "name", "Name", "text", "name"),
+				simpleSearchInputDef(
+					SEARCH_NAME_UUID,
+					"name",
+					"Name",
+					"text",
+					"case_name",
+				),
 			],
 		});
 
@@ -2324,7 +2351,7 @@ describe("CaseListScreen — search-input form", () => {
 			rows: [ALICE_ROW],
 		});
 		const { container } = renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			columns: [plainColumn(COL_NAME_UUID, "case_name", "Name")],
 			searchInputs: [],
 		});
 
@@ -2344,7 +2371,7 @@ describe("CaseListScreen — search-input form", () => {
 			rows: [ALICE_ROW],
 		});
 		const { container } = renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			columns: [plainColumn(COL_NAME_UUID, "case_name", "Name")],
 			searchInputs: [],
 			searchAction: "enabled",
 		});
@@ -2379,10 +2406,10 @@ describe("CaseListScreen — search-input form", () => {
 			rows: [ALICE_ROW],
 		});
 		const { container } = renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			columns: [plainColumn(COL_NAME_UUID, "case_name", "Name")],
 			searchInputs: [],
 			searchAction: "enabled",
-			filter: eq(prop("patient", "name"), literal("Alice")),
+			filter: eq(prop("patient", "case_name"), literal("Alice")),
 		});
 
 		await screen.findByText("Alice");
@@ -2403,10 +2430,10 @@ describe("CaseListScreen — search-input form", () => {
 			rows: [ALICE_ROW],
 		});
 		const { container } = renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			columns: [plainColumn(COL_NAME_UUID, "case_name", "Name")],
 			searchInputs: [],
 			searchAction: "enabled",
-			filter: eq(prop("patient", "name"), literal("Alice")),
+			filter: eq(prop("patient", "case_name"), literal("Alice")),
 			searchButtonDisplayCondition: eq(
 				sessionContext("userid"),
 				literal("another-worker"),
@@ -2426,9 +2453,9 @@ describe("CaseListScreen — search-input form", () => {
 			rows: [ALICE_ROW],
 		});
 		const { container } = renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			columns: [plainColumn(COL_NAME_UUID, "case_name", "Name")],
 			searchInputs: [],
-			filter: eq(prop("patient", "name"), literal("Alice")),
+			filter: eq(prop("patient", "case_name"), literal("Alice")),
 		});
 
 		await screen.findByText("Alice");
@@ -2445,11 +2472,11 @@ describe("CaseListScreen — detail confirm step", () => {
 		vi.mocked(loadCasesAction).mockResolvedValue({
 			constraintSource: "unconstrained",
 			kind: "rows",
-			rows: [makeRow(SELECTED_CASE_ID, { name: "Alice" })],
+			rows: [makeRow(SELECTED_CASE_ID, { case_name: "Alice" })],
 		});
 		const { container } = renderCaseListScreen({
 			columns: [
-				plainColumn(COL_NAME_UUID, "name", "Name", {
+				plainColumn(COL_NAME_UUID, "case_name", "Name", {
 					visibleInDetail: false,
 				}),
 			],
@@ -2471,18 +2498,18 @@ describe("CaseListScreen — detail confirm step", () => {
 			kind: "rows",
 			rows: [
 				makeRow(SELECTED_CASE_ID, {
-					name: "Alice",
+					case_name: "Alice",
 					phone: "+1 202 555 0123",
 				}),
 			],
 		});
 		renderCaseListScreen({
 			caseProperties: [
-				{ name: "name", label: proseText("Name"), data_type: "text" },
+				{ name: "case_name", label: proseText("Name"), data_type: "text" },
 				{ name: "phone", label: proseText("Phone"), data_type: "text" },
 			],
 			columns: [
-				plainColumn(COL_NAME_UUID, "name", "Name"),
+				plainColumn(COL_NAME_UUID, "case_name", "Name"),
 				phoneColumn(COL_PHONE_UUID, "phone", "Phone"),
 			],
 		});
@@ -2536,14 +2563,14 @@ describe("CaseListScreen — detail confirm step", () => {
 			rows: [
 				makeRow(
 					SELECTED_CASE_ID,
-					{ name: "Alice" },
+					{ case_name: "Alice" },
 					{ [COL_CALC_UUID]: { status: "ready" } },
 				),
 			],
 		});
 		renderCaseListScreen({
 			columns: [
-				plainColumn(COL_NAME_UUID, "name", "Name"),
+				plainColumn(COL_NAME_UUID, "case_name", "Name"),
 				calculatedColumn(COL_CALC_UUID, "Status", term(literal(""))),
 			],
 		});
@@ -2585,14 +2612,14 @@ describe("CaseListScreen — detail confirm step", () => {
 			kind: "rows",
 			rows: [
 				makeRow(SELECTED_CASE_ID, {
-					name: "Alice",
+					case_name: "Alice",
 					age: 30,
 				}),
 			],
 		});
 		const { container } = renderCaseListScreen({
 			columns: [
-				plainColumn(COL_NAME_UUID, "name", "Name"),
+				plainColumn(COL_NAME_UUID, "case_name", "Name"),
 				plainColumn(COL_AGE_UUID, "age", "Age"),
 			],
 		});
@@ -2677,13 +2704,13 @@ describe("CaseListScreen — detail confirm step", () => {
 		vi.mocked(loadCaseDataAction).mockResolvedValue({
 			kind: "row",
 			row: {
-				...makeRow(SELECTED_CASE_ID, { name: "Deep-link Alice", age: 31 }),
+				...makeRow(SELECTED_CASE_ID, { case_name: "Deep-link Alice", age: 31 }),
 			},
 			ancestors: [],
 		});
 		renderCaseListScreen({
 			columns: [
-				plainColumn(COL_NAME_UUID, "name", "Name"),
+				plainColumn(COL_NAME_UUID, "case_name", "Name"),
 				plainColumn(COL_AGE_UUID, "age", "Age"),
 			],
 		});
@@ -2714,7 +2741,7 @@ describe("CaseListScreen — detail confirm step", () => {
 			kind: "rows",
 			rows: [
 				makeRow("22222222-2222-2222-2222-222222222222", {
-					name: "Another page row",
+					case_name: "Another page row",
 				}),
 			],
 			totalCount: 75,
@@ -2728,7 +2755,7 @@ describe("CaseListScreen — detail confirm step", () => {
 				kind: "row",
 				row: makeRow(
 					SELECTED_CASE_ID,
-					{ name: "Deep-link Alice" },
+					{ case_name: "Deep-link Alice" },
 					{
 						[COL_CALC_UUID]:
 							identityReadCount === 1 ? "Ready for review" : "Review complete",
@@ -2744,7 +2771,7 @@ describe("CaseListScreen — detail confirm step", () => {
 			{ visibleInList: false, visibleInDetail: true },
 		);
 		renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name"), calculated],
+			columns: [plainColumn(COL_NAME_UUID, "case_name", "Name"), calculated],
 		});
 
 		expect(await screen.findByText("Ready for review")).toBeDefined();
@@ -2809,7 +2836,7 @@ describe("CaseListScreen — detail confirm step", () => {
 				}),
 		);
 		renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			columns: [plainColumn(COL_NAME_UUID, "case_name", "Name")],
 		});
 
 		const loadingBack = screen.getByRole("button", {
@@ -2820,7 +2847,7 @@ describe("CaseListScreen — detail confirm step", () => {
 		act(() =>
 			resolveCase?.({
 				kind: "row",
-				row: makeRow(SELECTED_CASE_ID, { name: "Alice" }),
+				row: makeRow(SELECTED_CASE_ID, { case_name: "Alice" }),
 				ancestors: [],
 			}),
 		);
@@ -2847,11 +2874,11 @@ describe("CaseListScreen — detail confirm step", () => {
 			})
 			.mockResolvedValueOnce({
 				kind: "row",
-				row: makeRow(SELECTED_CASE_ID, { name: "Alice" }),
+				row: makeRow(SELECTED_CASE_ID, { case_name: "Alice" }),
 				ancestors: [],
 			});
 		renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			columns: [plainColumn(COL_NAME_UUID, "case_name", "Name")],
 		});
 
 		expect(
@@ -2890,7 +2917,7 @@ describe("CaseListScreen — detail confirm step", () => {
 			message: "private decoder detail",
 		});
 		renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			columns: [plainColumn(COL_NAME_UUID, "case_name", "Name")],
 		});
 
 		const firstRetry = await screen.findByRole("button", { name: "Try again" });
@@ -2906,11 +2933,11 @@ describe("CaseListScreen — detail confirm step", () => {
 		vi.mocked(loadCasesAction).mockResolvedValue({
 			constraintSource: "unconstrained",
 			kind: "rows",
-			rows: [makeRow(SELECTED_CASE_ID, { name: "Alice", age: 31 })],
+			rows: [makeRow(SELECTED_CASE_ID, { case_name: "Alice", age: 31 })],
 		});
 		const view = renderCaseListScreen({
 			columns: [
-				plainColumn(COL_NAME_UUID, "name", "Name"),
+				plainColumn(COL_NAME_UUID, "case_name", "Name"),
 				plainColumn(COL_AGE_UUID, "age", "Age"),
 			],
 		});
@@ -2952,11 +2979,11 @@ describe("CaseListScreen — detail confirm step", () => {
 		vi.mocked(loadCasesAction).mockResolvedValue({
 			constraintSource: "unconstrained",
 			kind: "rows",
-			rows: [makeRow(SELECTED_CASE_ID, { name: "Alice" })],
+			rows: [makeRow(SELECTED_CASE_ID, { case_name: "Alice" })],
 		});
 		renderCaseListScreen({
 			columns: [
-				plainColumn(COL_NAME_UUID, "name", "Name", {
+				plainColumn(COL_NAME_UUID, "case_name", "Name", {
 					visibleInDetail: false,
 				}),
 			],
@@ -2989,11 +3016,11 @@ describe("CaseListScreen — post-selection form menu", () => {
 		vi.mocked(loadCasesAction).mockResolvedValue({
 			constraintSource: "unconstrained",
 			kind: "rows",
-			rows: [makeRow(SELECTED_CASE_ID, { name: "Alice", age: 30 })],
+			rows: [makeRow(SELECTED_CASE_ID, { case_name: "Alice", age: 30 })],
 		});
 		renderCaseListScreen({
 			columns: [
-				plainColumn(COL_NAME_UUID, "name", "Name"),
+				plainColumn(COL_NAME_UUID, "case_name", "Name"),
 				plainColumn(COL_AGE_UUID, "age", "Age"),
 			],
 			secondCaseLoadingForm: true,
@@ -3044,11 +3071,13 @@ describe("CaseListScreen — post-selection form menu", () => {
 		vi.mocked(loadCasesAction).mockResolvedValue({
 			constraintSource: "unconstrained",
 			kind: "rows",
-			rows: [makeRow(SELECTED_CASE_ID, { name: "Alice" })],
+			rows: [makeRow(SELECTED_CASE_ID, { case_name: "Alice" })],
 		});
 		renderCaseListScreen({
 			columns: [
-				plainColumn(COL_NAME_UUID, "name", "Name", { visibleInDetail: false }),
+				plainColumn(COL_NAME_UUID, "case_name", "Name", {
+					visibleInDetail: false,
+				}),
 			],
 		});
 		await waitFor(() => {

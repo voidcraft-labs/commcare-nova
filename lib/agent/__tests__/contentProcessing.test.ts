@@ -11,14 +11,16 @@ import {
 	applyDefaults,
 	flatFieldToField,
 	type PreparedFlatField,
+	prepareToolOptionsSource,
 	stripEmpty,
 } from "../contentProcessing";
+import { projectedOptionsSourceSchema } from "../toolSchemaGenerator";
 
 // Fixture: case types model the CommCare case data layer, so their
 // property metadata uses CommCare-flavored `validation` / `validation_msg`.
 // `applyDefaults` is the one place in the agent where the case-type
 // vocabulary meets the field vocabulary: the output field uses domain
-// names (`validate`, `kind`, `case_property_on`).
+// names (`validate`, `kind`, `caseWrite`).
 const testCaseType: CaseType = {
 	name: "patient",
 	properties: [
@@ -49,10 +51,51 @@ const testCaseType: CaseType = {
 	],
 };
 
+describe("prepareToolOptionsSource", () => {
+	it("maps the machine option projection once, preserving declared identity and source order", () => {
+		const preserved = testUuid("prepared-option-preserved");
+		const result = prepareToolOptionsSource({
+			kind: "inline",
+			options: [
+				{
+					optionUuid: preserved,
+					value: "yes",
+					label: proseText("Yes"),
+				},
+				{ value: "no", label: proseText("No") },
+			],
+		});
+		expect(result.kind).toBe("inline");
+		if (result.kind !== "inline") throw new Error("expected inline source");
+		expect(result.options.map((option) => option.value)).toEqual(["yes", "no"]);
+		expect(result.options[0]?.uuid).toBe(preserved);
+		expect(result.options[1]?.uuid).toMatch(
+			/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+		);
+		expect(result.options.every((option) => !("optionUuid" in option))).toBe(
+			true,
+		);
+	});
+
+	it("passes the canonical lookup arm through without aliases or remapping", () => {
+		const source = projectedOptionsSourceSchema.parse({
+			kind: "lookup",
+			tableId: "018f0000-0000-7000-8000-000000000001",
+			valueColumnId: "018f0000-0000-7000-8000-000000000002",
+			labelColumnId: "018f0000-0000-7000-8000-000000000003",
+		});
+		expect(prepareToolOptionsSource(source)).toBe(source);
+	});
+});
+
 describe("applyDefaults", () => {
 	it("fills in label from case type for sparse field", () => {
 		const result = applyDefaults(
-			{ id: "case_name", kind: "text", case_property_on: "patient" },
+			{
+				id: "full_name",
+				kind: "text",
+				caseWrite: { caseType: "patient", property: "case_name" },
+			},
 			[testCaseType],
 		);
 		expect(result.label && fallbackProseProjection(result.label)).toBe(
@@ -60,15 +103,18 @@ describe("applyDefaults", () => {
 		);
 	});
 
-	it("applies legacy alias metadata to a newly canonical field id", () => {
+	it("applies exact catalog metadata to a case-bound field id", () => {
 		const result = applyDefaults(
-			{ id: "external_id", case_property_on: "patient" },
+			{
+				id: "enrollment_number",
+				caseWrite: { caseType: "patient", property: "external_id" },
+			},
 			[
 				{
 					name: "patient",
 					properties: [
 						{
-							name: "external-id",
+							name: "external_id",
 							label: proseText("Enrollment number"),
 							hint: proseText("Printed on the card"),
 						},
@@ -92,7 +138,7 @@ describe("applyDefaults", () => {
 				id: "case_name",
 				kind: "text",
 				label: proseText("Custom Label"),
-				case_property_on: "patient",
+				caseWrite: { caseType: "patient", property: "case_name" },
 			},
 			[testCaseType],
 		);
@@ -108,7 +154,11 @@ describe("applyDefaults", () => {
 		// into that nested shape — only when the SA didn't provide its
 		// own validate object.
 		const result = applyDefaults(
-			{ id: "age", kind: "int", case_property_on: "patient" },
+			{
+				id: "reported_age",
+				kind: "int",
+				caseWrite: { caseType: "patient", property: "age" },
+			},
 			[testCaseType],
 		);
 		expect(result.required).toEqual(xp("true()"));
@@ -120,7 +170,11 @@ describe("applyDefaults", () => {
 
 	it("fills in options for select properties", () => {
 		const result = applyDefaults(
-			{ id: "gender", kind: "single_select", case_property_on: "patient" },
+			{
+				id: "gender",
+				kind: "single_select",
+				caseWrite: { caseType: "patient", property: "gender" },
+			},
 			[testCaseType],
 		);
 		expect(result.optionsSource?.kind).toBe("inline");
@@ -145,7 +199,11 @@ describe("applyDefaults", () => {
 	it("does NOT seed select-only options/label onto a hidden field", () => {
 		const result = applyDefaults(
 			// A hidden computed field writing to the select-typed `gender`.
-			{ id: "gender", kind: "hidden", case_property_on: "patient" },
+			{
+				id: "gender_code",
+				kind: "hidden",
+				caseWrite: { caseType: "patient", property: "gender" },
+			},
 			[testCaseType],
 		);
 		expect(result.optionsSource).toBeUndefined();
@@ -158,7 +216,11 @@ describe("applyDefaults", () => {
 			// geopoint has no `validate` slot, so the `age` property's
 			// `validation` must not be seeded — but `required`, which geopoint
 			// DOES declare, still is.
-			{ id: "age", kind: "geopoint", case_property_on: "patient" },
+			{
+				id: "location",
+				kind: "geopoint",
+				caseWrite: { caseType: "patient", property: "age" },
+			},
 			[testCaseType],
 		);
 		expect(result.validate).toBeUndefined();
@@ -173,7 +235,7 @@ describe("applyDefaults", () => {
 				id: "case_name",
 				kind: "text",
 				label: proseText(""),
-				case_property_on: "patient",
+				caseWrite: { caseType: "patient", property: "case_name" },
 			},
 			[testCaseType],
 		);
@@ -184,7 +246,11 @@ describe("applyDefaults", () => {
 
 	it("fills in hint from case type", () => {
 		const result = applyDefaults(
-			{ id: "phone", kind: "text", case_property_on: "patient" },
+			{
+				id: "contact_number",
+				kind: "text",
+				caseWrite: { caseType: "patient", property: "phone" },
+			},
 			[testCaseType],
 		);
 		expect(result.hint && fallbackProseProjection(result.hint)).toBe(
@@ -193,13 +259,17 @@ describe("applyDefaults", () => {
 	});
 
 	it("derives kind from case type data_type", () => {
-		const result = applyDefaults({ id: "age", case_property_on: "patient" }, [
-			testCaseType,
-		]);
+		const result = applyDefaults(
+			{
+				id: "reported_age",
+				caseWrite: { caseType: "patient", property: "age" },
+			},
+			[testCaseType],
+		);
 		expect(result.kind).toBe("int");
 	});
 
-	it("returns field unchanged when no case_property_on", () => {
+	it("returns field unchanged when it has no caseWrite destination", () => {
 		const result = applyDefaults(
 			{ id: "notes", kind: "text", label: proseText("Notes") },
 			[testCaseType],
@@ -210,7 +280,11 @@ describe("applyDefaults", () => {
 
 	it("returns field unchanged when case types is null", () => {
 		const result = applyDefaults(
-			{ id: "case_name", kind: "text", case_property_on: "patient" },
+			{
+				id: "full_name",
+				kind: "text",
+				caseWrite: { caseType: "patient", property: "case_name" },
+			},
 			null,
 		);
 		expect(result.label).toBeUndefined();
@@ -218,7 +292,11 @@ describe("applyDefaults", () => {
 
 	it("returns field unchanged when property not found in case type", () => {
 		const result = applyDefaults(
-			{ id: "nonexistent", kind: "text", case_property_on: "patient" },
+			{
+				id: "missing_value",
+				kind: "text",
+				caseWrite: { caseType: "patient", property: "nonexistent" },
+			},
 			[testCaseType],
 		);
 		expect(result.label).toBeUndefined();
@@ -237,13 +315,17 @@ describe("applyDefaults", () => {
 		expect(result.relevant).toEqual(xp(". > 0 && . < 10"));
 	});
 
-	it("looks up the correct case type from array by case_property_on", () => {
+	it("looks up the exact case type and property from caseWrite", () => {
 		const otherCaseType: CaseType = {
 			name: "household",
 			properties: [{ name: "case_name", label: proseText("Household ID") }],
 		};
 		const result = applyDefaults(
-			{ id: "case_name", kind: "text", case_property_on: "household" },
+			{
+				id: "household_name",
+				kind: "text",
+				caseWrite: { caseType: "household", property: "case_name" },
+			},
 			[testCaseType, otherCaseType],
 		);
 		expect(result.label && fallbackProseProjection(result.label)).toBe(
@@ -261,7 +343,11 @@ describe("applyDefaults", () => {
 
 	it("does not seed default_value for a primary case property", () => {
 		const result = applyDefaults(
-			{ id: "age", kind: "int", case_property_on: "patient" },
+			{
+				id: "reported_age",
+				kind: "int",
+				caseWrite: { caseType: "patient", property: "age" },
+			},
 			[testCaseType],
 		);
 		expect(result.default_value).toBeUndefined();
@@ -272,7 +358,7 @@ describe("applyDefaults", () => {
 			{
 				id: "age",
 				kind: "int",
-				case_property_on: "patient",
+				caseWrite: { caseType: "patient", property: "age" },
 				default_value: xp("today()"),
 			},
 			[testCaseType],

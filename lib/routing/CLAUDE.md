@@ -31,7 +31,12 @@ All entity UUIDs are globally unique in the doc store, so a single UUID segment 
 
 `{caseId}` is the one non-UUID segment: case ids are opaque text (`/`, `%`, `:`, spaces are legal), so `serializePath` percent-encodes the segment and `parsePathToLocation` decodes it — keep the pair symmetric. An undecodable segment (a raw `%` from a hand-typed URL) is taken verbatim and at worst reads as a missing case.
 
-The authoring URLs deliberately use the same nouns as the workspace tabs: **Search**, **Results**, and **Details**. The internal `Location.kind` values (`search-config`, `cases`, and `detail-config`) remain stable because they also cross the multiplayer presence wire. The parser still accepts the old `/search-config`, `/cases`, and `/detail-config` authoring URLs; `LocationRecoveryEffect` replaces those aliases with the canonical path after load. `/cases/{caseId}` is separate: it remains the running case-record deep link.
+The authoring URLs deliberately use the same nouns as the workspace tabs:
+**Search**, **Results**, and **Details**. The internal `Location.kind` values
+(`search-config`, `cases`, and `detail-config`) are discriminators, not URL
+tokens. The retired two-segment `/search-config`, `/cases`, and
+`/detail-config` authoring paths neither parse nor redirect. `/cases/{caseId}`
+is separate and remains the running case-record deep link.
 
 ## Browser History API, not Next's router
 

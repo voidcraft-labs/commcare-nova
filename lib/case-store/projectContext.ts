@@ -17,8 +17,8 @@
 //     placement inside its own case transaction; the up-front result is never
 //     write authority.
 //   - `withSchemaContext()` — the actor-free store for schema-only
-//     callers (the cross-store saga, the chat-completion materialize,
-//     the point-of-use heal). It can run `applySchemaChange` /
+//     callers (the guarded rename transaction, chat-completion materialize,
+//     point-of-use heal, and deployment convergence drain). It can run `applySchemaChange` /
 //     `dropSchema` (app-scoped — they cover every member's rows of the
 //     app's case type). Each schema write locks the app `FOR SHARE` and
 //     observes its current Project in the write transaction, but the store

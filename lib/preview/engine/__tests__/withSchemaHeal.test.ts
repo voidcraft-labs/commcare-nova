@@ -34,13 +34,15 @@ import {
 	SchemaNotSyncedError,
 } from "@/lib/case-store/errors";
 
-const { loadAppMock, materializeMock } = vi.hoisted(() => ({
+const { drainPendingMock, loadAppMock, materializeMock } = vi.hoisted(() => ({
+	drainPendingMock: vi.fn(),
 	loadAppMock: vi.fn(),
 	materializeMock: vi.fn(),
 }));
 
 vi.mock("@/lib/db/apps", () => ({ loadApp: loadAppMock }));
 vi.mock("@/lib/db/materializeCaseStoreSchemas", () => ({
+	drainPendingCaseSchemaIndexes: drainPendingMock,
 	materializeCaseStoreSchemas: materializeMock,
 }));
 

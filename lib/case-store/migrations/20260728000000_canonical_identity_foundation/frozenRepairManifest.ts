@@ -6,7 +6,422 @@
  */
 
 export const CANONICAL_IDENTITY_REPAIR_VERSION =
-	"20260728000000-canonical-identity-repair-v1";
+	"20260728000000-canonical-identity-repair-v2";
+
+export interface FrozenThreadAttachmentRepairTarget {
+	readonly messageIndex: number;
+	readonly attachmentIndex: number;
+	readonly assetId: string;
+	readonly attachmentText: string;
+	readonly attachmentDigest: string;
+	readonly assetDisposition: "missing" | "foreign-project";
+	readonly assetProjectId?: string;
+	readonly assetRowDigest?: string;
+}
+
+export interface FrozenThreadAttachmentRepair {
+	readonly appId: string;
+	readonly appProjectId: string;
+	readonly appRowDigest: string;
+	readonly threadId: string;
+	readonly sourceMessagesDigest: string;
+	readonly sourceRowDigest: string;
+	readonly resultMessagesDigest: string;
+	readonly resultRowDigest: string;
+	readonly targets: readonly FrozenThreadAttachmentRepairTarget[];
+}
+
+/**
+ * Exact plaintext selectors and source/result digests captured in one
+ * REPEATABLE READ, READ ONLY production snapshot (`1629016:1629016:`).
+ * The repair keeps every message byte and removes only these thirteen strict
+ * `messages[*].metadata.attachments[*]` objects. The deployment identity must
+ * re-prove these bytes under the final quiescent lock before writing.
+ */
+export const FROZEN_THREAD_ATTACHMENT_REPAIRS = [
+	{
+		appId: "7iWzNHulL12GBrr81hAc",
+		appProjectId: "65b287a5-fece-46a6-9948-6a26519836b7",
+		appRowDigest:
+			"df0168629c4b5e8720ee97dc1c1d6905744f7bce9fb717e18a115a3f118c8450",
+		threadId: "4aa09b2f-5d12-4607-93a2-d3eff57da278",
+		sourceMessagesDigest:
+			"7f622a32306a3afcddfdcdba775f88675b7bc82de7ba1d9836a254445efec036",
+		sourceRowDigest:
+			"168ac0e0f1a558b918f6da69d86484f6eca70dcc2e115eb6db7d35b78d99e755",
+		resultMessagesDigest:
+			"ba71bd5b06e113183b149aad26de68581d3f60811f48a51bb4eed9a8c9c71133",
+		resultRowDigest:
+			"67ffbe2c29a801cd73f203609486ea7794ed92a2c2f6c4141e50dbbc8d8aabfd",
+		targets: [
+			{
+				messageIndex: 0,
+				attachmentIndex: 0,
+				assetId: "ec81f880-12a4-421b-8594-266fda2fc65e",
+				attachmentText: `{"kind": "text", "assetId": "ec81f880-12a4-421b-8594-266fda2fc65e", "filename": "01_email_thread_maternal_newborn_app.md", "mimeType": "text/markdown"}`,
+				attachmentDigest:
+					"97544b4084e6034b6c7f1812ed0dc902bde9b159681dc4ce9059ce5fc9a3eaa7",
+				assetDisposition: "missing",
+			},
+		],
+	},
+	{
+		appId: "AqirdIW4292Lhd8SF5Wb",
+		appProjectId: "65b287a5-fece-46a6-9948-6a26519836b7",
+		appRowDigest:
+			"d761739014fdd729b65e40ad1b8c1c96d1da6e617afc47aebb74666efad833b7",
+		threadId: "9ae72add-b4df-4b73-8172-50f3204ee50d",
+		sourceMessagesDigest:
+			"d4d276365a9fc325f60febba96e0c6926e2cc0733012e7501680dfd08da88a14",
+		sourceRowDigest:
+			"1229c639424a8966a2035447a8b5337e02bdce1cc68bd89a0df321e8d6a6fa6c",
+		resultMessagesDigest:
+			"de38db5d1ff3cc372f760f975cb595e95b82a60dcd1f723f3dadbf7fc6f5c953",
+		resultRowDigest:
+			"7680f097a5e875327ea92f2cdbb103d419b0d34a0ea115ba761d33780841a095",
+		targets: [
+			{
+				messageIndex: 0,
+				attachmentIndex: 0,
+				assetId: "0ca3abb6-d038-4cf5-88f9-4e46f2e436cb",
+				attachmentText: `{"kind": "text", "assetId": "0ca3abb6-d038-4cf5-88f9-4e46f2e436cb", "filename": "01_email_thread_maternal_newborn_app.md", "mimeType": "text/markdown"}`,
+				attachmentDigest:
+					"44b9622f9f66ecb334951224f4c1615677b701e4d49b834f99fe454e3de62ab7",
+				assetDisposition: "missing",
+			},
+		],
+	},
+	{
+		appId: "HA4E0qnWYuRJiDAaZgP6",
+		appProjectId: "65b287a5-fece-46a6-9948-6a26519836b7",
+		appRowDigest:
+			"bbe744fde63c2fc15ee3752bd9e47bf574adce23f58e4dad89305b4eb98d6b66",
+		threadId: "b119bc32-b528-4235-a044-2e610bb17099",
+		sourceMessagesDigest:
+			"b9d6c54f68c751bb49211310f490416fef872800b719e07a73695de12fbd0825",
+		sourceRowDigest:
+			"5df9b3559ec080a54a1af8c80f27463338ecca7581e7c009b3fcf9a184dfb82d",
+		resultMessagesDigest:
+			"ca335653eefe204851c5203be72ed07854099d8fd4df70c96463ffcc1a706e2d",
+		resultRowDigest:
+			"e5890e966e492be762b0bc1aac234bac4159bcc8d0c5754881b9aefab4b89aae",
+		targets: [
+			{
+				messageIndex: 0,
+				attachmentIndex: 0,
+				assetId: "81c6ef03-fdf3-4448-bfcb-155b9f71bb12",
+				attachmentText: `{"kind": "xlsx", "assetId": "81c6ef03-fdf3-4448-bfcb-155b9f71bb12", "filename": "03_current_tracker_mama_na_mtoto.xlsx", "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}`,
+				attachmentDigest:
+					"77587cb24e31c3db5c31c9b368686fe2742ddc7bd07374097dab4177664283d6",
+				assetDisposition: "missing",
+			},
+			{
+				messageIndex: 0,
+				attachmentIndex: 1,
+				assetId: "e9c32489-47e8-4587-bcaf-92df8cb00b81",
+				attachmentText: `{"kind": "docx", "assetId": "e9c32489-47e8-4587-bcaf-92df8cb00b81", "filename": "02_SOW_mama_na_mtoto.docx", "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"}`,
+				attachmentDigest:
+					"748e3867fdcca87105979b5ca6e5cd805b3b9a17efbd24880e21cbb6eb3d6e38",
+				assetDisposition: "missing",
+			},
+			{
+				messageIndex: 0,
+				attachmentIndex: 2,
+				assetId: "3e536425-70c3-440b-a8fb-e9caf7313204",
+				attachmentText: `{"kind": "text", "assetId": "3e536425-70c3-440b-a8fb-e9caf7313204", "filename": "01_email_thread_maternal_newborn_app.md", "mimeType": "text/markdown"}`,
+				attachmentDigest:
+					"30d4170ba1ba6dea9d279437d1012db5222bdfd57677ff8e855cc7fcfb4f21e5",
+				assetDisposition: "missing",
+			},
+		],
+	},
+	{
+		appId: "HDPlKTPFQkyLVTIjRAeU",
+		appProjectId: "LNtlz5zZPLdodMBpEzZk1frlgJGJYeB6",
+		appRowDigest:
+			"e33bc5b1029003969fe92cba7f93ac42ffe7d7e895021e11a4ca1b51e8322543",
+		threadId: "5b28808a-a2bb-4a2b-a3aa-d013741f9f90",
+		sourceMessagesDigest:
+			"471e7e458d0d4e2f4354efeee84a390a3c8bcbf281530e263b68aa431c2dd9f6",
+		sourceRowDigest:
+			"21de26758e74f6a54f8e802fcb9cb1782c44a016a065d4dc55615c9cbb5947b4",
+		resultMessagesDigest:
+			"d8adc8521fd3e5da279b1d61d62a3bc5f83b69b87e0d0294d6edebccf3daffbc",
+		resultRowDigest:
+			"f05e0d679aa61b30bef7d40eebe7ae5b212a5740d15eda6570246079580e36d2",
+		targets: [
+			{
+				messageIndex: 0,
+				attachmentIndex: 0,
+				assetId: "748f9258-219e-4704-b077-98b15fd1c4f5",
+				attachmentText: `{"kind": "xlsx", "title": "Indiana Department of Health MCH System Requirements Extract", "assetId": "748f9258-219e-4704-b077-98b15fd1c4f5", "summary": "This document contains functional and technical specifications for the Maternal and Child Health (MCH) system for the Indiana State Department of Health (IDOH). It delineates requirements for client management, provider tracking, birth defect case management, secure communications, third-party interoperability, and extensive cloud-hosting security compliance.", "filename": "Att_O_-_IDOH_Functional_Technical_Requirements.xlsx", "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}`,
+				attachmentDigest:
+					"fc5ad1b617a9fcd2c7e634039ca34fa11c41ce52ff7a36e67240cbff20481054",
+				assetDisposition: "foreign-project",
+				assetProjectId: "65b287a5-fece-46a6-9948-6a26519836b7",
+				assetRowDigest:
+					"abfc2fd2166a43d44c3719cdb7006a888f7600ad9ed07979b9f498e7d89f1435",
+			},
+			{
+				messageIndex: 0,
+				attachmentIndex: 1,
+				assetId: "04c39627-13e8-40ca-beb6-0cfbab732f2c",
+				attachmentText: `{"kind": "docx", "title": "Maternal and Child Health Data System — Scope of Work", "assetId": "04c39627-13e8-40ca-beb6-0cfbab732f2c", "summary": "This document outlines the scope of work for the design, development, implementation, and maintenance of a cloud-based Maternal and Child Health Data System for the Indiana Department of Health. It details the transition from four legacy applications, the data migration plan, required system integrations, and non-functional requirements including compliance and security standards.", "filename": "(Source of Truth) 24-75386 - Exhibit A - Scope of Work - Not Tracked.docx", "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"}`,
+				attachmentDigest:
+					"4ddc6b5e826249cfde731bbf78522991947078047feade3aca220f3a2e394ad0",
+				assetDisposition: "foreign-project",
+				assetProjectId: "65b287a5-fece-46a6-9948-6a26519836b7",
+				assetRowDigest:
+					"5567985c921cb53a29a66e419810afaf3adee55f4c4dda2ddf13ade1ea1e44d6",
+			},
+		],
+	},
+	{
+		appId: "WVbl8blwAsy6CCjBFaJ0",
+		appProjectId: "65b287a5-fece-46a6-9948-6a26519836b7",
+		appRowDigest:
+			"c24e40d3209ba02a2c9a38574a0a28d3a9f0302658662662f85364dd8ed708a8",
+		threadId: "ca482126-5c41-44ae-8cb2-9f3509ce0c1c",
+		sourceMessagesDigest:
+			"bcdfa6727591f2ddcf87e354ce832fceec1ec88405e3b1cdf5c6a6365f0cf999",
+		sourceRowDigest:
+			"aee8b4281a31af755c604134e8793c83b8b481385e4371e4f566cb55dd40c381",
+		resultMessagesDigest:
+			"360527284e6612aecf12f286ea9318847b2844e7596e8fdbb5031e0640586fd9",
+		resultRowDigest:
+			"9d9d1d1b92e2d71f1492d34de6ad94371dc4337625d979a5ffa9b308106eebf5",
+		targets: [
+			{
+				messageIndex: 0,
+				attachmentIndex: 0,
+				assetId: "266bf631-cb70-40ec-bfdf-3a6e91ebc6b2",
+				attachmentText: `{"kind": "text", "title": "Maternal and Newborn Mobile App Requirements", "assetId": "266bf631-cb70-40ec-bfdf-3a6e91ebc6b2", "summary": "This document outlines the operational and functional requirements for a mobile application designed to replace the paper \\"Mama na Mtoto\\" register used by Community Health Volunteers (CHVs) in Migori, Kenya. It covers client registration, antenatal care tracking, delivery records, newborn follow-up visits, and key donor-mandated M&E indicators.", "filename": "01_email_thread_maternal_newborn_app.md", "mimeType": "text/markdown"}`,
+				attachmentDigest:
+					"1c286596568fae7cfe5f96d8e6985812966a1b30d157c661cac925b2229e82e7",
+				assetDisposition: "missing",
+			},
+			{
+				messageIndex: 0,
+				attachmentIndex: 1,
+				assetId: "fdd3c156-5167-458b-be6b-230582cc6655",
+				attachmentText: `{"kind": "docx", "title": "Mama na Mtoto Community Maternal and Newborn Health Digital Application SOW", "assetId": "fdd3c156-5167-458b-be6b-230582cc6655", "summary": "Establishes the terms for designing and deploying a mobile, offline-capable maternal and newborn care application to replace paper registers used by Community Health Volunteers in Kenya. Defines a longitudinal case structure tracking beneficiaries from registration through postnatal follow-up, automated danger-sign referrals, and donor indicators. Details functional requirements, data dictionary fields, implementation schedules, and platform standards in compliance with the Kenya Data Protection Act.", "filename": "02_SOW_mama_na_mtoto.docx", "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"}`,
+				attachmentDigest:
+					"6610d25e7d566b99873538a83d3e188a0f6b8fad0a3aa2d4b503cb0efd7b1bc7",
+				assetDisposition: "missing",
+			},
+			{
+				messageIndex: 0,
+				attachmentIndex: 2,
+				assetId: "025d867e-f94d-423d-98ec-e7e4f42d15cc",
+				attachmentText: `{"kind": "xlsx", "title": "Mama na Mtoto CHV Register", "assetId": "025d867e-f94d-423d-98ec-e7e4f42d15cc", "summary": "This document specifies the requirements, drop-down taxonomies, calculation rules, and reporting indicators for the Mama na Mtoto CHV Register (v3.2) used in Bonyamatuta Ward.", "filename": "03_current_tracker_mama_na_mtoto.xlsx", "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}`,
+				attachmentDigest:
+					"ff21c495ef58fba74c35ea8a61f04346b412ffecad4b73fc7c0278aa86d01aa6",
+				assetDisposition: "missing",
+			},
+		],
+	},
+	{
+		appId: "oN4eLy7xPF9QW9bY5iBA",
+		appProjectId: "65b287a5-fece-46a6-9948-6a26519836b7",
+		appRowDigest:
+			"a2837798b398b3fe72793b1a822ae6b03a4d0aee821ddd134f0cf849faa20b22",
+		threadId: "741dfbbc-e370-4538-8e9d-94ce58ef9f49",
+		sourceMessagesDigest:
+			"4d970ecae0743c0637a44c301f7cb0013c650565d306bceb5fe6d77e58282d70",
+		sourceRowDigest:
+			"4cd5a02a18e82c69da8398bc44b65ef6f23d227cc1e0a6f991fd5e3c94722811",
+		resultMessagesDigest:
+			"2e1e82dc67a28990c8f1b7e949dace3f9750709c789083fa8516e4519c0029a9",
+		resultRowDigest:
+			"11ebd961d201f176099e331833709d2c8416d4110540828867811588d06d0935",
+		targets: [
+			{
+				messageIndex: 0,
+				attachmentIndex: 0,
+				assetId: "1fb10514-fb3c-4745-bd06-67bb4db375b3",
+				attachmentText: `{"kind": "image", "assetId": "1fb10514-fb3c-4745-bd06-67bb4db375b3", "filename": "06_workshop_whiteboard_growth_monitoring.png", "mimeType": "image/png"}`,
+				attachmentDigest:
+					"f6b5427d72f05e54eae37d899051d36a7e6f97dbe7e6e843e9ca9a7be66216bb",
+				assetDisposition: "missing",
+			},
+			{
+				messageIndex: 0,
+				attachmentIndex: 1,
+				assetId: "3d41053b-9442-4171-a724-01f5a0c260b4",
+				attachmentText: `{"kind": "text", "assetId": "3d41053b-9442-4171-a724-01f5a0c260b4", "filename": "01_email_thread_maternal_newborn_app.md", "mimeType": "text/markdown"}`,
+				attachmentDigest:
+					"db4a191022e75b2958116e86f6d2ef899c51548a12b2c39aa7e32d83a6cf50cc",
+				assetDisposition: "missing",
+			},
+		],
+	},
+	{
+		appId: "y8Kk0N28YvGVqA0cQUIM",
+		appProjectId: "65b287a5-fece-46a6-9948-6a26519836b7",
+		appRowDigest:
+			"834106aaf2f21d2127717b1fc30af1c08b75d484e2b36028ef6a8d54556417fc",
+		threadId: "d416f0fd-9097-408b-874b-6a8f1f70691b",
+		sourceMessagesDigest:
+			"56bf911569aa71fab19ec1099cdc22a28e446bcf83a2b562404c6362cd142fe3",
+		sourceRowDigest:
+			"6839346be0e401c0a8d06b120f72a957af04e2e95585fffb4f1f51ae549aae5b",
+		resultMessagesDigest:
+			"8b502a3a26ebe2976e95c0b0538b536d4067b78d15936b93601480c75e0f9771",
+		resultRowDigest:
+			"fae6cf60de514e293674258216b7678b29888a4e30805d99bf41c445457126fc",
+		targets: [
+			{
+				messageIndex: 0,
+				attachmentIndex: 0,
+				assetId: "158ff67f-7572-4eb3-9836-a0450db72ac9",
+				attachmentText: `{"kind": "text", "title": "Maternal and Newborn Mobile Application Requirements", "assetId": "158ff67f-7572-4eb3-9836-a0450db72ac9", "summary": "This document outlines the operational and functional requirements for digitizing the 'Mama na Mtoto' paper register into a mobile application for Community Health Volunteers (CHVs) in Migori. It details client registration, pregnancy monitoring, postnatal follow-up, and supervisor viewing workflows, with a strong focus on offline functionality for cheap Android devices and alignment with donor-mandated indicators.", "filename": "01_email_thread_maternal_newborn_app.md", "mimeType": "text/markdown"}`,
+				attachmentDigest:
+					"db8293b25b5223a6f75c4ed42435fac0d91721f6ac33a089c4e3da3c1c68bab4",
+				assetDisposition: "missing",
+			},
+		],
+	},
+] as const satisfies readonly FrozenThreadAttachmentRepair[];
+
+export const FROZEN_THREAD_ATTACHMENT_REPAIR_MANIFEST_DIGEST =
+	"19c9dbcb3f979423b880efc34b1c1497397ed3da7df9727ff2f473dff312cf09";
+export const FROZEN_THREAD_ATTACHMENT_REPAIR_EVIDENCE_DIGEST =
+	"19f9fd14266ad70d55304ac9864f130ccae08a2a166b98c4542795d826c3fc13";
+
+/**
+ * Exact schema/row closure for the sole app whose Project was absent in the
+ * frozen production snapshot. The repair hashes the id and complete JSONB row;
+ * plaintext authored/app content is intentionally absent from source control.
+ */
+export const FROZEN_PROJECT_ORPHAN_APP_ID_DIGEST =
+	"920fcf6c39dbcb4a76af021b8a2a741cfdd65944cf9a0d947667ac7cad0b155d";
+export const FROZEN_PROJECT_ORPHAN_LEGACY_SNAPSHOT_DIGEST =
+	"e411f7e0234f9d8fb2502066ee8a6cd977ed280c826937f07cb79ec2d3b473ce";
+export const FROZEN_PROJECT_ORPHAN_APP_ROW_DIGEST =
+	"d22416c8b4509c21aaadff3553febfc97a23e4a1b8d4b204d75e399f7bfd5421";
+export const FROZEN_PROJECT_ORPHAN_APP_ROWS_DIGEST =
+	"a7eb7d5e887df5d8a1433a30f9001e1ca8d00bbbe41caae5d20fca0468198d7d";
+
+export const FROZEN_PROJECT_ORPHAN_APP_ID_TABLES = [
+	"nova_case_runtime.cases",
+	"public.accepted_mutations",
+	"public.blueprint_entities",
+	"public.case_type_schemas",
+	"public.chat_stream_chunks",
+	"public.events",
+	"public.form_attachments",
+	"public.form_submission_intents",
+	"public.lookup_column_references",
+	"public.lookup_table_references",
+	"public.media_asset_refs",
+	"public.parked_case_values",
+	"public.presence",
+	"public.run_summaries",
+	"public.threads",
+] as const;
+
+export const FROZEN_PROJECT_ORPHAN_TABLE_CLOSURES = [
+	[
+		"nova_case_runtime.cases",
+		0,
+		"4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+	],
+	[
+		"public.accepted_mutations",
+		1,
+		"dd086d581a0f8f206d4bf682c4a39c0126fab4b1135d2e7248512c5c33b8bd07",
+	],
+	[
+		"public.blueprint_entities",
+		0,
+		"4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+	],
+	[
+		"public.case_type_schemas",
+		1,
+		"0f6f27dc7be5b94cc2d6be05aee17feb62fa85418e0d64cfe0ae6a227f162c9c",
+	],
+	[
+		"public.chat_stream_chunks",
+		0,
+		"4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+	],
+	[
+		"public.events",
+		0,
+		"4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+	],
+	[
+		"public.form_attachments",
+		0,
+		"4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+	],
+	[
+		"public.form_submission_intents",
+		0,
+		"4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+	],
+	[
+		"public.lookup_column_references",
+		0,
+		"4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+	],
+	[
+		"public.lookup_table_references",
+		0,
+		"4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+	],
+	[
+		"public.media_asset_refs",
+		0,
+		"4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+	],
+	[
+		"public.parked_case_values",
+		0,
+		"4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+	],
+	[
+		"public.presence",
+		0,
+		"4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+	],
+	[
+		"public.run_summaries",
+		0,
+		"4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+	],
+	[
+		"public.threads",
+		0,
+		"4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+	],
+] as const;
+
+export const FROZEN_PROJECT_ORPHAN_AUTH_TABLES = [
+	"auth_account",
+	"auth_apikey",
+	"auth_invitation",
+	"auth_member",
+	"auth_organization",
+	"auth_session",
+	"auth_user",
+] as const;
+
+export const FROZEN_PROJECT_ORPHAN_AUTH_CLOSURES =
+	FROZEN_PROJECT_ORPHAN_AUTH_TABLES.map(
+		(table) =>
+			[
+				table,
+				0,
+				"4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+			] as const,
+	);
+
+export const FROZEN_PROJECT_ORPHAN_DEPENDENCY_INVENTORY_DIGEST =
+	"cdee8dfff3e986d5ed566b00b152f2bab49a49e81e53d149ceb8f09ff2292545";
+export const FROZEN_PROJECT_ORPHAN_FULL_DISPOSITION_DIGEST =
+	"4a20a49daee11d2aacf56459694bdc7cc8bbcdc8c920a779eb9f642f4207ca4f";
 
 /** [app-id digest, row UUID, full persisted-row digest] */
 export const CANONICAL_IDENTITY_ROW_DELETES = [
@@ -246,16 +661,75 @@ export const CANONICAL_IDENTITY_PROPERTY_PROJECTIONS = [
 export const CANONICAL_IDENTITY_LABEL_REPAIR = {
 	appDigest: "bc1a22535790949c653ed00776ccb34ae32db796dd14de068194dd1965893b6d",
 	fieldUuid: "e00ec2d2-466e-4d3c-b2e7-cd34a71a71e1",
+	fieldUuidDigest:
+		"614a28ebdd2efc87d2246dd467782875db8aff1506a2a1a533177cfe035cff76",
 	sourceDigest:
 		"c0ab5183a087addd70ff4d9418c12d28c7db3fcf8161328304c2d5b7e255ab0d",
 	sourceBytes: 252,
-	clearedTokenIndex: 2,
-	exactTargetUuids: [
-		"d0ee8c4c-d357-4586-99c8-dd38f8e11a84",
-		"46fc2817-e81d-4670-a7c3-a051160060c1",
-		"b1e6791c-f38d-4425-8682-91e75af560b5",
-		"7824589e-81f5-4a1c-898a-8afa016b9435",
-		"9b32a512-424a-4bfe-ade9-052f07b4d93d",
+	/**
+	 * Exact zero-based UTF-8 byte spans from the approved production row.
+	 * These are the complete replacement AST recipe: text is copied only from
+	 * the gaps between pinned spans, five spans become the named field atom,
+	 * and one becomes no part. Runtime regex/path resolution is forbidden.
+	 */
+	replacementParts: [
+		{
+			startByte: 12,
+			endByte: 45,
+			sourceDigest:
+				"db018b51b2bdf63fbe9427ec4fd235c8a568ce911f01549222a4d8850cbfa297",
+			replacement: {
+				kind: "field-ref",
+				uuid: "d0ee8c4c-d357-4586-99c8-dd38f8e11a84",
+			},
+		},
+		{
+			startByte: 63,
+			endByte: 96,
+			sourceDigest:
+				"61f0fac2bb6cff7a90ba9d8f5058324b4e9cbedffa84f2123aeb83f98d3afbdb",
+			replacement: {
+				kind: "field-ref",
+				uuid: "46fc2817-e81d-4670-a7c3-a051160060c1",
+			},
+		},
+		{
+			startByte: 112,
+			endByte: 122,
+			sourceDigest:
+				"223a43028e7a3b19c3b91a32c9623ecd9fdc25c5a65ee1e157efa3de623cbb65",
+			replacement: null,
+		},
+		{
+			startByte: 145,
+			endByte: 162,
+			sourceDigest:
+				"c47af2e350ff8ac0c419b24098866bce1cf5504ac9ed240b37b3c303a7e99c48",
+			replacement: {
+				kind: "field-ref",
+				uuid: "b1e6791c-f38d-4425-8682-91e75af560b5",
+			},
+		},
+		{
+			startByte: 189,
+			endByte: 213,
+			sourceDigest:
+				"f9b70c76662b166d9d28f6cd9f50cf2a36888fc93a2fcd35f1ca669560f42a53",
+			replacement: {
+				kind: "field-ref",
+				uuid: "7824589e-81f5-4a1c-898a-8afa016b9435",
+			},
+		},
+		{
+			startByte: 234,
+			endByte: 252,
+			sourceDigest:
+				"f4e6d453282d1bd701ae3990852141410f765e34a47a243b0b6a8a2fc83d1fb6",
+			replacement: {
+				kind: "field-ref",
+				uuid: "9b32a512-424a-4bfe-ade9-052f07b4d93d",
+			},
+		},
 	],
 	replacementDigest:
 		"62b3f2603e702b820eeee4adfc7d1816144e6a24c97e752a484a0a1386a6369b",
@@ -354,4 +828,4 @@ export const CANONICAL_IDENTITY_AFFECTED_APPS = [
 ] as const;
 
 export const CANONICAL_IDENTITY_REPAIR_RESULT_DIGEST =
-	"0481e17d8c99315868422720597aa9f1f0770c5be70f27759e900fb61c07652c";
+	"df85929374a012b779793251f980b241592218b2c99a90610312b17af5b9f649";

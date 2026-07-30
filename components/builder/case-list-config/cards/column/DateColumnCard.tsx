@@ -31,7 +31,6 @@ import {
 	columnKindAcceptsPropertyType,
 	DATE_FORMAT_PRESET_DEFINITIONS,
 	dateColumn,
-	resolveCommCareDatePattern,
 } from "@/lib/domain";
 import { FORMAT_DATE_PRESETS } from "@/lib/domain/predicate";
 import type { ColumnEditContext } from "../../columnEditorSchemas";
@@ -47,7 +46,7 @@ const acceptsDateColumn = (p: CaseProperty) =>
 /**
  * Preset table for the column's date pattern. The domain owns each label,
  * example, and concrete CommCare pattern; the column stores the supported
- * pattern while legacy semantic ids are normalized for display below.
+ * concrete pattern.
  */
 const COLUMN_DATE_PRESET_TABLE: readonly DatePatternPreset[] =
 	FORMAT_DATE_PRESETS.map((id) => ({
@@ -68,7 +67,6 @@ export function DateColumnCard({
 	onChange,
 	errors,
 }: DateColumnCardProps) {
-	const resolvedPattern = resolveCommCareDatePattern(value.pattern);
 	const setField = (next: string) =>
 		onChange(
 			dateColumn(
@@ -107,9 +105,10 @@ export function DateColumnCard({
 			<div className="space-y-2">
 				<div className={INSPECTOR_LABEL_CLS}>Date style</div>
 				<CustomDatePatternInput
-					value={resolvedPattern}
+					value={value.pattern}
 					onChange={setPattern}
 					presets={COLUMN_DATE_PRESET_TABLE}
+					patternVocabulary="concrete"
 				/>
 			</div>
 		</div>
@@ -122,10 +121,12 @@ function slotsFrom(value: Extract<Column, { kind: "date" }>): {
 	sort?: typeof value.sort;
 	visibleInList?: typeof value.visibleInList;
 	visibleInDetail?: typeof value.visibleInDetail;
+	tile?: typeof value.tile;
 } {
 	return {
 		sort: value.sort,
 		visibleInList: value.visibleInList,
 		visibleInDetail: value.visibleInDetail,
+		tile: value.tile,
 	};
 }

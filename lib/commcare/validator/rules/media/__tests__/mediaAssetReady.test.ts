@@ -40,7 +40,7 @@ function docWithOptionMedia(assetId: string) {
 								kind: "text",
 								id: "case_name",
 								label: proseText("Name"),
-								case_property_on: "patient",
+								caseWrite: { caseType: "patient", property: "case_name" },
 							}),
 							f({
 								kind: "single_select",

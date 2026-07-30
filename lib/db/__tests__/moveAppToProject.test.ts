@@ -47,8 +47,7 @@ describe("moveAppToProject production policy", () => {
 	it("runs the real move", async () => {
 		mocks.prepareAppProjectMove.mockResolvedValue({
 			kind: "ready",
-			requiredAssetIds: ["source"],
-			historicalAssetIds: [],
+			assetIds: ["source"],
 		});
 		mocks.copyAssetsIntoProject.mockResolvedValue(new Map());
 		mocks.commitAppProjectMove.mockResolvedValue({ kind: "moved" });
@@ -96,8 +95,7 @@ describe("cross-Project move orchestration", () => {
 			.mockResolvedValueOnce({ kind: "reapable", identity })
 			.mockResolvedValueOnce({
 				kind: "ready",
-				requiredAssetIds: ["source"],
-				historicalAssetIds: ["history"],
+				assetIds: ["source", "history"],
 			});
 
 		await runCrossProjectMove(crossProjectArgs);
@@ -109,9 +107,7 @@ describe("cross-Project move orchestration", () => {
 		expect(mocks.copyAssetsIntoProject).toHaveBeenCalledOnce();
 		expect(mocks.commitAppProjectMove).toHaveBeenCalledWith(
 			"app-1",
-			expect.objectContaining({
-				attemptedRealIds: new Set(["source", "history"]),
-			}),
+			expect.objectContaining({ assetIdMap: expect.any(Map) }),
 		);
 	});
 

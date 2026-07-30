@@ -25,7 +25,6 @@ import {
 	input,
 	isBlank,
 	isIn,
-	isNull,
 	literal,
 	match,
 	matchAll,
@@ -48,7 +47,6 @@ import {
 	term,
 	today,
 	unowned,
-	unwrapList,
 	whenInput,
 	within,
 } from "@/lib/domain/predicate";
@@ -64,7 +62,7 @@ const VALUE_COLUMN = "018f3e8a-7b2c-7def-8abc-1234567890ad" as LookupColumnId;
 const FILTER_COLUMN = "018f3e8a-7b2c-7def-8abc-1234567890ae" as LookupColumnId;
 
 describe("checkCsqlRepresentability", () => {
-	it("rejects a dormant table lookup without checking its row filter as a case query", () => {
+	it("accepts a table lookup without treating its row filter as a case query", () => {
 		expect(
 			checkCsqlRepresentability(
 				eq(
@@ -76,14 +74,7 @@ describe("checkCsqlRepresentability", () => {
 					),
 				),
 			),
-		).toEqual([
-			{
-				reason: "lookup-table-not-active",
-				path: ["right"],
-				message:
-					"Lookup-table expressions are not active in case search yet. Remove this lookup until lookup fixture emission is available.",
-			},
-		]);
+		).toEqual([]);
 	});
 
 	it("rejects form-submission identity leaves from remote case search", () => {
@@ -127,7 +118,6 @@ describe("checkCsqlRepresentability", () => {
 				term(literal("other")),
 			),
 		],
-		["unwrap-list", unwrapList(term(literal('["a"]')))],
 		["format-date", formatDate(today(), "iso")],
 	] as const)(
 		"accepts a pure %s expression on the value side",
@@ -464,11 +454,6 @@ describe("checkCsqlRepresentability", () => {
 			name: "child count on the value side of a property comparison",
 			predicate: eq(field("expected_children"), count(subcasePath("child"))),
 			reason: "related-count-on-value-side",
-		},
-		{
-			name: "strict null",
-			predicate: isNull(field("nickname")),
-			reason: "strict-null-not-portable",
 		},
 		{
 			name: "blank test without a property subject",

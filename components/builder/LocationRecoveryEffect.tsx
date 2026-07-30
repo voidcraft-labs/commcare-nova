@@ -25,6 +25,7 @@ import { useDocEntityMaps } from "@/lib/doc/hooks/useDocEntityMaps";
 import { useLocation } from "@/lib/routing/hooks";
 import {
 	buildUrl,
+	isRetiredAuthoringPath,
 	recoverLocation,
 	serializePath,
 } from "@/lib/routing/location";
@@ -46,6 +47,12 @@ export function LocationRecoveryEffect() {
 	const { modules, forms, fields } = useDocEntityMaps();
 
 	useEffect(() => {
+		/* Direct cutover: retired authoring tokens are not aliases and must not be
+		 * rewritten into the new vocabulary. Their parsed location is home, but
+		 * the old bookmark remains visibly unresolved instead of pretending it
+		 * was a current route. */
+		if (isRetiredAuthoringPath(segments)) return;
+
 		/* Strategy 1: check if the parsed location has stale references that
 		 * recoverLocation can strip. */
 		const recovered = recoverLocation(loc, { modules, forms, fields });

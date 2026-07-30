@@ -27,7 +27,6 @@ import {
 	cleanupCaseSearchAfterFinalInputMutation,
 	enableCaseSearchMutation,
 } from "@/lib/doc/caseSearchConfigMutations";
-import { normalizeConnectConfig } from "@/lib/doc/connectConfig";
 import { buildFieldTree, type FieldWithChildren } from "@/lib/doc/fieldWalk";
 import {
 	type ModuleAuthoringPatch,
@@ -61,6 +60,7 @@ import {
 	fieldKinds,
 	isBuiltinIconRef,
 	isContainer,
+	isOwnerOnlyCaseSearchConfig,
 	parseBuiltinIconSlug,
 	slugifyId,
 } from "@/lib/domain";
@@ -277,7 +277,7 @@ export function setFormMediaMutations(
 // `reorderByUuid`) live in `tools/case-list-config/shared.ts` because
 // they're pure generic utilities over `{ uuid: Uuid }[]` arrays —
 // reusable by anything that walks a case-list-shaped array. The
-// builders in this file produce `Mutation[]` for the saga, which is
+// builders in this file produce admitted-writer `Mutation[]`, which is
 // agent-specific.
 
 /**
@@ -301,8 +301,8 @@ export type CaseListMutationResult = CaseListMutationOk | { error: string };
 
 /**
  * Append one or more columns to a module's case list, each as a granular
- * `addColumn` carrying a fresh fractional `order` placed after the last
- * existing column — so a concurrent edit to a different column merges. There
+ * `addColumn` naming its predecessor in both surface sequences — so a
+ * concurrent edit to a different column merges. There
  * is no separate single-column builder: the SA surface is the plural
  * `addCaseListColumns`, and one column is a length-1 array.
  *
@@ -334,7 +334,7 @@ export function addColumnsMutation(
 /**
  * Replace one column on a module's case list, keyed by `columnUuid` — a
  * granular `updateColumn` plus any per-surface visibility deltas (the reducer
- * preserves the column's current order + visibility slots while replaying the
+ * preserves both surface sequences and current visibility while replaying the
  * content replacement).
  *
  * Failure arm: columnUuid not in the module's columns array.
@@ -467,7 +467,7 @@ export function addSearchInputsMutation(
 	}));
 	if (
 		mod.caseSearchConfig === undefined ||
-		mod.caseSearchConfig.searchActionEnabled === false
+		isOwnerOnlyCaseSearchConfig(mod.caseSearchConfig)
 	) {
 		mutations.unshift(enableCaseSearchMutation(mod.uuid, mod.caseSearchConfig));
 	}
@@ -570,13 +570,7 @@ export interface NewFormInput {
 	type: FormType;
 	purpose?: string;
 	closeCondition?: Form["closeCondition"];
-	connect?: ConnectConfig | null;
 	postSubmit?: PostSubmitDestination;
-	/** Explicit `order` key — supplied by a caller adding SEVERAL forms to a
-	 *  module in ONE batch (`createModule`), which pre-mints a sequential run
-	 *  since none of the sibling forms is in `doc` yet. Omitted for a single
-	 *  `addForm`, where the key is derived from the module's existing forms. */
-	order?: string;
 }
 
 /** Build an `addForm` mutation. Mints a uuid when the caller doesn't
@@ -611,12 +605,6 @@ export function addFormMutations(
 		...(input.closeCondition !== undefined && {
 			closeCondition: input.closeCondition,
 		}),
-		...(input.connect != null && {
-			// `normalizeConnectConfig` strips empty sub-configs. A returned
-			// `undefined` means "every sub-config was empty" — which for
-			// `addForm` means "don't stamp connect at all".
-			connect: normalizeConnectConfig(input.connect),
-		}),
 		...(input.postSubmit !== undefined && { postSubmit: input.postSubmit }),
 	};
 	return [
@@ -636,14 +624,11 @@ export function removeFormMutations(
 }
 
 /**
- * Patch form-level fields. Nullable fields (`closeCondition`, `connect`,
- * `postSubmit`) follow a convention: passing `null` clears the field
- * (the reducer stores `undefined`), passing an object replaces it, and
- * omitting the key leaves it untouched.
- *
- * `connect` additionally runs through `normalizeConnectConfig` so an
- * empty / all-empty connect config is stripped — it lands as absent
- * rather than as an empty `{ connect: {} }` marker.
+ * Patch non-Connect form-level fields. Nullable fields (`closeCondition`,
+ * `postSubmit`) follow a convention: passing `null` clears the field (the
+ * reducer stores `undefined`), passing an object replaces it, and omitting
+ * the key leaves it untouched. Connect participation is deliberately absent;
+ * the app-wide target planner owns membership.
  */
 export function updateFormMutations(
 	doc: BlueprintDoc,
@@ -652,36 +637,48 @@ export function updateFormMutations(
 		name: string;
 		type: FormType;
 		closeCondition: Form["closeCondition"] | null;
-		connect: ConnectConfig | null;
 		postSubmit: PostSubmitDestination | null;
 		purpose: string | null;
 	}>,
 ): Mutation[] {
 	if (doc.forms[formUuid] === undefined) return [];
-	const reducerPatch: Partial<Omit<Form, "uuid">> = {};
-	if (patch.name !== undefined) reducerPatch.name = patch.name;
+	const mutations: Mutation[] = [];
+	if (patch.name !== undefined) {
+		mutations.push({ kind: "renameForm", uuid: formUuid, newId: patch.name });
+	}
+	const reducerPatch: Extract<Mutation, { kind: "updateForm" }>["patch"] = {};
 	if (patch.type !== undefined) reducerPatch.type = patch.type;
 	if (patch.closeCondition !== undefined) {
-		// `null` → clear (reducer treats `undefined` as "remove" via
-		// Object.assign — not perfect, but Immer's Object.assign with an
-		// explicit `undefined` clears the key in strict mode).
 		reducerPatch.closeCondition =
-			patch.closeCondition === null ? undefined : patch.closeCondition;
-	}
-	if (patch.connect !== undefined) {
-		reducerPatch.connect =
-			patch.connect === null
-				? undefined
-				: (normalizeConnectConfig(patch.connect) ?? undefined);
+			patch.closeCondition === null ? null : patch.closeCondition;
 	}
 	if (patch.postSubmit !== undefined) {
 		reducerPatch.postSubmit =
-			patch.postSubmit === null ? undefined : patch.postSubmit;
+			patch.postSubmit === null ? null : patch.postSubmit;
 	}
 	if (patch.purpose !== undefined) {
-		reducerPatch.purpose = patch.purpose === null ? undefined : patch.purpose;
+		reducerPatch.purpose = patch.purpose === null ? null : patch.purpose;
 	}
-	return [{ kind: "updateForm", uuid: formUuid, patch: reducerPatch }];
+	if (Object.keys(reducerPatch).length > 0) {
+		mutations.push({ kind: "updateForm", uuid: formUuid, patch: reducerPatch });
+	}
+	return mutations;
+}
+
+/**
+ * Refine the complete Connect configuration of an existing participant.
+ * This named helper cannot create or remove participation: a form without a
+ * live block, or a nullish runtime value from an untyped caller, is refused
+ * with an empty plan. App-wide membership transitions use
+ * `planConnectTargetState` instead.
+ */
+export function refineFormConnectMutations(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	connect: ConnectConfig,
+): Mutation[] {
+	if (doc.forms[formUuid]?.connect === undefined || connect == null) return [];
+	return [{ kind: "updateForm", uuid: formUuid, patch: { connect } }];
 }
 
 // ── Mutation builders — fields ──────────────────────────────────────────

@@ -41,13 +41,11 @@ export const addCaseOperationsInputSchema = operationAddressSchema.extend({
 				.strict(),
 		)
 		.min(1)
-		// The batch duplicate-id check rides the FIELD, not the object.
-		// `lib/mcp/adapters/sharedToolAdapter.ts` rebuilds the wire schema
-		// from `inputSchema.shape` and hands the SDK-parsed args straight
-		// to `execute`, so an object-level refinement never runs on the
-		// MCP path — an MCP client could add two operations sharing one
-		// id in a call the chat path refuses. A field-level refinement
-		// travels with the field.
+		// Keep the batch duplicate-id check on the operations FIELD: the rule
+		// belongs to this collection and its issue path should point at the
+		// duplicate item. The shared MCP adapter now registers the exact Zod
+		// object (including refinements), so this same check runs on chat and
+		// MCP before either handler.
 		.superRefine((operations, ctx) => {
 			const seen = new Set<string>();
 			const seenUuids = new Set<string>();

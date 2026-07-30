@@ -106,7 +106,7 @@ describe("media validation integration", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Patient name"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "case_name" },
 									help: proseText("Help text"),
 									// Pending asset — manifest carries the row but
 									// `status: "pending"`.
@@ -201,7 +201,7 @@ describe("media validation integration", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Patient name"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "case_name" },
 									label_media: {
 										image: testMediaAssetId("missing-asset"),
 									},

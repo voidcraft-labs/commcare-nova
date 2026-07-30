@@ -1185,37 +1185,6 @@ describe("emitSearchSession — non-exact mode routing on self-walk inputs", () 
 		expect(xml).toContain("<validation");
 	});
 
-	it("does NOT route a blank-property simple input into _xpath_query (transient editor state, validator carries the authoring error)", () => {
-		// The schema admits `property === ""` as the "row added, not
-		// yet picked" transient editor state. Deriving a predicate
-		// against `prop(caseType, "", …)` would emit malformed XPath
-		// (`<empty> = instance(...)`); the wire emitter falls back to
-		// the bare-prompt shape so the compile path stays clean while
-		// the validator surfaces the authoring error as
-		// `CASE_LIST_SEARCH_INPUT_UNKNOWN_PROPERTY`.
-		const { xml } = emitSearchSession({
-			caseListConfig: makeListConfig({
-				searchInputs: [
-					simpleSearchInputDef(INPUT_UUIDS.a, "name_q", "Name", "text", "", {
-						mode: { kind: "fuzzy" },
-					}),
-				],
-			}),
-			caseSearchConfig: {},
-			wire: WEB_LIST_FIRST,
-			caseType: "patient",
-			moduleIndex: 0,
-		});
-		expect(xml).not.toContain(`<data key="_xpath_query"`);
-		// The prompt still emits — the typed value binds into
-		// `search-input:results` for downstream evaluation once the
-		// property is filled in.
-		expect(xml).toContain(`<prompt key="name_q"`);
-		// And the bare-prompt routing means no `exclude="true()"` —
-		// the prompt is in the transient state, not actively gated.
-		expect(xml).not.toContain(`exclude="true()"`);
-	});
-
 	it("does NOT route a self-walk `exact` simple input with `name === property` into _xpath_query (rides on bare prompt)", () => {
 		// The bare-prompt-correct shape: self-walk + default exact AND
 		// `name === property` so CCHQ's runtime auto-match against

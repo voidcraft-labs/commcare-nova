@@ -17,6 +17,7 @@ import {
 	readJsonBody,
 } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
+import { appReadSnapshotSchema } from "@/lib/collab/appReadSnapshot";
 import {
 	AppAccessError,
 	resolveAppAccess,
@@ -51,24 +52,18 @@ export async function GET(
 			"view",
 		);
 		const { app } = snapshot;
-		/* Return only the fields the client needs for hydration — the builder
-		 * hydrates off the blueprint. The authorization tuple + cursor come from
-		 * the same locked transaction as that blueprint. Keep the original row
-		 * names while old browser revisions can still be open. */
+		/* Return the one current authorization/document/cursor shape. The
+		 * authorization tuple + cursor come from the same locked transaction as
+		 * the blueprint, and the shared strict schema prevents a database-row
+		 * field from becoming a second browser transport dialect. */
 		return Response.json(
-			{
+			appReadSnapshotSchema.parse({
 				projectId: snapshot.projectId,
 				role: snapshot.role,
 				canEdit: snapshot.canEdit,
 				blueprint: app.blueprint,
 				baseSeq: snapshot.baseSeq,
-				app_name: app.app_name,
-				status: app.status,
-				error_type: app.error_type,
-				/* The durable mutation cursor the client keys recovery on — the head
-				 * `seq` of the `acceptedMutations` stream at load time. */
-				mutation_seq: snapshot.baseSeq,
-			},
+			}),
 			{ headers: { "Cache-Control": "private, no-store" } },
 		);
 	} catch (err) {
@@ -88,13 +83,11 @@ export async function PUT(
 		const session = await requireSession(req);
 		const { id } = await params;
 
-		/* Project-membership gate (edit). The resolver's single app load yields
-		 * the `AppDoc` whose `blueprint` threads into the saga as
-		 * `priorBlueprint` (no second `loadApp`). A known member with insufficient
-		 * role becomes a typed 403 below; absent/non-member apps keep the shared
-		 * IDOR-safe 404 posture. */
+		/* Project-membership gate (edit). A known member with insufficient role
+		 * becomes a typed 403 below; absent/non-member apps keep the shared
+		 * IDOR-safe 404 posture. The writer repeats authorization while holding
+		 * the app lock before it admits or persists the batch. */
 		const access = await resolveAppAccess(id, session.user.id, "edit");
-		const app = access.app;
 
 		// Cap the body before materializing it. A mutation delta is far
 		// smaller than the blueprint, so 2 MB rejects only the pathological;
@@ -114,7 +107,7 @@ export async function PUT(
 		/* Mutation admission is deliberately first. It descriptor-detaches,
 		 * JSON-round-trips, exact-schema-compares, protects, and freezes the
 		 * proposal before batch-id validation, dedup, target inspection, a
-		 * reducer, or the saga can observe mutation content. */
+		 * reducer, or the persistence boundary can observe mutation content. */
 		const mutations = admitMutationBatch(request.mutations);
 		const requestKeys = Object.keys(request).toSorted((a, b) =>
 			a.localeCompare(b),
@@ -129,19 +122,16 @@ export async function PUT(
 			throw new ApiError("Invalid save request", 400);
 		}
 
-		/* Route through the schema saga so a property-surface mutation in
-		 * this auto-save (e.g. a renamed case property) syncs the case-store
-		 * `case_type_schemas` row before the blueprint commits; pure
+		/* Route through the guarded schema boundary. An explicit
+		 * `renameCaseProperties` command commits Blueprint, schema, live rows,
+		 * parked rows, and accepted history in one physical transaction; pure
 		 * non-case-type edits fast-path through. `guard` mode re-applies the delta onto the
 		 * FRESH stored blueprint and re-verdicts inside the transaction, so a
-		 * co-member's concurrent committed edit MERGES instead of being erased.
-		 * The pre-loaded `app.blueprint` threads through as `priorBlueprint` so
-		 * the saga doesn't re-read it. */
+		 * co-member's concurrent committed edit MERGES instead of being erased. */
 		const result = await applyBlueprintChange({
 			appId: id,
 			userId: session.user.id,
 			expectedProjectId: access.projectId,
-			priorBlueprint: app.blueprint,
 			batchId: batchId.data,
 			kind: "autosave",
 			guard: { mutations },

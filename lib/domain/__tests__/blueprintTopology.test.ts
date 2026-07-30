@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { blueprintDocSchema } from "../blueprint";
+import { blueprintDocSchema, type PersistableDoc } from "../blueprint";
+import type { Form } from "../forms";
+import { type Module, plainColumn, simpleSearchInputDef } from "../modules";
 import { proseText } from "../prose";
 
 const MODULE = testUuid("topology-module");
@@ -12,8 +14,11 @@ const GROUP = testUuid("topology-group");
 const GROUP_2 = testUuid("topology-group-2");
 const UNKNOWN = testUuid("topology-unknown");
 const PROPERTY = testUuid("topology-property");
+const COLUMN = testUuid("topology-column");
+const SEARCH_INPUT = testUuid("topology-search-input");
+const OPTION_2 = testUuid("topology-option-2");
 
-function emptyDoc() {
+function emptyDoc(): PersistableDoc {
 	return {
 		appId: "topology-app",
 		appName: "Topology",
@@ -28,11 +33,11 @@ function emptyDoc() {
 	};
 }
 
-function module(uuid = MODULE) {
+function module(uuid = MODULE): Module {
 	return { uuid, id: "module", name: "Module" };
 }
 
-function form(uuid = FORM) {
+function form(uuid = FORM): Form {
 	return {
 		uuid,
 		id: "form",
@@ -59,7 +64,7 @@ function groupField(uuid = GROUP) {
 	};
 }
 
-function oneFormDoc() {
+function oneFormDoc(): PersistableDoc {
 	return {
 		...emptyDoc(),
 		modules: { [MODULE]: module() },
@@ -113,6 +118,218 @@ describe("closed blueprint topology", () => {
 		};
 		expect(messages(doc)).toContain(
 			`Authored uuid ${MODULE} appears in both modules and forms.`,
+		);
+	});
+
+	it.each([
+		{
+			kind: "case-list column",
+			build: () => {
+				const doc = oneFormDoc();
+				doc.modules[MODULE] = {
+					...module(),
+					caseListConfig: {
+						columns: [plainColumn(FORM, "case_name", "Name")],
+						listColumnOrder: [FORM],
+						detailColumnOrder: [FORM],
+						searchInputs: [],
+					},
+				};
+				return doc;
+			},
+		},
+		{
+			kind: "Search input",
+			build: () => {
+				const doc = oneFormDoc();
+				doc.modules[MODULE] = {
+					...module(),
+					caseListConfig: {
+						columns: [],
+						listColumnOrder: [],
+						detailColumnOrder: [],
+						searchInputs: [
+							simpleSearchInputDef(FORM, "query", "Query", "text", "case_name"),
+						],
+					},
+				};
+				return doc;
+			},
+		},
+		{
+			kind: "case operation",
+			build: () => {
+				const doc = oneFormDoc();
+				doc.forms[FORM] = {
+					...form(),
+					caseOperations: [
+						{
+							uuid: FORM,
+							id: "create_case",
+							action: "create" as const,
+							caseType: "patient",
+							target: { kind: "new" as const },
+							name: {
+								kind: "term" as const,
+								term: { kind: "literal" as const, value: "Name" },
+							},
+						},
+					],
+				};
+				return doc;
+			},
+		},
+		{
+			kind: "select option",
+			build: () => {
+				const doc = {
+					...oneFormDoc(),
+					fields: {
+						[FIELD]: {
+							uuid: FIELD,
+							id: "choice",
+							kind: "single_select" as const,
+							label: proseText("Choice"),
+							optionsSource: {
+								kind: "inline" as const,
+								options: [
+									{ uuid: FORM, value: "a", label: proseText("A") },
+									{ uuid: OPTION_2, value: "b", label: proseText("B") },
+								],
+							},
+						},
+					},
+					fieldOrder: { [FORM]: [FIELD] },
+				};
+				return doc;
+			},
+		},
+	])(
+		"includes every nested $kind UUID in the global namespace",
+		({ kind, build }) => {
+			expect(messages(build())).toContain(
+				`Authored uuid ${FORM} appears in both forms and ${kind}.`,
+			);
+		},
+	);
+
+	it("rejects a collision between two different nested identity families", () => {
+		const doc = oneFormDoc();
+		doc.modules[MODULE] = {
+			...module(),
+			caseListConfig: {
+				columns: [plainColumn(COLUMN, "case_name", "Name")],
+				listColumnOrder: [COLUMN],
+				detailColumnOrder: [COLUMN],
+				searchInputs: [
+					simpleSearchInputDef(COLUMN, "query", "Query", "text", "case_name"),
+				],
+			},
+		};
+		expect(messages(doc)).toContain(
+			`Authored uuid ${COLUMN} appears in both case-list column and Search input.`,
+		);
+	});
+
+	it("requires Connect configuration to match the app mode", () => {
+		const doc = oneFormDoc();
+		doc.forms[FORM] = {
+			...form(),
+			connect: {
+				learn_module: {
+					id: "training",
+					name: "Training",
+					description: "Training",
+					time_estimate: 10,
+				},
+			},
+		};
+		expect(messages(doc)).toContain(
+			"Form Connect configuration must match the app Connect mode.",
+		);
+	});
+
+	it("requires Connect ids to be unique across forms and subkinds", () => {
+		const doc = {
+			...oneFormDoc(),
+			connectType: "learn" as const,
+			forms: {
+				[FORM]: {
+					...form(),
+					connect: {
+						learn_module: {
+							id: "shared",
+							name: "Training",
+							description: "Training",
+							time_estimate: 10,
+						},
+					},
+				},
+				[FORM_2]: {
+					...form(FORM_2),
+					connect: {
+						assessment: { id: "shared" },
+					},
+				},
+			},
+			formOrder: { [MODULE]: [FORM, FORM_2] },
+			fieldOrder: { [FORM]: [], [FORM_2]: [] },
+		};
+		expect(messages(doc)).toContain(
+			`Connect id shared appears in both forms.${FORM}.connect.learn_module and forms.${FORM_2}.connect.assessment.`,
+		);
+	});
+
+	it.each([
+		{ connect: null, label: "stored null" },
+		{ connect: {}, label: "empty config" },
+		{
+			connect: {
+				learn_module: {
+					name: "Training",
+					description: "Training",
+					time_estimate: 10,
+				},
+			},
+			label: "missing id",
+		},
+	])("rejects a Connect $label instead of repairing it", ({ connect }) => {
+		const doc = oneFormDoc();
+		doc.connectType = "learn";
+		const targetForm = doc.forms[FORM];
+		if (targetForm === undefined) throw new Error("test form missing");
+		Object.assign(targetForm, { connect });
+		expect(blueprintDocSchema.safeParse(doc).success).toBe(false);
+	});
+
+	it("rejects owner-only availability combined with Search inputs", () => {
+		const doc = oneFormDoc();
+		doc.modules[MODULE] = {
+			...module(),
+			caseListConfig: {
+				columns: [],
+				listColumnOrder: [],
+				detailColumnOrder: [],
+				searchInputs: [
+					simpleSearchInputDef(
+						SEARCH_INPUT,
+						"query",
+						"Query",
+						"text",
+						"case_name",
+					),
+				],
+			},
+			caseSearchConfig: {
+				searchActionEnabled: false,
+				excludedOwnerIds: {
+					kind: "term",
+					term: { kind: "literal", value: "owner" },
+				},
+			},
+		};
+		expect(messages(doc)).toContain(
+			"Owner-only case availability cannot coexist with Search inputs.",
 		);
 	});
 

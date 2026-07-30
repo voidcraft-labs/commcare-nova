@@ -32,15 +32,6 @@
 //                as a draft while the worker edits, but Search requires
 //                a complete, ordered pair because CommCare serializes
 //                daterange as one indivisible answer.
-//   select   → `<Select>` populated from the targeted property's
-//              declared options. Options resolve only when the
-//              input is on the simple arm AND the property exists
-//              on the case type AND the property declares
-//              options. Anything else (advanced arm, missing
-//              property, no options, undefined caseType) falls
-//              back to `<Input>` — the advanced arm's predicate
-//              AST is structurally ambiguous about the option-
-//              source property, so surfacing a select would lie.
 
 "use client";
 import { Icon } from "@iconify/react/offline";
@@ -67,22 +58,9 @@ import {
 	FieldLabel,
 } from "@/components/shadcn/field";
 import { Input } from "@/components/shadcn/input";
-import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectSeparator,
-	SelectTrigger,
-	SelectValue,
-} from "@/components/shadcn/select";
 import { Spinner } from "@/components/shadcn/spinner";
 import { useReconcilerContext } from "@/lib/collab/context";
-import {
-	type CaseProperty,
-	type CaseType,
-	fallbackProseProjection,
-	type SearchInputDef,
-} from "@/lib/domain";
+import type { CaseType, SearchInputDef } from "@/lib/domain";
 import type { Predicate } from "@/lib/domain/predicate";
 import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
 import type { PreviewSearchSessionValues } from "@/lib/preview/engine/identity";
@@ -105,10 +83,7 @@ interface SearchInputFormProps {
 	/** The always-on filter joins the input predicates in exported CSQL. It is
 	 * needed only to derive which prompt values require quote validation. */
 	readonly filter?: Predicate;
-	/** The module's case type — needed to resolve a select-typed
-	 *  input's option list off the property's declaration. May be
-	 *  undefined during blueprint hydration; select-typed inputs
-	 *  fall back to text in that case. */
+	/** The module's case type supplies the expression-evaluation context. */
 	readonly caseType: CaseType | undefined;
 	/** Session-backed values used by computed search expressions in the exact
 	 * exported runtime validation condition. */
@@ -285,7 +260,6 @@ export function SearchInputForm({
 							<SearchInputRow
 								key={input.uuid}
 								input={input}
-								caseType={caseType}
 								draft={draft}
 								setKey={setKey}
 								error={
@@ -316,7 +290,6 @@ export function SearchInputForm({
 
 interface SearchInputRowProps {
 	readonly input: SearchInputDef;
-	readonly caseType: CaseType | undefined;
 	readonly draft: SearchInputValues;
 	readonly setKey: (key: string, next: string) => void;
 	readonly error: string | undefined;
@@ -329,16 +302,8 @@ interface SearchInputRowProps {
  * the value flows into the predicate, which the runtime-bindings
  * layer owns.
  */
-function SearchInputRow({
-	input,
-	caseType,
-	draft,
-	setKey,
-	error,
-}: SearchInputRowProps) {
-	const widget = resolveWidget(input, caseType);
-
-	switch (widget.kind) {
+function SearchInputRow({ input, draft, setKey, error }: SearchInputRowProps) {
+	switch (input.type) {
 		case "text":
 			return (
 				<TextRow
@@ -379,88 +344,7 @@ function SearchInputRow({
 					error={error}
 				/>
 			);
-		case "select":
-			return (
-				<SelectRow
-					name={input.name}
-					label={input.label}
-					options={widget.options}
-					value={draft.get(input.name) ?? ""}
-					onChange={(next) => setKey(input.name, next)}
-					error={error}
-				/>
-			);
 	}
-}
-
-// ── Widget resolution ──────────────────────────────────────────────
-
-/** Discriminated widget shape. The select arm carries the resolved
- *  options inline so the renderer doesn't re-walk the case type;
- *  text is the unified fallback for every "can't resolve a select"
- *  branch. Barcode keeps its own arm so Preview can progressively
- *  enhance the same editable string with a real camera scanner. */
-type ResolvedWidget =
-	| { readonly kind: "text" }
-	| { readonly kind: "barcode" }
-	| { readonly kind: "date" }
-	| { readonly kind: "date-range" }
-	| {
-			readonly kind: "select";
-			readonly options: ReadonlyArray<{
-				readonly value: string;
-				readonly label: string;
-			}>;
-	  };
-
-/**
- * Resolves the effective widget for an input given the available
- * case type. Encapsulates the fallback rules — every "can't render a
- * real select" path collapses to text so the renderer is a clean
- * switch with no nested defaults. The select-falls-back-to-text rule
- * holds for: advanced-arm inputs (the predicate AST is structurally
- * ambiguous about the option-source property), missing case type
- * (blueprint mid-hydration), unresolvable property (the property was
- * deleted or renamed without a sweep), and properties that declare
- * no options (an empty Select would be a UX dead-end).
- */
-function resolveWidget(
-	input: SearchInputDef,
-	caseType: CaseType | undefined,
-): ResolvedWidget {
-	switch (input.type) {
-		case "text":
-			return { kind: "text" };
-		case "barcode":
-			return { kind: "barcode" };
-		case "date":
-			return { kind: "date" };
-		case "date-range":
-			return { kind: "date-range" };
-		case "select": {
-			if (input.kind !== "simple") return { kind: "text" };
-			if (caseType === undefined) return { kind: "text" };
-			const property = findProperty(caseType, input.property);
-			if (property === undefined) return { kind: "text" };
-			const options = property.options ?? [];
-			if (options.length === 0) return { kind: "text" };
-			return {
-				kind: "select",
-				options: options.map((option) => ({
-					value: option.value,
-					label: fallbackProseProjection(option.label),
-				})),
-			};
-		}
-	}
-}
-
-/** Resolves a property by name on the supplied case type. */
-function findProperty(
-	caseType: CaseType,
-	propertyName: string,
-): CaseProperty | undefined {
-	return caseType.properties.find((p) => p.name === propertyName);
 }
 
 // ── Per-widget rows ────────────────────────────────────────────────
@@ -1063,96 +947,5 @@ function DateRangeRow({
 			</div>
 			<FieldError id={errorId}>{error}</FieldError>
 		</fieldset>
-	);
-}
-
-interface SelectRowProps {
-	readonly name: string;
-	readonly label: string;
-	readonly options: ReadonlyArray<{
-		readonly value: string;
-		readonly label: string;
-	}>;
-	readonly value: string;
-	readonly onChange: (next: string) => void;
-	readonly error?: string;
-}
-
-/**
- * Option-dropdown row. Renders a shadcn Select (Base UI Select
- * primitive) — keyboard navigation, ARIA combobox semantics, and
- * scroll arrows come from the underlying primitive. The absent value is a
- * real, visible "Any" selection rather than placeholder copy: it is a valid
- * semantic default, not missing input. Selecting an authored option emits its
- * wire-form `value`.
- *
- * Base UI's `Select.onValueChange` is
- * `(value: Value | null, ...) => void` in single-mode — `null`
- * lands only on programmatic clear paths. With `value: string` on
- * the trigger, TypeScript infers `Value = string` through shadcn's
- * value-level alias, so `next` arrives as `string | null`. The
- * form coalesces `null` to "" so the binding layer's empty-input
- * short-circuit handles both states uniformly.
- */
-function SelectRow({
-	name,
-	label,
-	options,
-	value,
-	onChange,
-	error,
-}: SelectRowProps) {
-	const id = useId();
-	const errorId = `${id}-error`;
-	/* Base UI documents `null` as the clearable Select item. Give that valid
-	 * default a visible label, and disambiguate it when imported/authored option
-	 * copy is also "Any" so the menu never exposes two identical choices. */
-	const clearLabel = useMemo(() => {
-		const authoredLabels = new Set(
-			options.map((option) => option.label.trim().toLocaleLowerCase("en-US")),
-		);
-		if (!authoredLabels.has("any")) return "Any";
-		let candidate = `Any ${label.trim().toLocaleLowerCase("en-US")}`;
-		let suffix = 2;
-		while (authoredLabels.has(candidate.toLocaleLowerCase("en-US"))) {
-			candidate = `Any ${label.trim().toLocaleLowerCase("en-US")} (${suffix})`;
-			suffix += 1;
-		}
-		return candidate;
-	}, [label, options]);
-	const selectItems = useMemo(
-		() => [{ value: null, label: clearLabel }, ...options],
-		[clearLabel, options],
-	);
-	return (
-		<Field className="min-w-0" data-invalid={error !== undefined}>
-			<FieldLabel htmlFor={id}>{label}</FieldLabel>
-			<Select
-				name={name}
-				items={selectItems}
-				value={value === "" ? null : value}
-				onValueChange={(next) => onChange(next ?? "")}
-			>
-				<SelectTrigger
-					id={id}
-					wrapValue
-					aria-invalid={error !== undefined}
-					aria-describedby={error !== undefined ? errorId : undefined}
-					className="min-h-11 min-w-0 w-full"
-				>
-					<SelectValue />
-				</SelectTrigger>
-				<SelectContent>
-					<SelectItem value={null}>{clearLabel}</SelectItem>
-					<SelectSeparator />
-					{options.map((opt) => (
-						<SelectItem key={opt.value} value={opt.value} wrap>
-							{opt.label}
-						</SelectItem>
-					))}
-				</SelectContent>
-			</Select>
-			<FieldError id={errorId}>{error}</FieldError>
-		</Field>
 	);
 }

@@ -16,7 +16,11 @@
  */
 
 import type { z } from "zod";
-import type { BlueprintDoc, CaseSearchConfig } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	type CaseSearchConfig,
+	isOwnerOnlyCaseSearchConfig,
+} from "@/lib/domain";
 import { updateModuleMutations } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import {
@@ -35,7 +39,6 @@ import {
 	applyClusterPatch,
 	collapseUnauthoredCaseSearchConfig,
 	pickDisplayCluster,
-	pickSearchActionIntent,
 	setCaseSearchAdvancedBodySchema,
 	slotsSetByInput,
 	snapshotCaseSearchConfig,
@@ -92,21 +95,31 @@ export const setCaseSearchAdvancedTool = {
 			// compile time.
 			const existing = snapshotCaseSearchConfig(mod);
 			const advancedPatch = applyClusterPatch(input, ADVANCED_SLOT_NAMES);
+			const clearingOwnerOnly =
+				existing !== undefined &&
+				"searchActionEnabled" in existing &&
+				advancedPatch.excludedOwnerIds === undefined;
 			const addingFirstOwnerRule =
 				existing === undefined &&
 				(mod.caseListConfig?.searchInputs.length ?? 0) === 0 &&
 				advancedPatch.excludedOwnerIds !== undefined;
-			const nextConfigCandidate: CaseSearchConfig = {
-				...pickDisplayCluster(existing),
-				...(addingFirstOwnerRule
-					? { searchActionEnabled: false as const }
-					: pickSearchActionIntent(existing)),
-				...advancedPatch,
-			};
-			const nextConfig = collapseUnauthoredCaseSearchConfig(
-				existing,
-				nextConfigCandidate,
-			);
+			const keepOwnerOnly =
+				advancedPatch.excludedOwnerIds !== undefined &&
+				(addingFirstOwnerRule ||
+					(existing !== undefined && isOwnerOnlyCaseSearchConfig(existing)));
+			const nextExcludedOwnerIds = advancedPatch.excludedOwnerIds;
+			const nextConfigCandidate: CaseSearchConfig = keepOwnerOnly
+				? {
+						searchActionEnabled: false,
+						excludedOwnerIds: nextExcludedOwnerIds,
+					}
+				: {
+						...pickDisplayCluster(existing),
+						...advancedPatch,
+					};
+			const nextConfig = clearingOwnerOnly
+				? undefined
+				: collapseUnauthoredCaseSearchConfig(existing, nextConfigCandidate);
 
 			const mutations = updateModuleMutations(mod, {
 				caseSearchConfig: nextConfig ?? null,

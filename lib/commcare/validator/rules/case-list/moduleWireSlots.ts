@@ -1,13 +1,13 @@
 /**
  * The module-level wire-slot inventory shared by the dialect-portability
- * rules (`strictNullPortability`, `dateAddOnDeviceCompatibility`,
+ * rules (`dateAddOnDeviceCompatibility`,
  * `matchModeOnDeviceCompatibility`, `onDeviceExpressionCompatibility`).
  *
  * One walk enumerates every module-carried Predicate/ValueExpression slot
  * that reaches a CommCare wire surface, in emission order:
  *
  *   - the effective case-list filter (after wire simplification),
- *   - calculated-column expressions (scope selected per rule below),
+ *   - every saved calculated-column expression,
  *   - every search-input default,
  *   - each advanced search-input's effective predicate,
  *   - the assigned-cases / excluded-owner expression, and
@@ -17,17 +17,15 @@
  * used in messages, the `surface` tag stamped into finding details, and the
  * owning input/column identity — so consumers only supply per-slot judgment.
  *
- * Two axes are per-rule:
- *
- *   - `calculatedColumns` — `"runtime"` visits only calculated columns with
- *     a list/detail/sort runtime role (the emitted set); `"all-definitions"`
- *     also visits latent definitions, for rules that must reject a saved
- *     expression before a later visibility or sort change activates it.
- *   - the predicate dialect — the filter and the search-button display
+ * The predicate dialect is per-rule: the filter and search-button display
  *     condition lower through on-device JavaRosa XPath (`judgePredicate`),
  *     while an advanced input's predicate lowers through the mixed-dialect
  *     CSQL emitter (`judgeCsqlPredicate`). A rule whose judgment is
  *     dialect-independent passes the same function for both.
+ *
+ * Visibility is deliberately not an inventory axis. Every saved definition is
+ * valid by construction, so portability rules judge dormant calculated
+ * columns before a later reveal or sort change can activate them.
  *
  * The walk also owns the match-none absorption: the filter and advanced
  * predicates AND-compose into one CSQL query, and a match-none clause
@@ -37,8 +35,9 @@
  */
 
 import {
-	caseListColumnHasRuntimeRole,
+	isOwnerOnlyCaseSearchConfig,
 	type Module,
+	searchInputDefault,
 	type Uuid,
 } from "@/lib/domain";
 import {
@@ -75,7 +74,6 @@ export interface ModuleWireSlotIdentity {
 }
 
 export interface ModuleWireSlotJudge {
-	readonly calculatedColumns: "runtime" | "all-definitions";
 	/** On-device predicate slots: the effective case-list filter and the
 	 * simplified search-button display condition. At most one finding per
 	 * slot. */
@@ -126,12 +124,6 @@ export function collectModuleWireSlotFindings(
 	for (let index = 0; index < columns.length; index += 1) {
 		const column = columns[index];
 		if (column.kind !== "calculated") continue;
-		if (
-			judge.calculatedColumns === "runtime" &&
-			!caseListColumnHasRuntimeRole(column)
-		) {
-			continue;
-		}
 		const label = column.header || "Untitled field";
 		collect(
 			judge.judgeExpression(column.expression, {
@@ -148,14 +140,15 @@ export function collectModuleWireSlotFindings(
 	const inputs = mod.caseListConfig?.searchInputs ?? [];
 	for (let index = 0; index < inputs.length; index += 1) {
 		const input = inputs[index];
+		const defaultValue = searchInputDefault(input);
 		const inputIdentity = {
 			uuid: input.uuid,
 			name: input.name,
 			label: input.label || input.name,
 		};
-		if (input.default !== undefined) {
+		if (defaultValue !== undefined) {
 			collect(
-				judge.judgeExpression(input.default, {
+				judge.judgeExpression(defaultValue, {
 					mod,
 					moduleUuid,
 					slot: `caseListConfig.searchInputs[${index}].default`,
@@ -202,7 +195,11 @@ export function collectModuleWireSlotFindings(
 		);
 	}
 
-	if (searchConfig?.searchButtonDisplayCondition !== undefined) {
+	if (
+		searchConfig !== undefined &&
+		!isOwnerOnlyCaseSearchConfig(searchConfig) &&
+		searchConfig.searchButtonDisplayCondition !== undefined
+	) {
 		collect(
 			judge.judgePredicate(
 				simplifyForEmission(searchConfig.searchButtonDisplayCondition),

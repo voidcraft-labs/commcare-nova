@@ -8,8 +8,8 @@
  * (`applyDefaults`) → uuid mint → domain `Field` assembly
  * (`flatFieldToField`) → the shared identifier verdict
  * (`lib/doc/identifierVerdicts.ts` — XML-name legality, the reserved
- * `__nova_` prefix, the case-property length cap, sibling uniqueness
- * against the doc AND this batch's earlier items). Parent resolution
+ * `__nova_` prefix, and sibling uniqueness against the doc AND this
+ * batch's earlier items). Parent resolution
  * covers containers minted earlier in the same batch (`mintedByBareId`)
  * before falling back to the doc-wide lookup, so a group + its children
  * compose in one call.
@@ -32,7 +32,7 @@ import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, Field, Uuid } from "@/lib/domain";
 import {
 	asUuid,
-	fieldCasePropertyOn,
+	fieldCaseWrite,
 	findAuthoredBlueprintIdentity,
 	isContainer,
 } from "@/lib/domain";
@@ -61,6 +61,19 @@ export interface FieldAssemblyArgs {
 	anchor?: { beforeFieldUuid?: Uuid; afterFieldUuid?: Uuid };
 }
 
+export interface CreatedOptionIdentity {
+	uuid: Uuid;
+	value: string;
+}
+
+export interface CreatedFieldIdentity {
+	uuid: Uuid;
+	id: string;
+	/** Inline-option identities in authored/source order; empty for non-selects
+	 * and lookup-backed selects. */
+	options: CreatedOptionIdentity[];
+}
+
 export type FieldAssemblyResult =
 	| {
 			ok: true;
@@ -69,7 +82,7 @@ export type FieldAssemblyResult =
 			 *  reported, never silently dropped. */
 			skipped: Array<{ id: string; reason: string }>;
 			/** Every created identity, in input order. */
-			created: Array<{ uuid: Uuid; id: string }>;
+			created: CreatedFieldIdentity[];
 	  }
 	| {
 			ok: false;
@@ -158,17 +171,24 @@ export function assembleFieldMutations(
 
 	// Assign final identities before assembling any item. This complete overlay
 	// lets expression references point forward while topology remains ordered.
-	const assigned = items.map((input) => ({
-		raw: prepareFlatFieldIdentities(input),
-		uuid: input.fieldUuid ?? asUuid(crypto.randomUUID()),
-	}));
+	const assigned = items.map((input) => {
+		const raw = prepareFlatFieldIdentities(input);
+		return {
+			raw,
+			// Catalog defaults may themselves mint inline-option UUIDs. Establish
+			// them before ANY collision/admission check, then carry this exact
+			// processed object through assembly unchanged.
+			processed: applyDefaults(stripEmpty(raw), doc.caseTypes),
+			uuid: input.fieldUuid ?? asUuid(crypto.randomUUID()),
+		};
+	});
 	const predeclared = new Map<Uuid, string>();
 	const identityRejections: Array<{ id: string; reason: string }> = [];
-	for (const { raw, uuid } of assigned) {
+	for (const { raw, processed, uuid } of assigned) {
 		const declarations: Array<{ uuid: Uuid; label: string }> = [
 			{ uuid, label: `field "${raw.id}"` },
-			...(raw.optionsSource?.kind === "inline"
-				? raw.optionsSource.options.map((option) => ({
+			...(processed.optionsSource?.kind === "inline"
+				? processed.optionsSource.options.map((option) => ({
 						uuid: option.uuid,
 						label: `option "${option.value}" on field "${raw.id}"`,
 					}))
@@ -204,12 +224,7 @@ export function assembleFieldMutations(
 	const pendingByParent = new Map<Uuid, Set<string>>();
 	const earlierFields = new Map<Uuid, Field>();
 
-	for (const { raw, uuid: fieldUuid } of assigned) {
-		// `stripEmpty` narrows `parentUuid?: Uuid | null` and `applyDefaults`
-		// preserves that narrowing while
-		// merging case-type metadata onto the field.
-		const processed = applyDefaults(stripEmpty(raw), doc.caseTypes);
-
+	for (const { raw, processed, uuid: fieldUuid } of assigned) {
 		// Resolve parentUuid: the field's OWN value wins; if it didn't
 		// set one, fall back to the batch-level value; if neither is
 		// set, the field lands at the form's top level.
@@ -321,10 +336,10 @@ export function assembleFieldMutations(
 	const declarations: Mutation[] = [];
 	for (const mut of mutations) {
 		if (mut.kind !== "addField") continue;
-		const caseType = fieldCasePropertyOn(mut.field);
-		if (caseType === undefined || declared.has(caseType)) continue;
-		declared.add(caseType);
-		declarations.push(...declareCaseTypeMutations(doc, caseType));
+		const write = fieldCaseWrite(mut.field);
+		if (write === undefined || declared.has(write.caseType)) continue;
+		declared.add(write.caseType);
+		declarations.push(...declareCaseTypeMutations(doc, write.caseType));
 	}
 	return {
 		ok: true,
@@ -335,7 +350,18 @@ export function assembleFieldMutations(
 				(mut): mut is Extract<Mutation, { kind: "addField" }> =>
 					mut.kind === "addField",
 			)
-			.map((mut) => ({ uuid: mut.field.uuid, id: mut.field.id })),
+			.map((mut) => ({
+				uuid: mut.field.uuid,
+				id: mut.field.id,
+				options:
+					"optionsSource" in mut.field &&
+					mut.field.optionsSource.kind === "inline"
+						? mut.field.optionsSource.options.map((option) => ({
+								uuid: option.uuid,
+								value: option.value,
+							}))
+						: [],
+			})),
 	};
 }
 

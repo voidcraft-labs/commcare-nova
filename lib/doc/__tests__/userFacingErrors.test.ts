@@ -114,7 +114,6 @@ describe("userFacingError — voice", () => {
 		// Raw schema/slot keys — wire-internal, never the user's vocabulary.
 		// (A `#…` hashtag is NOT banned: it's the reference syntax users
 		// type in formula fields, so echoing their own token is helpful.)
-		"case_property_on",
 		"case_preload",
 	];
 

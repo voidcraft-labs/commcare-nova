@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { expandHashtags, resolveFlatHashtag } from "@/lib/commcare/hashtags";
+import {
+	expandFlatHashtags,
+	resolveFlatHashtag,
+} from "@/lib/commcare/hashtags";
 import { rewriteXPathOnMove } from "@/lib/doc/mutations/pathRewrite";
 
 describe("rewriteXPathOnMove", () => {
@@ -116,7 +119,7 @@ describe("re-anchored hashtag → wire round-trip", () => {
 			["grp", "source"],
 		);
 		expect(reAnchored).toBe("#form/grp/source + 1");
-		expect(expandHashtags(reAnchored)).toBe("/data/grp/source + 1");
+		expect(expandFlatHashtags(reAnchored)).toBe("/data/grp/source + 1");
 		expect(resolveFlatHashtag("form", ["grp", "source"])).toBe(
 			"/data/grp/source",
 		);
@@ -129,7 +132,7 @@ describe("re-anchored hashtag → wire round-trip", () => {
 			["source"],
 		);
 		expect(reAnchored).toBe("#form/source");
-		expect(expandHashtags(reAnchored)).toBe("/data/source");
+		expect(expandFlatHashtags(reAnchored)).toBe("/data/source");
 	});
 });
 

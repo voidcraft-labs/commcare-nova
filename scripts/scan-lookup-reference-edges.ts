@@ -14,10 +14,13 @@
 
 import "dotenv/config";
 import { Command } from "commander";
-import type { Selectable, Transaction } from "kysely";
+import { type Selectable, sql, type Transaction } from "kysely";
 import { closeCaseStoreDatabase } from "@/lib/case-store/postgres/connection";
-import { assembleBlueprint, type EntityRow } from "@/lib/db/blueprintRows";
 import { readStoredLookupReferenceTargets } from "@/lib/db/lookupReferenceEdges";
+import {
+	assemblePersistedBlueprintJsonText,
+	type PersistedEntityRowText,
+} from "@/lib/db/persistedJson";
 import { type AppDatabase, type AppsTable, getAppDb } from "@/lib/db/pg";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { extractLookupReferenceTargets } from "@/lib/doc/lookupReferences";
@@ -64,14 +67,8 @@ if (opts.prod === true) targetProdDb();
 
 type PersistedAppRow = Pick<
 	Selectable<AppsTable>,
-	| "id"
-	| "project_id"
-	| "app_name"
-	| "connect_type"
-	| "case_types"
-	| "logo"
-	| "deleted_at"
->;
+	"id" | "project_id" | "app_name" | "connect_type" | "logo" | "deleted_at"
+> & { readonly case_types_text: string | null };
 
 function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
@@ -96,13 +93,18 @@ async function readStructuralTargets(
 	tx: Transaction<AppDatabase>,
 	row: PersistedAppRow,
 ): Promise<StructuralLookupReferenceRead> {
-	let entityRows: EntityRow[];
+	let entityRows: PersistedEntityRowText[];
 	try {
 		entityRows = (await tx
 			.selectFrom("blueprint_entities")
-			.select(["uuid", "kind", "parent_uuid", "ordinal", "data"])
+			.select(["uuid", "kind", "parent_uuid", "ordinal"])
+			.select(
+				sql<string>`${sql.ref("blueprint_entities.data")}::text`.as(
+					"data_text",
+				),
+			)
 			.where("app_id", "=", row.id)
-			.execute()) as EntityRow[];
+			.execute()) as PersistedEntityRowText[];
 	} catch (error) {
 		return {
 			kind: "error",
@@ -113,12 +115,12 @@ async function readStructuralTargets(
 
 	let doc: ReturnType<typeof hydratePersistedBlueprint>;
 	try {
-		const persisted = assembleBlueprint(
+		const persisted = assemblePersistedBlueprintJsonText(
 			row.id,
 			{
 				app_name: row.app_name,
 				connect_type: row.connect_type,
-				case_types: row.case_types,
+				case_types_text: row.case_types_text,
 				logo: row.logo,
 			},
 			entityRows,
@@ -192,10 +194,14 @@ async function main(): Promise<void> {
 						"project_id",
 						"app_name",
 						"connect_type",
-						"case_types",
 						"logo",
 						"deleted_at",
 					])
+					.select(
+						sql<string | null>`${sql.ref("apps.case_types")}::text`.as(
+							"case_types_text",
+						),
+					)
 					.orderBy("id", "asc")
 					.execute();
 				const results: LookupReferenceScanObservation[] = [];

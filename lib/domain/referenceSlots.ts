@@ -30,9 +30,8 @@
 //
 //   - Derived case wiring (`case_preload`, form actions, child-case
 //     buckets): never stored on the doc — `lib/commcare`'s
-//     `deriveCaseConfig` re-derives it from field ids +
-//     `case_property_on` on demand, so a field rename is followed by
-//     construction and there is no stored slot to register or rewrite.
+//     `deriveCaseConfig` re-derives it from each field's stable uuid,
+//     current path, and explicit `caseWrite` destination on demand.
 //   - Blueprint-root slots (`appId` / `appName` / `connectType` /
 //     `logo` / the order arrays / the `caseTypes` catalog): the
 //     registry's owning entities are field / form / module. The
@@ -159,7 +158,7 @@ export type ReferenceSlot =
 // each group exact against the per-kind schemas.
 
 /** Kinds extending `inputFieldBaseSchema` — full input wiring
- *  (hint / help / required / relevant / case_property_on). */
+ *  (hint / help / required / relevant / caseWrite). */
 const INPUT_KINDS = [
 	"text",
 	"int",
@@ -358,13 +357,19 @@ export const FIELD_REFERENCE_SLOTS = [
 	},
 	{
 		entity: "field",
-		slot: "case_property_on",
-		path: "case_property_on",
+		slot: "case_write_case_type",
+		path: "caseWrite.caseType",
 		kind: "case-type-ref",
-		// The field's declaration site doubles as a reference: the value
-		// names the case type whose property this field writes (and, via
-		// "field id = case property name", which property catalog the
-		// field's id lands in).
+		// One half of the field's explicit case-storage destination.
+		// The sibling `caseWrite.property` is registered independently as
+		// the name-backed property identity on that case type.
+		appliesTo: [...INPUT_KINDS, "hidden"],
+	},
+	{
+		entity: "field",
+		slot: "case_write_property",
+		path: "caseWrite.property",
+		kind: "case-property-ref",
 		appliesTo: [...INPUT_KINDS, "hidden"],
 	},
 ] as const satisfies readonly FieldReferenceSlot[];
@@ -383,9 +388,8 @@ export const FORM_REFERENCE_SLOTS = [
 		entity: "form",
 		slot: "close_condition_field",
 		path: "closeCondition.field",
-		// The checked field's stable uuid (a legacy doc may carry an
-		// unresolvable id verbatim — a dangling pointer, adjudicated by
-		// the validator from the same slot).
+		// The checked field's stable uuid. Admission and validation reject a
+		// missing target; consumers never reinterpret this identity as an id.
 		kind: "entity-uuid",
 		formTypes: ["close"],
 	},

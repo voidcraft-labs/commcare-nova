@@ -41,7 +41,6 @@ import {
 	input,
 	isBlank,
 	isIn,
-	isNull,
 	literal,
 	match,
 	matchAll,
@@ -70,7 +69,6 @@ import {
 import {
 	type PredicateEditContext,
 	predicateCardSchemaList,
-	predicateCardSchemas,
 } from "../editorSchemas";
 
 // ── Fixtures ───────────────────────────────────────────────────────────
@@ -167,7 +165,6 @@ const CURRENTS: Predicate[] = [
 	match(P("date"), term(literal("x")), "fuzzy-date"),
 	isIn(P("int"), literal(1), literal(2)),
 	isIn(P("text"), literal("a"), literal("b")),
-	isNull(P("text")),
 	isBlank(P("text")),
 	multiSelectAny(P("multi_select"), literal("a")),
 	within(P("geopoint"), literal("12 34"), 5, "miles"),
@@ -247,7 +244,11 @@ describe("valid by construction — every admitted verb build type-checks", () =
 		const destination: CaseType = {
 			name: "parent",
 			properties: [
-				{ name: "name", label: proseText("Name"), data_type: "text" },
+				{
+					name: "display_name",
+					label: proseText("Name"),
+					data_type: "text",
+				},
 				{
 					name: "tags",
 					label: proseText("Tags"),
@@ -275,7 +276,7 @@ describe("valid by construction — every admitted verb build type-checks", () =
 			expectedKind: Predicate["kind"];
 		}> = [
 			{
-				current: eq(prop("child", "name", via), literal("A")),
+				current: eq(prop("child", "display_name", via), literal("A")),
 				entryId: "match:starts-with",
 				expectedKind: "match",
 			},
@@ -308,21 +309,6 @@ describe("valid by construction — every admitted verb build type-checks", () =
 			expect(predicateSchema.safeParse(next).success).toBe(true);
 			expect(checkPredicate(next, typeCtx).ok).toBe(true);
 		}
-	});
-
-	it("keeps strict absence recovery-only instead of authoring an unexportable edit", () => {
-		const entry = VERB_ENTRIES.find((candidate) => candidate.id === "is-null");
-		if (entry === undefined) throw new Error("Missing strict absence verb");
-		const current = isNull(P("text"));
-		const ordinary = eq(P("text"), literal("saved"));
-
-		expect(
-			verbEntryAdmitted(entry, current, subjectTypeOf(current), EDIT_CTX),
-		).toBe(true);
-		expect(
-			verbEntryAdmitted(entry, ordinary, subjectTypeOf(ordinary), EDIT_CTX),
-		).toBe(false);
-		expect(predicateCardSchemas["is-null"].authoring).toBe("roundTripOnly");
 	});
 
 	it("does not admit an absence check for a direct literal subject", () => {
@@ -367,9 +353,7 @@ describe("valid by construction — every registry default seeds a valid AST", (
 			};
 			for (const schema of predicateCardSchemaList) {
 				// Only the kinds the editor would actually offer here.
-				if (schema.authoring !== "authorable" || !schema.applicable(editCtx)) {
-					continue;
-				}
+				if (!schema.applicable(editCtx)) continue;
 				const seed = schema.defaultValue(editCtx);
 				expect(
 					predicateSchema.safeParse(seed).success,

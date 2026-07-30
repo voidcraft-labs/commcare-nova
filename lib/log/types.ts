@@ -20,22 +20,22 @@
  */
 import { z } from "zod";
 import {
-	type AttachmentRef,
-	attachmentRefSchema,
+	type AuditAttachmentRef,
+	auditAttachmentRefSchema,
 } from "@/lib/chat/attachmentRefs";
 import { mutationSchema } from "@/lib/doc/types";
 
 // ── Conversation payloads ──────────────────────────────────────────
 
 /**
- * Attachment manifest for a user message — the same `AttachmentRef` shape the
- * composer sends and the stored thread keeps, so admin inspect can show
- * what was attached, and a reader can reach the bytes (`/api/media/{assetId}`)
- * and extract (`/api/media/{assetId}/extract`) from the `assetId`. Only the
- * manifest is logged, never the extract body — that lives durably on the asset.
+ * Attachment manifest for a user message — the live chat shape plus broad
+ * historical asset kinds, snapshotted solely so admin inspect can show what
+ * was attached. These UUIDs are immutable,
+ * non-dereferenced audit receipts: they are never resolved, remapped, copied,
+ * reverse-indexed, or allowed to block deletion. Only the manifest is logged.
  */
-export const conversationAttachmentSchema = attachmentRefSchema;
-export type ConversationAttachment = AttachmentRef;
+export const conversationAttachmentSchema = auditAttachmentRefSchema;
+export type ConversationAttachment = AuditAttachmentRef;
 
 /**
  * Classified error payload — a small subset of `ClassifiedError` shared on

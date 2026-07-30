@@ -15,7 +15,7 @@ import {
 	RunHolderLostError,
 } from "@/lib/db/commitGuard";
 import {
-	describeIntroducedErrors,
+	describeCommitFindings,
 	evaluatePreparedMutationCandidate,
 	mutationCommitVerdict,
 	mutationWireCanonicalityRejection,
@@ -32,7 +32,6 @@ import {
 import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
-import type { MediaAttachExpectation } from "@/lib/media/attachVerdicts";
 import type {
 	StagedMutationBatch,
 	ToolExecutionContext,
@@ -63,7 +62,7 @@ export function applyToDoc(doc: BlueprintDoc, muts: unknown): BlueprintDoc {
  * passed the validity gate AND was persisted; `newDoc` is the doc the
  * tool continues against. `ok: false` means the gate rejected the batch
  * — nothing was written — and `error` is the person-to-person message
- * (one line per introduced finding) the tool returns in its `{ error }`
+ * (one line per candidate finding) the tool returns in its `{ error }`
  * envelope so the agent self-corrects in its loop.
  */
 export type GuardedMutateOutcome =
@@ -89,19 +88,12 @@ export type GuardedMutateOutcome =
  * `applyToDoc` + `ctx.recordMutations` themselves — a direct write would
  * skip the gate. (`applyToDoc` stays exported for non-commit candidate
  * computation, e.g. `editField`'s convert pre-check.)
- *
- * `mediaExpectations` rides through to `ctx.recordMutations` when the
- * batch attaches media references: the media tools have already run the
- * pre-commit asset verdict (`mediaAttachVerdict`), and BOTH surfaces then
- * re-apply the per-asset judgment inside the guarded transaction that
- * re-verdicts the batch (see `toolExecutionContext.ts`).
  */
 export async function guardedMutate(
 	ctx: ToolExecutionContext,
 	prevDoc: BlueprintDoc,
 	mutations: unknown,
 	stage?: string,
-	mediaExpectations?: readonly MediaAttachExpectation[],
 ): Promise<GuardedMutateOutcome> {
 	// S02b has no constructible lookup carriers. Keep this advisory tool-layer
 	// verdict explicit about lacking a definition snapshot; the authoritative
@@ -112,7 +104,7 @@ export async function guardedMutate(
 		LOOKUP_CONTEXT_UNAVAILABLE,
 	);
 	if (!verdict.ok) {
-		return { ok: false, error: describeIntroducedErrors(verdict.introduced) };
+		return { ok: false, error: describeCommitFindings(verdict.findings) };
 	}
 	if (verdict.mutations.length > 0) {
 		/* The guarded commit re-applies onto the FRESH stored doc, so its
@@ -122,11 +114,7 @@ export async function guardedMutate(
 		 * authoritative commit conflict throws `BlueprintCommitRejectedError`,
 		 * which is NOT caught here — it propagates to `wrapMutating`, which
 		 * reloads fresh. */
-		const { committedDoc } = await ctx.recordMutations(
-			verdict.prepared,
-			stage,
-			mediaExpectations,
-		);
+		const { committedDoc } = await ctx.recordMutations(verdict.prepared, stage);
 		return {
 			ok: true,
 			newDoc: committedDoc,
@@ -171,17 +159,16 @@ export async function guardedMutateStages(
 		if (rejected.ok) throw new Error("Canonicality rejection was accepted");
 		return {
 			ok: false,
-			error: describeIntroducedErrors(rejected.introduced),
+			error: describeCommitFindings(rejected.findings),
 		};
 	}
 	const prepared = prepareMutationCandidate(prevDoc, admitted.batch);
 	const verdict = evaluatePreparedMutationCandidate(
-		prevDoc,
 		prepared,
 		LOOKUP_CONTEXT_UNAVAILABLE,
 	);
 	if (!verdict.ok) {
-		return { ok: false, error: describeIntroducedErrors(verdict.introduced) };
+		return { ok: false, error: describeCommitFindings(verdict.findings) };
 	}
 	if (admitted.batch.length === 0) {
 		return { ok: true, newDoc: prevDoc, mutations: admitted.batch };

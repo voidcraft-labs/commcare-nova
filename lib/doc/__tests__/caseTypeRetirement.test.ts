@@ -9,7 +9,7 @@
  *     goes with the removal), but on a RETYPE the module stays and its
  *     references block;
  *   - every reference class blocks with a person-readable description:
- *     a child record's `parent_type`, a field's `case_property_on`, a
+ *     a child record's `parent_type`, a field's `caseWrite.caseType`, a
  *     `#<type>/…` hashtag in an XPath or prose slot, and a predicate
  *     AST leaf naming the type;
  *   - a type still owned by another module needs no cascade at all.
@@ -95,7 +95,10 @@ function twoModuleDoc(overrides?: {
 								kind: "text",
 								id: "case_name",
 								label: proseText("Name"),
-								case_property_on: "patient",
+								caseWrite: {
+									caseType: "patient",
+									property: "case_name",
+								},
 							}),
 							...(overrides?.patientExtraFields ?? []),
 						],
@@ -117,7 +120,10 @@ function twoModuleDoc(overrides?: {
 								kind: "text",
 								id: "case_name",
 								label: proseText("Name"),
-								case_property_on: "visit",
+								caseWrite: {
+									caseType: "visit",
+									property: "case_name",
+								},
 							}),
 						],
 					},
@@ -188,7 +194,10 @@ describe("planCaseTypeRetirementOnRemove", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Name"),
-									case_property_on: "patient",
+									caseWrite: {
+										caseType: "patient",
+										property: "case_name",
+									},
 								}),
 							],
 						},
@@ -266,7 +275,7 @@ describe("planCaseTypeRetirementOnRemove", () => {
 					kind: "text",
 					id: "visit_note",
 					label: proseText("Visit note"),
-					case_property_on: "visit",
+					caseWrite: { caseType: "visit", property: "visit_note" },
 				}),
 			],
 		});
@@ -278,13 +287,13 @@ describe("planCaseTypeRetirementOnRemove", () => {
 		expect(plan.kind).toBe("blocked");
 		if (plan.kind !== "blocked") return;
 		expect(plan.references).toEqual([
-			'field "visit_note" in form "Register patient" (module "Patients") saves to it (case_property_on)',
+			'field "visit_note" in form "Register patient" (module "Patients") saves to it (caseWrite.caseType)',
 		]);
 	});
 
-	it("two-voice split: message keeps the wire spelling, userMessage is jargon-free", () => {
+	it("two-voice split: message keeps the authored slot, userMessage is jargon-free", () => {
 		// The same blocked verdict feeds the SA `{ error }` envelope (verbose
-		// `message` — the raw `case_property_on` slot key, the `#type/…`
+		// `message` — the exact `caseWrite.caseType` slot, the `#type/…`
 		// reference shape) AND the builder toast (`userMessage` — neither).
 		const doc = twoModuleDoc({
 			patientExtraFields: [
@@ -299,7 +308,7 @@ describe("planCaseTypeRetirementOnRemove", () => {
 							property: "case_name",
 						},
 					),
-					case_property_on: "visit",
+					caseWrite: { caseType: "visit", property: "summary" },
 				}),
 			],
 		});
@@ -311,11 +320,11 @@ describe("planCaseTypeRetirementOnRemove", () => {
 		if (plan.kind !== "blocked") return;
 
 		// SA voice keeps the detail it self-corrects on.
-		expect(plan.message).toContain("(case_property_on)");
+		expect(plan.message).toContain("(caseWrite.caseType)");
 		expect(plan.message).toContain("#visit/");
 
 		// Builder voice carries neither — same facts, no wire vocabulary.
-		expect(plan.userMessage).not.toContain("case_property_on");
+		expect(plan.userMessage).not.toContain("caseWrite.caseType");
 		expect(plan.userMessage).not.toContain("#visit/");
 		expect(plan.userMessage).toContain('field "summary"');
 		expect(plan.userMessage).toContain("saves to it");
@@ -414,7 +423,10 @@ describe("planCaseTypeRetirementOnRemove", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Visit for #visit/case_name"),
-									case_property_on: "visit",
+									caseWrite: {
+										caseType: "visit",
+										property: "case_name",
+									},
 									relevant: "#visit/case_name != ''",
 								}),
 							],
@@ -444,7 +456,7 @@ describe("planCaseTypeRetirementOnRetype", () => {
 		if (plan.kind !== "blocked") return;
 		expect(plan.caseType).toBe("visit");
 		expect(plan.references).toEqual([
-			'field "case_name" in form "Record visit" (module "Visits") saves to it (case_property_on)',
+			'field "case_name" in form "Record visit" (module "Visits") saves to it (caseWrite.caseType)',
 		]);
 		expect(plan.message).toContain(
 			'Changing module "Visits" to case type "patient"',

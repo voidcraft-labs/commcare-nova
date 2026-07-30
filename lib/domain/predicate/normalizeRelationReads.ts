@@ -24,7 +24,7 @@
 //   - `ValueExpression`-wrapped as `term(prop(via))`, either directly
 //     or below a CSQL-native value function, in operand slots:
 //     `compare.{left,right}`, `in.left`,
-//     `between.{left,lower,upper}`, `is-null.left`, `is-blank.left`,
+//     `between.{left,lower,upper}`, `is-blank.left`,
 //     `match.value`, and `within-distance.center`.
 //
 // The walker handles both shapes uniformly via `normalizePredicate`,
@@ -68,9 +68,8 @@
 // inlining is the only wire-correct shape for runtime-resolved
 // expressions reachable inside `_xpath_query`.
 //
-// `is-null` and `is-blank` rewrite to the same wire form on CSQL
-// (`<term> = ''`); the rewrite happens at the emitter, not here, so
-// the via-lift pass leaves both intact.
+// `is-blank` rewrites to `<term> = ''` on CSQL; the rewrite happens at
+// the emitter, not here, so the via-lift pass leaves it intact.
 
 import type { CaseType } from "../blueprint";
 import { relationDestinationCaseType } from "./rewrite";
@@ -213,7 +212,6 @@ export function normalizeRelationPredicateSubjects(
 		case "lte":
 		case "in":
 		case "between":
-		case "is-null":
 		case "is-blank":
 			return predicate;
 		default: {
@@ -251,7 +249,6 @@ function normalizePredicate(
 			return liftInVias(p, context);
 		case "between":
 			return liftBetweenVias(p, context);
-		case "is-null":
 		case "is-blank":
 			return liftAbsenceVias(p, context);
 		case "match":
@@ -722,11 +719,11 @@ function liftBetweenVias(
 }
 
 /**
- * Lift property vias on `is-null.left` / `is-blank.left`. Single
+ * Lift property vias on `is-blank.left`. Single
  * operand; the rewrite mirrors the LHS lift on comparisons.
  */
 function liftAbsenceVias(
-	p: Extract<Predicate, { kind: "is-null" | "is-blank" }>,
+	p: Extract<Predicate, { kind: "is-blank" }>,
 	context: RelationReadNormalizationContext,
 ): Predicate {
 	const liftedLeft = liftFirstViaInCsqlValueExpression(p.left, context);
@@ -968,7 +965,6 @@ function nativePropertyRefs(expression: ValueExpression): PropertyRef[] {
 		case "date-coerce":
 		case "datetime-coerce":
 		case "double":
-		case "unwrap-list":
 			return nativePropertyRefs(expression.value);
 		case "date-add":
 			return [
@@ -1095,8 +1091,8 @@ type ValueExpressionViaLift =
  *
  * The traversal mirrors `isCsqlValueFunctionArm` and
  * `emitCsqlExpressionSegments`: `term`, date/datetime coercion,
- * `double`, `date-add`, and `unwrap-list` reach the native CSQL term
- * emitter. Non-native roots (`arith`, `concat`, `coalesce`, `if`,
+ * `double`, and `date-add` reach the native CSQL term emitter.
+ * Non-native roots (`arith`, `concat`, `coalesce`, `if`,
  * `switch`, `count`, `format-date`) deliberately stop here because
  * `inlineAsRuntimeOperand` evaluates them through the on-device
  * emitter, which already retains PropertyRef.via in its XPath.
@@ -1129,8 +1125,7 @@ function liftFirstViaInCsqlValueExpression(
 			return { lifted: false, expression: expr };
 		case "date-coerce":
 		case "datetime-coerce":
-		case "double":
-		case "unwrap-list": {
+		case "double": {
 			const child = liftFirstViaInCsqlValueExpression(expr.value, context);
 			if (!child.lifted) {
 				return { lifted: false, expression: expr };

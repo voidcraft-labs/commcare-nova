@@ -24,25 +24,35 @@
  */
 import { createStore, type StoreApi } from "zustand/vanilla";
 import type { JsonObject, JsonValue } from "@/lib/case-store";
+import {
+	assertAndProjectCaseWriteInventory,
+	type ProjectedCaseWriteInventory,
+} from "@/lib/commcare/caseWriteAdmission";
 import type {
+	BlueprintDoc,
 	CaseProperty,
 	CasePropertyDataType,
 	CaseType,
+	CaseWriteBucket,
 	Field,
 	Form,
+	FormType,
 	LookupOptionsSource,
 	Uuid,
 } from "@/lib/domain";
 import {
 	asUuid,
 	CASE_LOADING_FORM_TYPES,
+	type CaseWriteField,
 	casePropertyDataTypes,
+	deriveCaseWriteInventory,
 	expressionSource,
 	fieldProseTemplate,
 	isCaptureFieldKind,
 	isReadableTemporalValue,
 	orderedCaseOperations,
 	ownRecordValue,
+	prepareCaseScalarTextValue,
 	storageDatetimeValue,
 	storageTimeValue,
 	type XPathPrintableDoc,
@@ -114,8 +124,8 @@ export type EngineStoreState = Record<string, FieldState>;
  * loaded case under the module's own type plus one entry per ancestor
  * type in its parent chain (the shallowest row of a type owns the
  * namespace — `caseRowsToFormPreloads` builds the shape). Each inner
- * map is a flattened property bag: JSONB keys plus the reserved
- * scalar aliases (`case_id`, `date_opened`, …).
+ * map is a flattened property bag: JSONB keys plus the canonical
+ * scalar names (`case_id`, `date_opened`, …).
  */
 export type CaseDataByType = Map<string, Map<string, string>>;
 
@@ -133,6 +143,8 @@ export interface FormEngineInput {
 	fields: Record<string, Field>;
 	/** Adjacency list from parent uuid → ordered child uuids (`doc.fieldOrder`). */
 	fieldOrder: Record<string, Uuid[]>;
+	/** Complete case-type catalog used to admit own/direct-child writes. */
+	caseTypes: readonly CaseType[];
 	/** Custom worker-information identities used to print `#user/*` refs. */
 	userProperties?: XPathPrintableDoc["userProperties"];
 }
@@ -146,6 +158,16 @@ function printableDocOf(input: FormEngineInput): XPathPrintableDoc {
 		fields: input.fields,
 		fieldOrder: input.fieldOrder,
 		userProperties: input.userProperties,
+	};
+}
+
+function caseWriteDocOf(
+	input: FormEngineInput,
+): Pick<BlueprintDoc, "fields" | "fieldOrder" | "caseTypes"> {
+	return {
+		fields: input.fields,
+		fieldOrder: input.fieldOrder as BlueprintDoc["fieldOrder"],
+		caseTypes: [...input.caseTypes],
 	};
 }
 
@@ -181,6 +203,11 @@ export class FormEngine {
 	 *  field slice rooted at its one form. Rebuilt whenever the input
 	 *  is re-supplied. */
 	private printDoc: XPathPrintableDoc;
+	/** Exact topology surface consumed by the shared case-write inventory. */
+	private caseWriteDoc: Pick<
+		BlueprintDoc,
+		"fields" | "fieldOrder" | "caseTypes"
+	>;
 	/** Rose-tree of the active form's fields. Rebuilt on schema refresh so
 	 *  every walker inside the engine agrees on the same snapshot. */
 	private tree: FieldTreeNode[];
@@ -199,7 +226,7 @@ export class FormEngine {
 	 *  retype the mismatch is detectable and preload can't seed fields
 	 *  from an ancestor's row as if it were the bound case. */
 	private caseDataOwnType: string | undefined;
-	private formType: string;
+	private formType: FormType;
 	/** One Project lookup fixture snapshot captured for the engine's
 	 *  LIFETIME — lookup-backed choices stay stable within a form
 	 *  session (the wire's install/upgrade fixture semantic); the next
@@ -234,6 +261,7 @@ export class FormEngine {
 		this.caseData = caseData ?? new Map();
 		this.tree = buildFieldTree(input.formUuid, input.fields, input.fieldOrder);
 		this.printDoc = printableDocOf(input);
+		this.caseWriteDoc = caseWriteDocOf(input);
 
 		this.instance = new DataInstance();
 		this.instance.initFromFields(this.tree);
@@ -800,11 +828,11 @@ export class FormEngine {
 	 * injected so the engine stays state-pure across the JSONB-coercion
 	 * dimension.
 	 *
-	 * For each leaf field whose `case_property_on` matches the module's
-	 * case type the value lands in the primary's `properties`; any
-	 * other case-property-bound field buckets into a child case keyed
-	 * by `(destination case type, repeat-instance-key)`. Repeat regions
-	 * fan out one bucket per instance per destination case type.
+	 * For each leaf field in the shared case-write inventory, an own-type
+	 * destination lands in the primary's `properties`; an exact direct-child
+	 * destination buckets into a child case keyed by `(destination case type,
+	 * repeat-instance-key)`. Repeat regions fan out one bucket per instance
+	 * per destination case type.
 	 *
 	 * Empty values (`undefined` from an absent path or `""` from a
 	 * cleared leaf) are excluded from the JSONB document — `state.visible`
@@ -829,6 +857,32 @@ export class FormEngine {
 			);
 		}
 		return asUuid(formUuid);
+	}
+
+	/**
+	 * Derive and admit case writes through the same path-aware inventory used
+	 * by validation and wire emission. Preview never re-interprets field ids as
+	 * case properties and never invents child membership independently.
+	 */
+	private projectedCaseWrites(): ProjectedCaseWriteInventory {
+		const inventory = deriveCaseWriteInventory(
+			this.caseWriteDoc,
+			this.activeFormUuid(),
+			{ caseType: this.moduleCaseType },
+			this.formType,
+		);
+		return assertAndProjectCaseWriteInventory(inventory);
+	}
+
+	private primaryCaseWritesByField(
+		projected: ProjectedCaseWriteInventory = this.projectedCaseWrites(),
+	): ReadonlyMap<Uuid, CaseWriteField> {
+		const primary = projected.buckets.find(
+			({ bucket }) => bucket.kind === "primary",
+		);
+		return new Map(
+			(primary?.writers ?? []).map(({ writer }) => [writer.fieldUuid, writer]),
+		);
 	}
 
 	/**
@@ -1028,7 +1082,6 @@ export class FormEngine {
 
 	computeSubmissionMutation(args: {
 		caseId?: string;
-		caseTypes: ReadonlyArray<CaseType>;
 		/**
 		 * This form entry's attachment scope, supplied by the CONTROLLER
 		 * rather than owned here.
@@ -1059,6 +1112,7 @@ export class FormEngine {
 		 * NOT short-circuit — its program still executes. */
 		const operationAnswers = this.computeOperationAnswers();
 		const attachmentRefs = this.collectAttachmentReferences();
+		const projectedCaseWrites = this.projectedCaseWrites();
 		const operationIdentity = {
 			formUuid: this.activeFormUuid() as string,
 			entryKey: args.entryKey,
@@ -1087,37 +1141,42 @@ export class FormEngine {
 		}
 
 		const caseTypeLookup = new Map<string, CaseType>();
-		for (const caseType of args.caseTypes) {
+		for (const caseType of this.caseWriteDoc.caseTypes ?? []) {
 			caseTypeLookup.set(caseType.name, caseType);
 		}
 
 		const primaryProperties: JsonObject = {};
-		// `case_name` is plucked into a separate slot rather than included
-		// in `properties` because the case-store routes the case display
-		// name to the top-level `cases.case_name` column (see
-		// `lib/case-store/store.ts` — `CaseInsert.case_name` is a top-level
-		// field, not extracted from the JSONB document).
+		// Standard writable scalars are plucked into dedicated slots. They
+		// never enter the custom JSON property document.
 		let primaryCaseName: string | undefined;
-		// Encounter-ordered child buckets so the emitted mutation is
-		// deterministic per (engine state, caseTypes) pair.
+		let primaryExternalId: string | undefined;
+		const effectivelyVisible = this.effectivelyVisiblePaths(
+			this.store.getState(),
+		);
+		// Encounter-ordered materializations of canonical child buckets. The
+		// inventory owns action identity; runtime traversal contributes only a
+		// concrete iteration key for a bucket whose repeat UUID already matches.
 		const childBuckets: ChildBucket[] = [];
-		// Composite key `<caseType>::<repeatInstanceKey>` so multiple
-		// fields contributing to the same child case coalesce into one
-		// bucket; distinct repeat instances of the same case type produce
-		// distinct buckets.
-		const childBucketIndex = new Map<string, ChildBucket>();
+		const childBucketIndex = new Map<
+			CaseWriteBucket,
+			Map<string, ChildBucket>
+		>();
 		const requireBucket = (
-			caseType: string,
+			bucket: CaseWriteBucket,
 			repeatInstanceKey: string,
 		): ChildBucket => {
-			const key = `${caseType}::${repeatInstanceKey}`;
-			const existing = childBucketIndex.get(key);
+			let byIteration = childBucketIndex.get(bucket);
+			if (byIteration === undefined) {
+				byIteration = new Map();
+				childBucketIndex.set(bucket, byIteration);
+			}
+			const existing = byIteration.get(repeatInstanceKey);
 			if (existing !== undefined) return existing;
 			const created: ChildBucket = {
-				caseType,
+				caseType: bucket.caseType,
 				properties: {},
 			};
-			childBucketIndex.set(key, created);
+			byIteration.set(repeatInstanceKey, created);
 			childBuckets.push(created);
 			return created;
 		};
@@ -1125,7 +1184,9 @@ export class FormEngine {
 		const walk = (
 			nodes: ReadonlyArray<FieldTreeNode>,
 			pathPrefix: string,
-			repeatInstanceKey: string,
+			activeRepeat:
+				| { readonly uuid: Uuid; readonly instanceKey: string }
+				| undefined,
 		): void => {
 			for (const node of nodes) {
 				const f = node.field;
@@ -1133,7 +1194,7 @@ export class FormEngine {
 
 				if (f.kind === "group") {
 					if (node.children) {
-						walk(node.children, fieldPath, repeatInstanceKey);
+						walk(node.children, fieldPath, activeRepeat);
 					}
 					continue;
 				}
@@ -1142,63 +1203,102 @@ export class FormEngine {
 					const instanceCount = this.instance.getRepeatCount(fieldPath);
 					for (let i = 0; i < instanceCount; i++) {
 						const instancePath = `${fieldPath}[${i}]`;
-						walk(node.children, instancePath, instancePath);
+						walk(node.children, instancePath, {
+							uuid: f.uuid,
+							instanceKey: instancePath,
+						});
 					}
 					continue;
 				}
 
-				const casePropertyOn = readCasePropertyOn(f);
-				if (casePropertyOn === undefined) continue;
+				const projected = projectedCaseWrites.writerByUuid.get(f.uuid);
+				if (projected === undefined) continue;
+				const { writer, bucket } = projected;
+				if (bucket.repeatUuid !== activeRepeat?.uuid) {
+					throw new Error(
+						compilerBugMessage({
+							where: "preview.formEngine.computeSubmissionMutation",
+							invariant: `canonical case-write bucket repeat \`${bucket.repeatUuid ?? "root"}\` does not match active nearest repeat \`${activeRepeat?.uuid ?? "root"}\` for writer \`${writer.fieldUuid}\``,
+							detail:
+								"Preview materializes the shared inventory bucket; it must never infer a new bucket from a rendered path or case-type name.",
+						}),
+					);
+				}
 
+				const isPrimary = bucket.kind === "primary";
+				const repeatInstanceKey = activeRepeat?.instanceKey ?? "";
 				const raw = this.instance.get(fieldPath);
+
+				if (
+					writer.property === "case_name" ||
+					writer.property === "external_id"
+				) {
+					// An absent or irrelevant scalar writer means no write. An ACTIVE
+					// empty external-id answer is different: it explicitly clears the
+					// scalar to `""`.
+					if (raw === undefined || !effectivelyVisible.has(fieldPath)) continue;
+					const blank = writer.property === "external_id" ? "allow" : "reject";
+					const prepared = prepareCaseScalarTextValue(raw, blank);
+					if (!prepared.ok) {
+						throw new Error(
+							`Case field "${f.id}" cannot write ${writer.property}: the value is ${prepared.reason === "blank" ? "blank after CommCare-compatible boundary control characters are removed" : "longer than 255 UTF-16 code units"}.`,
+						);
+					}
+					if (isPrimary) {
+						if (writer.property === "case_name") {
+							primaryCaseName = prepared.value;
+						} else {
+							primaryExternalId = prepared.value;
+						}
+					} else {
+						const child = requireBucket(bucket, repeatInstanceKey);
+						if (writer.property === "case_name") {
+							child.caseName = prepared.value;
+						} else {
+							child.externalId = prepared.value;
+						}
+					}
+					continue;
+				}
+
 				if (raw === undefined || raw === "") continue;
 
-				const isPrimary =
-					this.moduleCaseType !== undefined &&
-					casePropertyOn === this.moduleCaseType;
-
-				// `case_name` routes to the top-level `cases.case_name`
-				// column, not the JSONB document. Field id is the case
-				// property name (project convention), so the discriminator
-				// is `f.id === "case_name"`. The string passes through
-				// verbatim — `text NOT NULL` at the column means the
-				// property's `data_type` is irrelevant for the column write.
-				if (f.id === "case_name") {
-					if (isPrimary) {
-						primaryCaseName = raw;
-					} else {
-						const bucket = requireBucket(casePropertyOn, repeatInstanceKey);
-						bucket.caseName = raw;
-					}
-					continue;
-				}
-
 				const property = caseTypeLookup
-					.get(casePropertyOn)
-					?.properties.find((p) => p.name === f.id);
+					.get(writer.caseType)
+					?.properties.find((candidate) => candidate.name === writer.property);
+				if (property === undefined) {
+					throw new Error(
+						compilerBugMessage({
+							where: "preview.formEngine.computeSubmissionMutation",
+							invariant: `materializable case type \`${writer.caseType}\` has no property \`${writer.property}\` for writer \`${writer.fieldUuid}\``,
+							detail:
+								"Engine input must carry materializableCaseTypes(doc), which appends every writer-derived property before Preview coerces a submitted value.",
+						}),
+					);
+				}
 				const coerced = coerceValueForProperty(raw, property, zone);
 
 				if (isPrimary) {
-					primaryProperties[f.id] = coerced;
+					primaryProperties[writer.property] = coerced;
 					continue;
 				}
 
-				const bucket = requireBucket(casePropertyOn, repeatInstanceKey);
-				bucket.properties[f.id] = coerced;
+				requireBucket(bucket, repeatInstanceKey).properties[writer.property] =
+					coerced;
 			}
 		};
 
-		walk(this.tree, "/data", "");
+		walk(this.tree, "/data", undefined);
 
-		// A bucket that received only a `caseName` write (no scalar
-		// properties) is still a legitimate child — the child has a
-		// display name and platform defaults for everything else.
-		// Buckets with neither a `caseName` nor any property write are
-		// dropped; the walker only creates buckets when a contributing
-		// field lands in them, so the predicate is defensive against an
-		// upstream change to bucket creation.
+		// A bucket that received only a `caseName` or `externalId` scalar
+		// write (no custom properties) is still a legitimate child. Buckets
+		// with no scalar or custom-property write are dropped; the walker
+		// only creates buckets when a contributing field lands in them, so
+		// the predicate is defensive against an upstream change to creation.
 		const isContentfulBucket = (b: ChildBucket): boolean =>
-			b.caseName !== undefined || Object.keys(b.properties).length > 0;
+			b.caseName !== undefined ||
+			b.externalId !== undefined ||
+			Object.keys(b.properties).length > 0;
 
 		switch (this.formType) {
 			case "registration": {
@@ -1216,6 +1316,7 @@ export class FormEngine {
 				const children = childBuckets.filter(isContentfulBucket).map((b) => ({
 					caseType: b.caseType,
 					...(b.caseName !== undefined ? { caseName: b.caseName } : {}),
+					...(b.externalId !== undefined ? { externalId: b.externalId } : {}),
 					properties: b.properties,
 				}));
 				return {
@@ -1225,6 +1326,9 @@ export class FormEngine {
 						caseType: this.moduleCaseType,
 						...(primaryCaseName !== undefined
 							? { caseName: primaryCaseName }
+							: {}),
+						...(primaryExternalId !== undefined
+							? { externalId: primaryExternalId }
 							: {}),
 						properties: primaryProperties,
 					},
@@ -1249,12 +1353,16 @@ export class FormEngine {
 				const children = childBuckets.filter(isContentfulBucket).map((b) => ({
 					caseType: b.caseType,
 					...(b.caseName !== undefined ? { caseName: b.caseName } : {}),
+					...(b.externalId !== undefined ? { externalId: b.externalId } : {}),
 					properties: b.properties,
 					parentCaseId: caseId,
 				}));
 				const patch = {
 					...(primaryCaseName !== undefined
 						? { caseName: primaryCaseName }
+						: {}),
+					...(primaryExternalId !== undefined
+						? { externalId: primaryExternalId }
 						: {}),
 					properties: primaryProperties,
 				};
@@ -1313,6 +1421,7 @@ export class FormEngine {
 	rebuildDag(input: FormEngineInput): void {
 		this.tree = buildFieldTree(input.formUuid, input.fields, input.fieldOrder);
 		this.printDoc = printableDocOf(input);
+		this.caseWriteDoc = caseWriteDocOf(input);
 		this.dag = new TriggerDag();
 		this.dag.build(this.tree, this.printDoc);
 	}
@@ -1662,6 +1771,8 @@ export class FormEngine {
 		moduleCaseType?: string,
 	): void {
 		this.tree = buildFieldTree(input.formUuid, input.fields, input.fieldOrder);
+		this.printDoc = printableDocOf(input);
+		this.caseWriteDoc = caseWriteDocOf(input);
 		this.formType = input.form.type;
 		this.caseData = caseData;
 		this.moduleCaseType = moduleCaseType;
@@ -1688,6 +1799,10 @@ export class FormEngine {
 	private preloadCaseDataTracked(
 		tree: FieldTreeNode[],
 		changedPaths: string[],
+		writesByField: ReadonlyMap<
+			Uuid,
+			CaseWriteField
+		> = this.primaryCaseWritesByField(),
 		prefix = "/data",
 	): void {
 		const own = this.ownCaseData();
@@ -1695,13 +1810,9 @@ export class FormEngine {
 		for (const node of tree) {
 			const f = node.field;
 			const path = `${prefix}/${f.id}`;
-			const withCP = f as Field & { case_property_on?: string };
-			if (
-				withCP.case_property_on &&
-				withCP.case_property_on === this.moduleCaseType &&
-				own.has(f.id)
-			) {
-				const newValue = own.get(f.id) ?? "";
+			const writer = writesByField.get(f.uuid);
+			if (writer !== undefined && own.has(writer.property)) {
+				const newValue = own.get(writer.property) ?? "";
 				const oldValue = this.instance.get(path) ?? "";
 				if (newValue !== oldValue) {
 					this.instance.set(path, newValue);
@@ -1710,7 +1821,12 @@ export class FormEngine {
 			}
 			if (node.children) {
 				const childPrefix = f.kind === "repeat" ? `${path}[0]` : path;
-				this.preloadCaseDataTracked(node.children, changedPaths, childPrefix);
+				this.preloadCaseDataTracked(
+					node.children,
+					changedPaths,
+					writesByField,
+					childPrefix,
+				);
 			}
 		}
 	}
@@ -1733,6 +1849,7 @@ export class FormEngine {
 		this.caseData = caseData ?? new Map();
 		this.tree = buildFieldTree(input.formUuid, input.fields, input.fieldOrder);
 		this.printDoc = printableDocOf(input);
+		this.caseWriteDoc = caseWriteDocOf(input);
 
 		this.instance = new DataInstance();
 		this.instance.initFromFields(this.tree);
@@ -2170,28 +2287,31 @@ export class FormEngine {
 		return this.caseData.get(this.moduleCaseType);
 	}
 
-	private preloadCaseData(tree: FieldTreeNode[], prefix = "/data"): void {
+	private preloadCaseData(
+		tree: FieldTreeNode[],
+		writesByField: ReadonlyMap<
+			Uuid,
+			CaseWriteField
+		> = this.primaryCaseWritesByField(),
+		prefix = "/data",
+	): void {
 		const own = this.ownCaseData();
 		if (own === undefined) return;
 		for (const node of tree) {
 			const f = node.field;
 			const path = `${prefix}/${f.id}`;
-			const withCP = f as Field & { case_property_on?: string };
-			if (
-				withCP.case_property_on &&
-				withCP.case_property_on === this.moduleCaseType &&
-				own.has(f.id)
-			) {
+			const writer = writesByField.get(f.uuid);
+			if (writer !== undefined && own.has(writer.property)) {
 				// Verbatim: the instance holds a temporal value exactly as the
 				// case store holds it, so this path, its `Tracked` twin, and
-				// the `#case/<prop>` resolver in `createEvalContext` cannot
+				// typed case-ref resolution in `createEvalContext` cannot
 				// disagree about the same property (see
 				// `lib/domain/temporalValues.ts`).
-				this.instance.set(path, own.get(f.id) ?? "");
+				this.instance.set(path, own.get(writer.property) ?? "");
 			}
 			if (node.children) {
 				const childPrefix = f.kind === "repeat" ? `${path}[0]` : path;
-				this.preloadCaseData(node.children, childPrefix);
+				this.preloadCaseData(node.children, writesByField, childPrefix);
 			}
 		}
 	}
@@ -2296,15 +2416,18 @@ export class FormEngine {
 				// case (wire depth 0), an ANCESTOR type addresses the matching
 				// row of the parent chain (the preview counterpart of the
 				// wire's `…/index/parent × depth …` casedb walk — depth is
-				// implicit in which row claimed the type name). The
-				// transitional `#case/<prop>` spelling aliases the own type.
-				// On a registration form no case is loaded, the map is empty,
+				// implicit in which row claimed the type name). On a
+				// registration form no case is loaded, the map is empty,
 				// and every case ref reads blank, matching the wire's
 				// narrowing (the new case isn't in casedb at form init).
 				const match = /^#([^/]+)\/(.+)$/.exec(ref);
 				if (match) {
-					const namespace =
-						match[1] === "case" ? this.moduleCaseType : match[1];
+					const namespace = match[1];
+					if (namespace === "case") {
+						throw new Error(
+							'Authored "#case/..." is not a Nova reference; Preview requires an explicit case-type namespace',
+						);
+					}
 					const data =
 						namespace !== undefined ? this.caseData.get(namespace) : undefined;
 					return data?.get(match[2] ?? "") ?? "";
@@ -2469,42 +2592,31 @@ export class FormEngine {
  * `repeatInstanceKey` collapses fields outside any repeat into a
  * single bucket per case type.
  *
- * `caseName` is mutable because the walker encounters the
- * `case_name`-id field at most once per bucket. The slot stays
- * separate from `properties` because `case_name` routes to the
- * top-level `cases.case_name` column, not the JSONB document.
+ * `caseName` and `externalId` are mutable because admission guarantees at
+ * most one writer for each standard scalar per bucket. Both slots stay
+ * separate from `properties` because they route to the top-level
+ * `cases.case_name` and `cases.external_id` columns, not the JSONB document.
  */
 interface ChildBucket {
 	caseType: string;
 	caseName?: string;
+	externalId?: string;
 	properties: JsonObject;
 }
 
-/**
- * Read `case_property_on` off a domain `Field` generically. The
- * property lives on `inputFieldBaseSchema` only, but reading through
- * the discriminated union without per-kind narrowing keeps the
- * walker free of N×M branching.
- */
-function readCasePropertyOn(field: Field): string | undefined {
-	const value = (field as unknown as Record<string, unknown>).case_property_on;
-	return typeof value === "string" && value.length > 0 ? value : undefined;
-}
-
-/** String-typed membership check for the engine's `formType` slot (the
- *  constructor keeps it as `string`), widening the domain set once. */
-function isCaseLoadingFormType(formType: string): boolean {
-	return (CASE_LOADING_FORM_TYPES as ReadonlySet<string>).has(formType);
+/** Domain-typed membership check for the engine's active form type. */
+function isCaseLoadingFormType(formType: FormType): boolean {
+	return CASE_LOADING_FORM_TYPES.has(formType);
 }
 
 /**
  * Coerce the form engine's string value into the typed JSON value
  * the case-store JSON Schema validator expects. Mirrors
- * `caseTypeToJsonSchema`'s per-`data_type` mapping. Properties whose
- * declaration cannot be resolved (missing case type or missing
- * property) default to `text` pass-through — preserves the value
- * verbatim rather than dropping it. Empty raw values never reach
- * this function — the walker filters them upstream.
+ * `caseTypeToJsonSchema`'s per-`data_type` mapping. Engine input carries the
+ * materializable case-type view, so every explicit writer has an entry here;
+ * a present property with no pinned `data_type` follows the shared
+ * effective-type convention and reads as text. Empty raw values never reach
+ * this function.
  *
  * The two temporal arms are the storage boundary: the engine holds what
  * the device's instance holds, and the strict row schema wants more than
@@ -2541,10 +2653,10 @@ function datetimeShapeMessage(value: string): string {
 
 function coerceValueForProperty(
 	raw: string,
-	property: CaseProperty | undefined,
+	property: CaseProperty,
 	zone: string,
 ): JsonValue {
-	const dataType: CasePropertyDataType = property?.data_type ?? "text";
+	const dataType: CasePropertyDataType = property.data_type ?? "text";
 	switch (dataType) {
 		case "text":
 		case "single_select":

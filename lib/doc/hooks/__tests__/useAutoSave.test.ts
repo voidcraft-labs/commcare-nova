@@ -20,6 +20,7 @@ describe("projectSaveSlice", () => {
 		// persisted schema at all — it's derived on load.)
 		const expected = Object.keys(blueprintDocSchema.shape)
 			.filter((key) => key !== "appId")
+			.concat("commandQueueRevision")
 			.sort();
 
 		// The projection returns a fixed key set regardless of values, so an

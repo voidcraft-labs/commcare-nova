@@ -122,11 +122,6 @@ function firstPortabilityIssue(
 	let issue: string | undefined;
 	walkPredicateNodes(condition, (node) => {
 		if (issue !== undefined) return;
-		if (node.kind === "is-null") {
-			issue =
-				"uses strict `is-null`, but CommCare cannot distinguish a missing value from a stored blank in this menu expression; use `is-blank`";
-			return;
-		}
 		if (node.kind === "match" && !matchModeRunsOnDevice(node.mode)) {
 			issue = `uses the server-only \`${node.mode}\` match mode; use \`starts-with\` or another on-device condition`;
 			return;
@@ -146,11 +141,6 @@ function firstPortabilityIssue(
 
 	walkPredicateExpressionNodes(condition, (node) => {
 		if (issue !== undefined) return;
-		if (node.kind === "unwrap-list") {
-			issue =
-				"uses `unwrap-list`, which exists only in CommCare's server-side search grammar";
-			return;
-		}
 		if (node.kind === "date-add") {
 			if (node.interval === "months" || node.interval === "years") {
 				issue = `adds calendar-relative ${node.interval}, which JavaRosa cannot evaluate faithfully in a menu condition`;
@@ -166,9 +156,7 @@ function firstPortabilityIssue(
 		const scalarIssue = findOnDeviceScalarExpressionIssue(node, ctx);
 		if (scalarIssue !== undefined) {
 			issue =
-				scalarIssue.reason === "unwrap-list"
-					? "uses `unwrap-list`, which exists only in CommCare's server-side search grammar"
-					: "uses a relation read that may return several values in one scalar menu expression";
+				"uses a relation read that may return several values in one scalar menu expression";
 		}
 	});
 	return issue;

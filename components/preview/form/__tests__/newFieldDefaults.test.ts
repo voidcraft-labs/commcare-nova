@@ -59,13 +59,13 @@ describe("NEW_FIELD_BUILDERS — every starter passes the commit gate", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Name"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 								f({
 									kind: "text",
 									id: "village",
 									label: proseText("Village"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "village" },
 								}),
 							],
 						},
@@ -98,7 +98,7 @@ describe("NEW_FIELD_BUILDERS — every starter passes the commit gate", () => {
 			verdict.ok,
 			verdict.ok
 				? ""
-				: `${kind}: ${verdict.introduced.map((e) => e.code).join(", ")}`,
+				: `${kind}: ${verdict.findings.map((e) => e.code).join(", ")}`,
 		).toBe(true);
 	});
 });

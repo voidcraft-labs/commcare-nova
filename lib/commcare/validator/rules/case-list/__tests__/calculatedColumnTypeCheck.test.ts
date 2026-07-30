@@ -25,8 +25,8 @@ describe("calculatedColumnTypeCheck", () => {
 								"Bad",
 								arith(
 									"+",
-									term(prop("patient", "name")),
-									term(prop("patient", "name")),
+									term(prop("patient", "full_name")),
+									term(prop("patient", "full_name")),
 								),
 							),
 						],
@@ -41,13 +41,13 @@ describe("calculatedColumnTypeCheck", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Name"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 								f({
 									kind: "text",
 									id: "name",
 									label: proseText("Name"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "full_name" },
 								}),
 							],
 						},
@@ -59,7 +59,7 @@ describe("calculatedColumnTypeCheck", () => {
 					name: "patient",
 					properties: [
 						{ name: "case_name", label: proseText("Name"), data_type: "text" },
-						{ name: "name", label: proseText("Name"), data_type: "text" },
+						{ name: "full_name", label: proseText("Name"), data_type: "text" },
 					],
 				},
 			],
@@ -102,13 +102,13 @@ describe("calculatedColumnTypeCheck", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Name"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 								f({
 									kind: "int",
 									id: "age",
 									label: proseText("Age"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "age" },
 								}),
 							],
 						},
@@ -159,7 +159,7 @@ describe("calculatedColumnTypeCheck", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Name"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},
@@ -209,7 +209,7 @@ describe("calculatedColumnTypeCheck", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Name"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},
@@ -234,7 +234,7 @@ describe("calculatedColumnTypeCheck", () => {
 	// selection.
 
 	it("admits a writer-derived-only property in a calculated column (no spurious unknown)", () => {
-		// `nickname` is written via `case_property_on` but NOT declared
+		// `nickname` is written via `caseWrite` but NOT declared
 		// on `ct.properties[]`. The augmented case-type list adds it as
 		// `text`, so `term(prop("patient", "nickname"))` type-checks
 		// cleanly.
@@ -264,13 +264,13 @@ describe("calculatedColumnTypeCheck", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Name"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 								f({
 									kind: "text",
 									id: "nickname",
 									label: proseText("Nickname"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "nickname" },
 								}),
 							],
 						},
@@ -323,7 +323,7 @@ describe("calculatedColumnTypeCheck", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Name"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},
@@ -376,7 +376,7 @@ describe("calculatedColumnTypeCheck", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Name"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},
@@ -415,7 +415,7 @@ describe("calculatedColumnTypeCheck", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Name"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},

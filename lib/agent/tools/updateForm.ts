@@ -2,19 +2,22 @@
  * SA tool: `updateForm` — patch form-level metadata.
  *
  * Covers the four form-scoped edits the SA exposes: display name,
- * close condition (close forms only), Connect integration, and
+ * close condition (close forms only), refinement of an existing Connect
+ * participant, and
  * post-submit navigation. Both the SA chat factory and the MCP adapter
  * call this through the shared `ToolExecutionContext` interface.
  *
  * Omission keeps, null clears: a slot left out keeps its current value;
  * an explicit `null` clears it (unconditional close again, post-submit
- * back to the form-type default, Connect block removed). `name` is not
- * nullable — a form always has a name. Connect-config patches go through
+ * back to the form-type default). `name` is not nullable — a form always has
+ * a name. App-wide Connect participation changes belong to
+ * `configureConnect`; this tool can refine only a form that already
+ * participates after the app has a mode. Connect-config patches go through
  * `buildConnectConfig`, a structural partial-update merge that applies
  * the same law per sub-config: a supplied sub-config merges with its
  * existing counterpart, a null one is REMOVED, an omitted one passes
- * through unchanged — and a patch that removes the last sub-config
- * collapses to whole-block removal (an empty block means nothing).
+ * through unchanged. A patch that would remove the last sub-config is a
+ * participant-set change and is refused with the app-wide tool named.
  *
  * The merged connect config then runs through `enforceConnectIds` (the
  * agent-path source guard): an omitted connect id is autofilled with a
@@ -37,9 +40,16 @@
 
 import { z } from "zod";
 import { findContainingForm } from "@/lib/doc/mutations/helpers";
-import type { BlueprintDoc, PostSubmitDestination } from "@/lib/domain";
-import { asUuid, USER_FACING_DESTINATIONS } from "@/lib/domain";
-import { updateFormMutations } from "../blueprintHelpers";
+import type {
+	BlueprintDoc,
+	ConnectConfig,
+	PostSubmitDestination,
+} from "@/lib/domain";
+import { asUuid, POST_SUBMIT_DESTINATIONS } from "@/lib/domain";
+import {
+	refineFormConnectMutations,
+	updateFormMutations,
+} from "../blueprintHelpers";
 import {
 	closeConditionInputSchema,
 	connectFormPatchSchema,
@@ -75,7 +85,7 @@ export const updateFormInputSchema = formAddressSchema
 				'Close forms only. Set conditional close; use operator "selected" for multi-select fields. Pass null to make the close unconditional again; leave it out to keep the current condition.',
 			),
 		post_submit: z
-			.enum(USER_FACING_DESTINATIONS)
+			.enum(POST_SUBMIT_DESTINATIONS)
 			.nullable()
 			.optional()
 			.describe(
@@ -85,7 +95,7 @@ export const updateFormInputSchema = formAddressSchema
 			.nullable()
 			.optional()
 			.describe(
-				"Connect participation patch: omitted sub-configs keep their current value, null on a sub-config removes just it, a stated one replaces it (learn apps: learn_module/assessment; deliver apps: deliver_unit/task). null for the whole slot removes the block (rejected only on the app's last participating form).",
+				"Refine this already-participating form after the app has a Connect mode: omitted sub-configs keep their current value, null removes one sub-config only while another remains, and a stated one replaces it. Use configureConnect/configure_connect for enable, mode switch, participant-set changes, or disable; whole-slot null is refused here.",
 			),
 	})
 	.strict();
@@ -97,7 +107,7 @@ export type UpdateFormResult = MutationSuccess | { error: string };
 
 export const updateFormTool = {
 	description:
-		"Update form metadata: name, close condition (close forms only), Connect integration, or post-submit navigation.",
+		"Update form metadata: name, close condition (close forms only), one existing Connect participant's configuration, or post-submit navigation.",
 	inputSchema: updateFormInputSchema,
 	async execute(
 		input: UpdateFormInput,
@@ -132,6 +142,7 @@ export const updateFormTool = {
 			// domain vocabulary. Omitted = leave unchanged; `null` = clear
 			// (a `null` patch entry — the reducer deletes the key).
 			const patch: Parameters<typeof updateFormMutations>[2] = {};
+			let refinedConnect: ConnectConfig | undefined;
 			if (name !== undefined) patch.name = name;
 			if (close_condition === null) patch.closeCondition = null;
 			if (close_condition != null) {
@@ -161,26 +172,59 @@ export const updateFormTool = {
 			if (post_submit != null) {
 				patch.postSubmit = post_submit as PostSubmitDestination;
 			}
-			if (connect === null) patch.connect = null;
-			if (connect != null) {
+			if (connect !== undefined) {
+				if (doc.connectType === null) {
+					return {
+						kind: "mutate" as const,
+						mutations: [],
+						newDoc: doc,
+						result: {
+							error:
+								"CommCare Connect is not enabled. Use configureConnect/configure_connect with the complete nonempty participant set.",
+						},
+					};
+				}
+				if (existing.connect === undefined) {
+					return {
+						kind: "mutate" as const,
+						mutations: [],
+						newDoc: doc,
+						result: {
+							error:
+								"This form is not a Connect participant. Use configureConnect/configure_connect to replace the complete participant set.",
+						},
+					};
+				}
+				if (connect === null) {
+					return {
+						kind: "mutate" as const,
+						mutations: [],
+						newDoc: doc,
+						result: {
+							error:
+								"Removing a form from Connect changes the app-wide participant set. Use configureConnect/configure_connect with the complete target.",
+						},
+					};
+				}
 				// Structural partial-update merge of exact XPath AST slots. Per
 				// sub-config: omitted keeps the existing one, an explicit
 				// null REMOVES it, a stated one replaces it.
-				const merged = buildConnectConfig(
-					connect,
-					existing.connect ?? undefined,
-				);
+				const merged = buildConnectConfig(connect, existing.connect);
 				if (
 					!merged.learn_module &&
 					!merged.assessment &&
 					!merged.deliver_unit &&
 					!merged.task
 				) {
-					// The patch removed the last sub-config. An empty block
-					// means nothing on the doc, so the patch collapses to
-					// whole-block removal — the same write as
-					// `connect: null`.
-					patch.connect = null;
+					return {
+						kind: "mutate" as const,
+						mutations: [],
+						newDoc: doc,
+						result: {
+							error:
+								"Removing the form's final Connect section changes the app-wide participant set. Use configureConnect/configure_connect with the complete target.",
+						},
+					};
 				} else {
 					// Force connect ids correct at the source: autofill omitted
 					// ids, reject explicit-invalid ids (fail the call, write
@@ -188,8 +232,9 @@ export const updateFormTool = {
 					// re-patch of an unchanged id doesn't read as a self-conflict.
 					const enforced = enforceConnectIds(
 						merged,
+						doc.connectType,
 						module.name,
-						existing.name,
+						name ?? existing.name,
 						collectConnectIds(doc, formUuid),
 					);
 					if (!enforced.ok) {
@@ -200,14 +245,19 @@ export const updateFormTool = {
 							result: { error: enforced.error },
 						};
 					}
-					patch.connect = enforced.config;
+					refinedConnect = enforced.config;
 				}
 			}
 
 			// Compute the mutations, apply via Immer, and persist through
 			// the shared context so both surfaces write the same stream +
 			// log + Postgres trio.
-			const mutations = updateFormMutations(doc, formUuid, patch);
+			const mutations = [
+				...updateFormMutations(doc, formUuid, patch),
+				...(refinedConnect === undefined
+					? []
+					: refineFormConnectMutations(doc, formUuid, refinedConnect)),
+			];
 			const commit = await guardedMutate(
 				ctx,
 				doc,
@@ -244,13 +294,7 @@ export const updateFormTool = {
 				formChanges.push(
 					`post_submit → "${formAfter.postSubmit ?? "form-type default"}"`,
 				);
-			// A partial patch can itself collapse to removal (last sub-config
-			// cleared), so the phrase keys off what was WRITTEN, not the
-			// input shape.
-			if (connect !== undefined)
-				formChanges.push(
-					patch.connect === null ? "connect removed" : "connect updated",
-				);
+			if (connect !== undefined) formChanges.push("connect updated");
 			return {
 				kind: "mutate" as const,
 				mutations: commit.mutations,

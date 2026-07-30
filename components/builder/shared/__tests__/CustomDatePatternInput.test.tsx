@@ -66,6 +66,22 @@ describe("CustomDatePatternInput — common choices", () => {
 		expect(screen.getByText("Example")).toBeDefined();
 		expect(screen.getByText("“July 7, 2026”")).toBeDefined();
 	});
+
+	it("does not reinterpret a concrete column pattern as an expression preset", () => {
+		render(
+			<CustomDatePatternInput
+				value="short"
+				onChange={() => {}}
+				presets={[
+					{ id: "short", label: "Short", pattern: "%m/%d/%Y" },
+					{ id: "long", label: "Long", pattern: "%B %e, %Y" },
+				]}
+				patternVocabulary="concrete"
+			/>,
+		);
+
+		expect(screen.getByText("“short”")).toBeDefined();
+	});
 });
 
 describe("CustomDatePatternInput — custom style", () => {

@@ -25,7 +25,7 @@
  * caller (UI mutation) reuses. This file owns the SA-boundary inputs:
  *
  *   - `columnInputSchema` / `columnUpdateInputSchema` /
- *     `searchInputDefInputSchema` — the discriminated-union shapes the SA
+ *     `searchInputDefInputSchema` — the exact union shapes the SA
  *     passes when adding or updating an entry. `uuid` is omitted from each
  *     arm; the tool mints it on `add` and looks it up on `update`.
  *   - `tileCellInputSchema` / `caseTileLayoutInputSchema` /
@@ -40,15 +40,17 @@
 
 import { z } from "zod";
 import {
+	advancedDateRangeSearchInputSchema,
+	advancedScalarSearchInputSchema,
 	asUuid,
 	type Column,
-	canonicalCasePropertyName,
 	caseTileLayoutSchema,
 	columnSchema,
-	DEFAULT_SEARCH_MODE_KIND,
+	SEARCH_INPUT_TYPES,
 	type SearchInputDef,
 	type SearchInputType,
-	searchInputDefSchema,
+	simpleDateRangeSearchInputSchema,
+	simpleScalarSearchInputSchema,
 	TILE_GRID_COLUMNS,
 	TILE_GRID_ROWS,
 	tileCellSchema,
@@ -62,10 +64,6 @@ import {
 	type ValueExpression,
 	valueExpressionSchema,
 } from "@/lib/domain/predicate";
-import {
-	canonicalizeExpressionCaseProperties,
-	canonicalizePredicateCaseProperties,
-} from "../shared/canonicalCaseProperties";
 
 /**
  * Statically canonical views of the authoring schemas.
@@ -85,10 +83,10 @@ const valueExpressionInputSchema =
 // The search-input tools share one schema across both surfaces.
 //
 // Each arm comes from `columnSchema.options` / `searchInputDefSchema.options`.
-// Column identity plus generic/Results/Details order keys are tool-owned and
-// omitted: uuid is minted/carried by the tool, while ordering is authored only
-// through `reorderCaseListColumns`, never as technical keys supplied by the
-// SA. Destructuring per-arm preserves the TS-inferred per-arm shape so the
+// Column identity is minted/carried by the tool. Sequence lives only in the
+// case-list config's Results and Details UUID arrays and is authored through
+// `reorderCaseListColumns`, never as a member property supplied by the SA.
+// Destructuring per-arm preserves the TS-inferred per-arm shape so the
 // discriminated union retypes cleanly — the
 // `Iterable<ZodObject>.map(...)` form drops the per-arm narrowing into
 // a non-callable union TS can't dispatch through `omit`.
@@ -149,48 +147,15 @@ const calculatedColumnInputArm = calculatedColumnArm
 	.omit(columnToolOwnedSlots)
 	.extend({ ...newColumnIdentity, expression: valueExpressionInputSchema });
 
-/**
- * A definition absent from both worker-facing screens has no job unless
- * Default order still consumes it as a sort carrier. Keep the domain and
- * wire tolerant of old docs, but do not let SA/MCP author the exact hidden
- * clutter Nova's visual workspace deliberately removes.
- *
- * Shared by both column-input unions so the add and update surfaces reject the
- * same shape with the same words.
- */
-function refineColumnScreenMembership(
-	column: {
-		visibleInList?: boolean;
-		visibleInDetail?: boolean;
-		sort?: unknown;
-	},
-	ctx: z.RefinementCtx,
-): void {
-	if (
-		column.visibleInList === false &&
-		column.visibleInDetail === false &&
-		column.sort === undefined
-	) {
-		ctx.addIssue({
-			code: "custom",
-			message:
-				"A field must appear on Results or Details. Remove the definition instead of creating an off-screen field; a field may stay off-screen only while Default order uses it.",
-			path: ["visibleInList"],
-		});
-	}
-}
-
-export const columnInputSchema = z
-	.discriminatedUnion("kind", [
-		plainColumnInputArm,
-		dateColumnInputArm,
-		phoneColumnInputArm,
-		idMappingColumnInputArm,
-		imageMapColumnInputArm,
-		intervalColumnInputArm,
-		calculatedColumnInputArm,
-	])
-	.superRefine(refineColumnScreenMembership);
+export const columnInputSchema = z.discriminatedUnion("kind", [
+	plainColumnInputArm,
+	dateColumnInputArm,
+	phoneColumnInputArm,
+	idMappingColumnInputArm,
+	imageMapColumnInputArm,
+	intervalColumnInputArm,
+	calculatedColumnInputArm,
+]);
 export type ColumnInput = z.infer<typeof columnInputSchema>;
 
 /**
@@ -208,17 +173,15 @@ export type ColumnInput = z.infer<typeof columnInputSchema>;
  * is ALREADY laid out as a tile has to be born placed, or the commit gate
  * rejects the add for a field with nowhere to sit.
  */
-export const columnUpdateInputSchema = z
-	.discriminatedUnion("kind", [
-		plainColumnInputArm.omit({ tile: true, columnUuid: true }),
-		dateColumnInputArm.omit({ tile: true, columnUuid: true }),
-		phoneColumnInputArm.omit({ tile: true, columnUuid: true }),
-		idMappingColumnInputArm.omit({ tile: true, columnUuid: true }),
-		imageMapColumnInputArm.omit({ tile: true, columnUuid: true }),
-		intervalColumnInputArm.omit({ tile: true, columnUuid: true }),
-		calculatedColumnInputArm.omit({ tile: true, columnUuid: true }),
-	])
-	.superRefine(refineColumnScreenMembership);
+export const columnUpdateInputSchema = z.discriminatedUnion("kind", [
+	plainColumnInputArm.omit({ tile: true, columnUuid: true }),
+	dateColumnInputArm.omit({ tile: true, columnUuid: true }),
+	phoneColumnInputArm.omit({ tile: true, columnUuid: true }),
+	idMappingColumnInputArm.omit({ tile: true, columnUuid: true }),
+	imageMapColumnInputArm.omit({ tile: true, columnUuid: true }),
+	intervalColumnInputArm.omit({ tile: true, columnUuid: true }),
+	calculatedColumnInputArm.omit({ tile: true, columnUuid: true }),
+]);
 export type ColumnUpdateInput = z.infer<typeof columnUpdateInputSchema>;
 
 // ── Tile layout input shapes ────────────────────────────────────────
@@ -292,58 +255,19 @@ export const caseTileLayoutInputSchema = caseTileLayoutSchema.extend({
  * declared beside `uuidInputSchema` at the foot of this file, which is where
  * that shared addressing schema lives. */
 
-const [simpleSearchInputArm, advancedSearchInputArm] =
-	searchInputDefSchema.options;
-
 /**
- * The widget kinds the SA (and MCP clients) can author — the domain
- * enum minus `select`. Nova's wire prompt carries no itemset slot, so
- * CCHQ renders a `select` prompt as a plain text input
- * (`QueryPrompt.isSelect()` is false without an `<itemset>` child):
- * the validator rejects the simple-arm shape outright
- * (`searchInputSelectWidgetNotSupported`) and the advanced-arm shape
- * silently degrades to text. Neither is a state the model should be
- * able to express, so the tool boundary narrows the enum instead of
- * letting the gate (or the runtime) break the news. The domain enum
- * keeps `select` for the day the wire grows an itemset source.
+ * The widget kinds the SA, MCP, builder, and persisted document all author.
  */
-export const SA_SEARCH_INPUT_TYPES = [
-	"text",
-	"date",
-	"date-range",
-	"barcode",
-] as const satisfies readonly SearchInputType[];
-
-const saSearchInputType = z
-	.enum(SA_SEARCH_INPUT_TYPES)
-	.describe(
-		"Widget the search screen renders for this input. There is no dropdown widget — filter a fixed-option property with a `text` input, or compose the membership check as an advanced-arm `selected(...)` predicate.",
-	);
+export const SA_SEARCH_INPUT_TYPES = SEARCH_INPUT_TYPES;
 
 function refineSearchInputBoundary(
 	input: {
 		kind: "simple" | "advanced";
 		type: SearchInputType;
-		mode?: { kind: string };
 		default?: ValueExpression;
 	},
 	ctx: z.RefinementCtx,
 ): void {
-	if (input.kind === "simple") {
-		const modeKind = input.mode?.kind ?? DEFAULT_SEARCH_MODE_KIND[input.type];
-		const coherentRangeWidget =
-			(modeKind === "range") === (input.type === "date-range");
-		if (!coherentRangeWidget) {
-			ctx.addIssue({
-				code: "custom",
-				path: input.mode === undefined ? ["type"] : ["mode"],
-				message:
-					modeKind === "range"
-						? 'Use `type: "date-range"` with range mode. A one-date field cannot collect both bounds.'
-						: "A `date-range` field must use range mode. Choose a single-date field for a one-value match.",
-			});
-		}
-	}
 	if (input.default !== undefined && expressionReadsCaseData(input.default)) {
 		ctx.addIssue({
 			code: "custom",
@@ -352,39 +276,37 @@ function refineSearchInputBoundary(
 				"A search input's starting value is evaluated before any case is selected, so it cannot read case properties or relationships. Use a fixed value, `today()`, or a current-user/session value — or leave `default` out to start the input empty.",
 		});
 	}
-	if (input.type !== "date-range" || input.default === undefined) return;
-	ctx.addIssue({
-		code: "custom",
-		path: ["default"],
-		message:
-			"Leave `default` out for a date-range input. A date range requires both a start and an end, while this slot can express only one value.",
-	});
 }
 
+const searchInputUuidSlot = {
+	searchInputUuid: uuidSchema
+		.optional()
+		.describe(
+			"Stable UUID for this new Search input. Supply it when another item in the call references the input; otherwise Nova mints it.",
+		),
+};
+
 /**
- * Per-arm `SearchInputDef` schema with `uuid` omitted and the `type` enum
- * narrowed to the SA-authorable widget kinds.
+ * Per-arm `SearchInputDef` schema with `uuid` omitted. It exposes the domain's
+ * exact four final arms to both the SA and MCP surfaces.
  * Mirrors `columnInputSchema` for the search-input add / update tools.
  */
 export const searchInputDefInputSchema = z
-	.discriminatedUnion("kind", [
-		simpleSearchInputArm.omit({ uuid: true }).extend({
-			searchInputUuid: uuidSchema
-				.optional()
-				.describe(
-					"Stable UUID for this new Search input. Supply it when another item in the call references the input; otherwise Nova mints it.",
-				),
-			type: saSearchInputType,
+	.union([
+		simpleScalarSearchInputSchema.omit({ uuid: true }).extend({
+			...searchInputUuidSlot,
 			default: valueExpressionInputSchema.optional(),
 		}),
-		advancedSearchInputArm.omit({ uuid: true }).extend({
-			searchInputUuid: uuidSchema
-				.optional()
-				.describe(
-					"Stable UUID for this new Search input. Supply it when another item in the call references the input; otherwise Nova mints it.",
-				),
-			type: saSearchInputType,
+		simpleDateRangeSearchInputSchema.omit({ uuid: true }).extend({
+			...searchInputUuidSlot,
+		}),
+		advancedScalarSearchInputSchema.omit({ uuid: true }).extend({
+			...searchInputUuidSlot,
 			default: valueExpressionInputSchema.optional(),
+			predicate: predicateInputSchema,
+		}),
+		advancedDateRangeSearchInputSchema.omit({ uuid: true }).extend({
+			...searchInputUuidSlot,
 			predicate: predicateInputSchema,
 		}),
 	])
@@ -394,14 +316,16 @@ export type SearchInputDefInput = z.infer<typeof searchInputDefInputSchema>;
 /** Full replacement body for an existing Search input; identity is addressed
  * by the enclosing tool and cannot be changed by the body. */
 export const searchInputUpdateInputSchema = z
-	.discriminatedUnion("kind", [
-		simpleSearchInputArm.omit({ uuid: true }).extend({
-			type: saSearchInputType,
+	.union([
+		simpleScalarSearchInputSchema.omit({ uuid: true }).extend({
 			default: valueExpressionInputSchema.optional(),
 		}),
-		advancedSearchInputArm.omit({ uuid: true }).extend({
-			type: saSearchInputType,
+		simpleDateRangeSearchInputSchema.omit({ uuid: true }),
+		advancedScalarSearchInputSchema.omit({ uuid: true }).extend({
 			default: valueExpressionInputSchema.optional(),
+			predicate: predicateInputSchema,
+		}),
+		advancedDateRangeSearchInputSchema.omit({ uuid: true }).extend({
 			predicate: predicateInputSchema,
 		}),
 	])
@@ -412,9 +336,9 @@ export type SearchInputUpdateInput = z.infer<
 
 // ── Uuid stamp helpers ──────────────────────────────────────────────
 //
-// The two stamp helpers below lift a uuid-less SA input back onto the
-// canonical domain shape (`Column`, `SearchInputDef`) by spreading the
-// minted (or carried-through) uuid into the object. Their cast lives
+// The two stamp helpers below finalize an SA create/update command as the
+// canonical domain shape (`Column`, `SearchInputDef`) by spreading the newly
+// minted or addressed UUID into the object. Their cast lives
 // adjacent to the per-arm-omit machinery that makes the cast necessary
 // — keeping the rationale and the workaround in one place.
 
@@ -437,14 +361,7 @@ export function stampColumnUuid(
 	uuid: Uuid,
 ): Column {
 	const { columnUuid: _declaredUuid, ...body } = column as ColumnInput;
-	const canonical =
-		body.kind === "calculated"
-			? {
-					...body,
-					expression: canonicalizeExpressionCaseProperties(body.expression),
-				}
-			: { ...body, field: canonicalCasePropertyName(body.field) };
-	return { ...canonical, uuid } as Column;
+	return { ...body, uuid } as Column;
 }
 
 /**
@@ -462,25 +379,7 @@ export function stampSearchInputUuid(
 ): SearchInputDef {
 	const { searchInputUuid: _declaredUuid, ...body } =
 		input as SearchInputDefInput;
-	const canonicalDefault =
-		body.default === undefined
-			? {}
-			: {
-					default: canonicalizeExpressionCaseProperties(body.default),
-				};
-	const canonical =
-		body.kind === "simple"
-			? {
-					...body,
-					...canonicalDefault,
-					property: canonicalCasePropertyName(body.property),
-				}
-			: {
-					...body,
-					...canonicalDefault,
-					predicate: canonicalizePredicateCaseProperties(body.predicate),
-				};
-	return { ...canonical, uuid } as SearchInputDef;
+	return { ...body, uuid } as SearchInputDef;
 }
 
 // ── Uuid generation ─────────────────────────────────────────────────

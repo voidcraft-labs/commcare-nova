@@ -119,7 +119,7 @@ export const CASE_CHANGES_ROUTINE = ROUTINE_WRITES.map((write, index) => ({
 
 /**
  * What the journey reads off every handle and the detail's position: the four
- * dependent changes, the fifteen routine ones, and the dormant lookup carrier
+ * dependent changes, the fifteen routine ones, and the table-lookup change
  * the smoke seed always installs last.
  */
 export const CASE_CHANGES_SEQUENCE_LENGTH = CASE_CHANGES_ROUTINE.length + 5;
@@ -153,14 +153,14 @@ export const CASE_CHANGES_SEED = {
 		create: asUuid("3d4e5f6a-7b8c-4d9e-8f0a-1b2c3d4e5f6a"),
 		note: asUuid("4e5f6a7b-8c9d-4e0f-9a1b-2c3d4e5f6a7b"),
 		file: asUuid("5f6a7b8c-9d0e-4f1a-8b2c-3d4e5f6a7b8c"),
-		dormant: asUuid("6a7b8c9d-0e1f-402a-8c3d-4e5f6a7b8c9d"),
+		tableLookup: asUuid("6a7b8c9d-0e1f-402a-8c3d-4e5f6a7b8c9d"),
 		retype: asUuid("7b8c9d0e-1f2a-413b-9d4e-5f6a7b8c9d0e"),
 	},
 	ids: {
 		create: "create_referral",
 		note: "note_visit",
 		file: "file_referral",
-		dormant: "lookup_patient",
+		tableLookup: "lookup_patient",
 		retype: "archive_referral",
 	},
 } as const;
@@ -405,7 +405,7 @@ function caseOperations(
 				},
 			],
 		},
-		// The sequence between the dependent head and the dormant tail. They
+		// The sequence between the dependent head and the table-lookup tail. They
 		// carry the list to twenty without adding a second thing that can
 		// refuse a move, so the refusal the journey drives stays the only one.
 		...CASE_CHANGES_ROUTINE.map((routine) => ({
@@ -422,8 +422,8 @@ function caseOperations(
 			? []
 			: [
 					{
-						uuid: CASE_CHANGES_SEED.operations.dormant,
-						id: CASE_CHANGES_SEED.ids.dormant,
+						uuid: CASE_CHANGES_SEED.operations.tableLookup,
+						id: CASE_CHANGES_SEED.ids.tableLookup,
 						action: "update" as const,
 						caseType: "patient",
 						target: { kind: "session" as const },

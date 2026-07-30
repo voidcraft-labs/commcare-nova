@@ -64,6 +64,18 @@ describe("validateChatMessages", () => {
 		if (result.ok) expect(result.messages).toBe(messages);
 	});
 
+	it("rejects malformed message and metadata containers", () => {
+		expect(validateChatMessages([null]).ok).toBe(false);
+		expect(validateChatMessages([{ ...userMsg(), metadata: null }]).ok).toBe(
+			false,
+		);
+		expect(
+			validateChatMessages([
+				{ ...userMsg(), metadata: { attachments: { assetId: "hidden" } } },
+			]).ok,
+		).toBe(false);
+	});
+
 	it("passes a message carrying valid attachment refs", () => {
 		const result = validateChatMessages([userMsg([ref(), ref()])]);
 		expect(result.ok).toBe(true);
@@ -121,6 +133,18 @@ describe("validateChatMessages", () => {
 		expect(result.ok).toBe(false);
 	});
 
+	it("rejects a noncanonical attachment ref with unknown keys", () => {
+		const result = validateChatMessages([
+			{
+				...userMsg(),
+				metadata: {
+					attachments: [{ ...ref(), temporaryUrl: "blob:stale-client" }],
+				},
+			},
+		]);
+		expect(result.ok).toBe(false);
+	});
+
 	it("rejects an unknown attachment kind", () => {
 		const result = validateChatMessages([
 			// biome-ignore lint/suspicious/noExplicitAny: deliberately invalid kind
@@ -128,4 +152,16 @@ describe("validateChatMessages", () => {
 		]);
 		expect(result.ok).toBe(false);
 	});
+
+	it.each(["audio", "video"] as const)(
+		"rejects a crafted %s attachment before generation",
+		(kind) => {
+			const result = validateChatMessages([
+				// biome-ignore lint/suspicious/noExplicitAny: deliberate request forgery
+				userMsg([ref({ kind: kind as any })]),
+			]);
+			expect(result.ok).toBe(false);
+			if (!result.ok) expect(result.error).toContain("invalid metadata");
+		},
+	);
 });

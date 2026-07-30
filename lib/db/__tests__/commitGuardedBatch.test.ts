@@ -27,6 +27,7 @@ import { commitGuardedBatchProposal as commitGuardedBatch } from "./admittedWrit
 import { setupAppStateTestDb } from "./appStateTestDb";
 
 const OWNER = "user-owner";
+const PROJECT = "project-test";
 
 const h = setupAppStateTestDb("commit_unit_");
 
@@ -50,13 +51,19 @@ function minDoc(): BlueprintDoc {
 								kind: "text",
 								id: "case_name",
 								label: proseText("Name"),
-								case_property_on: "patient",
+								caseWrite: {
+									caseType: "patient",
+									property: "case_name",
+								},
 							}),
 							f({
 								kind: "text",
 								id: "village",
 								label: proseText("Village"),
-								case_property_on: "patient",
+								caseWrite: {
+									caseType: "patient",
+									property: "village",
+								},
 							}),
 						],
 					},
@@ -101,9 +108,8 @@ async function readSeq(appId: string): Promise<number> {
 describe("commitGuardedBatch — seq recompute", () => {
 	it("computes the literal (fresh + 1) off whatever mutation_seq the row carries (no cached zero)", async () => {
 		const doc = minDoc();
-		// A null-project app (owner path — reauth passes on owner === actor).
 		const appId = await h.seedAppWithBlueprint(doc, {
-			projectId: null,
+			projectId: PROJECT,
 			owner: OWNER,
 		});
 		// A row already advanced by 41 prior commits.
@@ -117,7 +123,7 @@ describe("commitGuardedBatch — seq recompute", () => {
 
 		const result = await commitGuardedBatch({
 			appId,
-			expectedProjectId: null,
+			expectedProjectId: PROJECT,
 			batchId: crypto.randomUUID(),
 			mutations: renameVillageLabel(doc, "Home"),
 			actorUserId: OWNER,
@@ -131,7 +137,7 @@ describe("commitGuardedBatch — seq recompute", () => {
 	it("two concurrent commits produce gap-free seqs — each re-reads the advanced seq under the app-row lock", async () => {
 		const doc = minDoc();
 		const appId = await h.seedAppWithBlueprint(doc, {
-			projectId: null,
+			projectId: PROJECT,
 			owner: OWNER,
 		});
 
@@ -150,7 +156,7 @@ describe("commitGuardedBatch — seq recompute", () => {
 			const [a, b] = await Promise.all([
 				commitGuardedBatch({
 					appId,
-					expectedProjectId: null,
+					expectedProjectId: PROJECT,
 					batchId: crypto.randomUUID(),
 					mutations: renameVillageLabel(doc, "Home A"),
 					actorUserId: OWNER,
@@ -158,7 +164,7 @@ describe("commitGuardedBatch — seq recompute", () => {
 				}),
 				commitGuardedBatch({
 					appId,
-					expectedProjectId: null,
+					expectedProjectId: PROJECT,
 					batchId: crypto.randomUUID(),
 					mutations: renameVillageLabel(doc, "Home B"),
 					actorUserId: OWNER,
@@ -185,7 +191,7 @@ describe("commitGuardedBatch — seq recompute", () => {
 		// landed at 2.
 		const rows = await h
 			.db()
-			.selectFrom("accepted_mutations")
+			.selectFrom("app_changes")
 			.select("seq")
 			.where("app_id", "=", appId)
 			.orderBy("seq")

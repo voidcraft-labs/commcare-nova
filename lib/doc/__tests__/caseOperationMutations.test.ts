@@ -1,8 +1,8 @@
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import { batchTargetsMissing } from "@/lib/db/commitGuard";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { mutationTargetsInvalid } from "@/lib/db/commitGuard";
 import {
 	addCaseOperationMutations,
 	caseOperationEditVerdict,
@@ -65,6 +65,9 @@ function fixture(): {
 			{
 				name: "Patients",
 				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "nickname", header: "Nickname" },
+				]),
 				forms: [
 					{
 						name: "Edit",
@@ -75,7 +78,10 @@ function fixture(): {
 								kind: "text",
 								id: "nickname",
 								label: proseText("Nickname"),
-								case_property_on: "patient",
+								caseWrite: {
+									caseType: "patient",
+									property: "nickname",
+								},
 							}),
 							f({
 								uuid: REPEAT,
@@ -627,7 +633,7 @@ describe("case-operation move lands at the rank it asserts", () => {
 		expect(plan.ok).toBe(true);
 		if (!plan.ok) return;
 		expect(landedIndex(doc, formUuid, RANKED[0], plan.mutations)).toBe(1);
-		expect(batchTargetsMissing(doc, [...plan.mutations])).toBe(false);
+		expect(mutationTargetsInvalid(doc, [...plan.mutations])).toBe(false);
 	});
 
 	it("moves an operation up out of the middle", () => {
@@ -636,7 +642,7 @@ describe("case-operation move lands at the rank it asserts", () => {
 		expect(plan.ok).toBe(true);
 		if (!plan.ok) return;
 		expect(landedIndex(doc, formUuid, RANKED[2], plan.mutations)).toBe(1);
-		expect(batchTargetsMissing(doc, [...plan.mutations])).toBe(false);
+		expect(mutationTargetsInvalid(doc, [...plan.mutations])).toBe(false);
 	});
 
 	it("lifts the last operation one place (keyboard reorder)", () => {
@@ -645,7 +651,7 @@ describe("case-operation move lands at the rank it asserts", () => {
 		expect(plan.ok).toBe(true);
 		if (!plan.ok) return;
 		expect(landedIndex(doc, formUuid, RANKED[3], plan.mutations)).toBe(2);
-		expect(batchTargetsMissing(doc, [...plan.mutations])).toBe(false);
+		expect(mutationTargetsInvalid(doc, [...plan.mutations])).toBe(false);
 	});
 
 	it("lands at EVERY destination of the form", () => {
@@ -663,7 +669,7 @@ describe("case-operation move lands at the rank it asserts", () => {
 				expect(plan.mutations).toEqual([]);
 			}
 			expect(landedIndex(doc, formUuid, RANKED[1], plan.mutations)).toBe(index);
-			expect(batchTargetsMissing(doc, [...plan.mutations])).toBe(false);
+			expect(mutationTargetsInvalid(doc, [...plan.mutations])).toBe(false);
 		}
 	});
 
@@ -671,7 +677,7 @@ describe("case-operation move lands at the rank it asserts", () => {
 		const { doc, formUuid } = docWith(3);
 		const mutations = addCaseOperationMutations(doc, formUuid, ranked(3), 1);
 		expect(landedIndex(doc, formUuid, RANKED[3], mutations)).toBe(1);
-		expect(batchTargetsMissing(doc, [...mutations])).toBe(false);
+		expect(mutationTargetsInvalid(doc, [...mutations])).toBe(false);
 	});
 });
 
@@ -1062,7 +1068,7 @@ describe("case-operation persistence and reference participation", () => {
 		expect(declarersOf(doc, "visit", "source_id")).toContain(formUuid);
 	});
 
-	it("rewrites operation write keys and AST reads in the field-ID/property cascade", () => {
+	it("rewrites operation write keys and AST reads in a case-property rename", () => {
 		const { doc, formUuid } = fixture();
 		(doc.forms[formUuid] as Form).caseOperations = [
 			{
@@ -1081,10 +1087,10 @@ describe("case-operation persistence and reference participation", () => {
 		];
 		const next = apply(doc, [
 			{
-				kind: "updateField",
-				uuid: NAME,
-				targetKind: "text",
-				patch: { id: "display_name" },
+				kind: "renameCaseProperties",
+				renames: [
+					{ caseType: "patient", from: "nickname", to: "display_name" },
+				],
 			},
 		]);
 		const write = next.forms[formUuid].caseOperations?.[0].writes?.[0];

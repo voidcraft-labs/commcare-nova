@@ -1,12 +1,15 @@
 // lib/domain/forms.ts
 import { z } from "zod";
 import { formIconRefSchema } from "./builtinIcons";
+import { authoredCasePropertyNameSchema } from "./casePropertyName";
+import { persistableJsonPositiveIntegerSchema } from "./jsonNumber";
 import { mediaAssetIdSchema } from "./multimedia";
 import {
 	type Predicate,
 	predicateSchema,
 	type ValueExpression,
 	valueExpressionSchema,
+	XML_ELEMENT_NAME_PATTERN,
 } from "./predicate/types";
 import { type Uuid, uuidSchema } from "./uuid";
 import { xpathExpressionSchema } from "./xpath";
@@ -70,30 +73,16 @@ export function isCaseFirstModule(
 
 export const POST_SUBMIT_DESTINATIONS = [
 	"app_home",
-	"root",
 	"module",
-	"parent_module",
 	"previous",
 ] as const;
 export type PostSubmitDestination = (typeof POST_SUBMIT_DESTINATIONS)[number];
 
 /**
- * User-facing destinations (UI + SA tools). Three clear choices:
+ * The one stored and machine-authored navigation vocabulary:
  *   "app_home" → App Home (main menu)
  *   "module"   → This Module (case list / form list)
  *   "previous" → Previous Screen (back to where the user was)
- *
- * Internal-only values (not exposed to users):
- *   "root"           → resolved automatically when put_in_root is modeled
- *   "parent_module"  → resolved automatically when nested modules are modeled
- */
-export const USER_FACING_DESTINATIONS = [
-	"app_home",
-	"module",
-	"previous",
-] as const;
-
-/**
  * Form-type-aware default for post_submit when the field is absent.
  * Case-loading forms (followup, close) return to the previous screen
  * (the case list they came from); registration and survey go home.
@@ -105,9 +94,9 @@ export function defaultPostSubmit(formType: FormType): PostSubmitDestination {
 const closeConditionSchema = z
 	.object({
 		// The checked field, by stable uuid — rename-proof identity, the
-		// same contract as form-link targets. Legacy textual ids are repaired
-		// before this final schema is installed; steady-state documents never
-		// admit an empty or unresolved placeholder.
+		// same contract as form-link targets. The frozen one-off migration
+		// converts textual ids before this final schema is installed; the live
+		// schema admits no empty or unresolved placeholder.
 		field: uuidSchema,
 		answer: z.string(),
 		operator: z.enum(["=", "selected"]).optional(),
@@ -214,7 +203,7 @@ export const RESERVED_CASE_OPERATION_TYPES: ReadonlySet<string> = new Set([
 
 export const caseOperationWriteSchema = z
 	.object({
-		property: z.string(),
+		property: authoredCasePropertyNameSchema,
 		value: valueExpressionSchema,
 		condition: predicateSchema.optional(),
 	})
@@ -241,9 +230,7 @@ export type CaseOperationLink = z.infer<typeof caseOperationLinkSchema>;
  * `uuid` is reference identity and `id` is the author-facing/wire slug;
  * execution order is the array's own position, so an operation carries no
  * ordering slot at all. The action is the stored-shape discriminator: each arm
- * admits only the facets CommCare can execute for that action. The canonical
- * cutover repairs legacy combinations before this final schema is installed,
- * so there is no load-tolerant compatibility arm or validator fallback.
+ * admits only the facets CommCare can execute for that action.
  */
 const caseOperationCommonShape = {
 	uuid: uuidSchema,
@@ -341,26 +328,29 @@ export function orderedCaseOperations(form: {
 	return [...(form.caseOperations ?? [])];
 }
 
-// Connect config. Each sub-config's `id` stays `z.string().optional()` on
-// purpose: it's a transient in-progress state (a block can exist briefly
-// before its id is filled) and the doc-store type tolerates that. The real
-// invariant — every connect id is present, a legal XML element name, ≤50
-// chars, and unique across the app by the time it's emitted — is enforced at
-// RUNTIME, not by this type: `deriveConnectId` autofills at creation, the
-// UI/tool guards reject bad explicit input, and `buildConnectSlugMap`'s
-// `narrowId` is the emit-time tripwire that throws if a block somehow reaches
-// the wire id-less. Don't tighten this to required.
+// Connect config. Persisted blocks are complete: partial sub-configs and
+// omitted ids belong only to builder/tool draft types and are finalized before
+// a Form is constructed. All four ids share this one XML-element/Connect-slug
+// grammar; app-wide uniqueness and app-mode compatibility need the owning
+// Blueprint and are enforced by `blueprintTopologyIssues`.
+export const CONNECT_ID_MAX_LENGTH = 50;
+export const connectIdSchema = z
+	.string()
+	.min(1)
+	.max(CONNECT_ID_MAX_LENGTH)
+	.regex(XML_ELEMENT_NAME_PATTERN);
+
 const connectLearnModuleSchema = z
 	.object({
-		id: z.string().optional(),
+		id: connectIdSchema,
 		name: z.string(),
 		description: z.string(),
-		time_estimate: z.number().int().positive(),
+		time_estimate: persistableJsonPositiveIntegerSchema,
 	})
 	.strict();
 const connectAssessmentSchema = z
 	.object({
-		id: z.string().optional(),
+		id: connectIdSchema,
 		// An XPath expression consumed only by the XForm bind emitter. Either
 		// side may set it (the SA points it at a hidden score field; the UI
 		// panel lets a user override), but if absent the wire layer in
@@ -373,7 +363,7 @@ const connectAssessmentSchema = z
 	.strict();
 const connectDeliverUnitSchema = z
 	.object({
-		id: z.string().optional(),
+		id: connectIdSchema,
 		name: z.string(),
 		// `entity_id` / `entity_name` are XPath expressions consumed only by
 		// the XForm bind emitter. Either side may set them (the SA can opt
@@ -388,20 +378,48 @@ const connectDeliverUnitSchema = z
 	.strict();
 const connectTaskSchema = z
 	.object({
-		id: z.string().optional(),
+		id: connectIdSchema,
 		name: z.string(),
 		description: z.string(),
 	})
 	.strict();
-const connectConfigSchema = z
+export const connectLearnConfigSchema = z
 	.object({
 		learn_module: connectLearnModuleSchema.optional(),
 		assessment: connectAssessmentSchema.optional(),
+	})
+	.strict()
+	.refine(
+		(config) =>
+			config.learn_module !== undefined || config.assessment !== undefined,
+		"Connect learn configuration must contain a learn module or assessment.",
+	);
+
+export const connectDeliverConfigSchema = z
+	.object({
 		deliver_unit: connectDeliverUnitSchema.optional(),
 		task: connectTaskSchema.optional(),
 	})
-	.strict();
+	.strict()
+	.refine(
+		(config) => config.deliver_unit !== undefined || config.task !== undefined,
+		"Connect deliver configuration must contain a deliver unit or task.",
+	);
+
+export const connectConfigSchema = z.union([
+	connectLearnConfigSchema,
+	connectDeliverConfigSchema,
+]);
+
+export type ConnectLearnConfig = z.infer<typeof connectLearnConfigSchema>;
+export type ConnectDeliverConfig = z.infer<typeof connectDeliverConfigSchema>;
 export type ConnectConfig = z.infer<typeof connectConfigSchema>;
+
+export function isConnectLearnConfig(
+	config: ConnectConfig,
+): config is ConnectLearnConfig {
+	return "learn_module" in config || "assessment" in config;
+}
 export type ConnectLearnModule = z.infer<typeof connectLearnModuleSchema>;
 export type ConnectAssessment = z.infer<typeof connectAssessmentSchema>;
 export type ConnectDeliverUnit = z.infer<typeof connectDeliverUnitSchema>;
@@ -421,7 +439,7 @@ export const formSchema = z
 		 */
 		displayCondition: predicateSchema.optional(),
 		closeCondition: closeConditionSchema.optional(),
-		connect: connectConfigSchema.nullable().optional(),
+		connect: connectConfigSchema.optional(),
 		postSubmit: z.enum(POST_SUBMIT_DESTINATIONS).optional(),
 		formLinks: z.array(formLinkSchema).optional(),
 		/** Ordered, typed case effects: what one submission does to the case

@@ -1,12 +1,14 @@
 # e2e — Playwright smoke suite
 
-The pre-deploy UI gate: home loads, auth boundary is healthy, a user can create a blank
-app, open one, and delete one in the builder. See `e2e/README.md` for how to run; the
+The pre-deploy UI gate: home loads, auth boundary is healthy, a user can create the
+canonical starter from scratch, open one, and delete one in the builder. See
+`e2e/README.md` for how to run; the
 rules below are the non-obvious ones.
 
-The blank-app path is the suite's only app-CREATION coverage, and it can be because it
-needs no model call — it drives the real `createBlankApp` Server Action and asserts the
-chat DOCKS, which only happens once the new app has a module (`docHasData`).
+The from-scratch path is the suite's only app-CREATION coverage, and it can be
+because it needs no model call — it drives the real `createStarterApp` Server
+Action and asserts the chat DOCKS on the returned canonical survey starter
+(`docHasData`).
 
 - **Hermetic, free, no real GCP.** The suite runs against a **local Postgres**
   (`scripts/smoke.sh`), not a real project — the same testcontainer-free local stack the
@@ -122,8 +124,9 @@ chat DOCKS, which only happens once the new app has a module (`docHasData`).
   - The seed writes a shared `auth_organization` + two `auth_member` rows through
     Better Auth's own adapter (a direct create bypasses the invitation
     domain-gate, which fires only on the invitation API path), and the shared app
-    carries a POPULATED, fixed-uuid blueprint installed via `appendSyntheticBatch`
-    (`createApp` only mints an empty doc) so both users deep-link straight to any entity.
+    carries a POPULATED, fixed-uuid blueprint installed via
+    `appendSyntheticBatch` over `createApp`'s canonical sequence-1 starter, so
+    both users deep-link straight to any entity.
   - The suite shares ONE seeded app and mutates it cumulatively, so each test
     asserts the CHANGE it makes (a unique marker), never a seed starting value a
     prior test may have already edited.

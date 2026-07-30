@@ -1,9 +1,9 @@
 /**
- * Rule: every runtime-active non-calculated column on
+ * Rule: every saved non-calculated column on
  * `caseListConfig.columns` carries a `field` that resolves to a property the
  * module's case type admits
  * — declared on `ct.properties[]`, written by a form field via
- * `case_property_on === mod.caseType`, or part of CommCare's standard
+ * `caseWrite.caseType === mod.caseType`, or part of CommCare's standard
  * set (`case_name`, `date_opened`, …).
  *
  * `caseListConfig` carries one columns array — display + sort + calc +
@@ -11,10 +11,9 @@
  * without a `field` slot (their expression is the source); the field-
  * reference check skips them and leaves their property resolution to
  * the per-operand walk inside `calculatedColumnTypeCheck`. Every other
- * column kind exposes the same `field: string` slot, and every runtime
- * renderer reads the case property by that name. Fully off-screen, unsorted
- * legacy definitions are recovery state rather than runtime input, so the rule
- * ignores them until an author shows or sorts by them again.
+ * column kind exposes the same `field: string` slot. Visibility controls
+ * emission only; a saved definition must remain valid before it can be shown
+ * or sorted again.
  *
  * Property resolution routes through the shared `propertyExists`
  * helper, which reads the memoized `ValidationContext` augmented case-
@@ -22,13 +21,7 @@
  * case-list-config rule by construction.
  */
 
-import {
-	type BlueprintDoc,
-	type Column,
-	caseListColumnHasRuntimeRole,
-	type Module,
-	type Uuid,
-} from "@/lib/domain";
+import type { BlueprintDoc, Column, Module, Uuid } from "@/lib/domain";
 import { type ValidationError, validationError } from "../../errors";
 import { propertyExists } from "./shared";
 
@@ -45,7 +38,6 @@ export function columnReferences(
 
 	for (let index = 0; index < config.columns.length; index++) {
 		const col = config.columns[index];
-		if (!caseListColumnHasRuntimeRole(col)) continue;
 		// Calculated columns have no `field` — their property references
 		// live inside the `expression` AST and the per-operand type
 		// checker (`calculatedColumnTypeCheck`) walks them through the
@@ -77,7 +69,7 @@ function buildUnknownFieldError(
 	return validationError(
 		"CASE_LIST_COLUMN_UNKNOWN_FIELD",
 		"module",
-		`Column "${col.header}" (column #${index + 1}) on the case list of module "${mod.name}" points at the case property "${col.field}", but no case property by that name is declared on case type "${caseType}", written by any form field via \`case_property_on\`, or part of CommCare's standard set ("case_name", "date_opened", …). Either add "${col.field}" to the "${caseType}" case type's properties, point a form field at it via \`case_property_on\`, or change the column's field to one of those names.`,
+		`Column "${col.header}" (column #${index + 1}) on the case list of module "${mod.name}" points at the case property "${col.field}", but no case property by that name is declared on case type "${caseType}", written by any form field's case destination, or part of CommCare's standard set ("case_name", "date_opened", …). Either add "${col.field}" to the "${caseType}" case type's properties, set a form field's case destination to it, or change the column's field to one of those names.`,
 		{ moduleUuid, moduleName: mod.name },
 		{ field: col.field, columnUuid: col.uuid, index: String(index) },
 	);

@@ -9,12 +9,11 @@
  * an independent fresh-doc re-verdict per stage, so a contention
  * rejection mid-sequence would leave the earlier stages PERSISTED while
  * the tool reports nothing was saved. These tests drive the REAL
- * `editFieldTool` through a REAL `McpContext` with only the saga module
+ * `editFieldTool` through a REAL `McpContext` with only the guarded boundary
  * mocked, pinning:
  *
  *   1. one `applyBlueprintChange` call per multi-stage edit, whose guard
- *      carries the concatenated mutations and whose prospective snapshot
- *      is the final post-edit doc;
+ *      carries the concatenated mutations;
  *   2. a contention rejection (the transactional re-verdict throwing
  *      `BlueprintCommitRejectedError`) surfaces as the tool's `{ error }`
  *      envelope with ZERO persisted prefix — the single save was the only
@@ -27,11 +26,7 @@ import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { editFieldTool } from "@/lib/agent/tools/editField";
 import { applyBlueprintChange } from "@/lib/db/applyBlueprintChange";
 import { BlueprintCommitRejectedError } from "@/lib/db/commitGuard";
-import {
-	type BlueprintDoc,
-	fallbackProseProjection,
-	type PersistableDoc,
-} from "@/lib/domain";
+import type { BlueprintDoc } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import type { LogWriter } from "@/lib/log/writer";
 import { McpContext } from "../context";
@@ -42,7 +37,7 @@ vi.mock("@/lib/db/applyBlueprintChange", async () => {
 	)) as Record<string, unknown>;
 	return {
 		...actual,
-		applyBlueprintChange: vi.fn().mockResolvedValue({ seq: 0 }),
+		applyBlueprintChange: vi.fn(),
 	};
 });
 
@@ -66,13 +61,13 @@ function minDoc(): BlueprintDoc {
 								kind: "text",
 								id: "case_name",
 								label: proseText("Name"),
-								case_property_on: "patient",
+								caseWrite: { caseType: "patient", property: "case_name" },
 							}),
 							f({
 								kind: "text",
 								id: "village",
 								label: proseText("Village"),
-								case_property_on: "patient",
+								caseWrite: { caseType: "patient", property: "village" },
 							}),
 						],
 					},
@@ -119,7 +114,10 @@ function makeMcpCtx() {
 
 beforeEach(() => {
 	vi.mocked(applyBlueprintChange).mockReset();
-	vi.mocked(applyBlueprintChange).mockResolvedValue({ seq: 0 });
+	vi.mocked(applyBlueprintChange).mockResolvedValue({
+		seq: 0,
+		committedDoc: minDoc(),
+	});
 });
 
 describe("editField through McpContext — one transactional save per edit", () => {
@@ -166,16 +164,6 @@ describe("editField through McpContext — one transactional save per edit", () 
 				}),
 			}),
 		]);
-		// The persisted snapshot is the FINAL doc — ID and label applied.
-		const persisted = args?.prospective as PersistableDoc;
-		const renamed = Object.values(persisted.fields).find(
-			(fl) => fl.id === "village_name",
-		);
-		expect(
-			renamed && "label" in renamed && renamed.label !== undefined
-				? fallbackProseProjection(renamed.label)
-				: undefined,
-		).toBe("Home village");
 		// The one canonical edit stage reached the log.
 		const stages = logEvent.mock.calls.map(
 			(c) => (c[0] as { stage?: string }).stage,

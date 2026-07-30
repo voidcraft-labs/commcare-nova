@@ -3,8 +3,8 @@
  *
  * The "force correct at the source" boundary for the agent path (the SA
  * sets ids as bare strings via `z.string()`, bypassing the UI's commit
- * guard). Every tool that creates or enables a connect block runs its ids
- * through here:
+ * guard). The app-wide configure tool and the existing-participant edit path
+ * run every authored block through here:
  *  - an OMITTED id is autofilled with a valid, unique, name-derived id
  *    (`deriveConnectId`) — stored on the doc so the SA sees it immediately;
  *  - an EXPLICIT id is validated (format + length via `connectIdError`,
@@ -25,8 +25,10 @@ import {
 	asUuid,
 	type BlueprintDoc,
 	type ConnectConfig,
+	connectConfigSchema,
 	type Uuid,
 } from "@/lib/domain";
+import type { ConnectConfigDraft } from "./connectInput";
 
 /** Human-readable label per connect kind for error messages. */
 const KIND_LABEL = {
@@ -38,44 +40,77 @@ const KIND_LABEL = {
 
 type ConnectKind = keyof typeof KIND_LABEL;
 
+function explicitIdEntries(
+	config: ConnectConfigDraft,
+): readonly { readonly kind: ConnectKind; readonly id: string }[] {
+	const entries: Array<{ kind: ConnectKind; id: string }> = [];
+	if (config.learn_module?.id !== undefined) {
+		entries.push({ kind: "learn_module", id: config.learn_module.id });
+	}
+	if (config.assessment?.id !== undefined) {
+		entries.push({ kind: "assessment", id: config.assessment.id });
+	}
+	if (config.deliver_unit?.id !== undefined) {
+		entries.push({ kind: "deliver_unit", id: config.deliver_unit.id });
+	}
+	if (config.task?.id !== undefined) {
+		entries.push({ kind: "task", id: config.task.id });
+	}
+	return entries;
+}
+
+/** Every already-present id in one draft/final config, in wire block order. */
+export function connectIdsInConfig(
+	config: ConnectConfigDraft,
+): readonly string[] {
+	return explicitIdEntries(config).map(({ id }) => id);
+}
+
 /**
- * The connect kinds that are "live" for the doc's mode. Only these count
- * toward the uniqueness scope — matching the emit resolver
- * (`buildConnectSlugMap`), the `CONNECT_ID_DUPLICATE` validator rule, and the
- * UI guard (`useAppConnectIds`), which all process only mode-matching kinds.
- * A stray cross-mode block is not "taken", so all four uniqueness scopes
- * agree.
+ * Validate and reserve every already-present id before any omitted id derives.
+ *
+ * Exact-target authoring uses this across the complete canonical participant
+ * set. That makes an explicit or previously established identity win its own
+ * spelling regardless of caller array order; only genuinely new omitted ids
+ * compete for derived suffixes afterward.
  */
-function liveKinds(doc: BlueprintDoc): readonly ConnectKind[] {
-	if (doc.connectType === "learn") return ["learn_module", "assessment"];
-	if (doc.connectType === "deliver") return ["deliver_unit", "task"];
-	return [];
+export function reserveExplicitConnectIds(
+	config: ConnectConfigDraft,
+	taken: Set<string>,
+): readonly string[] {
+	const errors: string[] = [];
+	for (const { kind, id } of explicitIdEntries(config)) {
+		const reason = connectIdError(id) ?? connectIdConflictError(id, taken);
+		if (reason) {
+			errors.push(`${KIND_LABEL[kind]} id ${reason}`);
+		} else {
+			taken.add(id);
+		}
+	}
+	return errors;
 }
 
 /**
  * Every connect id currently set anywhere in the doc, optionally excluding
  * one form. The edit path (`updateForm`) excludes the form being edited so
- * its own ids don't read as conflicts with themselves; the creation paths
- * (`createForm` / `createModule`) pass no exclusion — their forms don't
- * exist in the doc yet. Only the doc's live (mode-matching) kinds count, so
- * the SA scope matches the UI / emit / validator scopes. Feeds both
- * autofill uniqueness and the explicit-duplicate rejection.
+ * its own ids don't read as conflicts with themselves. Every kind shares one
+ * app-wide scope. The exact-target configure path starts from an empty set
+ * because its complete target replaces every prior block.
  */
 export function collectConnectIds(
 	doc: BlueprintDoc,
 	exceptFormUuid?: Uuid,
 ): Set<string> {
 	const ids = new Set<string>();
-	const kinds = liveKinds(doc);
 	for (const formKey of Object.keys(doc.forms)) {
 		const formUuid = asUuid(formKey);
 		if (formUuid === exceptFormUuid) continue;
 		const c = doc.forms[formUuid]?.connect;
 		if (!c) continue;
-		for (const kind of kinds) {
-			const id = c[kind]?.id;
-			if (id) ids.add(id);
-		}
+		if ("learn_module" in c && c.learn_module) ids.add(c.learn_module.id);
+		if ("assessment" in c && c.assessment) ids.add(c.assessment.id);
+		if ("deliver_unit" in c && c.deliver_unit) ids.add(c.deliver_unit.id);
+		if ("task" in c && c.task) ids.add(c.task.id);
 	}
 	return ids;
 }
@@ -96,31 +131,48 @@ export type EnforceConnectIdsResult =
  * `{ ok: false, error }` if ANY explicit id is invalid (writes nothing), or
  * `{ ok: true, config }` with every id filled and valid.
  *
- * `existingIds` accumulates each autofilled id as it's minted, so two
- * id-less blocks on the same form can't derive the same slug.
+ * The finalizer is deliberately two-pass: every present explicit or
+ * previously established id validates and reserves first, then genuinely
+ * omitted ids derive in wire-block order. An omitted earlier kind therefore
+ * cannot steal the spelling of an unchanged later kind.
  */
 export function enforceConnectIds(
-	config: ConnectConfig,
+	config: ConnectConfigDraft,
+	connectType: BlueprintDoc["connectType"],
 	moduleName: string,
 	formName: string,
 	existingIds: Set<string>,
 ): EnforceConnectIdsResult {
-	const out: ConnectConfig = { ...config };
-	const errors: string[] = [];
+	if (connectType === null) {
+		return {
+			ok: false,
+			error:
+				"Connect configuration cannot be authored until the app has a Connect mode.",
+		};
+	}
+	const hasLearn =
+		config.learn_module !== undefined || config.assessment !== undefined;
+	const hasDeliver =
+		config.deliver_unit !== undefined || config.task !== undefined;
+	if (
+		(connectType === "learn" && (!hasLearn || hasDeliver)) ||
+		(connectType === "deliver" && (!hasDeliver || hasLearn))
+	) {
+		return {
+			ok: false,
+			error: `Connect configuration must contain only ${connectType}-mode blocks and at least one such block.`,
+		};
+	}
+
+	const out: ConnectConfigDraft = { ...config };
 	const pairName = `${moduleName} ${formName}`;
 
-	// Validate one explicit id; collect any format/length/conflict error.
-	const checkExplicit = (kind: ConnectKind, id: string): void => {
-		const reason =
-			connectIdError(id) ?? connectIdConflictError(id, existingIds);
-		if (reason) errors.push(`${KIND_LABEL[kind]} id ${reason}`);
-		else existingIds.add(id);
-	};
+	const errors = [...reserveExplicitConnectIds(out, existingIds)];
 
-	// One arm per kind: validate-if-explicit, autofill-if-omitted. The
-	// derive name differs (module vs module+form) but the shape is uniform.
+	// Every explicit identity is already reserved. One arm per kind now derives
+	// only an omission; the name differs (module vs module+form), but the shape
+	// and deterministic wire-block order are uniform.
 	const handle = <T extends { id?: string }>(
-		kind: ConnectKind,
 		sub: T | undefined,
 		deriveName: string,
 		assign: (next: T) => void,
@@ -130,22 +182,19 @@ export function enforceConnectIds(
 			const id = deriveConnectId(deriveName, existingIds);
 			existingIds.add(id);
 			assign({ ...sub, id });
-		} else {
-			checkExplicit(kind, sub.id);
-			assign(sub);
 		}
 	};
 
-	handle("learn_module", out.learn_module, moduleName, (n) => {
+	handle(out.learn_module, moduleName, (n) => {
 		out.learn_module = n;
 	});
-	handle("assessment", out.assessment, pairName, (n) => {
+	handle(out.assessment, pairName, (n) => {
 		out.assessment = n;
 	});
-	handle("deliver_unit", out.deliver_unit, moduleName, (n) => {
+	handle(out.deliver_unit, moduleName, (n) => {
 		out.deliver_unit = n;
 	});
-	handle("task", out.task, pairName, (n) => {
+	handle(out.task, pairName, (n) => {
 		out.task = n;
 	});
 
@@ -155,5 +204,12 @@ export function enforceConnectIds(
 			error: `Connect ${errors.join("; Connect ")}`,
 		};
 	}
-	return { ok: true, config: out };
+	const final = connectConfigSchema.safeParse(out);
+	if (!final.success) {
+		return {
+			ok: false,
+			error: `Connect configuration is incomplete: ${final.error.issues.map((issue) => issue.message).join("; ")}`,
+		};
+	}
+	return { ok: true, config: final.data };
 }

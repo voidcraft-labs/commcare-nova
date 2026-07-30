@@ -1,8 +1,7 @@
 // components/builder/shared/__tests__/operationScopeFailsClosed.test.ts
 //
-// Absent means not authorable — the whole safety argument for opening
-// three round-trip-only value kinds and one term source inside case
-// operations.
+// Absent means not authorable — submission-local values exist only in
+// the operation slots that own their runtime bindings.
 //
 // `formFields` and `operationScope` are optional on the edit context, so
 // every surface that does not opt in must behave EXACTLY as it did
@@ -80,23 +79,35 @@ describe("without an operation scope", () => {
 	it("refuses a form answer, because no answers are in scope", () => {
 		const ctx = buildEditorTypeContext(BARE);
 		expect(ctx.formFields?.size).toBe(0);
-		expect(ctx.caseOperationValues).toBeUndefined();
+		expect(ctx.ownerValues).toBeUndefined();
 		expect(ctx.operationIds).toBeUndefined();
 		expect(checkValueExpression(term(formField(FIELD)), ctx).ok).toBe(false);
 	});
 });
 
 describe("with an operation scope", () => {
-	it("opens the two owner sentinels, and `id-of` only once a create exists", () => {
+	it("opens `id-of` after a create and owner values only in an owner slot", () => {
 		expect(
 			isAuthorableExpressionKind("id-of", { operationScope: { creates: [] } }),
 		).toBe(false);
 		const scope = {
 			operationScope: { creates: [{ uuid: CREATE, label: "create_referral" }] },
 		};
-		for (const kind of ["acting-user", "unowned", "id-of"] as const) {
-			expect(isAuthorableExpressionKind(kind, scope)).toBe(true);
-		}
+		expect(isAuthorableExpressionKind("id-of", scope)).toBe(true);
+		expect(isAuthorableExpressionKind("acting-user", scope)).toBe(false);
+		expect(isAuthorableExpressionKind("unowned", scope)).toBe(false);
+		expect(
+			isAuthorableExpressionKind("acting-user", {
+				...scope,
+				ownerValues: true,
+			}),
+		).toBe(true);
+		expect(
+			isAuthorableExpressionKind("unowned", {
+				...scope,
+				ownerValues: true,
+			}),
+		).toBe(true);
 	});
 
 	it("admits exactly the answers and creates the surface declared", () => {
@@ -111,6 +122,7 @@ describe("with an operation scope", () => {
 				},
 			],
 			operationScope: { creates: [{ uuid: CREATE, label: "create_referral" }] },
+			ownerValues: true,
 		});
 		expect(checkValueExpression(term(formField(FIELD)), ctx).ok).toBe(true);
 		expect(checkValueExpression(actingUser(), ctx).ok).toBe(true);
@@ -138,6 +150,7 @@ describe("the cascade reseed resolves against the vocabulary on screen", () => {
 		userProperties: [WORKER_PROPERTY],
 		formFields: [DATE_ANSWER],
 		operationScope: { creates: [{ uuid: CREATE, label: "create_referral" }] },
+		ownerValues: true,
 	};
 
 	it("resolves every axis the pickers offer", () => {

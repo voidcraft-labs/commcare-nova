@@ -1,11 +1,11 @@
 /**
  * Diff two `BlueprintDoc`s into the minimal-enough `Mutation[]` whose
- * replay on the FIRST doc reproduces the SECOND. This is what backs
- * mutation-only persistence: the client diffs its working doc against the
- * doc it last saw, ships the diff, and the server replays it on the fresh
- * stored doc (`applyMutations`). The result is correct — not necessarily
- * globally minimal — and every emitted mutation is one the reducer applies
- * without throwing.
+ * replay on the FIRST doc reproduces the SECOND. It supports endpoint-only
+ * transforms such as synthetic repair and non-semantic inverse construction.
+ * Interactive persistence does not use this function: it preserves and sends
+ * the exact admitted command batches. In particular, this function never
+ * invents an app-wide case-property rename from two snapshots because only
+ * the recorded command can authorize moving saved rows.
  *
  * MERGE SEMANTICS under concurrent edits (replay on a doc a co-member has
  * advanced): EVERY mutation is identity-keyed — a uuid (module/form/field/
@@ -17,7 +17,7 @@
  * replacing the SAME scalar slot (or the same property/type name) at the same
  * instant — deterministic by commit order. A concurrent DELETE of an entity
  * this diff targets is caught separately — the guarded commit's
- * `batchTargetsMissing` rejects it as a 409 rather than letting it silently
+ * `mutationTargetsInvalid` rejects it as a 409 rather than letting it silently
  * no-op.
  *
  * The emission order is dictated by the reducer's semantics, not by the
@@ -35,15 +35,13 @@
  *   4. Removes — TOP survivors only. A child whose parent is also removed
  *      gets no explicit remove; the parent's cascade took it.
  *   5. Field structural REST — field adds (parent-before-child), cross-parent
- *      moves, and same-parent reorders (each `moveField` carries the field's
- *      `order`), plus cross-module form moves + same-module reorders. A
- *      `moveField`'s sibling-id dedup may transiently suffix a moved field;
- *      step 7's `updateField` patch pins the id back.
+ *      moves, and same-parent reorders, plus cross-module form moves +
+ *      same-module reorders. A move preserves the field's id.
  *   6. Module + form renames, then field converts (`convertField`).
  *   7. Updates — `updateModule` / `updateForm` / `updateField` patches of
  *      ONLY the changed keys (excluding `order`, `caseListConfig`,
- *      `caseSearchConfig`, `options`, and media, each diffed separately). A field's `id` rides its
- *      `updateField` patch, not `renameField`.
+ *      `caseSearchConfig`, `options`, and media, each diffed separately).
+ *      Field-id and `caseWrite` patches are both UUID-local.
  *   8. Media — the dedicated clear-safe kinds (`setFieldMedia` /
  *      `setModuleMedia` / `setFormMedia`).
  *   9. Granular COLLECTIONS — case-list column / search-input / semantic
@@ -61,9 +59,6 @@
  *      concurrent add). The post-horizon dialect has no wholesale catalog
  *      mutation.
  *
- * `renameField` is never emitted: its cascade means the id rides `updateField`
- * instead.
- *
  * The commit gate validates only the final candidate, so an intermediate
  * invalid state across the batch is fine; the one hard rule is that no
  * individual mutation may make the reducer throw.
@@ -77,6 +72,10 @@ import {
 } from "@/lib/doc/caseListColumnMutations";
 import { caseOperationChangesForUpdate } from "@/lib/doc/caseOperationMutations";
 import {
+	isCasePropertyRenameShapedEndpointDelta,
+	type RenameCasePropertiesMutation,
+} from "@/lib/doc/casePropertyRenames";
+import {
 	cleanupCaseSearchAfterFinalInputMutation,
 	disableUnusedCaseSearchMutation,
 	enableCaseSearchMutation,
@@ -86,12 +85,16 @@ import {
 	caseSearchConfigPatchMutations,
 	clearCaseSearchConfigSettingsMutations,
 } from "@/lib/doc/caseSearchConfigPatchMutations";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import {
 	orderedFieldUuids,
 	orderedFormUuids,
 	orderedModuleUuids,
 } from "@/lib/doc/fieldWalk";
-import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
+import {
+	type AdmittedMutationBatch,
+	admitMutationBatch,
+} from "@/lib/doc/mutationAdmission";
 import { applyMutations } from "@/lib/doc/mutations";
 import { sequenceMovesTo, spliceAfter } from "@/lib/doc/mutations/sequence";
 import { searchInputUpdateMutation } from "@/lib/doc/searchInputMutations";
@@ -124,6 +127,7 @@ import {
 	emptyCaseListConfig,
 	fieldKindDeclaresKey,
 	hasOwnRecordKey,
+	isOwnerOnlyCaseSearchConfig,
 	ownRecordValue,
 } from "@/lib/domain";
 import { effectiveFilterForEmission } from "@/lib/domain/predicate";
@@ -149,6 +153,83 @@ import { effectiveFilterForEmission } from "@/lib/domain/predicate";
  */
 function cloneEntity<T>(value: T): T {
 	return structuredClone(value);
+}
+
+export class CasePropertySemanticProvenanceRequiredError extends Error {
+	constructor() {
+		super(
+			"Case-property carrier names changed without the exact recorded rename command. Endpoint snapshots cannot decide whether saved rows should move.",
+		);
+		this.name = "CasePropertySemanticProvenanceRequiredError";
+	}
+}
+
+export interface CasePropertyRenameProvenance {
+	readonly casePropertyRename: AdmittedMutationBatch;
+	readonly recordedNonRenameForward?: never;
+}
+
+export interface RecordedNonRenameProvenance {
+	readonly recordedNonRenameForward: AdmittedMutationBatch;
+	readonly casePropertyRename?: never;
+}
+
+export type DiffSemanticProvenance =
+	| CasePropertyRenameProvenance
+	| RecordedNonRenameProvenance;
+
+function isRecordedNonRenameProvenance(
+	provenance: DiffSemanticProvenance,
+): provenance is RecordedNonRenameProvenance {
+	return provenance.recordedNonRenameForward !== undefined;
+}
+
+function renameFromProvenance(
+	prev: BlueprintDoc,
+	next: BlueprintDoc,
+	provenance: CasePropertyRenameProvenance,
+): Mutation[] {
+	const batch = provenance.casePropertyRename;
+	const command =
+		batch.length === 1 && batch[0]?.kind === "renameCaseProperties"
+			? batch[0]
+			: undefined;
+	if (command === undefined) {
+		throw new CasePropertySemanticProvenanceRequiredError();
+	}
+	const replayed = produce(prev, (draft) => {
+		applyMutations(draft, batch);
+	});
+	if (!deepEqual(toPersistableDoc(replayed), toPersistableDoc(next))) {
+		throw new CasePropertySemanticProvenanceRequiredError();
+	}
+	return [structuredClone(command satisfies RenameCasePropertiesMutation)];
+}
+
+/**
+ * Prove the exact ordinary command batch that produced `prev` from `next`.
+ *
+ * This branch exists for command-history inverse construction only. An
+ * ordinary remove+add can have the same endpoint shape as a rename, but its
+ * recorded admitted commands prove that no saved-row move was authored.
+ * Replay equality is mandatory, and an explicit rename is categorically
+ * excluded, so this cannot become a generic endpoint bypass.
+ */
+function proveRecordedNonRenameForward(
+	prev: BlueprintDoc,
+	next: BlueprintDoc,
+	provenance: RecordedNonRenameProvenance,
+): void {
+	const forward = provenance.recordedNonRenameForward;
+	if (forward.some((mutation) => mutation.kind === "renameCaseProperties")) {
+		throw new CasePropertySemanticProvenanceRequiredError();
+	}
+	const replayed = produce(next, (draft) => {
+		applyMutations(draft, forward);
+	});
+	if (!deepEqual(toPersistableDoc(replayed), toPersistableDoc(prev))) {
+		throw new CasePropertySemanticProvenanceRequiredError();
+	}
 }
 
 function deepEqual(a: unknown, b: unknown): boolean {
@@ -370,7 +451,20 @@ function* walkFieldTree(
 export function diffDocsToMutations(
 	prev: BlueprintDoc,
 	next: BlueprintDoc,
+	provenance?: DiffSemanticProvenance,
 ): Mutation[] {
+	const renameShapedDelta = isCasePropertyRenameShapedEndpointDelta(prev, next);
+	if (provenance !== undefined) {
+		if (isRecordedNonRenameProvenance(provenance)) {
+			proveRecordedNonRenameForward(prev, next, provenance);
+		} else {
+			return renameFromProvenance(prev, next, provenance);
+		}
+	}
+	if (provenance === undefined && renameShapedDelta) {
+		throw new CasePropertySemanticProvenanceRequiredError();
+	}
+
 	const appLevel: Mutation[] = [];
 	const removes: Mutation[] = [];
 	const adds: Mutation[] = [];
@@ -419,10 +513,8 @@ export function diffDocsToMutations(
 	const prevParentMap = buildParentMap(prev);
 	const nextParentMap = buildParentMap(next);
 
-	// Field structural reconciliation (adds + moves) — computed up front so
-	// the field-update loop can force-pin the `id` of every cross-parent-
-	// moved field (undoing any `moveField` sibling-id dedup). Its mutations
-	// are emitted later, in the phase order.
+	// Field structural reconciliation (adds + moves) is computed up front and
+	// emitted later in the phase order.
 	const fieldTree = reconcileFieldTree(
 		prev,
 		next,
@@ -489,8 +581,7 @@ export function diffDocsToMutations(
 
 	// Field adds + cross-parent moves + reorders were reconciled together in
 	// `reconcileFieldTree` above (its mutations are emitted later in the
-	// phase order); the field-update loop below reads its `crossParentMoved`
-	// set to force-pin moved ids.
+	// phase order).
 
 	// ── Common entities: renames, converts, updates, media ────────────
 
@@ -559,21 +650,10 @@ export function diffDocsToMutations(
 
 	// Fields.
 	//
-	// A field's `id` is reconciled through the `updateField` patch, NOT
-	// `renameField`. `renameField` runs a case-property cascade — peer-field
-	// renames + structural case-property rewrites + a catalog rename — whose
-	// side effects collide with the rest of a multi-entity diff (it can drag
-	// a freshly-added peer's id, or re-key typed carriers this diff separately
-	// pins).
-	// `updateField` sets `id` with none of that: it's a plain key on the
-	// per-kind patch schema (only `uuid` / `kind` are immutable), the reducer
-	// applies it in place, and every OTHER entity's slots + the catalog are
-	// pinned directly elsewhere in this batch (their own `updateField`
-	// patches, then granular catalog edits last). A `moveField`'s sibling-id
-	// dedup may
-	// transiently suffix a moved field, but this patch — emitted after the
-	// structural pass — overrides it to the exact `next.id`, which makes the
-	// move's dedup harmless rather than something to order around.
+	// Field ids and `caseWrite` bindings ride their per-kind UUID-local
+	// `updateField` patches. An app-wide property rename was proved and returned
+	// above as the batch-exclusive semantic command; this ordinary path never
+	// guesses migration intent from one field.
 	for (const uuid of fieldDelta.common) {
 		const pField = ownRecordValue(prev.fields, uuid) as Field;
 		const nField = ownRecordValue(next.fields, uuid) as Field;
@@ -607,13 +687,6 @@ export function diffDocsToMutations(
 		const patch = kindChanged
 			? fieldPatchForConvertedField(p, n, nField.kind, skip)
 			: propertyPatch(p, n, skip);
-		// Force-pin `id` for a cross-parent-moved field even when it didn't
-		// change: the move's sibling-id dedup may have suffixed it
-		// (`inner` → `inner_2`), and only this patch restores the exact
-		// `next.id`. (A same-parent reorder never dedups, so it's excluded.)
-		if (fieldTree.crossParentMoved.has(uuid) && !("id" in patch)) {
-			patch.id = nField.id;
-		}
 		const previousOptionsSource =
 			"optionsSource" in pField ? pField.optionsSource : undefined;
 		const nextOptionsSource =
@@ -662,8 +735,8 @@ export function diffDocsToMutations(
 		orders.push({ kind: "moveModule", uuid: move.uuid, after: move.after });
 	}
 
-	// Form structural — cross-module moves (incl. forms evacuated out of
-	// removed modules) + same-module reorders, both order-key-detected.
+	// Form structural — cross-module moves (including forms evacuated out of
+	// removed modules) plus same-module sequence changes.
 	const formStructure = reconcileFormOrders(prev, next, formDelta);
 
 	// `fieldTree` (field ADDS + cross-parent MOVES + reorders) was computed
@@ -973,8 +1046,7 @@ function buildFormModuleMap(doc: BlueprintDoc): Map<Uuid, Uuid> {
  * IS the sequence. Adds are emitted parent-before-child (top-down parents, in
  * sequence order) so a container lands before the fields it holds; each names
  * the sibling it follows. A cross-parent move names its anchor in the
- * DESTINATION and joins `crossParentMoved` so the field-update loop force-pins
- * its `id` (undoing any move-time sibling-id dedup).
+ * destination and preserves the field's id.
  *
  * Cross-parent moves out of a DOOMED parent (one removed this batch) are
  * EVACUATIONS — emitted before the removes so the cascade can't delete the
@@ -992,12 +1064,10 @@ function reconcileFieldTree(
 ): {
 	evacuations: Mutation[];
 	rest: Mutation[];
-	crossParentMoved: Set<Uuid>;
 } {
 	const evacuations: Mutation[] = [];
 	const adds: Mutation[] = [];
 	const moves: Mutation[] = [];
-	const crossParentMoved = new Set<Uuid>();
 	const addedFieldSet = new Set(fieldDelta.added);
 
 	// A prev parent is "doomed" when it won't exist after the removes — a
@@ -1047,7 +1117,6 @@ function reconcileFieldTree(
 			toParentUuid: nextParent,
 			after: at > 0 ? (destination[at - 1] ?? null) : null,
 		};
-		crossParentMoved.add(uuid);
 		if (isDoomed(prevParent)) evacuations.push(move);
 		else moves.push(move);
 	}
@@ -1108,7 +1177,7 @@ function reconcileFieldTree(
 	// An evacuation's DESTINATION may itself be a container ADDED in this diff
 	// (create group G, drag X out of doomed H into G, delete H — one batch).
 	// Field adds otherwise emit AFTER the removes, so the batch would reference
-	// a not-yet-existing container mid-replay: `batchTargetsMissing` runs in
+	// a not-yet-existing container mid-replay: `mutationTargetsInvalid` runs in
 	// batch order and rejects the whole save as a phantom conflict (409 → the
 	// reload drops the user's create+move+delete), and an unguarded replay
 	// would silently no-op the move and cascade-delete the survivor. Hoist the
@@ -1138,13 +1207,13 @@ function reconcileFieldTree(
 		}
 	}
 
-	return { evacuations, rest: [...adds, ...moves], crossParentMoved };
+	return { evacuations, rest: [...adds, ...moves] };
 }
 
 /**
- * Every field parent in `next` (forms then container fields), top-down and in
- * DISPLAY order (`sort-by-(order, uuid)`): forms in module → form order, then
- * container fields in pre-order. A top-down order means a parent is always
+ * Every field parent in `next` (forms then container fields), top-down in
+ * membership-array order: forms in module → form order, then container fields
+ * in pre-order. A top-down order means a parent is always
  * visited before any parent nested inside it.
  */
 function nextParentsTopDown(next: BlueprintDoc): Uuid[] {
@@ -1165,7 +1234,7 @@ function nextParentsTopDown(next: BlueprintDoc): Uuid[] {
 
 // ── Granular collection + catalog diffs ──────────────────────────────
 
-/** Deep-equal two values ignoring generic + surface order keys. */
+/** Deep-equal two values ignoring a collection item's sequence key. */
 function contentEqualIgnoringOrder(a: unknown, b: unknown): boolean {
 	return deepEqual(stripOrder(a), stripOrder(b));
 }
@@ -1174,12 +1243,7 @@ function stripOrder(value: unknown): unknown {
 	if (value === null || typeof value !== "object" || Array.isArray(value)) {
 		return value;
 	}
-	const {
-		order: _order,
-		listOrder: _listOrder,
-		detailOrder: _detailOrder,
-		...rest
-	} = value as Record<string, unknown>;
+	const { order: _order, ...rest } = value as Record<string, unknown>;
 	return rest;
 }
 
@@ -1464,8 +1528,12 @@ function diffCaseSearchConfig(
 	// Owner-only storage and an enabled Search action differ only by Nova's
 	// internal false provenance bit. Preserve the owner expression (including a
 	// peer's newer value) by replaying semantic enable rather than a bag snapshot.
-	if (prev?.searchActionEnabled === false && next !== undefined) {
-		const { searchActionEnabled: _disabled, ...enabled } = prev;
+	if (
+		isOwnerOnlyCaseSearchConfig(prev) &&
+		next !== undefined &&
+		!isOwnerOnlyCaseSearchConfig(next)
+	) {
+		const enabled = { excludedOwnerIds: prev.excludedOwnerIds };
 		if (deepEqual(enabled, next)) {
 			return [enableCaseSearchMutation(moduleUuid, next)];
 		}
@@ -1473,11 +1541,11 @@ function diffCaseSearchConfig(
 
 	const prevIsMarker =
 		prev !== undefined &&
-		prev.searchActionEnabled !== false &&
+		!isOwnerOnlyCaseSearchConfig(prev) &&
 		!caseSearchConfigHasAuthoredSettings(prev);
 	const nextIsMarker =
 		next !== undefined &&
-		next.searchActionEnabled !== false &&
+		!isOwnerOnlyCaseSearchConfig(next) &&
 		!caseSearchConfigHasAuthoredSettings(next);
 	if (prev === undefined && nextIsMarker) {
 		return [enableCaseSearchMutation(moduleUuid, next)];
@@ -1490,7 +1558,7 @@ function diffCaseSearchConfig(
 	) {
 		return [disableUnusedCaseSearchMutation(moduleUuid)];
 	}
-	if (next?.searchActionEnabled === false) {
+	if (isOwnerOnlyCaseSearchConfig(next)) {
 		return [setOwnerOnlyCaseSearchMutation(moduleUuid, next)];
 	}
 	if (next !== undefined) {
@@ -1649,13 +1717,20 @@ function diffCatalog(
 			(fromCt?.properties ?? []).map((p) => [p.name, p]),
 		);
 		const toPropNames = new Set(toCt.properties.map((p) => p.name));
-		for (const prop of toCt.properties) {
+		for (const [propertyIndex, prop] of toCt.properties.entries()) {
 			const fp = fromProps.get(prop.name);
 			if (!fp) {
+				const after =
+					propertyIndex === toCt.properties.length - 1
+						? undefined
+						: propertyIndex === 0
+							? null
+							: toCt.properties[propertyIndex - 1]?.name;
 				out.push({
 					kind: "addCaseProperty",
 					caseType: toCt.name,
 					property: cloneEntity(prop),
+					...(after !== undefined ? { after } : {}),
 				});
 			} else if (!deepEqual(fp, prop)) {
 				out.push({

@@ -4,13 +4,14 @@
  *
  * ## The invariant
  *
- *   displayed === fold(confirmedDoc, [...sentPending, humanUncommitted()])
+ *   displayed === fold(confirmedDoc, [...sentPending, ...humanUncommitted()])
  *
  * where `fold(doc, batches)` folds each batch onto `doc` via `applyMutations`.
  * `displayed` is the doc the store holds (what the user sees + edits);
  * `confirmedDoc` is the last server-confirmed blueprint at `baseSeq`;
  * `sentPending` is every batch this tab has PUT whose own echo hasn't
- * returned yet; `humanUncommitted` is the local human delta not yet PUT.
+ * returned yet; `humanUncommitted` is the ordered queue of original admitted
+ * command batches not yet PUT.
  *
  * ## Confirmed advances only via inbound frames
  *
@@ -43,9 +44,11 @@
  * fresh blueprint + capability tuple at seq `M`, then:
  *   (a) dropping every `sentPending` batch whose `ackedSeq <= M` (its commit is
  *       already folded into the fresh doc), AND
- *   (b) dropping only THE batch a typed semantic `commit_rejected` rejected —
- *       without (b), it re-folds + re-sends into an infinite loop. Access/scope
- *       changes preserve their batch for a possible editor snapshot.
+ *   (b) when a human segment receives typed `commit_rejected`, dropping that
+ *       segment and every later unacknowledged human segment authored over it.
+ *       Replaying any causal successor without its predecessor would
+ *       reinterpret the user's work. Access/scope changes preserve every
+ *       segment for a possible editor snapshot.
  * The remaining un-acked batches + `humanUncommitted` re-fold onto the reloaded
  * `confirmedDoc`, the undo stack clears, and the stream resubscribes at `M`.
  *
@@ -60,14 +63,16 @@
  */
 
 import { produce } from "immer";
-import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
+import { CasePropertyRenamePlanError } from "@/lib/doc/casePropertyRenames";
+import { deepEqual } from "@/lib/doc/deepEqual";
 import {
 	hydratePersistedBlueprint,
 	toPersistableDoc,
 } from "@/lib/doc/fieldParent";
-import type {
-	AdmittedMutationBatch,
-	MutationWireCanonicalityReason,
+import {
+	type AdmittedMutationBatch,
+	admitMutationBatch,
+	type MutationWireCanonicalityReason,
 } from "@/lib/doc/mutationAdmission";
 import { applyMutations } from "@/lib/doc/mutations";
 import { buildReferenceIndex } from "@/lib/doc/referenceIndex";
@@ -82,6 +87,7 @@ export type { MutationFrame } from "./mutationFrame";
  *  hasn't returned. It stays folded into `localBase()` until its echo drops
  *  it, so a network-failed PUT keeps folding rather than vanishing. */
 interface SentBatch {
+	readonly source: "human" | "chat";
 	readonly batchId: string;
 	/** The run this batch belongs to, for a chat batch — used only to keep the
 	 *  registration symmetric with the frame's `runId`; echo matching keys on
@@ -104,6 +110,14 @@ interface SentBatch {
 	/** Save-lifecycle observer for a human batch (drives the save indicator).
 	 *  Absent on a chat batch (registered already-committed). */
 	observe?: SaveObserver;
+}
+
+interface HumanBatchWatchState {
+	readonly expected: AdmittedMutationBatch;
+	readonly skipQueuedPrefix: number;
+	readonly resolve: (outcome: HumanBatchWatchOutcome) => void;
+	batchId?: string;
+	settled: boolean;
 }
 
 /** The result of a PUT: `{ seq }` on 200, or a tagged failure. Capability and
@@ -156,6 +170,28 @@ export type SaveSignal =
 	 *  are kept. `useAutoSave` surfaces a "too large — reload" error. */
 	| { kind: "tooLarge" }
 	| { kind: "error" };
+
+/**
+ * Exact acknowledgement for one watched human command segment.
+ *
+ * A transient network result never settles the watch: the same batch id
+ * retries until it receives an authoritative terminal result. `cancelled` is
+ * local teardown only (explicit cancel or reconciler disposal), never a
+ * server acknowledgement.
+ */
+export type HumanBatchWatchOutcome =
+	| { readonly kind: "saved"; readonly batchId: string; readonly seq: number }
+	| { readonly kind: "conflict" }
+	| { readonly kind: "accessChanged" }
+	| { readonly kind: "permanent"; readonly message: string }
+	| { readonly kind: "tooLarge" }
+	| { readonly kind: "error"; readonly message: string }
+	| { readonly kind: "cancelled" };
+
+export interface HumanBatchWatch {
+	readonly promise: Promise<HumanBatchWatchOutcome>;
+	cancel(): void;
+}
 
 /** Observe the lifecycle of one dispatched human batch (save indicator). */
 export type SaveObserver = (signal: SaveSignal) => void;
@@ -258,7 +294,7 @@ export interface Reconciler {
 	 *  Cheap boolean read for the chat hot path — avoids `getSnapshot()`'s deep
 	 *  clone of `sentPending`/`awaitingEcho` per `data-mutations` frame. */
 	isDormant(): boolean;
-	/** The auto-save diff base: `confirmedDoc ⊕ sentPending`. */
+	/** The auto-save command base: `confirmedDoc ⊕ sentPending`. */
 	localBase(): BlueprintDoc;
 	/**
 	 * Install the current save-status sink. Registration also retargets every
@@ -267,12 +303,21 @@ export interface Reconciler {
 	 * closure. The returned cleanup only clears this exact registration.
 	 */
 	registerSaveObserver(observe: SaveObserver, scopeEpoch: number): () => void;
-	/** Dispatch the human delta between `localBase()` and the store's displayed
-	 *  doc as a new batch: mint a batchId, register it, and PUT. No-op when the
-	 *  delta is empty or the reconciler is dormant/revoked. `observe` receives
-	 *  the batch's save lifecycle (saving → saved / conflict / accessChanged /
-	 *  error), including retry re-sends. Returns the minted batchId
-	 *  (or undefined when nothing was sent). */
+	/**
+	 * Watch the next queued human segment structurally equal to `expected`.
+	 *
+	 * Call immediately before applying that exact admitted batch. Registration
+	 * records the queue prefix that already existed, so a matching predecessor
+	 * cannot steal the watch. Autosave remains the sole dispatch owner.
+	 */
+	watchNextHumanBatch(expected: unknown): HumanBatchWatch;
+	/** Dispatch every queued original human batch as its own sent segment:
+	 *  mint one batchId per segment, register them in order, and start the
+	 *  single-flight PUT pipeline. No-op when the queue is empty or the
+	 *  reconciler is dormant/revoked. `observe` receives each segment's save
+	 *  lifecycle (saving → saved / conflict / accessChanged / error), including
+	 *  retry re-sends. Returns the first minted batchId (or undefined when
+	 *  nothing was sent). */
 	dispatchHumanBatch(observe?: SaveObserver): string | undefined;
 	/** Register a chat-SA batch the server just committed (from the
 	 *  `data-mutations` handler) so its own stream echo is recognized and
@@ -289,7 +334,7 @@ export interface Reconciler {
 	}): { alreadyConfirmed: boolean };
 	/** Handle one inbound `mutation` frame. */
 	onFrame(frame: MutationFrame): void;
-	/** Handle an `event: reload` (retention/migration sentinel). */
+	/** Handle an `event: reload` (gap or server-only app-change boundary). */
 	onReloadEvent(): void;
 	/** Handle an `event: revoked` — freeze; cancel any pending reload. */
 	onRevoked(): void;
@@ -395,6 +440,11 @@ export function createReconciler(
 	let selfActiveRunId: string | undefined;
 	const sentPending: SentBatch[] = [];
 	const awaitingEcho = new Set<string>();
+	const unboundHumanBatchWatches = new Set<HumanBatchWatchState>();
+	const humanBatchWatchesByBatchId = new Map<
+		string,
+		Set<HumanBatchWatchState>
+	>();
 	let reloadPending = false;
 	/** True while a `runReload` is between its GET request and its completion —
 	 *  so a gap/409 arriving mid-reload coalesces (re-arms `reloadPending`) into
@@ -420,6 +470,10 @@ export function createReconciler(
 	/** The batchId a 409 rejected, captured so the deferred reload drops it.
 	 *  Preserved across a coalesced reload so the loop-break still holds. */
 	let rejectedBatchId: string | undefined;
+	/** An authoritatively rejected human batch. Its serialized reload removes
+	 *  this segment and every later unacknowledged human segment as one causal
+	 *  suffix; successors are never reinterpreted without their predecessor. */
+	let rejectedCausalBatchId: string | undefined;
 	/** The active retry-loop canceller, if the loop is scheduled. */
 	let cancelRetry: (() => void) | undefined;
 	let retryAttempt = 0;
@@ -445,7 +499,18 @@ export function createReconciler(
 	}
 
 	function localBase(): BlueprintDoc {
-		return foldBatches(confirmedDoc, pendingBatches());
+		try {
+			return foldBatches(confirmedDoc, pendingBatches());
+		} catch (error) {
+			if (error instanceof CasePropertyRenamePlanError) {
+				// A peer may invalidate an explicit rename that this tab already
+				// queued or sent. Keep the visible local state intact until the
+				// authoritative writer rejects that exact segment and reloads;
+				// never partially reduce the relation on a newer base.
+				return displayed();
+			}
+			throw error;
+		}
 	}
 
 	/**
@@ -460,32 +525,43 @@ export function createReconciler(
 	 * (is there anything to save, is there an unsaved delta to warn about) far
 	 * more often than to send, and only the send takes the queue.
 	 */
-	function humanUncommitted(): AdmittedMutationBatch {
-		return docStore.getState().peekCommands();
+	function humanUncommitted(): readonly AdmittedMutationBatch[] {
+		return docStore.getState().peekCommandBatches();
 	}
 
 	/** Re-fold `confirmedDoc ⊕ sentPending ⊕ humanUncommitted` onto the store's
 	 *  displayed doc inside a remote-apply bracket (off the undo stack, and
 	 *  gating the auto-save re-PUT). Called after every `confirmedDoc` advance
-	 *  so the invariant holds. The human commands are REPLAYED onto the new
-	 *  base — the author's own edits land on top of the peer's, which is what
-	 *  makes the merge their edit rather than a re-derived approximation of
-	 *  it. They stay queued: the fold does not persist them. */
-	function refoldDisplayed(humanDelta: AdmittedMutationBatch): void {
-		const target = produce(localBase(), (draft) => {
-			applyBatch(draft, humanDelta);
-		});
+	 *  so the invariant holds. The human batches are REPLAYED in their original
+	 *  admitted order onto the new base — the author's own edits land on top of
+	 *  the peer's without erasing a batch-exclusive semantic boundary. They
+	 *  stay queued: the fold does not persist them.
+	 *
+	 * A peer can make an explicit rename relation inadmissible. In that case no
+	 * prefix of it may land: leave the displayed doc and queue intact, send the
+	 * exact segment in order, and let the authoritative 409/reload resolve it. */
+	function refoldDisplayed(
+		humanBatches: readonly AdmittedMutationBatch[],
+	): void {
+		let target: BlueprintDoc;
+		try {
+			target = foldBatches(
+				foldBatches(confirmedDoc, pendingBatches()),
+				humanBatches,
+			);
+		} catch (error) {
+			if (error instanceof CasePropertyRenamePlanError) return;
+			throw error;
+		}
 		// Short-circuit when the fold already equals the displayed doc — the solo
 		// hot path (an echo with no pending peer edit + no human delta) owes
 		// nothing, so skip the whole-doc `commitDoc` (which would churn the store
-		// subscriber + the auto-save watermark for no change). The diff here is
-		// an EQUALITY CHECK, not a batch anyone sends: what persists is the
-		// author's recorded commands.
-		const delta = diffDocsToMutations(
-			toPersistableDoc(displayed()) as BlueprintDoc,
-			toPersistableDoc(target) as BlueprintDoc,
-		);
-		if (delta.length === 0) return;
+		// subscriber + the auto-save watermark for no change). This is canonical
+		// equality only; reconciliation never asks semantic diff to manufacture
+		// a command from endpoint documents.
+		if (deepEqual(toPersistableDoc(displayed()), toPersistableDoc(target))) {
+			return;
+		}
 		const store = docStore.getState();
 		store.beginRemoteApply();
 		try {
@@ -495,16 +571,15 @@ export function createReconciler(
 		}
 	}
 
-	/** Structural-change wrapper that upholds the invariant: capture the human
-	 *  delta relative to the CURRENT `localBase` (which still includes whatever
-	 *  `change` is about to mutate), run the structural `change` (a `sentPending`
+	/** Structural-change wrapper that upholds the invariant: capture the exact
+	 *  queued human segments, run the structural `change` (a `sentPending`
 	 *  drop), then re-fold `localBase ⊕ human` onto the store — so no code path can
 	 *  mutate `sentPending` and leave `displayed` stale. Use this for any
 	 *  `sentPending` mutation NOT already followed by a full reseed. */
 	function withRefold(change: () => void): void {
-		const humanDelta = humanUncommitted();
+		const humanBatches = humanUncommitted();
 		change();
-		refoldDisplayed(humanDelta);
+		refoldDisplayed(humanBatches);
 	}
 
 	// ── Dispatch (human edit → PUT) ──────────────────────────────────────
@@ -540,6 +615,83 @@ export function createReconciler(
 		};
 	}
 
+	function settleWatch(
+		watch: HumanBatchWatchState,
+		outcome: HumanBatchWatchOutcome,
+	): void {
+		if (watch.settled) return;
+		watch.settled = true;
+		unboundHumanBatchWatches.delete(watch);
+		if (watch.batchId !== undefined) {
+			const bound = humanBatchWatchesByBatchId.get(watch.batchId);
+			bound?.delete(watch);
+			if (bound?.size === 0) {
+				humanBatchWatchesByBatchId.delete(watch.batchId);
+			}
+		}
+		watch.resolve(outcome);
+	}
+
+	function settleBatchWatches(
+		batchId: string,
+		outcome: HumanBatchWatchOutcome,
+	): void {
+		for (const watch of [...(humanBatchWatchesByBatchId.get(batchId) ?? [])]) {
+			settleWatch(watch, outcome);
+		}
+	}
+
+	function settleAllHumanBatchWatches(outcome: HumanBatchWatchOutcome): void {
+		const watches = new Set<HumanBatchWatchState>(unboundHumanBatchWatches);
+		for (const bound of humanBatchWatchesByBatchId.values()) {
+			for (const watch of bound) watches.add(watch);
+		}
+		for (const watch of watches) settleWatch(watch, outcome);
+	}
+
+	function watchNextHumanBatch(expected: unknown): HumanBatchWatch {
+		let resolveWatch: ((outcome: HumanBatchWatchOutcome) => void) | undefined;
+		const promise = new Promise<HumanBatchWatchOutcome>((resolve) => {
+			resolveWatch = resolve;
+		});
+		if (resolveWatch === undefined) {
+			throw new Error("Human batch watch promise did not initialize.");
+		}
+		const watch: HumanBatchWatchState = {
+			expected: admitMutationBatch(expected),
+			skipQueuedPrefix: humanUncommitted().length,
+			resolve: resolveWatch,
+			settled: false,
+		};
+		unboundHumanBatchWatches.add(watch);
+		return {
+			promise,
+			cancel: () => settleWatch(watch, { kind: "cancelled" }),
+		};
+	}
+
+	function bindWatchesToDispatchedBatch(
+		mutations: AdmittedMutationBatch,
+		queueIndex: number,
+		batchId: string,
+	): void {
+		for (const watch of [...unboundHumanBatchWatches]) {
+			if (
+				queueIndex < watch.skipQueuedPrefix ||
+				!deepEqual(watch.expected, mutations)
+			) {
+				continue;
+			}
+			unboundHumanBatchWatches.delete(watch);
+			watch.batchId = batchId;
+			const bound =
+				humanBatchWatchesByBatchId.get(batchId) ??
+				new Set<HumanBatchWatchState>();
+			bound.add(watch);
+			humanBatchWatchesByBatchId.set(batchId, bound);
+		}
+	}
+
 	function dispatchHumanBatch(observe?: SaveObserver): string | undefined {
 		const effectiveObserver = observe ?? currentSaveObserver;
 		if (!canPut()) {
@@ -557,50 +709,66 @@ export function createReconciler(
 			// post-freeze edits toast once. Only for a real freeze with an actual
 			// unsaved delta; dormant / no-appId stay clean no-ops.
 			if (revoked && appId !== undefined && humanUncommitted().length > 0) {
-				effectiveObserver?.({
-					...(frozenPermanently
-						? {
-								kind: "permanent" as const,
-								message: frozenPermanentMessage,
-							}
-						: { kind: "accessChanged" as const }),
-				});
+				if (frozenPermanently) {
+					effectiveObserver?.({
+						kind: "permanent",
+						message: frozenPermanentMessage,
+					});
+					settleAllHumanBatchWatches({
+						kind: "permanent",
+						message: frozenPermanentMessage,
+					});
+				} else {
+					effectiveObserver?.({ kind: "accessChanged" });
+					settleAllHumanBatchWatches({ kind: "accessChanged" });
+				}
 			}
 			return undefined;
 		}
 		// A 413-stuck batch holds the pipeline: minting more batches behind it
-		// would either never send or 409-churn (each is diffed against a
+		// would either never send or 409-churn (each is authored against a
 		// localBase the server can't reach). The delta stays in
 		// `humanUncommitted` (kept + rendered); re-surface the terminal signal
 		// so the indicator stays in its "too large — reload" state.
 		if (sentPending.some((b) => b.tooLarge)) {
-			if (humanUncommitted().length > 0)
+			if (humanUncommitted().length > 0) {
 				effectiveObserver?.({ kind: "tooLarge" });
+				for (const watch of [...unboundHumanBatchWatches]) {
+					settleWatch(watch, { kind: "tooLarge" });
+				}
+			}
 			return undefined;
 		}
 		if (humanUncommitted().length === 0) return undefined;
-		// Taking the queue hands the batch to `sentPending`: from here it is
-		// tracked until the server echoes it, and a new author edit starts a
-		// fresh queue behind it.
-		const mutations = docStore.getState().takeCommands();
-		const batchId = crypto.randomUUID();
-		const batch: SentBatch = {
-			batchId,
-			mutations,
-			putInFlight: false,
-			tooLarge: false,
-			observe: effectiveObserver,
-		};
-		sentPending.push(batch);
-		awaitingEcho.add(batchId);
+		// Taking the queue hands each original admitted batch to its own
+		// `sentPending` segment. The exclusive rename can therefore never share
+		// admission, retry, acknowledgement, or conflict fate with an ordinary
+		// predecessor/successor.
+		const batches = docStore.getState().takeCommandBatches();
+		let firstBatchId: string | undefined;
+		for (const [queueIndex, mutations] of batches.entries()) {
+			const batchId = crypto.randomUUID();
+			firstBatchId ??= batchId;
+			const batch: SentBatch = {
+				source: "human",
+				batchId,
+				mutations,
+				putInFlight: false,
+				tooLarge: false,
+				observe: effectiveObserver,
+			};
+			sentPending.push(batch);
+			awaitingEcho.add(batchId);
+			bindWatchesToDispatchedBatch(mutations, queueIndex, batchId);
+		}
 		pumpSend();
-		return batchId;
+		return firstBatchId;
 	}
 
 	/**
 	 * The single-flight, IN-ORDER send pipeline. Stacked batches are dependent
-	 * by construction (each is diffed against a `localBase` that already folds
-	 * its predecessors), so two un-acked batches must never race over the wire —
+	 * by construction (each is authored against a `localBase` that already
+	 * folds its predecessors), so two un-acked batches must never race over the wire —
 	 * two PUTs landing on different instances commit in arbitrary order, and the
 	 * later-diffed batch then 409s on entities its predecessor hadn't created
 	 * yet (a silent drop with no real conflict). The pump sends ONLY the first
@@ -661,6 +829,11 @@ export function createReconciler(
 			// the batch leaves sentPending only when its own echo frame returns.
 			batch.ackedSeq = outcome.seq;
 			batch.observe?.({ kind: "saved" });
+			settleBatchWatches(batch.batchId, {
+				kind: "saved",
+				batchId: batch.batchId,
+				seq: outcome.seq,
+			});
 			// A FALSE-network re-send of an already-committed batch: the idempotent
 			// PUT returns the ORIGINAL seq via `batchDedup`, and if that seq is at
 			// or below `baseSeq` the batch is ALREADY in `confirmedDoc` — its echo
@@ -678,10 +851,28 @@ export function createReconciler(
 			return;
 		}
 		if (outcome.kind === "commitRejected") {
-			// A 409 is terminal for THIS batch: its delta can't apply to fresh
-			// state. Reconcile via reload, dropping this specific batchId so it
-			// isn't re-folded + re-sent into the same 409.
+			// A 409 is terminal for this batch AND every later local command
+			// authored over it. Replaying a successor without its predecessor
+			// would reinterpret the user's work, regardless of mutation kind.
+			// The serialized reload removes the already-sent human suffix; the
+			// store drops still-queued commands and local history now. Chat /
+			// authoritative segments are preserved. There is no fallback draft
+			// or partial rebase.
 			rejectedBatchId = batch.batchId;
+			rejectedCausalBatchId = batch.batchId;
+			const rejectedIndex = sentPending.findIndex(
+				(pending) => pending.batchId === batch.batchId,
+			);
+			for (let index = rejectedIndex; index < sentPending.length; index += 1) {
+				const rejected = sentPending[index];
+				if (rejected?.source === "human") {
+					settleBatchWatches(rejected.batchId, { kind: "conflict" });
+				}
+			}
+			for (const watch of [...unboundHumanBatchWatches]) {
+				settleWatch(watch, { kind: "conflict" });
+			}
+			docStore.getState().discardUncommittedCommandState();
 			batch.observe?.({ kind: "conflict" });
 			deps.onConflictReload?.();
 			requestReload();
@@ -696,6 +887,7 @@ export function createReconciler(
 			// the batch, pause further PUTs immediately, and let one atomic GET decide
 			// whether the user is a viewer, an editor in a new Project, or revoked.
 			batch.observe?.({ kind: "accessChanged" });
+			settleBatchWatches(batch.batchId, { kind: "accessChanged" });
 			requestReload();
 			return;
 		}
@@ -726,6 +918,10 @@ export function createReconciler(
 				kind: "permanent",
 				message: frozenPermanentMessage,
 			});
+			settleAllHumanBatchWatches({
+				kind: "permanent",
+				message: frozenPermanentMessage,
+			});
 			deps.onSaveError?.(
 				outcome.kind === "canonicality"
 					? `auto-save mutation canonicality rejected — mutation=${outcome.details.mutationIndex ?? "root"} pointer=${outcome.details.pointer} reason=${outcome.details.reason}`
@@ -747,6 +943,18 @@ export function createReconciler(
 			// frame against the armed `reloadPending` forever.
 			batch.tooLarge = true;
 			batch.observe?.({ kind: "tooLarge" });
+			const blockedIndex = sentPending.findIndex(
+				(pending) => pending.batchId === batch.batchId,
+			);
+			for (let index = blockedIndex; index < sentPending.length; index += 1) {
+				const blocked = sentPending[index];
+				if (blocked?.source === "human") {
+					settleBatchWatches(blocked.batchId, { kind: "tooLarge" });
+				}
+			}
+			for (const watch of [...unboundHumanBatchWatches]) {
+				settleWatch(watch, { kind: "tooLarge" });
+			}
 			deps.onSaveError?.(
 				`auto-save PUT too large — ${outcome.detail ?? "413"}`,
 			);
@@ -756,7 +964,7 @@ export function createReconciler(
 		// Network / 5xx / recoverable 401: leave the batch in
 		// sentPending
 		// (localBase keeps folding it) and re-send it via the dedicated retry
-		// loop — the diff path won't re-emit it (it's already in localBase).
+		// loop — it has already left the store's exact-command queue.
 		// Idempotent via batchDedup. The failure is reported to the observability
 		// channel (deduped per-app)
 		// so an app-wide save outage isn't invisible.
@@ -875,13 +1083,13 @@ export function createReconciler(
 	 *  in `displayed`, so no undo rebase and no full re-fold is owed; but a
 	 *  refold keeps the invariant airtight if the human edited since the PUT. */
 	function applyEcho(frame: MutationFrame): void {
-		const humanDelta = humanUncommitted();
+		const humanBatches = humanUncommitted();
 		confirmedDoc = produce(confirmedDoc, (draft) => {
 			applyBatch(draft, frame.mutations);
 		});
 		baseSeq = frame.seq;
 		dropBatch(frame.batchId);
-		refoldDisplayed(humanDelta);
+		refoldDisplayed(humanBatches);
 	}
 
 	/** A remote frame advances confirmedDoc and re-folds sentPending + the human
@@ -891,12 +1099,12 @@ export function createReconciler(
 	 *  placements are anchors ("put X after Y"), so a peer's change cannot move
 	 *  where it lands, and undoing reaches only what this author did. */
 	function applyRemote(frame: MutationFrame): void {
-		const humanDelta = humanUncommitted();
+		const humanBatches = humanUncommitted();
 		confirmedDoc = produce(confirmedDoc, (draft) => {
 			applyBatch(draft, frame.mutations);
 		});
 		baseSeq = frame.seq;
-		refoldDisplayed(humanDelta);
+		refoldDisplayed(humanBatches);
 	}
 
 	function dropBatch(batchId: string): void {
@@ -981,20 +1189,35 @@ export function createReconciler(
 		}
 
 		const captureHuman = humanUncommitted();
+		const rejectedCausalIndex =
+			rejectedCausalBatchId === undefined
+				? -1
+				: sentPending.findIndex(
+						(batch) => batch.batchId === rejectedCausalBatchId,
+					);
 
 		// Drop (a) every batch acked at or below M (already in the fresh doc) and
 		// (b) the specific batchId a 409 rejected (else it re-folds + re-sends →
-		// 409 → reload, forever).
+		// 409 → reload, forever). Every later unacknowledged HUMAN segment is the
+		// rejected batch's causal suffix: those commands were authored against
+		// the predecessor succeeding and cannot be reinterpreted over a server
+		// snapshot where it did not.
 		for (let i = sentPending.length - 1; i >= 0; i--) {
 			const b = sentPending[i];
 			const ackedBelowM = b.ackedSeq !== undefined && b.ackedSeq <= M;
 			const isRejected = b.batchId === rejectedBatchId;
-			if (ackedBelowM || isRejected) {
+			const isRejectedCausalSuffix =
+				rejectedCausalIndex >= 0 &&
+				i >= rejectedCausalIndex &&
+				b.source === "human" &&
+				b.ackedSeq === undefined;
+			if (ackedBelowM || isRejected || isRejectedCausalSuffix) {
 				sentPending.splice(i, 1);
 				awaitingEcho.delete(b.batchId);
 			}
 		}
 		rejectedBatchId = undefined;
+		rejectedCausalBatchId = undefined;
 
 		// Reseed confirmed at M from the fresh blueprint (hydrated so it carries
 		// fieldParent + refIndex — commitDoc overlays exactly the target's keys),
@@ -1058,12 +1281,22 @@ export function createReconciler(
 	 *  store inside a remote-apply bracket, optionally clearing the undo stacks
 	 *  (a reload / data-done reseed is a new baseline). */
 	function reseedConfirmed(
-		humanDelta: AdmittedMutationBatch,
+		humanBatches: readonly AdmittedMutationBatch[],
 		clearUndo: boolean,
 	): void {
-		const target = produce(localBase(), (draft) => {
-			applyBatch(draft, humanDelta);
-		});
+		let target: BlueprintDoc;
+		try {
+			target = foldBatches(
+				foldBatches(confirmedDoc, pendingBatches()),
+				humanBatches,
+			);
+		} catch (error) {
+			if (error instanceof CasePropertyRenamePlanError) {
+				if (clearUndo) docStore.getState().clearHistory();
+				return;
+			}
+			throw error;
+		}
 		reseedStore(target, clearUndo);
 	}
 
@@ -1077,6 +1310,7 @@ export function createReconciler(
 		reloadPending = false;
 		cancelRetry?.();
 		cancelRetry = undefined;
+		settleAllHumanBatchWatches({ kind: "accessChanged" });
 		deps.onViewRevoked?.();
 	}
 
@@ -1086,6 +1320,11 @@ export function createReconciler(
 		reloadPending = false;
 		cancelRetry?.();
 		cancelRetry = undefined;
+		settleAllHumanBatchWatches({
+			kind: "permanent",
+			message:
+				"This app requires a newer Nova client. Reload to continue safely.",
+		});
 		deps.onClientUpgradeRequired?.();
 	}
 
@@ -1115,6 +1354,7 @@ export function createReconciler(
 		// `applyMany`.
 		if (args.seq <= baseSeq) return { alreadyConfirmed: true };
 		const batch: SentBatch = {
+			source: "chat",
 			batchId: args.batchId,
 			runId: args.runId,
 			mutations: args.mutations,
@@ -1234,6 +1474,7 @@ export function createReconciler(
 		reloadPending = false;
 		cancelRetry?.();
 		cancelRetry = undefined;
+		settleAllHumanBatchWatches({ kind: "cancelled" });
 	}
 
 	return {
@@ -1241,6 +1482,7 @@ export function createReconciler(
 		isDormant,
 		localBase,
 		registerSaveObserver,
+		watchNextHumanBatch,
 		dispatchHumanBatch,
 		registerChatBatch,
 		onFrame,

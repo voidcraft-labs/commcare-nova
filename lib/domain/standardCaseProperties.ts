@@ -3,8 +3,10 @@
 // The CommCare standard case properties — the closed set every case
 // carries implicitly (`case_name`, `date_opened`, …) with the wire-form
 // data type each one reads as. The blueprint's declared
-// `caseTypes[].properties[]` never lists these; they exist on every
-// case regardless of what forms write.
+// `caseTypes[].properties[]` need not list these; they exist on every
+// case regardless of what forms write. A declared entry may remain to
+// carry catalog metadata/order, but storage projections always route
+// its value to the scalar case column rather than JSONB.
 //
 // Lives in the domain (not `lib/commcare`) because the EFFECTIVE
 // case-type view (`effectiveCaseTypes.ts`) folds these entries into
@@ -17,11 +19,11 @@
 // Type assignments follow the wire-form contracts in CommCare HQ's
 // detail screen + case search layers:
 //
-//   - `date_opened` / `date-opened` / `last_modified` — datetime
+//   - `date_opened` / `last_modified` — datetime
 //     timestamps; emitted into `<sort type="...">` blocks as date-
 //     comparator targets.
-//   - `case_name` / `name` / `owner_id` / `external_id` /
-//     `external-id` / `status` — plain text identifiers / status
+//   - `case_name` / `owner_id` / `external_id` / `status` — plain
+//     text identifiers / status
 //     enums; the runtime comparator handles them lexicographically.
 //
 // Source: commcare-hq/corehq/apps/app_manager/detail_screen.py
@@ -34,7 +36,6 @@
 // enum — silent fall-through is structurally impossible, no
 // `?? "text"` defensive default needed at consumers.
 
-import type { CaseProperty } from "./blueprint";
 import type { CasePropertyDataType } from "./casePropertyTypes";
 
 /**
@@ -45,44 +46,12 @@ import type { CasePropertyDataType } from "./casePropertyTypes";
  */
 export const STANDARD_CASE_LIST_PROPERTY_DATA_TYPES = {
 	case_name: "text",
-	name: "text",
 	date_opened: "datetime",
-	"date-opened": "datetime",
 	last_modified: "datetime",
 	owner_id: "text",
 	external_id: "text",
-	"external-id": "text",
 	status: "text",
 } as const satisfies Record<string, CasePropertyDataType>;
-
-/**
- * Historical CCHQ detail-field spellings that resolve to the same value as a
- * Nova property. They remain accepted at the wire/runtime boundary so an old
- * document keeps working, but Nova never offers them as separate authoring
- * choices. One concept gets one name in the builder.
- */
-export const LEGACY_STANDARD_CASE_PROPERTY_ALIASES = {
-	name: "case_name",
-	"date-opened": "date_opened",
-	"external-id": "external_id",
-} as const satisfies Readonly<Record<string, StandardCaseListProperty>>;
-
-export type LegacyStandardCasePropertyAlias =
-	keyof typeof LEGACY_STANDARD_CASE_PROPERTY_ALIASES;
-
-export function canonicalCasePropertyName(name: string): string {
-	return Object.hasOwn(LEGACY_STANDARD_CASE_PROPERTY_ALIASES, name)
-		? LEGACY_STANDARD_CASE_PROPERTY_ALIASES[
-				name as LegacyStandardCasePropertyAlias
-			]
-		: name;
-}
-
-export function isLegacyStandardCasePropertyAlias(
-	name: string,
-): name is LegacyStandardCasePropertyAlias {
-	return Object.hasOwn(LEGACY_STANDARD_CASE_PROPERTY_ALIASES, name);
-}
 
 /** Friendly labels for the one supported authoring name of each system value. */
 export const CANONICAL_STANDARD_CASE_PROPERTY_LABELS = {
@@ -95,56 +64,11 @@ export const CANONICAL_STANDARD_CASE_PROPERTY_LABELS = {
 } as const satisfies Readonly<Record<string, string>>;
 
 export function standardCasePropertyDisplayLabel(name: string): string {
-	const canonical = canonicalCasePropertyName(name);
-	return Object.hasOwn(CANONICAL_STANDARD_CASE_PROPERTY_LABELS, canonical)
+	return Object.hasOwn(CANONICAL_STANDARD_CASE_PROPERTY_LABELS, name)
 		? CANONICAL_STANDARD_CASE_PROPERTY_LABELS[
-				canonical as keyof typeof CANONICAL_STANDARD_CASE_PROPERTY_LABELS
+				name as keyof typeof CANONICAL_STANDARD_CASE_PROPERTY_LABELS
 			]
-		: canonical;
-}
-
-/**
- * Project a semantic property catalog into Nova's authoring vocabulary.
- * CCHQ aliases are collapsed onto their canonical counterpart, preferring the
- * canonical property's own metadata when both are present. The input is never
- * mutated and non-alias properties retain their original order.
- */
-export function authorableCaseProperties(
-	properties: readonly CaseProperty[],
-): readonly CaseProperty[] {
-	const canonicalByName = new Map(
-		properties
-			.filter((property) => !isLegacyStandardCasePropertyAlias(property.name))
-			.map((property) => [property.name, property]),
-	);
-	const emitted = new Set<string>();
-	const result: CaseProperty[] = [];
-
-	for (const property of properties) {
-		const canonicalName = canonicalCasePropertyName(property.name);
-		if (emitted.has(canonicalName)) continue;
-		emitted.add(canonicalName);
-		const canonical = canonicalByName.get(canonicalName);
-		if (property.name === canonicalName) {
-			result.push(property);
-			continue;
-		}
-		if (canonical === undefined) {
-			result.push({ ...property, name: canonicalName });
-			continue;
-		}
-		// Effective catalogs put declared entries before injected standards.
-		// Keep the old app's authored human copy while taking type/options/
-		// validation semantics from the canonical standard record.
-		result.push({
-			...canonical,
-			name: canonicalName,
-			label: property.label || canonical.label,
-			...(property.hint !== undefined ? { hint: property.hint } : {}),
-		});
-	}
-
-	return result;
+		: name;
 }
 
 /** Closed key set of `STANDARD_CASE_LIST_PROPERTY_DATA_TYPES` —
@@ -198,3 +122,84 @@ export const CASE_SCALAR_PROPERTY_NAMES: ReadonlySet<string> = new Set([
 	"case_type",
 	...STANDARD_CASE_LIST_PROPERTIES,
 ]);
+
+/**
+ * Standard scalar properties an ordinary form field may write explicitly.
+ *
+ * These are authored with their stable Nova names even though neither value
+ * belongs in the custom JSON property document. Lowering and persistence route
+ * each one through its dedicated case-action / row-scalar path.
+ */
+export const WRITABLE_STANDARD_CASE_PROPERTIES: ReadonlySet<string> = new Set([
+	"case_name",
+	"external_id",
+]);
+
+/**
+ * Platform-owned or runtime-divergent names that may never use an ordinary
+ * field's `caseWrite` destination.
+ *
+ * This is domain admission policy, not a compatibility alias table. The set is
+ * deliberately exact: custom properties remain open-ended, while every
+ * standard/system spelling except the two members of
+ * `WRITABLE_STANDARD_CASE_PROPERTIES` is rejected before wire or storage
+ * projection. Retired spellings such as `name` are included so a
+ * validation-bypassing historical document still fails closed.
+ */
+export const FORBIDDEN_CASE_WRITE_PROPERTIES: ReadonlySet<string> = new Set([
+	"actions",
+	"case_id",
+	"case_type",
+	"case_type_id",
+	"closed",
+	"closed_by",
+	"closed_on",
+	"commtrack",
+	"create",
+	"computed_",
+	"computed_modified_on_",
+	"date",
+	"date_modified",
+	"date_opened",
+	"doc_type",
+	"domain",
+	"index",
+	"indices",
+	"initial_processing_complete",
+	"last_modified",
+	"modified_by",
+	"modified_on",
+	"name",
+	"opened_by",
+	"opened_on",
+	"owner_id",
+	"parent",
+	"referrals",
+	"server_modified_on",
+	"server_opened_on",
+	"status",
+	"type",
+	"user_id",
+	"userid",
+	"version",
+	"xform_id",
+	"xform_ids",
+	"location_id",
+	"hq_user_id",
+	"category",
+	"state",
+]);
+
+/**
+ * Generic operation writes share ordinary-field admission, except that
+ * `case_name` belongs to the operation's dedicated name / rename facet.
+ * `external_id` remains a generic writable scalar on both surfaces.
+ */
+export const FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES: ReadonlySet<string> =
+	new Set([...FORBIDDEN_CASE_WRITE_PROPERTIES, "case_name"]);
+
+export function isWritableStandardCaseProperty(
+	property: string,
+): property is "case_name" | "external_id" {
+	return WRITABLE_STANDARD_CASE_PROPERTIES.has(property);
+}

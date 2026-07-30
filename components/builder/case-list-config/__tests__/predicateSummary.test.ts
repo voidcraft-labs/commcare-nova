@@ -76,18 +76,18 @@ describe("summarizeFilter", () => {
 		expect(humanizeName("follow-up_date")).toBe("follow up date");
 	});
 
-	it("uses Nova's canonical labels for legacy property references", () => {
+	it("uses Nova's friendly labels for exact standard property references", () => {
 		expect(
 			summarizeFilter({
 				kind: "eq",
-				left: term(prop("patient", "name")),
+				left: term(prop("patient", "case_name")),
 				right: term(literal("Alice")),
 			}),
 		).toBe("case name is Alice");
 		expect(
 			summarizeFilter({
 				kind: "match",
-				property: prop("patient", "external-id"),
+				property: prop("patient", "external_id"),
 				value: term(literal("ABC")),
 				mode: "fuzzy",
 			}),
@@ -95,7 +95,7 @@ describe("summarizeFilter", () => {
 		expect(
 			summarizeFilter({
 				kind: "multi-select-contains",
-				property: prop("patient", "name"),
+				property: prop("patient", "case_name"),
 				values: [literal("Alice")],
 				quantifier: "any",
 			}),
@@ -103,7 +103,7 @@ describe("summarizeFilter", () => {
 		expect(
 			summarizeFilter({
 				kind: "within-distance",
-				property: prop("patient", "date-opened"),
+				property: prop("patient", "date_opened"),
 				center: term(literal("0 0")),
 				distance: 5,
 				unit: "kilometers",
@@ -121,7 +121,6 @@ describe("summarizeFilter", () => {
 						label: proseText("case_name"),
 						data_type: "text",
 					},
-					{ name: "name", label: proseText("name"), data_type: "text" },
 				],
 			},
 		];

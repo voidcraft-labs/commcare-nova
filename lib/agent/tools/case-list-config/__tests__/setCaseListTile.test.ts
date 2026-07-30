@@ -35,7 +35,12 @@ vi.mock("@/lib/db/apps", () => ({
 }));
 
 vi.mock("@/lib/db/applyBlueprintChange", () => ({
-	applyBlueprintChange: vi.fn(() => Promise.resolve({ seq: 0 })),
+	applyBlueprintChange: vi.fn(async (args) => {
+		const { commitApplyBlueprintChangeTestBatch } = await import(
+			"@/lib/db/__tests__/applyBlueprintChangeTestWriter"
+		);
+		return commitApplyBlueprintChangeTestBatch(args);
+	}),
 }));
 
 beforeEach(() => {
@@ -556,23 +561,6 @@ describe("setCaseListTile", () => {
 		expect(result.mutations).toEqual([]);
 		if (!("error" in result.result)) throw new Error("expected error result");
 		expect(result.result.error).toContain("neither `tile` nor `placements`");
-	});
-
-	it("rejects a module that has no case list at all", async () => {
-		// The metadata reducer edits an EXISTING config and never births one, so a
-		// silent success here would claim a layout that was never stored.
-		const { doc, ctx } = makeCaseListFixture();
-
-		const result = await setCaseListTileTool.execute(
-			{ moduleUuid: MOD_A, tile: {} },
-			ctx,
-			doc,
-		);
-
-		expect(result.mutations).toEqual([]);
-		if (!("error" in result.result)) throw new Error("expected error result");
-		expect(result.result.error).toContain("has no case list");
-		expect(result.newDoc.modules[MOD_A]?.caseListConfig).toBeUndefined();
 	});
 
 	it("returns the canonical UUID-address error for an unknown module", async () => {

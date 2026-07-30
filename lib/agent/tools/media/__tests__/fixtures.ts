@@ -13,7 +13,13 @@
 
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { xp } from "@/lib/__tests__/docHelpers";
-import type { BlueprintDoc, Field, Form, Module } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	type Field,
+	type Form,
+	type Module,
+	plainColumn,
+} from "@/lib/domain";
 import type {
 	AssetKind,
 	MediaAssetId,
@@ -108,6 +114,7 @@ export const SELECT_FIELD = testUuid("44444444-4444-4444-4444-444444444444");
 export const HIDDEN_FIELD = testUuid("55555555-5555-5555-5555-555555555555");
 export const FEVER_OPTION = testUuid("66666666-6666-4666-8666-666666666666");
 export const COUGH_OPTION = testUuid("77777777-7777-4777-8777-777777777777");
+const RESULTS_COLUMN = testUuid("media-fixture-results-column");
 
 /**
  * Minimal field-bearing `BlueprintDoc`: a `patient` module + a
@@ -122,6 +129,12 @@ export function makeMediaDoc(): BlueprintDoc {
 		id: "patient",
 		name: "Patient",
 		caseType: "patient",
+		caseListConfig: {
+			columns: [plainColumn(RESULTS_COLUMN, "case_name", "Patient")],
+			listColumnOrder: [RESULTS_COLUMN],
+			detailColumnOrder: [RESULTS_COLUMN],
+			searchInputs: [],
+		},
 	};
 	const form: Form = {
 		uuid: FORM_A,
@@ -134,7 +147,7 @@ export function makeMediaDoc(): BlueprintDoc {
 		id: "patient_name",
 		kind: "text",
 		label: proseText("Patient name"),
-		case_property_on: "patient",
+		caseWrite: { caseType: "patient", property: "case_name" },
 	} as Field;
 	const selectField: Field = {
 		uuid: SELECT_FIELD,
@@ -211,7 +224,8 @@ export function makeMediaFixture(): MediaFixture {
 
 /** Build a `{ doc, ctx, ... }` bundle for the MCP surface. */
 export function makeMediaMcpFixture(): MediaMcpFixture {
-	return { ...makeMcpTestContext(), doc: makeMediaDoc() };
+	const doc = makeMediaDoc();
+	return { ...makeMcpTestContext({ initialDoc: doc }), doc };
 }
 
 /** Narrow a mutating-tool result to its error string, failing the test on

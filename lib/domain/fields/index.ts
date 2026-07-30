@@ -182,7 +182,7 @@ export function isCaptureField(field: Field): field is CaptureField {
  * to dispatch on a specific repeat variant must branch on `repeat_mode`
  * after the kind narrowing.
  */
-export const fieldSchema = z.union([
+const fieldUnionSchema = z.union([
 	z.discriminatedUnion("kind", [
 		textFieldSchema,
 		intFieldSchema,
@@ -206,6 +206,8 @@ export const fieldSchema = z.union([
 	]),
 	repeatFieldSchema,
 ]);
+
+export const fieldSchema = fieldUnionSchema;
 
 export type Field = z.infer<typeof fieldSchema>;
 
@@ -234,6 +236,7 @@ export const fieldRegistry: { [K in FieldKind]: FieldKindMetadata<K> } = {
 	repeat: repeatFieldMetadata,
 };
 
+export { type CaseWrite, caseWriteSchema } from "./base";
 export type { RepeatMode };
 // `RepeatMode` (the three `repeat_mode` discriminator literals) comes
 // from `./repeat`, where the `repeatModes` tuple is declared beside the
@@ -470,7 +473,7 @@ export function convertNeedsOptionSeed(
  * Special cases:
  *   - `single_select` ↔ `multi_select`: `optionsSource` transfers verbatim.
  *   - `text` ↔ `secret` / `barcode`: no options on any — validate /
- *     relevant / required / hint / default_value / case_property_on
+ *     relevant / required / hint / default_value / caseWrite
  *     carry over (none carries `calculate`; that's a `hidden`-only slot).
  *   - `text` → `single_select`: the select schemas require `optionsSource`
  *     and the source has none, so the caller supplies it via
@@ -483,7 +486,7 @@ export function convertNeedsOptionSeed(
  *     adjudicates that, not this function.
  *   - `single_select` → `text`: `optionsSource` drops; everything else carries.
  *   - Media subkinds (image/audio/video/signature): identity + label +
- *     hint + required + relevant carry over; no case_property_on, no
+ *     hint + required + relevant carry over; no caseWrite, no
  *     validate (not in media schemas today).
  *   - `group` ↔ `repeat`: container; only identity + label + relevant
  *     carry over. Children are untouched — they stay in `fieldOrder`
@@ -499,8 +502,8 @@ export function reconcileFieldForKind(
 	// A caller-supplied source WINS over source state: it exists
 	// for conversions INTO a select kind from a kind with no optionsSource
 	// slot, where the destination schema requires what the source can't
-	// carry. The payload arrives with uuids + order keys already minted
-	// (the batch-building layer owns identity), so the reducer stays
+	// carry. The payload arrives with UUIDs already minted (the batch-building
+	// layer owns identity), so the reducer stays
 	// deterministic for replay.
 	if (seed?.optionsSource !== undefined) {
 		candidate.optionsSource = seed.optionsSource;
@@ -550,7 +553,9 @@ function partialOf<
 >(
 	schema: z.ZodObject<S>,
 ): z.ZodObject<{
-	[K in Exclude<keyof S, "uuid" | "kind">]: z.ZodOptional<z.ZodNullable<S[K]>>;
+	[K in Exclude<keyof S, "uuid" | "kind">]: z.ZodOptional<
+		undefined extends z.output<S[K]> ? z.ZodNullable<S[K]> : S[K]
+	>;
 }> {
 	// `S extends { uuid; kind }` guarantees these slots exist; Zod's
 	// `omit()` parameter type encodes "every key in `S` must appear in
@@ -561,19 +566,20 @@ function partialOf<
 		uuid: true,
 		kind: true,
 	} as unknown as Parameters<typeof schema.omit>[0]);
-	// Make every remaining value nullable BEFORE `.partial()` wraps it in
-	// optional, so the final per-key shape is `optional(nullable(T))`. The
-	// explicit return type restores the precise per-variant key set that
-	// the `Object.fromEntries` round-trip erases to `Record<string, …>`.
+	// Only a slot whose stored schema already accepts absence is clearable.
+	// Required discriminators and values (notably `id`, `label`, and repeat's
+	// `repeat_mode`) are optional as command intent but never nullable.
 	const nullableShape = Object.fromEntries(
 		Object.entries(omitted.shape).map(([key, value]) => [
 			key,
-			(value as z.ZodTypeAny).nullable(),
+			(value as z.ZodTypeAny).safeParse(undefined).success
+				? (value as z.ZodTypeAny).nullable()
+				: value,
 		]),
 	);
 	return z.object(nullableShape).partial().strict() as unknown as z.ZodObject<{
 		[K in Exclude<keyof S, "uuid" | "kind">]: z.ZodOptional<
-			z.ZodNullable<S[K]>
+			undefined extends z.output<S[K]> ? z.ZodNullable<S[K]> : S[K]
 		>;
 	}>;
 }
@@ -635,19 +641,22 @@ export const fieldPatchSchemaByKind = {
  * (`kind`). Pairs with `fieldPatchSchemaByKind` (the runtime Zod
  * schema for the same shape).
  *
- * Every property is optional and `| null`: absent leaves it unchanged,
- * `null` clears it (the reducer deletes the key), a value sets it. `null`
- * is the wire representation of a blank — see `partialOf` for why a clear
- * cannot be carried as `undefined` through the event log.
+ * Every property is optional as command intent. `null` is admitted only for a
+ * stored-optional property, where it clears the slot. Required stored values
+ * and discriminators are non-nullable even though their patch key may be
+ * omitted.
  *
  * Distributes over a wider `K` to give a union of per-variant
  * partials, so callers can write `FieldPatchFor<F["kind"]>` against
  * a generic field whose kind is narrowed downstream.
  */
 export type FieldPatchFor<K extends FieldKind> = {
-	[P in keyof Omit<Extract<Field, { kind: K }>, "uuid" | "kind">]?:
-		| Omit<Extract<Field, { kind: K }>, "uuid" | "kind">[P]
-		| null;
+	[P in keyof Omit<
+		Extract<Field, { kind: K }>,
+		"uuid" | "kind"
+	>]?: undefined extends Omit<Extract<Field, { kind: K }>, "uuid" | "kind">[P]
+		? Omit<Extract<Field, { kind: K }>, "uuid" | "kind">[P] | null
+		: Omit<Extract<Field, { kind: K }>, "uuid" | "kind">[P];
 };
 
 export type { SelectOption } from "./base";

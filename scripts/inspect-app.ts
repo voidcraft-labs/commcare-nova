@@ -14,8 +14,10 @@
  */
 import "dotenv/config";
 import { Command } from "commander";
+import { sql } from "kysely";
 import { closeCaseStoreDatabase } from "@/lib/case-store/postgres/connection";
 import { loadApp } from "@/lib/db/apps";
+import { parsePersistedJsonText } from "@/lib/db/persistedJson";
 import { getAppDb } from "@/lib/db/pg";
 import { listThreadMetas, loadThread } from "@/lib/db/threads";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
@@ -192,15 +194,36 @@ async function main() {
 	/* ── Raw row view (--row) ─────────────────────────────────────── */
 	if (showRow) {
 		/* The header above is the curated view; this is the whole `apps`
-		 * row — run-lease + reservation columns and anything added since,
-		 * with no column list to fall out of date. Dates serialize as ISO
-		 * through JSON.stringify. */
+		 * row — run-lease + reservation columns and anything added since.
+		 * Keep the JSONB carrier out of pg's eager decoder: both halves cross
+		 * as exact text and enter through Nova's lossless persisted parser. */
 		const db = await getAppDb();
-		const row = await db
+		const stored = await db
 			.selectFrom("apps")
-			.selectAll()
+			.select(sql<string>`(to_jsonb(apps) - 'case_types')::text`.as("row_text"))
+			.select(
+				sql<string | null>`${sql.ref("apps.case_types")}::text`.as(
+					"case_types_text",
+				),
+			)
 			.where("id", "=", appId)
 			.executeTakeFirst();
+		const row =
+			stored === undefined
+				? undefined
+				: (parsePersistedJsonText(
+						stored.row_text,
+						`apps row for ${appId}`,
+					) as Record<string, unknown>);
+		if (row !== undefined) {
+			row.case_types =
+				stored?.case_types_text === null
+					? null
+					: parsePersistedJsonText(
+							stored?.case_types_text ?? "",
+							`apps.case_types for ${appId}`,
+						);
+		}
 		printSection("Raw App Row (apps table)");
 		console.log(JSON.stringify(row, null, 2));
 	}

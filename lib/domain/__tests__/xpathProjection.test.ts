@@ -1,7 +1,36 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import type { XPathExpression } from "../xpath/ast";
+import {
+	isXPathExpression,
+	type XPathExpression,
+	xpathExpressionSchema,
+} from "../xpath/ast";
 import { printXPath, projectXPath, XPathProjectionError } from "../xpath/print";
+
+describe("XPath expression shape guard", () => {
+	it("accepts exactly the canonical schema", () => {
+		const expression = xpathExpressionSchema.parse({
+			parts: [
+				{ kind: "text", text: "count(" },
+				{ kind: "field-ref", uuid: testUuid("guard-field") },
+				{ kind: "text", text: ")" },
+			],
+		});
+		expect(isXPathExpression(expression)).toBe(true);
+	});
+
+	it.each([
+		["unknown part kind", { parts: [{ kind: "bogus" }] }],
+		["missing leaf field", { parts: [{ kind: "text" }] }],
+		[
+			"extra leaf field",
+			{ parts: [{ kind: "text", text: "1", unexpected: true }] },
+		],
+		["extra expression field", { parts: [], unexpected: true }],
+	])("rejects %s", (_description, value) => {
+		expect(isXPathExpression(value)).toBe(false);
+	});
+});
 
 describe("XPath identity projection", () => {
 	it("returns repair state and never prints a missing worker-property UUID", () => {

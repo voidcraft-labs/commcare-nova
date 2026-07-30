@@ -68,7 +68,7 @@ import { addMetaBlock } from "@/lib/commcare/xform/metaBlock";
 import { orderedFormUuids, orderedModuleUuids } from "@/lib/doc/fieldWalk";
 import {
 	type BlueprintDoc,
-	caseListColumnHasRuntimeRole,
+	caseListColumnIsEmitted,
 	defaultPostSubmit,
 	effectiveCaseSearchConfig,
 	userPropertySlugsByUuid,
@@ -176,11 +176,10 @@ export function compileCcz(
 	// keeps the rendered suite.xml structurally local.
 	const suiteRemoteRequests: Element[] = [];
 
-	// Walk HQ modules and the doc's DISPLAY-ordered module sequence in
-	// lockstep. `expandDoc` produces HQ modules in `sort-by-(order, uuid)`
-	// order (NOT `moduleOrder` array position), so the domain twin of
-	// `hqModules[mIdx]` is `sortedModuleUuids[mIdx]` — the SAME sort here keeps
-	// the two aligned, and the per-module form sequence likewise sorts.
+	// Walk HQ modules and the document's membership-array module sequence in
+	// lockstep. `expandDoc` uses the same sequence, so the domain twin of
+	// `hqModules[mIdx]` is `sortedModuleUuids[mIdx]`; per-module forms align
+	// the same way.
 	const sortedModuleUuids = orderedModuleUuids(doc);
 	for (let mIdx = 0; mIdx < hqModules.length; mIdx++) {
 		const hqMod = hqModules[mIdx];
@@ -215,7 +214,9 @@ export function compileCcz(
 							effectiveModuleDisplayCondition,
 							lookupNaming,
 						),
-					].map((id) => el("instance", { id, src: instanceSourceFor(id) }));
+					].map((id) =>
+						el("instance", { id, src: instanceSourceFor(id, lookupNaming) }),
+					);
 
 		appStrings[`modules.m${mIdx}`] = modName;
 
@@ -242,7 +243,7 @@ export function compileCcz(
 			mod.caseListConfig?.columns
 				.filter(
 					(c): c is Extract<typeof c, { kind: "calculated" }> =>
-						c.kind === "calculated" && caseListColumnHasRuntimeRole(c),
+						c.kind === "calculated" && caseListColumnIsEmitted(c),
 				)
 				.map((c) => c.expression) ?? [];
 
@@ -489,9 +490,8 @@ export function compileCcz(
 			// XForm here is a compiler bug (the case-block splice
 			// produced malformed structure), never a fixable authoring
 			// state. Authoring rejection lives in the doc-layer rules
-			// (`validator/rules/`); install-time-resolution rejection
-			// (`#case/<X>` on a registration form, the original failure
-			// shape of this gap) lives in `caseHashtagOnCreateForm`
+			// (`validator/rules/`); registration-time resolution narrowing for
+			// typed case refs lives in `caseHashtagOnCreateForm`
 			// (`validator/rules/form.ts`). The binding-resolution oracle
 			// (`validator/bindingResolutionOracle.ts`) stays a fuzz-time
 			// totality proof — it asserts that every doc the authoring

@@ -7,6 +7,7 @@ import type {
 	SearchInputDef,
 	Uuid,
 } from "@/lib/domain";
+import { isOwnerOnlyCaseSearchConfig, searchInputDefault } from "@/lib/domain";
 import {
 	type PredicateAstPath,
 	walkExpressionInputRefsWithPaths,
@@ -128,11 +129,12 @@ export function searchInputRemovalDependencies(
 	// the condition slots do). The target's own default leaves with the
 	// row, so only siblings count.
 	for (const input of config.searchInputs) {
-		if (input.uuid === target.uuid || input.default === undefined) {
+		const defaultValue = searchInputDefault(input);
+		if (input.uuid === target.uuid || defaultValue === undefined) {
 			continue;
 		}
 		const paths = nonEmptyPaths(
-			expressionInputPaths(input.default, target.uuid),
+			expressionInputPaths(defaultValue, target.uuid),
 		);
 		if (paths === undefined) continue;
 		dependencies.push({
@@ -175,7 +177,11 @@ export function searchInputRemovalDependencies(
 	// declared inputs (`searchButtonDisplayConditionTypeCheck`), so a
 	// removal that orphans a ref here would bounce off the commit gate
 	// without this entry.
-	if (searchConfig?.searchButtonDisplayCondition !== undefined) {
+	if (
+		searchConfig !== undefined &&
+		!isOwnerOnlyCaseSearchConfig(searchConfig) &&
+		searchConfig.searchButtonDisplayCondition !== undefined
+	) {
 		const paths = nonEmptyPaths(
 			predicateInputPaths(
 				searchConfig.searchButtonDisplayCondition,

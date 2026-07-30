@@ -28,7 +28,7 @@ describe("columnReferences", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Name"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},
@@ -79,7 +79,7 @@ describe("columnReferences", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Name"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},
@@ -117,13 +117,13 @@ describe("columnReferences", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Name"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 								f({
 									kind: "int",
 									id: "age",
 									label: proseText("Age"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "age" },
 								}),
 							],
 						},
@@ -170,7 +170,7 @@ describe("columnReferences", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Name"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},
@@ -219,7 +219,7 @@ describe("columnReferences", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Name"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},
@@ -237,7 +237,7 @@ describe("columnReferences", () => {
 
 	it("admits declared-only properties (no field writer, no standard)", () => {
 		// `weight` is declared on `ct.properties[]` but NOT written by
-		// any field via `case_property_on`. Pre-fix, the rule consulted
+		// any field via `caseWrite`. Pre-fix, the rule consulted
 		// only writer-derived + standard, so a declared-only property
 		// would spuriously fire UNKNOWN_FIELD. The shared resolver's
 		// declared-first arm closes that gap; this test pins the
@@ -261,7 +261,7 @@ describe("columnReferences", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Name"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},

@@ -11,7 +11,6 @@ import {
 	checkValueExpression,
 	eq,
 	isBlank,
-	isNull,
 	literal,
 	matchAll,
 	type Predicate,
@@ -64,6 +63,24 @@ describe("lookup carrier schemas", () => {
 		expect(
 			valueExpressionSchema.parse(tableLookup(TABLE, VALUE_COLUMN, filter)),
 		).toEqual(tableLookup(TABLE, VALUE_COLUMN, filter));
+	});
+
+	it("rejects lookup table and column slugs from stored expression leaves", () => {
+		expect(
+			termSchema.safeParse({
+				kind: "table-column",
+				tableId: "households",
+				columnId: "district",
+			}).success,
+		).toBe(false);
+		expect(
+			valueExpressionSchema.safeParse({
+				kind: "table-lookup",
+				tableId: "households",
+				resultColumnId: "district",
+				where: { kind: "match-all" },
+			}).success,
+		).toBe(false);
 	});
 
 	it("keeps every lookup-bearing recursive schema JSON-schema representable", () => {
@@ -131,26 +148,10 @@ describe("lookup carrier type checking", () => {
 		}
 	});
 
-	it("allows is-blank but rejects is-null for a table column", () => {
+	it("allows is-blank for a table column", () => {
 		expect(
 			checkPredicate(isBlank(tableColumn(TABLE, LABEL_COLUMN)), rowScope),
 		).toEqual({ ok: true });
-
-		const strictAbsence = checkPredicate(
-			isNull(tableColumn(TABLE, LABEL_COLUMN)),
-			rowScope,
-		);
-		expect(strictAbsence.ok).toBe(false);
-		if (!strictAbsence.ok) {
-			expect(strictAbsence.errors).toEqual(
-				expect.arrayContaining([
-					expect.objectContaining({
-						code: "runtime-value",
-						path: ["left"],
-					}),
-				]),
-			);
-		}
 	});
 
 	it("rejects a nested table lookup while a lookup row is in scope", () => {

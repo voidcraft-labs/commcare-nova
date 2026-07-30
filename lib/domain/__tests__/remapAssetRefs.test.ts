@@ -14,7 +14,7 @@ import { builtinIconRef, isBuiltinIconRef } from "../builtinIcons";
 import {
 	asWalkableDoc,
 	collectAssetRefs,
-	collectMovableAssetRefs,
+	collectAuthoredAssetRefs,
 	collectRealAssetRefs,
 	remapAssetRefs,
 } from "../mediaRefs";
@@ -265,7 +265,7 @@ function docWithDormantImageMap() {
 	});
 }
 
-describe("collectMovableAssetRefs", () => {
+describe("collectAuthoredAssetRefs", () => {
 	it("carries a non-caseListOnly module's caseListConfig media the gated walk drops", () => {
 		const doc = asWalkableDoc(docWithDormantCaseListIcon());
 		// The render-gated walk omits it (it doesn't render on a non-caseListOnly
@@ -274,14 +274,14 @@ describe("collectMovableAssetRefs", () => {
 		expect(gated.has(media("dormant-cl-icon"))).toBe(false);
 		expect(gated.has(media("dormant-cl-audio"))).toBe(false);
 		// ...but the movable set carries it, so the move copies + repoints it.
-		const movable = collectMovableAssetRefs(doc);
+		const movable = collectAuthoredAssetRefs(doc);
 		expect(movable.has(media("dormant-cl-icon"))).toBe(true);
 		expect(movable.has(media("dormant-cl-audio"))).toBe(true);
 	});
 
 	it("is a superset of the gated walk (never drops a rendered ref)", () => {
 		const doc = asWalkableDoc(fixtureDoc());
-		const movable = collectMovableAssetRefs(doc);
+		const movable = collectAuthoredAssetRefs(doc);
 		for (const id of collectAssetRefs(doc)) {
 			expect(movable.has(id)).toBe(true);
 		}
@@ -290,6 +290,8 @@ describe("collectMovableAssetRefs", () => {
 	it("keeps dormant image-map media movable without validating or emitting it", () => {
 		const doc = asWalkableDoc(docWithDormantImageMap());
 		expect(collectAssetRefs(doc).has(media("dormant-image"))).toBe(false);
-		expect(collectMovableAssetRefs(doc).has(media("dormant-image"))).toBe(true);
+		expect(collectAuthoredAssetRefs(doc).has(media("dormant-image"))).toBe(
+			true,
+		);
 	});
 });

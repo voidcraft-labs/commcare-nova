@@ -111,9 +111,8 @@ export function CloseConditionSection({ formUuid }: FormSettingsSectionProps) {
 	/* Resolve the referenced field to check if it has selectable options. */
 	const selectedFieldOptions = useMemo(() => {
 		if (!closeField) return undefined;
-		// `options` only exists on select kinds; narrow via `in`. In DISPLAY
-		// order (`sort-by-(order, uuid)`, matching the field's rendered choices),
-		// not `options` array position.
+		// `options` only exists on select kinds; narrow via `in`. Array position
+		// is the same sequence the field renders.
 		return "optionsSource" in closeField &&
 			closeField.optionsSource.kind === "inline" &&
 			closeField.optionsSource.options.length > 0

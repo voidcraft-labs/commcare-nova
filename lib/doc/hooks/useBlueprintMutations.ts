@@ -28,10 +28,10 @@
  * runs through the shared commit verdict
  * (`lib/doc/commitVerdicts.ts::mutationCommitVerdict` — the
  * `identifierVerdicts` pattern generalized to the whole validator). An
- * edit that would introduce a validator finding is rejected: nothing
- * dispatches, the rejection surfaces each finding's CONCISE builder copy
- * (`userFacingErrors` — the SA keeps the verbose `ValidationError.message`),
- * and the method returns its no-op shape.
+ * edit whose complete resulting candidate has any validator finding is
+ * rejected: nothing dispatches, the rejection surfaces each finding's CONCISE
+ * builder copy (`userFacingErrors` — the SA keeps the verbose
+ * `ValidationError.message`), and the method returns its no-op shape.
  * Undo/redo (the temporal store), hydration (`load`), the agent stream
  * (`streamDispatcher`), and replay all write through other paths and
  * deliberately bypass this gate — they replay already-committed
@@ -53,7 +53,7 @@ import type { FieldPath } from "@/lib/doc/fieldPath";
 import { fieldSlotAfter } from "@/lib/doc/fieldSlot";
 import { findRenameSiblingConflict } from "@/lib/doc/identifierVerdicts";
 import { planKindConversion } from "@/lib/doc/kindConversionCascade";
-import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { useLookupCommitState } from "@/lib/doc/lookupCommitContext";
 import {
 	type ModuleAuthoringPatch,
 	modulePatchMutations,
@@ -73,7 +73,6 @@ import {
 } from "@/lib/doc/scaffolds";
 import type {
 	BlueprintDoc,
-	MoveFieldResult,
 	Mutation,
 	MutationResult,
 	Uuid,
@@ -96,7 +95,7 @@ import {
 	asUuid,
 	type CaseProperty,
 	type CommitOutcome,
-	type ConnectType,
+	type ConnectConfig,
 	DEFAULT_SELECT_OPTIONS,
 	type Field,
 	type FieldKind,
@@ -195,9 +194,12 @@ export interface DuplicateFieldResult {
 
 type ModuleUpdatePatch = ModuleAuthoringPatch;
 type FormMutationPatch = Extract<Mutation, { kind: "updateForm" }>["patch"];
-type FormAuthoringPatch = FormMutationPatch & {
+type FormAuthoringPatch = Omit<FormMutationPatch, "connect"> & {
 	/** Form display names persist through the identity-specific rename kind. */
 	name?: Form["name"];
+};
+type NewFormAuthoringInput = Omit<Form, "uuid" | "connect"> & {
+	uuid?: string;
 };
 
 /**
@@ -267,7 +269,7 @@ export interface BlueprintMutations {
 			beforeUuid?: Uuid;
 			toIndex?: number;
 		},
-	) => MoveFieldResult;
+	) => CommitOutcome;
 	duplicateField: (uuid: Uuid) => DuplicateFieldResult | undefined;
 	/**
 	 * Convert a field to a different kind atomically.
@@ -287,15 +289,20 @@ export interface BlueprintMutations {
 	/** Insert a new form into a module. Returns the minted uuid on
 	 *  success, the rejection otherwise. Accepts a form without a uuid —
 	 *  the hook mints one for the new entity. */
-	addForm: (
-		moduleUuid: Uuid,
-		form: Omit<Form, "uuid"> & { uuid?: string },
-	) => AddCommitOutcome;
+	addForm: (moduleUuid: Uuid, form: NewFormAuthoringInput) => AddCommitOutcome;
 	/**
-	 * Update fields on an existing form. Patches use camelCase domain property
-	 * names (e.g. `closeCondition`, `postSubmit`).
+	 * Update non-Connect fields on an existing form. Patches use camelCase
+	 * domain property names (e.g. `closeCondition`, `postSubmit`). Connect
+	 * participation is deliberately absent: only the exact app-wide target
+	 * planner may add or remove a participant.
 	 */
 	updateForm: (uuid: Uuid, patch: FormAuthoringPatch) => CommitOutcome;
+	/**
+	 * Refine the complete configuration of a form that already participates
+	 * in Connect. This cannot add or remove participation; those membership
+	 * changes belong exclusively to the app-wide exact target planner.
+	 */
+	refineFormConnect: (uuid: Uuid, connect: ConnectConfig) => CommitOutcome;
 	/**
 	 * Set or clear form menu media via the dedicated null-carrying mutation
 	 * so clears survive JSON replay.
@@ -434,14 +441,10 @@ export interface BlueprintMutations {
 
 	// ── App-level ─────────────────────────────────────────────────────────
 	/**
-	 * Combined app-level patch. Routes `app_name` and `connect_type`
-	 * through a single `applyMany` so the entire patch collapses to ONE
-	 * undo entry (no two-undo bug).
+	 * App-name edit. The complete Connect target state has a separate
+	 * app-wide owner in `lib/doc/connectTargetState.ts`.
 	 */
-	updateApp: (patch: {
-		app_name?: string;
-		connect_type?: ConnectType | null;
-	}) => CommitOutcome;
+	updateApp: (patch: { app_name: string }) => CommitOutcome;
 	/**
 	 * Set or clear the app-level logo (the single image shown on the
 	 * web-apps login + home screens) via the dedicated null-carrying
@@ -455,6 +458,18 @@ export interface BlueprintMutations {
 	 * validate.
 	 */
 	setAppLogo: (logo: MediaAssetId | null) => CommitOutcome;
+	/**
+	 * Rename one or more case properties app-wide as one simultaneous,
+	 * batch-exclusive relation. This is the only builder mutation that changes
+	 * property identity; local field edits retarget only their own `caseWrite`.
+	 */
+	renameCaseProperties: (
+		renames: readonly {
+			readonly caseType: string;
+			readonly from: string;
+			readonly to: string;
+		}[],
+	) => CommitOutcome;
 	/**
 	 * Update a single property on a case type's property list.
 	 *
@@ -476,9 +491,7 @@ export interface BlueprintMutations {
 	 * that need to coordinate several doc changes without fragmenting
 	 * history.
 	 *
-	 * Returns the reducer's per-mutation results in input order. Callers that
-	 * need `moveField` metadata destructure by index and narrow it to
-	 * `MoveFieldResult | undefined`.
+	 * Returns the reducer's positional `undefined` entries in input order.
 	 */
 	applyMany: (mutations: Mutation[]) => MutationResult[];
 	/**
@@ -572,6 +585,7 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 	 * even if its control wasn't individually hidden. The agent-stream / replay
 	 * writers bypass this hook and stay unaffected — a viewer triggers neither. */
 	const canEdit = useContext(BlueprintEditableContext);
+	const lookupCommitState = useLookupCommitState();
 
 	// Memoize against the store instance so the returned action object is
 	// reference-stable across re-renders. A consumer storing this in a
@@ -619,16 +633,28 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 					if (announce) notifyRejectedCommit(lines);
 					return { ok: false, messages: lines };
 				}
+				if (
+					lookupCommitState.kind === "loading" ||
+					lookupCommitState.kind === "error"
+				) {
+					const lines = [
+						lookupCommitState.kind === "loading"
+							? "Project data is still loading. Wait for it to finish before editing this app."
+							: "Nova could not load this Project’s data-table definitions. Try again before editing this app.",
+					];
+					if (announce) notifyRejectedCommit(lines);
+					return { ok: false, messages: lines };
+				}
 				const verdict = mutationCommitVerdict(
 					get(),
 					mutations,
-					LOOKUP_CONTEXT_UNAVAILABLE,
+					lookupCommitState.lookupContext,
 				);
 				if (!verdict.ok) {
 					// Render to the concise BUILDER copy once — both the toast
 					// and the returned `CommitOutcome.messages` speak it. The
 					// SA path keeps the verbose `ValidationError.message`.
-					const lines = userFacingErrors(verdict.introduced);
+					const lines = userFacingErrors(verdict.findings);
 					if (announce) notifyRejectedCommit(lines);
 					return { ok: false, messages: lines };
 				}
@@ -643,6 +669,16 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 			const toOutcome = (
 				applied: ReturnType<typeof guardedApply>,
 			): CommitOutcome => (applied.ok ? COMMITTED : applied);
+			const rejectConnectOwnership = (): {
+				ok: false;
+				messages: string[];
+			} => {
+				const messages = [
+					"Connect participation must be changed through the app-wide Connect configuration.",
+				];
+				if (announce) notifyRejectedCommit(messages);
+				return { ok: false, messages };
+			};
 
 			return {
 				addField(parentUuid, field, opts) {
@@ -720,10 +756,18 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 					// in `Mutation` — at the value level the shape is structurally
 					// identical, but TS treats the union arms as distinct types
 					// rather than a parameterized one.
-					// Declaration chokepoint: a patch RE-TARGETING `case_property_on`
-					// to a type absent from the catalog prepends `declareCaseType`.
-					const nextType = (patch as { case_property_on?: unknown })
-						.case_property_on;
+					// Declaration chokepoint: a patch retargeting the complete
+					// `caseWrite` pair to a type absent from the catalog prepends
+					// `declareCaseType`.
+					const nextCaseWrite = (
+						patch as {
+							caseWrite?: {
+								caseType: string;
+								property: string;
+							} | null;
+						}
+					).caseWrite;
+					const nextType = nextCaseWrite?.caseType;
 					const declare =
 						typeof nextType === "string" && nextType.length > 0
 							? declareCaseTypeMutations(doc, nextType)
@@ -762,21 +806,16 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 
 					// Conflict check: reject the rename before dispatching so the
 					// UI can surface a "name already taken" message without
-					// unwinding a half-applied mutation. The peer-aware scan (the
-					// renamed field's parent plus the parent of every
-					// case-property peer that cascade-renames in lockstep) lives
-					// in the shared verdict module — the same definition of
-					// "conflict" the UI commit guard and the SA tools consult —
-					// so the store-level backstop can't drift from the surfaces
-					// it backs.
+					// unwinding a half-applied mutation. Field id is form-local, so
+					// the shared verdict checks only this field's sibling scope.
 					if (findRenameSiblingConflict(doc, uuid, newId) !== undefined) {
 						return { conflict: true };
 					}
 
 					// Field ID is an ordinary mutable field slot. Persist exactly
-					// the canonical per-kind update command; UUID identity keeps
-					// references stable while the reducer applies any semantic
-					// case-property consequences atomically.
+					// the canonical per-kind update command. UUID identity keeps
+					// references stable, and the independent `caseWrite` binding is
+					// untouched.
 					const applied = guardedApply([
 						{
 							kind: "updateField",
@@ -796,7 +835,7 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 					const field = doc.fields[uuid];
 					if (!field) {
 						warnUnresolved("moveField", { uuid });
-						return {};
+						return NOOP_REJECTION;
 					}
 
 					// Default destination: the field's current parent (same-parent
@@ -821,17 +860,9 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 						uuid,
 					);
 
-					// Dispatch via the single write path. Position `[0]` of the
-					// returned array carries the reducer's rename metadata (populated
-					// when cross-level dedup changes the id). The reducer returns
-					// `undefined` if the target entity vanishes between our pre-check
-					// and the Immer draft — fallback to a zeroed result so callers
-					// always see a valid `MoveFieldResult`.
-					const applied = guardedApply([
-						{ kind: "moveField", uuid, toParentUuid, after },
-					]);
-					if (!applied.ok) return {};
-					return (applied.results[0] as MoveFieldResult | undefined) ?? {};
+					return toOutcome(
+						guardedApply([{ kind: "moveField", uuid, toParentUuid, after }]),
+					);
 				},
 
 				duplicateField(uuid) {
@@ -933,6 +964,12 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 						warnUnresolved("addForm", { moduleUuid });
 						return NOOP_REJECTION;
 					}
+					/* Runtime backstop for untyped callers: the public input omits
+					 * `connect`, but a cast or stale bundle must not smuggle a new
+					 * participant through the generic form writer. */
+					if (Object.hasOwn(form, "connect")) {
+						return rejectConnectOwnership();
+					}
 					const maybeUuid = form.uuid;
 					const formUuid = asUuid(
 						typeof maybeUuid === "string" && maybeUuid.length > 0
@@ -957,6 +994,11 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 						warnUnresolved("updateForm", { uuid });
 						return NOOP_REJECTION;
 					}
+					/* The type omits `connect`; keep the same ownership invariant
+					 * at runtime for JavaScript, casts, and version-skewed clients. */
+					if (Object.hasOwn(patch, "connect")) {
+						return rejectConnectOwnership();
+					}
 					const { name, ...metadata } = patch;
 					const mutations: Mutation[] = [];
 					if (name !== undefined && name !== form.name) {
@@ -975,6 +1017,31 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 					}
 					if (mutations.length === 0) return COMMITTED;
 					return toOutcome(guardedApply(mutations));
+				},
+
+				refineFormConnect(uuid, connect) {
+					const doc = get();
+					const form = doc.forms[uuid];
+					if (!form) {
+						warnUnresolved("refineFormConnect", { uuid });
+						return NOOP_REJECTION;
+					}
+					/* Refinement is intentionally narrower than membership:
+					 * a nonparticipant cannot be added here, and null/undefined
+					 * cannot remove one. The exact target planner is the only
+					 * owner of either transition. */
+					if (form.connect === undefined || connect == null) {
+						return rejectConnectOwnership();
+					}
+					return toOutcome(
+						guardedApply([
+							{
+								kind: "updateForm",
+								uuid,
+								patch: { connect },
+							},
+						]),
+					);
 				},
 
 				setFormMedia(uuid, media) {
@@ -1334,25 +1401,9 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 				},
 
 				updateApp(patch) {
-					// Collapse the combined patch into a single `applyMany` so the store
-					// records exactly one undo entry. Dispatching `setAppName` and
-					// `setConnectType` individually would produce TWO undo entries per
-					// call — the user would have to hit ctrl-z twice to roll back a
-					// single "Rename + toggle" edit.
-					const mutations: Mutation[] = [];
-					if (patch.app_name !== undefined) {
-						mutations.push({ kind: "setAppName", name: patch.app_name });
-					}
-					if (patch.connect_type !== undefined) {
-						// ConnectType | null is the narrower type; null means "connect
-						// disabled" (absent connect_type in the blueprint schema).
-						mutations.push({
-							kind: "setConnectType",
-							connectType: patch.connect_type,
-						});
-					}
-					if (mutations.length === 0) return COMMITTED;
-					return toOutcome(guardedApply(mutations));
+					return toOutcome(
+						guardedApply([{ kind: "setAppName", name: patch.app_name }]),
+					);
 				},
 
 				setAppLogo(logo) {
@@ -1362,6 +1413,21 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 					// explicit `MediaAssetId | null`; the reducer maps `null →
 					// undefined` so a clear drops the optional key off the doc.
 					return toOutcome(guardedApply([{ kind: "setAppLogo", logo }]));
+				},
+
+				renameCaseProperties(renames) {
+					return toOutcome(
+						guardedApply([
+							{
+								kind: "renameCaseProperties",
+								renames: renames.map(({ caseType, from, to }) => ({
+									caseType,
+									from,
+									to,
+								})),
+							},
+						]),
+					);
 				},
 
 				updateCaseProperty(caseTypeName, propertyName, updates) {
@@ -1424,5 +1490,5 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 		};
 
 		return { ...makeApi(true), inline: makeApi(false) };
-	}, [store, canEdit]);
+	}, [store, canEdit, lookupCommitState]);
 }

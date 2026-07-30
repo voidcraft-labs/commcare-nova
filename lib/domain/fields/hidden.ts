@@ -24,7 +24,11 @@
 import tablerEyeOff from "@iconify-icons/tabler/eye-off";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
-import { structuralFieldBase, xpathExpressionSchema } from "./base";
+import {
+	caseWriteSchema,
+	structuralFieldBase,
+	xpathExpressionSchema,
+} from "./base";
 
 export const hiddenFieldSchema = structuralFieldBase.extend({
 	kind: z.literal("hidden"),
@@ -34,7 +38,7 @@ export const hiddenFieldSchema = structuralFieldBase.extend({
 	calculate: xpathExpressionSchema.optional(),
 	default_value: xpathExpressionSchema.optional(),
 	relevant: xpathExpressionSchema.optional(),
-	case_property_on: z.string().optional(),
+	caseWrite: caseWriteSchema.optional(),
 });
 
 export type HiddenField = z.infer<typeof hiddenFieldSchema>;

@@ -58,7 +58,7 @@ function dTree(
 		fieldOrder[parentUuid as string] = order;
 	};
 	walk(fields, formUuid, "form");
-	return { form, formUuid, fields: fieldMap, fieldOrder };
+	return { form, formUuid, fields: fieldMap, fieldOrder, caseTypes: [] };
 }
 
 const OPERATION: CaseOperation = {
@@ -203,7 +203,6 @@ describe("computeOperationAnswers", () => {
 			),
 		);
 		const mutation = engine.computeSubmissionMutation({
-			caseTypes: [],
 			entryKey: ENTRY_KEY,
 		});
 		expect(mutation.kind).toBe("survey");

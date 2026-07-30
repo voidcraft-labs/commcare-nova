@@ -34,9 +34,8 @@ export function SelectOneField({
 	onChange,
 	onBlur,
 }: SelectOneFieldProps) {
-	// Static options render in DISPLAY order (`sort-by-(order, uuid)`, the
-	// same sequence the wire XForm emits its `<item>`s in), never `options`
-	// array position. A lookup-backed select instead reads the ENGINE's
+	// Static options render in their authored array sequence, the same sequence
+	// the wire XForm emits its `<item>`s in. A lookup-backed select reads the ENGINE's
 	// live filtered choices (already in authored row order); while the
 	// fixture snapshot is still loading they are undefined and the list
 	// shows its loading state.

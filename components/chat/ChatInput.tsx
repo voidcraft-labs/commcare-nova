@@ -51,10 +51,19 @@ import {
 import { showToast } from "@/lib/ui/toastStore";
 import { cn } from "@/lib/utils";
 
+function isChatAttachmentKind(
+	kind: MediaAssetView["kind"],
+): kind is AttachmentRef["kind"] {
+	return (CHAT_ATTACHMENT_KINDS as readonly string[]).includes(kind);
+}
+
 /** Map a picked library asset to the wire ref the chat sends. The bytes never
  *  ride the request — only this id-keyed pointer, which the server resolves to
  *  the stored extract (documents) or image bytes (vision). */
 function toAttachmentRef(asset: MediaAssetView): AttachmentRef {
+	if (!isChatAttachmentKind(asset.kind)) {
+		throw new Error(`Asset kind ${asset.kind} cannot be attached to chat.`);
+	}
 	return {
 		assetId: asset.id,
 		kind: asset.kind,
@@ -76,7 +85,7 @@ interface ChatInputProps {
 	disabled?: boolean;
 	/** A turn is actually in flight, so the submit button shows a spinner. A
 	 *  strict subset of `disabled`: locking the composer for a non-chat reason
-	 *  (creating a blank app) must not claim the user's message is being sent. */
+	 *  (creating the starter) must not claim the user's message is being sent. */
 	submitting?: boolean;
 	/** True while an AskQuestionsCard is waiting for a reply: a composer send
 	 *  routes to that card as a text-only answer, so attachments can't go with it.

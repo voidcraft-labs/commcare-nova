@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { rewriteHashtagRefs, rewriteXPathRefs } from "../rewrite";
+import { rewriteXPathRefs } from "../rewrite";
 
 describe("rewriteXPathRefs", () => {
 	describe("absolute paths", () => {
@@ -70,9 +70,9 @@ describe("rewriteXPathRefs", () => {
 			);
 		});
 
-		it("does not rewrite #case/ or #user/ hashtags", () => {
-			expect(rewriteXPathRefs("#case/old_id > 5", "old_id", "new_id")).toBe(
-				"#case/old_id > 5",
+		it("does not rewrite typed case or #user/ hashtags", () => {
+			expect(rewriteXPathRefs("#patient/old_id > 5", "old_id", "new_id")).toBe(
+				"#patient/old_id > 5",
 			);
 		});
 
@@ -132,56 +132,6 @@ describe("rewriteXPathRefs", () => {
 				'"/data/old_id"',
 			);
 		});
-	});
-});
-
-describe("rewriteHashtagRefs", () => {
-	it("rewrites #case/ refs", () => {
-		expect(
-			rewriteHashtagRefs(
-				"#case/client_name",
-				"#case/",
-				"client_name",
-				"full_name",
-			),
-		).toBe("#case/full_name");
-	});
-
-	it("rewrites multiple #case/ refs in one expression", () => {
-		expect(
-			rewriteHashtagRefs(
-				'concat(#case/first_name, " ", #case/first_name)',
-				"#case/",
-				"first_name",
-				"given_name",
-			),
-		).toBe('concat(#case/given_name, " ", #case/given_name)');
-	});
-
-	it("does not rewrite other hashtag prefixes", () => {
-		expect(
-			rewriteHashtagRefs(
-				"#form/client_name > 0",
-				"#case/",
-				"client_name",
-				"full_name",
-			),
-		).toBe("#form/client_name > 0");
-	});
-
-	it("does not rewrite partial name matches", () => {
-		expect(
-			rewriteHashtagRefs(
-				"#case/client_name_full",
-				"#case/",
-				"client_name",
-				"full_name",
-			),
-		).toBe("#case/client_name_full");
-	});
-
-	it("returns empty string unchanged", () => {
-		expect(rewriteHashtagRefs("", "#case/", "old", "new")).toBe("");
 	});
 });
 

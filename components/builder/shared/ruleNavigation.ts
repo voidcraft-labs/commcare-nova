@@ -24,7 +24,6 @@ import {
 	type Predicate,
 	type SearchInputDecl,
 	type SlotConstraint,
-	textShapedConstraint,
 	type ValueExpression,
 	withinCenterConstraint,
 } from "@/lib/domain/predicate";
@@ -292,7 +291,6 @@ function locatePredicate(
 			}
 			return undefined;
 		}
-		case "is-null":
 		case "is-blank":
 			return first === "left"
 				? descendExpression(
@@ -582,16 +580,6 @@ function locateExpression(
 						"Related cases",
 					);
 		}
-		case "unwrap-list":
-			return first === "value"
-				? descendExpression(
-						value.value,
-						[first],
-						remaining.slice(1),
-						textShapedConstraint(),
-						"Saved list",
-					)
-				: undefined;
 		case "format-date":
 			return first === "date"
 				? descendExpression(
@@ -717,7 +705,6 @@ function replacePredicate(
 			}
 			break;
 		case "in":
-		case "is-null":
 		case "is-blank":
 			if (first === "left") {
 				return { ...value, left: replaceExpressionChild(value.left, 1) };
@@ -788,7 +775,6 @@ function replaceExpression(
 		case "date-coerce":
 		case "datetime-coerce":
 		case "double":
-		case "unwrap-list":
 			if (first === "value") {
 				return { ...value, value: replaceExpressionChild(value.value, 1) };
 			}

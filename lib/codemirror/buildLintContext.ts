@@ -87,7 +87,7 @@ export function buildLintContext(
 	// Readable case types: the form's own case type plus its ancestor chain
 	// (walked through `parent_type`). The case-type record on `doc.caseTypes`
 	// is the authoritative property list; it's populated by the SA and we never
-	// synthesize entries from per-field `case_property_on` values (by design).
+	// synthesize entries from field write destinations (by design).
 	// Child types are deliberately NOT included — a child case is created fresh
 	// and never loaded, so reading its properties is unresolvable at runtime.
 	const reachable = moduleCaseType

@@ -49,10 +49,10 @@ import { createStore, type StoreApi } from "zustand/vanilla";
 import type { BlueprintDocStore } from "@/lib/doc/provider";
 import type { BlueprintDocState } from "@/lib/doc/store";
 import {
-	type CaseType,
 	type Field,
 	type Form,
 	isCaptureFieldKind,
+	materializableCaseTypes,
 	type Uuid,
 } from "@/lib/domain";
 import { compilerBugMessage } from "@/lib/domain/predicate/errors";
@@ -153,10 +153,7 @@ export const DEFAULT_RUNTIME_STATE: RuntimeState = Object.freeze({
  * throughout.
  */
 function buildEngineInput(
-	state: Pick<
-		BlueprintDocState,
-		"forms" | "fields" | "fieldOrder" | "userProperties"
-	>,
+	state: BlueprintDocState,
 	formUuid: Uuid,
 ): FormEngineInput | undefined {
 	const form = state.forms[formUuid];
@@ -166,6 +163,7 @@ function buildEngineInput(
 		formUuid,
 		fields: state.fields as unknown as Record<string, Field>,
 		fieldOrder: state.fieldOrder as unknown as Record<string, Uuid[]>,
+		caseTypes: materializableCaseTypes(state),
 		userProperties: state.userProperties,
 	};
 }
@@ -895,7 +893,6 @@ export class EngineController {
 	 */
 	computeSubmissionMutation(args: {
 		caseId?: string;
-		caseTypes: ReadonlyArray<CaseType>;
 		viewerTimeZone?: string;
 	}): SubmissionMutation {
 		if (!this.engine) {

@@ -9,16 +9,16 @@ import { novaXPathTheme } from "@/lib/codemirror/xpath-theme";
 const editorExtensions = [xpath(), EditorView.lineWrapping];
 
 const SAMPLES = [
-	"#case/age>18 and #form/gender='male'",
+	"#patient/age>18 and #form/gender='male'",
 	"count(instance('casedb')/casedb/case[@case_type='household'])",
 	". ='yes' or .= 'no'",
 	"/data/q[.>5]",
 	"-5+3*( 2 div 4)",
 	"f( a , b,c )",
 	"child :: *",
-	"if(#case/status='active',concat(#case/first_name,' ',#case/last_name),'Closed')",
-	"selected(#form/symptoms,'fever') and #case/age<5",
-	"today()-date(#case/dob)",
+	"if(#patient/status='active',concat(#patient/first_name,' ',#patient/last_name),'Closed')",
+	"selected(#form/symptoms,'fever') and #patient/age<5",
+	"today()-date(#patient/dob)",
 	"instance('casedb')/casedb/case[@case_type = 'mother' and @status = 'open'][last()]/case_name",
 ];
 

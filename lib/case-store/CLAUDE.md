@@ -9,7 +9,17 @@ JS evaluator, no parity tests.
 
 External consumers import from the `@/lib/case-store` barrel: the `CaseStore` / `SchemaCaseStore` interfaces, row/arg/result types, the two production constructors (`withProjectContext(projectId, actorUserId, ownerId)` — the tenant-bound reads/writes store with both identities explicit; `withSchemaContext()` — the actor-free, app-scoped schema-ops store with a dynamic current-Project fence), the typed error classes, and JSONB value types. The implementation, sample generator, and test harness stay package-private; tests reach them via subpath.
 
-**The case-type map is the MATERIALIZABLE view.** `buildCaseTypeMap` builds from `lib/domain/effectiveCaseTypes.ts::materializableCaseTypes` — writer-DERIVED property types included, whether the writer is a field or a typed dormant case operation (the compiler's casts stay in lockstep with the type checker), implicit standard entries excluded (their values live in scalar columns, never the JSONB document — a map entry would compile a standard-name reference to a silently-NULL JSONB read, and on the schema-write side would put `format` constraints + a GIN index per text-typed standard name on every case type). Standard-name references resolve instead through `sql/dataTypeTokens.ts::RESERVED_SCALAR_COLUMN_BY_PROPERTY` — the name→column map mirroring CCHQ's own field-alias table (`commcare-hq/.../app_manager/detail_screen.py`: `name`→`case_name`, `date_opened`/`date-opened`→`opened_on`, `last_modified`→`modified_on`, `external_id`/`external-id`→`external_id`, plus `status`/`owner_id`/`case_id`/`case_type`) — consumed by `compileTerm`, the predicate `is-null`/`is-blank` arms (timestamp columns collapse `is-blank` to plain `IS NULL`), and the preview display seam (`caseRowDisplayValue`), so a standard name every checker admits also queries, filters, and displays. The alias shadows any same-named JSONB key, exactly as the device shadows it.
+`casePropertyRenamePreflight.ts` is the narrow read-only exception used by the
+builder's app-wide rename review. Its in-transaction reader accepts an already
+admitted simultaneous relation and returns counts only: distinct live rows,
+parked rows including dismissed entries, per-source counts, and exact
+destination-occupancy groups. It filters by `app_id` only—never Project,
+owner, hold, or dismissal—and JSONB own-key presence makes null and blank
+destinations occupied. The caller owns the transaction so authorization,
+Blueprint sequence, lookup verdict, and counts share one request; the result
+is explanatory and never substitutes for rename Phase A's locked recheck.
+
+**The case-type map is the MATERIALIZABLE view.** `buildCaseTypeMap` builds from `lib/domain/effectiveCaseTypes.ts::materializableCaseTypes` — writer-DERIVED property types included, whether the writer is a field or a typed case operation (the compiler's casts stay in lockstep with the type checker), and implicit standard entries excluded. A standard entry explicitly declared in the catalog remains for its authoring metadata and order, but both storage projections filter every `CASE_SCALAR_PROPERTY_NAMES` member: `caseTypeToJsonSchema` never emits it into the closed JSONB schema, and `computeDesiredIndexSet` never emits a JSONB expression index for it. Standard-name references resolve through `sql/dataTypeTokens.ts::RESERVED_SCALAR_COLUMN_BY_PROPERTY` — the exact Nova name→column map (`case_name`→`case_name`, `date_opened`→`opened_on`, `last_modified`→`modified_on`, `external_id`→`external_id`, plus `status`/`owner_id`/`case_id`/`case_type`) — consumed by `compileTerm`, the predicate `is-blank` arm (timestamp columns collapse it to plain `IS NULL`), and the preview display seam (`caseRowDisplayValue`), so a standard name every checker admits also queries, filters, and displays from its first-class column. No live alternate-name projection exists.
 
 **Runtime operation targets are resolved facts, never client descriptors.** `caseOperationTargetRequestSchema` accepts only `{ caseId }`. The envelope executor (`postgres/submissionEnvelope.ts`) loads the row through the tenant-bound pre-submission snapshot and then calls `validateCaseOperationTargetDescriptor(request, resolved, expected)` with server-owned `{ caseId, caseType, projectId }` plus the expected `{ projectId, snapshotCaseType }` from `caseOperationExpressionSnapshotTypes`. That snapshot type is intentionally distinct from the operation's rolling semantic type after an earlier retype. Parse failure, absence, id mismatch, and foreign tenancy intentionally collapse to `not-found-or-out-of-scope`; a type mismatch is reported only after Project authorization succeeds. The seam itself stays pure; its live callers are the executor's expression-target arms.
 
@@ -44,7 +54,7 @@ the field to audio. There is no post-commit GCS await: accepted case effects
 categorically point at a verified durable generation outside the staging
 lifecycle prefix.
 
-`CaseStore.applySubmission` applies one whole form submission — the ordinary form action (registration primary+children, followup update+children, close including final writes) plus the advanced case-operation program — in ONE transaction under the standard lock order (authorize → relationship advisory → schema locks sorted up front; a followup/close bound case's type is discovered inside the update core, the same pattern `update` uses). The executor (`postgres/submissionEnvelope.ts`) mirrors the XForm emission in `lib/commcare/xform/caseOps.ts` phase for phase: expand the authored `(order, uuid)` sequence over the physical multiplicity scopes (root first, then repeats iteration-major — the caller supplies per-iteration form-answer bindings plus the doc-level analysis from `lib/doc/caseOperationOrder.ts`, since the blueprint never crosses this boundary); allocate every create identity in TypeScript before any evaluation (generated ids mint `uuidv7()`; authored keys run the shared `deriveAuthoredCaseId` and abort on blank/over-205 keys BEFORE any DML — the pinned TS↔XPath identity vector runs against this executor); evaluate every condition, value, and runtime target through the AST→Kysely compiler anchored on the loaded session case (the advisory lock plus evaluate-before-effects gives every expression the same pre-submission snapshot the device's calculates see; `TermBindings.actingUserId` is populated from the store's bound actor, never the client); resolve and reauthorize targets (`session` = the loaded case, `op` = the transaction's allocation record, `expression` = tenant-bound load + `validateCaseOperationTargetDescriptor` against the immutable snapshot type, with expression targets inheriting the running app's hold exclusion); then run `validateResolvedCaseOperationTypeSequence` over the whole server-resolved sequence — including the ordinary action as a final implicit type consumer when it is type-sensitive — before the first write. Effects apply in physical order (per operation: create → property writes → rename/retype → close → links; the ordinary action last, matching the wire where advanced blocks precede the ordinary `FormActions` block). Every evaluated create-name, rename, explicit owner, and default owner passes through `prepareCaseOperationTextValue`; only the normalized value is stored and the envelope aborts on `blank`/`too-long`. Retype executes ONLY the wirePortable subset, applied with the operation's writes and rename as ONE unit — the wire emits them in a single `<update>` block, so writes are typed against the DESTINATION declaration and the case ends as the destination type carrying them; a retained document (properties minus source-schema orphans, the same proof the update merge sheds by) the destination schema cannot hold rejects the envelope — never a conversion/parking plan. Link CRUD is identifier-keyed (delete-then-insert; null target removes) and persists the AUTHORED `child`/`extension` relationship; a `parent` identifier also maintains the denormalized `parent_case_id`. A duplicate authored id merges create-of-existing style — onto a prior submission's row or onto a row this same envelope created. Multi-select answers serialize to JSONB arrays explicitly, and a BLANK-evaluated write (SQL NULL, `''`, an empty selection) projects to key-absent — omitted on create, REMOVED from the stored document on update — because the wire's `''` write has no representable typed-storage form and Nova's two-state collapse reads absent as blank (`storageValueFromEvaluation`). A link-only operation still advances `modified_on`, the wire's per-block `@date_modified` stamp. Any failure rolls the entire submission back with a typed error: `SubmissionRejectedError` (a discriminated `rejection` union: authored-key, text-value, target, sequence, retype-not-portable) for operation-contract rejections, the standard typed errors otherwise — partial success is unobservable. The production supplier is `lib/preview`'s `buildSubmissionOperationProgram` (one authorized committed-doc snapshot, capture authority, durable receipt identity, and the engine's collected per-scope answers); the program is exercised by `postgres/__tests__/submissionEnvelope.test.ts` and end-to-end by the preview acceptance suite.
+`CaseStore.applySubmission` applies one whole form submission — the ordinary form action (registration primary+children, followup update+children, close including final writes) plus the advanced case-operation program — in ONE transaction under the standard lock order (authorize → relationship advisory → schema locks sorted up front; a followup/close bound case's type is discovered inside the update core, the same pattern `update` uses). The executor (`postgres/submissionEnvelope.ts`) mirrors the XForm emission in `lib/commcare/xform/caseOps.ts` phase for phase: expand the authored `(order, uuid)` sequence over the physical multiplicity scopes (root first, then repeats iteration-major — the caller supplies per-iteration form-answer bindings plus the doc-level analysis from `lib/doc/caseOperationOrder.ts`, since the blueprint never crosses this boundary); allocate every create identity in TypeScript before any evaluation (generated ids mint `uuidv7()`; authored keys run the shared `deriveAuthoredCaseId` and abort on blank/over-205 keys BEFORE any DML — the pinned TS↔XPath identity vector runs against this executor); evaluate every condition, value, and runtime target through the AST→Kysely compiler anchored on the loaded session case (the advisory lock plus evaluate-before-effects gives every expression the same pre-submission snapshot the device's calculates see; `TermBindings.actingUserId` is populated from the store's bound actor, never the client); resolve and reauthorize targets (`session` = the loaded case, `op` = the transaction's allocation record, `expression` = tenant-bound load + `validateCaseOperationTargetDescriptor` against the immutable snapshot type, with expression targets inheriting the running app's hold exclusion); then run `validateResolvedCaseOperationTypeSequence` over the whole server-resolved sequence — including the ordinary action as a final implicit type consumer when it is type-sensitive — before the first write. Effects apply in physical order (per operation: create → property writes → rename/retype → close → links; the ordinary action last, matching the wire where advanced blocks precede the ordinary `FormActions` block). Every evaluated fixed-text scalar passes through `prepareCaseScalarTextValue`: boundary U+0000..U+0020 code units are removed and the 255 UTF-16-unit cap is enforced; create-name, rename, and owner reject blank, while `external_id` keeps an explicit blank as `""`. Ordinary field writes use the same contract. `case_name` and `external_id` route to dedicated row columns across single/bulk create, update, merge, and retype and never enter JSONB. Retype executes ONLY the wirePortable subset, applied with the operation's writes and rename as ONE unit — the wire emits them in a single `<update>` block, so writes are typed against the DESTINATION declaration and the case ends as the destination type carrying them; a retained document (properties minus source-schema orphans, the same proof the update merge sheds by) the destination schema cannot hold rejects the envelope — never a conversion/parking plan. Link CRUD is identifier-keyed (delete-then-insert; null target removes) and persists the AUTHORED `child`/`extension` relationship; a `parent` identifier also maintains the denormalized `parent_case_id`. A duplicate authored id merges create-of-existing style — onto a prior submission's row or onto a row this same envelope created. Multi-select answers serialize to JSONB arrays explicitly, and a BLANK-evaluated custom-property write (SQL NULL, `''`, an empty selection) projects to key-absent — omitted on create, REMOVED from the stored document on update — because the wire's `''` write has no representable typed-storage form and Nova's two-state collapse reads absent as blank (`storageValueFromEvaluation`). A link-only operation still advances `modified_on`, the wire's per-block `@date_modified` stamp. Any failure rolls the entire submission back with a typed error: `SubmissionRejectedError` (a discriminated `rejection` union: authored-key, text-value, target, sequence, retype-not-portable) for operation-contract rejections, the standard typed errors otherwise — partial success is unobservable. The production supplier is `lib/preview`'s `buildSubmissionOperationProgram` (one authorized committed-doc snapshot, capture authority, durable receipt identity, and the engine's collected per-scope answers); the program is exercised by `postgres/__tests__/submissionEnvelope.test.ts` and end-to-end by the preview acceptance suite.
 
 **The operation program is also the lookup compiler-context boundary.** Its optional `lookupTableSchemas` is the rows-free `tableId → columnId → dataType` projection from one Project-authorized definitions snapshot. Preview derives the exact table ids from canonical lookup-reference occurrences whose carrier UUID belongs to the built form's operations, using the same committed blueprint that produced the program; a carrier-free program performs no definition read. `evaluateBatch` threads this one map into every condition, value, runtime target, write guard, and link target, and the schema-healing wrapper retries `applySubmission` with the same envelope object and map. Never fetch definitions from inside individual expression arms or substitute a fallback type: lookup governance keeps referenced table/column identities and types stable, while `lookup_rows` remain current tenant-bound reads inside the submission transaction.
 
@@ -63,7 +73,7 @@ mirroring
 CommCare's case lifecycle — a device stamps `date_opened` and `last_modified`
 the moment a case is created, no sync involved. An explicit caller value
 wins. `update`/`close` re-stamp `modified_on`. Without this, the standard-name
-aliases read blank on freshly created rows in every case list, filter, and
+standard scalar projections read blank on freshly created rows in every case list, filter, and
 sort.
 
 ## Case lifecycle is one storage operation
@@ -157,25 +167,23 @@ migrations filter `(app_id, case_type)` ONLY — no `project_id` /
 `owner_id`. The store binds no actor or construction-time Project, but every
 standalone schema mutation starts with `apps FOR SHARE`, rejects a missing or
 deleted app, and holds the app's current Project placement stable through its
-schema/data transaction. The migration-bearing blueprint saga already owns the
-same outer app/auth fence and calls Phase A directly on that transaction.
+schema/data transaction. Explicit case-property rename instead composes its
+Phase A directly into the guarded writer's already app-locked, authorized
+transaction.
 
 **Re-tenanting is the second, narrower exception — `retenant.ts`.**
-`retenantAppCases({appId, toProjectId})` is the ONE write that crosses
-the tenant boundary on purpose: it rewrites `cases.project_id` for an
-app's rows when Nova reconciles app placement
-(`lib/db/moveAppToProject.ts`). True cross-Project moves remain
-production-disabled, but their dormant v1 transaction now performs this update
-on the same physical Postgres transaction as the app Project flip, blueprint and
-thread media remap, presence purge, migration row, and notifications. There is
-no observable flip-first/cases-follow gap. Exact same-Project recovery takes the
-app lock, derives the fresh app Project rather than trusting a caller value, and
-uses the same update as a case-only repair; it writes no migration row and
-purges no presence. The operation keys on `app_id` alone and moves every row not
-already in the destination, so both paths also heal split/null historical rows.
-It is a standalone barrel export, not a
-`CaseStore` method, so the single-tenant invariant of the bound store
-stays intact; only `cases` carries `project_id`, so it is the whole job.
+Its transaction-injected primitive rewrites `cases.project_id` only from the
+app-locked, Project-authorized move and same-Project recovery transactions in
+`lib/db/apps.ts`; it has no standalone connection-owning wrapper or package
+barrel export. A cross-Project move updates cases before the app Project flip,
+then commits both on the same physical transaction with blueprint and thread
+media remap, presence purge, the migration batch, and notifications. The
+deferred composite cases→apps FK permits that intermediate order while making a
+split committed placement impossible. Exact same-Project recovery takes the app
+lock, derives the fresh app Project rather than trusting a caller value, and
+uses the same primitive as a case-only repair; it writes no migration row and
+purges no presence. Only `cases` carries `project_id`, so that update is the
+complete case-store portion of either transaction.
 
 ## Typed error contract
 
@@ -195,15 +203,7 @@ before validating, SHEDS inherited keys the current schema no
 longer declares: any key in a row but not in the stored schema is
 provably an orphan (every write validated against the then-stored
 schema, so a fresher-than-schema key cannot exist), left behind by
-a property removal or a pre-migration rename. The one schema
-REGRESSION path — the saga's compensate after a failed
-blueprint commit — upholds the proof by INVERTING its rename's
-row migration first, so a value legitimately written under the
-briefly-live prospective schema travels back to a declared key
-instead of becoming an orphan the shed would eat (and it
-UN-PARKS what the forward applies set aside, LAST, once the
-restored schema again declares the keys those values were valid
-under — `unparkValues`). Shedding with
+a property removal. Shedding with
 the write is what keeps orphan-carrying rows writable instead of
 failing `additionalProperties` forever. Only the INHERITED half is
 shed — an unknown key in the caller's PATCH is still a validation
@@ -229,8 +229,8 @@ architecture.
    validation semantics changed into two migration families, both
    run in the SAME transaction as the schema write (so the schema
    row and the row population can never disagree, whichever caller
-   synced — the saga, the drain-end materialize, the heal, the
-   compensate path, the drift scripts):
+   synced — the guarded post-commit sweep, drain-end materialize,
+   point-of-use heal, and drift scripts):
 
    - **String↔array flips** (the select single↔multi conversion):
      the TOTAL reshape — string scalar → one-element array, array →
@@ -244,8 +244,8 @@ architecture.
      dropped, and the row STAYS. Identity widenings
      (temporal/geopoint→text OR →single_select, int→decimal,
      text⇄single_select — the select's authored type survives via
-     the schema generator's `x-novaDataType` annotation, which
-     `dataTypeTokenOf` reads) rewrite no rows — every stored value
+     the schema generator's required `x-novaDataType` annotation)
+     rewrite no rows — every stored value
      already conforms — but still count as type transitions for the
      closing restore step below. A numeric-SOURCE
      retype first
@@ -273,23 +273,24 @@ architecture.
    review surface's soft archive (`dismissed_at`) means "reviewed,
    chose not to restore", so a later convert-back doesn't resurrect
    them. Same-type syncs stay out of scope so a deliberate
-   narrow-options flush isn't undone by the next unrelated edit —
-   and the text→single_select diff is NEVER classified at all: a
-   bare-string stored schema can't distinguish a real text source
-   from a select stored before the annotation existed, so trusting
-   that diff would phantom-restore pre-annotation selects' parks on
-   their first post-deploy sync (the caller-intent retype scope
-   still restores a real text→select conversion). The tenant-bound
+   narrow-options flush isn't undone by the next unrelated edit.
+   Every stored-schema consumer first runs the same exact canonical
+   decoder: the top-level object must contain only Nova's three schema
+   keys, and every property declaration must equal one
+   `schemaForDataType` shape byte-for-shape. The decoder owns the
+   resulting type tokens, so text↔single_select is an ordinary explicit
+   identity widening; malformed or pre-cutover schema shapes throw
+   instead of being inferred, skipped, or compiled permissively. The tenant-bound
    review slice on `CaseStore` (`listParkedValues` — standings
    computed against the currently-stored schema: `fits` /
    `blocked` / `undeclared`, no occupancy arm —
    `restoreParkedValues` / `setParkedValuesDismissed` /
    `replaceParkedValue`) reaches tenancy by joining through
-   `cases`; the schema store's `unparkValues` stays the saga's
-   compensation half, and both restores share one conformance-
+   `cases`; the schema store's `unparkValues` is the automatic restore
+   operation, and both restores share one conformance-
    gated core split on ONE axis (`restoreEntries.overwriteExisting`):
    the review's explicit put back is a human decision and OVERWRITES
-   whatever the slot holds; the compensation and the auto-restore are
+   whatever the slot holds; automatic restore paths are
    automatic and never overwrite. An overwrite never destroys: a
    displaced value that isn't redundant with the original (equal, or
    a multi-select survivors-subset) is archived as a NEW dismissed
@@ -337,8 +338,8 @@ architecture.
    `castCanFail` in `lib/domain/casePropertyTypes.ts`, and the
    contract suite's parity sweep keeps the two in lockstep.
 3. **Per-row migration** — only when `change` is supplied. The
-   three arms are `rename(renames[])`, `retype(fromType, toType)`,
-   and `narrow-options(removedOptions)`. NO arm removes a row — a
+   two arms are `retype(fromType, toType)` and
+   `narrow-options(removedOptions)`. NO arm removes a row — a
    value the new declaration cannot hold parks with its key
    dropped, `parked_case_values` preserving the original + a
    person-readable reason, and the row stays present and writable.
@@ -346,23 +347,15 @@ architecture.
    caller-named). Narrow-options parks the FULL original select
    value while a multi-select keeps its surviving elements on the
    row — a deliberate opt-in flush, since stored values outside the
-   current options are otherwise legitimate history. The rename arm
-   applies ALL its pairs SIMULTANEOUSLY per row (every destination
-   reads the row's pre-migration value), so same-batch chains,
-   swaps, and name-reuse (A→B while B→C) land every value at its
-   true destination; values cast into the DESTINATION declaration's
-   type (a MERGE-rename adopts the surviving entry's type), a
-   conflict row keeps the destination's already-valid value with
-   the displaced source value parked, and a blank value's key drops
-   silently (nothing to keep). The `rename` change is synthesized
-   by `classifyCaseTypeChanges` from field-uuid evidence — no
-   surface threads a hint — and the guarded commit re-proves the
-   pairs against the FRESH doc pair in-transaction
-   (`renameExpectations`), rejecting a batch whose trailing prior
-   migrated a different rename than the commit would apply. Only a
-   retype/narrow-options-targeted property is excluded from step
-   2's detection (a rename's keys are invisible or compose — see
-   `detectPropertyTransitions`); step 2 reports on its own
+   current options are otherwise legitimate history. Case-property
+   renames are not inferred here: the explicit batch-exclusive
+   `renameCaseProperties` command uses
+   `applyCasePropertyRenamePhaseA`. That dedicated path locks and
+   admits every affected live and parked row, moves all keys
+   simultaneously, preserves every non-name column, and persists the
+   Blueprint plus accepted event in the same transaction. An own
+   destination key is occupied even when null or blank; dismissed
+   parked values participate. Step 2 reports on its own
    `reshaped` / `retyped` axes so one row rewritten by both steps
    is never double-counted, and every park lands in the report's
    `parkedIds` + `failureReasons`.
@@ -406,10 +399,8 @@ same detection against the same stored state in its own
 transaction, and a fine-gate loser skips the reshape along with
 Phase B.
 
-Absent `syncedSeq` (the pre-multiplayer path and the migration
-saga's Postgres-first forward apply — which runs before its own
-committed seq exists): a plain un-versioned UPSERT that always wins
-its own conflict.
+Absent `syncedSeq` (an explicit maintenance caller with no committed Blueprint
+sequence): a plain unversioned UPSERT that always wins its own conflict.
 
 ### Phase B (no transaction; runs after Phase A commits)
 
@@ -492,13 +483,11 @@ the monotone `synced_seq` gate converges them with a concurrent
 additive sync.
 
 The two awaited blueprint-write boundaries (auto-save PUT, MCP tool
-calls) route through the sibling saga at
-`lib/db/applyBlueprintChange.ts`, whose sync splits by change kind:
-**migration-bearing** entries (a `change` reshape) stay
-Postgres-first + `compensate()` pre-commit (recoverable), while
-**additive** entries ride a single post-commit sweep of the
-committed doc at the committed seq (`syncedSeq`), which converges
-concurrent additive edits via the same monotone gate.
+calls) route through `lib/db/applyBlueprintChange.ts`. Explicit
+case-property rename Phase A shares the guarded Blueprint
+transaction; ordinary additive changes ride a post-commit sweep of
+the committed doc at the committed seq (`syncedSeq`), which
+converges concurrent edits via the same monotone gate.
 
 ### Pre-flight identifier validation runs BEFORE Phase A
 
@@ -510,7 +499,7 @@ and case-type names compose into the index name through
 `case_type_schemas` untouched.
 
 Property and case-type names admit hyphens at the blueprint layer
-(CommCare convention — `external-id` is real). The index NAME
+(for example, `client-code`). The index NAME
 carries neither name verbatim — the `(app, case_type)` scope and
 the property each fold into a fixed-width SHA-256 tag
 (`indexScopeTag` / `propertyIndexTag`), so a hyphen needs no
@@ -577,21 +566,21 @@ gcloud identity via IAM — per-developer prerequisites in
 the connector's IAM-authenticated path is the only way in; Cloud Run
 keeps riding the private IP (it never sets `NOVA_DB_IP_TYPE`). That
 central `--prod` helper authoritatively declares the `operator`
-workload, whose pool max is one of the two residual ordinary-login
-connections.
+workload, whose pool max is the residual ordinary-login connection.
 
 Every non-local process must declare its pool workload exactly:
 `service` = 3 pooled connections, `migration` = 1,
-`capture-cleanup` = 2, and `operator` = 1 ordinary connection. The
+`capture-cleanup` = 2, `audit` = 1, and `operator` = 1 ordinary connection. The
 serving process also owns one dedicated LISTEN connection outside its
 pool. PostgreSQL's direct-login `CONNECTION LIMIT` is the hard,
-cluster-wide boundary: runtime = 16, migration = 1, and cleanup = 3.
-Role attributes are not inherited, so migration and cleanup sessions count
-against their own login roles. Migration inherits runtime's table privileges;
-cleanup has no application-role parent and receives only public-schema `USAGE`
-plus `SELECT`/`UPDATE`/`DELETE` on `form_attachments`. Those caps total 20
-against `max_connections=25`; two more slots remain for ordinary/operator
-logins, while the final three are protected by
+cluster-wide boundary: runtime = 16, migration = 1, cleanup = 3, and audit = 1.
+Role attributes are not inherited, so migration, cleanup, and audit sessions
+count against their own login roles. Migration inherits runtime's table
+privileges; cleanup has no application-role parent and receives only
+public-schema `USAGE` plus `SELECT`/`UPDATE`/`DELETE` on `form_attachments`.
+Audit also has no parent and receives only the canonical scanner's exact read
+surface. Those caps total 21 against `max_connections=25`; one slot remains for
+an ordinary/operator login, while the final three are protected by
 `superuser_reserved_connections=3` for true superusers
 (`reserved_connections=0`).
 
@@ -639,6 +628,14 @@ callers. The canonical-identity cutover uses the report to distinguish the one
 deployment that must re-fence direct runtime sessions after convergence; no
 schema guess or ledger reread substitutes for the migrator's result.
 
+The case-store ledger makes `apps.project_id` `NOT NULL`; after Better Auth
+creates `auth_organization`, the Nova auth-app ledger installs the exact
+validated Project FK. This persisted invariant is separate from
+`withSchemaContext()` constructing a schema-only `PostgresCaseStore` with no
+bound Project. That constructor mode remains intentionally nullable and its
+narrow interface plus `requireProjectId()` prevent tenant-bound case methods
+from using it.
+
 ### Authoring workflow
 
 1. Add a timestamp-prefixed module to `lib/case-store/migrations/`
@@ -661,6 +658,19 @@ schema. Keep guarded constraint additions, `IF NOT EXISTS` tables and indexes,
 `ON CONFLICT` singleton seeds, replaceable functions, and drop-before-create
 triggers replay-safe. The `down` path is test/local teardown only; a deployed
 schema change always fixes forward in a new migration.
+
+`20260728010000_case_schema_index_convergence` is an exact cutover, not an
+`IF NOT EXISTS` adoption migration. On one transaction/connection it takes an
+advisory lock and `ACCESS EXCLUSIVE` table locks, then classifies the complete
+relation/column/type/default/constraint/index/trigger catalog, relation and
+index owners, full effective ACLs, and every convergence row before its first
+write. Only the exact pre-cutover catalog may run the plain
+`ALTER`/`CREATE`/initial pending-sequence `UPDATE`; the exact final catalog is a
+read-only rerun. Partial objects, wrong names or definitions, ownership or ACL
+drift, extra/duplicate constraints or indexes, invalid sequence relations, and
+a schema/deletion-tombstone overlap block. In particular, a legitimate
+`index_pending_seq > index_synced_seq` final row is preserved byte-for-byte on
+rerun rather than reset from `synced_seq`. Its `down` is forward-only.
 
 The holder identity migrations add server-minted `apps.run_holder_nonce` and
 actor-bound `threads.active_holder_nonce`. Every holder-touching writer uses
@@ -743,22 +753,29 @@ override under a dedicated migration identity on the service's network. It calls
 `@google-cloud/cloud-sql-connector` + IAM path the runtime uses. Its connector
 env wires `NOVA_DB_USER` / `NOVA_DB_INSTANCE_CONNECTION_NAME` /
 `NOVA_DB_NAME` plus `NOVA_DB_WORKLOAD=migration`. Privilege convergence
-requires the migration and runtime role identities after migrations.
+requires the migration, runtime, cleanup, and audit role identities after
+migrations.
 
 Every production migration invocation finishes with the rollback-only runtime
 database probe in `lib/db/runtimeDatabaseProbe.ts`: it assumes the runtime role
-inside the migration transaction, strictly parses every app, reauthorizes an
-existing editable Project member, and exercises the real guarded writer before
-rolling the synthetic batch back. When the migration report includes
+inside the migration transaction, assembles every app's exact text carriers
+through the production persisted decoder without a sample cap, reruns the
+complete empty-batch absolute gate, and compares incremental and rebuilt local
+reference indexes plus stored and structural Project lookup edges even for a
+gate-failed parsed document. It strictly loads a gate-clean candidate,
+reauthorizes an existing editable Project member, and exercises the real
+guarded writer before rolling the synthetic batch back. Its report carries
+actual parser, gate, and reference-index finding counts. When the migration report includes
 `20260728000000_canonical_identity_foundation`, the entrypoint first terminates
 every direct runtime-login session and proves none reconnects through the
 stabilization interval. This is an in-image serving-schema proof before
 deployment, not an external health check after traffic resumes.
 
-The one-time bootstrap happens outside Nova: create runtime, migration, and
-capture-cleanup as non-superuser direct LOGIN roles; make only migration a
-member of runtime (never the reverse); leave cleanup without an application
-parent; apply their exact CONNECTION LIMIT 16/1/3; install all required
+The one-time bootstrap happens outside Nova: create runtime, migration,
+capture-cleanup, and audit as non-superuser direct LOGIN roles; make only
+migration a member of runtime (never the reverse); leave cleanup and audit
+without an application parent; apply their exact CONNECTION LIMIT 16/1/3/1;
+install all required
 extensions in `public`; and make migration the database owner before running
 this entrypoint. Required extensions may be owned only by migration or Cloud
 SQL's managed `postgres` role. Existing provider-installed extensions remain
@@ -771,7 +788,10 @@ maintain runtime-owned tables.
 Convergence directly grants cleanup only public-schema `USAGE` plus
 `SELECT`/`UPDATE`/`DELETE` on `form_attachments`, and audits that it cannot
 insert/administer attachment rows or access other managed tables or the case
-schema. Convergence deliberately does not create roles, alter role limits, or
+schema. It grants audit only schema `USAGE` plus `SELECT` on the immutable
+canonical scanner's exact relation inventory, and proves no extra table, DML,
+sequence, routine, or `CREATE` privilege survives. Convergence deliberately
+does not create roles, alter role limits, or
 transfer the database ownership it needs to authorize its own `REVOKE`,
 `GRANT`, and ownership changes.
 
@@ -786,21 +806,40 @@ The first schema split and the canonical-identity conversion are maintenance
 cutovers, not rolling migrations. Their transaction may make the old revision
 unable to serve before the new one starts. Unit 18's binding runbook keeps
 ingress detached and the service at manual zero, then
-`scripts/rollout/deploy-cloud-run.py` deploys the exact immutable image without
-a scaling override, proves the candidate Ready at 100% with no old/tagged
-traffic while manual zero is preserved, and only afterward performs a separate
-scaling-only return to automatic that must create no revision. Ordinary later
-deploys use the same permanent path from automatic prestate. There is no
+`scripts/rollout/deploy-cloud-run.py` deploys the exact immutable
+`repository@sha256` image without a scaling override, proves the candidate
+Ready at 100% desired and observed traffic with no tag while manual zero is
+preserved, and only afterward performs a separate scaling-only return to
+automatic that must add no revision (irrelevant untagged zero-traffic revision
+GC is allowed). A maintenance failure runs its always-armed `finally` recovery:
+detach ingress, restore manual zero, execute the exact-image runtime-session
+fence, pause cleanup, and verify the posture. Ordinary later deploys use the
+same permanent path from automatic prestate. There is no
 bridge, compatibility view, or database cutover journal; later migrations
 rerun the idempotent convergence normally.
+
+The canonical-identity cutover's frozen capture is lossless: dispatcher,
+Project-orphan closure, and full-table scan all consume PostgreSQL's canonical
+whole-row JSON text through one parser that preserves numeric lexemes and
+prototype-shaped keys. Its fold baseline is database-owned, not caller-authored:
+PostgreSQL reconstructs the complete current `PersistableDoc`, hashes the exact
+UTF-8 `jsonb::text`, and admits it only with the same-transaction app, marker,
+and complete entity set. The final audit pins the baseline table, index,
+constraints, triggers, routine signatures/security, and PUBLIC/runtime ACLs
+exactly. It also pins the complete structural dependency closure around every
+authored-identity SQL column — columns, constraints in either direction,
+indexes, triggers, and catalog dependency edges — independently of dynamic
+role names, while privilege convergence owns the corresponding exact
+owner/ACL profile. App genesis can create a baseline only through the
+app-id-only `SECURITY DEFINER` routine.
 
 The same entrypoint also owns the **auth** schema: after the case-store
 migrations it runs Better Auth's own migrator (`getMigrations(...)
 .runMigrations()`, which creates/updates the `auth_*` tables) via the
 MCP-free `lib/auth-migrate-options.ts`, then the Nova-owned auth-app
 migrations (`lib/auth/migrate.ts`, the `auth_oauth_grant_revocation`
-watermark). Both are idempotent and run on every deploy, local and prod
-alike.
+watermark plus cross-schema invariants such as the apps→Project FK). Both are
+idempotent and run on every deploy, local and prod alike.
 
 ### Checking prod migration state
 
@@ -874,8 +913,16 @@ The harness pins to two non-negotiable rules:
 
 2. **Per-test isolation comes from BEGIN/ROLLBACK, NOT separate
    schemas / databases.** The `db` fixture in `setup.ts` opens a
-   transaction in `beforeEach`-equivalent setup and rolls it back
-   in the `try/finally` cleanup wrapper. Don't bypass this with
+   transaction in `beforeEach`-equivalent setup, immediately runs
+   `SET CONSTRAINTS ALL IMMEDIATE`, seeds the exact parent app/Project
+   rows used by the compiler fixtures, and rolls the transaction back
+   in the `try/finally` cleanup wrapper. Immediate checking is
+   load-bearing: the production cases→apps tenant FK is initially
+   deferred so an atomic Project move can update the whole closure, but
+   a rollback-only test would otherwise never reach its COMMIT check and
+   could report an orphan case insert as successful. A dedicated
+   constraint/transaction test that needs deferred behavior uses a
+   per-test database and forces a real COMMIT. Don't bypass this with
    raw `pg.Client.connect()` — your writes will leak across tests
    and the harness's contract breaks silently.
 

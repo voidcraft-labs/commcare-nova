@@ -1,11 +1,5 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { mutationSchema } from "@/lib/doc/types";
-import { proseText } from "@/lib/domain/prose";
-import {
-	FIELD_REFERENCE_SLOTS,
-	FORM_REFERENCE_SLOTS,
-	MODULE_REFERENCE_SLOTS,
-} from "@/lib/domain/referenceSlots";
 import {
 	parseFrozenCatalogXPath,
 	printFrozenCatalogXPath,
@@ -17,17 +11,27 @@ import {
 	FROZEN_STORAGE_OCCURRENCES,
 } from "../20260728000000_canonical_identity_foundation/frozenOccurrenceManifest";
 import {
+	canonicalIdentityDigest,
 	LEGACY_OPTION_UUID_NAMESPACE,
 	type LegacyAppSnapshot,
 	type LegacyEntityRow,
 	legacyOptionUuidV5,
 	planCanonicalAppMigration,
+	rewriteFrozenCaseTypeSchema,
 } from "../20260728000000_canonical_identity_foundation/frozenTransform";
 
 const MODULE_UUID = "10000000-0000-4000-8000-000000000001";
 const FORM_UUID = "20000000-0000-4000-8000-000000000002";
 const FIELD_UUID = "30000000-0000-4000-8000-000000000003";
 const SECOND_FIELD_UUID = "40000000-0000-4000-8000-000000000004";
+
+function proseText(text: string) {
+	return { parts: [{ kind: "text" as const, text }] };
+}
+
+function frozenCorpusDigest(value: unknown): string {
+	return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
 
 function snapshot(rows: readonly LegacyEntityRow[]): LegacyAppSnapshot {
 	return {
@@ -84,6 +88,86 @@ function selectField(
 		...overrides,
 	};
 }
+
+function textField(data: Record<string, unknown>): LegacyEntityRow {
+	return {
+		appId: "app-test",
+		uuid: FIELD_UUID,
+		kind: "field",
+		parentUuid: FORM_UUID,
+		ordinal: 0,
+		data: {
+			uuid: FIELD_UUID,
+			id: "first_name",
+			kind: "text",
+			label: proseText("First name"),
+			...data,
+		},
+	};
+}
+
+describe("canonical identity frozen case-write cutover", () => {
+	it("moves the exact legacy binding while keeping field identity independent", () => {
+		const plan = planCanonicalAppMigration(
+			snapshot([
+				moduleRow(),
+				formRow(),
+				textField({ case_property_on: "patient" }),
+			]),
+		);
+
+		expect(plan.findings).toEqual([]);
+		expect(plan.rewrites.caseWriteBindings).toBe(1);
+		expect(plan.rows[2]?.data).toMatchObject({
+			id: "first_name",
+			caseWrite: { caseType: "patient", property: "first_name" },
+		});
+		expect(plan.rows[2]?.data).not.toHaveProperty("case_property_on");
+	});
+
+	it("accepts final caseWrite without coupling it back to field id", () => {
+		const plan = planCanonicalAppMigration(
+			snapshot([
+				moduleRow(),
+				formRow(),
+				textField({
+					id: "friendly_question",
+					caseWrite: { caseType: "patient", property: "first_name" },
+				}),
+			]),
+		);
+
+		expect(plan.findings).toEqual([]);
+		expect(plan.rewrites.caseWriteBindings).toBe(0);
+		expect(plan.beforeDigest).toBe(plan.afterDigest);
+	});
+
+	it.each([
+		[
+			"mixed legacy and final bindings",
+			{
+				case_property_on: "patient",
+				caseWrite: { caseType: "patient", property: "first_name" },
+			},
+		],
+		[
+			"a legacy standard-property writer alias",
+			{ id: "name", case_property_on: "patient" },
+		],
+		[
+			"a malformed final binding",
+			{ caseWrite: { caseType: "patient", property: "name" } },
+		],
+	])("blocks %s", (_label, data) => {
+		const plan = planCanonicalAppMigration(
+			snapshot([moduleRow(), formRow(), textField(data)]),
+		);
+
+		expect(
+			plan.findings.some((finding) => finding.carrierId === "field-case-write"),
+		).toBe(true);
+	});
+});
 
 describe("canonical identity frozen option UUIDv5", () => {
 	it("pins the namespace and RFC UUIDv5 vectors", () => {
@@ -322,7 +406,10 @@ describe("canonical identity topology closure", () => {
 			plan.findings.some(
 				(finding) =>
 					finding.code === "invalid-topology" &&
-					finding.path.startsWith("membership."),
+					finding.path ===
+						`blueprint:${canonicalIdentityDigest(
+							`membership.${FORM_UUID}:field.${SECOND_FIELD_UUID}`,
+						)}`,
 			),
 		).toBe(true);
 	});
@@ -357,29 +444,20 @@ describe("canonical identity topology closure", () => {
 			plan.findings.some(
 				(finding) =>
 					finding.code === "invalid-topology" &&
-					finding.path.endsWith(".cycle"),
+					finding.path ===
+						`blueprint:${canonicalIdentityDigest(
+							`entities.field.${FIELD_UUID}.cycle`,
+						)}`,
 			),
 		).toBe(true);
 	});
 });
 
 describe("canonical identity frozen occurrence manifest", () => {
-	it("covers every schema-derived entity reference slot with the same surface", () => {
-		const frozen = new Set(
-			FROZEN_ENTITY_OCCURRENCES.map(
-				(entry) => `${entry.entity}\u0000${entry.path}\u0000${entry.surface}`,
-			),
+	it("pins the complete frozen entity-reference surface", () => {
+		expect(frozenCorpusDigest(FROZEN_ENTITY_OCCURRENCES)).toBe(
+			"c9306b06b78e7e88ad8c56805b17f4fd0e584daf1aeda1e74f264e3a55bc0f48",
 		);
-		for (const entry of [
-			...FIELD_REFERENCE_SLOTS,
-			...FORM_REFERENCE_SLOTS,
-			...MODULE_REFERENCE_SLOTS,
-		]) {
-			expect(
-				frozen.has(`${entry.entity}\u0000${entry.path}\u0000${entry.kind}`),
-				`${entry.entity}.${entry.path} (${entry.kind})`,
-			).toBe(true);
-		}
 		expect(
 			new Set(
 				FROZEN_ENTITY_OCCURRENCES.map(
@@ -390,19 +468,12 @@ describe("canonical identity frozen occurrence manifest", () => {
 	});
 
 	it("pins every final mutation discriminator exactly once", () => {
-		const liveKinds = mutationSchema.options.map((arm) => {
-			if ("shape" in arm) {
-				return (arm.shape.kind as { value: string }).value;
-			}
-			const nested = "options" in arm ? arm.options : [];
-			const kinds = new Set(
-				nested.map((option) => (option.shape.kind as { value: string }).value),
-			);
-			expect([...kinds]).toEqual(["updateField"]);
-			return "updateField";
-		});
-		expect([...FROZEN_FINAL_MUTATION_KINDS]).toEqual(liveKinds);
-		expect(new Set(liveKinds).size).toBe(liveKinds.length);
+		expect(frozenCorpusDigest(FROZEN_FINAL_MUTATION_KINDS)).toBe(
+			"46d0b88142bc7557d32ee0b017909f20298891dd0023e73c2e29ddbeb04f5dee",
+		);
+		expect(new Set(FROZEN_FINAL_MUTATION_KINDS).size).toBe(
+			FROZEN_FINAL_MUTATION_KINDS.length,
+		);
 	});
 
 	it("classifies every storage occurrence and derives the locked table set", () => {
@@ -415,6 +486,7 @@ describe("canonical identity frozen occurrence manifest", () => {
 		).toEqual(
 			new Set([
 				"rewrite-current",
+				"block-current",
 				"archive-exact",
 				"opaque-pre-horizon",
 				"delete-operational",
@@ -425,6 +497,206 @@ describe("canonical identity frozen occurrence manifest", () => {
 		expect([...FROZEN_OCCURRENCE_TABLES]).toEqual([
 			...new Set(FROZEN_STORAGE_OCCURRENCES.map((entry) => entry.table)),
 		]);
+	});
+
+	it("keeps reference-looking prose literal unless the frozen repair typed it", () => {
+		const field: LegacyEntityRow = {
+			appId: "app-test",
+			uuid: FIELD_UUID,
+			kind: "field",
+			parentUuid: FORM_UUID,
+			ordinal: 0,
+			data: {
+				uuid: FIELD_UUID,
+				id: "name",
+				kind: "text",
+				label: "See #form/name and #case/name",
+			},
+		};
+		const plan = planCanonicalAppMigration(
+			snapshot([moduleRow(), formRow(), field]),
+		);
+
+		expect(plan.findings).toEqual([]);
+		expect(plan.rows[2]?.data.label).toEqual({
+			parts: [{ kind: "text", text: "See #form/name and #case/name" }],
+		});
+	});
+
+	it("applies the contextual #case matrix through frozen Lezer", () => {
+		const module = moduleRow();
+		module.data.caseType = "patient";
+		const form = formRow({
+			data: {
+				uuid: FORM_UUID,
+				id: "edit",
+				name: "Edit",
+				type: "followup",
+			},
+		});
+		const field: LegacyEntityRow = {
+			appId: "app-test",
+			uuid: FIELD_UUID,
+			kind: "field",
+			parentUuid: FORM_UUID,
+			ordinal: 0,
+			data: {
+				uuid: FIELD_UUID,
+				id: "gate",
+				kind: "hidden",
+				relevant: "#case/name != ''",
+			},
+		};
+		const plan = planCanonicalAppMigration({
+			...snapshot([module, form, field]),
+			caseTypes: [{ name: "patient", properties: [] }],
+		});
+
+		expect(plan.findings).toEqual([]);
+		expect(plan.rows[2]?.data.relevant).toEqual({
+			parts: [
+				{ kind: "case-ref", caseType: "patient", property: "case_name" },
+				{ kind: "text", text: " != ''" },
+			],
+		});
+
+		const registration = planCanonicalAppMigration({
+			...snapshot([
+				module,
+				formRow({
+					data: {
+						uuid: FORM_UUID,
+						id: "register",
+						name: "Register",
+						type: "registration",
+					},
+				}),
+				{
+					...field,
+					data: { ...field.data, relevant: "#case/status = 'open'" },
+				},
+			]),
+			caseTypes: [{ name: "patient", properties: [] }],
+		});
+		expect(registration.findings.map((finding) => finding.code)).toContain(
+			"unresolved-reference",
+		);
+	});
+
+	it("converts literal date/post-submit spellings and exact empty Connect absence", () => {
+		const columnUuid = "50000000-0000-4000-8000-000000000005";
+		const inputUuid = "60000000-0000-4000-8000-000000000006";
+		const module = moduleRow();
+		module.data.caseListConfig = {
+			columns: [
+				{
+					uuid: columnUuid,
+					kind: "date",
+					field: "date-opened",
+					header: "Opened",
+					pattern: "short",
+				},
+			],
+			listColumnOrder: [columnUuid],
+			detailColumnOrder: [columnUuid],
+			searchInputs: [
+				{
+					uuid: inputUuid,
+					kind: "simple",
+					name: "opened",
+					label: "Opened",
+					type: "date-range",
+					property: "date-opened",
+					mode: { kind: "range" },
+				},
+			],
+		};
+		const form = formRow({
+			data: {
+				uuid: FORM_UUID,
+				id: "form",
+				name: "Form",
+				type: "survey",
+				connect: {},
+				postSubmit: "root",
+			},
+		});
+		const plan = planCanonicalAppMigration(snapshot([module, form]));
+
+		expect(plan.findings).toEqual([]);
+		const migratedModule = plan.rows[0]?.data.caseListConfig as {
+			columns: Array<{ field: string; pattern: string }>;
+			searchInputs: Array<{ property: string }>;
+		};
+		expect(migratedModule.columns[0]).toMatchObject({
+			field: "date_opened",
+			pattern: "%m/%d/%Y",
+		});
+		expect(migratedModule.searchInputs[0]?.property).toBe("date_opened");
+		expect(plan.rows[1]?.data).not.toHaveProperty("connect");
+		expect(plan.rows[1]?.data.postSubmit).toBe("app_home");
+	});
+
+	it("blocks standard-property writers, malformed mapping rows, and off-mode Connect", () => {
+		const columnUuid = "50000000-0000-4000-8000-000000000005";
+		const module = moduleRow();
+		module.data.caseListConfig = {
+			columns: [
+				{
+					uuid: columnUuid,
+					kind: "id-mapping",
+					field: "status",
+					header: "Status",
+					mapping: [{ value: "", label: "Blank" }],
+				},
+			],
+			listColumnOrder: [columnUuid],
+			detailColumnOrder: [columnUuid],
+			searchInputs: [],
+		};
+		const form = formRow({
+			data: {
+				uuid: FORM_UUID,
+				id: "edit",
+				name: "Edit",
+				type: "followup",
+				connect: {
+					learn_module: {
+						id: "learn",
+						name: "Learn",
+						description: "Learn",
+						time_estimate: 1,
+					},
+				},
+				caseOperations: [
+					{
+						uuid: "70000000-0000-4000-8000-000000000007",
+						id: "edit",
+						action: "update",
+						caseType: "patient",
+						target: { kind: "session" },
+						writes: [
+							{
+								property: "external-id",
+								value: {
+									kind: "term",
+									term: { kind: "literal", value: "x" },
+								},
+							},
+						],
+					},
+				],
+			},
+		});
+		const plan = planCanonicalAppMigration(snapshot([module, form]));
+
+		expect(plan.findings.map((finding) => finding.carrierId)).toEqual(
+			expect.arrayContaining([
+				"mapping",
+				"connect",
+				"standard-property-writer",
+			]),
+		);
 	});
 
 	it("uses declared predicate slots instead of rewriting lookalike objects", () => {
@@ -473,6 +745,40 @@ describe("canonical identity frozen occurrence manifest", () => {
 		expect(plan.rewrites.searchInputRefs).toBe(1);
 	});
 
+	it("final-parses each declared AST carrier with strict frozen shapes", () => {
+		const module = moduleRow();
+		module.data.caseListConfig = {
+			columns: [],
+			listColumnOrder: [],
+			detailColumnOrder: [],
+			searchInputs: [],
+			filter: {
+				kind: "eq",
+				left: {
+					kind: "term",
+					term: { kind: "literal", value: "yes", stale: true },
+				},
+				right: {
+					kind: "term",
+					term: { kind: "literal", value: "yes" },
+				},
+			},
+		};
+
+		const plan = planCanonicalAppMigration(snapshot([module, formRow()]));
+
+		expect(
+			plan.findings.some(
+				(finding) =>
+					finding.carrierId === "expression-ast" &&
+					finding.path ===
+						`blueprint:${canonicalIdentityDigest(
+							`entities.module.${MODULE_UUID}.caseListConfig.filter`,
+						)}`,
+			),
+		).toBe(true);
+	});
+
 	it("reparses reference-looking XPath text through frozen Lezer", () => {
 		const field: LegacyEntityRow = {
 			appId: "app-test",
@@ -501,5 +807,41 @@ describe("canonical identity frozen occurrence manifest", () => {
 				{ kind: "path-ref", uuid: FIELD_UUID },
 			],
 		});
+	});
+
+	it("rebuilds materialized case schemas from canonical catalog semantics", () => {
+		const rebuilt = rewriteFrozenCaseTypeSchema(
+			{
+				type: "object",
+				properties: {
+					name: { type: "string" },
+					stale: { type: "number" },
+				},
+				additionalProperties: true,
+			},
+			{
+				name: "patient",
+				properties: [
+					{ name: "case_name" },
+					{ name: "age", data_type: "int" },
+					{ name: "choice", data_type: "single_select" },
+				],
+			},
+			"case_type_schemas.fixture.schema",
+		);
+		expect(rebuilt.findings).toEqual([]);
+		expect(rebuilt.schema).toEqual({
+			type: "object",
+			properties: {
+				age: {
+					type: "integer",
+					minimum: -2_147_483_648,
+					maximum: 2_147_483_647,
+				},
+				choice: { type: "string", "x-novaDataType": "single_select" },
+			},
+			additionalProperties: false,
+		});
+		expect(rebuilt.rewrites).toBe(1);
 	});
 });

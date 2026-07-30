@@ -38,7 +38,11 @@ const CASE_TYPES: readonly CaseType[] = [
 		name: "patient",
 		parent_type: "household",
 		properties: [
-			{ name: "name", label: proseText("Patient name"), data_type: "text" },
+			{
+				name: "case_name",
+				label: proseText("Patient name"),
+				data_type: "text",
+			},
 			{ name: "region", label: proseText("Region"), data_type: "text" },
 		],
 	},
@@ -689,7 +693,7 @@ describe("PredicateWorkbench deletion focus", () => {
 	});
 
 	it("focuses the next condition after deleting a row", async () => {
-		const third = eq(prop("patient", "name"), literal("Taylor"));
+		const third = eq(prop("patient", "case_name"), literal("Taylor"));
 		render(<ControlledWorkbench initial={and(NORTH, SOUTH, third)} />);
 		activateWithEnter(
 			within(focusRegion(["and", 0])).getByRole("button", {
@@ -705,7 +709,7 @@ describe("PredicateWorkbench deletion focus", () => {
 	});
 
 	it("focuses the previous condition after deleting the last row", async () => {
-		const third = eq(prop("patient", "name"), literal("Taylor"));
+		const third = eq(prop("patient", "case_name"), literal("Taylor"));
 		render(<ControlledWorkbench initial={and(NORTH, SOUTH, third)} />);
 		fireEvent.click(
 			within(focusRegion(["and", 2])).getByRole("button", {
@@ -770,7 +774,7 @@ describe("PredicateWorkbench deletion focus", () => {
 	});
 
 	it("focuses the resulting group after grouping from the keyboard", async () => {
-		const third = eq(prop("patient", "name"), literal("Taylor"));
+		const third = eq(prop("patient", "case_name"), literal("Taylor"));
 		render(<ControlledWorkbench initial={and(NORTH, SOUTH, third)} />);
 		activateWithEnter(
 			within(focusRegion(["and", 0])).getByRole("button", {
@@ -794,7 +798,7 @@ describe("PredicateWorkbench deletion focus", () => {
 
 	it("focuses the first released row after ungrouping from the keyboard", async () => {
 		const nested = or(NORTH, SOUTH);
-		const third = eq(prop("patient", "name"), literal("Taylor"));
+		const third = eq(prop("patient", "case_name"), literal("Taylor"));
 		render(<ControlledWorkbench initial={and(nested, third)} />);
 		activateWithEnter(
 			within(focusRegion(["and", 0])).getByRole("button", {
@@ -816,7 +820,7 @@ describe("PredicateWorkbench deletion focus", () => {
 
 	it("names ungrouping by the logic the parent group will use", async () => {
 		const nested = and(NORTH, SOUTH);
-		const third = eq(prop("patient", "name"), literal("Taylor"));
+		const third = eq(prop("patient", "case_name"), literal("Taylor"));
 		render(<ControlledWorkbench initial={or(nested, third)} />);
 
 		activateWithEnter(

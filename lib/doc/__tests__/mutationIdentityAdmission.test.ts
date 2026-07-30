@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
-import { batchTargetsMissing } from "@/lib/db/commitGuard";
+import { mutationTargetsInvalid } from "@/lib/db/commitGuard";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { mutationIdentityAdmissionIssue } from "@/lib/doc/mutationIdentityAdmission";
@@ -68,11 +68,11 @@ function expectRejected(
 ) {
 	const issue = mutationIdentityAdmissionIssue(doc, batch);
 	expect(issue).toBeDefined();
-	expect(batchTargetsMissing(doc, batch)).toBe(true);
+	expect(mutationTargetsInvalid(doc, batch)).toBe(true);
 	const verdict = mutationCommitVerdict(doc, batch, LOOKUP_CONTEXT_UNAVAILABLE);
 	expect(verdict.ok).toBe(false);
 	if (verdict.ok) return;
-	expect(verdict.introduced.map((finding) => finding.code)).toEqual([
+	expect(verdict.findings.map((finding) => finding.code)).toEqual([
 		"MUTATION_IDENTITY_COLLISION",
 	]);
 }
@@ -187,7 +187,7 @@ describe("mutation identity admission", () => {
 			},
 		];
 		expect(mutationIdentityAdmissionIssue(fx.doc, batch)).toBeUndefined();
-		expect(batchTargetsMissing(fx.doc, batch)).toBe(false);
+		expect(mutationTargetsInvalid(fx.doc, batch)).toBe(false);
 	});
 
 	it("requires newly seeded inline options to use new identities", () => {

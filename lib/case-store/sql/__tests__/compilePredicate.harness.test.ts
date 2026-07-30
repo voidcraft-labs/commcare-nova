@@ -51,7 +51,6 @@ import {
 	input,
 	isBlank,
 	isIn,
-	isNull,
 	literal,
 	lt,
 	match,
@@ -527,63 +526,13 @@ describe("compilePredicate — round-trip — comparison operators", () => {
 });
 
 // ---------------------------------------------------------------
-// Postgres-strict null semantics — four distinct cases
+// Postgres blank semantics
 // ---------------------------------------------------------------
 //
-// The AST distinguishes absent / empty / null at the data-model
-// layer; this compiler emits the strict SQL, and round-trip tests
-// pin all four cases:
-//
-//   1. is-null(prop) matches absent only.
-//   2. is-blank(prop) matches absent OR empty-string.
-//   3. compare(prop, "") matches strictly empty-string only.
-//   4. compare(prop, null) matches strictly null (no rows in
-//      practice — `<col> = NULL` is always unknown in SQL).
+// The AST's portable blank operator matches absent or empty string; direct
+// comparisons remain exact.
 
 describe("compilePredicate — round-trip — Postgres-strict null semantics", () => {
-	test("is-null matches absent JSONB key only — not empty, not null", async ({
-		db,
-	}) => {
-		// Three rows: name absent, name empty string, name JSON null.
-		// The is-null predicate matches only the absent row.
-		await db
-			.insertInto("cases")
-			.values([
-				makeCaseRow({
-					case_id: "30000000-0000-0000-0000-000000000001",
-					case_type: "patient",
-					app_id: APP_ID,
-					project_id: OWNER_ID,
-					// `name` key absent — no `name` in the JSONB
-					// document.
-					properties: JSON.stringify({ age: 30 }),
-				}),
-				makeCaseRow({
-					case_id: "30000000-0000-0000-0000-000000000002",
-					case_type: "patient",
-					app_id: APP_ID,
-					project_id: OWNER_ID,
-					// `name` present with empty string.
-					properties: JSON.stringify({ nickname: "" }),
-				}),
-				makeCaseRow({
-					case_id: "30000000-0000-0000-0000-000000000003",
-					case_type: "patient",
-					app_id: APP_ID,
-					project_id: OWNER_ID,
-					// `name` present with JSON null.
-					properties: JSON.stringify({ nickname: null }),
-				}),
-			])
-			.execute();
-		const pred = isNull(prop("patient", "nickname"));
-		const rows = await executeAgainstPredicate(
-			db,
-			compilePredicate(pred, makeCtx(db)),
-		);
-		expect(rows).toEqual([{ case_id: "30000000-0000-0000-0000-000000000001" }]);
-	});
-
 	test("is-blank matches absent OR empty-string — not JSON null", async ({
 		db,
 	}) => {

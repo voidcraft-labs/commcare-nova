@@ -1,8 +1,8 @@
 import type { Mutation } from "@/lib/doc/types";
-import {
-	type CaseSearchConfig,
-	normalizeOwnerOnlyCaseSearchConfig,
-	type Uuid,
+import type {
+	CaseSearchConfig,
+	OwnerOnlyCaseSearchConfig,
+	Uuid,
 } from "@/lib/domain";
 
 type ModuleUpdateMutation = Extract<Mutation, { kind: "updateModule" }>;
@@ -23,23 +23,14 @@ export function enableCaseSearchMutation(
 /** Deliberately store assigned-case availability without enabling Search. */
 export function setOwnerOnlyCaseSearchMutation(
 	uuid: Uuid,
-	config: CaseSearchConfig,
+	config: OwnerOnlyCaseSearchConfig,
 ): ModuleUpdateMutation {
-	const desired = normalizeOwnerOnlyCaseSearchConfig(config);
-	if (
-		desired.searchActionEnabled !== false ||
-		desired.excludedOwnerIds === undefined
-	) {
-		throw new Error(
-			"Owner-only Search config must carry disabled assigned-case provenance.",
-		);
-	}
 	return {
 		kind: "updateModule",
 		uuid,
 		patch: {},
 		caseSearchConfigOperation: "set-owner-only",
-		caseSearchConfigValue: desired,
+		caseSearchConfigValue: config,
 	};
 }
 

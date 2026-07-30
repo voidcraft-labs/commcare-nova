@@ -8,6 +8,7 @@
 // load.
 
 import { z } from "zod";
+import { authoredCasePropertyNameSchema } from "./casePropertyName";
 import {
 	type CasePropertyDataType,
 	casePropertyDataTypeSchema,
@@ -15,7 +16,7 @@ import {
 } from "./casePropertyTypes";
 import { fieldSchema } from "./fields";
 import { formSchema } from "./forms";
-import { moduleSchema } from "./modules";
+import { isOwnerOnlyCaseSearchConfig, moduleSchema } from "./modules";
 import { mediaAssetIdSchema } from "./multimedia";
 import { proseTemplateSchema } from "./prose";
 import { ownRecordSchema } from "./records";
@@ -38,25 +39,10 @@ export {
 };
 
 // Case type schemas — moved verbatim from lib/schemas/blueprint.ts.
-//
-// NOTE: this struct's `case_property` slot holds a case PROPERTY NAME (the
-// derived form-action mapping's case-side key — e.g. "name", "dob"). It
-// is NOT the field-level `case_property_on` pointer (case TYPE this field
-// writes to) on `inputFieldBaseSchema`. The two share the word "case
-// property" but model different things; keep the name `case_property`
-// here because the value IS a case property name. The matching field-side
-// pointer carries the `_on` suffix to force the prepositional reading.
-const casePropertyMappingSchema = z
-	.object({
-		case_property: z.string(),
-		question_id: z.string(), // stays "question_id" — CommCare terminology at the boundary
-	})
-	.strict();
-export type CasePropertyMapping = z.infer<typeof casePropertyMappingSchema>;
 
 export const casePropertySchema = z
 	.object({
-		name: z.string(),
+		name: authoredCasePropertyNameSchema,
 		label: proseTemplateSchema,
 		data_type: casePropertyDataTypeSchema.optional(),
 		hint: proseTemplateSchema.optional(),
@@ -163,6 +149,22 @@ export function blueprintTopologyIssues(
 ): readonly BlueprintTopologyIssue[] {
 	const issues: BlueprintTopologyIssue[] = [];
 	const globalIdentities = new Map<string, string>();
+	const registerIdentity = (
+		uuid: string,
+		kind: string,
+		path: readonly (string | number)[],
+	): void => {
+		const previous = globalIdentities.get(uuid);
+		if (previous !== undefined) {
+			topologyIssue(
+				issues,
+				path,
+				`Authored uuid ${uuid} appears in both ${previous} and ${kind}.`,
+			);
+		} else {
+			globalIdentities.set(uuid, kind);
+		}
+	};
 	const registerRecord = (
 		recordName: string,
 		record: Readonly<Record<string, { readonly uuid: string }>>,
@@ -175,16 +177,7 @@ export function blueprintTopologyIssues(
 					`${recordName} record key ${key} must equal embedded uuid ${entity.uuid}.`,
 				);
 			}
-			const previous = globalIdentities.get(entity.uuid);
-			if (previous !== undefined) {
-				topologyIssue(
-					issues,
-					[recordName, key],
-					`Authored uuid ${entity.uuid} appears in both ${previous} and ${recordName}.`,
-				);
-			} else {
-				globalIdentities.set(entity.uuid, recordName);
-			}
+			registerIdentity(entity.uuid, recordName, [recordName, key]);
 		}
 	};
 
@@ -194,6 +187,155 @@ export function blueprintTopologyIssues(
 	registerRecord("userProperties", doc.userProperties ?? {});
 	registerRecord("userTypes", doc.userTypes ?? {});
 	registerRecord("personas", doc.personas ?? {});
+
+	for (const [moduleUuid, module] of Object.entries(doc.modules)) {
+		if (
+			isOwnerOnlyCaseSearchConfig(module.caseSearchConfig) &&
+			(module.caseListConfig?.searchInputs.length ?? 0) > 0
+		) {
+			topologyIssue(
+				issues,
+				["modules", moduleUuid, "caseSearchConfig", "searchActionEnabled"],
+				"Owner-only case availability cannot coexist with Search inputs.",
+			);
+		}
+		const caseListConfig = module.caseListConfig;
+		for (const [index, column] of (caseListConfig?.columns ?? []).entries()) {
+			registerIdentity(column.uuid, "case-list column", [
+				"modules",
+				moduleUuid,
+				"caseListConfig",
+				"columns",
+				index,
+				"uuid",
+			]);
+		}
+		if (caseListConfig !== undefined) {
+			const columnUuids = new Set(
+				caseListConfig.columns.map((column) => column.uuid),
+			);
+			const validateColumnOrder = (
+				orderName: "listColumnOrder" | "detailColumnOrder",
+				order: readonly Uuid[],
+			): void => {
+				const seen = new Set<Uuid>();
+				for (const [index, uuid] of order.entries()) {
+					const path = [
+						"modules",
+						moduleUuid,
+						"caseListConfig",
+						orderName,
+						index,
+					] as const;
+					if (seen.has(uuid)) {
+						topologyIssue(
+							issues,
+							path,
+							`${orderName} contains duplicate column ${uuid}.`,
+						);
+					}
+					seen.add(uuid);
+					if (!columnUuids.has(uuid)) {
+						topologyIssue(
+							issues,
+							path,
+							`${orderName} member ${uuid} does not exist in columns.`,
+						);
+					}
+				}
+				for (const column of caseListConfig.columns) {
+					if (!seen.has(column.uuid)) {
+						topologyIssue(
+							issues,
+							["modules", moduleUuid, "caseListConfig", "columns", column.uuid],
+							`Column ${column.uuid} is absent from ${orderName}.`,
+						);
+					}
+				}
+			};
+			validateColumnOrder("listColumnOrder", caseListConfig.listColumnOrder);
+			validateColumnOrder(
+				"detailColumnOrder",
+				caseListConfig.detailColumnOrder,
+			);
+		}
+		for (const [index, input] of (
+			caseListConfig?.searchInputs ?? []
+		).entries()) {
+			registerIdentity(input.uuid, "Search input", [
+				"modules",
+				moduleUuid,
+				"caseListConfig",
+				"searchInputs",
+				index,
+				"uuid",
+			]);
+		}
+	}
+	for (const [formUuid, form] of Object.entries(doc.forms)) {
+		for (const [index, operation] of (form.caseOperations ?? []).entries()) {
+			registerIdentity(operation.uuid, "case operation", [
+				"forms",
+				formUuid,
+				"caseOperations",
+				index,
+				"uuid",
+			]);
+		}
+	}
+	for (const [fieldUuid, field] of Object.entries(doc.fields)) {
+		if (!("optionsSource" in field) || field.optionsSource.kind !== "inline") {
+			continue;
+		}
+		for (const [index, option] of field.optionsSource.options.entries()) {
+			registerIdentity(option.uuid, "select option", [
+				"fields",
+				fieldUuid,
+				"optionsSource",
+				"options",
+				index,
+				"uuid",
+			]);
+		}
+	}
+
+	const connectIds = new Map<string, string>();
+	const connectKinds = [
+		"learn_module",
+		"assessment",
+		"deliver_unit",
+		"task",
+	] as const;
+	for (const [formUuid, form] of Object.entries(doc.forms)) {
+		const connect = form.connect;
+		if (connect === undefined) continue;
+		const isLearn = "learn_module" in connect || "assessment" in connect;
+		if (doc.connectType === null || (doc.connectType === "learn") !== isLearn) {
+			topologyIssue(
+				issues,
+				["forms", formUuid, "connect"],
+				"Form Connect configuration must match the app Connect mode.",
+			);
+		}
+		const blocks = connect as Partial<
+			Record<(typeof connectKinds)[number], { readonly id: string }>
+		>;
+		for (const kind of connectKinds) {
+			const block = blocks[kind];
+			if (block === undefined) continue;
+			const site = `forms.${formUuid}.connect.${kind}`;
+			const previous = connectIds.get(block.id);
+			if (previous !== undefined) {
+				topologyIssue(
+					issues,
+					["forms", formUuid, "connect", kind, "id"],
+					`Connect id ${block.id} appears in both ${previous} and ${site}.`,
+				);
+			} else {
+				connectIds.set(block.id, site);
+			}
+		}
+	}
 
 	const exactSequence = (
 		recordName: string,

@@ -82,7 +82,7 @@ function mediaDoc() {
 								kind: "text",
 								id: "case_name",
 								label: proseText("Patient name"),
-								case_property_on: "patient",
+								caseWrite: { caseType: "patient", property: "case_name" },
 								label_media: { image: testMediaAssetId("label-img") },
 								help: proseText("Use the name on their ID."),
 								help_media: { audio: testMediaAssetId("help-aud") },
@@ -171,7 +171,7 @@ describe("XForm itext media emission", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Name"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "case_name" },
 									validate: ". != ''",
 									// validate_msg deliberately absent — only the media.
 									validate_msg_media: {
@@ -223,7 +223,7 @@ describe("XForm itext media emission", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Name"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "case_name" },
 									// Only media on hint / help / validate_msg — no text.
 									hint_media: { image: testMediaAssetId("label-img") },
 									help_media: { audio: testMediaAssetId("help-aud") },

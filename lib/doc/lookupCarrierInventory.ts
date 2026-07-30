@@ -26,7 +26,11 @@ import type {
 	Module,
 	Uuid,
 } from "@/lib/domain";
-import { asUuid } from "@/lib/domain";
+import {
+	asUuid,
+	isOwnerOnlyCaseSearchConfig,
+	searchInputDefault,
+} from "@/lib/domain";
 import type { Predicate, ValueExpression } from "@/lib/domain/predicate/types";
 import {
 	walkExpressionNodes,
@@ -421,7 +425,7 @@ export function collectLookupCarriers(
 				ownerUuid: input.uuid,
 				ownerKind: "search-input",
 				slot: "search_input_default",
-				expression: input.default,
+				expression: searchInputDefault(input),
 				location: {
 					...moduleLocation,
 					field: "caseListConfig.searchInputs.default",
@@ -445,7 +449,11 @@ export function collectLookupCarriers(
 			ownerUuid: moduleUuid,
 			ownerKind: "module",
 			slot: "search_button_display_condition",
-			predicate: module.caseSearchConfig?.searchButtonDisplayCondition,
+			predicate:
+				module.caseSearchConfig === undefined ||
+				isOwnerOnlyCaseSearchConfig(module.caseSearchConfig)
+					? undefined
+					: module.caseSearchConfig.searchButtonDisplayCondition,
 			location: {
 				...moduleLocation,
 				field: "caseSearchConfig.searchButtonDisplayCondition",

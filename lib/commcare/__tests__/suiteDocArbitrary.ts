@@ -603,7 +603,7 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 
 		// Filter — a clean always-on equality the type checker accepts, scoped to
 		// the module's case type. A `caseSearchConfig` requires at least one
-		// searchable surface (`CASE_SEARCH_CONFIG_NO_SEARCHABLE_SURFACE`): a filter
+		// searchable surface: a filter
 		// OR ≥1 search input. Force the filter on whenever search is present and
 		// no input would otherwise fill that role — that's exactly the
 		// `defaultSearch` shape (search button, zero inputs, filter narrows the
@@ -715,7 +715,7 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 		};
 
 		// Forms. Case-bearing forms inject `case_name` (+ a saved property, for
-		// realistic case data) so they satisfy NO_CASE_NAME_FIELD.
+		// realistic case data) so each create bucket has exactly one name writer.
 		const caseFirst = modSpec.forms.every(
 			(form) => form.type === "followup" || form.type === "close",
 		);
@@ -757,7 +757,7 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 					kind: "text",
 					id: "case_name",
 					label: proseText("Case name"),
-					case_property_on: caseTypeName,
+					caseWrite: { caseType: caseTypeName, property: "case_name" },
 				} as Field;
 
 				const propUuid = minter.uuid("fld");
@@ -771,14 +771,14 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 					// against it resolve to a real writer.
 					id: "full_name",
 					label: proseText("Full name"),
-					case_property_on: caseTypeName,
+					caseWrite: { caseType: caseTypeName, property: "full_name" },
 				} as Field;
 			}
 
 			// Random root fields draw ids from the sibling pool — same cousin-
-			// collision coverage the XForm generator relies on. Not wired to
-			// `case_property_on` (see the XForm generator's note on the tension
-			// between cousin id-sharing and id-as-property).
+			// collision coverage the XForm generator relies on. They deliberately
+			// have no `caseWrite`; the fixed fields above own the case output while
+			// these random fields focus on path/identity collision coverage.
 			formSpec.fields.forEach((fieldSpec, i) => {
 				buildField(ctx, formUuid, pickSiblingId(i), fieldSpec);
 			});

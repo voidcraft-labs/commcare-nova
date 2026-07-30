@@ -84,10 +84,9 @@ export class MediaCopyFailedError extends Error {
  * row and one shared deployment-bundled copy serves every Project, so they're
  * Project-agnostic and never appear in the returned map. Every required
  * blueprint ref must resolve to a source-Project `ready` row or the move aborts.
- * Historical chat attachments are deliberately softer: a missing, foreign, or
- * unready old attachment remains unavailable in the transcript and does not
- * block the move. Ready historical documents copy their current extraction
- * metadata and ready extract object along with the source bytes.
+ * Every authored Blueprint and canonical thread attachment ref is required:
+ * a missing, foreign, or unready source aborts the move. Event attachment ids
+ * are immutable audit receipts and are never part of this live closure.
  *
  * A `ready` asset that CANNOT be copied (its GCS object is missing, or a sustained
  * outage outlasts the per-asset retries) throws {@link MediaCopyFailedError},
@@ -96,24 +95,20 @@ export class MediaCopyFailedError extends Error {
  * "couldn't move — a media file couldn't be copied" and nothing has moved.
  */
 export async function copyAssetsIntoProject(args: {
-	/** Blueprint carriers: every real id must resolve to a ready source asset. */
-	requiredAssetIds: readonly MediaAssetId[];
-	/** Historical chat attachments: broken old references remain unavailable. */
-	historicalAssetIds?: readonly MediaAssetId[];
+	/** Every live Blueprint and thread carrier in the source app. */
+	assetIds: readonly MediaAssetId[];
 	fromProjectId: string;
 	toProjectId: string;
 	actorUserId: string;
 }): Promise<Map<MediaAssetId, MediaAssetId>> {
-	const requiredIds = [...args.requiredAssetIds];
-	const historicalIds = [...(args.historicalAssetIds ?? [])];
-	const allIds = [...new Set([...requiredIds, ...historicalIds])].sort();
+	const allIds = [...new Set(args.assetIds)].sort();
 	if (allIds.length === 0) return new Map();
 
 	const loaded = await loadAssetsByIds(allIds, args.fromProjectId);
 	const byId = new Map<string, MediaAssetRecord>(
 		loaded.map((row) => [row.id, row]),
 	);
-	for (const assetId of requiredIds) {
+	for (const assetId of allIds) {
 		const row = byId.get(assetId);
 		if (row === undefined || row.status !== "ready") {
 			throw new MediaCopyFailedError(assetId, {
@@ -129,40 +124,15 @@ export async function copyAssetsIntoProject(args: {
 			(row): row is MediaAssetRecord =>
 				row !== undefined && row.status === "ready",
 		);
-	const requiredIdSet = new Set(requiredIds);
-
 	const entries = await mapWithConcurrency(
 		rows,
 		MEDIA_COPY_CONCURRENCY,
 		async (row) => {
-			try {
-				return await copyOneAsset(row, args);
-			} catch (error) {
-				if (requiredIdSet.has(row.id)) throw error;
-				// A historical-only attachment may be deleted after the initial
-				// closure scan. Re-read after the failed copy: if its source row no
-				// longer resolves as ready in the source Project, preserve the
-				// transcript's unavailable reference instead of blocking the move.
-				// A still-present row with missing bytes or an operational copy
-				// failure remains fatal; silently skipping that would conceal damage.
-				const fresh = await loadAssetsByIds([row.id], args.fromProjectId);
-				if (
-					!fresh.some(
-						(asset) => asset.id === row.id && asset.status === "ready",
-					)
-				) {
-					return null;
-				}
-				throw error;
-			}
+			return await copyOneAsset(row, args);
 		},
 	);
 
-	return new Map(
-		entries.filter(
-			(entry): entry is [MediaAssetId, MediaAssetId] => entry !== null,
-		),
-	);
+	return new Map(entries);
 }
 
 /**

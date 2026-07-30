@@ -26,13 +26,11 @@ import type { VirtualItem } from "@tanstack/react-virtual";
 import { devtools, subscribeWithSelector } from "zustand/middleware";
 import { createStore } from "zustand/vanilla";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
-import { dedupeRestoredConnectIds } from "@/lib/doc/connectConfig";
-import type { AppConnectId } from "@/lib/doc/hooks/useAppConnectIds";
+import { planConnectTargetState } from "@/lib/doc/connectTargetState";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { notifyRejectedCommit } from "@/lib/doc/mutations/notify";
 import { docHasData } from "@/lib/doc/predicates";
 import type { BlueprintDocStore } from "@/lib/doc/provider";
-import { asUuid, type Mutation, type Uuid } from "@/lib/doc/types";
 import { userFacingErrors } from "@/lib/doc/userFacingErrors";
 import type { CommitOutcome, ConnectConfig, ConnectType } from "@/lib/domain";
 import type { MediaKind } from "@/lib/domain/multimedia";
@@ -45,45 +43,6 @@ import type {
 } from "./types";
 
 // ── Public types ──────────────────────────────────────────────────────────
-
-/** Structural equality over plain JSON-shaped values (objects, arrays,
- *  primitives). Used by `switchConnectMode` to skip an `updateForm` whose
- *  desired connect block already matches the doc, so an unchanged apply
- *  commits nothing. Connect configs are plain serializable data (their
- *  XPath slots are typed ASTs of objects/arrays/strings), so a recursive
- *  key/index walk is exact here. */
-function deepEqual(a: unknown, b: unknown): boolean {
-	if (a === b) return true;
-	if (
-		typeof a !== "object" ||
-		typeof b !== "object" ||
-		a === null ||
-		b === null
-	) {
-		return false;
-	}
-	if (Array.isArray(a) || Array.isArray(b)) {
-		if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) {
-			return false;
-		}
-		return a.every((v, i) => deepEqual(v, b[i]));
-	}
-	const aKeys = Object.keys(a);
-	const bKeys = Object.keys(b);
-	if (aKeys.length !== bKeys.length) return false;
-	// Require each key to exist on BOTH sides — an equal length alone lets an
-	// `undefined`-valued key on one side align with a different key on the other
-	// (e.g. `{id: undefined}` vs `{x: 5}`), which would falsely read as equal and
-	// skip a real commit.
-	return aKeys.every(
-		(k) =>
-			Object.hasOwn(b, k) &&
-			deepEqual(
-				(a as Record<string, unknown>)[k],
-				(b as Record<string, unknown>)[k],
-			),
-	);
-}
 
 /** Which sidebar column to target in `setSidebarOpen`. */
 export type SidebarKind = "chat" | "structure";
@@ -156,13 +115,13 @@ export interface BuilderSessionState {
 	 *  state updates in `beginRun`/`endRun`. */
 	events: Event[];
 
-	/** Whether the doc already had data when the current run OPENED —
+	/** Whether the page doc already had data when the current run OPENED —
 	 *  captured once in `beginRun()`. The build-vs-edit discriminator for
-	 *  the lifecycle derivations: a run that started on an empty doc is an
-	 *  initial build (its structural stages drive the Generating layout);
-	 *  a run that started on a populated doc is a post-build edit (the
-	 *  builder stays interactive while the agent works). Stays `false`
-	 *  outside a run. */
+	 *  lifecycle derivations: `/build/new` begins its run before the server's
+	 *  canonical genesis receipt is activated, so `false` means initial build
+	 *  (structural stages drive the Generating layout); `true` means a
+	 *  post-build edit (the builder stays interactive while the agent works).
+	 *  Stays `false` outside a run. */
 	runStartedWithData: boolean;
 
 	/** Timestamp of the most recent whole-build completion — stamped by
@@ -259,8 +218,8 @@ export interface BuilderSessionState {
 	>;
 
 	/** Last active connect type — the mode the manager defaults its selector
-	 *  to when Connect is currently off, and the mode `switchConnectMode`
-	 *  resolves an `undefined` `type` to. */
+	 *  to when Connect is currently off. Every `switchConnectMode` document
+	 *  command still states its target mode exactly. */
 	lastConnectType: ConnectType | undefined;
 
 	// ── Staged media uploads (ephemeral, never doc state) ────────────────
@@ -454,16 +413,17 @@ export interface BuilderSessionState {
 	 *  consult the stash to restore blocks — the Connect manager seeds its
 	 *  drafts from the live doc (current mode) and the stash (the other mode)
 	 *  and hands over the whole truth, so an edited block is never overwritten
-	 *  by a stale stash entry. Every incoming block routes through
-	 *  `dedupeRestoredConnectIds` under one accumulating id scope, so two
-	 *  forms can't land the same slug in one batch. Switching AWAY from a
+	 *  by a stale stash entry. Every incoming block is already a complete
+	 *  final `ConnectConfig`; app-wide identity conflicts are rejected by the
+	 *  same atomic admission gate as every other invalid batch. Switching AWAY from a
 	 *  non-null mode stashes that mode's live blocks first (the manager reads
 	 *  the stash to repopulate the inactive mode later).
 	 *
 	 *  Passing `null` disables Connect entirely (always valid — standard apps
 	 *  need no blocks; the outgoing mode is stashed so re-enabling restores
-	 *  the work). Passing `undefined` resolves to the user's last active mode
-	 *  (falling back to `'learn'`) with whatever `desiredBlocks` is supplied.
+	 *  the work). A non-null call must state the exact mode and complete
+	 *  participant set; the session never infers a document command from its
+	 *  UI-only `lastConnectType`.
 	 *
 	 *  The whole batch runs the shared commit verdict before anything
 	 *  dispatches — a state that would leave the app with NO participating
@@ -474,18 +434,10 @@ export interface BuilderSessionState {
 	 *  because it presents the outcome itself (the manager's footer) — one
 	 *  rejection, one presentation. */
 	switchConnectMode: (
-		type: ConnectType | null | undefined,
+		type: ConnectType | null,
 		desiredBlocks?: Record<string, ConnectConfig>,
 		opts?: { announce?: boolean },
 	) => CommitOutcome;
-
-	/** Stash a single form's connect config by uuid. Used by form-level
-	 *  toggles that disable connect on an individual form. */
-	stashFormConnect: (
-		mode: ConnectType,
-		formUuid: string,
-		config: ConnectConfig,
-	) => void;
 
 	/** Get a single form's stashed connect config (does not remove it). */
 	getFormConnectStash: (
@@ -827,7 +779,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				// ── Connect stash actions ───────────────────────────────
 
 				switchConnectMode(
-					type: ConnectType | null | undefined,
+					type: ConnectType | null,
 					desiredBlocks?: Record<string, ConnectConfig>,
 					opts?: { announce?: boolean },
 				): CommitOutcome {
@@ -838,16 +790,35 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					const currentType = (docState.connectType ?? undefined) as
 						| ConnectType
 						| undefined;
-					const resolved =
-						type === undefined ? (s.lastConnectType ?? "learn") : type;
 					/* `desiredBlocks` is the AUTHORITATIVE complete set of
-					 * participating forms for `resolved`: a form present here
+					 * participating forms for `type`: a form present here
 					 * participates with this config, a form absent stays auxiliary.
 					 * The manager seeds these drafts from the live doc (current
 					 * mode) and the stash (the other mode), so the store no longer
 					 * restores from the stash itself — what the caller hands over
 					 * is the whole truth. */
 					const blocks = desiredBlocks ?? {};
+
+					const plan = planConnectTargetState(
+						docState,
+						type === null
+							? { mode: null }
+							: {
+									mode: type,
+									participants: Object.entries(blocks).map(
+										([formUuid, connect]) => ({
+											formUuid,
+											connect,
+										}),
+									),
+								},
+					);
+					if (!plan.ok) {
+						if (opts?.announce !== false) {
+							notifyRejectedCommit([...plan.messages]);
+						}
+						return { ok: false, messages: [...plan.messages] };
+					}
 
 					/* Stash the OUTGOING mode's live blocks when the mode is
 					 * actually leaving a non-null type (a mode switch or a disable),
@@ -856,7 +827,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					 * same-mode apply leaves the active configs on the doc, so it
 					 * stashes nothing. */
 					let nextStash = s.connectStash;
-					if (currentType && currentType !== resolved) {
+					if (currentType && currentType !== type) {
 						const outgoing: Record<string, ConnectConfig> = {};
 						for (const moduleUuid of docState.moduleOrder) {
 							const formUuids = docState.formOrder[moduleUuid] ?? [];
@@ -870,97 +841,19 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						nextStash = { ...nextStash, [currentType]: outgoing };
 					}
 
-					/* Build doc mutations. `setConnectType` only when the type
-					 * actually changes; per form, set the desired block or clear a
-					 * stray, skipping any form already at its desired state so a
-					 * no-op apply commits nothing (no undo entry, no `updated_at`
-					 * bump). */
-					const mutations: Mutation[] = [];
-					if ((resolved ?? null) !== (currentType ?? null)) {
-						mutations.push({
-							kind: "setConnectType",
-							connectType: resolved ?? null,
-						});
-					}
-
 					/* Blocks dropped by a SAME-mode apply (a form the manager removed
 					 * from participation) — stashed below so removal stays reversible,
 					 * the same guarantee the per-form toggle gives. A mode switch /
 					 * disable already stashed its outgoing blocks wholesale above, so
 					 * this only collects the same-mode case. */
 					const droppedBlocks: Record<string, ConnectConfig> = {};
-
-					if (resolved) {
-						/* Every incoming config routes through the shared
-						 * `dedupeRestoredConnectIds` under ONE accumulating id
-						 * scope: a stashed id another form claimed while the mode
-						 * was off re-derives instead of landing a duplicate, and a
-						 * staged (id-less) block autofills a valid unique id — same
-						 * source enforcement as the agent path. */
-						const assigned: AppConnectId[] = [];
-						const recordAssigned = (
-							formUuid: Uuid,
-							config: ConnectConfig,
-						): void => {
-							for (const kind of [
-								"learn_module",
-								"assessment",
-								"deliver_unit",
-								"task",
-							] as const) {
-								const id = config[kind]?.id;
-								if (id) assigned.push({ formUuid, kind, id });
-							}
-						};
+					if (type && currentType === type) {
 						for (const moduleUuid of docState.moduleOrder) {
 							const formUuids = docState.formOrder[moduleUuid] ?? [];
 							for (const formUuid of formUuids) {
-								const incoming = blocks[formUuid];
 								const current = docState.forms[formUuid]?.connect;
-								if (incoming) {
-									const config = dedupeRestoredConnectIds(
-										structuredClone(incoming),
-										{
-											formUuid,
-											appConnectIds: assigned,
-											moduleName: docState.modules[moduleUuid]?.name ?? "",
-											formName: docState.forms[formUuid]?.name ?? "",
-										},
-									);
-									recordAssigned(formUuid, config);
-									if (!deepEqual(config, current)) {
-										mutations.push({
-											kind: "updateForm",
-											uuid: formUuid,
-											patch: { connect: config },
-										});
-									}
-								} else if (current !== undefined) {
-									/* Same-mode drop: preserve the block before clearing
-									 * so the user can get it back (the outgoing-stash above
-									 * only ran for a switch/disable). */
-									if (currentType === resolved && current) {
-										droppedBlocks[formUuid] = structuredClone(current);
-									}
-									mutations.push({
-										kind: "updateForm",
-										uuid: formUuid,
-										patch: { connect: null },
-									});
-								}
-							}
-						}
-					} else {
-						/* Disabling connect entirely: clear `connect` on every form. */
-						for (const moduleUuid of docState.moduleOrder) {
-							const formUuids = docState.formOrder[moduleUuid] ?? [];
-							for (const formUuid of formUuids) {
-								if (docState.forms[formUuid]?.connect !== undefined) {
-									mutations.push({
-										kind: "updateForm",
-										uuid: asUuid(formUuid),
-										patch: { connect: null },
-									});
+								if (current !== undefined && blocks[formUuid] === undefined) {
+									droppedBlocks[formUuid] = structuredClone(current);
 								}
 							}
 						}
@@ -977,25 +870,23 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 
 					/* Nothing to do — the doc already matches the request. Return
 					 * success without committing so an unchanged apply is inert. */
-					if (mutations.length === 0) return { ok: true };
+					if (plan.mutations.length === 0) return { ok: true };
 
 					/* The shared commit verdict — the same gate every other write
-					 * surface runs. A flip that would leave the app with no
-					 * participating form (or land any other finding) rejects with
-					 * NOTHING dispatched: the doc and the stash stay exactly as
-					 * they were. The findings announce as the error toast unless
-					 * the caller renders them itself (`announce: false` — the
-					 * manager's footer). */
+					 * surface runs. The pure planner has already rejected malformed
+					 * target-state input; this gate adjudicates the complete app
+					 * candidate. A refusal dispatches nothing, so the doc and the UI
+					 * stash stay exactly as they were. */
 					const verdict = mutationCommitVerdict(
 						docState,
-						mutations,
+						plan.mutations,
 						LOOKUP_CONTEXT_UNAVAILABLE,
 					);
 					if (!verdict.ok) {
 						// Concise builder copy for both the toast and the returned
 						// outcome (the manager footer reads it); the SA keeps the
 						// verbose `ValidationError.message`.
-						const lines = userFacingErrors(verdict.introduced);
+						const lines = userFacingErrors(verdict.findings);
 						if (opts?.announce !== false) {
 							notifyRejectedCommit(lines);
 						}
@@ -1009,30 +900,11 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					set({
 						connectStash: nextStash,
 						// "Last active connect type" = the mode now in effect, or the
-						// one just left when turning off. Keying off `resolved` (not
-						// just the outgoing `currentType`) keeps it correct when
-						// enabling from OFF — otherwise it would point at a previously
-						// disabled mode and mis-resolve `switchConnectMode(undefined)`.
-						lastConnectType: resolved ?? currentType ?? s.lastConnectType,
+						// one just left when turning off. It is only a manager-default
+						// hint; every document command still states its mode exactly.
+						lastConnectType: type ?? currentType ?? s.lastConnectType,
 					});
 					return { ok: true };
-				},
-
-				stashFormConnect(
-					mode: ConnectType,
-					formUuid: string,
-					config: ConnectConfig,
-				) {
-					const s = get();
-					set({
-						connectStash: {
-							...s.connectStash,
-							[mode]: {
-								...s.connectStash[mode],
-								[formUuid]: structuredClone(config),
-							},
-						},
-					});
 				},
 
 				getFormConnectStash(

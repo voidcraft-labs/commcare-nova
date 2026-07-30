@@ -735,7 +735,7 @@ function computeCaseOperationEditVerdict(
 		? { ok: true }
 		: {
 				ok: false,
-				reason: offeredChoiceRefusal(verdict.introduced),
+				reason: offeredChoiceRefusal(verdict.findings),
 			};
 }
 
@@ -780,7 +780,7 @@ export function caseOperationAddVerdict(
 		? { ok: true }
 		: {
 				ok: false,
-				reason: offeredChoiceRefusal(verdict.introduced),
+				reason: offeredChoiceRefusal(verdict.findings),
 			};
 }
 

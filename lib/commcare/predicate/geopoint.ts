@@ -110,7 +110,6 @@ export function collectGeopointCenterInputNames(
 			case "date-coerce":
 			case "datetime-coerce":
 			case "double":
-			case "unwrap-list":
 				visit(value.value);
 				return;
 			case "format-date":

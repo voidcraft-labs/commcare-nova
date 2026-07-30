@@ -52,6 +52,16 @@ describe("collectExpressionInstances", () => {
 			),
 		).toEqual(new Set(["item-list:statuses"]));
 	});
+
+	it("accumulates the XForm-local id in XForm scope", () => {
+		expect(
+			collectExpressionInstances(
+				tableLookup(TABLE, VALUE_COLUMN, matchAll()),
+				NAMING,
+				"xform",
+			),
+		).toEqual(new Set(["statuses"]));
+	});
 });
 
 describe("collectPredicateInstances", () => {
@@ -100,8 +110,11 @@ describe("collectPredicateInstances", () => {
 });
 
 describe("instanceSourceFor", () => {
-	it("maps a lookup fixture id to its jr://fixture source", () => {
-		expect(instanceSourceFor("item-list:statuses")).toBe(
+	it("maps both scoped lookup ids to the exact fixture source", () => {
+		expect(instanceSourceFor("statuses", NAMING)).toBe(
+			"jr://fixture/item-list:statuses",
+		);
+		expect(instanceSourceFor("item-list:statuses", NAMING)).toBe(
 			"jr://fixture/item-list:statuses",
 		);
 	});

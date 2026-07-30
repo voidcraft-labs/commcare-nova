@@ -219,21 +219,20 @@ export function resolveIconInput<Slug extends IconSlug>(
 
 /**
  * Resolve the Project an SA media tool operates in — the app's Project (media's
- * tenant). Throws a consistent, actionable error when the app carries no
- * Project; every app has one post-migration, so a missing one is an internal
- * inconsistency, not a user action. The read tools (`listMediaAssets` /
+ * tenant). A missing app is an internal inconsistency at this already-admitted
+ * tool boundary. The read tools (`listMediaAssets` /
  * `removeMediaAsset`) let it propagate to the tool runner; `attachGuardedMutate`
  * resolves inline because it reports the failure in its `{ ok: false }`
  * contract rather than throwing.
  */
 export async function requireToolProjectId(appId: string): Promise<string> {
-	const projectId = await loadAppProjectId(appId);
-	if (!projectId) {
+	const lookup = await loadAppProjectId(appId);
+	if (lookup.kind === "not-found") {
 		throw new Error(
-			`Couldn't find the Project for app "${appId}". The app row may be missing its project_id.`,
+			`Couldn't find app "${appId}" while resolving its Project.`,
 		);
 	}
-	return projectId;
+	return lookup.projectId;
 }
 
 /**
@@ -329,20 +328,19 @@ export async function attachGuardedMutate(
 		/* The attach verdict scopes to the app's Project (media's tenant), so an
 		 * asset must belong to THIS app's Project to attach — resolved from the
 		 * app the tool operates on. */
-		const projectId = await loadAppProjectId(ctx.appId);
-		if (!projectId) {
+		const lookup = await loadAppProjectId(ctx.appId);
+		if (lookup.kind === "not-found") {
 			return {
 				ok: false,
-				error:
-					"This app has no Project, so its media can't be verified. Reload and try again.",
+				error: "This app is no longer available. Reload and try again.",
 			};
 		}
 		const verdict = await mediaAttachVerdict({
-			projectId,
+			projectId: lookup.projectId,
 			doc,
 			expectations,
 		});
 		if (!verdict.ok) return { ok: false, error: verdict.error };
 	}
-	return guardedMutate(ctx, doc, mutations, stage, expectations);
+	return guardedMutate(ctx, doc, mutations, stage);
 }

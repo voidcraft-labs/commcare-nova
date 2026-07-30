@@ -35,10 +35,8 @@ function flatIndexInForm(
 	let index = 0;
 	let found = -1;
 	const walk = (parent: Uuid): boolean => {
-		// Visual (display) sequence — the flat index feeds the activity
-		// gauge's focus range over the form's rendered field layout, so it
-		// must count in `sort-by-(order, uuid)` order, not `fieldOrder`
-		// array position.
+		// The flat index feeds the activity gauge's focus range over the form's
+		// rendered field layout, so it counts in `fieldOrder` sequence.
 		const children = orderedFieldUuids(doc, parent);
 		for (const childUuid of children) {
 			if (childUuid === targetUuid) {
@@ -164,9 +162,8 @@ export function SignalGrid({ controller, messages }: SignalGridProps) {
 		if (doc && derivePostBuildEdit(s.events, s.runStartedWithData)) {
 			/* computeEditFocus converts scope indices into a 0–1 focus range.
 			 * It's order-agnostic (it lays fields out in the sequence it's
-			 * given), so hand it DISPLAY-ordered slices — the same
-			 * `sort-by-(order, uuid)` sequence the scope indices address and
-			 * the canvas renders — not the raw `moduleOrder` / `formOrder`. */
+			 * given), so hand it the same membership-array sequence the scope
+			 * indices address and the canvas renders. */
 			const orderedModules = orderedModuleUuids(doc);
 			const orderedForms: Record<string, readonly string[]> = {};
 			for (const moduleId of orderedModules) {

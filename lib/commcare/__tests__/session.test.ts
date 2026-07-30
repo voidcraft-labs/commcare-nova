@@ -199,40 +199,11 @@ describe("derivePostSubmitStack", () => {
 		});
 	});
 
-	describe("root", () => {
-		it("produces root command for any form type", () => {
-			for (const formType of ["registration", "followup", "survey"] as const) {
-				const ops = derivePostSubmitStack("root", 0, formType);
-				expect(ops).toHaveLength(1);
-				expect(ops[0].op).toBe("create");
-				expect(ops[0].children).toEqual([{ type: "command", value: "'root'" }]);
-			}
-		});
-	});
-
 	describe("module", () => {
 		it("produces module command with correct index", () => {
 			const ops = derivePostSubmitStack("module", 2, "registration");
 			expect(ops).toHaveLength(1);
 			expect(ops[0].children).toEqual([{ type: "command", value: "'m2'" }]);
-		});
-	});
-
-	describe("parent_module (stub)", () => {
-		it("falls back to module behavior", () => {
-			const parentOps = derivePostSubmitStack(
-				"parent_module",
-				1,
-				"followup",
-				"patient",
-			);
-			const moduleOps = derivePostSubmitStack(
-				"module",
-				1,
-				"followup",
-				"patient",
-			);
-			expect(parentOps).toEqual(moduleOps);
 		});
 	});
 
@@ -786,9 +757,7 @@ describe("renderEntryXml", () => {
 describe("toHqWorkflow", () => {
 	it("maps all destinations correctly", () => {
 		expect(toHqWorkflow("app_home")).toBe("default");
-		expect(toHqWorkflow("root")).toBe("root");
 		expect(toHqWorkflow("module")).toBe("module");
-		expect(toHqWorkflow("parent_module")).toBe("parent_module");
 		expect(toHqWorkflow("previous")).toBe("previous_screen");
 	});
 });

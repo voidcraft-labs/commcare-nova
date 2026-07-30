@@ -44,7 +44,7 @@ interface DraftOption extends SelectOption {
 	id: number;
 }
 
-interface OptionsEditorWidgetProps {
+export interface OptionsEditorWidgetProps {
 	options: SelectOption[];
 	/** Persist the next options. May return the gated dispatch's outcome —
 	 *  a refusal keeps the widget's draft (the committed-key ref only
@@ -88,7 +88,7 @@ function serializeOptions(options: SelectOption[]): string {
  * Low-level widget: renders the label+value inputs, add/remove row
  * affordances, and commits on group blur / Enter keypress.
  */
-function OptionsEditorWidget({
+export function OptionsEditorWidget({
 	options,
 	onSave,
 	slotKeyBase,
@@ -288,10 +288,13 @@ function OptionsEditorWidget({
 						<button
 							type="button"
 							onClick={() => removeOption(i)}
-							className="shrink-0 p-0.5 text-nova-text-muted opacity-0 group-hover:opacity-100 hover:text-nova-rose transition-all cursor-pointer"
-							tabIndex={-1}
+							disabled={draft.length <= 2}
+							aria-label={`Remove ${
+								fallbackProseProjection(opt.label).trim() || `option ${i + 1}`
+							}`}
+							className="flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-lg text-nova-text-muted transition-colors hover:bg-nova-rose/10 hover:text-nova-rose disabled:cursor-not-allowed disabled:opacity-30"
 						>
-							<Icon icon={tablerTrash} width="12" height="12" />
+							<Icon icon={tablerTrash} width="16" height="16" />
 						</button>
 						<div className="basis-full pl-1">
 							<MediaSlot

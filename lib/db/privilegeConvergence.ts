@@ -1,17 +1,25 @@
 import { type Kysely, sql, type Transaction } from "kysely";
 import { AUTH_TABLE_NAMES } from "@/lib/auth-schema-shared";
-import { CASE_RUNTIME_SCHEMA } from "@/lib/case-store/postgres/connection";
+import {
+	AUDIT_DB_ROLE_CONNECTION_LIMIT,
+	CAPTURE_CLEANUP_DB_ROLE_CONNECTION_LIMIT,
+	CASE_RUNTIME_SCHEMA,
+	MIGRATION_DB_ROLE_CONNECTION_LIMIT,
+	RUNTIME_DB_ROLE_CONNECTION_LIMIT,
+} from "@/lib/case-store/postgres/connection";
 
 export const DATABASE_PRIVILEGE_ROLE_ENV_KEYS = [
 	"NOVA_MIGRATION_DB_USER",
 	"NOVA_RUNTIME_DB_USER",
 	"NOVA_CAPTURE_CLEANUP_DB_USER",
+	"NOVA_AUDIT_DB_USER",
 ] as const;
 
 export interface DatabasePrivilegeRoleConfig {
 	readonly migrationRole: string;
 	readonly runtimeRole: string;
 	readonly cleanupRole: string;
+	readonly auditRole: string;
 }
 
 export class DatabasePrivilegeConvergenceError extends Error {
@@ -66,22 +74,23 @@ export function readDatabasePrivilegeRoleConfig(
 		);
 	}
 
-	const [migrationRole, runtimeRole, cleanupRole] = values as [
+	const [migrationRole, runtimeRole, cleanupRole, auditRole] = values as [
+		string,
 		string,
 		string,
 		string,
 	];
-	const roles = [migrationRole, runtimeRole, cleanupRole];
+	const roles = [migrationRole, runtimeRole, cleanupRole, auditRole];
 	if (
 		new Set(roles).size !== roles.length ||
 		roles.some((role) => role.toUpperCase() === "PUBLIC")
 	) {
 		throw new DatabasePrivilegeConvergenceError(
 			"role_config_invalid",
-			"Migration, runtime, and capture-cleanup database roles must be distinct and cannot be PUBLIC.",
+			"Migration, runtime, capture-cleanup, and audit database roles must be distinct and cannot be PUBLIC.",
 		);
 	}
-	return { migrationRole, runtimeRole, cleanupRole };
+	return { migrationRole, runtimeRole, cleanupRole, auditRole };
 }
 
 export type PublicTableClass = "application" | "control" | "migration";
@@ -89,10 +98,11 @@ export type PublicTableClass = "application" | "control" | "migration";
 const APPLICATION_TABLES = [
 	"case_indices",
 	"case_type_schemas",
+	"case_schema_index_deletions",
 	"parked_case_values",
 	"apps",
 	"blueprint_entities",
-	"accepted_mutations",
+	"app_changes",
 	"events",
 	"threads",
 	"chat_stream_chunks",
@@ -123,10 +133,44 @@ const APPLICATION_TABLES = [
  * separate schema prevents that grant from covering migration-owned objects. */
 export const RUNTIME_CASE_TABLES = ["cases"] as const;
 
-const CONTROL_TABLES = [
-	"media_reference_index_state",
-	"mutation_fold_baselines",
+/**
+ * Exact public-table read surface required by the immutable canonical-identity
+ * scanner. This is deliberately narrower than the application inventory:
+ * adding a scanner query requires an explicit privilege review here.
+ */
+export const AUDIT_SELECT_PUBLIC_TABLES = [
+	"app_changes",
+	"apps",
+	"auth_account",
+	"auth_apikey",
+	"auth_invitation",
+	"auth_member",
+	"auth_organization",
+	"auth_session",
+	"auth_user",
+	"blueprint_entities",
+	"case_type_schemas",
+	"chat_stream_chunks",
+	"events",
+	"form_attachments",
+	"form_submission_intents",
+	"lookup_column_references",
+	"lookup_columns",
+	"lookup_project_state",
+	"lookup_rows",
+	"lookup_table_references",
+	"lookup_tables",
+	"media_asset_refs",
+	"media_assets",
+	"media_upload_aliases",
+	"app_change_fold_baselines",
+	"parked_case_values",
+	"presence",
+	"run_summaries",
+	"threads",
 ] as const;
+
+const CONTROL_TABLES = ["app_change_fold_baselines"] as const;
 
 const MIGRATION_TABLES = [
 	"kysely_migration",
@@ -138,6 +182,15 @@ const MIGRATION_TABLES = [
 /** Atlas preceded Kysely in production. Fresh databases do not have this
  * ledger, but a retained production ledger is known migration-owned state. */
 const OPTIONAL_MIGRATION_TABLES = ["atlas_schema_revisions"] as const;
+const APPEND_ONLY_RUNTIME_TABLES = new Set(["app_changes"]);
+/** Runtime owns the tombstone lifecycle but never mutates a tombstone in
+ * place: Phase A inserts it, a recreate/converger deletes it, and every other
+ * path only reads. Keep UPDATE ungrantable so the SQL role mirrors that state
+ * machine instead of inheriting the generic application-table superset. */
+const INSERT_DELETE_RUNTIME_TABLES = new Set([
+	"case_schema_index_deletions",
+	"media_asset_refs",
+]);
 
 const TABLE_CLASSES = new Map<string, PublicTableClass>([
 	...APPLICATION_TABLES.map((name) => [name, "application"] as const),
@@ -234,6 +287,8 @@ export interface DatabaseRoleFact {
 	readonly createRole: boolean;
 	readonly createDatabase: boolean;
 	readonly bypassRls: boolean;
+	readonly canLogin: boolean;
+	readonly connectionLimit: number;
 }
 
 export interface DatabaseRoleMembershipFacts {
@@ -243,13 +298,17 @@ export interface DatabaseRoleMembershipFacts {
 	readonly migrationCanSetRuntime: boolean;
 	readonly runtimeCanUseMigration: boolean;
 	readonly cleanupCanUseRuntime: boolean;
+	readonly auditCanUseRuntime: boolean;
 	readonly runtimeCanCreateDatabase: boolean;
 	readonly runtimeCanCreatePublicSchema: boolean;
 	readonly cleanupCanCreateDatabase: boolean;
 	readonly cleanupCanCreatePublicSchema: boolean;
+	readonly auditCanCreateDatabase: boolean;
+	readonly auditCanCreatePublicSchema: boolean;
 	readonly unexpectedMigrationParentRoles: readonly string[];
 	readonly unexpectedRuntimeParentRoles: readonly string[];
 	readonly unexpectedCleanupParentRoles: readonly string[];
+	readonly unexpectedAuditParentRoles: readonly string[];
 }
 
 /** The migration identity is the only privileged path. Its runtime membership
@@ -265,6 +324,7 @@ export function assertDatabaseRolePolicy(
 		config.migrationRole,
 		config.runtimeRole,
 		config.cleanupRole,
+		config.auditRole,
 	].filter((name) => !byName.has(name));
 	if (missing.length > 0) {
 		throw new DatabasePrivilegeConvergenceError(
@@ -283,6 +343,23 @@ export function assertDatabaseRolePolicy(
 		throw new DatabasePrivilegeConvergenceError(
 			"role_policy_invalid",
 			`Nova database roles cannot hold cluster-administrator attributes: ${administrative.map((role) => role.name).join(", ")}.`,
+		);
+	}
+	const expectedConnectionLimits = new Map([
+		[config.migrationRole, MIGRATION_DB_ROLE_CONNECTION_LIMIT],
+		[config.runtimeRole, RUNTIME_DB_ROLE_CONNECTION_LIMIT],
+		[config.cleanupRole, CAPTURE_CLEANUP_DB_ROLE_CONNECTION_LIMIT],
+		[config.auditRole, AUDIT_DB_ROLE_CONNECTION_LIMIT],
+	]);
+	const malformedLogins = [...byName.values()].filter(
+		(role) =>
+			!role.canLogin ||
+			role.connectionLimit !== expectedConnectionLimits.get(role.name),
+	);
+	if (malformedLogins.length > 0) {
+		throw new DatabasePrivilegeConvergenceError(
+			"role_policy_invalid",
+			`Nova database roles must be direct LOGIN roles with exact connection limits: ${malformedLogins.map((role) => `${role.name}=${role.connectionLimit}`).join(", ")}.`,
 		);
 	}
 	if (!membership.currentCanUseMigration) {
@@ -313,6 +390,12 @@ export function assertDatabaseRolePolicy(
 			"The capture-cleanup role must not inherit runtime privileges.",
 		);
 	}
+	if (membership.auditCanUseRuntime) {
+		throw new DatabasePrivilegeConvergenceError(
+			"role_policy_invalid",
+			"The audit role must not inherit runtime privileges.",
+		);
+	}
 	const unexpectedParents = [
 		...membership.unexpectedMigrationParentRoles.map(
 			(role) => `migration -> ${role}`,
@@ -323,6 +406,7 @@ export function assertDatabaseRolePolicy(
 		...membership.unexpectedCleanupParentRoles.map(
 			(role) => `capture-cleanup -> ${role}`,
 		),
+		...membership.unexpectedAuditParentRoles.map((role) => `audit -> ${role}`),
 	];
 	if (unexpectedParents.length > 0) {
 		throw new DatabasePrivilegeConvergenceError(
@@ -334,25 +418,83 @@ export function assertDatabaseRolePolicy(
 		membership.runtimeCanCreateDatabase ||
 		membership.runtimeCanCreatePublicSchema ||
 		membership.cleanupCanCreateDatabase ||
-		membership.cleanupCanCreatePublicSchema
+		membership.cleanupCanCreatePublicSchema ||
+		membership.auditCanCreateDatabase ||
+		membership.auditCanCreatePublicSchema
 	) {
 		throw new DatabasePrivilegeConvergenceError(
 			"role_policy_invalid",
-			"The runtime or capture-cleanup role has effective CREATE on the database or public schema.",
+			"The runtime, capture-cleanup, or audit role has effective CREATE on the database or public schema.",
 		);
 	}
 }
 
+interface PublicRoutineIdentity {
+	readonly name: string;
+	readonly identityArguments: string;
+}
+
 const EXPECTED_PUBLIC_ROUTINES = [
-	"nova_reject_mutation_fold_baseline_change",
-	"nova_lock_auth_member_membership_gate",
-	"nova_reject_auth_member_truncate",
+	{
+		name: "nova_admit_app_change_fold_baseline_insert",
+		identityArguments: "",
+	},
+	{
+		name: "nova_admit_app_change_insert",
+		identityArguments: "",
+	},
+	{
+		name: "nova_app_change_fold_snapshot_digest",
+		identityArguments: "jsonb",
+	},
+	{
+		name: "nova_current_app_change_fold_snapshot",
+		identityArguments: "text",
+	},
+	{
+		name: "nova_insert_app_change_genesis_fold_baseline",
+		identityArguments: "text",
+	},
+	{
+		name: "nova_reject_app_change_fold_baseline_change",
+		identityArguments: "",
+	},
+	{
+		name: "nova_require_app_change_fold_baseline",
+		identityArguments: "",
+	},
+	{
+		name: "nova_require_app_change_project_move_final",
+		identityArguments: "",
+	},
+	{
+		name: "nova_require_app_project_move_change",
+		identityArguments: "",
+	},
+	{
+		name: "nova_lock_auth_member_membership_gate",
+		identityArguments: "",
+	},
+	{
+		name: "nova_reject_auth_member_truncate",
+		identityArguments: "",
+	},
 ] as const;
 
 const RUNTIME_ROUTINES = [
-	"nova_lock_auth_member_membership_gate",
-	"nova_reject_auth_member_truncate",
-] as const;
+	{
+		name: "nova_insert_app_change_genesis_fold_baseline",
+		identityArguments: "text",
+	},
+	{
+		name: "nova_lock_auth_member_membership_gate",
+		identityArguments: "",
+	},
+	{
+		name: "nova_reject_auth_member_truncate",
+		identityArguments: "",
+	},
+] as const satisfies readonly PublicRoutineIdentity[];
 
 interface PublicRelationRow {
 	readonly name: string;
@@ -378,6 +520,8 @@ interface RoleRow {
 	readonly create_role: boolean;
 	readonly create_database: boolean;
 	readonly bypass_rls: boolean;
+	readonly can_login: boolean;
+	readonly connection_limit: number;
 }
 
 interface CleanupPrivilegeRow {
@@ -389,6 +533,20 @@ interface CleanupPrivilegeRow {
 	readonly can_insert_attachments: boolean;
 	readonly can_administer_attachments: boolean;
 	readonly other_table_privilege_count: number;
+}
+
+interface AuditPrivilegeRow {
+	readonly can_connect: boolean;
+	readonly public_schema_usage: boolean;
+	readonly runtime_schema_usage: boolean;
+	readonly can_create_database: boolean;
+	readonly can_create_public_schema: boolean;
+	readonly can_create_runtime_schema: boolean;
+	readonly missing_select_count: number;
+	readonly unexpected_table_privilege_count: number;
+	readonly mutation_privilege_count: number;
+	readonly sequence_privilege_count: number;
+	readonly routine_execute_count: number;
 }
 
 async function assertCleanupPrivilegeBoundary(
@@ -491,6 +649,148 @@ async function assertCleanupPrivilegeBoundary(
 	}
 }
 
+async function assertAuditPrivilegeBoundary(
+	tx: Transaction<unknown>,
+	config: DatabasePrivilegeRoleConfig,
+): Promise<void> {
+	const expectedRelations = [
+		...AUDIT_SELECT_PUBLIC_TABLES.map((table) => sql`('public', ${table})`),
+		...RUNTIME_CASE_TABLES.map(
+			(table) => sql`(${CASE_RUNTIME_SCHEMA}, ${table})`,
+		),
+	];
+	const result = await sql<AuditPrivilegeRow>`
+		WITH expected(schema_name, table_name) AS (
+			VALUES ${sql.join(expectedRelations)}
+		),
+		managed_tables AS (
+			SELECT namespace.nspname AS schema_name,
+				class.relname AS table_name,
+				class.oid
+			FROM pg_catalog.pg_class AS class
+			JOIN pg_catalog.pg_namespace AS namespace
+				ON namespace.oid = class.relnamespace
+			WHERE class.relkind IN ('r', 'p')
+				AND namespace.nspname IN ('public', ${CASE_RUNTIME_SCHEMA})
+				AND NOT EXISTS (
+					SELECT 1
+					FROM pg_catalog.pg_depend AS dependency
+					WHERE dependency.classid = 'pg_catalog.pg_class'::regclass
+						AND dependency.objid = class.oid
+						AND dependency.refclassid =
+							'pg_catalog.pg_extension'::regclass
+						AND dependency.deptype = 'e'
+				)
+		)
+		SELECT
+			pg_catalog.has_database_privilege(
+				${config.auditRole}, pg_catalog.current_database(), 'CONNECT'
+			) AS can_connect,
+			pg_catalog.has_schema_privilege(
+				${config.auditRole}, 'public', 'USAGE'
+			) AS public_schema_usage,
+			pg_catalog.has_schema_privilege(
+				${config.auditRole}, ${CASE_RUNTIME_SCHEMA}, 'USAGE'
+			) AS runtime_schema_usage,
+			pg_catalog.has_database_privilege(
+				${config.auditRole}, pg_catalog.current_database(), 'CREATE'
+			) AS can_create_database,
+			pg_catalog.has_schema_privilege(
+				${config.auditRole}, 'public', 'CREATE'
+			) AS can_create_public_schema,
+			pg_catalog.has_schema_privilege(
+				${config.auditRole}, ${CASE_RUNTIME_SCHEMA}, 'CREATE'
+			) AS can_create_runtime_schema,
+			(
+				SELECT count(*)::integer
+				FROM expected
+				WHERE NOT pg_catalog.has_table_privilege(
+					${config.auditRole},
+					pg_catalog.format('%I.%I', schema_name, table_name),
+					'SELECT'
+				)
+			) AS missing_select_count,
+			(
+				SELECT count(*)::integer
+				FROM managed_tables
+				LEFT JOIN expected USING (schema_name, table_name)
+				WHERE expected.table_name IS NULL
+					AND pg_catalog.has_table_privilege(
+						${config.auditRole}, managed_tables.oid, 'SELECT'
+					)
+			) AS unexpected_table_privilege_count,
+			(
+				SELECT count(*)::integer
+				FROM managed_tables
+				WHERE pg_catalog.has_table_privilege(
+					${config.auditRole}, managed_tables.oid,
+					'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'
+				)
+			) AS mutation_privilege_count,
+			(
+				SELECT count(*)::integer
+				FROM pg_catalog.pg_class AS sequence
+				JOIN pg_catalog.pg_namespace AS namespace
+					ON namespace.oid = sequence.relnamespace
+				WHERE sequence.relkind = 'S'
+					AND namespace.nspname IN ('public', ${CASE_RUNTIME_SCHEMA})
+					AND CASE
+						-- PostgreSQL may reorder independent WHERE predicates. Keep the
+						-- object-kind check structurally around this throwing catalog
+						-- function so extension-owned composite relations (for example,
+						-- PostGIS geometry_dump) are never passed as sequences.
+						WHEN sequence.relkind = 'S'
+							THEN pg_catalog.has_sequence_privilege(
+								${config.auditRole},
+								sequence.oid,
+								'USAGE,SELECT,UPDATE'
+							)
+						ELSE false
+					END
+			) AS sequence_privilege_count,
+			(
+				SELECT count(*)::integer
+				FROM pg_catalog.pg_proc AS routine
+				JOIN pg_catalog.pg_namespace AS namespace
+					ON namespace.oid = routine.pronamespace
+				WHERE namespace.nspname IN ('public', ${CASE_RUNTIME_SCHEMA})
+					AND NOT EXISTS (
+						SELECT 1
+						FROM pg_catalog.pg_depend AS dependency
+						WHERE dependency.classid =
+								'pg_catalog.pg_proc'::regclass
+							AND dependency.objid = routine.oid
+							AND dependency.refclassid =
+								'pg_catalog.pg_extension'::regclass
+							AND dependency.deptype = 'e'
+					)
+					AND pg_catalog.has_function_privilege(
+						${config.auditRole}, routine.oid, 'EXECUTE'
+					)
+			) AS routine_execute_count
+	`.execute(tx);
+	const row = result.rows[0];
+	if (
+		row === undefined ||
+		!row.can_connect ||
+		!row.public_schema_usage ||
+		!row.runtime_schema_usage ||
+		row.can_create_database ||
+		row.can_create_public_schema ||
+		row.can_create_runtime_schema ||
+		row.missing_select_count !== 0 ||
+		row.unexpected_table_privilege_count !== 0 ||
+		row.mutation_privilege_count !== 0 ||
+		row.sequence_privilege_count !== 0 ||
+		row.routine_execute_count !== 0
+	) {
+		throw new DatabasePrivilegeConvergenceError(
+			"role_policy_invalid",
+			`Audit database privileges differ from the scanner's exact read-only relation set: ${JSON.stringify(row)}.`,
+		);
+	}
+}
+
 async function readAndAssertRolePolicy(
 	tx: Transaction<unknown>,
 	config: DatabasePrivilegeRoleConfig,
@@ -499,6 +799,7 @@ async function readAndAssertRolePolicy(
 		config.migrationRole,
 		config.runtimeRole,
 		config.cleanupRole,
+		config.auditRole,
 	];
 	const roles = await sql<RoleRow>`
 		SELECT
@@ -506,7 +807,9 @@ async function readAndAssertRolePolicy(
 			rolsuper AS superuser,
 			rolcreaterole AS create_role,
 			rolcreatedb AS create_database,
-			rolbypassrls AS bypass_rls
+			rolbypassrls AS bypass_rls,
+			rolcanlogin AS can_login,
+			rolconnlimit AS connection_limit
 		FROM pg_catalog.pg_roles
 		WHERE rolname IN (${sql.join(roleNames)})
 	`.execute(tx);
@@ -521,7 +824,7 @@ async function readAndAssertRolePolicy(
 				ON parent.oid = membership.roleid
 			WHERE member.rolname IN (
 				${config.migrationRole}, ${config.runtimeRole},
-				${config.cleanupRole}
+				${config.cleanupRole}, ${config.auditRole}
 			)
 		)
 		SELECT
@@ -555,6 +858,11 @@ async function readAndAssertRolePolicy(
 				${config.runtimeRole},
 				'USAGE'
 			) AS "cleanupCanUseRuntime",
+			pg_catalog.pg_has_role(
+				${config.auditRole},
+				${config.runtimeRole},
+				'USAGE'
+			) AS "auditCanUseRuntime",
 			pg_catalog.has_database_privilege(
 				${config.runtimeRole},
 				pg_catalog.current_database(),
@@ -575,6 +883,16 @@ async function readAndAssertRolePolicy(
 				'public',
 				'CREATE'
 			) AS "cleanupCanCreatePublicSchema",
+			pg_catalog.has_database_privilege(
+				${config.auditRole},
+				pg_catalog.current_database(),
+				'CREATE'
+			) AS "auditCanCreateDatabase",
+			pg_catalog.has_schema_privilege(
+				${config.auditRole},
+				'public',
+				'CREATE'
+			) AS "auditCanCreatePublicSchema",
 			ARRAY(
 				SELECT parent_name::text
 				FROM direct_parents
@@ -599,6 +917,14 @@ async function readAndAssertRolePolicy(
 					AND parent_name <> 'cloudsqliamserviceaccount'
 				ORDER BY parent_name
 			) AS "unexpectedCleanupParentRoles"
+			,
+			ARRAY(
+				SELECT parent_name::text
+				FROM direct_parents
+				WHERE member_name = ${config.auditRole}
+					AND parent_name <> 'cloudsqliamserviceaccount'
+				ORDER BY parent_name
+			) AS "unexpectedAuditParentRoles"
 	`.execute(tx);
 	const membershipRow = membership.rows[0];
 	if (!membershipRow)
@@ -611,6 +937,8 @@ async function readAndAssertRolePolicy(
 			createRole: role.create_role,
 			createDatabase: role.create_database,
 			bypassRls: role.bypass_rls,
+			canLogin: role.can_login,
+			connectionLimit: role.connection_limit,
 		})),
 		membershipRow,
 	);
@@ -658,7 +986,8 @@ async function convergeRuntimeCaseSchema(
 	`.execute(tx);
 	await sql`
 		REVOKE ALL PRIVILEGES ON SCHEMA ${sql.id(CASE_RUNTIME_SCHEMA)}
-		FROM PUBLIC, ${sql.id(config.runtimeRole)}, ${sql.id(config.cleanupRole)}
+		FROM PUBLIC, ${sql.id(config.runtimeRole)}, ${sql.id(config.cleanupRole)},
+			${sql.id(config.auditRole)}
 	`.execute(tx);
 	await sql`
 		GRANT USAGE, CREATE ON SCHEMA ${sql.id(CASE_RUNTIME_SCHEMA)}
@@ -845,7 +1174,9 @@ function auditPublicRoutines(rows: readonly PublicRoutineRow[]): void {
 	const actual = rows
 		.filter((row) => !row.extension_owned)
 		.map((row) => `${row.name}(${row.identity_arguments})`);
-	const expected = EXPECTED_PUBLIC_ROUTINES.map((name) => `${name}()`);
+	const expected = EXPECTED_PUBLIC_ROUTINES.map(
+		(routine) => `${routine.name}(${routine.identityArguments})`,
+	);
 	const expectedSet = new Set(expected);
 	const actualSet = new Set(actual);
 	const unknown = actual.filter((name) => !expectedSet.has(name));
@@ -890,7 +1221,8 @@ async function revokeTableAccess(
 ): Promise<void> {
 	await sql`
 		REVOKE ALL PRIVILEGES ON TABLE public.${sql.id(table)}
-		FROM PUBLIC, ${sql.id(config.runtimeRole)}, ${sql.id(config.cleanupRole)}
+		FROM PUBLIC, ${sql.id(config.runtimeRole)}, ${sql.id(config.cleanupRole)},
+			${sql.id(config.auditRole)}
 	`.execute(tx);
 }
 
@@ -899,6 +1231,20 @@ async function grantRuntimeDml(
 	table: string,
 	runtimeRole: string,
 ): Promise<void> {
+	if (APPEND_ONLY_RUNTIME_TABLES.has(table)) {
+		await sql`
+			GRANT SELECT, INSERT ON TABLE public.${sql.id(table)}
+			TO ${sql.id(runtimeRole)}
+		`.execute(tx);
+		return;
+	}
+	if (INSERT_DELETE_RUNTIME_TABLES.has(table)) {
+		await sql`
+			GRANT SELECT, INSERT, DELETE ON TABLE public.${sql.id(table)}
+			TO ${sql.id(runtimeRole)}
+		`.execute(tx);
+		return;
+	}
 	await sql`
 		GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.${sql.id(table)}
 		TO ${sql.id(runtimeRole)}
@@ -917,8 +1263,19 @@ async function convergePrivilegesInTransaction(
 	if (!databaseName) throw new Error("Current database query returned no row.");
 
 	await sql`
+		REVOKE CONNECT ON DATABASE ${sql.id(databaseName)}
+		FROM PUBLIC, ${sql.id(config.migrationRole)}, ${sql.id(config.runtimeRole)},
+			${sql.id(config.cleanupRole)}, ${sql.id(config.auditRole)}
+	`.execute(tx);
+	await sql`
+		GRANT CONNECT ON DATABASE ${sql.id(databaseName)}
+		TO ${sql.id(config.migrationRole)}, ${sql.id(config.runtimeRole)},
+			${sql.id(config.cleanupRole)}, ${sql.id(config.auditRole)}
+	`.execute(tx);
+	await sql`
 			REVOKE CREATE ON DATABASE ${sql.id(databaseName)}
-			FROM PUBLIC, ${sql.id(config.runtimeRole)}, ${sql.id(config.cleanupRole)}
+			FROM PUBLIC, ${sql.id(config.runtimeRole)}, ${sql.id(config.cleanupRole)},
+				${sql.id(config.auditRole)}
 	`.execute(tx);
 	await sql`
 		GRANT CREATE ON DATABASE ${sql.id(databaseName)}
@@ -939,7 +1296,8 @@ async function convergePrivilegesInTransaction(
 
 	await sql`
 			REVOKE ALL PRIVILEGES ON SCHEMA public
-			FROM PUBLIC, ${sql.id(config.runtimeRole)}, ${sql.id(config.cleanupRole)}
+			FROM PUBLIC, ${sql.id(config.runtimeRole)}, ${sql.id(config.cleanupRole)},
+				${sql.id(config.auditRole)}
 	`.execute(tx);
 	await sql`
 		GRANT USAGE, CREATE ON SCHEMA public TO ${sql.id(config.migrationRole)}
@@ -950,6 +1308,13 @@ async function convergePrivilegesInTransaction(
 		`.execute(tx);
 	await sql`
 		GRANT USAGE ON SCHEMA public TO ${sql.id(config.cleanupRole)}
+	`.execute(tx);
+	await sql`
+		GRANT USAGE ON SCHEMA public TO ${sql.id(config.auditRole)}
+	`.execute(tx);
+	await sql`
+		GRANT USAGE ON SCHEMA ${sql.id(CASE_RUNTIME_SCHEMA)}
+		TO ${sql.id(config.auditRole)}
 	`.execute(tx);
 
 	for (const table of tableAudit) {
@@ -967,7 +1332,12 @@ async function convergePrivilegesInTransaction(
 		await sql`
 			REVOKE ALL PRIVILEGES
 			ON TABLE ${sql.id(CASE_RUNTIME_SCHEMA)}.${sql.id(table.name)}
-			FROM PUBLIC, ${sql.id(config.cleanupRole)}
+			FROM PUBLIC, ${sql.id(config.cleanupRole)}, ${sql.id(config.auditRole)}
+		`.execute(tx);
+		await sql`
+			GRANT SELECT
+			ON TABLE ${sql.id(CASE_RUNTIME_SCHEMA)}.${sql.id(table.name)}
+			TO ${sql.id(config.auditRole)}
 		`.execute(tx);
 	}
 
@@ -982,7 +1352,7 @@ async function convergePrivilegesInTransaction(
 		await sql`
 				REVOKE ALL PRIVILEGES ON SEQUENCE public.${sql.id(sequence.name)}
 				FROM PUBLIC, ${sql.id(config.runtimeRole)},
-					${sql.id(config.cleanupRole)}
+					${sql.id(config.cleanupRole)}, ${sql.id(config.auditRole)}
 		`.execute(tx);
 		if (classifyPublicTable(parent) === "application") {
 			await sql`
@@ -994,63 +1364,72 @@ async function convergePrivilegesInTransaction(
 
 	for (const routine of routines.filter((row) => !row.extension_owned)) {
 		await sql`
-			ALTER FUNCTION public.${sql.id(routine.name)}()
+			ALTER FUNCTION public.${sql.id(routine.name)}(
+				${sql.raw(routine.identity_arguments)}
+			)
 			OWNER TO ${sql.id(config.migrationRole)}
 		`.execute(tx);
 		await sql`
-				REVOKE ALL PRIVILEGES ON FUNCTION public.${sql.id(routine.name)}()
+				REVOKE ALL PRIVILEGES ON FUNCTION public.${sql.id(routine.name)}(
+					${sql.raw(routine.identity_arguments)}
+				)
 				FROM PUBLIC, ${sql.id(config.runtimeRole)},
-					${sql.id(config.cleanupRole)}
+					${sql.id(config.cleanupRole)}, ${sql.id(config.auditRole)}
 		`.execute(tx);
 	}
 	for (const routine of RUNTIME_ROUTINES) {
 		await sql`
-			GRANT EXECUTE ON FUNCTION public.${sql.id(routine)}()
+			GRANT EXECUTE ON FUNCTION public.${sql.id(routine.name)}(
+				${sql.raw(routine.identityArguments)}
+			)
 			TO ${sql.id(config.runtimeRole)}
 		`.execute(tx);
 	}
 	await sql`
-		GRANT SELECT ON TABLE public.media_reference_index_state
-		TO ${sql.id(config.runtimeRole)}
-	`.execute(tx);
-	await sql`
-		GRANT SELECT ON TABLE public.mutation_fold_baselines
+		GRANT SELECT ON TABLE public.app_change_fold_baselines
 		TO ${sql.id(config.runtimeRole)}
 	`.execute(tx);
 	await sql`
 		GRANT SELECT, UPDATE, DELETE ON TABLE public.form_attachments
 		TO ${sql.id(config.cleanupRole)}
 	`.execute(tx);
+	for (const table of AUDIT_SELECT_PUBLIC_TABLES) {
+		await sql`
+			GRANT SELECT ON TABLE public.${sql.id(table)}
+			TO ${sql.id(config.auditRole)}
+		`.execute(tx);
+	}
 
 	for (const objectType of ["TABLES", "SEQUENCES"] as const) {
 		await sql`
 			ALTER DEFAULT PRIVILEGES FOR ROLE ${sql.id(config.migrationRole)}
 				IN SCHEMA public REVOKE ALL PRIVILEGES ON ${sql.raw(objectType)}
 				FROM PUBLIC, ${sql.id(config.runtimeRole)},
-					${sql.id(config.cleanupRole)}
+					${sql.id(config.cleanupRole)}, ${sql.id(config.auditRole)}
 		`.execute(tx);
 	}
 	await sql`
 		ALTER DEFAULT PRIVILEGES FOR ROLE ${sql.id(config.migrationRole)}
 			IN SCHEMA public REVOKE ALL PRIVILEGES ON FUNCTIONS
 			FROM PUBLIC, ${sql.id(config.runtimeRole)},
-				${sql.id(config.cleanupRole)}
+				${sql.id(config.cleanupRole)}, ${sql.id(config.auditRole)}
 	`.execute(tx);
 	for (const objectType of ["TABLES", "SEQUENCES", "FUNCTIONS"] as const) {
 		await sql`
 			ALTER DEFAULT PRIVILEGES FOR ROLE ${sql.id(config.runtimeRole)}
 				IN SCHEMA ${sql.id(CASE_RUNTIME_SCHEMA)}
 				REVOKE ALL PRIVILEGES ON ${sql.raw(objectType)}
-				FROM PUBLIC, ${sql.id(config.cleanupRole)}
+				FROM PUBLIC, ${sql.id(config.cleanupRole)}, ${sql.id(config.auditRole)}
 		`.execute(tx);
 	}
 	// Re-read effective privileges after every grant. This assertion stays
 	// inside the transaction, so privilege drift cannot partially commit.
 	await readAndAssertRolePolicy(tx, config);
 	await assertCleanupPrivilegeBoundary(tx, config);
+	await assertAuditPrivilegeBoundary(tx, config);
 }
 
-/** Re-audit and converge ownership/grants after all three migration phases.
+/** Re-audit and converge ownership/grants after all migration phases.
  * The transaction guarantees an audit or GRANT failure cannot leave a partial
  * privilege split. */
 export async function convergeDatabasePrivileges(

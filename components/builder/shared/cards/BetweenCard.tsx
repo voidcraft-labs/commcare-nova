@@ -9,7 +9,7 @@
 import { useId } from "react";
 import { Switch } from "@/components/shadcn/switch";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
-import { canonicalCasePropertyName, isOrdered } from "@/lib/domain";
+import { isOrdered } from "@/lib/domain";
 import {
 	between,
 	betweenBoundConstraint,
@@ -20,15 +20,17 @@ import {
 	prop,
 	type ResolvedType,
 	type SlotConstraint,
+	tableColumn,
 	type ValueExpression,
 	term as wrapTerm,
 } from "@/lib/domain/predicate";
 import { usePredicateEditContext, useResolvedType } from "../editorContext";
-import type { PredicateEditContext } from "../editorSchemas";
+import { type PredicateEditContext, tableRowInScope } from "../editorSchemas";
 import { appendSlot, type EditorPath } from "../path";
 import { ExpressionPicker } from "../primitives/ExpressionPicker";
 import { PredicateVerbMenu } from "./PredicateVerbMenu";
 import {
+	reseedLiteralForConstraint,
 	reseedValueForConstraint,
 	resolveExpressionType,
 	seedLiteralForProperty,
@@ -37,9 +39,27 @@ import {
 export function betweenDefault(
 	ctx: PredicateEditContext,
 ): Extract<Predicate, { kind: "between" }> {
+	if (tableRowInScope(ctx)) {
+		const column = ctx.tableScope?.columns.find((candidate) =>
+			isOrdered({ data_type: candidate.dataType }),
+		);
+		if (ctx.tableScope === undefined || column === undefined) {
+			throw new Error(
+				"A table-row range condition requires one ordered active-table column.",
+			);
+		}
+		const bound = reseedLiteralForConstraint(
+			literal(""),
+			compatibleTypesFor(column.dataType),
+		);
+		return between(tableColumn(ctx.tableScope.tableId, column.id), {
+			lower: bound,
+			upper: bound,
+		});
+	}
 	const ct = ctx.caseTypes.find((c) => c.name === ctx.currentCaseType);
 	const property = ct?.properties.find(isOrdered);
-	const propName = canonicalCasePropertyName(property?.name ?? "");
+	const propName = property?.name ?? "";
 	// Seed bounds of the ordered property's OWN type — text `literal("")`
 	// bounds opposite a numeric / temporal property would be a soundness
 	// error (an ordered subject is never text-compatible).

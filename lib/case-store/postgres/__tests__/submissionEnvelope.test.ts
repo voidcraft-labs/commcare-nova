@@ -61,6 +61,13 @@ const dbHandle = setupPerTestDatabase({
 
 beforeEach(async () => {
 	await runCaseStoreMigrations(dbHandle.db);
+	await sql`
+		INSERT INTO apps (id, owner, project_id, app_name, app_name_lower)
+		VALUES
+			(${APP_ID}, ${ACTOR}, ${PROJECT_A}, 'Envelope app', 'envelope app'),
+			(${FOREIGN_APP_ID}, 'worker-2', ${PROJECT_B},
+			 'Foreign envelope app', 'foreign envelope app')
+	`.execute(dbHandle.db);
 });
 
 // `test-app` + the fixed form/operation uuids below reproduce the
@@ -68,6 +75,7 @@ beforeEach(async () => {
 // id can be asserted against the same literal UUIDv5 vector the XForm
 // calculate implements.
 const APP_ID = "test-app";
+const FOREIGN_APP_ID = "test-app-foreign";
 const PROJECT_A = "project-a";
 const PROJECT_B = "project-b";
 const ACTOR = "worker-1";
@@ -169,10 +177,13 @@ function submit(
 	});
 }
 
-async function seedSchemas(store: PostgresCaseStore): Promise<void> {
+async function seedSchemas(
+	store: PostgresCaseStore,
+	appId = APP_ID,
+): Promise<void> {
 	for (const caseType of ALL_TYPES) {
 		await store.applySchemaChange({
-			appId: APP_ID,
+			appId,
 			caseType: caseType.name,
 			caseTypeSchemas: SCHEMAS,
 		});
@@ -419,7 +430,13 @@ describe("authored create identity", () => {
 								caseType: "visit",
 								target: { kind: "new", idFrom: KEY_FIELD },
 								name: term(literal(name)),
-								writes: [{ property: "outcome", value: term(literal(notes)) }],
+								writes: [
+									{ property: "outcome", value: term(literal(notes)) },
+									{
+										property: "external_id",
+										value: term(literal(`external-${name}`)),
+									},
+								],
 							}),
 						),
 					],
@@ -436,7 +453,9 @@ describe("authored create identity", () => {
 		expect(visits).toHaveLength(1);
 		expect(visits[0]?.case_id).toBe(`${PINNED_VECTOR_PREFIX}repeat-key`);
 		expect(visits[0]?.case_name).toBe("Second");
+		expect(visits[0]?.external_id).toBe("external-Second");
 		expect(visits[0]?.properties).toMatchObject({ outcome: "finished" });
+		expect(visits[0]?.properties).not.toHaveProperty("external_id");
 	});
 
 	it("carries a non-UUID authored id through update, link, and close", async () => {
@@ -709,6 +728,34 @@ describe("pre-submission snapshot", () => {
 // ---------------------------------------------------------------
 
 describe("blank writes", () => {
+	it("an explicit blank external_id write stores an empty scalar, never a JSONB removal", async () => {
+		const store = makeStore();
+		await seedSchemas(store);
+		await seedSessionPatient(store);
+
+		await submit(store, {
+			appId: APP_ID,
+			ordinary: { kind: "none" },
+			operations: rootProgram([
+				envOp(
+					operation({
+						uuid: OP_A,
+						action: "update",
+						caseType: "patient",
+						target: { kind: "session" },
+						writes: [
+							{ property: "external_id", value: term(literal(" \t\r\n ")) },
+						],
+					}),
+				),
+			]),
+		});
+
+		const row = await patientRow(store, SESSION_CASE_ID);
+		expect(row?.external_id).toBe("");
+		expect(row?.properties).not.toHaveProperty("external_id");
+	});
+
 	it("a blank-evaluated typed write clears the stored key instead of failing", async () => {
 		const store = makeStore();
 		await seedSchemas(store);
@@ -962,9 +1009,9 @@ describe("conditions", () => {
 describe("expression target reauthorization", () => {
 	it("a foreign-Project id collapses to not-found", async () => {
 		const storeB = makeStore(PROJECT_B, "worker-2");
-		await seedSchemas(storeB);
+		await seedSchemas(storeB, FOREIGN_APP_ID);
 		const foreign = await storeB.insert({
-			appId: APP_ID,
+			appId: FOREIGN_APP_ID,
 			row: {
 				case_type: "patient",
 				case_name: "Foreign",
@@ -974,6 +1021,7 @@ describe("expression target reauthorization", () => {
 		});
 
 		const storeA = makeStore();
+		await seedSchemas(storeA);
 		const err = await rejection(
 			submit(storeA, {
 				appId: APP_ID,
@@ -1521,6 +1569,41 @@ describe("text facets", () => {
 			"Alice   B.",
 		);
 	});
+
+	it("rejects an over-255-unit external_id before any effect", async () => {
+		const store = makeStore();
+		await seedSchemas(store);
+		await seedSessionPatient(store);
+
+		const err = await rejection(
+			submit(store, {
+				appId: APP_ID,
+				ordinary: { kind: "none" },
+				operations: rootProgram([
+					envOp(
+						operation({
+							uuid: OP_A,
+							action: "update",
+							caseType: "patient",
+							target: { kind: "session" },
+							writes: [
+								{
+									property: "external_id",
+									value: term(literal("x".repeat(256))),
+								},
+							],
+						}),
+					),
+				]),
+			}),
+		);
+		expect(err.rejection).toMatchObject({
+			kind: "text-value",
+			facet: "external_id",
+			reason: "too-long",
+		});
+		expect((await patientRow(store, SESSION_CASE_ID))?.external_id).toBeNull();
+	});
 });
 
 // ---------------------------------------------------------------
@@ -1651,7 +1734,13 @@ describe("retype", () => {
 						target: { kind: "session" },
 						retype: "patient_v2",
 						rename: term(literal("Alice v2")),
-						writes: [{ property: "severity", value: term(literal("high")) }],
+						writes: [
+							{ property: "severity", value: term(literal("high")) },
+							{
+								property: "external_id",
+								value: term(literal("  PATIENT-2  ")),
+							},
+						],
 					}),
 				),
 			]),
@@ -1661,10 +1750,12 @@ describe("retype", () => {
 		expect(rows).toHaveLength(1);
 		expect(rows[0]?.case_id).toBe(SESSION_CASE_ID);
 		expect(rows[0]?.case_name).toBe("Alice v2");
+		expect(rows[0]?.external_id).toBe("PATIENT-2");
 		expect(rows[0]?.properties).toMatchObject({
 			notes: "kept",
 			severity: "high",
 		});
+		expect(rows[0]?.properties).not.toHaveProperty("external_id");
 	});
 
 	it("rejects a retype whose retained document the destination schema cannot hold", async () => {
@@ -2204,13 +2295,6 @@ async function seedPreparedCapture() {
 	const attachmentId = "55555555-5555-4555-8555-555555555555";
 	const entryKey = "77777777-7777-4777-8777-777777777777";
 	const fieldUuid = testUuid("88888888-8888-4888-8888-888888888888");
-	await sql`
-		INSERT INTO apps (
-			id, owner, project_id, app_name, app_name_lower
-		) VALUES (
-			${APP_ID}, ${ACTOR}, ${PROJECT_A}, 'Capture app', 'capture app'
-		)
-	`.execute(dbHandle.db);
 	await sql`
 		INSERT INTO form_attachments (
 			attachment_id,

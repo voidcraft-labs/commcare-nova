@@ -1,13 +1,34 @@
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import {
 	type Expression,
+	isArrayLiteralExpression,
+	isAsExpression,
+	isCallExpression,
+	isFalseLiteral,
+	isFunctionDeclaration,
+	isFunctionExpression,
+	isIdentifier,
+	isImportDeclaration,
+	isMethodDeclaration,
+	isMethodSignatureDeclaration,
+	isNonNullExpression,
+	isObjectLiteralExpression,
+	isParenthesizedExpression,
+	isPropertyAccessExpression,
+	isPropertyAssignment,
+	isReturnStatement,
+	isSatisfiesExpression,
+	isStringLiteral,
+	isTrueLiteral,
+	isTypeAssertion,
 	type Node,
-	type ObjectProperty,
-	parseSync,
-	visitorKeys,
-} from "oxc-parser";
-import { describe, expect, it } from "vitest";
+	type PropertyAssignment,
+	type SourceFile,
+} from "typescript/unstable/ast";
+import { createVirtualFileSystem } from "typescript/unstable/fs";
+import { API, type Program, type Snapshot } from "typescript/unstable/sync";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 type LifecycleMode = "admits-proposal" | "consumes-durable-admitted";
 
@@ -27,6 +48,7 @@ const SOURCE_CLASSIFICATION = {
 	"lib/db/apps.ts": "admits-proposal",
 	"lib/db/canonicalMutationFold.ts": "consumes-durable-admitted",
 	"lib/db/commitGuard.ts": "consumes-durable-admitted",
+	"lib/db/persistedJson.ts": "consumes-durable-admitted",
 	"lib/db/runtimeDatabaseProbe.ts": "admits-proposal",
 	"lib/doc/commitVerdicts.ts": "admits-proposal",
 	"lib/doc/diffDocsToMutations.ts": "admits-proposal",
@@ -36,7 +58,7 @@ const SOURCE_CLASSIFICATION = {
 	"lib/generation/streamDispatcher.ts": "consumes-durable-admitted",
 	"lib/mcp/adapters/sharedToolAdapter.ts": "admits-proposal",
 	"lib/mcp/context.ts": "admits-proposal",
-	"scripts/repair-legacy-findings.ts": "admits-proposal",
+	"lib/preview/engine/casePropertyRenamePreflight.ts": "admits-proposal",
 } as const satisfies Readonly<Record<string, LifecycleMode>>;
 
 /**
@@ -64,8 +86,8 @@ const MUTATION_LIFECYCLE_FAMILIES = [
 	],
 	["whole-document diff", ["lib/doc/diffDocsToMutations.ts"]],
 	[
-		"repair and synthetic writers",
-		["scripts/repair-legacy-findings.ts", "lib/db/apps.ts"],
+		"frozen repair and synthetic writers",
+		["scripts/repair-canonical-identity-foundation.ts", "lib/db/apps.ts"],
 	],
 	["Project-move media remap", ["lib/db/apps.ts"]],
 	["autosave route", ["app/api/apps/[id]/route.ts"]],
@@ -89,15 +111,36 @@ const MUTATION_LIFECYCLE_FAMILIES = [
 		"baseline scanner and suffix replay",
 		[
 			"lib/db/canonicalMutationFold.ts",
-			"scripts/scan-canonical-identity-foundation.ts",
+			"lib/case-store/migrations/20260728000000_canonical_identity_foundation/frozenScanner.ts",
 		],
 	],
 	["authoritative reload", ["lib/collab/ReconcilerProvider.tsx"]],
 	["post-reload replay", ["lib/collab/reconciler.ts"]],
 ] as const;
 
-const LIFECYCLE_TOKEN =
-	/\b(?:applyMutations|prepareMutationCandidate|admitMutationBatch|admitMutationStages|commitGuardedBatch|applyBlueprintChange|appendSyntheticBatch|recordMutations|recordMutationStages)\s*\(/u;
+const LIFECYCLE_NAMES = new Set([
+	"applyMutations",
+	"prepareMutationCandidate",
+	"admitMutationBatch",
+	"admitMutationStages",
+	"commitGuardedBatch",
+	"applyBlueprintChange",
+	"appendSyntheticBatch",
+	"recordMutations",
+	"recordMutationStages",
+]);
+
+/**
+ * The MCP adapter intentionally never calls a mutation writer: shared tool
+ * bodies have already persisted their admitted value before the adapter
+ * projects the result. It still owns the external proposal envelope that
+ * delegates into those admitting tool bodies, so keep that non-call site in
+ * the same closed source inventory explicitly rather than teaching the AST
+ * walk to treat prose as executable code.
+ */
+const DOCUMENTED_ENVELOPE_SOURCES = new Set([
+	"lib/mcp/adapters/sharedToolAdapter.ts",
+]);
 
 function productionSources(directory: string): string[] {
 	const found: string[] = [];
@@ -122,26 +165,126 @@ function productionSources(directory: string): string[] {
 	return found;
 }
 
-function propertyName(property: ObjectProperty): string | undefined {
-	if (property.computed) return undefined;
-	if (property.key.type === "Identifier") return property.key.name;
-	if (
-		property.key.type === "Literal" &&
-		typeof property.key.value === "string"
-	) {
-		return property.key.value;
+function allTypeScriptSources(directory: string): string[] {
+	const found: string[] = [];
+	for (const entry of readdirSync(directory)) {
+		const absolute = path.join(directory, entry);
+		const relative = path
+			.relative(process.cwd(), absolute)
+			.replaceAll("\\", "/");
+		const stat = statSync(absolute);
+		if (stat.isDirectory()) {
+			found.push(...allTypeScriptSources(absolute));
+		} else if (relative.endsWith(".ts") || relative.endsWith(".tsx")) {
+			found.push(relative);
+		}
 	}
+	return found;
+}
+
+const RETIRED_CASE_PROPERTY_IDENTIFIERS = [
+	["case", "_property_on"].join(""),
+	["fieldCase", "PropertyOn"].join(""),
+	["CaseProperty", "Mapping"].join(""),
+	["readCase", "PropertyOn"].join(""),
+] as const;
+
+const FROZEN_CANONICAL_IDENTITY_SOURCES = [
+	"lib/case-store/migrations/20260728000000_canonical_identity_foundation/",
+	"lib/case-store/migrations/__tests__/canonicalIdentityFoundation.integration.test.ts",
+	"lib/case-store/migrations/__tests__/canonicalIdentityFoundation.test.ts",
+	"lib/case-store/migrations/__tests__/frozenAuditPrivilegeBoundary.test.ts",
+	"lib/case-store/migrations/__tests__/frozenOccurrenceDispatcher.test.ts",
+] as const;
+
+function isFrozenCanonicalIdentitySource(relative: string): boolean {
+	return FROZEN_CANONICAL_IDENTITY_SOURCES.some((allowed) =>
+		allowed.endsWith("/") ? relative.startsWith(allowed) : relative === allowed,
+	);
+}
+
+let compilerApi: API | undefined;
+let compilerSnapshot: Snapshot | undefined;
+let compilerProgram: Program | undefined;
+
+beforeAll(() => {
+	compilerApi = new API({ cwd: process.cwd() });
+	compilerSnapshot = compilerApi.updateSnapshot({
+		openProjects: [path.join(process.cwd(), "tsconfig.json")],
+	});
+	const project = compilerSnapshot
+		.getProjects()
+		.find((candidate) => candidate.configFileName.endsWith("/tsconfig.json"));
+	if (project === undefined) {
+		throw new Error("Mutation source tripwire could not load tsconfig.json.");
+	}
+	compilerProgram = project.program;
+});
+
+afterAll(() => {
+	compilerSnapshot?.dispose();
+	compilerSnapshot = undefined;
+	compilerProgram = undefined;
+	compilerApi?.close();
+	compilerApi = undefined;
+});
+
+function projectSourceFile(relative: string): SourceFile {
+	if (compilerProgram === undefined) {
+		throw new Error("Mutation source tripwire compiler is not initialized.");
+	}
+	const source =
+		compilerProgram.getSourceFile(relative) ??
+		compilerProgram.getSourceFile(path.join(process.cwd(), relative));
+	if (source === undefined) {
+		throw new Error(`Mutation source tripwire could not parse ${relative}.`);
+	}
+	expect(compilerProgram.getSyntacticDiagnostics(relative), relative).toEqual(
+		[],
+	);
+	return source;
+}
+
+function syntheticSourceFile(relative: string, sourceText: string): SourceFile {
+	const absolute = path.join(process.cwd(), relative);
+	const api = new API({
+		cwd: process.cwd(),
+		fs: createVirtualFileSystem({ [absolute]: sourceText }),
+	});
+	const snapshot = api.updateSnapshot({ openFiles: [absolute] });
+	try {
+		const project = snapshot.getDefaultProjectForFile(absolute);
+		if (project === undefined) {
+			throw new Error(`Mutation source tripwire could not load ${relative}.`);
+		}
+		const source = project.program.getSourceFile(absolute);
+		if (source === undefined) {
+			throw new Error(`Mutation source tripwire could not parse ${relative}.`);
+		}
+		expect(project.program.getSyntacticDiagnostics(absolute), relative).toEqual(
+			[],
+		);
+		return source;
+	} finally {
+		snapshot.dispose();
+		api.close();
+	}
+}
+
+function propertyName(property: PropertyAssignment): string | undefined {
+	const { name } = property;
+	if (isIdentifier(name) || isStringLiteral(name)) return name.text;
 	return undefined;
 }
 
 function unwrapExpression(expression: Expression): Expression {
 	let current = expression;
 	while (
-		current.type === "ParenthesizedExpression" ||
-		current.type === "TSAsExpression" ||
-		current.type === "TSSatisfiesExpression" ||
-		current.type === "TSTypeAssertion" ||
-		current.type === "TSNonNullExpression"
+		isParenthesizedExpression(current) ||
+		isAsExpression(current) ||
+		isSatisfiesExpression(current) ||
+		isTypeAssertion(current) ||
+		isNonNullExpression(current)
 	) {
 		current = current.expression;
 	}
@@ -149,73 +292,59 @@ function unwrapExpression(expression: Expression): Expression {
 }
 
 function literalValue(
-	property: ObjectProperty | undefined,
+	property: PropertyAssignment | undefined,
 ): string | boolean | undefined {
 	if (property === undefined) return undefined;
-	const value = unwrapExpression(property.value);
-	return value.type === "Literal" &&
-		(typeof value.value === "string" || typeof value.value === "boolean")
-		? value.value
-		: undefined;
+	const value = unwrapExpression(property.initializer);
+	if (isStringLiteral(value)) return value.text;
+	if (isTrueLiteral(value)) return true;
+	if (isFalseLiteral(value)) return false;
+	return undefined;
 }
 
-function isProtectedMutationResult(property: ObjectProperty): boolean {
-	const value = unwrapExpression(property.value);
-	if (value.type === "ArrayExpression") return value.elements.length === 0;
-	if (
-		value.type === "MemberExpression" &&
-		!value.computed &&
-		value.property.type === "Identifier"
-	) {
-		return (
-			value.property.name === "mutations" || value.property.name === "batch"
-		);
+function isProtectedMutationResult(property: PropertyAssignment): boolean {
+	const value = unwrapExpression(property.initializer);
+	if (isArrayLiteralExpression(value)) return value.elements.length === 0;
+	if (isPropertyAccessExpression(value)) {
+		return value.name.text === "mutations" || value.name.text === "batch";
 	}
-	const callee =
-		value.type === "CallExpression" ? unwrapExpression(value.callee) : null;
-	return callee?.type === "Identifier" && callee.name === "admitMutationBatch";
-}
-
-function isNode(value: unknown): value is Node {
+	const callee = isCallExpression(value)
+		? unwrapExpression(value.expression)
+		: undefined;
 	return (
-		value !== null &&
-		typeof value === "object" &&
-		"type" in value &&
-		typeof value.type === "string"
+		callee !== undefined &&
+		isIdentifier(callee) &&
+		callee.text === "admitMutationBatch"
 	);
 }
 
 function visitNode(node: Node, visit: (node: Node) => void): void {
 	visit(node);
-	const record = node as unknown as Readonly<Record<string, unknown>>;
-	for (const key of visitorKeys[node.type] ?? []) {
-		const child = record[key];
-		if (Array.isArray(child)) {
-			for (const entry of child) {
-				if (isNode(entry)) visitNode(entry, visit);
-			}
-		} else if (isNode(child)) {
-			visitNode(child, visit);
-		}
-	}
+	node.forEachChild((child) => visitNode(child, visit));
 }
 
-function unprotectedToolResultLocations(relative: string): string[] {
-	const sourceText = readFileSync(path.join(process.cwd(), relative), "utf8");
-	const parsed = parseSync(relative, sourceText, {
-		lang: relative.endsWith(".tsx") ? "tsx" : "ts",
-		astType: "ts",
-		preserveParens: true,
-	});
-	expect(parsed.errors, relative).toEqual([]);
+function unprotectedToolResultLocationsInSource(
+	relative: string,
+	sourceText: string,
+): string[] {
+	return unprotectedToolResultLocationsInAst(
+		relative,
+		syntheticSourceFile(relative, sourceText),
+	);
+}
+
+function unprotectedToolResultLocationsInAst(
+	relative: string,
+	source: SourceFile,
+): string[] {
 	const failures: string[] = [];
-	visitNode(parsed.program, (node) => {
-		if (node.type === "ReturnStatement" && node.argument !== null) {
-			const expression = unwrapExpression(node.argument);
-			if (expression.type === "ObjectExpression") {
+	visitNode(source, (node) => {
+		if (isReturnStatement(node) && node.expression !== undefined) {
+			const expression = unwrapExpression(node.expression);
+			if (isObjectLiteralExpression(expression)) {
 				const properties = expression.properties.filter(
-					(property): property is ObjectProperty =>
-						property.type === "Property" && property.kind === "init",
+					(property): property is PropertyAssignment =>
+						isPropertyAssignment(property),
 				);
 				const mutationProperty = properties.find(
 					(property) => propertyName(property) === "mutations",
@@ -231,9 +360,10 @@ function unprotectedToolResultLocations(relative: string): string[] {
 					(kind === "mutate" || ok === true) &&
 					!isProtectedMutationResult(mutationProperty)
 				) {
-					const line = sourceText
-						.slice(0, mutationProperty.start)
-						.split("\n").length;
+					const line =
+						source.getLineAndCharacterOfPosition(
+							mutationProperty.getStart(source),
+						).line + 1;
 					failures.push(`${relative}:${line}`);
 				}
 			}
@@ -242,30 +372,71 @@ function unprotectedToolResultLocations(relative: string): string[] {
 	return failures;
 }
 
-function registeredSharedToolSources(): string[] {
-	const registry = readFileSync(
-		path.join(process.cwd(), "lib/agent/sharedToolRegistry.ts"),
-		"utf8",
+function unprotectedToolResultLocations(relative: string): string[] {
+	return unprotectedToolResultLocationsInAst(
+		relative,
+		projectSourceFile(relative),
 	);
-	return [
-		...registry.matchAll(/from\s+["']@\/lib\/agent\/tools\/([^"']+)["']/gu),
-	]
-		.map((match) => `lib/agent/tools/${match[1]}.ts`)
+}
+
+function lifecycleName(node: Node): string | undefined {
+	if (isCallExpression(node)) {
+		const expression = unwrapExpression(node.expression);
+		if (isIdentifier(expression)) return expression.text;
+		if (isPropertyAccessExpression(expression)) return expression.name.text;
+	}
+	if (
+		(isFunctionDeclaration(node) ||
+			isMethodDeclaration(node) ||
+			isMethodSignatureDeclaration(node) ||
+			isFunctionExpression(node)) &&
+		node.name !== undefined &&
+		isIdentifier(node.name)
+	) {
+		return node.name.text;
+	}
+	return undefined;
+}
+
+function namesLifecycleEntrypoint(relative: string): boolean {
+	let found = false;
+	visitNode(projectSourceFile(relative), (node) => {
+		if (found) return;
+		const name = lifecycleName(node);
+		if (name !== undefined && LIFECYCLE_NAMES.has(name)) found = true;
+	});
+	return found;
+}
+
+function registeredSharedToolSources(): string[] {
+	const relative = "lib/agent/sharedToolRegistry.ts";
+	const prefix = "@/lib/agent/tools/";
+	return projectSourceFile(relative)
+		.statements.filter(isImportDeclaration)
+		.map((declaration) => declaration.moduleSpecifier)
+		.filter(isStringLiteral)
+		.map((specifier) => specifier.text)
+		.filter((specifier) => specifier.startsWith(prefix))
+		.map((specifier) => `lib/agent/tools/${specifier.slice(prefix.length)}.ts`)
 		.toSorted();
 }
 
 describe("mutation lifecycle source tripwire", () => {
 	it("classifies every production admission/reducer/writer source", () => {
 		const roots = ["app", "components", "lib", "scripts"];
-		const discovered = roots
-			.flatMap((root) => productionSources(path.join(process.cwd(), root)))
-			.filter((relative) =>
-				LIFECYCLE_TOKEN.test(
-					readFileSync(path.join(process.cwd(), relative), "utf8"),
-				),
-			)
-			.toSorted();
+		const discovered = [
+			...roots
+				.flatMap((root) => productionSources(path.join(process.cwd(), root)))
+				.filter(namesLifecycleEntrypoint),
+			...DOCUMENTED_ENVELOPE_SOURCES,
+		].toSorted();
 		expect(discovered).toEqual(Object.keys(SOURCE_CLASSIFICATION).toSorted());
+		for (const relative of DOCUMENTED_ENVELOPE_SOURCES) {
+			expect(
+				statSync(path.join(process.cwd(), relative)).isFile(),
+				relative,
+			).toBe(true);
+		}
 	});
 
 	it("keeps every binding lifecycle family attached to real sources", () => {
@@ -277,7 +448,7 @@ describe("mutation lifecycle source tripwire", () => {
 			"single and staged SA planning",
 			"single and staged MCP planning",
 			"whole-document diff",
-			"repair and synthetic writers",
+			"frozen repair and synthetic writers",
 			"Project-move media remap",
 			"autosave route",
 			"case-store saga preflight",
@@ -301,11 +472,97 @@ describe("mutation lifecycle source tripwire", () => {
 		}
 	});
 
+	it("forbids retired case-property identifiers in every TypeScript source and fixture outside the frozen migration oracle", () => {
+		const roots = ["__tests__", "app", "components", "e2e", "lib", "scripts"];
+		const failures = roots
+			.flatMap((root) => allTypeScriptSources(path.join(process.cwd(), root)))
+			.filter((relative) => !isFrozenCanonicalIdentitySource(relative))
+			.flatMap((relative) => {
+				const source = readFileSync(path.join(process.cwd(), relative), "utf8");
+				return RETIRED_CASE_PROPERTY_IDENTIFIERS.flatMap((identifier) =>
+					source.includes(identifier) ? [`${relative}: ${identifier}`] : [],
+				);
+			});
+		expect(failures).toEqual([]);
+	});
+
+	it("keeps the frozen canonical identity authority out of steady-state runtime imports", () => {
+		const allowedImporters = new Set([
+			// These three are explicit operator/deployment entrypoints for this
+			// exact timestamped cutover, never steady-state application readers.
+			"scripts/audit-canonical-identity-foundation.ts",
+			"scripts/repair-canonical-identity-foundation.ts",
+			"scripts/scan-canonical-identity-foundation.ts",
+		]);
+		const frozenDirectory =
+			"case-store/migrations/20260728000000_canonical_identity_foundation";
+		const failures = ["__tests__", "app", "components", "e2e", "lib", "scripts"]
+			.flatMap((root) => allTypeScriptSources(path.join(process.cwd(), root)))
+			.filter(
+				(relative) =>
+					relative !==
+					"lib/doc/__tests__/mutationLifecycleSourceTripwire.test.ts",
+			)
+			.filter((relative) => !isFrozenCanonicalIdentitySource(relative))
+			.filter((relative) => !allowedImporters.has(relative))
+			.filter((relative) => {
+				const source = readFileSync(path.join(process.cwd(), relative), "utf8");
+				return source
+					.split("\n")
+					.some(
+						(line) =>
+							(/\bfrom\s+["']/.test(line) ||
+								/^\s*(?:import|export)\s+["']/.test(line)) &&
+							line.includes(frozenDirectory),
+					);
+			});
+		expect(failures).toEqual([]);
+		expect(
+			existsSync(
+				path.join(process.cwd(), "lib/db/canonicalIdentityFoundationRepair.ts"),
+			),
+		).toBe(false);
+		expect(
+			existsSync(path.join(process.cwd(), "scripts/verify-sequences.ts")),
+		).toBe(false);
+		expect(
+			readFileSync(path.join(process.cwd(), "lib/db/apps.ts"), "utf8"),
+		).not.toContain("canonicalIdentityFoundationRepair");
+	});
+
 	it("returns only admitted success mutations from shared tool bodies", () => {
 		expect(
 			registeredSharedToolSources().flatMap((relative) =>
 				unprotectedToolResultLocations(relative),
 			),
+		).toEqual([]);
+	});
+
+	it("detects an unprotected success mutation result in parsed source", () => {
+		const unsafe = `
+			function execute() {
+				const planned = [{ kind: "setAppName", name: "Unsafe" }];
+				return {
+					kind: "mutate",
+					mutations: planned,
+				};
+			}
+		`;
+		expect(
+			unprotectedToolResultLocationsInSource("synthetic-tool.ts", unsafe),
+		).toEqual(["synthetic-tool.ts:6"]);
+
+		const safe = `
+			function execute() {
+				const planned = [{ kind: "setAppName", name: "Safe" }];
+				return {
+					kind: "mutate",
+					mutations: admitMutationBatch(planned),
+				};
+			}
+		`;
+		expect(
+			unprotectedToolResultLocationsInSource("synthetic-tool.ts", safe),
 		).toEqual([]);
 	});
 });

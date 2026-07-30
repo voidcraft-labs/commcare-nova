@@ -29,6 +29,7 @@ import {
 	exists,
 	ifExpr,
 	literal,
+	match,
 	matchAll,
 	not,
 	or,
@@ -242,6 +243,28 @@ describe("Results Cases available composer", () => {
 		});
 
 		expect(otherCaseInformation.getAttribute("aria-disabled")).not.toBe("true");
+	});
+
+	it("uses the intersection of device and case-search match modes", async () => {
+		renderComposer({
+			config: {
+				...EMPTY_CONFIG,
+				filter: match(prop("patient", "region"), "N", "starts-with"),
+			},
+			caseSearchEnabled: true,
+		});
+		await settleBaseUiTransitions();
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "Condition starts with" }),
+		);
+		for (const label of ["Similar spelling", "Sounds like", "Flexible date"]) {
+			expect(
+				screen
+					.getByRole("menuitem", { name: new RegExp(`^${label}`, "i") })
+					.getAttribute("aria-disabled"),
+			).toBe("true");
+		}
 	});
 
 	it("does not guess singular grammar from a plural case type identifier", () => {

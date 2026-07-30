@@ -7,9 +7,9 @@
  * node, recursing through container kinds.
  *
  * All rules operate on the domain shape — `field.kind`, `field.validate`,
- * `field.case_property_on` — never on the legacy wire shape. The only wire
- * tokens appearing here are the `kind` string literals themselves, which
- * match CommCare's field-kind taxonomy and stay stable.
+ * `field.caseWrite` — never on derived CommCare mappings. The only wire tokens
+ * appearing here are the `kind` string literals themselves, which match
+ * CommCare's field-kind taxonomy and stay stable.
  */
 
 import {
@@ -158,42 +158,6 @@ function selectTooFewOptions(
 				fieldUuid: field.uuid,
 				fieldId: field.id,
 			},
-		),
-	];
-}
-
-/**
- * A field whose `case_property_on` names a case type absent from the catalog.
- * Every authoring surface declares a type before a field writes to it (the
- * `declareCaseType` chokepoint), so in steady state this never fires — it
- * catches the concurrent-edit race where one member adds a field writing to a
- * type a second member retires at the same instant: on the guarded re-apply
- * the field is left pointing at a type that no longer exists, and rejecting
- * the batch (a 409) is what keeps the doc valid by construction.
- */
-function casePropertyOnUnknownType(
-	field: Field,
-	ctx: FieldContext,
-): ValidationError[] {
-	const caseType = (field as { case_property_on?: string }).case_property_on;
-	if (!caseType) return [];
-	const declared =
-		ctx.doc.caseTypes?.some((ct) => ct.name === caseType) ?? false;
-	if (declared) return [];
-	return [
-		validationError(
-			"CASE_PROPERTY_ON_UNKNOWN_TYPE",
-			"field",
-			`Field "${field.id}" in "${ctx.formName}" saves to the case type "${caseType}", but no case type by that name exists. Declare the "${caseType}" case type (give a module that type, or add it to the data model) before saving to it, or point this field at an existing case type.`,
-			{
-				moduleUuid: ctx.moduleUuid,
-				moduleName: ctx.moduleName,
-				formUuid: ctx.formUuid,
-				formName: ctx.formName,
-				fieldUuid: field.uuid,
-				fieldId: field.id,
-			},
-			{ caseType },
 		),
 	];
 }
@@ -564,9 +528,9 @@ function findUnmodeledInstanceIds(expr: string): string[] {
  * `instance('...')` call resolves to nothing at form-init, surfaced on
  * device as "A part of your application is invalid."
  *
- * The fix tells the user the canonical alternative for each common
- * fixture: lookup tables → reshape into a select-question option list;
- * saved reports / UCR reports → not supported at all.
+ * Raw fixture XPath is never the authoring contract. Project data tables are
+ * available through structured table-lookup expressions on the surfaces that
+ * support them; saved reports / UCR reports remain unsupported.
  */
 function fixtureReferenceNotModeled(
 	field: Field,
@@ -582,7 +546,7 @@ function fixtureReferenceNotModeled(
 				validationError(
 					"FIXTURE_REFERENCE_NOT_MODELED",
 					"field",
-					`Field "${field.id}" in "${ctx.formName}" references the fixture instance "${id}" in its ${surfaceDescription}. Nova doesn't model that fixture — the emitted form would have no <instance> declaration for "${id}" and would fail at form-init with "A part of your application is invalid." Today Nova supports casedb (case data via "#case/...") and commcaresession (user/session data via "#user/..." or direct refs). For lookup-table data, reshape the data into the form as select options. Saved reports and UCR reports aren't supported.`,
+					`Field "${field.id}" in "${ctx.formName}" references the fixture instance "${id}" in its ${surfaceDescription}. Raw instance(...) XPath is not an authorable fixture reference, so the emitted form would have no <instance> declaration for "${id}" and would fail at form-init with "A part of your application is invalid." Use a structured Project data table lookup on a surface that offers data-table values. Nova also supports casedb (case data via "#<case type>/...") and commcaresession (user/session data via "#user/..." or direct refs). Saved reports and UCR reports aren't supported.`,
 					{
 						moduleUuid: ctx.moduleUuid,
 						moduleName: ctx.moduleName,
@@ -623,7 +587,6 @@ function fixtureReferenceNotModeled(
 const FIELD_RULES = [
 	selectNoOptions,
 	selectTooFewOptions,
-	casePropertyOnUnknownType,
 	hiddenNoValue,
 	requiredOnHidden,
 	calculateOnVisibleInput,

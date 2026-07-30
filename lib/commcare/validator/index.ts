@@ -26,6 +26,7 @@ import {
 	fieldRegistry,
 	formExpressionSource,
 	formExpressionValue,
+	isConnectLearnConfig,
 	type ProseTemplate,
 	projectXPath,
 	reachableCaseTypes,
@@ -74,7 +75,7 @@ export type ConnectXPathSlot = ConnectXPathSlotId;
 export type ProseSurface = FieldProseSlotId;
 
 /**
- * A validation scope — which entities a scoped run walks. App-level rules
+ * A validation scope — which entities a scoped diagnostic run walks. App-level rules
  * always run regardless of scope (they're cheap and their findings are
  * app-anchored); module rules run for modules in `moduleUuids`; form-level
  * work (form rules, field rules, deep XPath validation) runs for every form
@@ -84,8 +85,8 @@ export type ProseSurface = FieldProseSlotId;
  * is meaningful — it runs app rules only (e.g. a pure module reorder, which
  * can't change any module/form-level finding).
  *
- * Scopes are derived from mutation batches by `scopeOfMutations`; the
- * scoped-run ≡ full-run-filtered law is documented at
+ * The commit gate never supplies this option; it always validates the complete
+ * candidate. The scoped-run ≡ full-run-filtered law is documented at
  * `runner.ts::errorWithinScope` and property-tested.
  */
 export interface ValidationScope {
@@ -396,40 +397,30 @@ export function validateBlueprintDeep(
 			const validPaths = collectValidPaths(doc, formUuid);
 			const validFieldUuids = collectTreeFieldUuids(tree);
 
-			// The form's connect config, read directly from the doc (only when
-			// the app is in Connect mode). The validator runs on docs that may
-			// carry an id-less block (a doc that skipped the source
-			// enforcement), so it must NOT route through the emit-time
-			// `buildConnectSlugMap` (which THROWS on a missing id) — it reads
-			// `form.connect` and guards each valid-path arm on the id being
-			// set. An id-less block simply contributes no valid path; the
-			// connect-id rules in `rules/form.ts` carry the authoring signal
-			// (`CONNECT_ID_MISSING` for the unset id itself, format/length for
-			// a bad explicit one) and the app-wide `CONNECT_ID_DUPLICATE` rule
-			// in `rules/app.ts` covers collisions.
+			// The form's complete Connect config, only when the app is in
+			// Connect mode.
 			const connect = doc.connectType ? form.connect : undefined;
 
 			// Expose Connect data paths so XPath expressions can reference them.
-			// Each arm gates on the id being present — a wire node only exists
-			// once the id is set.
 			if (connect) {
-				if (connect.learn_module?.id) {
-					validPaths.add(`/data/${connect.learn_module.id}`);
-				}
-				if (connect.assessment?.id) {
-					validPaths.add(
-						`/data/${connect.assessment.id}/assessment/user_score`,
-					);
-				}
-				if (connect.deliver_unit?.id) {
-					const duId = connect.deliver_unit.id;
-					validPaths.add(`/data/${duId}/deliver/entity_id`);
-					validPaths.add(`/data/${duId}/deliver/entity_name`);
-				}
-				if (connect.task?.id) {
-					// Wrapper-only bind, like learn_module — the XForm emits
-					// `<bind nodeset="/data/<taskId>"/>` with no child paths.
-					validPaths.add(`/data/${connect.task.id}`);
+				if (isConnectLearnConfig(connect)) {
+					if (connect.learn_module) {
+						validPaths.add(`/data/${connect.learn_module.id}`);
+					}
+					if (connect.assessment) {
+						validPaths.add(
+							`/data/${connect.assessment.id}/assessment/user_score`,
+						);
+					}
+				} else {
+					if (connect.deliver_unit) {
+						const duId = connect.deliver_unit.id;
+						validPaths.add(`/data/${duId}/deliver/entity_id`);
+						validPaths.add(`/data/${duId}/deliver/entity_name`);
+					}
+					if (connect.task) {
+						validPaths.add(`/data/${connect.task.id}`);
+					}
 				}
 			}
 

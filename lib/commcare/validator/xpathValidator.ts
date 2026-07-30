@@ -144,9 +144,10 @@ export function validateXPath(
 			}
 
 			// Phase 2b: Hashtag reference validation (#<type>/prop). The
-			// namespace is the token between `#` and the first `/`. `#form/`,
-			// `#user/`, and the transitional `#case/` are resolved by the wire,
-			// not case-type refs — `checkCaseHashtag` skips them; everything else
+			// namespace is the token between `#` and the first `/`. `#form/`
+			// and `#user/` are resolved by the wire rather than as case-type refs;
+			// `checkCaseHashtag` skips them. Every other namespace, including the
+			// forbidden raw authored `#case/`, must name a readable case type.
 			// names a case type. In an XPath expression a hashtag is a deliberate
 			// reference, so the strict `surface: "xpath"` rule applies (an
 			// unreachable namespace IS an error) — unlike the lenient prose rule.
@@ -277,8 +278,8 @@ function suggestPathsByLeaf(ref: string, validPaths: Set<string>): string[] {
  *   - In an XPATH expression a hashtag is a deliberate reference, so an
  *     unreachable namespace is a real error (`surface: "xpath"`).
  *   - In PROSE the emitter (`xform/builder.ts::buildLabelNodes`) lowers a
- *     hashtag to `<output>` ONLY when it resolves (`#form/`, `#user/`, the
- *     transitional `#case/`, or a REACHABLE case type) and leaves everything
+ *     hashtag to `<output>` ONLY when it resolves (`#form/`, `#user/`, or a
+ *     REACHABLE case type) and leaves everything
  *     else — innocent prose (`#N/A`, `#priority/high`), a typo'd type
  *     (`#mothre/code`), a child-type write target (`#child/name`) — as literal
  *     text with NO error. So in prose we flag a case ref ONLY when its
@@ -287,9 +288,9 @@ function suggestPathsByLeaf(ref: string, validPaths: Set<string>): string[] {
  *     prose, matching the emitter's leniency (`surface: "prose"`).
  *
  * `ns` / `rest` are the namespace and property path either side of the first
- * `/`. `#form/`, `#user/`, and the transitional `#case/` are resolved by the
- * wire before any per-type lookup (`RESOLVED_REFERENCE_NAMESPACES`), so they're
- * never rejected as an unknown case type. Returns the rejection message, or
+ * `/`. `#form/` and `#user/` are resolved by the wire before any per-type
+ * lookup (`RESOLVED_REFERENCE_NAMESPACES`), so they are never rejected as an
+ * unknown case type. Returns the rejection message, or
  * `undefined` when accepted (the caller owns the error `code` + `position`).
  *
  * Survey forms get an empty accept map (`caseRefAcceptMap`), so on a survey no

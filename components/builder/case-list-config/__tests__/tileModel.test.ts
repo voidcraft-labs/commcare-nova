@@ -43,7 +43,7 @@ function column(
 	} as Column;
 }
 
-const NAME = column("name", "Patient name", {
+const NAME = column("case_name", "Patient name", {
 	tile: tileCell(0, 0, 6, 1),
 });
 const VILLAGE = column("village", "Village", {

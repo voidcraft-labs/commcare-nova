@@ -25,6 +25,7 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { duplicateFieldMutations } from "@/lib/doc/duplicateFieldMutations";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { BlueprintDocStoreApi } from "@/lib/doc/store";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { Mutation } from "@/lib/doc/types";
@@ -113,6 +114,34 @@ const GRP = testUuid("grp0-0000-0000-0000-000000000000");
 const GRP2 = testUuid("grp2-0000-0000-0000-000000000000");
 const RPT = testUuid("rpt0-0000-0000-0000-000000000000");
 const NESTED = testUuid("nst0-0000-0000-0000-000000000000");
+
+describe("persistable projection", () => {
+	it("omits an own undefined top-level clear marker", () => {
+		const doc = buildDoc({
+			modules: [
+				{
+					name: "M",
+					forms: [
+						{
+							name: "F",
+							type: "survey",
+							fields: [f({ kind: "text", id: "question" })],
+						},
+					],
+				},
+			],
+		});
+		Object.defineProperty(doc, "logo", {
+			value: undefined,
+			writable: true,
+			enumerable: true,
+			configurable: true,
+		});
+
+		expect(Object.hasOwn(doc, "logo")).toBe(true);
+		expect(Object.hasOwn(toPersistableDoc(doc), "logo")).toBe(false);
+	});
+});
 
 // ── addField ─────────────────────────────────────────────────────────────────
 

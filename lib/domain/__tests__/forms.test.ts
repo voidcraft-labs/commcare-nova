@@ -80,7 +80,7 @@ describe("formSchema — displayCondition", () => {
 		expect(
 			formSchema.safeParse({
 				...baseForm,
-				displayCondition: "#case/status = 'open'",
+				displayCondition: "#patient/status = 'open'",
 			}).success,
 		).toBe(false);
 	});

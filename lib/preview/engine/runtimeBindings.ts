@@ -24,7 +24,6 @@ import {
 import type {
 	AstMapHooks,
 	Predicate,
-	PropertyRef,
 	ValueExpression,
 } from "@/lib/domain/predicate";
 import {
@@ -36,8 +35,6 @@ import {
 	mapExpressionAst,
 	mapPredicateAst,
 	match,
-	multiSelectAll,
-	multiSelectAny,
 	prop,
 	qualifiedLiteral,
 	reduceAnd,
@@ -297,10 +294,8 @@ function clauseForInput(
 
 /**
  * Simple-arm dispatch: `(property, mode, via)` → per-mode comparison.
- * The full `SearchInputMode` object (not just `kind`) drives the
- * switch so the multi-select arm's `quantifier` slot narrows
- * naturally. Range mode reads `:from` / `:to` keys; every other mode
- * reads the bare `<input.name>` key.
+ * Range mode reads `:from` / `:to` keys; every other mode reads the bare
+ * `<input.name>` key.
  */
 function buildSimpleArmClause(
 	input: Extract<SearchInputDef, { kind: "simple" }>,
@@ -355,8 +350,6 @@ function buildSimpleArmClause(
 			return match(property, literal(value), "phonetic");
 		case "fuzzy-date":
 			return match(property, literal(value), "fuzzy-date");
-		case "multi-select-contains":
-			return buildMultiSelectClause(mode, property, value);
 		default: {
 			const _exhaustive: never = mode;
 			throw new Error(
@@ -371,33 +364,11 @@ function buildSimpleArmClause(
 						"phonetic",
 						"fuzzy-date",
 						"range",
-						"multi-select-contains",
 					],
 				}),
 			);
 		}
 	}
-}
-
-function buildMultiSelectClause(
-	mode: Extract<SearchInputMode, { kind: "multi-select-contains" }>,
-	property: PropertyRef,
-	rawValue: string,
-): Predicate | undefined {
-	const tokens = rawValue
-		.split(",")
-		.map((token) => token.trim())
-		.filter((token) => token.length > 0);
-	if (tokens.length === 0) return undefined;
-	// Explicit arrow defends against `Array.prototype.map`'s
-	// `(value, index, array)` callback contract: `tokens.map(literal)`
-	// would silently bind the per-token index to any second parameter
-	// `literal` ever grows.
-	const [first, ...rest] = tokens.map((token) => literal(token));
-	if (mode.quantifier === "all") {
-		return multiSelectAll(property, first, ...rest);
-	}
-	return multiSelectAny(property, first, ...rest);
 }
 
 function buildRangeClause(

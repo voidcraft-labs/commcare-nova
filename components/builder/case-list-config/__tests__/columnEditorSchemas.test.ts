@@ -11,15 +11,16 @@
 //      import boundary as a defense against an `as` cast
 //      bypassing the type system.
 //
-//   2. Every entry's `defaultValue(ctx)` factory produces a kind-
-//      valid AST. The schema's parse pass is the structural
-//      contract.
+//   2. Every available `defaultValue(ctx)` produces a kind-valid
+//      AST. A field-backed kind with no compatible declared property
+//      returns unavailable instead of manufacturing an unbound field.
 
 import { describe, expect, it } from "vitest";
 import { type CaseType, type Column, columnSchema } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import {
 	type ColumnEditContext,
+	canSeedColumnKind,
 	columnCardSchemas,
 	resolveColumnPropertyDataType,
 } from "../columnEditorSchemas";
@@ -27,7 +28,7 @@ import {
 const PATIENT: CaseType = {
 	name: "patient",
 	properties: [
-		{ name: "name", label: proseText("Name"), data_type: "text" },
+		{ name: "case_name", label: proseText("Name"), data_type: "text" },
 		{ name: "dob", label: proseText("Date of birth"), data_type: "date" },
 	],
 };
@@ -57,23 +58,40 @@ describe("columnCardSchemas — defaultValue parses through schema", () => {
 	for (const kind of Object.keys(columnCardSchemas) as Column["kind"][]) {
 		it(`${kind}: default parses`, () => {
 			const value = columnCardSchemas[kind].defaultValue(ctx);
+			expect(value).toBeDefined();
+			if (value === undefined) throw new Error(`expected ${kind} seed`);
 			expect(() => columnSchema.parse(value)).not.toThrow();
 		});
 	}
 
-	it("seeds canonical names from a legacy alias catalog", () => {
-		const legacyCtx: ColumnEditContext = {
+	it("returns unavailable instead of an unbound field-bearing default", () => {
+		const emptyCtx: ColumnEditContext = {
+			currentCaseType: "patient",
+			caseTypes: [{ name: "patient", properties: [] }],
+		};
+
+		for (const kind of [
+			"plain",
+			"date",
+			"phone",
+			"id-mapping",
+			"image-map",
+			"interval",
+		] as const) {
+			expect(columnCardSchemas[kind].defaultValue(emptyCtx)).toBeUndefined();
+			expect(canSeedColumnKind(emptyCtx, kind)).toBe(false);
+		}
+		expect(columnCardSchemas.calculated.defaultValue(emptyCtx)).toBeDefined();
+		expect(canSeedColumnKind(emptyCtx, "calculated")).toBe(true);
+	});
+
+	it("seeds exact standard names from the catalog", () => {
+		const standardCtx: ColumnEditContext = {
 			currentCaseType: "patient",
 			caseTypes: [
 				{
 					name: "patient",
 					properties: [
-						{ name: "name", label: proseText("Patient"), data_type: "text" },
-						{
-							name: "date-opened",
-							label: proseText("Opened"),
-							data_type: "datetime",
-						},
 						{
 							name: "case_name",
 							label: proseText("Case name"),
@@ -89,13 +107,44 @@ describe("columnCardSchemas — defaultValue parses through schema", () => {
 			],
 		};
 
-		const plain = columnCardSchemas.plain.defaultValue(legacyCtx);
-		const date = columnCardSchemas.date.defaultValue(legacyCtx);
+		const plain = columnCardSchemas.plain.defaultValue(standardCtx);
+		const date = columnCardSchemas.date.defaultValue(standardCtx);
+		expect(plain).toBeDefined();
+		expect(date).toBeDefined();
+		if (plain === undefined || date === undefined) {
+			throw new Error("expected standard property seeds");
+		}
 		expect(plain.kind === "plain" ? plain.field : "").toBe("case_name");
 		expect(date.kind === "date" ? date.field : "").toBe("date_opened");
-		expect(resolveColumnPropertyDataType(legacyCtx, "date-opened")).toBe(
+		expect(resolveColumnPropertyDataType(standardCtx, "date_opened")).toBe(
 			"datetime",
 		);
+	});
+
+	it("seeds required display kinds from an honest unknown property", () => {
+		const unknownCtx: ColumnEditContext = {
+			currentCaseType: "patient",
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{
+							name: "untyped_value",
+							label: proseText("Imported value"),
+						},
+					],
+				},
+			],
+		};
+
+		for (const kind of ["date", "phone", "interval"] as const) {
+			const value = columnCardSchemas[kind].defaultValue(unknownCtx);
+			expect(value).toBeDefined();
+			expect(canSeedColumnKind(unknownCtx, kind)).toBe(true);
+			if (value === undefined) throw new Error(`expected ${kind} seed`);
+			expect(value.field).toBe("untyped_value");
+			expect(() => columnSchema.parse(value)).not.toThrow();
+		}
 	});
 });
 
@@ -117,9 +166,8 @@ describe("columnCardSchemas — applicableForProperty", () => {
 			const schema = columnCardSchemas[k];
 			expect(schema.applicableForProperty(dateProp)).toBe(true);
 			expect(schema.applicableForProperty(textProp)).toBe(false);
-			// Unset / unresolved property — applicability stays
-			// permissive so the kind picker isn't locked out while
-			// the user is choosing a property.
+			// The type-compatibility predicate has no opinion on
+			// existence; authoring affordances apply that separate gate.
 			expect(schema.applicableForProperty(noProperty)).toBe(true);
 		}
 	});

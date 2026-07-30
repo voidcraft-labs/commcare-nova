@@ -33,8 +33,8 @@ const {
 	loadAssetByIdMock: vi.fn(),
 	deleteMediaAssetForActorMock: vi.fn(),
 	purgeAssetStorageMock: vi.fn(
-		async (_asset: unknown, opts?: { deleteRow?: () => Promise<boolean> }) =>
-			opts?.deleteRow ? opts.deleteRow() : true,
+		async (opts: { deleteRow: () => Promise<MediaAssetRecord | false> }) =>
+			(await opts.deleteRow()) !== false,
 	),
 	streamAssetMock: vi.fn(),
 	getStoredObjectSizeMock: vi.fn(() => Promise.resolve<number | null>(null)),
@@ -97,8 +97,8 @@ beforeEach(() => {
 		asset: docAsset(),
 	});
 	purgeAssetStorageMock.mockImplementation(
-		async (_asset: unknown, opts?: { deleteRow?: () => Promise<boolean> }) =>
-			opts?.deleteRow ? opts.deleteRow() : true,
+		async (opts: { deleteRow: () => Promise<MediaAssetRecord | false> }) =>
+			(await opts.deleteRow()) !== false,
 	);
 	getStoredObjectSizeMock.mockResolvedValue(100);
 	streamAssetMock.mockImplementation(() => Readable.from(Buffer.from("bytes")));
@@ -187,13 +187,13 @@ describe("DELETE media asset", () => {
 		// alsoDelete carries the document's real extract-sibling key (computed
 		// from the asset's content hash + the current extractor version).
 		expect(purgeAssetStorage).toHaveBeenCalledWith(
-			expect.objectContaining({ id: "00000000-0000-4000-8000-000000000001" }),
 			expect.objectContaining({
 				alsoDeleteForAsset: expect.any(Function),
 				deleteRow: expect.any(Function),
 			}),
 		);
-		const purgeOptions = purgeAssetStorageMock.mock.calls[0]?.[1] as {
+		expect(purgeAssetStorageMock.mock.calls[0]).toHaveLength(1);
+		const purgeOptions = purgeAssetStorageMock.mock.calls[0]?.[0] as {
 			alsoDeleteForAsset?: (asset: MediaAssetRecord) => Array<string | null>;
 		};
 		expect(purgeOptions.alsoDeleteForAsset?.(docAsset())[0]).toContain(

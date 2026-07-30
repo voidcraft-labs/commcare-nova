@@ -239,7 +239,9 @@ export function CaseAvailabilityComposer({
 							currentCaseType={currentCaseType}
 							knownInputs={inputDecls}
 							userProperties={userProperties}
-							evaluationTarget={caseSearchEnabled ? "case-search" : "on-device"}
+							evaluationTarget={
+								caseSearchEnabled ? "on-device-and-case-search" : "on-device"
+							}
 							focusRequest={
 								dependencyReview?.kind === "cases-available"
 									? dependencyReview

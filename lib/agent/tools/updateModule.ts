@@ -10,9 +10,8 @@
  * optional `case_list_columns` rides the SAME call (seeded only when the
  * module has none) — the rejection's findings stay satisfiable by
  * adjusting this call, the atomic-creation property. A case-type change
- * re-scopes what every form's references resolve to, so the gate
- * validates the batch under a full run (`scopeOfMutations` maps the
- * patch to `"full"`). Ongoing case list
+ * re-scopes what every form's references resolve to, so the absolute gate
+ * validates the complete candidate. Ongoing case list
  * authoring lives on the typed case-list-config tools (`addCaseListColumns` /
  * `updateCaseListColumn` / `removeCaseListColumn` /
  * `reorderCaseListColumns`, the matching search-input family, and the
@@ -43,6 +42,7 @@ import {
 	asUuid,
 	type BlueprintDoc,
 	findAuthoredBlueprintIdentity,
+	type Uuid,
 } from "@/lib/domain";
 import { updateModuleMutations } from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
@@ -91,7 +91,9 @@ export const updateModuleInputSchema = moduleAddressSchema
 export type UpdateModuleInput = z.infer<typeof updateModuleInputSchema>;
 
 /** Human-readable success string or an error record. */
-export type UpdateModuleResult = MutationSuccess | { error: string };
+export type UpdateModuleResult =
+	| (MutationSuccess & { columns: Array<{ uuid: Uuid }> })
+	| { error: string };
 
 export const updateModuleTool = {
 	description:
@@ -246,6 +248,9 @@ export const updateModuleTool = {
 					message: `Successfully updated module "${newMod.name}" (UUID ${moduleUuid})${
 						case_type != null ? ` — case type: ${newMod.caseType}` : ""
 					}.`,
+					columns: (seedColumns ?? []).map((column) => ({
+						uuid: column.uuid,
+					})),
 					summary: { subject: newMod.name } satisfies ToolCallSummary,
 				},
 			};

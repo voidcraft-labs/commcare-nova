@@ -29,7 +29,6 @@ import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import {
 	type CaseProperty,
 	type Column,
-	canonicalCasePropertyName,
 	isStandardCaseListProperty,
 } from "@/lib/domain";
 import { useCanEdit } from "@/lib/session/hooks";
@@ -53,13 +52,13 @@ export interface DisplayFieldComposerProps {
 }
 
 function isCommonCaseProperty(property: CaseProperty): boolean {
-	const name = canonicalCasePropertyName(property.name);
+	const name = property.name;
 	return name === "case_name" || !isStandardCaseListProperty(name);
 }
 
 function isCommonCaseColumn(column: Column): boolean {
 	if (column.kind === "calculated") return true;
-	const name = canonicalCasePropertyName(column.field);
+	const name = column.field;
 	return name === "case_name" || !isStandardCaseListProperty(name);
 }
 
@@ -297,7 +296,6 @@ export function AddInformationControl({
 	repeatableProperties,
 	brokenColumns,
 	onShow,
-	onRepair,
 	onCreate,
 	onCreateCalculated,
 	createDisabledReason,
@@ -311,7 +309,6 @@ export function AddInformationControl({
 	readonly repeatableProperties: readonly CaseProperty[];
 	readonly brokenColumns: ReadonlySet<string>;
 	readonly onShow: (column: Column) => void;
-	readonly onRepair: (column: Column) => void;
 	readonly onCreate: (property: CaseProperty) => void;
 	readonly onCreateCalculated: () => void;
 	readonly createDisabledReason: string | undefined;
@@ -321,18 +318,12 @@ export function AddInformationControl({
 	const allProperties = useMemo(() => {
 		const byName = new Map<string, CaseProperty>();
 		for (const property of [...properties, ...repeatableProperties]) {
-			byName.set(canonicalCasePropertyName(property.name), property);
+			byName.set(property.name, property);
 		}
 		return [...byName.values()];
 	}, [properties, repeatableProperties]);
 	const propertyByName = useMemo(
-		() =>
-			new Map(
-				allProperties.map((property) => [
-					canonicalCasePropertyName(property.name),
-					property,
-				]),
-			),
+		() => new Map(allProperties.map((property) => [property.name, property])),
 		[allProperties],
 	);
 	type ChoiceValue =
@@ -351,7 +342,7 @@ export function AddInformationControl({
 				allProperties,
 			);
 			return {
-				id: `${repeat ? "repeat" : "property"}:${canonicalCasePropertyName(property.name)}`,
+				id: `${repeat ? "repeat" : "property"}:${property.name}`,
 				label: propertyDisplayLabel(property),
 				detail: [
 					propertyTypeLabel(property),
@@ -391,7 +382,7 @@ export function AddInformationControl({
 			const property =
 				column.kind === "calculated"
 					? undefined
-					: propertyByName.get(canonicalCasePropertyName(column.field));
+					: propertyByName.get(column.field);
 			const valueKind =
 				column.kind === "calculated"
 					? "Calculated value"
@@ -497,11 +488,7 @@ export function AddInformationControl({
 						onCreate(choice.value.property);
 						return;
 					case "column":
-						if (brokenColumns.has(choice.value.column.uuid)) {
-							onRepair(choice.value.column);
-						} else {
-							onShow(choice.value.column);
-						}
+						onShow(choice.value.column);
 				}
 			}}
 			trigger={

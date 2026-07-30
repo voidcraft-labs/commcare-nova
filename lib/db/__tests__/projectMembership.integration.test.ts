@@ -24,7 +24,7 @@ import {
 	resolveAppScopeInTransaction,
 	resolveAuthorizedAppSnapshot,
 } from "../appAccess";
-import { loadAppInTransaction, withAuthorizedAppEditSideEffect } from "../apps";
+import { loadAppInTransaction } from "../apps";
 import { CommitReauthError, RunHolderLostError } from "../commitGuard";
 import { projectRoleForInTransaction } from "../projectMembership";
 import {
@@ -175,7 +175,18 @@ describe("Project membership advisory gate", () => {
 		const appId = await h.seedAppWithBlueprint(
 			buildDoc({
 				appName: "Snapshot app",
-				modules: [{ name: "Visits", forms: [] }],
+				modules: [
+					{
+						name: "Visits",
+						forms: [
+							{
+								name: "Visit",
+								type: "survey",
+								fields: [{ kind: "text", id: "question" }],
+							},
+						],
+					},
+				],
 			}),
 			{ owner: USER, projectId: PROJECT },
 		);
@@ -222,7 +233,18 @@ describe("Project membership advisory gate", () => {
 		const appId = await h.seedAppWithBlueprint(
 			buildDoc({
 				appName: "Before app",
-				modules: [{ name: "Before module", forms: [] }],
+				modules: [
+					{
+						name: "Before module",
+						forms: [
+							{
+								name: "Before form",
+								type: "survey",
+								fields: [{ kind: "text", id: "question" }],
+							},
+						],
+					},
+				],
 			}),
 			{ owner: USER, projectId: PROJECT },
 		);
@@ -273,7 +295,18 @@ describe("Project membership advisory gate", () => {
 		const appId = await h.seedAppWithBlueprint(
 			buildDoc({
 				appName: "Snapshot first",
-				modules: [{ name: "Stable module", forms: [] }],
+				modules: [
+					{
+						name: "Stable module",
+						forms: [
+							{
+								name: "Stable form",
+								type: "survey",
+								fields: [{ kind: "text", id: "question" }],
+							},
+						],
+					},
+				],
 			}),
 			{ owner: USER, projectId: PROJECT },
 		);
@@ -571,13 +604,19 @@ describe("Project membership advisory gate", () => {
 			);
 			const mutatorPid = await backendPid(mutator);
 
-			sideEffect = withAuthorizedAppEditSideEffect(
-				appId,
-				USER,
-				PROJECT,
-				undefined,
-				async () => {
-					effectCalled = true;
+			sideEffect = commitGuardedBatch(
+				{
+					appId,
+					batchId: crypto.randomUUID(),
+					mutations: [],
+					actorUserId: USER,
+					kind: "autosave",
+					expectedProjectId: PROJECT,
+				},
+				{
+					beforeWrite: async () => {
+						effectCalled = true;
+					},
 				},
 			).then(
 				() => ({ ok: true as const }),
@@ -622,26 +661,30 @@ describe("Project membership advisory gate", () => {
 		let effectCalled = false;
 
 		await expect(
-			withAuthorizedAppEditSideEffect(
-				appId,
-				USER,
-				PROJECT,
+			commitGuardedBatch(
 				{
-					source: "chat",
-					mode: "build",
+					appId,
+					batchId: crypto.randomUUID(),
 					runId: "stale-build",
-					nonce: HOLDER_NONCE,
+					chatRunHolder: {
+						source: "chat",
+						mode: "build",
+						runId: "stale-build",
+						nonce: HOLDER_NONCE,
+					},
+					mutations: [],
+					actorUserId: USER,
+					kind: "chat",
+					expectedProjectId: PROJECT,
 				},
-				async (tx) => {
-					effectCalled = true;
-					await tx
-						.insertInto("case_type_schemas")
-						.values({
-							app_id: appId,
-							case_type: "patient",
-							schema: JSON.stringify({ type: "object", properties: {} }),
-						})
-						.execute();
+				{
+					beforeWrite: async ({ tx }) => {
+						effectCalled = true;
+						await sql`
+							INSERT INTO case_type_schemas (app_id, case_type, schema)
+							VALUES (${appId}, 'patient', '{"type":"object","properties":{}}'::jsonb)
+						`.execute(tx);
+					},
 				},
 			),
 		).rejects.toBeInstanceOf(RunHolderLostError);
@@ -681,27 +724,35 @@ describe("Project membership advisory gate", () => {
 			| Promise<{ ok: true } | { ok: false; error: unknown }>
 			| undefined;
 		try {
-			const sideEffect = withAuthorizedAppEditSideEffect(
-				appId,
-				USER,
-				PROJECT,
-				undefined,
-				async (tx) => {
-					const identity = await sql<{ pid: number }>`
+			const sideEffect = commitGuardedBatch(
+				{
+					appId,
+					batchId: crypto.randomUUID(),
+					mutations: [
+						{
+							kind: "setAppName",
+							name: "Membership side effect committed",
+						},
+					],
+					actorUserId: USER,
+					kind: "autosave",
+					expectedProjectId: PROJECT,
+				},
+				{
+					beforeWrite: async ({ tx }) => {
+						const identity = await sql<{ pid: number }>`
 						SELECT pg_backend_pid() AS pid
 					`.execute(tx);
-					const pid = identity.rows[0]?.pid;
-					if (pid === undefined) throw new Error("missing Phase-A backend pid");
-					await tx
-						.insertInto("case_type_schemas")
-						.values({
-							app_id: appId,
-							case_type: "patient",
-							schema: JSON.stringify({ type: "object", properties: {} }),
-						})
-						.execute();
-					phaseAStarted.resolve(pid);
-					await releasePhaseA.promise;
+						const pid = identity.rows[0]?.pid;
+						if (pid === undefined)
+							throw new Error("missing Phase-A backend pid");
+						await sql`
+						INSERT INTO case_type_schemas (app_id, case_type, schema)
+						VALUES (${appId}, 'patient', '{"type":"object","properties":{}}'::jsonb)
+					`.execute(tx);
+						phaseAStarted.resolve(pid);
+						await releasePhaseA.promise;
+					},
 				},
 			);
 

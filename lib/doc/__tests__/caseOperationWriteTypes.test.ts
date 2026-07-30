@@ -58,7 +58,10 @@ function fixture(): {
 								kind: "date",
 								id: "field_written",
 								label: proseText("Field written"),
-								case_property_on: "patient",
+								caseWrite: {
+									caseType: "patient",
+									property: "field_written",
+								},
 							}),
 						],
 					},

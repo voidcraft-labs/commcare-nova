@@ -40,13 +40,13 @@ const PATIENT: CaseType = {
 	name: "patient",
 	properties: [
 		{ name: "age", label: proseText("Age"), data_type: "int" },
-		{ name: "name", label: proseText("Name"), data_type: "text" },
+		{ name: "case_name", label: proseText("Case name"), data_type: "text" },
 	],
 };
 
 describe("ComparisonCard — inline errors", () => {
 	it("renders no error rows for a well-typed comparison", () => {
-		const value = eq(prop("patient", "name"), literal("Alice"));
+		const value = eq(prop("patient", "case_name"), literal("Alice"));
 		const { container } = render(
 			<PredicateCardEditor
 				value={value}
@@ -130,7 +130,7 @@ describe("ComparisonCard — exhaustive subject authoring", () => {
 	}
 
 	it("keeps the common property subject compact", () => {
-		renderEditor(eq(prop("patient", "name"), literal("Alice")));
+		renderEditor(eq(prop("patient", "case_name"), literal("Alice")));
 
 		expect(
 			screen.getByRole("button", {
@@ -170,7 +170,7 @@ describe("ComparisonCard — exhaustive subject authoring", () => {
 
 	it("authors a search answer as the subject and stays valid", async () => {
 		const onChange = renderEditor(
-			eq(prop("patient", "name"), literal("Alice")),
+			eq(prop("patient", "case_name"), literal("Alice")),
 		);
 
 		fireEvent.click(
@@ -199,7 +199,7 @@ describe("ComparisonCard — exhaustive subject authoring", () => {
 
 	it("authors app information as the subject and stays valid", async () => {
 		const onChange = renderEditor(
-			eq(prop("patient", "name"), literal("Alice")),
+			eq(prop("patient", "case_name"), literal("Alice")),
 		);
 
 		fireEvent.click(
@@ -228,7 +228,7 @@ describe("ComparisonCard — exhaustive subject authoring", () => {
 
 	it("collects a schema-valid user field before replacing case information", async () => {
 		const onChange = renderEditor(
-			eq(prop("patient", "name"), literal("Alice")),
+			eq(prop("patient", "case_name"), literal("Alice")),
 		);
 
 		fireEvent.click(

@@ -11,7 +11,6 @@ import {
 	gt,
 	idOf,
 	input,
-	isNull,
 	literal,
 	match,
 	matchAll,
@@ -174,9 +173,6 @@ describe("form display-condition validation", () => {
 	});
 
 	it("rejects non-portable on-device operators", () => {
-		expect(validateForm(isNull(prop("patient", "status")))).toContain(
-			"DISPLAY_CONDITION_NOT_ON_DEVICE",
-		);
 		expect(
 			validateForm(match(prop("patient", "status"), literal("open"), "fuzzy")),
 		).toContain("DISPLAY_CONDITION_NOT_ON_DEVICE");

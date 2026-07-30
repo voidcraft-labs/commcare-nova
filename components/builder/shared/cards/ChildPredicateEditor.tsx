@@ -41,8 +41,6 @@ import {
 	COMPARISON_KINDS,
 	type ComparisonKind,
 	exists,
-	isBlank,
-	isNull,
 	missing,
 	not,
 	or,
@@ -56,7 +54,6 @@ import {
 	usePredicateEditContext,
 } from "../editorContext";
 import {
-	isAuthorablePredicateKind,
 	type PredicateCardSchema,
 	type PredicateEditContext,
 	predicateCardSchemaList,
@@ -124,7 +121,6 @@ const SENTENCE_KINDS: ReadonlySet<Predicate["kind"]> = new Set([
 	"match",
 	"multi-select-contains",
 	"within-distance",
-	"is-null",
 	"is-blank",
 	"match-all",
 	"match-none",
@@ -276,7 +272,7 @@ function subjectNodes(
 	value: Extract<
 		Predicate,
 		{
-			kind: ComparisonKind | "in" | "between" | "is-null" | "is-blank";
+			kind: ComparisonKind | "in" | "between" | "is-blank";
 		}
 	>["left"],
 ): readonly object[] {
@@ -375,7 +371,6 @@ function preservationGroups(value: Predicate): readonly PreservationGroup[] {
 				{ values: [value.property], allLost: "the location" },
 				{ values: valueNodes(value.center), allLost: "the center point" },
 			];
-		case "is-null":
 		case "is-blank":
 			return [{ values: subjectNodes(value.left), allLost: "the subject" }];
 		case "and":
@@ -577,17 +572,13 @@ const COMPARISON_KIND_SET: ReadonlySet<Predicate["kind"]> = new Set(
 /**
  * Map a kind to the structural-twin set it shares — pairs of
  * kinds with identical operand shapes that the editor preserves
- * verbatim across replacement. Four twin groups, one per operand
+ * verbatim across replacement. Three twin groups, one per operand
  * shape:
  *
  *   - `{ clauses: [Predicate, ...Predicate[]] }` — `and` ↔ `or`.
  *     Switching the discriminator preserves the author's clause
  *     list verbatim. Routes through the matching `and` / `or`
  *     builder so the construction-time reductions apply.
- *   - `{ left: ValueExpression }` — `is-null` ↔ `is-blank`.
- *     Same `left` shape; the two operators differ only in the
- *     strict-vs-portable absence semantic. Routes through the
- *     matching `isNull` / `isBlank` builder.
  *   - `{ left, right: ValueExpression }` — the six comparison
  *     kinds (`eq` / `neq` / `gt` / `gte` / `lt` / `lte`). Routes
  *     through `COMPARISON_BUILDERS` (the table exported by
@@ -624,14 +615,6 @@ export function preservedOperandSwap(
 		return (builder as (...args: Predicate[]) => Predicate)(
 			...currentValue.clauses,
 		);
-	}
-	// is-null ↔ is-blank — same `{ left }`.
-	if (
-		(currentValue.kind === "is-null" || currentValue.kind === "is-blank") &&
-		(targetKind === "is-null" || targetKind === "is-blank")
-	) {
-		const builder = targetKind === "is-null" ? isNull : isBlank;
-		return builder(currentValue.left);
 	}
 	// Comparison ↔ comparison — same `{ left, right }`.
 	if (
@@ -779,63 +762,56 @@ export function PredicateKindReplaceMenu({
 						style={{ minWidth: "18rem", maxHeight: 320 }}
 					>
 						<DropdownMenuPopup className="max-h-80 min-w-0">
-							{predicateCardSchemaList
-								.filter(
-									(s) =>
-										s.kind === currentKind || isAuthorablePredicateKind(s.kind),
-								)
-								.map((s) => {
-									const isCurrent = s.kind === currentKind;
-									const isApplicable = s.applicable(editCtx);
-									return (
-										<DropdownMenuItem
-											key={s.kind}
-											onClick={() => replaceWith(s)}
-											// Current kind is not a valid replacement target —
-											// clicking it would re-render an identical predicate.
-											// Inapplicable kinds (per the schema's `applicable`
-											// predicate — e.g. `multi-select-contains` on a case
-											// type without a multi_select property) are disabled
-											// WITH a reason so the editor never offers a swap that
-											// would author a kind whose semantics don't fit the
-											// scope. The current kind stays rendered regardless of
-											// its own applicability (legacy-open backstop).
-											// Symmetric with the kind-replace menu in
-											// `primitives/ExpressionPicker.tsx`.
-											disabled={isCurrent || !isApplicable}
+							{predicateCardSchemaList.map((s) => {
+								const isCurrent = s.kind === currentKind;
+								const isApplicable = s.applicable(editCtx);
+								return (
+									<DropdownMenuItem
+										key={s.kind}
+										onClick={() => replaceWith(s)}
+										// Current kind is not a valid replacement target —
+										// clicking it would re-render an identical predicate.
+										// Inapplicable kinds (per the schema's `applicable`
+										// predicate — e.g. `multi-select-contains` on a case
+										// type without a multi_select property) are disabled
+										// WITH a reason so the editor never offers a swap that
+										// would author a kind whose semantics don't fit the
+										// scope. Symmetric with the kind-replace menu in
+										// `primitives/ExpressionPicker.tsx`.
+										disabled={isCurrent || !isApplicable}
+										className={
+											isCurrent
+												? "bg-nova-violet/10 text-nova-violet-bright"
+												: ""
+										}
+									>
+										<Icon
+											icon={s.icon}
+											width="14"
+											height="14"
 											className={
 												isCurrent
-													? "bg-nova-violet/10 text-nova-violet-bright"
-													: ""
+													? "text-nova-violet-bright"
+													: "text-nova-text-muted"
 											}
-										>
-											<Icon
-												icon={s.icon}
-												width="14"
-												height="14"
-												className={
+										/>
+										<span className="flex-1 text-left min-w-0">
+											<div className="break-words">{s.label}</div>
+											<div
+												className={`break-words text-xs ${
 													isCurrent
 														? "text-nova-violet-bright"
 														: "text-nova-text-muted"
-												}
-											/>
-											<span className="flex-1 text-left min-w-0">
-												<div className="break-words">{s.label}</div>
-												<div
-													className={`break-words text-xs ${
-														isCurrent
-															? "text-nova-violet-bright"
-															: "text-nova-text-muted"
-													}`}
-												>
-													{isApplicable
-														? s.description
-														: predicateUnavailableReason(s.kind, editCtx)}
-												</div>
-											</span>
-										</DropdownMenuItem>
-									);
-								})}
+												}`}
+											>
+												{isApplicable
+													? s.description
+													: predicateUnavailableReason(s.kind, editCtx)}
+											</div>
+										</span>
+									</DropdownMenuItem>
+								);
+							})}
 						</DropdownMenuPopup>
 					</DropdownMenuPositioner>
 				</DropdownMenuPortal>

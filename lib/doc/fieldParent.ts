@@ -11,6 +11,7 @@
 
 import { asUuid, type BlueprintDoc, type Uuid } from "@/lib/doc/types";
 import {
+	blueprintDocSchema,
 	blueprintTopologyIssues,
 	type PersistableDoc,
 	recordFromEntries,
@@ -65,18 +66,24 @@ export function rebuildFieldParent(doc: BlueprintDoc): void {
  * consumed by clients that rebuild their own indexes.
  */
 export function toPersistableDoc(doc: BlueprintDoc): PersistableDoc {
-	const { fieldParent: _fp, refIndex: _ri, ...persistable } = doc;
-	return persistable;
+	const source = doc as unknown as Record<string, unknown>;
+	return Object.fromEntries(
+		Object.keys(blueprintDocSchema.shape).flatMap((key) =>
+			Object.hasOwn(source, key) && source[key] !== undefined
+				? [[key, source[key]] as const]
+				: [],
+		),
+	) as PersistableDoc;
 }
 
 /**
  * The single stored-blueprint → in-memory hydration chokepoint.
  *
- * Turn a persisted `PersistableDoc` (the on-disk shape: no derived
- * `fieldParent`, and — on a LEGACY app — no `order` keys or select-option
- * `uuid`s) into a working `BlueprintDoc`. EVERY boundary that reads a stored
- * blueprint into a doc it will display, diff, mutate, or emit routes through
- * here, so record normalization and derived indexes are identical everywhere.
+ * Turn a final-schema `PersistableDoc` (the on-disk shape without derived
+ * `fieldParent`) into a working `BlueprintDoc`. EVERY boundary that reads a
+ * stored blueprint into a doc it will display, diff, mutate, or emit routes
+ * through here, so record normalization and derived indexes are identical
+ * everywhere.
  *
  * Deep-clones its input so hydration never mutates the caller's stored
  * snapshot. Persisted authoring identities are already canonical; hydration

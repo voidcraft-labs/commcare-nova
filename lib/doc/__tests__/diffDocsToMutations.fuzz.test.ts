@@ -124,13 +124,16 @@ function richDoc(): BlueprintDoc {
 								kind: "text",
 								id: "case_name",
 								label: proseText("Name"),
-								case_property_on: "patient",
+								caseWrite: {
+									caseType: "patient",
+									property: "case_name",
+								},
 							}),
 							f({
 								kind: "int",
 								id: "age",
 								label: proseText("Age"),
-								case_property_on: "patient",
+								caseWrite: { caseType: "patient", property: "age" },
 							}),
 							f({
 								kind: "group",
@@ -164,7 +167,7 @@ function richDoc(): BlueprintDoc {
 								kind: "text",
 								id: "village",
 								label: proseText("Village"),
-								case_property_on: "patient",
+								caseWrite: { caseType: "patient", property: "village" },
 							}),
 						],
 					},
@@ -182,7 +185,7 @@ function richDoc(): BlueprintDoc {
 								kind: "text",
 								id: "region",
 								label: proseText("Region"),
-								case_property_on: "household",
+								caseWrite: { caseType: "household", property: "region" },
 							}),
 						],
 					},
@@ -218,7 +221,7 @@ const XPATH_POOL = [
 	"#form/age > 17",
 	"/data/village != ''",
 	"#patient/age > 0",
-	"#case/age = '1'",
+	"#patient/age = '1'",
 	"",
 ];
 const LABEL_POOL = ["Plain", "See #patient/age", "Check stuff"];
@@ -516,24 +519,27 @@ function lower(doc: BlueprintDoc, op: FuzzOp): Mutation[] {
 				? parentUuid
 				: findContainingForm(doc, parentUuid);
 			const caseProp = CASE_TYPE_POOL[op.casePropPick];
+			const id = ID_POOL[op.idPick];
 			const field = op.asGroup
 				? ({
 						uuid: mintUuid(),
 						kind: "group",
-						id: ID_POOL[op.idPick],
+						id,
 						label: proseText("Group"),
 					} as never)
 				: ({
 						uuid: mintUuid(),
 						kind: "text",
-						id: ID_POOL[op.idPick],
+						id,
 						label: proseText(LABEL_POOL[op.labelPick]),
 						relevant: parseXPathForForm(
 							doc,
 							formUuid,
 							XPATH_POOL[op.relevantPick],
 						),
-						...(caseProp && { case_property_on: caseProp }),
+						...(caseProp && {
+							caseWrite: { caseType: caseProp, property: id },
+						}),
 					} as never);
 			return [{ kind: "addField", parentUuid, field }];
 		}
@@ -973,13 +979,16 @@ describe("diffDocsToMutations — explicit cases", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Name"),
-									case_property_on: "patient",
+									caseWrite: {
+										caseType: "patient",
+										property: "case_name",
+									},
 								},
 								{
 									kind: "int",
 									id: "age",
 									label: proseText("Age"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "age" },
 								},
 							],
 						},

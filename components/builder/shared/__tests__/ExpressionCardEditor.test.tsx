@@ -43,7 +43,7 @@ const PATIENT: CaseType = {
 	parent_type: "household",
 	properties: [
 		{ name: "age", label: proseText("Age"), data_type: "int" },
-		{ name: "name", label: proseText("Name"), data_type: "text" },
+		{ name: "case_name", label: proseText("Case name"), data_type: "text" },
 		{ name: "dob", label: proseText("Date of birth"), data_type: "date" },
 	],
 };
@@ -149,7 +149,7 @@ describe("ExpressionCardEditor — recursive nesting", () => {
 	it("renders an `if` card with a Predicate cond and ValueExpression branches", () => {
 		const value = ifExpr(
 			matchAll(),
-			term(prop("patient", "name")),
+			term(prop("patient", "case_name")),
 			term(literal("default")),
 		);
 		const onValidityChange = vi.fn();

@@ -1,8 +1,8 @@
 /**
  * SA-facing input schemas for the data-model tool (`generateSchema` —
- * it commits the case-type catalog onto the app) and the per-form
- * close-condition + Connect shapes the creation tools and `updateForm`
- * share.
+ * it commits the case-type catalog onto the app), the per-form
+ * close-condition creation/update shape, and the Connect shapes shared by
+ * `configureConnect` and `updateForm`.
  *
  * Separate from the field-mutation tool schemas in `toolSchemas.ts`
  * because these describe whole-app structure at the case-type level,
@@ -31,7 +31,7 @@
 import { z } from "zod";
 import { CONNECT_ID_FIELD_DESCRIPTION } from "@/lib/commcare/connectSlugs";
 import {
-	canonicalCasePropertyName,
+	authoredCasePropertyNameSchema,
 	proseTemplateSchema,
 	uuidSchema,
 	xpathExpressionSchema,
@@ -76,15 +76,12 @@ const selectOptionDescribed = z
 
 const casePropertyDescribed = z
 	.object({
-		name: z
-			.string()
-			.min(1)
-			.describe(
-				"Property name in snake_case. " +
-					`Must NOT be a reserved word: ${RESERVED_CASE_PROPERTIES}. ` +
-					"Must NOT be media/binary (photos, audio, video, signatures). " +
-					'Use descriptive alternatives (e.g. "visit_date" not "date"). For a case or person display name, use the canonical "case_name" field—not "name", "full_name", or another duplicate. Standard metadata such as "external_id", "date_opened", and lifecycle "status" is implicit and should be referenced directly rather than added as custom catalog properties.',
-			),
+		name: authoredCasePropertyNameSchema.describe(
+			"Property name in snake_case. " +
+				`Must NOT be a reserved word: ${RESERVED_CASE_PROPERTIES}. ` +
+				"Must NOT be media/binary (photos, audio, video, signatures). " +
+				'Use descriptive alternatives (e.g. "visit_date" not "date"). For a case or person display name, use the canonical "case_name" field—not "name", "full_name", or another duplicate. Standard metadata such as "external_id", "date_opened", and lifecycle "status" is implicit and should be referenced directly rather than added as custom catalog properties.',
+		),
 		label: proseTemplateSchema.describe(
 			"Human-readable label for this property. Used as the default field label in all forms.",
 		),
@@ -188,19 +185,18 @@ export const caseTypeRecordSchema = z
 				message: `Case type "${record.name}" has a relationship but no parent_type — relationship describes how a child links to its parent. Set parent_type to the owning case type, or pass null for relationship (a standalone case type has null for both).`,
 			});
 		}
-		const seenCanonical = new Map<string, number>();
+		const seen = new Map<string, number>();
 		for (const [index, property] of record.properties.entries()) {
-			const canonical = canonicalCasePropertyName(property.name);
-			const firstIndex = seenCanonical.get(canonical);
+			const firstIndex = seen.get(property.name);
 			if (firstIndex !== undefined) {
 				ctx.addIssue({
 					code: "custom",
 					path: ["properties", index, "name"],
-					message: `Case type "${record.name}" lists "${property.name}" and "${record.properties[firstIndex].name}", but both mean Nova property "${canonical}". Keep one definition under the canonical name "${canonical}".`,
+					message: `Case type "${record.name}" lists property "${property.name}" more than once. Keep one definition.`,
 				});
 				continue;
 			}
-			seenCanonical.set(canonical, index);
+			seen.set(property.name, index);
 		}
 	});
 
@@ -224,10 +220,7 @@ export function cleanCaseTypeRecord(
 		Object.fromEntries(Object.entries(obj).filter(([, v]) => v != null));
 	return {
 		name: record.name,
-		properties: record.properties.map((p) => ({
-			...nonNull(p),
-			name: canonicalCasePropertyName(p.name),
-		})),
+		properties: record.properties.map((p) => nonNull(p)),
 		...(record.parent_type != null && { parent_type: record.parent_type }),
 		...(record.relationship != null && { relationship: record.relationship }),
 	};
@@ -270,20 +263,21 @@ export const closeConditionInputSchema = z
 // ── Per-form Connect block ──────────────────────────────────────────
 
 /**
- * Per-form Connect config — the ONE SA-facing input shape for a form's
- * `connect` block, shared by the creation tools (`createForm` /
- * `createModule`) and `updateForm`. A block marks that the form
+ * Per-form Connect config — the ONE SA-facing input shape for a complete
+ * participant inside `configureConnect`, with the same base shape reused by
+ * `updateForm` for a partial edit to an existing participant. A block marks
+ * that the form
  * PARTICIPATES in Connect; a form without one is auxiliary — Connect's
  * ingestion scans per form and silently skips blockless forms
  * (`commcare_connect/opportunity/app_xml.py::extract_modules`). The
- * validator's only coverage demand is the app-level floor of one
- * participating form (`CONNECT_NO_PARTICIPATING_FORMS`), so the
- * creation call is where a participating form's block lands.
+ * validator's coverage demand is the app-level floor of one participating
+ * form (`CONNECT_NO_PARTICIPATING_FORMS`), and `configureConnect` lands the
+ * complete set atomically after every target form has a UUID.
  *
  * ONE shape, two refinements — the same object can't be gated the same
  * way on both surfaces because null means different things there (the
- * shared input contract): on creation null ≡ omitted, so an all-empty
- * block opts into nothing and is rejected (`connectFormConfigSchema` —
+ * shared input contract): in an exact target, null ≡ omitted, so an all-empty
+ * participant opts into nothing and is rejected (`connectFormConfigSchema` —
  * the failure mode it invites is a model padding every form with an
  * empty block "just in case"); on `updateForm`'s patch an omitted
  * sub-config keeps its current value and an explicit null REMOVES it,
@@ -383,8 +377,8 @@ const connectFormConfigShape = z
 	})
 	.strict();
 
-/** The creation-surface refinement: null ≡ omitted there, so a block
- *  with no non-null sub-config opts the form into nothing. */
+/** The exact-target refinement: null ≡ omitted there, so a participant with
+ *  no non-null sub-config opts the form into nothing. */
 export const connectFormConfigSchema = connectFormConfigShape.superRefine(
 	(connect, ctx) => {
 		if (
@@ -396,7 +390,7 @@ export const connectFormConfigSchema = connectFormConfigShape.superRefine(
 			ctx.addIssue({
 				code: "custom",
 				message:
-					"An empty connect block doesn't opt the form into anything. Give it the sub-config that matches the form's content — learn_module/assessment on a learn app, deliver_unit/task on a deliver app — or pass null for the whole `connect` slot on a form that doesn't participate.",
+					"An empty Connect participant doesn't opt the form into anything. Give it the sub-config that matches the form's content — learn_module/assessment on a learn app, deliver_unit/task on a deliver app — or leave the form out of configureConnect's complete participant set.",
 			});
 		}
 	},
@@ -417,7 +411,7 @@ export const connectFormPatchSchema = connectFormConfigShape.superRefine(
 			ctx.addIssue({
 				code: "custom",
 				message:
-					"This connect patch names no sub-config, so it changes nothing. State the sub-configs to set (omitted ones keep their current value), pass null on a sub-config to remove just it, or pass null for the whole `connect` slot to drop the form's Connect participation.",
+					"This connect patch names no sub-config, so it changes nothing. State the sub-configs to set (omitted ones keep their current value), or pass null on one sub-config to remove it while another remains. Use configureConnect/configure_connect for participant-set changes.",
 			});
 		}
 	},

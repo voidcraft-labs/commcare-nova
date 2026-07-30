@@ -23,6 +23,7 @@ import {
 	type CaseType,
 	fallbackProseProjection,
 } from "@/lib/domain";
+import { caseRowDisplaySourceValue } from "@/lib/preview/engine/caseDataBindingClient";
 import type { JsonValue } from "@/lib/preview/engine/caseDataBindingTypes";
 import { useCaseData } from "@/lib/preview/hooks/useCaseDataBinding";
 import { useAccessPhase } from "@/lib/session/hooks";
@@ -36,9 +37,10 @@ import { DATA_TYPE_ICONS, NameChip } from "./NameChip";
  */
 function displayCaseValue(
 	decl: CaseProperty | undefined,
-	raw: JsonValue | undefined,
+	raw: JsonValue | Date | undefined,
 ): string {
 	if (raw === undefined || raw === null || raw === "") return "";
+	if (raw instanceof Date) return raw.toISOString();
 	const optionLabel = (value: string): string => {
 		const option = decl?.options?.find(
 			(candidate) => candidate.value === value,
@@ -128,10 +130,16 @@ export function CaseDetailDialog({
 	}> = [];
 	if (row !== null) {
 		const seen = new Set<string>(["case_name"]);
+		const caseNameDecl = caseType.properties.find(
+			(property) => property.name === "case_name",
+		);
 		rows.push({
 			key: "case_name",
-			decl: caseType.properties.find((p) => p.name === "case_name"),
-			value: row.case_name,
+			decl: caseNameDecl,
+			value: displayCaseValue(
+				caseNameDecl,
+				caseRowDisplaySourceValue(row, "case_name"),
+			),
 		});
 		for (const decl of caseType.properties) {
 			if (seen.has(decl.name)) continue;
@@ -139,15 +147,18 @@ export function CaseDetailDialog({
 			rows.push({
 				key: decl.name,
 				decl,
-				value: displayCaseValue(decl, row.properties[decl.name]),
+				value: displayCaseValue(
+					decl,
+					caseRowDisplaySourceValue(row, decl.name),
+				),
 			});
 		}
-		for (const [key, value] of Object.entries(row.properties)) {
+		for (const key of Object.keys(row.properties)) {
 			if (seen.has(key)) continue;
 			rows.push({
 				key,
 				decl: undefined,
-				value: displayCaseValue(undefined, value),
+				value: displayCaseValue(undefined, caseRowDisplaySourceValue(row, key)),
 			});
 		}
 	}

@@ -193,7 +193,10 @@ function makeDoc(): BlueprintDoc {
 								kind: "text",
 								id: "case_name",
 								label: proseText("Client name"),
-								case_property_on: "client",
+								caseWrite: {
+									caseType: "client",
+									property: "case_name",
+								},
 							}),
 						],
 					},

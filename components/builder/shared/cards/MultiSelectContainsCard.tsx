@@ -25,11 +25,7 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/shadcn/dropdown-menu";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
-import {
-	type CaseProperty,
-	canonicalCasePropertyName,
-	fallbackProseProjection,
-} from "@/lib/domain";
+import { type CaseProperty, fallbackProseProjection } from "@/lib/domain";
 import {
 	type Literal,
 	literal,
@@ -70,7 +66,7 @@ export function multiSelectContainsDefault(
 ): Extract<Predicate, { kind: "multi-select-contains" }> {
 	const ct = ctx.caseTypes.find((c) => c.name === ctx.currentCaseType);
 	const property = ct?.properties.find((p) => p.data_type === "multi_select");
-	const propName = canonicalCasePropertyName(property?.name ?? "");
+	const propName = property?.name ?? "";
 	const firstOption = property?.options?.[0]?.value ?? "";
 	return multiSelectAny(
 		prop(ctx.currentCaseType, propName),

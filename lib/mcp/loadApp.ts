@@ -93,9 +93,9 @@ export async function loadAppBlueprint(
 		rethrowAsMcpAccess(err);
 	}
 	/* Split the raw blueprint off the `AppDoc` envelope so the return type
-	 * can't accidentally leak a stale blueprint through `.app`. The shared
-	 * hydration chokepoint rebuilds `fieldParent` and backfills a legacy doc's
-	 * `order`/option-`uuid`s on a clone, so `loaded.blueprint` is untouched.
+	 * can't accidentally leak a stale blueprint through `.app`. Hydration
+	 * rebuilds derived in-memory indexes on a clone of the canonical stored
+	 * document, so `loaded.blueprint` is untouched.
 	 * The reference index hydrates here too (per-boundary), so every reference
 	 * lookup the tool layer makes (retirement planning, the rename verdict's
 	 * peer scan, the rename cascade itself) is O(1) from the first call. */

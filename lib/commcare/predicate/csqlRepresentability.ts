@@ -36,15 +36,13 @@ export type CsqlRepresentabilityReason =
 	| "case-property-on-value-side"
 	| "related-count-on-value-side"
 	| "unsupported-related-count"
-	| "strict-null-not-portable"
 	| "self-relation-not-queryable"
 	| "case-query-in-runtime-value"
 	| "csql-string-not-quotable"
 	| "calendar-date-add-needs-whole-number"
 	| "subcase-count-needs-nonnegative-whole-number"
 	| "multiple-property-scopes"
-	| "form-context-value-not-csql"
-	| "lookup-table-not-active";
+	| "form-context-value-not-csql";
 
 type RuntimeValueDialect = "csql" | "on-device";
 
@@ -120,7 +118,6 @@ export function normalizeCsqlPredicate(predicate: Predicate): Predicate {
 					? { upper: normalizeExpression(predicate.upper) }
 					: {}),
 			};
-		case "is-null":
 		case "is-blank":
 			return {
 				kind: predicate.kind,
@@ -184,7 +181,6 @@ export function normalizeCsqlPredicate(predicate: Predicate): Predicate {
 						"lte",
 						"in",
 						"between",
-						"is-null",
 						"is-blank",
 						"match",
 						"within-distance",
@@ -220,7 +216,6 @@ function normalizeExpression(expression: ValueExpression): ValueExpression {
 		case "date-coerce":
 		case "datetime-coerce":
 		case "double":
-		case "unwrap-list":
 			return {
 				kind: expression.kind,
 				value: normalizeExpression(expression.value),
@@ -308,7 +303,6 @@ function normalizeExpression(expression: ValueExpression): ValueExpression {
 						"if",
 						"switch",
 						"count",
-						"unwrap-list",
 						"format-date",
 						"table-lookup",
 					],
@@ -434,15 +428,6 @@ function checkQueryPredicate(
 			}
 			return;
 		}
-		case "is-null":
-			issues.push({
-				reason: "strict-null-not-portable",
-				path,
-				message:
-					"Search treats a value that was never recorded the same as a blank value. Use 'is blank' here.",
-			});
-			checkPropertyOnlyLeft(predicate.left, [...path, "left"], issues);
-			return;
 		case "is-blank":
 			checkPropertyOnlyLeft(predicate.left, [...path, "left"], issues);
 			return;
@@ -517,7 +502,6 @@ function checkQueryPredicate(
 						"lte",
 						"in",
 						"between",
-						"is-null",
 						"is-blank",
 						"match",
 						"within-distance",
@@ -682,7 +666,6 @@ function checkRuntimeValue(
 		case "date-coerce":
 		case "datetime-coerce":
 		case "double":
-		case "unwrap-list":
 			checkRuntimeValue(
 				expression.value,
 				[...path, "value"],
@@ -785,15 +768,10 @@ function checkRuntimeValue(
 			);
 			return;
 		case "table-lookup":
-			issues.push({
-				reason: "lookup-table-not-active",
-				path,
-				message:
-					"Lookup-table expressions are not active in case search yet. Remove this lookup until lookup fixture emission is available.",
-			});
-			// This dormant boundary is terminal. The nested predicate evaluates
-			// against a lookup row, not a case-query row, so descending through
-			// `checkQueryPredicate` would manufacture case-anchor findings.
+			// This is a runtime on-device XPath fragment. Its predicate is typed
+			// and validated in lookup-row scope by the shared checker and the
+			// on-device compatibility rule; applying CSQL's case-query grammar to
+			// that nested row predicate would manufacture false anchor errors.
 			return;
 		default: {
 			const _exhaustive: never = expression;
@@ -819,7 +797,6 @@ function checkRuntimeValue(
 						"if",
 						"switch",
 						"count",
-						"unwrap-list",
 						"format-date",
 					],
 				}),
@@ -914,7 +891,6 @@ function staticallyKnownOnDeviceString(
 		case "double":
 		case "arith":
 		case "count":
-		case "unwrap-list":
 		case "format-date":
 		case "table-lookup":
 			return undefined;
@@ -1000,7 +976,6 @@ function hasReachableStaticallyUnquotableOutput(
 		case "double":
 		case "arith":
 		case "count":
-		case "unwrap-list":
 		case "table-lookup":
 			return false;
 		default: {
@@ -1059,7 +1034,6 @@ function isGuaranteedNonemptyString(expression: ValueExpression): boolean {
 		case "double":
 		case "arith":
 		case "count":
-		case "unwrap-list":
 		case "table-lookup":
 			return false;
 		default: {
@@ -1204,10 +1178,6 @@ function staticallyKnownPredicateBoolean(
 			const result = staticallyKnownPredicateBoolean(predicate.clause);
 			return result === undefined ? undefined : !result;
 		}
-		case "is-null": {
-			const value = staticallyKnownPrimitive(predicate.left);
-			return value === undefined ? undefined : value.value === null;
-		}
 		case "is-blank": {
 			const value = staticallyKnownPrimitive(predicate.left);
 			return value === undefined
@@ -1292,7 +1262,6 @@ function isGuaranteedTemporalValue(expression: ValueExpression): boolean {
 		case "id-of":
 		case "acting-user":
 		case "unowned":
-		case "unwrap-list":
 		case "format-date":
 		case "table-lookup":
 			return false;
@@ -1359,15 +1328,6 @@ function checkRuntimePredicate(
 				);
 			}
 			return;
-		case "is-null":
-			issues.push({
-				reason: "strict-null-not-portable",
-				path,
-				message:
-					"Search treats a value that was never recorded the same as a blank value. Use 'is blank' here.",
-			});
-			checkRuntimeValue(predicate.left, [...path, "left"], issues, "on-device");
-			return;
 		case "is-blank":
 			checkRuntimeValue(predicate.left, [...path, "left"], issues, "on-device");
 			return;
@@ -1425,7 +1385,6 @@ function checkRuntimePredicate(
 						"lte",
 						"in",
 						"between",
-						"is-null",
 						"is-blank",
 						"and",
 						"or",
@@ -1503,7 +1462,6 @@ function collectPropertyScopesFromExpression(
 		case "date-coerce":
 		case "datetime-coerce":
 		case "double":
-		case "unwrap-list":
 			collectPropertyScopesFromExpression(expression.value, out);
 			return;
 		case "arith":
@@ -1568,7 +1526,6 @@ function collectPropertyScopesFromPredicate(
 			collectPropertyScopesFromExpression(predicate.right, out);
 			return;
 		case "in":
-		case "is-null":
 		case "is-blank":
 			collectPropertyScopesFromExpression(predicate.left, out);
 			return;

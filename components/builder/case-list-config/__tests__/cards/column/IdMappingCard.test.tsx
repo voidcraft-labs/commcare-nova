@@ -8,7 +8,8 @@
 // authored once; the pragmatic-dnd pipeline is over-engineered
 // for the use case). This test pins:
 //
-//   - Add appends a new empty entry to the table.
+//   - Add opens a local draft and commits only a complete row.
+//   - Invalid/duplicate saved values never reach persisted column state.
 //   - Move-up swaps the entry with its predecessor; the first
 //     entry's move-up button is disabled.
 //   - Move-down swaps the entry with its successor; the last
@@ -96,7 +97,7 @@ describe("IdMappingCard — table mutations", () => {
 		).toContain("text-[14px]");
 	});
 
-	it("Add mapping appends an empty entry", () => {
+	it("keeps a new row local until its saved value is complete", () => {
 		const value = idMappingColumn(TEST_UUID, "status", "Status", [
 			{ value: "active", label: "Active" },
 		]);
@@ -110,13 +111,61 @@ describe("IdMappingCard — table mutations", () => {
 			/>,
 		);
 		fireEvent.click(screen.getByRole("button", { name: /add value/i }));
+		expect(onChange).not.toHaveBeenCalled();
+
+		fireEvent.change(screen.getByLabelText("Value 2 saved value"), {
+			target: { value: "inactive" },
+		});
+		fireEvent.change(screen.getByLabelText("Value 2 display label"), {
+			target: { value: "Inactive" },
+		});
+		expect(onChange).not.toHaveBeenCalled();
+
+		fireEvent.click(screen.getByRole("button", { name: "Save value" }));
 		const next = lastEmittedColumn(onChange);
 		expect(next.kind).toBe("id-mapping");
 		if (next.kind !== "id-mapping") throw new Error("expected id-mapping");
 		expect(next.mapping).toHaveLength(2);
-		expect(next.mapping[1]).toEqual({ value: "", label: "" });
+		expect(next.mapping[1]).toEqual({
+			value: "inactive",
+			label: "Inactive",
+		});
 		expect(() => columnSchema.parse(next)).not.toThrow();
 	});
+
+	it.each([
+		["a blank value", ""],
+		["a value containing whitespace", "not active"],
+		["a duplicate value", "active"],
+	] as const)(
+		"does not commit %s from the local add row",
+		(_label, candidate) => {
+			const value = idMappingColumn(TEST_UUID, "status", "Status", [
+				{ value: "active", label: "Active" },
+			]);
+			const onChange = vi.fn();
+			render(
+				<ColumnEditor
+					value={value}
+					onChange={onChange}
+					caseTypes={[PATIENT]}
+					currentCaseType="patient"
+				/>,
+			);
+
+			fireEvent.click(screen.getByRole("button", { name: /add value/i }));
+			if (candidate !== "") {
+				fireEvent.change(screen.getByLabelText("Value 2 saved value"), {
+					target: { value: candidate },
+				});
+			}
+
+			const save = screen.getByRole("button", { name: "Save value" });
+			expect((save as HTMLButtonElement).disabled).toBe(true);
+			fireEvent.click(save);
+			expect(onChange).not.toHaveBeenCalled();
+		},
+	);
 
 	it("Move down swaps adjacent entries", () => {
 		const value = idMappingColumn(TEST_UUID, "status", "Status", [
@@ -245,7 +294,7 @@ describe("IdMappingCard — table mutations", () => {
 		});
 	});
 
-	it("Empty mapping table renders the no-entries hint", () => {
+	it("Empty mapping table explains that no replacement text is shown", () => {
 		const value = idMappingColumn(TEST_UUID, "status", "Status", []);
 		const { container } = render(
 			<ColumnEditor
@@ -255,7 +304,9 @@ describe("IdMappingCard — table mutations", () => {
 				currentCaseType="patient"
 			/>,
 		);
-		expect(container.textContent).toMatch(/without replacements/i);
+		expect(container.textContent).toMatch(
+			/add a saved value and label to show replacement text/i,
+		);
 	});
 
 	it("Editing a value commits on blur", () => {
@@ -286,6 +337,40 @@ describe("IdMappingCard — table mutations", () => {
 		if (next.kind !== "id-mapping") throw new Error("expected id-mapping");
 		expect(next.mapping).toEqual([{ value: "new", label: "Old" }]);
 	});
+
+	it.each([
+		["a blank value", ""],
+		["a value containing whitespace", "not active"],
+		["a duplicate value", "inactive"],
+	] as const)(
+		"does not persist %s over an existing row",
+		(_label, candidate) => {
+			const value = idMappingColumn(TEST_UUID, "status", "Status", [
+				{ value: "active", label: "Active" },
+				{ value: "inactive", label: "Inactive" },
+			]);
+			const onChange = vi.fn();
+			render(
+				<ColumnEditor
+					value={value}
+					onChange={onChange}
+					caseTypes={[PATIENT]}
+					currentCaseType="patient"
+				/>,
+			);
+			const valueInput = screen.getByLabelText(
+				"Value 1 saved value",
+			) as HTMLInputElement;
+			valueInput.focus();
+			fireEvent.change(valueInput, { target: { value: candidate } });
+			fireEvent.blur(valueInput);
+
+			expect(onChange).not.toHaveBeenCalled();
+			expect(
+				screen.getByText(/enter a saved value|cannot contain spaces|already/i),
+			).toBeDefined();
+		},
+	);
 
 	it("Editing a label commits on blur", () => {
 		const value = idMappingColumn(TEST_UUID, "status", "Status", [

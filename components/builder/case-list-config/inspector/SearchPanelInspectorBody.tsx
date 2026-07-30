@@ -38,10 +38,10 @@ import {
 	CollapsibleTrigger,
 } from "@/components/shadcn/collapsible";
 import {
-	type CaseSearchConfig,
 	type CaseType,
 	DEFAULT_CASE_SEARCH_BUTTON_LABEL,
 	DEFAULT_CASE_SEARCH_TITLE,
+	type OrdinaryCaseSearchConfig,
 } from "@/lib/domain";
 import type { Predicate } from "@/lib/domain/predicate";
 
@@ -49,8 +49,8 @@ export interface SearchPanelInspectorBodyProps {
 	/** Current case-search configuration. `undefined` means the module
 	 *  has no caseSearchConfig authored yet — first edit seeds the slot
 	 *  with the changed sub-slot on top of an otherwise-empty config. */
-	readonly value: CaseSearchConfig | undefined;
-	readonly onChange: (next: CaseSearchConfig) => void;
+	readonly value: OrdinaryCaseSearchConfig | undefined;
+	readonly onChange: (next: OrdinaryCaseSearchConfig) => void;
 	readonly caseTypes: readonly CaseType[];
 	readonly currentCaseType: string;
 	/** Search-input declarations available while authoring the condition. */
@@ -58,7 +58,7 @@ export interface SearchPanelInspectorBodyProps {
 	/** False when there are no input fields, so Search-screen copy never renders. */
 	readonly hasVisibleSearchScreen?: boolean;
 	/** Whether a real Search action exists. Owner-only availability deliberately
-	 * passes false even though it shares the legacy storage bag. */
+	 * passes false even though it shares the same configuration object. */
 	readonly hasSearchAction?: boolean;
 	/** True only for the actual web auto-launch shape (effective availability
 	 * filter + no inputs), not merely because a search config marker exists. */
@@ -100,9 +100,7 @@ export function SearchPanelInspectorBody({
 	};
 	const setDisplayCondition = (next: Predicate | undefined) =>
 		onChange(setOptionalSlot(value, "searchButtonDisplayCondition", next));
-	const searchActionIsActive =
-		hasSearchAction ??
-		(value !== undefined && value.searchActionEnabled !== false);
+	const searchActionIsActive = hasSearchAction ?? value !== undefined;
 	const advancedIsActive =
 		value?.searchButtonDisplayCondition !== undefined ||
 		(!hasVisibleSearchScreen &&

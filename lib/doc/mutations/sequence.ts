@@ -40,10 +40,10 @@ export function spliceAfter<Id extends string>(
  * order they display. Same operation, same totality and idempotence, one
  * element type down.
  *
- * Entries with no uuid at all (options that predate option identity) are never
- * the subject and never the anchor, so they simply keep their relative places.
+ * Every final entry has identity. Missing UUIDs are rejected at the domain
+ * boundary rather than skipped or repaired by this reducer helper.
  */
-export function spliceEntryAfter<T extends { readonly uuid?: string }>(
+export function spliceEntryAfter<T extends { readonly uuid: string }>(
 	entries: readonly T[],
 	entry: T,
 	after: string | null | undefined,
@@ -110,8 +110,8 @@ export interface SequenceMove<Id extends string> {
 /**
  * The moves that turn one sequence into another.
  *
- * Used where a sequence has to be RECOVERED from two states rather than read
- * from the gesture that produced it — the authoritative repair writer, which is
+ * Used where a sequence has to be derived from two states rather than read
+ * from the gesture that produced it — the authoritative diff writer, which is
  * handed a target document and has to derive the batch that reaches it. The
  * builder does not use this: it knows what the author did and says so directly,
  * which is the entire point of the change this lives inside.

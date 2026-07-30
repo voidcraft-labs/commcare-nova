@@ -43,7 +43,6 @@ import {
 	type MutatingToolResult,
 	toToolErrorResult,
 } from "../common";
-import { canonicalizePredicateCaseProperties } from "../shared/canonicalCaseProperties";
 import {
 	moduleAddressSchema,
 	resolveModuleAddress,
@@ -117,13 +116,11 @@ export const setCaseListFilterTool = {
 			// concurrent column edit on the guarded re-apply): `null` clears the
 			// slot, a Predicate sets it. The reducer maps `null → delete`, so a
 			// clear crosses the JSON wire intact.
-			const canonicalFilter =
-				filter === null ? null : canonicalizePredicateCaseProperties(filter);
 			const mutations: Mutation[] = [
 				{
 					kind: "setCaseListMeta",
 					uuid: mod.uuid,
-					patch: { filter: canonicalFilter },
+					patch: { filter },
 				},
 			];
 			// Cases available and Search intent are independent. An empty

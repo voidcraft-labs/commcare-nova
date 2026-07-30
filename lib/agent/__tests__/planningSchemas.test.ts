@@ -75,7 +75,7 @@ describe("caseTypeRecordSchema", () => {
 			relationship: "child",
 		});
 		expect(result.success).toBe(false);
-		expect(result.error?.issues[0]?.message).toContain("null");
+		expect(result.error?.issues[0]?.message).toContain("pass null");
 	});
 
 	it("rejects an empty properties array", () => {
@@ -127,7 +127,7 @@ describe("caseTypeRecordSchema", () => {
 			],
 		});
 		expect(result.success).toBe(false);
-		expect(result.error?.issues[0]?.message).toContain("null");
+		expect(result.error?.issues[0]?.message).toContain("Pass null for options");
 	});
 
 	it("accepts options on a select property", () => {
@@ -184,30 +184,29 @@ describe("cleanCaseTypeRecord", () => {
 		expect("hint" in clean.properties[0]).toBe(false);
 	});
 
-	it.each([
-		["name", "case_name"],
-		["external-id", "external_id"],
-		["date-opened", "date_opened"],
-	])("canonicalizes legacy catalog property %s to %s", (legacy, canonical) => {
-		const parsed = caseTypeRecordSchema.parse({
-			name: "client",
-			properties: [{ name: legacy, label: proseText("Value") }],
-		});
-		expect(cleanCaseTypeRecord(parsed).properties[0]?.name).toBe(canonical);
-	});
+	it.each(["name", "external-id", "date-opened"])(
+		"rejects the retired catalog property spelling %s",
+		(name) => {
+			const parsed = caseTypeRecordSchema.safeParse({
+				name: "client",
+				properties: [{ name, label: proseText("Value") }],
+			});
+			expect(parsed.success).toBe(false);
+		},
+	);
 
-	it("rejects two catalog entries that collapse to one canonical property", () => {
+	it("rejects exact duplicate catalog properties", () => {
 		const result = caseTypeRecordSchema.safeParse({
 			name: "client",
 			properties: [
 				{ name: "case_name", label: proseText("Case name") },
-				{ name: "name", label: proseText("Name") },
+				{ name: "case_name", label: proseText("Name") },
 			],
 		});
 		expect(result.success).toBe(false);
-		if (result.success) throw new Error("expected canonical collision");
+		if (result.success) throw new Error("expected duplicate rejection");
 		expect(result.error.issues[0]?.message).toContain(
-			'canonical name "case_name"',
+			'property "case_name" more than once',
 		);
 	});
 });
@@ -249,7 +248,9 @@ describe("connectFormConfigSchema", () => {
 			task: null,
 		});
 		expect(result.success).toBe(false);
-		expect(result.error?.issues[0]?.message).toContain("null");
+		expect(result.error?.issues[0]?.message).toContain(
+			"empty Connect participant",
+		);
 	});
 
 	it("rejects blank strings inside sub-configs", () => {

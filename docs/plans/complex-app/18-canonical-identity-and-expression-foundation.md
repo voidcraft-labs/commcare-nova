@@ -115,6 +115,14 @@ the input's current saved wire name. Renaming an input rewrites no predicate;
 removal uses the reference index and the same dependency-confirmation policy as
 other referenced entities.
 
+Predicate authoring also carries the exact runtime set that evaluates the
+stored rule: on-device, case-search, or both. A search-enabled case-list filter
+uses the both-runtimes arm because it emits to the ordinary device nodeset and
+the remote CSQL query. Its editor applies the case-search expression oracle and
+offers only the on-device match-mode subset, so a server-only choice is never
+offered for a carrier that must also run on device. There is no offered-then-
+refused exception for the active value.
+
 The machine-authoring gate is document-aware, not merely structural. It rejects:
 
 - `raw-ref`, references hidden in XPath text or another pre-cutover
@@ -284,20 +292,189 @@ mutation where `updateField` intentionally owns the field id.
 
 `updateField.patch.id` is the one final field-id command; there is no
 `renameField` alias, deprecated arm, or replay reader. The reducer first builds
-and schema-checks the complete prospective field. When `id` changes and the
-same nonempty `case_property_on` binding remains before and after the patch, the
-gesture is a rename of that name-keyed case property: peer writers, typed
-case-property references, form/module wiring, case-list/Search state, and the
-catalog entry all move together, while UUID-backed field references remain
-byte-identical and merely re-project the current friendly path. When one patch
-changes or clears `case_property_on` as well as `id`, it is instead a writer
-retarget: the old property, its peers, references, catalog declaration, and
-saved values remain intact, and the new pair is registered without an
-old-to-new cascade or row migration. This distinction is derived from the
-complete before/after pair, never from staged rename-then-retarget events.
+and schema-checks the complete prospective field. A field has three independent
+facts: immutable `uuid`, local question/path `id`, and, on eligible kinds, an
+optional `caseWrite: { caseType, property }`. Changing `id` changes only the
+question node and friendly form/XPath projection. Changing or clearing
+`caseWrite` retargets only that writer; the old property, its peer writers,
+typed references, catalog declaration, and saved values remain intact, while
+the new pair is validated and a custom property is declared without an
+old-to-new cascade or row migration. Fixed case-row scalars are implicit and
+never synthesize catalog metadata. A patch may change both facts atomically, but no before/after
+heuristic converts that local edit into global rename intent. `moveField`
+likewise preserves `id` and rejects a destination path collision; an author who
+wants a different local id sends the explicit `updateField` patch.
+An add-field surface may seed `caseWrite.property` from the entered field id as
+a one-time convenience, but the committed field always contains the complete
+explicit pair and the two values are independent afterward.
+
+`caseWrite` admission is closed over the actual emitted action bucket. A survey
+or any form without a case action rejects every binding instead of storing a
+writer the wire will ignore. Within the primary bucket and within each child
+bucket identified by `(caseType, nearest repeat UUID)`, at most one field
+may write each property; duplicate ordinary properties and duplicate
+`case_name` writers reject before derivation can overwrite or choose one.
+Registration requires exactly one primary `case_name` and emits it in
+`<create>`; it admits at most one primary `external_id`, emitted as
+`<update><external_id>` in the same case transaction per
+`FormPreparationV2Test::test_open_case_external_id` /
+`form_preparation_v2/open_case_external_id.xml`. Every derived child-create
+bucket likewise requires exactly one `case_name` and at most one
+`external_id`, with the latter in the child `<update>`.
+Followup and close forms may bind exactly one primary `case_name`: CommCare's
+exact
+`corehq/ex-submodules/casexml/apps/case/tests/data/v2/basic_update.xml`
+fixture proves `<update><case_name>…</case_name>` is an accepted existing-case
+name update, so Nova emits and preloads that binding rather than dropping it. A
+child bucket is a create bucket, never an existing-child update bucket.
+Followup and close `external_id` writers emit and preload through
+`<update><external_id>`.
+Case-operation writes are stored and resolved
+under `(operation.retype ?? operation.caseType, property)`, so a retype never
+leaves the write attached to the pre-operation type. All bindings still emit
+their source through the UUID-resolved current `FormPath`.
+The two standard writable scalars have explicit private wire/storage
+projections:
+Nova `caseWrite.property: "case_name"` becomes the HQ FormActions update key
+`name`, which the XForm lowering emits as `<update><case_name>`; `name` remains
+rejected as Nova input. `caseWrite.property: "external_id"` remains
+`external_id`; registration, followup/close, and child actions all lower it to
+`<update><external_id>`. Both route to dedicated `cases` columns and never the
+custom JSONB document. Generic case-operation writes admit `external_id` but
+not `case_name`, whose operation-owned name/rename facets remain authoritative.
+Every other reserved property rejects. Lowering never
+silently filters a reserved or otherwise inadmissible writer: its shared
+inventory assertion throws if the complete validator was bypassed.
+
+Every ordinary-field and advanced-operation write to these fixed text scalars
+uses one value contract before wire or storage: remove boundary UTF-16 code
+units U+0000 through U+0020 exactly like Java `String.trim()`, then enforce the
+Core/HQ 255 UTF-16-unit cap. A normalized blank `case_name` rejects. An active
+blank `external_id` is a real `""` scalar write; an absent or irrelevant source
+means no write and preserves the current value. The same routing holds for
+Preview, single and bulk inserts, updates, duplicate-create merges, and
+wire-portable retypes.
+
+`lib/domain/caseWriteInventory.ts::deriveCaseWriteInventory` performs the one
+and only field walk for case writes. Its Nova-only writers carry field UUID and
+current id, the explicit `{ caseType, property }` pair, every ordered path
+segment as `{ fieldUuid, fieldId, queryBoundIteration }`, and the nearest
+repeat's UUID, current id, and segment path. It groups those writers into the
+primary action or a child-create action identified by `(caseType, nearest
+repeat UUID)`; the complete validator, builder, SA/MCP admission, FormActions,
+and Preview consume those exact writers and buckets rather than walking fields
+or classifying actions again.
+
+`lib/commcare/caseWriteAdmission.ts::assertAndProjectCaseWriteInventory` is the
+sole semantic-plus-wire bridge. It rejects every inventory issue, then projects
+each writer path and repeat path exactly once into CommCare-private `FormPath`
+values for FormActions/XForm lowering and Preview. XML-illegal current field or
+ancestor ids still produce the one owning `INVALID_FIELD_ID` validator finding;
+if validation is bypassed, both lowering and Preview throw the same `FormPath`
+projection failure instead of introducing a second user-facing finding.
+Preview materializes the admitted bucket directly, trusts the bucket's
+`primary`/`child` classification, and asserts that runtime repeat traversal's
+nearest repeat UUID matches the bucket UUID before writing.
+
+A writable destination type is exactly the module's own case type or a catalog
+type whose `parent_type` is exactly that module type. A declared sibling,
+parent, grandchild, unrelated type, unknown type, blank pair, module-less form,
+or survey/no-action context rejects and never becomes a child-create bucket;
+the blank pair is rejected at the shared schema boundary. Survey/no-action
+builder contexts expose no actionable Saves-to choices. Creation/edit SA and
+MCP tools pass the same complete candidate through this inventory and gate
+rather than maintaining their own type list.
+
 The final semantic mutation-kind manifest contains no `renameField`. Those bytes
 may occur only inside opaque pre-horizon audit payloads; the frozen dispatcher
 does not classify, parse, or replay them as a semantic mutation arm.
+
+App-wide case-property rename has exactly one explicit semantic command:
+`renameCaseProperties { renames: [{ caseType, from, to }, ...] }`. It is the
+only mutation in its admitted batch and its nonempty relation is interpreted
+simultaneously from the batch-start snapshot. Within each case type, sources
+and destinations are unique, `from !== to`, and an occupied destination must
+itself move away in the same relation. A source cannot be recreated in the
+batch; standard scalar case metadata cannot participate, and terminal merges,
+scalar/JSONB storage-boundary crossings, and destination collisions in live or
+parked rows reject. Chains into a fresh name, swaps, and cycles are valid;
+many-to-one relations are not. No temporary property, winner, drop, or newly
+parked value exists. The ordinary complete-document validator separately
+rejects any other CommCare-forbidden fresh destination; `lib/doc` does not
+import or duplicate wire-only reserved-word tables from `lib/commcare`.
+Every source must already be an existing materializable non-scalar property.
+Every own destination key in every saved case counts as occupied even when its
+JSON value is `null`, an empty string, or otherwise blank; every parked entry
+counts regardless of dismissal state. The command never crosses into or out of
+dedicated scalar storage.
+
+The command rewrites every occurrence of each named pair: field `caseWrite`,
+case-operation writes, typed Predicate/ValueExpression/XPath/Prose references,
+catalog declarations and defaults, module case-list and Search configuration,
+materialized schema/index intent, `cases.properties`, and
+`parked_case_values.property`. The row rewrite changes only the JSON key/value
+placement and preserves every non-name case and parked-value column byte,
+including `modified_on`; it uses a dedicated no-stamp path rather than the
+ordinary case-update writer. Field `id` never changes. The builder presents
+Field ID and Saves to as separate controls and provides an app-wide
+case-property rename action with the complete impact; SA/MCP field tools accept
+`caseWrite`, while the separate shared machine action is SA
+`renameCaseProperties` and MCP `rename_case_properties`.
+History stores the inverse relation and replay preserves the original command.
+Generic `diffDocsToMutations` never synthesizes rename intent from two endpoint
+documents: an explicit rename and a set of independent carrier edits can have
+byte-identical Blueprint endpoints but deliberately different saved-row effects.
+Ordinary field/case-operation writer retargets, catalog adds/removes/edits, and
+typed-reference edits still lower to their granular commands and deliberately
+do not move rows. An endpoint-only diff refuses only when the complete pair is
+exactly the same carrier-wide rename-shaped transformation and its caller did
+not supply the exact already-recorded semantic command provenance;
+command-aware undo/replay pass that command directly. The collaboration
+reconciler uses canonical document equality for equality-only checks and never
+asks semantic diff to invent a command.
+A rename followed by its inverse before autosave returns the aggregate
+optimistic Blueprint to byte-identical starting bytes, but it remains two
+explicit semantic commands. The store keeps both admitted segments in order;
+autosave persists two accepted events and history entries in that order; the
+authoritative writer applies the first row/parked-key move and then reverses it.
+Neither document equality nor empty endpoint diff may elide either command.
+Autosave therefore observes the admitted-command queue through its own
+monotonic notification, not only persisted Blueprint reference changes: the
+second command must wake dispatch even though the aggregate optimistic
+Blueprint is back at its starting bytes. A separate ordinary swap proves the
+single-command path: one accepted `renameCaseProperties` event rewrites the
+Blueprint carriers plus saved-row and parked keys simultaneously and persists
+that exact command.
+
+The builder has exactly two authoring homes. The selected field's Data section
+owns one composite **Saves to** chooser over complete `{ caseType, property }`
+pairs, grouped by the module's writable own/direct-child types. It can clear,
+choose an effective-catalog property including one with no current writer, or
+locally assemble **Save to new property…** and then commit one complete pair;
+every proposed value is dry-run through the real candidate gate and refused
+choices remain visible with their exact reason. Field ID stays solely in the
+identity section.
+
+The builder-level app-wide **Case data** manager owns a **Case properties**
+dialog and remains reachable whenever the app has case types, not only when the
+current route supplies a module. Its inventory includes catalog-only and
+no-writer materializable properties. One review may compose the complete
+simultaneous relation, including swaps, cycles, and occupied-destination chains;
+it never offers merge, overwrite, drop, or a temporary name. A pure impact model
+is parity-tested against the rewrite walker and groups field and operation
+writers, every typed read/display/list/Search occurrence, catalog
+defaults/declarations, saved rows, and parked values. Review requires the
+document planner, full commit verdict, and a read-only server row/park preflight;
+that preflight authorizes Project view access, scans held and dismissed values,
+and returns the authoritative mutation sequence plus explanatory per-relation
+counts/conflicts, never a write token. Any reconciled/base-sequence change
+invalidates the report and requires Review again. The authoritative transaction
+rechecks everything; drift or a save conflict returns **Case data changed;
+review again**, and success waits for acknowledgment of the exact exclusive
+batch. Viewers can inspect but cannot mutate. The UI uses the shared accessible
+builder controls, preserves focus, exposes checking/saving/refusal status, and
+remains usable at handset and short window sizes. App Settings data-source views
+remain informational rather than a second rename owner.
 
 Steady state has exactly one representation. Historical input recognition is
 confined to this unit's timestamped scanner, digest-pinned repair, and frozen
@@ -308,6 +485,22 @@ saved-draft branch. Runtime code and documentation do not call a supported
 shape “legacy”: an old byte shape is either consumed once by the frozen
 pre-cutover authority or it is rejected. Source tripwires enforce that
 separation and reject imports from the frozen directory into steady-state code.
+
+App tenancy likewise has one representation. Every persisted app carries one
+nonblank `project_id`; the SQL column is `NOT NULL` and foreign-keyed to the
+Better Auth Project, Project membership is the sole app authorization path, and
+`apps.owner` remains creation provenance only. No writer, reader, run holder,
+thread, media path, lookup edge, repair, scanner, or test has a no-Project or
+owner-fallback app arm. A missing app and an impossible missing Project are
+different results rather than a shared nullable return. Every case row also has
+a nonblank Project, and a `DEFERRABLE INITIALLY DEFERRED` composite foreign key
+binds `(cases.project_id, cases.app_id)` to
+`(apps.project_id, apps.id)` with `ON UPDATE NO ACTION` and `ON DELETE
+RESTRICT`; the deferred update check lets the cross-Project move update the
+complete closure inside one transaction, while the restricted delete forbids
+an orphaned case tenant. The internal schema-only `PostgresCaseStore`
+constructor may remain a discriminated no-Project mode because every
+tenant-bound method rejects it and it persists no app or case row.
 
 Final entity schemas require every persisted nested UUID and every list/detail
 order and derive placement solely from owning membership arrays. Optional
@@ -329,18 +522,18 @@ projection; it is never accepted as Nova authoring input or stored state.
 One shared authored-case-property-name schema owns that vocabulary and the
 forbidden pre-cutover names. Catalog declarations and mutations; Predicate,
 ValueExpression, XPath, and Prose case-reference leaves;
-`CasePropertyMapping.case_property`; case-operation writes; case-list column
-fields; simple Search properties; and every SA/MCP projection use that exact
-schema. A field `id` uses it only when the complete prospective field has a
-nonempty `case_property_on`; an ordinary survey field may still be named
-`name`. The forbidden names survive only as rejected schema values and frozen
-migration inputs, never as a runtime lookup table or canonicalizer.
+field `caseWrite` destinations; case-operation writes; case-list column fields;
+simple Search properties; and every SA/MCP projection use that exact schema.
+A field's `caseWrite.property` uses it; its local `id` does not, so any survey
+question may be named `name`. The forbidden names survive only as rejected
+schema values and frozen migration inputs, never as a runtime lookup table or
+canonicalizer.
 
 The executable occurrence manifest inventories those property names in:
 
 - case-type catalog declarations and every catalog XPath/template default;
 - every Predicate, ValueExpression, XPath, and Prose case-property leaf;
-- field writer pairs and case-operation writes;
+- field `caseWrite` pairs and case-operation writes;
 - case-list columns, Search inputs, filters, defaults, and case-search config;
 - `cases.properties` JSON keys, parked case values, materialized case-type
   schemas, indexes, and generated SQL state;
@@ -364,8 +557,15 @@ The final scalar SQL projection is explicit and one-way:
 `parked_case_values.property`, and `case_type_schemas.schema` are executable
 dispatcher occurrences with this admission/refusal behavior, not prose-only
 inventory.
+An explicitly declared standard entry may remain in the effective/materializable
+catalog for authoring metadata and order, but every JSONB-producing storage
+projection uses the complete scalar set: JSON Schema, expression-index intent,
+and sample properties all omit it, while SQL and Preview read the first-class
+column. The exact stored-schema decoder rejects any scalar key in
+`case_type_schemas.schema`; steady-state producers cannot create one.
 
-Persisted Blueprints and accepted mutations contain no incomplete editor row.
+Persisted Blueprints and mutation-bearing app changes contain no incomplete
+editor row.
 Local UI drafts and tool-input assembly may be partial only in separate,
 non-domain types; one complete discriminated value commits atomically:
 
@@ -373,9 +573,22 @@ non-domain types; one complete discriminated value commits atomically:
   learn-module, assessment, deliver-unit, or task id is required, valid, and
   unique app-wide across every mode-compatible Connect sub-block on every form,
   regardless of subkind. Each uses the shared XML-element-name and 50-character
-  schema. `null` exists only in `updateForm` as the clear command and lowers to
-  absence. `{}`, a stored `null`, missing ids, and wrong-mode sub-blocks are not
-  final schema arms. The frozen migration deletes stored `null` or `{}` only
+  schema. The one app-wide authoring owner is the shared SA
+  `configureConnect` / MCP `configure_connect` command. A `mode: null` target
+  clears the app mode and every form block atomically. A `learn` or `deliver`
+  target requires the complete nonempty UUID-addressed participant set, sets
+  those exact mode-compatible blocks, and clears every unlisted or incompatible
+  block in the same batch. Duplicate, foreign, wrong-mode, incomplete, or empty
+  targets reject before mutation construction; omitted Connect ids derive
+  exactly once, while explicit invalid or duplicate ids reject rather than
+  being rewritten. `updateApp` / `update_app` is name-only. `updateForm` may
+  refine one participant only after a mode exists and cannot change
+  participation; a null sub-config is allowed only while another sub-config
+  remains. `createForm` / `createModule` carry no Connect slot, so newly created
+  forms are auxiliary until `configureConnect` replaces the complete set.
+  `{}`, a stored `null`, missing ids, mode-only state, dormant or wrong-mode
+  sub-blocks are not final schema arms. The frozen migration deletes stored
+  `null` or `{}` only
   when it has no subconfig, default, or expression participation and absence
   produces identical Connect participation, reference-index, Preview, XForm,
   suite, HQ, summary, and machine-read projections. A wrong-mode member,
@@ -399,6 +612,12 @@ non-domain types; one complete discriminated value commits atomically:
   `orderedColumns` asserts an impossible mismatch instead of dropping or
   appending entries. Duplicate nested identities, foreign/duplicate order
   members, and missing members block migration.
+- Every saved case-list column is valid unconditionally, including one hidden
+  from both layouts and absent from sort. Admission, the gate, migration, and
+  all three authoring surfaces retain and validate its complete definition.
+  Only Preview, CommCare emission, and emitted-reference walks consult
+  `caseListColumnIsEmitted`; revealing a hidden definition is an ordinary
+  presentation edit and never a repair operation.
 - Case operations use only the strict action-discriminated schema. `create`
   targets `new`, requires `name`, and forbids rename/retype; `update` targets
   an existing case, forbids `name`, and may own owner/rename/retype/writes/links;
@@ -423,28 +642,32 @@ omitted. Human XPath still prints and accepts friendly names such as
 generated wire/shadow projection where the wire requires it; Nova's parser,
 stored AST, and Preview input do not accept it as an authored alias.
 
-The frozen `#case` matrix is contextual and structural. In followup and close
-forms, `#case/<property>` maps to the owning module case type; leading
-`parent/` segments traverse only the exact declared parent chain. Registration
-permits only `#case/case_id`, mapped to the owning case type's typed `case_id`
-reference. Survey forms, a missing module case type, broken ancestry, bare
-`#case`, extra path segments, every other registration reference, and any
-catalog XPath occurrence block. Reference-looking prose, including
-`#case/...`, requires a closed digest-pinned literal/reference disposition and
-is never regex-promoted. Text already stored inside a canonical
-`ProseTemplate` remains literal. HQ/Vellum output-only `#case` projection stays
-emitter-private and is never reparsed into storage or Preview.
+The frozen migration's `#case` matrix is contextual and structural; it is not
+a live parser or authoring compatibility path. For an old stored followup or
+close-form expression, `#case/<property>` rewrites once to the owning module
+case type and leading `parent/` segments traverse only the exact declared
+parent chain. An old stored registration expression permits only
+`#case/case_id`, rewritten to the owning case type's typed `case_id` reference.
+Survey forms, a missing module case type, broken ancestry, bare `#case`, extra
+path segments, every other registration reference, and any catalog XPath
+occurrence block migration. Reference-looking prose, including `#case/...`,
+requires a closed digest-pinned literal/reference disposition and is never
+regex-promoted. Text already stored inside a canonical `ProseTemplate` remains
+literal. After migration, Nova's live parser, editor, validator, Preview, and
+storage reject authored `#case/...`; HQ/Vellum output-only `#case` projection
+stays emitter-private and is never reparsed into storage or Preview.
 
 Every string found in an AST-only pre-cutover slot is `rewrite-current` only
 when the frozen Lezer parser consumes the complete source, every reference
 resolves uniquely in the owning form/module scope, the resulting final AST
 prints and reparses identically, and Preview plus wire projection are proved
-equivalent. The contextual `#case` rules above may change only that friendly
-source projection; their emitted XPath remains byte-identical. Syntax-invalid
-input, a dangling or ambiguous identity, an illegal form scope, an unsupported
-`#case` shape, or printer drift is `block-current`. Prose text remains literal
-unless the closed digest-pinned repair manifest explicitly identifies a typed
-reference; no generic migration promotes reference-looking prose.
+equivalent. The frozen migration-only `#case` rules above may change only the
+old stored source projection; their emitted XPath remains byte-identical.
+Syntax-invalid input, a dangling or ambiguous identity, an illegal form scope,
+an unsupported `#case` shape, or printer drift is `block-current`. Prose text
+remains literal unless the closed digest-pinned repair manifest explicitly
+identifies a typed reference; no generic migration promotes reference-looking
+prose.
 
 Every user-visible prose projection has its owning document/provider. Builder,
 Preview, SA summaries, TipTap, pickers, and case-list displays use the
@@ -486,12 +709,15 @@ reduction. A missing or wrong-kind target can never turn an invalid proposal
 into successful unchanged state. Source and behavior tests pin that every such
 invalid proposal rejects at identity/sequence/full-document admission.
 
-After the cutover there is no pre-existing-invalid-document allowance. The
+After the cutover every current document is canonical and fully valid. The
 ordinary commit gate requires the complete candidate to have zero findings,
-not merely zero newly introduced findings. The strict loader, genesis, baseline
-fold, suffix replay, and migration final parse all establish that premise. A
-timestamped pre-canonical repair may bypass the final commit path only for its
-closed digest-pinned rows and must final-parse its result before commit. The
+with no exception based on its prior state. The strict loader, genesis,
+baseline fold, suffix replay, and migration final parse all establish that
+premise. A timestamped pre-canonical repair may bypass the final commit path
+only for its closed digest-pinned rows. Its repaired snapshot remains
+pre-canonical input: the repair must derive the canonical migration candidate
+and final-parse that derived candidate before commit, never apply the final gate
+directly to the repaired pre-canonical snapshot. The
 general `legacyFindingRepairs` writer and its write-capable script are deleted.
 Any retained current-state diagnostic is renamed as an ordinary read-only
 scanner and imports no repair mutation helper. Each historically malformed
@@ -512,36 +738,89 @@ the same absolute gate. Types, copy, and logs say `findings` or `errors`, never
 `introduced`; source tripwires reject `diffIntroduced` and bypass
 documentation.
 
-`applyMutations` gives simultaneous case-property rename semantics to all
-same-binding `updateField.patch.id` commands in one admitted batch. It derives
-the complete old-pair → new-pair relation from the batch-start snapshot,
-rejects contradictory mappings, and applies the relation once to batch-start
-carriers before ordinary scalar patches and same-batch births settle the final
-document. Chains, swaps, destination merges, and a new old-name peer are
-therefore independent of command order and require no temporary property id or
-persisted intermediate dialect. An explicit same-command binding retarget is
-excluded from that relation. `diffDocsToMutations`, undo, and replay use this
-same batch authority; round-trip fixtures cover single cascades, chains, swaps,
-merges, cross-parent moves, retargets, and newly added peers.
+`applyMutations` gives simultaneous case-property rename semantics only to the
+explicit, batch-exclusive `renameCaseProperties` command. It validates the
+complete lossless partial bijection against the batch-start Blueprint and
+applies the relation once to every typed carrier. Ordinary `updateField`
+patches never enter that path: `patch.id` is local form-path intent and
+`patch.caseWrite` is local writer-retarget intent. History, undo, and replay
+retain the admitted command and inverse directly. Generic
+`diffDocsToMutations` never derives a rename from endpoint documents, a field
+id, or a binding delta. It continues to emit granular local writer, operation,
+catalog, and typed-reference edits with no row effect, but refuses a complete
+carrier-wide rename-shaped endpoint pair without the exact command provenance.
+Equality-only reconciliation compares canonical documents without asking
+semantic diff to construct mutations.
 
-A batch admits at most one ID-bearing patch per field UUID. It rejects one
-batch-start `(caseType, property)` source mapped to multiple destinations.
-Multiple sources may merge only when the destination existed at batch start and
-is not itself renamed; that declaration/value wins and the displaced sources
-park. An absent destination or onward-renamed many-to-one target is ambiguous
-and rejects. Contradiction rejects the admitted proposal before any carrier
-rewrite, reducer result, case-store classification, or side effect. Every
-producer and durable replay applies the complete batch once through batch-wise
-`applyMutations`; no mutation-by-mutation path may bypass it.
+The authoritative writer prepares exactly that admitted relation, re-proves it
+against the locked Blueprint, every live case row, and every parked row
+including dismissed entries. One physical Phase A transaction rewrites the
+rows without stamping `modified_on`, regenerates `case_type_schemas`, and
+persists the Blueprint plus its admitted app change/event. Every destination reads
+the pre-migration row snapshot. Chains, swaps, and cycles expose no intermediate
+document, row, or schema intent; any merge, storage-boundary crossing,
+destination collision (including a present null/blank key), or need to
+park/drop data aborts before either document or row changes. Physical
+index creation and every remaining safe drop use the load-bearing post-commit
+`CREATE/DROP INDEX CONCURRENTLY` Phase B; only the narrowly necessary unsafe
+cast-bearing drops below occur transactionally before row movement. Phase B is
+observable, retryable, and correctness-neutral, and is never falsely promised
+as part of the database transaction or rolled back with the semantic rename.
+The inverse relation is itself a valid partial bijection and is the sole undo
+command. The inferred `provenRenamePairs`, cross-transaction
+`renameExpectations`, Postgres-first rename compensation, and every
+destination-wins/merge/park branch are deleted rather than retained beside this
+authority.
 
-The authoritative writer derives exactly one case-property rename plan per case
-type from that same batch-start/final pair and applies it inside the case-store
-transaction with schema regeneration. Every destination reads the
-pre-migration row snapshot. A pre-existing valid destination value wins and the
-displaced source is parked under the existing case-store contract; swaps,
-chains, name reuse, and destination merges expose no intermediate key or
-schema. Before persisting the Blueprint batch, the guarded commit re-proves that
-this exact simultaneous plan is the one prepared.
+Rename schema work has a dedicated Phase A path; it never calls the generic
+same-name schema-transition engine. Each declaration's complete metadata
+follows its source identity through the simultaneous relation, so heterogeneous
+chains, swaps, and cycles do not look like retypes, reshapes, widenings,
+restores, or new parks. Existing parked rows move with every reason/type/value/
+dismissal/timestamp byte intact. Before rewriting live rows, Phase A
+transactionally drops only affected cast-bearing expression indexes whose old
+expression cannot evaluate the values moving into that name (for example an
+old integer cast receiving text); this narrow correctness-bearing drop is the
+only physical-index work allowed in Phase A. Phase B uses concurrent DDL to
+converge every desired create and remaining safe drop from the final schema.
+
+Phase A also records durable pending index convergence keyed by
+`(appId, caseType)` and the committed schema sequence. The immediate
+post-commit completion, an idempotent same-batch dedup retry, every case-store
+point of use, the run-end materializer, and the deployment drain all call the
+same convergence owner; a newer sequence cannot be marked complete by an older
+attempt. Phase A's transactional schema write and Phase B's out-of-transaction
+DDL share one sorted per-`(appId, caseType)` lock authority; Phase B holds its
+session lock on one dedicated connection, then reads the latest committed
+schema/sequence and derives the desired indexes at execution time. It never
+uses a captured rename-candidate index set: a delayed sequence N completion
+therefore converges sequence N+1's current state instead of dropping N+1's
+index. Successful concurrent-DDL completion clears/advances the marker only
+for that latest observed sequence. A Phase B failure is logged and leaves the
+marker pending but does not turn the already-committed semantic mutation into a
+failed response; the next mandatory drain retries until the actual catalog
+matches. Thus idempotency does not short-circuit recovery and missing/invalid
+physical indexes cannot become permanent hidden drift.
+
+The optimistic store preserves admitted dispatch boundaries as an ordered queue
+of batches. It never combines batches across an exclusive command. On one
+autosave pass, predecessors, the rename, and successors may all be prepared,
+but each becomes a distinct sent batch and PUT with its own batch id; the
+single-flight sender preserves order and retry/ack addresses the original
+segment. A peer rebase folds queued segments sequentially over the fresh
+confirmed base. A now-refused rename/inverse is never partially reduced or
+merged with a neighbor: its exact segment reaches the authoritative conflict
+path. Because every later local segment was authored against the optimistic
+state produced by its predecessors, any authoritative segment rejection
+invalidates that segment and the entire later unacknowledged human suffix; no
+successor is replayed or reinterpreted as an independent retarget. The
+serialized reload atomically
+discards that causal suffix, clears its undo/redo entries and command queue,
+loads the authoritative document, and tells the author that those edits must be
+redone. It never stores the suffix as a draft or silently sends part of it.
+Rename followed by an edit, edit followed by rename, rename followed by undo
+before save, peer rebase, retry, ack, and conflict all preserve these
+boundaries and suffix semantics.
 
 The current app-read transport has one exact response:
 `{ projectId, role, canEdit, blueprint, baseSeq }`. The old row-shaped
@@ -676,19 +955,49 @@ indexes, and SQL scalar projections.
 Every `events.event` row is classified: existing mutation events are
 `archive-exact`; every non-mutation envelope and payload must final-parse
 exactly or is `block-current`. Presence and `chat_stream_chunks` are
-`delete-operational`. The exact SQL columns, including the final
-`mutation_fold_baselines` DDL and snapshots, are manifest occurrences.
+`delete-operational`. The exact SQL columns, including final `app_changes` and
+`app_change_fold_baselines` DDL and snapshots, are manifest occurrences.
+Every frozen whole-row capture reads PostgreSQL's canonical JSON text through
+the one lossless parser: integer and decimal lexemes never pass through a
+JavaScript `number`, and prototype-shaped JSON keys remain ordinary own keys.
+The dispatcher, Project-orphan closure, and complete-table scanner digests all
+use that same projection, so values beyond `2^53` cannot alias during
+classification or preservation proofs.
+One timestamp-owned `CutoverPlan` is the evidence authority above that
+dispatcher. Advisory scan, locked scan, repair rehearsal/apply, and migration
+materialize the same content-free shape from their one transaction: every app's
+source/canonical digest and disposition; PostgreSQL-owned raw carrier rows,
+bytes, and length-framed digest; the complete app lease/reservation projection
+and every thread/chunk/presence holder; exact Project lookup contexts;
+per-app and complete reverse-index/schema evidence; baseline, dependency,
+relation/index ACL, and function catalogs; findings; and reviewed
+app/entity/source/rewrite/WAL capacity. Raw evidence is
+`to_jsonb(row)::text`, byte-ordered with `convert_to(..., 'UTF8')`; it is never
+locale-sorted or regenerated from parsed JavaScript. Exact decimal strings and
+`BigInt` own all counts and byte arithmetic. The locked scan, repair, and
+migration use the same `SHARE ROW EXCLUSIVE` relation inventory and the same
+15-second lock, 960-second statement, and 990-second idle-transaction
+timeouts. The plan classifies only exact `pristine`, `applied`, `mixed`, or
+`drift` states; mixed/drift and any reviewed-capacity overflow stop before a
+write.
 `form_submission_intents.result.operations[].operationUuid` is an authored
 identity even though the intent and entry ids are opaque. Scanner, migrator,
 runtime reference index, event parser, mutation coverage, and ephemeral-carrier
 cleanup are parity-tested against that manifest. The immutable migration owns
 frozen pre-cutover schemas, inventory, parser/printer behavior, and the
-option-identity algorithm; it imports no mutable steady-state conversion logic.
-Applied-state auditing injects the one current `mutationSchema` plus
-`applyMutations` fold authority for the strictly post-baseline suffix. That is
-the same contract that admitted those rows and the scanner uses it too; a second
-timestamp-frozen steady-state reducer would create a competing mutation dialect
-and is forbidden.
+option-identity algorithm. One deterministic off-repository builder captures
+the settled final persisted schema/hydrator, absolute commit gate, production
+lookup-reference extractors, canonical mutation schema/reducer, and strict
+suffix replayer into a digest-pinned, self-contained generated artifact. The
+timestamp tree imports no mutable live semantic module. Scanner, repair, and
+migration obtain the exact Project lookup definitions in their already-owned
+transaction and pass that required context to the artifact; transformed
+candidates, fold baselines, and every suffix intermediate run through the full
+frozen gate under that one context. Applied-state auditing calls the bundled
+suffix replayer directly: production exposes no optional or injected replay
+authority. Fixed unsafe-integer, admitted decimal/subnormal, lookup
+table/column/type, and middle-invalid/final-valid vectors plus a recursive
+timestamp-tree import-graph tripwire pin the artifact and its authority.
 The final lookup-row schema validates each `values` key as an already-canonical
 `LookupColumnId` belonging to that table; writers obtain keys from stored column
 identities, and the current lowercase-transform parser is deleted.
@@ -748,62 +1057,58 @@ carry the strict final `Mutation`. `eventSchema` must read both final arms
 without silently dropping either; this is a final audit type, not a
 compatibility parser.
 
-This cutover establishes a new explicit mutation fold horizon for every app.
-All accepted-mutation rows before the new marker remain immutable opaque audit
-history, including rows already behind the sequence migration's horizon. The
-migration does not pretend an unavailable historical baseline can be replayed.
-It converts each app's current stored snapshot atomically and appends one empty,
-attributed `kind: "migration"` horizon marker at the resulting sequence. Empty
-is intentional here: the marker declares the migrated snapshot as the new fold
-baseline; it is not a replayable edit from the incompatible old representation.
-In the same transaction it inserts exactly one immutable
-`mutation_fold_baselines` row keyed by `(app_id, seq)` and foreign-keyed to that
-accepted-mutation row. Its final DDL is `app_id text`, `seq bigint`,
-`snapshot jsonb`, `snapshot_digest text`, and `created_at timestamptz(3)`, with
-primary key `(app_id, seq)`, a cascading composite foreign key to
-`accepted_mutations(app_id, seq)`, and a lowercase SHA-256 digest check. The
-baseline stores the complete canonical `PersistableDoc`; its digest is over the
-frozen canonical JSON projection. Update/delete triggers make the table
-append-only outside schema restore/migration. INSERT authority belongs only to
-the frozen migration and atomic app genesis described below; every other runtime
-path and the audit probe have read-only access. The row is part of
+This cutover establishes the final permanent app-change model. `app_changes`
+has exactly six kinds: `autosave`, `mcp`, `chat`, `blueprint-migration`,
+`fold-baseline`, and `project-move`. The first four require a nonempty canonical
+mutation batch and null Project-move columns. `fold-baseline` requires exactly
+`[]`, null Project-move columns, and one matching immutable
+`app_change_fold_baselines` row. `project-move` requires distinct nonblank
+`from_project_id` and `to_project_id` and carries either `[]` or the nonempty
+media-remap batch. Runtime may insert and select but never update or delete
+either append-only table.
+
+Every baseline stores the complete canonical `PersistableDoc`, lowercase
+SHA-256 digest of PostgreSQL's canonical `snapshot::text`, and the app's Project
+at that sequence. The baseline and exact app-change rows are part of
 backup/restore, DDL, ACL, storage-capacity, and occurrence-manifest accounting.
 
-Baseline presence, not `kind: "migration"`, distinguishes a fold-establishing
-horizon from a reload-only migration row such as a Project move or the forensic
-repair. The scanner selects the greatest baseline sequence for the app, strictly
-parses its snapshot, verifies its digest and matching empty attributed marker,
-then folds every later batch. Every post-horizon row uses the single strict
-mutation schema and must replay from that immutable snapshot to the exact
-current scalar/entity state. Future incompatible document migrations establish
-their next baseline through this same final table; they never infer one from the
-mutable current rows.
+Canonical folding starts from the greatest baseline and its Project, strictly
+parses and applies every subsequent mutation-bearing row, applies each Project
+move only when its source matches the rolling Project, and must finish at the
+exact current scalar/entity state and `apps.project_id`. Historical
+intermediate documents are reduced strictly, but lookup admission runs once on
+the final folded document against the final Project's current definition
+snapshot. Direct or delayed baselines, cross-app snapshots, digest mismatches,
+discontinuous moves, and change-only commits reject. The final catalog audit
+covers each logged heap relation, RLS/replica state,
+columns/defaults/nullability, PK/FK/check/index, triggers, and every routine's
+exact signature and privilege state.
 
-A post-baseline accepted row with `kind: "migration"` but no baseline at that
-row's sequence is a reload-only edit, not a fold boundary. It may be nonempty —
-the Project-move media remap is the named case — and the suffix fold strictly
-admits and applies it like any other canonical batch so the folded document
-equals current storage. The live stream still treats its migration kind as one
-sequence-less terminal reload. Only the exact accepted row referenced by a
-`mutation_fold_baselines` entry must have an empty mutation array and supply the
-new fold start; a fold must not reject every nonempty migration-kind suffix.
+The browser change frame is deliberately closed to `autosave | mcp | chat`.
+The server validates a complete durable suffix before emitting any frame. If it
+contains `blueprint-migration`, `fold-baseline`, or `project-move`, it emits no
+ordinary mutation from that suffix, freshly reauthorizes, and sends one
+sequence-less reload. The client parses that narrower frame again and never
+learns a server-only kind.
 
-Every app created after the cutover establishes its fold genesis atomically with
-the app and entity rows. `createApp` admits and evaluates its optional seed batch
-against the empty document, then inserts one empty attributed
-`kind: "migration"` accepted marker at sequence `1`, inserts the complete
-candidate `PersistableDoc` and digest into `mutation_fold_baselines` at that
-sequence, and stores `apps.mutation_seq = 1` in the same transaction. Its
-deterministic batch id is `genesis:<app_id>`, its actor is the creating user, and
-its run attribution is the creation run. Seed mutations are construction input,
-not a second replay dialect; the immutable genesis snapshot is the only fold
-start. Empty chat/MCP apps and nonempty builder templates follow the same rule.
-The app-creation receipt starts clients at sequence `1`, so the genesis marker
-is never replayed as an edit. A baseline INSERT trigger accepts only this exact
-same-transaction genesis shape or the frozen migration's horizon shape; update
-and delete remain forbidden. Scanner, backup, restore, direct-run migration
-idempotence, fresh-database, and app-creation tests cover both migrated horizons
-and post-cutover genesis baselines.
+Every app birth establishes genesis atomically with its app/entity rows. There
+is one mandatory canonical birth shape: a real nonblank name (`Untitled` for an
+omitted or whitespace-only input), one caseless survey module, one survey form,
+and one text question. `createApp` builds and admits that construction batch
+once, evaluates the absolute verdict and export readiness under the locked
+Project lookup-definition snapshot, then writes the root, entities, exact
+lookup/media projections, `apps.mutation_seq = 1`, one Project-bearing
+sequence-one baseline, and one empty attributed `fold-baseline` app change in
+the same transaction. Construction mutations never become a second replay
+dialect. The typed receipt is
+`{ appId, projectId, role, canEdit, baseSeq: 1, blueprint, starter: { moduleUuid, formUuid, fieldUuid } }`;
+chat, MCP, and the from-scratch builder consume it directly and never persist or
+reconstruct an empty app.
+
+Scanner, backup, restore, direct-run migration idempotence, fresh-database,
+receipt/identity, late-failure rollback, multi-baseline, Project-continuity,
+final-lookup-context, and reload-boundary tests cover both migrated and newly
+created apps.
 
 A committed read-only scanner runs against one repeatable-read production
 snapshot before migration. This advisory result is capacity and finding
@@ -816,8 +1121,8 @@ outputs, or chat text. It inventories:
 - raw `apps` scalars and entity rows: keys, parents, embedded UUIDs, exact
   reachability/membership closure, cycles, wrong-kind or missing parents,
   stray/duplicate sequence entries, key equality, collisions, all nested
-  references, option identities, `apps.case_types`, `apps.logo`, lookup UUIDv7
-  values and edges, and every
+  references, option identities, `apps.project_id`, `apps.case_types`,
+  `apps.logo`, lookup UUIDv7 values and edges, and every
   `lookup_rows.values` JSON object key checked against its table's exact
   canonical column UUID;
 - every Connect arm and id, Search-input arm and facet, ID/image mapping row,
@@ -837,8 +1142,13 @@ outputs, or chat text. It inventories:
   envelope and payload is final-parsed and reported as `block-current` if it is
   not exact; raw tool-call/result receipts are counted by shape and byte volume
   but never printed;
-- all media carriers, library rows, aliases, reverse indexes, thread attachment
-  metadata, form intents including result-operation UUIDs, and form attachments;
+- all authored Blueprint media carriers, including dormant case-list/icon/audio/
+  image-map definitions, library rows, aliases, exact composite
+  `media_asset_refs(project_id, app_id, asset_id)`, strict canonical
+  `threads.messages[*].metadata.attachments[*]`, form intents including
+  result-operation UUIDs, and form attachments. Event attachment UUIDs are
+  immutable audit receipts: they are never dereferenced, remapped, copied,
+  indexed, or deletion blockers;
 - every `chat_stream_chunks` row and stream terminal status plus every
   `threads.active_stream_id`, `threads.active_holder_nonce`, and complete app
   lease/reservation state — `status`, `awaiting_input`, `run_id`, every `res_*`
@@ -847,14 +1157,23 @@ outputs, or chat text. It inventories:
 - exact row/byte counts, rewrite counts, complete named `pg_catalog`
   definitions for every dependent constraint/index/trigger, planned before and
   after byte volume, the larger transactional/WAL capacity bound, and the latest
-  fold horizon for each app.
+  fold horizon for each app. The tenancy inventory separately requires
+  nonblank, non-null app and case Projects; every app Project must resolve to an
+  `auth_organization`, and every case `(project_id, app_id)` must match its app.
 
 The frozen plan resolves every typed reference against an app-scoped,
 kind-aware ownership index rather than accepting UUID syntax as identity proof.
 Uploaded-media carriers additionally resolve to a ready asset in the app's
 Project and the allowed slot; lookup carriers resolve to the exact Project table
-and column. The migration recomputes both reverse indexes from current carriers
-and requires exact equality. Existing canonical AST/template arms receive the
+and column. The migration recomputes the lookup edge projections and the exact
+whole-app media projection from all authored Blueprint references plus canonical
+thread attachments and requires exact equality. The final media catalog has no
+completion marker, fallback scan, post-commit synchronization path, or
+historical event edge. Its DDL drops `media_reference_index_state`, gives
+`media_asset_refs` the composite primary key
+`(project_id, app_id, asset_id)`, enforces Project/app and Project/asset
+foreign keys, and indexes `(project_id, asset_id, app_id)` for deletion
+candidates. Existing canonical AST/template arms receive the
 same contextual checks as migrated text. A locked zero-finding scan is therefore
 the same admissibility result as the migration, including quiescence, schema,
 capacity, event envelope/family, attachment, intent, and holder gates.
@@ -864,9 +1183,17 @@ nonce-incomplete holders, and gives every settled/reaped reservation remnant an
 explicit allowed or blocking disposition. It never substitutes a narrower
 “currently live” test.
 
-The topology-repair manifest is closed to the 42 null-parent field rows found
-by the advisory scan, across 11 apps; it is not a reusable repair language or a
-lineage branch. All 42 are independent roots. They contain 27 case-property
+The frozen repair manifest owns the 42 null-parent field-row deletions, two
+exact property projections, the fixed label repair recipe, two catalog clears,
+and exactly thirteen thread attachment metadata-object removals: eleven name a
+missing asset and two name an asset in another Project. Every source/result
+thread digest and object coordinate is pinned. After repair those affected
+threads carry zero live attachment references; the one valid authored
+Blueprint media edge remains in the exact whole-app projection. The
+inaccessible Project orphan is a separate exact deletion closure with its own
+full dependent inventory. This is not a reusable repair language or an
+alternate runtime branch. All 42 field rows are independent roots. They contain
+27 case-property
 writers for 13 `(caseType, property)` pairs, 21 raw references and ten option
 identities, with zero inbound typed UUID references from reachable rows and no
 lookup or media carrier. The complete consumer audit proves that none is
@@ -889,20 +1216,23 @@ from the writer-derived segment after injected standard properties into the
 declared-property segment before them. This one catalog/picker ordering
 normalization is asserted exactly; retaining the ghost-derived position would
 require permanent provenance or compatibility state and is forbidden. The
-reviewed repair writer appends an attributed repair horizon and proves the
+reviewed repair writer appends attributed `blueprint-migration` and
+`fold-baseline` app changes and proves the
 resulting document and reverse indexes; it creates no quarantine table, alias,
 second reader, orphan sentinel, or compatibility shape. Orphan option and raw
 reference counts remain separate from reachable occurrences that the canonical
 transform will rewrite. The authoritative locked scan must report zero
 topology, illegal catalog-expression, and unresolved-reference findings before
 the canonical transform may start.
-`lib/db/apps.ts::applyCanonicalIdentityFoundationRepairInTransaction` is the
-only repair SQL authority. It accepts an externally owned transaction after the
-caller has locked every app in canonical order and accepts only the frozen,
+The timestamp-owned
+`frozenDatabaseRepair.ts::applyCanonicalIdentityFoundationRepairInTransaction`
+is the only repair SQL authority. It accepts an externally owned transaction
+after the caller has locked every app in canonical order and accepts only the
+frozen,
 digest-pinned row repair plan. This pre-canonical authority deliberately does
 not route the pre-cutover snapshot through the final `PersistableDoc` commit
 path. It owns only the exact `apps.case_types`, named entity-row update/delete,
-accepted-history/sequence, notification, and reverse-index proof operations;
+app-change/sequence, notification, and exact projection proof operations;
 compares the exact app sequence, source rows, and replacement digests; and
 returns proof output without committing. It is not a reusable raw-update API.
 The operator script contains no direct `apps` or history DML. Dry-run and apply
@@ -910,9 +1240,19 @@ invoke this identical authority: rehearsal executes the real writer and every
 behavior oracle against PostgreSQL, then rolls the transaction back; apply
 commits only after those same proofs pass for all apps. A late injected proof
 failure must roll back the exact 42 deletions, two projections, five typed label
-references plus one cleared token, two catalog clears, repair horizons, reverse
-indexes, and every artifact/byte digest. The authority requires the same
+references plus one cleared token, two catalog clears, repair app changes,
+exact projections, and every artifact/byte digest. The authority requires the same
 complete app-lease/thread/session quiescence proof as the migration.
+Its dedicated raw delta comparator permits only those named rows and proves
+every other complete PostgreSQL row text equal, including every byte of every
+`lookup_rows` row. Candidate snapshots are derived first and pass the complete
+frozen decoder/gate under their exact Project lookup contexts; the writer never
+validates or persists a merely repaired intermediate. Rerunning against the
+applied state is a no-write audit: the Project orphan must be physically absent,
+every exact attributed repair baseline must equal its affected app head, each
+pre-horizon sequence reconstruction must match the manifest result digest, and
+the current app set must pass the same complete decoder and behavior oracles.
+Anything partial is `mixed` or `drift`, not an idempotent success.
 
 The expression-repair manifest is closed to the three reachable live defects
 identified by the advisory scan; it is not a reusable repair language. In one
@@ -923,7 +1263,11 @@ not identity proof. The manifest clears that one token occurrence while
 preserving every other byte and part. The dangling lookup currently evaluates
 to the empty string, so this keeps Preview/device rendering identical for every
 form state while removing the invalid output from wire. The source label,
-occurrence, and replacement AST are pinned by full digests. Separately, two
+occurrence, and replacement AST are pinned by full digests. Its replacement
+recipe is six exact zero-based UTF-8 byte spans, each with its own source digest:
+five spans name their already-proven field UUID atom and one names `null`.
+Literal gaps are copied byte-for-byte. There is no regex token search, path
+resolution, leaf-name lookup, or runtime target inference. Separately, two
 case-catalog `validation` slots hold the same 36-byte expression containing a
 single form token. It has no exact target in any owning form, and each reachable
 writer already owns a different field-specific validation. The manifest clears
@@ -932,6 +1276,24 @@ case properties, inferred types, schemas/indexes, rows, and operations remain
 unchanged, while future fields no longer inherit an invalid contextless
 default. It never literalizes an XPath, invents a replacement, or retargets the
 one same-leaf candidate.
+
+The Project-tenancy repair manifest is closed to the one production test orphan
+approved for deletion on 2026-07-29. The advisory scan found 428 apps: 427 have
+nonblank Projects that resolve to existing Better Auth Projects, and exactly
+one live `project_id IS NULL` row has an empty owner with no auth principal,
+membership, or deterministic Project candidate. That orphan has no
+module/form/field entity, case or parked value, thread/run/event/presence/chunk,
+media or lookup reference, form attachment, or capture intent; it has exactly
+one empty pre-cutover change row plus its case catalog and one materialized case-type
+schema. There is no honest tenant assignment. Under the maintenance lock and
+post-quiescence backup, the repair matches a full digest of the app scalar,
+catalog, exact empty horizon, schema row, and the complete zero/one dependent
+inventory before physically deleting only that app and its exact dependent
+rows. Any changed byte, holder, added dependency, second null/blank app, or
+alternate null row blocks and rolls back the all-app repair. It never mints an
+orphan Project, infers from owner, exposes a reusable delete script, or leaves a
+quarantine/runtime reader. Zero matching rows is the idempotent already-repaired
+state; any nonzero unmatched set is `block-current`.
 
 For identity/reference conversion, the only `rewrite-current` cases are typed
 reference projection, parser-proven AST-only strings under the contextual
@@ -974,15 +1336,22 @@ unexpected live target may appear. Image identity is the complete immutable
 `repository@sha256:<digest>` value, never a comparison between a bare digest and
 a full reference. Cloud Build resolves that immutable reference immediately
 after push and uses it for the policy, migration, cleanup, and service
-deployments; no destructive Job executes a mutable build tag.
+deployments; no destructive Job executes a mutable build tag. Before each
+shared Job execution, the permanent helper proves one reconciled
+generation/observed-generation and sole exact image, submits `jobs:run` with
+that Job's `etag`, then proves the immutable Execution snapshot and every task
+succeeded. An overlapping build therefore produces a generation conflict
+instead of executing another build's image.
 
 The permanent deployment path has a success latch and a guaranteed maintenance
 recovery arm. Any failure after the canonical migration or after automatic
 scaling resumes detaches the NEG if attached, restores and verifies manual-zero,
 terminates runtime sessions, keeps cleanup paused, and preserves the original
-failure. Scheduler state is recorded, restored by a trap on failure, and
+failure. Every recovery action is attempted and its error retained even if an
+earlier action fails. Scheduler state is recorded, restored by a trap on failure, and
 rechecked after the cleanup probe; the maintenance execution requires the
-pre-existing scheduler to remain `PAUSED`.
+pre-existing scheduler to remain `PAUSED`; Cloud Build proves that posture
+before the first storage/database Job and again before updating cleanup.
 
 Cloud Build's sequential steps are not the recovery owner. One operator-local
 cutover orchestrator with its content-free action/evidence ledger stored as a
@@ -1062,9 +1431,14 @@ unattended merge:
    topology defect, run the reviewed row-digest-pinned forensic repair manifest
    now, while the old schema is still the serving contract but every writer is
    fenced. One all-app repair transaction must prove every exact before digest,
-   append the two orphan-only property projections, delete the 42 exact orphan
-   roots, reconcile every affected reverse index, apply the separately reviewed
-   expression manifest, and append the attributed repair horizon. That
+   apply the approved Project-tenancy manifest and delete its one exact
+   inaccessible test orphan, append the two topology-orphan-only property
+   projections, delete the 42 exact topology roots, reconcile every affected
+   lookup/media projection, apply the separately reviewed expression manifest,
+   and append the attributed `blueprint-migration` plus `fold-baseline` changes
+   for each surviving repaired app. The tenancy
+   deletion first proves its full zero/one dependent inventory and has no
+   reusable or inferred target. That
    expression manifest types the five proven references in the one affected
    label, clears its one unresolved token occurrence, and clears the two illegal
    catalog `validation` slots. Before commit, prove the exact
@@ -1078,9 +1452,10 @@ unattended merge:
    repair may infer from a path string, and every source/replacement digest must
    match. Rerun the locked
    scanner and require zero topology, illegal catalog-expression, or
-   unresolved-reference findings. A failure rolls that repair transaction back;
-   an ambiguous row stops the cutover. The pre-repair backup remains the
-   authoritative rollback point. Before merge, arm an
+   unresolved-reference findings, zero null/blank app or case Projects, zero
+   missing Project targets, and zero mismatched case/app tenants. A failure
+   rolls that repair transaction back; an ambiguous row stops the cutover. The
+   pre-repair backup remains the authoritative rollback point. Before merge, arm an
    operator-local one-shot watcher keyed to joint PR #349, its frozen combined
    Unit 18/Unit 2 head SHA, reviewed base SHA, and named main trigger. After
    exact-head squash
@@ -1114,20 +1489,47 @@ unattended merge:
    remaining current event, and only then persists those candidates. After all
    candidate and index proofs pass, it archives every existing mutation event
    while changing both `events.event.kind` and the projected `events.kind`
-   column atomically, migrates typed event attachments, appends all horizon
-   markers and immutable fold-baseline rows, deletes every presence and
-   `chat_stream_chunks` row, strictly parses
-   and rewrites every `lookup_rows.values` object while preserving its exact
-   canonical column-UUID keys, converts the SQL columns, rebuilds constraints
+   column atomically, migrates typed event attachments, writes all exact
+   `app_changes` rows and immutable Project-bearing
+   `app_change_fold_baselines`, deletes every presence and
+   `chat_stream_chunks` row, strictly parses every `lookup_rows.values` object
+   and validates every key against its exact table/column context while
+   preserving the complete `lookup_rows` table byte-for-byte, converts the SQL
+   columns, makes
+   `apps.project_id` and `cases.project_id` nonblank and `NOT NULL`, adds the
+   named deferred composite case/app tenant foreign key, rebuilds constraints
    and indexes, and commits only when every invariant and post-horizon baseline
-   proof passes. A noncanonical lookup-row key is a locked-scan blocker rather
-   than an input to runtime lowercasing. The migration's `down` entrypoint throws
+   proof passes. The four Better-Auth-Project foreign keys belong to the
+   Nova-owned auth-app migration that runs later in this same migration Job:
+   `apps.project_id`, `app_changes.from_project_id`,
+   `app_changes.to_project_id`, and
+   `app_change_fold_baselines.project_id`. It runs after Better Auth creates
+   `auth_organization`; a fresh database must not
+   depend on that table existing during the earlier case-store migration. A
+   noncanonical lookup-row key is a locked-scan blocker rather than an input to
+   runtime lowercasing. The migration's `down` entrypoint throws
    an explicit forward-only error so Kysely can never remove its ledger row while
    leaving the UUID schema in place. The Job configuration pins
    `maxRetries: 0`; the orchestrator alone may start a later fully refenced
    execution.
+   The following case-schema index-convergence DDL cutover first locks and
+   classifies its complete catalog and data. Only the exact source shape runs
+   plain DDL and seeds `index_pending_seq = synced_seq`; the exact final shape is
+   a no-write audit that preserves a legitimate newer pending sequence. Any
+   partial, wrong-type/default/index/constraint, extra, or duplicate shape
+   blocks, and its `down` is forward-only.
 5. Still inside the exact new image's migration entrypoint and before service
-   deployment, converge to the final explicit database ACL: only the migration,
+   deployment, run Better Auth's own migrations and then the Nova auth-app
+   migration. The latter verifies every surviving referenced Project exists and
+   adds the four exact named, validated foreign keys above with restricted
+   update/delete actions; unknown Project rows or any
+   alternate definition fail the Job. It locks the app and Project relations
+   and inventories the complete `project_id` column/index plus local and
+   referencing constraint set before its first write; alternate-name duplicate
+   FKs, alternate actions or deferrability, `NOT VALID`, and partial/extra
+   objects block. An exact applied rerun is read-only and its `down` is
+   forward-only. Then converge to the final explicit
+   database ACL: only the migration,
    runtime, cleanup, and dedicated audit identities regain their intended
    `CONNECT` and least-privilege grants; the audit identity has only the exact
    `SELECT` privileges required by the scanner and no DML or role inheritance.
@@ -1264,10 +1666,11 @@ forward cutover, the only path is fix-forward with the NEG detached, service at
 manual zero, runtime sessions terminated, and cleanup paused; a partial table
 restore or replay across the horizon is forbidden.
 
-The stream checks the complete row set after a client cursor for a migration
-marker before emitting anything. For `cursor C → ordinary C+1 → migration M`,
-it emits zero mutation frames, freshly reauthorizes, and sends exactly one
-terminal, sequence-less reload. Revocation closes as revoked; transient
+The stream checks the complete app-change suffix after a client cursor before
+emitting anything. If any row is `blueprint-migration`, `fold-baseline`, or
+`project-move`, it emits zero mutation frames from that suffix, freshly
+reauthorizes, and sends exactly one terminal, sequence-less reload. Revocation
+closes as revoked; transient
 reauthorization failure advances no cursor and retries. A post-cutover scan must
 report zero current or post-horizon findings. The server strictly parses the
 complete post-cursor suffix before emitting any frame and the client parses each
@@ -1277,9 +1680,12 @@ terminal, without advancing its cursor. An invalid client frame closes and
 disowns the stream and enters the serialized authoritative Blueprint reload
 path without advancing the reconciler cursor or invalidating case data; only a
 successfully parsed fresh snapshot installs its head sequence. The post-cutover
-scanner locates the greatest row in `mutation_fold_baselines`, strictly parses
-and digest-checks it and every suffix batch, folds that suffix, and requires
-exact scalar/entity equality with the stored snapshot.
+scanner locates the greatest row in `app_change_fold_baselines`, strictly parses
+it, recomputes the database-owned `snapshot::text` digest, accepts either the
+immutable frozen-baseline attribution or a sequence-one genesis attribution
+without consulting mutable current run state, parses every suffix batch, folds
+that suffix, and requires exact scalar/entity equality with the stored
+snapshot.
 
 The SQL UUID conversion covers semantic authored identity columns only:
 `apps.logo`, `blueprint_entities.uuid`, `blueprint_entities.parent_uuid`,
@@ -1295,14 +1701,21 @@ result object maps and their hashes. The postcondition requires exact
 names, affected columns, predicates/expressions, deferrability, validation,
 nullability/defaults, ownership, and relevant grants for every dependent
 object. Count equality or a hand-listed subset cannot authorize commit.
+That closure starts at `public.apps`, follows incoming foreign keys and
+`pg_depend` recursively, rejects an unowned dependent heap relation, and
+separately freezes every owned relation/index owner and ACL. The fold catalog
+pins every function body from `pg_get_functiondef`, owner, complete ACL/grants,
+and fixed `proconfig`/`search_path`; a same-name or count-only function match is
+insufficient.
 
 Verification freezes the complete contract:
 
 - a generated one-representation inventory covers standard case-property names,
   Connect, Search inputs, mapping rows, nested UUID/order topology, case-operation
   facets, owner-only Search provenance, post-submit destinations, date-column
-  formats, app-read response keys, builder route tokens, expression/prose/XPath
-  projections, and every current protocol-frame family. Persisted carriers are
+  formats, required Project tenancy, app-read response keys, builder route
+  tokens, expression/prose/XPath projections, and every current protocol-frame
+  family. Persisted carriers are
   parity-tested through scanner, dispatcher, migration, final schema, and
   consumers. App-read responses, route tokens, and ephemeral protocol frames
   are covered by the generated source registry plus strict producer/consumer
@@ -1314,12 +1727,67 @@ Verification freezes the complete contract:
   CI. Migration fixtures cover each allowed exact rewrite and every blocking
   ambiguity, final-parse the complete assembled Blueprint, and prove that no
   current row, baseline, or post-horizon suffix retains a pre-cutover shape;
-- simultaneous field-property rename fixtures apply admitted batches in every
-  command order and prove identical results for chains, swaps, destination
-  merges, peer writers, new same-batch old-name births, moves, explicit binding
-  retargets, typed references, catalogs, case-list/Search carriers, undo,
-  `diffDocsToMutations`, durable replay, and row-migration classification. No
-  fixture or emitted batch contains a temporary property name;
+- explicit case-property rename fixtures prove chains-to-fresh, swaps, and
+  cycles across peer `caseWrite` bindings, case-operation writers, typed
+  references, catalogs, case-list/Search carriers, schemas/indexes, live rows,
+  every parked row including dismissed entries, undo, command-aware durable
+  replay, and a dedicated no-stamp row rewrite that preserves `modified_on` and
+  every unrelated case/park column. Generic `diffDocsToMutations` and
+  whole-document synthetic repair refuse a complete carrier-wide
+  rename-shaped endpoint pair without command provenance and never manufacture
+  rename intent from endpoint snapshots; ordinary writer retarget, writer
+  add/remove, case-operation write edit, catalog add/remove/edit, and
+  typed-reference edit fixtures prove those granular diffs remain available
+  and leave rows untouched. The collaboration equality path needs no semantic
+  diff. A rename followed by its inverse proves byte-identical aggregate
+  Blueprint state does not erase either admitted command: both are sent,
+  persisted, replayed, and inverted in order, and its UI/store regression proves
+  the command-queue notification wakes autosave despite an unchanged
+  persisted-state slice. A separate symmetric swap fixture proves one explicit
+  command changes the Blueprint carriers and live/parked row keys together,
+  with exactly one matching accepted event. A rejected rename followed by
+  dependent edits proves the entire unacknowledged causal suffix and its
+  history are discarded on authoritative reload, no successor PUT occurs, and
+  the user is told to redo those edits rather than having one reinterpreted
+  against the old property identity.
+  Negative
+  fixtures reject duplicate sources/destinations, terminal merges, occupied
+  destinations that do not move, same-source rebirth, scalar/JSONB crossings,
+  standard scalar metadata participation, missing/nonmaterializable sources,
+  row/park collisions including present null, empty-string, and blank
+  destination values,
+  mixed-mutation batches, and any temporary property. A separate matrix proves
+  `updateField.patch.id`, `patch.caseWrite`, and `moveField` never trigger an
+  app-wide rename. Transaction fixtures prove Blueprint reproof, row/park
+  rewrite, schema-intent regeneration, and Blueprint/event persistence commit
+  or roll back together in Phase A; Phase B concurrent index convergence is
+  independently observable and retryable without changing correctness.
+  Heterogeneous typed chain/swap/cycle fixtures prove declaration metadata
+  follows the source, generic retype/reshape/restore/park logic never runs,
+  parked metadata remains byte-identical apart from the property name, and
+  affected cast-bearing indexes are transactionally dropped before a row value
+  they cannot evaluate moves under them. A Phase-B failure leaves a durable
+  pending marker; immediate, same-batch-dedup, point-of-use, materializer, and
+  deployment drains converge it. An out-of-order sequence N/N+1 fixture proves
+  the shared per-type lock and latest-schema derivation make delayed N converge
+  N+1 rather than drop its index. Queue
+  fixtures prove rename→edit, edit→rename, rename→undo-before-save, peer rebase,
+  retry, and ack remain ordered distinct batches and PUTs;
+- Project-tenancy fixtures cover the default null/blank/missing/mismatched
+  blocker; the one approved full-digest orphan deletion; changed bytes, an
+  added dependency, or any alternate null app rolling back the entire repair;
+  zero-null `attnotnull` postconditions; exact named app→Project and deferred
+  case→app tenant foreign-key definitions; negative null/blank/orphan/mismatch
+  inserts; fresh-database Better-Auth/auth-app ordering; and Project moves
+  committing only a complete tenant closure. The shared rollback-isolated SQL
+  harness sets every constraint immediate before each test body and seeds exact
+  parent app/Project rows, so an initially deferred violation cannot remain
+  unchecked until teardown rollback; tests of deferred multi-statement behavior
+  use a real commit boundary. Source tripwires reject nullable
+  persisted app Project types, owner-fallback app authorization, no-Project
+  runtime copy, or an alternate app branch. The schema-only case store's
+  discriminated no-Project mode remains covered separately and cannot invoke a
+  tenant-bound method;
 - absolute-gate regressions cover valid→invalid rejection, a corrupt
   baseline/read, a corrupt empty proposal, an invalid intermediate suffix
   followed by a valid final state, and undo after a peer change. Each fails
@@ -1361,7 +1829,8 @@ Verification freezes the complete contract:
   `{ mutation leaf, JSON pointer, null meaning }`, distinguishing clear from a
   stored null, omission/no intent, and invalid own `undefined`. It pins all five
   former patch-default owners to required explicit patches and distinguishes
-  form/module rename mutations from the intentional `updateField` id path. A
+  form/module rename mutations, the local `updateField` id and `caseWrite`
+  paths, and the batch-exclusive `renameCaseProperties` arm. A
   new unclassified mutation leaf fails CI;
 - exact JSON-tree admission matrices over primitives, descriptors, arrays,
   prototypes, cycles, aliases, frozen inputs, reordered keys, and throwing
@@ -1413,8 +1882,11 @@ Verification freezes the complete contract:
   replacement may clear an omitted nested slot only when replacement semantics
   already make that omission the canonical command. Focused producer and
   end-to-end regressions cover conditional-close → Always; post-submit →
-  default; Connect disable and same-mode teardown; `validate_msg`, `validate`,
-  `required`, and `case_property_on`; every pre-cutover repair clear; pre-cutover media
+  default; app-wide Connect enable, mode switch, complete participant
+  replacement, disable, and same-mode teardown through the shared SA/MCP
+  command and builder planner, including no dormant blocks and rejected
+  empty/foreign/duplicate/wrong-mode targets; `validate_msg`, `validate`,
+  `required`, and `caseWrite`; every pre-cutover repair clear; pre-cutover media
   clears for app/module/form/case-list/field and inline-option media through its
   whole-value `updateOption` omission; and form/module renames. The actual PUT
   path proves the exact admitted command through accepted JSONB, transient and
@@ -1428,6 +1900,42 @@ Verification freezes the complete contract:
   `id-of`/effect dependencies, Search-input UUID projection, frozen Lezer
   catalog-string conversion/refusal, friendly human XPath projection, and
   structural rename/move;
+- frozen field-binding migration fixtures rewrite exactly
+  `case_property_on: <caseType>` plus the field's existing `id: <property>` to
+  `caseWrite: { caseType: <caseType>, property: <property> }`, preserve `id`,
+  final-parse the new field, and prove that the old slot is rejected by every
+  live schema/reader. A named CommCare XForm oracle proves a question whose
+  local field id differs from `caseWrite.property` writes the declared case
+  property while friendly XPath remains `#form/<field-id>`. An emitted-action
+  admission matrix rejects every survey/no-action writer, duplicate ordinary,
+  `case_name`, or `external_id` writers in the primary bucket and each
+  `(child type, nearest repeat UUID)` bucket, and missing or multiple
+  `case_name` writers in registration/child-create buckets. It admits only
+  `case_name` and `external_id` from the standard scalar set for ordinary field
+  writes, and only `external_id` for generic operation writes. Named CommCare
+  `corehq/ex-submodules/casexml/apps/case/tests/data/v2/basic_update.xml`
+  bytes plus an emitted Nova fixture prove a unique followup/close primary
+  `case_name` binding preloads and emits as `<update><case_name>` rather than
+  disappearing. Exact
+  `FormPreparationV2Test::test_open_case_external_id` /
+  `form_preparation_v2/open_case_external_id.xml` bytes plus an emitted Nova
+  fixture prove registration external ID lives in `<update><external_id>`,
+  never `<create>`. Field, operation, and storage fixtures prove U+0000..U+0020
+  boundary normalization, the 255 UTF-16-unit cap, active blank external ID as
+  `""`, inactive/absent preservation, ordinary-last contention, and scalar
+  exclusion from JSONB across primary/child create, followup/close, direct and
+  bulk store paths, duplicate-create merge, and retype. Operation fixtures
+  prove writes resolve under
+  `(retype ?? caseType, property)`. One shared inventory fixture asserts exact
+  field UUID/current id, ordered UUID/current-id/query-bound path segments,
+  nearest repeat UUID/id/path, and one-time `FormPath` projection parity across
+  validator, FormActions/XForm, Preview, and builder projection. Its membership
+  matrix accepts only the module's own or exact direct-child type and rejects a
+  sibling, parent, grandchild, unrelated, unknown, blank, module-less, and
+  survey/no-action destination identically through builder, SA, MCP, gate,
+  emitter, and Preview. A nested XML-illegal ancestor-id regression produces
+  exactly one `INVALID_FIELD_ID` finding, while direct lowering and Preview
+  both throw the same projection error when that validator is bypassed;
 - horizon migration fixtures for every root/entity/carrier and mutation family,
   catalog defaults, the exact five-reference/one-token-clear prose repair, the
   exact two-slot catalog-validation clear, canonical-option preservation, exact
@@ -1439,16 +1947,20 @@ Verification freezes the complete contract:
   post-cutover mutation events, typed event attachment migration, form-intent
   result operations, canonical `lookup_rows.values` key coverage and
   noncanonical-key refusal, idempotence, rollback, all-app atomicity, exact
-  post-horizon replay, including a nonempty reload-only Project-move
-  `kind: "migration"` suffix that folds normally while the stream reloads and
-  only a baseline-referenced marker must be empty; stream marker ordering,
+  post-horizon replay, including a nonempty `project-move` suffix that folds
+  normally while the stream reloads and a `fold-baseline` row that is exactly
+  empty; stream boundary ordering,
   presence reset, operational
   chunk-log deletion, and frozen migration logic. Direct-run tests invoke
   `runFrozenCanonicalIdentityMigration` twice outside the Kysely-ledger shortcut:
-  the second invocation proves the exact already-applied state — one baseline
-  marker and `mutation_fold_baselines` row per app, exact sequence/head,
-  actor/kind/empty payload, strict suffix replay, carrier digests, and DDL
-  definitions — while every partial or mixed applied state rejects. A
+  the second invocation proves the exact already-applied state — at least one
+  complete baseline per app, exact `fold-baseline`
+  attribution/digest/snapshot for every
+  baseline, greatest-baseline selection with a strictly later suffix, exact
+  sequence/head, strict suffix replay, carrier digests, and DDL definitions —
+  while every partial or mixed applied state rejects. The multi-baseline
+  fixture proves earlier baselines remain immutable fold history and are
+  neither replayed twice nor mistaken for the current starting snapshot. A
   valid-app-plus-blocking-app fixture and injected failures after each
   `rewrite-current` family — canonical-property rewrites, AST/template
   conversion, final-shape Blueprint rewrites, date/post-submit conversion,
@@ -1497,6 +2009,17 @@ Verification freezes the complete contract:
   and human XPath surfaces show the current friendly projections while the
   stored identity and Preview behavior remain unchanged and no UUID text
   appears; switching back to Always leaves no sentinel or dangling reference;
+  the same browser suite shows Field ID and Saves to as independent controls,
+  retargets Saves to onto an effective-catalog property with no writer while
+  friendly `#form/<field-id>` stays unchanged, and then changes the field id
+  without changing its case destination. It opens app-wide Case data, finds a
+  catalog-only property, composes a multi-entry relation, reviews grouped
+  document/row/park impact, and proves an occupied-destination refusal sends no
+  mutation. After exact save acknowledgment and reload it proves the field
+  binding, case-operation/condition/list/Search projections, seeded case row,
+  and Preview value all follow the property relation while Field ID stays fixed;
+  undo proves the inverse restores document and row state. The global trigger,
+  dialog focus/return, and full flow repeat at handset width;
 
 Documentation moves only where reader-visible behavior or a callable contract
 changes. The public MCP reference, including `content/docs/mcp/tools.mdx`, must
@@ -1504,7 +2027,11 @@ show the exact UUID parameters and typed AST/template payloads an API client
 actually sends. In this unit, rewrite the conflicting lookup/case-operation
 sections of `content/docs/mcp/tools.mdx`: remove the claim that returned lookup
 ASTs are withheld, remove mutable operation-id and field-path addresses, and
-show the one callable UUID/AST contract. The combined final PR also documents
+show the one callable UUID/AST contract. It also documents the exact field
+`caseWrite: { caseType, property } | null` payload and the complete simultaneous
+`rename_case_properties` relation; ordinary guides explain only the visible
+Saves-to/property-rename workflow, not internal UUID storage. The combined
+final PR also documents
 Unit 2's complete row-filter and lookup tool contract; no final documentation
 state withholds behavior deployed in the same image.
 

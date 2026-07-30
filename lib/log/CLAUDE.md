@@ -32,6 +32,12 @@ own columns so reads filter and order without parsing the payload.
 the valid rows around it would invent a partial history that never existed.
 Pre-cutover mutation payloads use the explicit opaque `archived-mutation` arm.
 
+Conversation-event attachment UUIDs are immutable audit receipts, not live
+media references. Readers display the snapshotted metadata only; event ids are
+never dereferenced, remapped during Project moves, copied, reverse-indexed, or
+used to block deletion. The live carrier set is authored Blueprint slots plus
+strict `threads.messages[*].metadata.attachments[*]`.
+
 ## Usage in events — per-step decomposition only
 
 Aggregate token usage and COST live on the per-run summary

@@ -539,13 +539,18 @@ describe("EngineController", () => {
 
 		it("a converted group→repeat's child value reaches computeSubmissionMutation at the reindexed path", async () => {
 			/* A registration form whose primary case type is `patient`. The group
-			 * holds a case-property child; after group→repeat the child's value
-			 * must survive the re-path so the submission mutation carries it (not
-			 * an empty reindexed path). `note` writes the module's OWN case type,
-			 * so it stays in the primary's `properties` — the walk reads it at the
-			 * reindexed `/data/container[0]/note`, proving submit sees the value. */
+			 * holds an admitted direct-child bucket; after group→repeat its values
+			 * must survive the re-path so submission materializes that same bucket
+			 * from `/data/container[0]/...`. */
 			const patientCaseType: CaseType = {
 				name: "patient",
+				properties: [
+					{ name: "case_name", label: proseText("Name"), data_type: "text" },
+				],
+			};
+			const noteCaseType: CaseType = {
+				name: "note_entry",
+				parent_type: "patient",
 				properties: [
 					{ name: "case_name", label: proseText("Name"), data_type: "text" },
 					{ name: "note", label: proseText("Note"), data_type: "text" },
@@ -555,12 +560,13 @@ describe("EngineController", () => {
 			const formUuid = testUuid("eeeeeeee-0002-0002-0002-000000000001");
 			const nameUuid = testUuid("eeeeeeee-0003-0003-0003-000000000001");
 			const groupUuid = testUuid("eeeeeeee-0004-0004-0004-000000000001");
+			const childNameUuid = testUuid("eeeeeeee-0004-0004-0004-000000000002");
 			const noteUuid = testUuid("eeeeeeee-0005-0005-0005-000000000001");
 			const doc: PersistableDoc = {
 				appId: "test-app",
 				appName: "Test App",
 				connectType: null,
-				caseTypes: [patientCaseType],
+				caseTypes: [patientCaseType, noteCaseType],
 				modules: {
 					[moduleUuid]: {
 						uuid: moduleUuid,
@@ -583,7 +589,7 @@ describe("EngineController", () => {
 						id: "case_name",
 						kind: "text",
 						label: proseText("Name"),
-						case_property_on: "patient",
+						caseWrite: { caseType: "patient", property: "case_name" },
 					},
 					[groupUuid]: {
 						uuid: groupUuid,
@@ -591,19 +597,29 @@ describe("EngineController", () => {
 						kind: "group",
 						label: proseText("Container"),
 					},
+					[childNameUuid]: {
+						uuid: childNameUuid,
+						id: "entry_name",
+						kind: "hidden",
+						calculate: xp("'Note entry'"),
+						caseWrite: {
+							caseType: "note_entry",
+							property: "case_name",
+						},
+					},
 					[noteUuid]: {
 						uuid: noteUuid,
 						id: "note",
 						kind: "text",
 						label: proseText("Note"),
-						case_property_on: "patient",
+						caseWrite: { caseType: "note_entry", property: "note" },
 					},
 				},
 				moduleOrder: [moduleUuid],
 				formOrder: { [moduleUuid]: [formUuid] },
 				fieldOrder: {
 					[formUuid]: [nameUuid, groupUuid],
-					[groupUuid]: [noteUuid],
+					[groupUuid]: [childNameUuid, noteUuid],
 				},
 			};
 			const store = createBlueprintDocStore();
@@ -624,18 +640,19 @@ describe("EngineController", () => {
 				]);
 			await new Promise((r) => setTimeout(r, 10));
 
-			/* The child value survived the re-path — the walk reads it at the
-			 * reindexed `/data/container[0]/note`. `note` targets the module's own
-			 * case type, so it lands in the primary's `properties` (the child-case
-			 * fan-out is only for fields writing a DIFFERENT case type); the point
-			 * is the value is present, not dropped. */
-			const mutation = ctrl.computeSubmissionMutation({
-				caseTypes: [patientCaseType],
-			});
+			/* The child value survived the re-path and lands in the canonical
+			 * direct-child bucket for this concrete repeat instance. */
+			const mutation = ctrl.computeSubmissionMutation({});
 			expect(mutation.kind).toBe("registration");
 			if (mutation.kind === "registration") {
-				expect(mutation.primary.properties.note).toBe("in-progress note");
 				expect(mutation.primary.caseName).toBe("Alice");
+				expect(mutation.children).toEqual([
+					{
+						caseType: "note_entry",
+						caseName: "Note entry",
+						properties: { note: "in-progress note" },
+					},
+				]);
 			}
 		});
 	});
@@ -1459,6 +1476,7 @@ describe("EngineController", () => {
 		});
 
 		it("per-instance values reach the submission walk", () => {
+			const patientNameUuid = testUuid("eeeeeeee-0001-0001-0001-000000000003");
 			const patientCaseType: CaseType = {
 				name: "patient",
 				properties: [
@@ -1466,12 +1484,20 @@ describe("EngineController", () => {
 				],
 			};
 			const doc = repeatDoc();
+			doc.fields[patientNameUuid] = {
+				uuid: patientNameUuid,
+				id: "patient_name",
+				kind: "hidden",
+				calculate: xp("'Patient'"),
+				caseWrite: { caseType: "patient", property: "case_name" },
+			};
 			const nameField = doc.fields[nameUuid];
 			doc.fields[nameUuid] = {
 				...nameField,
 				id: "case_name",
-				case_property_on: "medication_order",
+				caseWrite: { caseType: "medication_order", property: "case_name" },
 			} as Field;
+			doc.fieldOrder[FORM_UUID] = [patientNameUuid, repeatUuid];
 			doc.fieldOrder[repeatUuid] = [nameUuid];
 			doc.forms[FORM_UUID] = {
 				...doc.forms[FORM_UUID],
@@ -1481,6 +1507,20 @@ describe("EngineController", () => {
 				...doc.modules[MODULE_UUID],
 				caseType: "patient",
 			};
+			doc.caseTypes = [
+				patientCaseType,
+				{
+					name: "medication_order",
+					parent_type: "patient",
+					properties: [
+						{
+							name: "case_name",
+							label: proseText("Medication order name"),
+							data_type: "text",
+						},
+					],
+				},
+			];
 			const store = createLoadedStore(doc);
 			const ctrl = new EngineController();
 			ctrl.setDocStore(store);
@@ -1490,9 +1530,7 @@ describe("EngineController", () => {
 			ctrl.setValueAt("/data/orders[0]/case_name", "Hydrangea");
 			ctrl.setValueAt("/data/orders[1]/case_name", "Aspirin");
 
-			const mutation = ctrl.computeSubmissionMutation({
-				caseTypes: [patientCaseType],
-			});
+			const mutation = ctrl.computeSubmissionMutation({});
 			expect(mutation).toMatchObject({
 				kind: "registration",
 				children: [
@@ -1514,9 +1552,9 @@ describe("EngineController", () => {
 
 		it("throws when no engine is active", () => {
 			const ctrl = new EngineController();
-			expect(() =>
-				ctrl.computeSubmissionMutation({ caseTypes: [patientCaseType] }),
-			).toThrow(/controller has no active engine/);
+			expect(() => ctrl.computeSubmissionMutation({})).toThrow(
+				/controller has no active engine/,
+			);
 		});
 
 		it("delegates to the engine and returns the typed mutation", () => {
@@ -1552,14 +1590,14 @@ describe("EngineController", () => {
 						id: "case_name",
 						kind: "text",
 						label: proseText("Name"),
-						case_property_on: "patient",
+						caseWrite: { caseType: "patient", property: "case_name" },
 					},
 					[ageUuid]: {
 						uuid: ageUuid,
 						id: "age",
 						kind: "int",
 						label: proseText("Age"),
-						case_property_on: "patient",
+						caseWrite: { caseType: "patient", property: "age" },
 					},
 				},
 				moduleOrder: [moduleUuid],
@@ -1577,9 +1615,7 @@ describe("EngineController", () => {
 			ctrl.onValueChange(nameUuid, "Alice");
 			ctrl.onValueChange(ageUuid, "30");
 
-			const mutation = ctrl.computeSubmissionMutation({
-				caseTypes: [patientCaseType],
-			});
+			const mutation = ctrl.computeSubmissionMutation({});
 			// The controller injects THIS entry's attachment scope, which is why
 			// the assertion is on the case-bearing slots plus explicit checks
 			// on the required submission protocol rather than whole-object equality.

@@ -73,8 +73,9 @@
 
 import {
 	type BlueprintDoc,
-	caseListColumnHasRuntimeRole,
+	isOwnerOnlyCaseSearchConfig,
 	type Module,
+	searchInputDefault,
 	type Uuid,
 } from "@/lib/domain";
 import type {
@@ -142,8 +143,9 @@ export function searchInputRefUsesWhenInputPresent(
 
 		// Default value expression — fires before any input is bound,
 		// so input refs resolve to empty string regardless of envelope.
-		if (input.default !== undefined) {
-			const refs = findExpressionInputRefs(input.default, "forbids-input-ref");
+		const inputDefault = searchInputDefault(input);
+		if (inputDefault !== undefined) {
+			const refs = findExpressionInputRefs(inputDefault, "forbids-input-ref");
 			for (const ref of refs) {
 				errors.push(
 					buildError({
@@ -163,11 +165,7 @@ export function searchInputRefUsesWhenInputPresent(
 	// no search-input context.
 	for (let i = 0; i < (listConfig?.columns.length ?? 0); i++) {
 		const column = listConfig?.columns[i];
-		if (
-			column === undefined ||
-			!caseListColumnHasRuntimeRole(column) ||
-			column.kind !== "calculated"
-		) {
+		if (column === undefined || column.kind !== "calculated") {
 			continue;
 		}
 		const refs = findExpressionInputRefs(
@@ -191,7 +189,11 @@ export function searchInputRefUsesWhenInputPresent(
 
 	// Slot: search-button display condition — fires at case-list
 	// render time, no search-input context.
-	if (searchConfig?.searchButtonDisplayCondition !== undefined) {
+	if (
+		searchConfig !== undefined &&
+		!isOwnerOnlyCaseSearchConfig(searchConfig) &&
+		searchConfig.searchButtonDisplayCondition !== undefined
+	) {
 		const refs = findBareInputRefs(
 			searchConfig.searchButtonDisplayCondition,
 			"forbids-input-ref",
@@ -328,7 +330,6 @@ function visitPredicate(
 			// `property` is a `PropertyRef`; `values` is `[Literal, ...]`.
 			// No input refs reachable.
 			return;
-		case "is-null":
 		case "is-blank":
 			visitExpression(predicate.left, joinPath(path, "left"), gated, mode, out);
 			return;
@@ -453,7 +454,6 @@ function visitExpression(
 		case "date-coerce":
 		case "datetime-coerce":
 		case "double":
-		case "unwrap-list":
 			visitExpression(expr.value, joinPath(path, "value"), gated, mode, out);
 			return;
 		case "format-date":

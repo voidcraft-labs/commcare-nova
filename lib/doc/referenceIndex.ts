@@ -39,11 +39,10 @@
  * `mutations/index.ts`) seeds the index on first contact and then, per
  * mutation, re-derives exactly the carriers the mutation could have
  * changed: the named entity (plus its subtree on removals, plus minted
- * clones on duplication), the carriers whose edges a rename re-keys
- * (peers via the declarations index, property referencers via the
- * `c:`-bucket), and the `ctx[module]` group whose extraction read the
- * module's case-type context. A module case-type change or a cross-module form
- * move re-keys those edges.
+ * clones on duplication), every carrier for the explicit app-wide property
+ * rename, and the `ctx[module]` group whose extraction read the module's
+ * case-type context. A module case-type change or a cross-module form move
+ * re-keys those edges.
  *
  * Re-extraction is idempotent, so over-approximating a touched set
  * costs only repeated parses of that carrier's own slots — never
@@ -64,8 +63,9 @@ import {
 	type Field,
 	FORM_REFERENCE_SLOTS,
 	type Form,
-	fieldCasePropertyOn,
+	fieldCaseWrite,
 	fieldReferenceSlotsFor,
+	isOwnerOnlyCaseSearchConfig,
 	isOwnRecord,
 	isXPathExpression,
 	MODULE_REFERENCE_SLOTS,
@@ -76,6 +76,7 @@ import {
 	readSlotStrings,
 	readSlotValues,
 	recordFromEntries,
+	searchInputDefault,
 	USER_PROPERTY_TARGET_PREFIX,
 	type Uuid,
 	userPropertyTargetKey,
@@ -225,7 +226,8 @@ function unindexCarrier(index: ReferenceIndex, carrier: string): void {
 }
 
 /**
- * Register a field's `(case_property_on, id)` case-property
+ * Register a field's explicit `(caseWrite.caseType, caseWrite.property)`
+ * case-property
  * contribution (`decl`). Runs for EVERY (re-)indexed field BEFORE any
  * edge extraction in the same pass.
  */
@@ -235,14 +237,14 @@ function registerFieldDeclarations(
 	carrier: string,
 ): void {
 	const field = ownRecordValue(doc.fields, carrier);
-	if (!field || field.id.length === 0) return;
-	const caseType = fieldCasePropertyOn(field);
-	if (caseType === undefined) return;
+	if (!field) return;
+	const write = fieldCaseWrite(field);
+	if (write === undefined) return;
 	const entry = ownRecordValue(index.out, carrier) ?? {
 		edges: recordFromEntries([]),
 	};
 	index.out[carrier] = entry;
-	const key = casePropertyDeclKey(caseType, field.id);
+	const key = casePropertyDeclKey(write.caseType, write.property);
 	entry.decl = key;
 	addToBucket(index.decl, key, carrier);
 }
@@ -360,7 +362,7 @@ function extractFieldEdges(sink: EdgeSink, field: Field): void {
 				}
 				break;
 			case "case-type-ref":
-				// `case_property_on` — names the case type the field writes
+				// `caseWrite.caseType` — names the case type the field writes
 				// to. The matching DECLARATION entry is registered separately
 				// (`registerFieldDeclarations`); the edge here is what makes
 				// the field show up as a referencer of the type.
@@ -379,12 +381,18 @@ function extractFieldEdges(sink: EdgeSink, field: Field): void {
 					predicateEdges(sink, slot.slot, field.optionsSource.filter);
 				}
 				break;
+			case "case-property-ref": {
+				const write = fieldCaseWrite(field);
+				if (write !== undefined) {
+					sink.edge(
+						casePropertyTargetKey(write.caseType, write.property),
+						slot.slot,
+					);
+				}
+				break;
+			}
 			case "predicate-ast":
 			case "entity-uuid":
-			case "case-property-ref":
-				// No field slot carries these kinds today — kept explicit so
-				// the registry's kind union stays exhaustively handled here,
-				// the same contract the rename rewriters hold.
 				break;
 			default: {
 				const _exhaustive: never = slot.kind;
@@ -578,8 +586,9 @@ function extractModuleEdges(sink: EdgeSink, mod: Module): void {
 				break;
 			case "search_input_default":
 				for (const input of list?.searchInputs ?? []) {
-					if (input.default !== undefined) {
-						expressionEdges(sink, slot.slot, input.default);
+					const defaultValue = searchInputDefault(input);
+					if (defaultValue !== undefined) {
+						expressionEdges(sink, slot.slot, defaultValue);
 					}
 				}
 				break;
@@ -591,7 +600,11 @@ function extractModuleEdges(sink: EdgeSink, mod: Module): void {
 				}
 				break;
 			case "search_button_display_condition":
-				if (search?.searchButtonDisplayCondition) {
+				if (
+					search !== undefined &&
+					!isOwnerOnlyCaseSearchConfig(search) &&
+					search.searchButtonDisplayCondition
+				) {
 					predicateEdges(sink, slot.slot, search.searchButtonDisplayCondition);
 				}
 				break;
@@ -988,6 +1001,11 @@ export function planReferenceIndexMaintenance(
 		case "removeCaseProperty":
 		case "setCaseTypeMeta":
 			break;
+		case "renameCaseProperties":
+			for (const uuid of Object.keys(doc.modules)) carriers.add(uuid);
+			for (const uuid of Object.keys(doc.forms)) carriers.add(uuid);
+			for (const uuid of Object.keys(doc.fields)) carriers.add(uuid);
+			break;
 		case "addModule":
 			carriers.add(mut.module.uuid);
 			break;
@@ -1071,8 +1089,8 @@ export function planReferenceIndexMaintenance(
 			addFieldSubtree(mut.uuid);
 			break;
 		case "moveField":
-			// A sibling collision may change the field's authored id and its
-			// case-property declaration. UUID references need no re-indexing.
+			// Parent/path changes re-project UUID references at read time. The
+			// carrier is cheap to re-extract and its id/caseWrite stay unchanged.
 			carriers.add(mut.uuid);
 			break;
 		case "convertField":
@@ -1108,40 +1126,6 @@ export function planReferenceIndexMaintenance(
 			break;
 		case "updateField": {
 			carriers.add(mut.uuid);
-			const field = ownRecordValue(doc.fields, mut.uuid);
-			const patch = mut.patch as Record<string, unknown>;
-			const newId = patch.id;
-			if (
-				field === undefined ||
-				typeof newId !== "string" ||
-				newId === field.id
-			) {
-				break;
-			}
-			const oldCaseType = fieldCasePropertyOn(field);
-			const rawNewCaseType = patch.case_property_on;
-			const newCaseType = Object.hasOwn(patch, "case_property_on")
-				? typeof rawNewCaseType === "string" && rawNewCaseType.length > 0
-					? rawNewCaseType
-					: undefined
-				: oldCaseType;
-			// The reducer cascades only a same-binding id change. A patch that
-			// also changes or clears `case_property_on` is a retarget and rekeys
-			// only the addressed field's own declaration/slots.
-			if (oldCaseType === undefined || newCaseType !== oldCaseType) break;
-
-			const declKey = casePropertyDeclKey(oldCaseType, field.id);
-			for (const peer of Object.keys(
-				ownRecordValue(index.decl, declKey) ?? {},
-			)) {
-				if (peer !== mut.uuid) carriers.add(peer);
-			}
-			const propertyKey = casePropertyTargetKey(oldCaseType, field.id);
-			for (const carrier of Object.keys(
-				ownRecordValue(index.in, propertyKey) ?? {},
-			)) {
-				carriers.add(carrier);
-			}
 			break;
 		}
 		// User properties, user types, and personas register NO edges. The

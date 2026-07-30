@@ -29,6 +29,7 @@ import type { ReactNode } from "react";
 import { useContext } from "react";
 import { assert, describe, expect, it, vi } from "vitest";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
+import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import {
 	useBlueprintDoc,
 	useBlueprintDocShallow,
@@ -134,6 +135,33 @@ const bp: BlueprintDoc = {
 function wrapper({ children }: { children: ReactNode }) {
 	return (
 		<BlueprintDocProvider appId="t" initialDoc={bp}>
+			{children}
+		</BlueprintDocProvider>
+	);
+}
+
+const connectBp: BlueprintDoc = {
+	...bp,
+	connectType: "learn",
+	forms: {
+		...bp.forms,
+		[FORM1]: {
+			...bp.forms[FORM1],
+			connect: {
+				learn_module: {
+					id: "intro",
+					name: "Introduction",
+					description: "Initial content",
+					time_estimate: 5,
+				},
+			},
+		},
+	},
+};
+
+function connectWrapper({ children }: { children: ReactNode }) {
+	return (
+		<BlueprintDocProvider appId="t" initialDoc={connectBp}>
 			{children}
 		</BlueprintDocProvider>
 	);
@@ -268,7 +296,7 @@ describe("useBlueprintMutations", () => {
 				hint: proseText("Temporary hint"),
 			});
 		});
-		store.getState().takeCommands();
+		store.getState().takeCommandBatches();
 
 		act(() => {
 			result.current.mutations.updateField(Q_A, "text", {
@@ -279,14 +307,16 @@ describe("useBlueprintMutations", () => {
 		expect(
 			(store.getState().fields[Q_A] as { hint?: unknown }).hint,
 		).toBeUndefined();
-		const commands = store.getState().peekCommands();
+		const commands = store.getState().peekCommandBatches();
 		expect(commands).toEqual([
-			{
-				kind: "updateField",
-				uuid: Q_A,
-				targetKind: "text",
-				patch: { hint: null },
-			},
+			[
+				{
+					kind: "updateField",
+					uuid: Q_A,
+					targetKind: "text",
+					patch: { hint: null },
+				},
+			],
 		]);
 		expect(JSON.parse(JSON.stringify(commands))).toEqual(commands);
 	});
@@ -305,13 +335,15 @@ describe("useBlueprintMutations", () => {
 		const ids = result.current.children.map((q) => q.id);
 		expect(ids).toContain("alpha");
 		expect(ids).not.toContain("a");
-		expect(store.getState().peekCommands()).toEqual([
-			{
-				kind: "updateField",
-				uuid: Q_A,
-				targetKind: "text",
-				patch: { id: "alpha" },
-			},
+		expect(store.getState().peekCommandBatches()).toEqual([
+			[
+				{
+					kind: "updateField",
+					uuid: Q_A,
+					targetKind: "text",
+					patch: { id: "alpha" },
+				},
+			],
 		]);
 	});
 
@@ -493,31 +525,48 @@ describe("useBlueprintMutations", () => {
 		expect(result.current.children.map((q) => q.id)).toEqual(["a", "b", "grp"]);
 	});
 
-	it("renameQuestion returns conflict: true when a peer's sibling id clashes", () => {
-		// Regression guard: two forms declare the same case property via
-		// matching (id, case_property_on) pairs — these are peers, both
-		// renamed atomically when either is renamed. A peer's own form
-		// already contains a sibling with the target id. The cascade would
-		// silently create a duplicate sibling id unless the conflict check
-		// scans peer parents too.
+	it("renameQuestion is local even when another writer saves to the same property", () => {
+		// Two fields in separate forms may save to the same case property.
+		// Renaming one field id changes only its friendly form path; it must not
+		// rename the peer or inspect the peer's sibling scope.
 		const CP_M = testUuid("cp-mod-uuid");
 		const CP_F1 = testUuid("cp-form-1-uuid");
 		const CP_F2 = testUuid("cp-form-2-uuid");
 		const CP_PRIMARY = testUuid("cp-primary-uuid");
 		const CP_PEER = testUuid("cp-peer-uuid");
 		const CP_BLOCKER = testUuid("cp-blocker-uuid");
+		const CP_COLUMN = testUuid("cp-column-uuid");
 
 		const peerDoc: BlueprintDoc = {
 			appId: "t",
 			appName: "Test",
 			connectType: null,
-			caseTypes: null,
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{ name: "age", label: proseText("Age") },
+						{ name: "age_new", label: proseText("Age new") },
+					],
+				},
+			],
 			modules: {
 				[CP_M]: {
 					uuid: CP_M,
 					id: "cp_m",
 					name: "CPM",
 					caseType: "patient",
+					caseListConfig: resolveCaseListConfig({
+						columns: [
+							{
+								uuid: CP_COLUMN,
+								kind: "plain",
+								field: "age",
+								header: "Age",
+							},
+						],
+						searchInputs: [],
+					}),
 				},
 			},
 			forms: {
@@ -525,25 +574,23 @@ describe("useBlueprintMutations", () => {
 				[CP_F2]: { uuid: CP_F2, id: "cp_f2", name: "F2", type: "followup" },
 			},
 			fields: {
-				// Primary and peer share (id="age", case_property_on="patient").
-				// Renaming either cascades to rename both.
+				// Primary and peer share the same independent caseWrite pair.
 				[CP_PRIMARY]: {
 					uuid: CP_PRIMARY,
 					id: "age",
 					kind: "text",
 					label: proseText("Age"),
-					case_property_on: "patient",
+					caseWrite: { caseType: "patient", property: "age" },
 				} as BlueprintDoc["fields"][typeof CP_PRIMARY],
 				[CP_PEER]: {
 					uuid: CP_PEER,
 					id: "age",
 					kind: "text",
 					label: proseText("Age"),
-					case_property_on: "patient",
+					caseWrite: { caseType: "patient", property: "age" },
 				} as BlueprintDoc["fields"][typeof CP_PEER],
-				// Blocker: lives in F2 alongside the peer. If we try to rename
-				// the primary → "age_new", the peer in F2 would also become
-				// "age_new" — colliding with this existing sibling.
+				// This sibling blocks only a local rename of CP_PEER, not the
+				// unrelated primary field in F1.
 				[CP_BLOCKER]: {
 					uuid: CP_BLOCKER,
 					id: "age_new",
@@ -586,19 +633,19 @@ describe("useBlueprintMutations", () => {
 			);
 		});
 
-		expect(captured.value?.conflict).toBe(true);
+		expect(captured.value).toEqual({});
 
-		// Store should be unchanged — no peer renamed, no dup sibling created.
+		// Only the selected field's local id changes.
 		const state = result.current.store?.getState();
 		assert(state);
-		expect(state.fields[CP_PRIMARY]?.id).toBe("age");
+		expect(state.fields[CP_PRIMARY]?.id).toBe("age_new");
 		expect(state.fields[CP_PEER]?.id).toBe("age");
 		expect(state.fields[CP_BLOCKER]?.id).toBe("age_new");
 	});
 
-	// ── updateApp undo atomicity ──────────────────────────────────────────
+	// ── updateApp undo ────────────────────────────────────────────────────
 
-	it("updateApp with both fields produces a single undo entry", () => {
+	it("updateApp renames the app in a single undo entry", () => {
 		const { result } = renderHook(() => useMutationsWithStore(), { wrapper });
 
 		// The provider releases the birth pause (startTracking=true default);
@@ -608,15 +655,12 @@ describe("useBlueprintMutations", () => {
 		});
 
 		act(() => {
-			/* `null` (Connect off) so the batch introduces nothing — enabling
-			 * Connect would rightly bounce on the fixture's block-less forms. */
 			result.current.mutations.updateApp({
 				app_name: "Combo",
-				connect_type: null,
 			});
 		});
 
-		// ONE step: a single undo takes back the whole combined patch.
+		// ONE step: a single undo takes back the rename.
 		expect(result.current.store?.getState().canUndo).toBe(true);
 		act(() => {
 			result.current.store?.getState().undo();
@@ -731,12 +775,14 @@ describe("useBlueprintMutations", () => {
 		const s = result.current.store?.getState();
 		const formUuid = getFormUuid(result.current.store);
 		expect(s?.forms[formUuid].name).toBe("Renamed Form");
-		expect(s?.peekCommands()).toEqual([
-			{
-				kind: "renameForm",
-				uuid: formUuid,
-				newId: "Renamed Form",
-			},
+		expect(s?.peekCommandBatches()).toEqual([
+			[
+				{
+					kind: "renameForm",
+					uuid: formUuid,
+					newId: "Renamed Form",
+				},
+			],
 		]);
 	});
 
@@ -753,7 +799,7 @@ describe("useBlueprintMutations", () => {
 				purpose: "Temporary purpose",
 			});
 		});
-		store.getState().takeCommands();
+		store.getState().takeCommandBatches();
 
 		act(() => {
 			result.current.mutations.updateForm(formUuid, {
@@ -762,15 +808,110 @@ describe("useBlueprintMutations", () => {
 		});
 
 		expect(store.getState().forms[formUuid].purpose).toBeUndefined();
-		const commands = store.getState().peekCommands();
+		const commands = store.getState().peekCommandBatches();
 		expect(commands).toEqual([
-			{
-				kind: "updateForm",
-				uuid: formUuid,
-				patch: { purpose: null },
-			},
+			[
+				{
+					kind: "updateForm",
+					uuid: formUuid,
+					patch: { purpose: null },
+				},
+			],
 		]);
 		expect(JSON.parse(JSON.stringify(commands))).toEqual(commands);
+	});
+
+	it("confines Connect membership outside generic form add/update and permits only explicit existing-participant refinement", () => {
+		const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
+			wrapper: connectWrapper,
+		});
+		const store = result.current.store;
+		assert(store);
+		const initialParticipant = store.getState().forms[FORM1].connect;
+
+		let addOutcome: AddCommitOutcome | undefined;
+		let addParticipantOutcome:
+			| ReturnType<typeof result.current.mutations.inline.updateForm>
+			| undefined;
+		let removeParticipantOutcome:
+			| ReturnType<typeof result.current.mutations.inline.updateForm>
+			| undefined;
+		act(() => {
+			/* Casts model a stale bundle or untyped JavaScript caller. The public
+			 * TypeScript signatures omit these slots; the runtime boundary must
+			 * still refuse them before the absolute gate can accept a valid
+			 * participant-bearing candidate. */
+			addOutcome = result.current.mutations.inline.addForm(MOD1, {
+				id: "alternate",
+				name: "Alternate",
+				type: "survey",
+				connect: initialParticipant,
+			} as never);
+			addParticipantOutcome = result.current.mutations.inline.updateForm(
+				FORM2,
+				{ connect: initialParticipant } as never,
+			);
+			removeParticipantOutcome = result.current.mutations.inline.updateForm(
+				FORM1,
+				{ connect: null } as never,
+			);
+		});
+
+		for (const outcome of [
+			addOutcome,
+			addParticipantOutcome,
+			removeParticipantOutcome,
+		]) {
+			expect(outcome?.ok).toBe(false);
+			if (outcome?.ok === false) {
+				expect(outcome.messages[0]).toContain("app-wide Connect");
+			}
+		}
+		expect(store.getState().forms[FORM1].connect).toEqual(initialParticipant);
+		expect(store.getState().forms[FORM2].connect).toBeUndefined();
+		expect(store.getState().formOrder[MOD1]).toEqual([FORM1, FORM2]);
+
+		let refineOutcome:
+			| ReturnType<typeof result.current.mutations.inline.refineFormConnect>
+			| undefined;
+		act(() => {
+			refineOutcome = result.current.mutations.inline.refineFormConnect(FORM1, {
+				learn_module: {
+					id: "intro",
+					name: "Introduction",
+					description: "Refined content",
+					time_estimate: 9,
+				},
+			});
+		});
+		expect(refineOutcome).toEqual({ ok: true });
+		expect(
+			(
+				store.getState().forms[FORM1].connect as {
+					learn_module?: { description: string; time_estimate: number };
+				}
+			).learn_module,
+		).toMatchObject({
+			description: "Refined content",
+			time_estimate: 9,
+		});
+
+		let nonparticipantRefine: typeof refineOutcome;
+		act(() => {
+			nonparticipantRefine = result.current.mutations.inline.refineFormConnect(
+				FORM2,
+				{
+					learn_module: {
+						id: "other",
+						name: "Other",
+						description: "Should not land",
+						time_estimate: 5,
+					},
+				},
+			);
+		});
+		expect(nonparticipantRefine?.ok).toBe(false);
+		expect(store.getState().forms[FORM2].connect).toBeUndefined();
 	});
 
 	it("setFormMedia sets and clears form media through explicit nulls", () => {
@@ -1138,12 +1279,13 @@ describe("useBlueprintMutations", () => {
 		expect(result.current.store?.getState().canUndo).toBe(false);
 	});
 
-	// ── moveField result metadata ────────────────────────────────────────
+	// ── moveField collision admission ───────────────────────────────────
 
-	it("moveField returns MoveFieldResult with renamed on cross-parent dedup", () => {
+	it("moveField rejects a destination sibling-id collision without renaming", () => {
 		// Use the fixture that has form F0 with [a, b, grp > [c]].
 		// Add a field with id "a" inside the group, then move Q_A into the
-		// group — it should dedup to "a_2".
+		// group. The move preserves local field id, so admission rejects the
+		// collision instead of inventing a new id.
 		const { result } = renderHook(() => useMutationsFormsAndGroupChildren(), {
 			wrapper,
 		});
@@ -1167,10 +1309,9 @@ describe("useBlueprintMutations", () => {
 		});
 
 		expect(captured.value).toBeDefined();
-		expect(captured.value?.renamed).toBeDefined();
-		expect(captured.value?.renamed?.oldId).toBe("a");
-		expect(captured.value?.renamed?.newId).toBe("a_2");
-		expect(typeof captured.value?.renamed?.xpathFieldsRewritten).toBe("number");
+		expect(captured.value?.ok).toBe(false);
+		expect(result.current.store?.getState().fields[Q_A].id).toBe("a");
+		expect(result.current.store?.getState().fieldParent[Q_A]).toBe(FORM1);
 	});
 
 	// ── moveField — extra options ─────────────────────────────────────────
@@ -1425,7 +1566,7 @@ describe("useBlueprintMutations", () => {
 // returns its no-op shape, and the rejection surfaces as an error toast.
 
 describe("useBlueprintMutations — commit gate", () => {
-	it("rejects an edit that would introduce a finding: store untouched, no-op return, error toast", () => {
+	it("rejects an edit whose complete candidate has a finding: store untouched, no-op return, error toast", () => {
 		toastStore.clear();
 		const { result } = renderHook(() => useMutationsWithStore(), {
 			wrapper: wrapper,
@@ -1435,8 +1576,8 @@ describe("useBlueprintMutations — commit gate", () => {
 		act(() => {
 			const s = result.current.store?.getState();
 			assert(s);
-			// An empty survey form on a complete app introduces EMPTY_FORM —
-			// the ratchet rejects it.
+			// The resulting candidate has an empty survey form, so the absolute
+			// gate rejects its EMPTY_FORM finding.
 			returned = result.current.mutations.addForm(s.moduleOrder[0], {
 				uuid: testUuid("form-gated-uuid"),
 				id: "gated",

@@ -9,8 +9,8 @@
  *
  * The fake stubs two SDK surfaces:
  *   - `registerTool(name, config, cb)` — the registration entry point
- *     every tool module calls. Only the callback is captured; the
- *     `config` argument is ignored since tests never assert on it.
+ *     every tool module calls. Both callback and config are captured so
+ *     schema-boundary tests can prove the exact registered contract.
  *   - `server.notification` — the low-level notification sink the
  *     progress emitter dispatches on. Exposed as `notificationSpy` so
  *     tests that opt into progress inspection can query it directly.
@@ -47,6 +47,7 @@ export type CapturedToolHandler = (
 export interface FakeServer {
 	server: McpServer;
 	capture(): CapturedToolHandler;
+	registeredConfig(): unknown;
 	notificationSpy: ReturnType<typeof vi.fn>;
 }
 
@@ -59,12 +60,14 @@ export interface FakeServer {
  */
 export function makeFakeServer(): FakeServer {
 	let captured: CapturedToolHandler | null = null;
+	let config: unknown;
 	const notificationSpy = vi.fn();
 	const register = (
 		_name: string,
 		_configOrSchema: unknown,
 		cb: CapturedToolHandler,
 	): void => {
+		config = _configOrSchema;
 		captured = cb;
 	};
 	const server = {
@@ -78,6 +81,10 @@ export function makeFakeServer(): FakeServer {
 		capture: () => {
 			if (!captured) throw new Error("handler not captured");
 			return captured;
+		},
+		registeredConfig: () => {
+			if (config === undefined) throw new Error("config not captured");
+			return config;
 		},
 		notificationSpy,
 	};

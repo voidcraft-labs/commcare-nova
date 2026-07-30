@@ -8,9 +8,10 @@
  * "Saving…" appears only while a PUT is actually in flight, not during an
  * artificial debounce window.
  *
- * The reconciler (`lib/collab/reconciler.ts`) owns `confirmedDoc ⊕ sentPending`
- * — the diff base — and the PUT itself (`dispatchHumanBatch` mints a batchId,
- * registers the batch, PUTs `{ mutations, batchId }`, and re-sends on network
+ * The reconciler (`lib/collab/reconciler.ts`) owns
+ * `confirmedDoc ⊕ sentPending` and the PUT itself
+ * (`dispatchHumanBatch` preserves each original queued admitted batch as its
+ * own sent segment, mints one batchId per segment, and re-sends on network
  * failure via its own retry loop). This hook is the throttle + the save-status
  * surface: it computes when to dispatch, hands the reconciler a
  * `SaveObserver`, and renders the status from the signals it gets back. Access
@@ -20,9 +21,9 @@
  * the store subscriber fires synchronously from `applyMany`, including when the
  * reconciler applies an inbound frame, and a server-originated frame must never
  * bounce back out as a client PUT. There is deliberately NO agent-run gate: a
- * human edit made during an agent run is a `humanUncommitted` delta (the run's
- * own batches are in the reconciler's `sentPending`), so the reconciler's diff
- * picks it up and PUTs it on the next tick.
+ * human edit made during an agent run is a queued human command (the run's own
+ * batches are in the reconciler's `sentPending`), so the reconciler PUTs it on
+ * the next tick.
  *
  * Returns a SaveState the SaveIndicator renders.
  */
@@ -75,12 +76,19 @@ const IDLE_STATE: SaveState = { status: "idle", savedAt: null };
  * (`modules` / `forms` / `fields`) cover their nested media, so the standalone
  * top-level slots are the ones to watch.
  *
+ * `commandQueueRevision` is the one non-persisted trigger: a nonempty semantic
+ * command can deliberately leave identical Blueprint bytes while still owing
+ * a saved-row operation, so command admission itself must wake auto-save.
+ *
  * Excluded by design: `fieldParent` (derived, stripped on save) and `appId`
- * (bookkeeping — set once on load, never a user edit). The `projectSaveSlice`
- * regression test holds these keys against the persisted schema so a
- * newly-added field can't be dropped from saves unnoticed.
+ * (bookkeeping — set once on load, never a user edit). The
+ * `projectSaveSlice` regression test holds the remaining keys against the
+ * persisted schema so a newly-added field can't be dropped from saves
+ * unnoticed.
  */
-export function projectSaveSlice(s: BlueprintDoc) {
+export function projectSaveSlice(
+	s: BlueprintDoc & { readonly commandQueueRevision?: number },
+) {
 	return {
 		modules: s.modules,
 		forms: s.forms,
@@ -98,6 +106,7 @@ export function projectSaveSlice(s: BlueprintDoc) {
 		userTypeOrder: s.userTypeOrder,
 		personas: s.personas,
 		personaOrder: s.personaOrder,
+		commandQueueRevision: s.commandQueueRevision ?? 0,
 	};
 }
 
@@ -220,7 +229,7 @@ export function useAutoSave(): SaveState {
 					projectToast(
 						"warning",
 						"App reloaded",
-						"This app changed in a way that conflicts with your last edit — by an agent connection or another collaborator. We loaded the latest version; redo that change if you still want it.",
+						"This app changed in a way that conflicts with your edits — by an agent connection or another collaborator. We loaded the latest version; redo those changes if you still want them.",
 					);
 					startCooldown();
 					return;

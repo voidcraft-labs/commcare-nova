@@ -131,14 +131,17 @@ const Q_NAME_UUID = testUuid("q-patient-name");
 const Q_AGE_UUID = testUuid("q-patient-age");
 
 const CASE_TYPES = [
-	{ name: "patient", properties: [{ name: "name", label: proseText("Name") }] },
+	{
+		name: "patient",
+		properties: [{ name: "case_name", label: proseText("Name") }],
+	},
 ];
 const CATALOG_MUTATIONS: Mutation[] = [
 	{ kind: "declareCaseType", caseType: "patient" },
 	{
 		kind: "addCaseProperty",
 		caseType: "patient",
-		property: { name: "name", label: proseText("Name") },
+		property: { name: "case_name", label: proseText("Name") },
 	},
 ];
 
@@ -234,7 +237,7 @@ describe("generation lifecycle (end-to-end)", () => {
 				{
 					uuid: testUuid("c0000000-0000-0000-0000-000000000001"),
 					kind: "plain" as const,
-					field: "name",
+					field: "case_name",
 					header: "Name",
 				},
 			],

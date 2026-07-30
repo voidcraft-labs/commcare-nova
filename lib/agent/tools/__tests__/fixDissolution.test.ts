@@ -15,7 +15,7 @@ import { proseText } from "@/lib/domain/prose";
  *     CLOSE_CONDITION_INCOMPLETE, CLOSE_CONDITION_FIELD_NOT_FOUND,
  *     UNKNOWN_FUNCTION, WRONG_ARITY, CASE_PROPERTY_BAD_FORMAT;
  *   - codes already unrepresentable through construction (shape):
- *     MEDIA_CASE_PROPERTY (no `case_property_on` slot on media kinds —
+ *     MEDIA_CASE_PROPERTY (no `caseWrite` slot on media kinds —
  *     pinned on the add arm, the edit arm, AND the strict domain
  *     schema), SELECT_NO_OPTIONS (domain schema `.min(2)`; the UI
  *     picker seeds two starter options; the SA add path fails
@@ -23,7 +23,7 @@ import { proseText } from "@/lib/domain/prose";
  *   - INVALID_FIELD_ID — rejected at source by the shared identifier
  *     verdicts (`lib/doc/identifierVerdicts.ts`), pinned here through
  *     the `addFields` path;
- *   - NO_CASE_NAME_FIELD — completeness, NOT dissolvable to a
+ *   - case-create name completeness — NOT dissolvable to a
  *     construction default (the case-name field is content the author
  *     adds): a creation lands it with the form, and removing it is
  *     rejected (pinned here) — the same single rule as everything else.
@@ -31,7 +31,9 @@ import { proseText } from "@/lib/domain/prose";
 
 import { describe, expect, it, vi } from "vitest";
 import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
+import type { PreparedMutationCandidate } from "@/lib/doc/commitVerdicts";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import type { AdmittedMutationStages } from "@/lib/doc/mutationAdmission";
 import type { Mutation } from "@/lib/doc/types";
 import { type BlueprintDoc, fieldSchema } from "@/lib/domain";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
@@ -44,14 +46,19 @@ import { updateModuleTool } from "../updateModule";
  *  guarded writer returns `{ events, committedDoc }`; echo the passed
  *  post-mutation doc as the committed doc so the tool's `newDoc` reflects it. */
 function makeCtx() {
-	const recordMutations = vi.fn(async (_m: unknown, doc: unknown) => ({
-		events: [],
-		committedDoc: doc,
-	}));
-	const recordMutationStages = vi.fn(
-		async (stages: Array<{ doc: unknown }>) => ({
+	const recordMutations = vi.fn(
+		async (prepared: PreparedMutationCandidate) => ({
 			events: [],
-			committedDoc: stages[stages.length - 1]?.doc,
+			committedDoc: prepared.nextDoc,
+		}),
+	);
+	const recordMutationStages = vi.fn(
+		async (
+			prepared: PreparedMutationCandidate,
+			_stages: AdmittedMutationStages,
+		) => ({
+			events: [],
+			committedDoc: prepared.nextDoc,
 		}),
 	);
 	const ctx: ToolExecutionContext = {
@@ -85,13 +92,13 @@ function minDoc(): BlueprintDoc {
 								kind: "text",
 								id: "case_name",
 								label: proseText("Name"),
-								case_property_on: "patient",
+								caseWrite: { caseType: "patient", property: "case_name" },
 							}),
 							f({
 								kind: "text",
 								id: "village",
 								label: proseText("Village"),
-								case_property_on: "patient",
+								caseWrite: { caseType: "patient", property: "village" },
 							}),
 						],
 					},
@@ -210,18 +217,26 @@ describe("NO_CASE_TYPE — rejected at the introducing commit; updateModule is t
 		);
 		expect("error" in bare.result).toBe(true);
 
+		const columnUuid = testUuid("update-module-seeded-column");
 		const fixed = await updateModuleTool.execute(
 			{
 				...moduleAddress(doc),
 				case_type: "respondent",
 				case_list_columns: [
-					{ kind: "plain", field: "case_name", header: "Name" } as never,
+					{
+						columnUuid,
+						kind: "plain",
+						field: "case_name",
+						header: "Name",
+					} as never,
 				],
 			},
 			ctx,
 			doc,
 		);
 		expect("message" in fixed.result).toBe(true);
+		if (!("columns" in fixed.result)) throw new Error("expected success");
+		expect(fixed.result.columns).toEqual([{ uuid: columnUuid }]);
 
 		const out = await createFormTool.execute(
 			{
@@ -233,13 +248,13 @@ describe("NO_CASE_TYPE — rejected at the introducing commit; updateModule is t
 						kind: "text",
 						id: "case_name",
 						label: proseText("Name"),
-						case_property_on: "respondent",
+						caseWrite: { caseType: "respondent", property: "case_name" },
 					} as never,
 					{
 						kind: "text",
 						id: "village",
 						label: proseText("Village"),
-						case_property_on: "respondent",
+						caseWrite: { caseType: "respondent", property: "village" },
 					} as never,
 				],
 			},
@@ -279,9 +294,9 @@ describe("NO_CASE_TYPE — rejected at the introducing commit; updateModule is t
 	});
 });
 
-// ── NO_CASE_NAME_FIELD (cannot dissolve — content) ──────────────────
+// ── Case-create name completeness (cannot dissolve — content) ──────
 
-describe("NO_CASE_NAME_FIELD — the gate owns it (no construction default exists)", () => {
+describe("case-create name completeness — the gate owns it", () => {
 	it("removing the case_name field is rejected — the writer never disappears", () => {
 		const doc = minDoc();
 		const target = fieldByBareId(doc, "case_name");
@@ -292,8 +307,8 @@ describe("NO_CASE_NAME_FIELD — the gate owns it (no construction default exist
 		);
 		expect(verdict.ok).toBe(false);
 		if (!verdict.ok) {
-			expect(verdict.introduced.map((e) => e.code)).toContain(
-				"NO_CASE_NAME_FIELD",
+			expect(verdict.findings.map((e) => e.code)).toContain(
+				"CASE_CREATE_NAME_MISSING",
 			);
 		}
 	});
@@ -314,7 +329,7 @@ describe("RESERVED_CASE_PROPERTY — rejected at the introducing commit", () => 
 						kind: "date",
 						id: "date",
 						label: proseText("Date"),
-						case_property_on: "patient",
+						caseWrite: { caseType: "patient", property: "date" },
 					} as never,
 				],
 			},
@@ -329,26 +344,26 @@ describe("RESERVED_CASE_PROPERTY — rejected at the introducing commit", () => 
 // ── MEDIA_CASE_PROPERTY (shape — unrepresentable) ───────────────────
 
 describe("MEDIA_CASE_PROPERTY — no construction surface can express it", () => {
-	it("the per-kind add arm carries no case_property_on slot on media kinds", () => {
+	it("the per-kind add arm carries no caseWrite slot on media kinds", () => {
 		const parsed = addFieldsItemSchema.safeParse({
 			kind: "image",
 			id: "photo",
 			label: proseText("Photo"),
-			case_property_on: "patient",
+			caseWrite: { caseType: "patient", property: "photo" },
 		});
 		// `.strict()` arms reject the unknown key outright.
 		expect(parsed.success).toBe(false);
 	});
 
-	it("the per-kind edit arm carries no case_property_on slot on media kinds", () => {
+	it("the per-kind edit arm carries no caseWrite slot on media kinds", () => {
 		const parsed = editFieldUpdatesSchema.safeParse({
 			kind: "image",
-			case_property_on: "patient",
+			caseWrite: { caseType: "patient", property: "photo" },
 		});
 		expect(parsed.success).toBe(false);
 	});
 
-	it("the strict domain schema rejects a media field carrying case_property_on", () => {
+	it("the strict domain schema rejects a media field carrying caseWrite", () => {
 		// The reducers' `safeParse` and the auto-save's `blueprintDocSchema`
 		// both run this schema — the chokepoint behind every surface.
 		const parsed = fieldSchema.safeParse({
@@ -356,7 +371,7 @@ describe("MEDIA_CASE_PROPERTY — no construction surface can express it", () =>
 			kind: "image",
 			id: "photo",
 			label: proseText("Photo"),
-			case_property_on: "patient",
+			caseWrite: { caseType: "patient", property: "photo" },
 		});
 		expect(parsed.success).toBe(false);
 	});
@@ -401,7 +416,7 @@ describe("XPath soundness fixes — rejected at the introducing commit", () => {
 		);
 		expect(verdict.ok).toBe(false);
 		if (!verdict.ok) {
-			expect(verdict.introduced.map((e) => e.code)).toContain(
+			expect(verdict.findings.map((e) => e.code)).toContain(
 				"UNQUOTED_STRING_LITERAL",
 			);
 		}
@@ -411,7 +426,7 @@ describe("XPath soundness fixes — rejected at the introducing commit", () => {
 		const verdict = verdictForRelevantPatch("Today() > '2026-01-01'");
 		expect(verdict.ok).toBe(false);
 		if (!verdict.ok) {
-			const finding = verdict.introduced.find(
+			const finding = verdict.findings.find(
 				(e) => e.code === "UNKNOWN_FUNCTION",
 			);
 			expect(finding?.message).toContain('did you mean "today()"');
@@ -422,7 +437,7 @@ describe("XPath soundness fixes — rejected at the introducing commit", () => {
 		const verdict = verdictForRelevantPatch("round(2.4, 2) = 2");
 		expect(verdict.ok).toBe(false);
 		if (!verdict.ok) {
-			expect(verdict.introduced.map((e) => e.code)).toContain("WRONG_ARITY");
+			expect(verdict.findings.map((e) => e.code)).toContain("WRONG_ARITY");
 		}
 	});
 });
@@ -491,13 +506,13 @@ function closeFormDoc(): BlueprintDoc {
 								kind: "text",
 								id: "case_name",
 								label: proseText("Name"),
-								case_property_on: "patient",
+								caseWrite: { caseType: "patient", property: "case_name" },
 							}),
 							f({
 								kind: "text",
 								id: "village",
 								label: proseText("Village"),
-								case_property_on: "patient",
+								caseWrite: { caseType: "patient", property: "village" },
 							}),
 						],
 					},
@@ -551,7 +566,7 @@ describe("CLOSE_CONDITION_* — rejected at the introducing commit", () => {
 		);
 		expect(verdict.ok).toBe(false);
 		if (!verdict.ok) {
-			expect(verdict.introduced.map((e) => e.code)).toContain(
+			expect(verdict.findings.map((e) => e.code)).toContain(
 				"CLOSE_CONDITION_FIELD_NOT_FOUND",
 			);
 		}
@@ -576,7 +591,7 @@ describe("CLOSE_CONDITION_* — rejected at the introducing commit", () => {
 		);
 		expect(verdict.ok).toBe(false);
 		if (!verdict.ok) {
-			expect(verdict.introduced.map((e) => e.code)).toContain(
+			expect(verdict.findings.map((e) => e.code)).toContain(
 				"CLOSE_CONDITION_WRONG_TYPE",
 			);
 		}
@@ -600,7 +615,7 @@ describe("CLOSE_CONDITION_* — rejected at the introducing commit", () => {
 		);
 		expect(verdict.ok).toBe(false);
 		if (!verdict.ok) {
-			expect(verdict.introduced.map((e) => e.code)).toContain(
+			expect(verdict.findings.map((e) => e.code)).toContain(
 				"CLOSE_CONDITION_INCOMPLETE",
 			);
 		}
@@ -627,28 +642,16 @@ describe("field-id format fixes — rejected at source", () => {
 		expect(recordMutations).not.toHaveBeenCalled();
 	});
 
-	it("CASE_PROPERTY_BAD_FORMAT: an XML-legal but property-illegal id on a case-bound field is rejected by the gate", async () => {
+	it("rejects an XML-legal but property-illegal caseWrite destination at the input boundary", () => {
 		// "_temp" passes the XML element-name rules (underscore start is
 		// legal) but case property names must start with a letter — the
 		// identifier verdicts pass it, the commit gate catches it.
-		const { ctx, recordMutations } = makeCtx();
-		const doc = minDoc();
-		const out = await addFieldsTool.execute(
-			{
-				...formAddress(doc),
-				fields: [
-					{
-						kind: "text",
-						id: "_temp",
-						label: proseText("Temp"),
-						case_property_on: "patient",
-					} as never,
-				],
-			},
-			ctx,
-			doc,
-		);
-		expect("error" in out.result && out.result.error).toContain("_temp");
-		expect(recordMutations).not.toHaveBeenCalled();
+		const parsed = addFieldsItemSchema.safeParse({
+			kind: "text",
+			id: "temporary_value",
+			label: proseText("Temp"),
+			caseWrite: { caseType: "patient", property: "_temp" },
+		});
+		expect(parsed.success).toBe(false);
 	});
 });

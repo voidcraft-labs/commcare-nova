@@ -42,6 +42,7 @@ import {
 	CommitReauthError,
 } from "@/lib/db/commitGuard";
 import { applyMutations } from "@/lib/doc/mutations";
+import { canonicalAppGenesis } from "@/lib/doc/scaffolds";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, Field, Form, Module } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
@@ -51,9 +52,9 @@ import { createSolutionsArchitect } from "../solutionsArchitect";
 import { removeMediaAssetTool } from "../tools/media/removeMediaAsset";
 import { makeTestContext } from "./fixtures";
 
-/* The SA commits every batch through `commitGuardedBatch` (kind:'chat') —
- * except field-ID-changing batches, which detour through the cross-store saga
- * (`applyBlueprintChange`). Mock both to re-apply the batch onto ONE TRACKED
+/* The SA commits ordinary batches through `commitGuardedBatch` (kind:'chat');
+ * the explicit rename command composes its storage transaction through
+ * `applyBlueprintChange`. Mock both to re-apply the batch onto ONE TRACKED
  * server doc so the SA's working doc advances across tool calls exactly as it
  * would against the real writers. The authorized-snapshot mock backs
  * `wrapMutating`'s conflict-reload path. `seedServerDoc` seeds the tracked doc
@@ -126,7 +127,10 @@ const FORBIDDEN_LEGACY_EVENTS = [
 const MOD_A = testUuid("11111111-1111-1111-1111-111111111111");
 const MOD_B = testUuid("22222222-2222-2222-2222-222222222222");
 const FORM_A = testUuid("33333333-3333-3333-3333-333333333333");
+const FORM_B = testUuid("34343434-3434-4343-8343-343434343434");
 const FIELD_A = testUuid("44444444-4444-4444-4444-444444444444");
+const FIELD_B = testUuid("43434343-4343-4434-8434-434343434343");
+const CASE_COLUMN = testUuid("45454545-4545-4545-8545-454545454545");
 const FOLLOWUP_FORM = testUuid("55555555-5555-4555-8555-555555555555");
 const FOLLOWUP_FIELD = testUuid("66666666-6666-4666-8666-666666666666");
 const NEW_MODULE = testUuid("77777777-7777-4777-8777-777777777777");
@@ -150,6 +154,19 @@ function makeFixtureDoc(): BlueprintDoc {
 		id: "patient",
 		name: "Patient",
 		caseType: "patient",
+		caseListConfig: {
+			columns: [
+				{
+					uuid: CASE_COLUMN,
+					kind: "plain",
+					field: "case_name",
+					header: "Name",
+				},
+			],
+			listColumnOrder: [CASE_COLUMN],
+			detailColumnOrder: [CASE_COLUMN],
+			searchInputs: [],
+		},
 	};
 	const modB: Module = {
 		uuid: MOD_B,
@@ -162,12 +179,24 @@ function makeFixtureDoc(): BlueprintDoc {
 		name: "Enroll Patient",
 		type: "registration",
 	};
+	const formB: Form = {
+		uuid: FORM_B,
+		id: "feedback",
+		name: "Feedback",
+		type: "survey",
+	};
 	const field: Field = {
 		uuid: FIELD_A,
 		id: "case_name",
 		kind: "text",
 		label: proseText("Patient name"),
-		case_property_on: "case_name",
+		caseWrite: { caseType: "patient", property: "case_name" },
+	} as Field;
+	const fieldB: Field = {
+		uuid: FIELD_B,
+		id: "comments",
+		kind: "text",
+		label: proseText("Comments"),
 	} as Field;
 
 	return {
@@ -181,12 +210,12 @@ function makeFixtureDoc(): BlueprintDoc {
 			},
 		],
 		modules: { [MOD_A]: mod, [MOD_B]: modB },
-		forms: { [FORM_A]: form },
-		fields: { [FIELD_A]: field },
+		forms: { [FORM_A]: form, [FORM_B]: formB },
+		fields: { [FIELD_A]: field, [FIELD_B]: fieldB },
 		moduleOrder: [MOD_A, MOD_B],
-		formOrder: { [MOD_A]: [FORM_A], [MOD_B]: [] },
-		fieldOrder: { [FORM_A]: [FIELD_A] },
-		fieldParent: { [FIELD_A]: FORM_A },
+		formOrder: { [MOD_A]: [FORM_A], [MOD_B]: [FORM_B] },
+		fieldOrder: { [FORM_A]: [FIELD_A], [FORM_B]: [FIELD_B] },
+		fieldParent: { [FIELD_A]: FORM_A, [FIELD_B]: FORM_B },
 	};
 }
 
@@ -365,6 +394,7 @@ describe("solutionsArchitect — emitMutations migration", () => {
 		// appends the new one (addCaseProperty would first-wins no-op).
 		const doc = makeFixtureDoc();
 		doc.caseTypes = [
+			...(doc.caseTypes ?? []),
 			{
 				name: "visit",
 				properties: [
@@ -373,6 +403,7 @@ describe("solutionsArchitect — emitMutations migration", () => {
 						label: proseText("visit_date"),
 						data_type: "date",
 					},
+					{ name: "outcome", label: proseText("outcome") },
 				],
 			},
 		];
@@ -401,28 +432,61 @@ describe("solutionsArchitect — emitMutations migration", () => {
 		const muts = mutationEvents(writer);
 		expect(muts).toHaveLength(1);
 		expect(muts[0].mutations.map((m) => m.kind)).toEqual([
-			"declareCaseType",
 			"setCaseTypeMeta",
 			"setCaseProperty",
 			"setCaseProperty",
 		]);
 	});
 
-	it("updateApp emits one data-mutations batch carrying setAppName + setConnectType", async () => {
+	it("updateApp emits one name-only data-mutations batch", async () => {
 		const sa = makeSa(ctx, makeEmptyDoc(), false);
 
 		await runTool(sa, "updateApp", {
 			name: "Vendor Visits",
-			connect_type: "deliver",
+		});
+
+		const muts = mutationEvents(writer);
+		expect(muts).toHaveLength(1);
+		expect(muts[0].stage).toBe("app");
+		expect(muts[0].mutations.map((m) => m.kind)).toEqual(["setAppName"]);
+		expectNoLegacyEvents(writer);
+	});
+
+	it("configureConnect emits the complete UUID-addressed target in one batch", async () => {
+		const doc = makeFixtureDoc();
+		const sa = makeSa(ctx, doc, false);
+
+		await runTool(sa, "configureConnect", {
+			mode: "deliver",
+			participants: [
+				{
+					formUuid: FORM_A,
+					connect: {
+						deliver_unit: { name: "Vendor visit" },
+					},
+				},
+			],
 		});
 
 		const muts = mutationEvents(writer);
 		expect(muts).toHaveLength(1);
 		expect(muts[0].stage).toBe("app");
 		expect(muts[0].mutations.map((m) => m.kind)).toEqual([
-			"setAppName",
 			"setConnectType",
+			"updateForm",
 		]);
+		expect(muts[0].mutations[1]).toMatchObject({
+			kind: "updateForm",
+			uuid: FORM_A,
+			patch: {
+				connect: {
+					deliver_unit: {
+						id: expect.any(String),
+						name: "Vendor visit",
+					},
+				},
+			},
+		});
 		expectNoLegacyEvents(writer);
 	});
 
@@ -447,18 +511,45 @@ describe("solutionsArchitect — emitMutations migration", () => {
 
 	it("addFields emits a single data-mutations batch (not data-form-updated)", async () => {
 		const sa = makeSa(ctx, makeFixtureDoc(), true);
+		const fieldUuid = testUuid("sa-receipt-field");
+		const optionUuids = [
+			testUuid("sa-receipt-option-yes"),
+			testUuid("sa-receipt-option-no"),
+		];
 
-		await runTool(sa, "addFields", {
+		const result = (await runTool(sa, "addFields", {
 			moduleUuid: MOD_A,
 			formUuid: FORM_A,
 			fields: [
 				{
-					id: "dob",
-					kind: "date",
-					label: proseText("Date of birth"),
+					fieldUuid,
+					id: "eligible",
+					kind: "single_select",
+					label: proseText("Eligible"),
+					optionsSource: {
+						kind: "inline",
+						options: [
+							{
+								optionUuid: optionUuids[0],
+								value: "yes",
+								label: proseText("Yes"),
+							},
+							{
+								optionUuid: optionUuids[1],
+								value: "no",
+								label: proseText("No"),
+							},
+						],
+					},
 				},
 			],
-		});
+		})) as {
+			fields: Array<{
+				uuid: string;
+				id: string;
+				options: Array<{ uuid: string; value: string }>;
+			}>;
+		};
 
 		const muts = mutationEvents(writer);
 		// Exactly one data-mutations emission for the batch. `data-phase`
@@ -466,12 +557,22 @@ describe("solutionsArchitect — emitMutations migration", () => {
 		expect(muts).toHaveLength(1);
 		expect(muts[0].stage).toBe(`form:${FORM_A}`);
 		expect(muts[0].mutations.every((m) => m.kind === "addField")).toBe(true);
+		expect(result.fields).toEqual([
+			{
+				uuid: fieldUuid,
+				id: "eligible",
+				options: [
+					{ uuid: optionUuids[0], value: "yes" },
+					{ uuid: optionUuids[1], value: "no" },
+				],
+			},
+		]);
 		expectNoLegacyEvents(writer);
 	});
 
 	it("editField with id rename emits ONE data-mutations batch carrying the whole staged edit", async () => {
 		/* Rename a non-case_name field: renaming the registration form's
-		 * case_name writer away would introduce NO_CASE_NAME_FIELD and the
+		 * case_name writer away would make the create bucket incomplete and the
 		 * gate would rightly reject the whole edit. */
 		const VILLAGE = testUuid("55555555-5555-5555-5555-555555555555");
 		const doc = makeFixtureDoc();
@@ -730,7 +831,7 @@ describe("solutionsArchitect — no finishing tool", () => {
 		expect("completeBuild" in editSa.tools).toBe(false);
 	});
 
-	it("the data-model tool is shared (both modes); the retired plan tool is gone; updateApp is shared", () => {
+	it("the data-model, app-name, and Connect target tools are shared in both modes", () => {
 		const { ctx } = buildCtx();
 		const buildSa = makeSa(ctx, makeEmptyDoc(), false);
 		const editSa = makeSa(ctx, makeFixtureDoc(), true);
@@ -742,6 +843,10 @@ describe("solutionsArchitect — no finishing tool", () => {
 		expect("planAppDesign" in editSa.tools).toBe(false);
 		expect("updateApp" in buildSa.tools).toBe(true);
 		expect("updateApp" in editSa.tools).toBe(true);
+		expect("configureConnect" in buildSa.tools).toBe(true);
+		expect("configureConnect" in editSa.tools).toBe(true);
+		expect("renameCaseProperties" in buildSa.tools).toBe(true);
+		expect("renameCaseProperties" in editSa.tools).toBe(true);
 	});
 
 	it("exposes the complete camelCase users and personas authoring surface", () => {
@@ -802,21 +907,28 @@ describe("solutionsArchitect — wrapMutating conflict reload / terminal reauth"
 					label: proseText("Peer added"),
 				} as Field,
 			},
-			fieldOrder: { [FORM_A]: [FIELD_A, PEER_FIELD] },
-			fieldParent: { [FIELD_A]: FORM_A, [PEER_FIELD]: FORM_A },
+			fieldOrder: {
+				...base.fieldOrder,
+				[FORM_A]: [FIELD_A, PEER_FIELD],
+			},
+			fieldParent: {
+				...base.fieldParent,
+				[FIELD_A]: FORM_A,
+				[PEER_FIELD]: FORM_A,
+			},
 		};
 	}
 
 	it("catches a BlueprintCommitRejectedError escaping the tool, returns { error }, and reloads fresh for the next tool", async () => {
 		const { ctx } = buildCtx();
 		const sa = makeSa(ctx, makeFixtureDoc(), true);
+		const conflict =
+			'Saved parked data now occupies "village" on "patient". Review the rename conflicts and try again.';
 		// The guarded commit rejects (a peer changed the target); the tool's
 		// blanket catch re-throws it (via toToolErrorResult), so it reaches
 		// wrapMutating, which reloads a fresh doc carrying a peer-added field.
 		commitGuardedBatchMock.mockRejectedValueOnce(
-			new BlueprintCommitRejectedError(
-				"This app changed while you were editing — reload.",
-			),
+			new BlueprintCommitRejectedError(conflict),
 		);
 		resolveAuthorizedAppSnapshotMock.mockResolvedValueOnce({
 			app: { blueprint: reloadedDoc() },
@@ -834,7 +946,7 @@ describe("solutionsArchitect — wrapMutating conflict reload / terminal reauth"
 		})) as { error?: string };
 
 		// The tool surfaced the conflict as the standard `{ error }` envelope.
-		expect(result.error).toContain("reload");
+		expect(result.error).toContain(conflict);
 		// And `wrapMutating` reloaded one authorized snapshot in the admitted
 		// Project.
 		expect(resolveAuthorizedAppSnapshotMock).toHaveBeenCalledWith(
@@ -1104,7 +1216,7 @@ describe("solutionsArchitect — read-shaped side-effect terminal fences", () =>
 // ── Small helpers kept at the bottom to avoid pollution ─────────────────
 
 function makeEmptyDoc(): BlueprintDoc {
-	return {
+	const empty: BlueprintDoc = {
 		appId: "test-app",
 		appName: "",
 		connectType: null,
@@ -1117,4 +1229,8 @@ function makeEmptyDoc(): BlueprintDoc {
 		fieldOrder: {},
 		fieldParent: {},
 	};
+	const genesis = canonicalAppGenesis(empty);
+	return produce(empty, (draft) => {
+		applyMutations(draft, genesis.mutations);
+	});
 }

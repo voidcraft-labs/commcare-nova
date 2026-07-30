@@ -164,7 +164,6 @@ function walkQueryPredicate(
 			}
 			return;
 		case "in":
-		case "is-null":
 		case "is-blank":
 			return;
 		case "between":
@@ -250,7 +249,6 @@ function walkRuntimeValue(
 		case "date-coerce":
 		case "datetime-coerce":
 		case "double":
-		case "unwrap-list":
 			walkRuntimeValue(expression.value, childDialect, out, knownInputs);
 			return;
 		case "arith":
@@ -278,9 +276,9 @@ function walkRuntimeValue(
 		case "count":
 			return;
 		case "table-lookup":
-			// Lookup values are not admitted to CSQL yet. The dormant-carrier
-			// validator owns that incompatibility; no runtime numeric prompt
-			// constraint can make the expression executable.
+			// Lookup values execute on-device against the emitted fixture before
+			// the result is interpolated into CSQL. The table-row predicate owns
+			// no case-search numeric prompt constraint.
 			return;
 		case "format-date":
 			walkRuntimeValue(expression.date, "on-device", out, knownInputs);
@@ -301,7 +299,6 @@ function isNativeCsqlExpression(expression: ValueExpression): boolean {
 		case "date-coerce":
 		case "datetime-coerce":
 		case "double":
-		case "unwrap-list":
 			return true;
 		case "arith":
 		case "concat":

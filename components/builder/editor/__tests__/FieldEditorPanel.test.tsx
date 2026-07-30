@@ -78,7 +78,7 @@ function panelSections<F extends Field>(
 
 describe("FieldEditorPanel section visibility", () => {
 	it("text field exposes Data + Logic + Appearance sections", () => {
-		// Every section card mounts: text has case_property_on (data), required
+		// Every section card mounts: text has caseWrite (data), required
 		// + relevant + validate (logic, all addable), and hint (ui, addable).
 		expect(panelSections(textField())).toEqual({
 			data: true,

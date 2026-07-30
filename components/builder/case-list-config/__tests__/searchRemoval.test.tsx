@@ -26,6 +26,7 @@ import {
 	type CaseType,
 	type Column,
 	caseSearchConfigAfterFinalInputRemoval,
+	isOwnerOnlyCaseSearchConfig,
 	type SearchInputDef,
 	simpleSearchInputDef,
 	type Uuid,
@@ -483,13 +484,19 @@ function workspaceDoc(args: {
 								kind: "text",
 								id: "case_name",
 								label: proseText("Client name"),
-								case_property_on: "client",
+								caseWrite: {
+									caseType: "client",
+									property: "case_name",
+								},
 							}),
 							f({
 								kind: "text",
 								id: "external_id",
 								label: proseText("External ID"),
-								case_property_on: "client",
+								caseWrite: {
+									caseType: "client",
+									property: "external_id",
+								},
 							}),
 						],
 					},
@@ -545,7 +552,7 @@ function applyMutations(batch: readonly Mutation[]): { readonly ok: true } {
 				if (mutation.caseSearchConfigOperation === "enable") {
 					if (module.caseSearchConfig === undefined)
 						module.caseSearchConfig = {};
-					else if (module.caseSearchConfig.searchActionEnabled === false) {
+					else if (isOwnerOnlyCaseSearchConfig(module.caseSearchConfig)) {
 						const { searchActionEnabled: _disabled, ...enabled } =
 							module.caseSearchConfig;
 						module.caseSearchConfig = enabled;
@@ -748,13 +755,19 @@ describe("Search field removal", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Client name"),
-									case_property_on: "client",
+									caseWrite: {
+										caseType: "client",
+										property: "case_name",
+									},
 								}),
 								f({
 									kind: "text",
 									id: "external_id",
 									label: proseText("External ID"),
-									case_property_on: "client",
+									caseWrite: {
+										caseType: "client",
+										property: "external_id",
+									},
 								}),
 							],
 						},
@@ -941,6 +954,8 @@ describe("Search field removal", () => {
 			const config = doc.modules[MODULE_UUID].caseListConfig;
 			if (config === undefined) throw new Error("Missing case-list config");
 			config.columns.push(PEER_COLUMN);
+			config.listColumnOrder.push(PEER_COLUMN.uuid);
+			config.detailColumnOrder.push(PEER_COLUMN.uuid);
 			const sibling = config.columns.find(
 				(column) => column.uuid === SECOND_COLUMN_UUID,
 			);
@@ -980,6 +995,8 @@ describe("Search field removal", () => {
 			);
 			if (target !== undefined) target.header = "Peer-edited client name";
 			config.columns.push(PEER_COLUMN);
+			config.listColumnOrder.push(PEER_COLUMN.uuid);
+			config.detailColumnOrder.push(PEER_COLUMN.uuid);
 			config.filter = peerFilter;
 		});
 		const replayedConfig = replayed.modules[MODULE_UUID].caseListConfig;
@@ -1014,6 +1031,8 @@ describe("Search field removal", () => {
 			);
 			if (target !== undefined) target.header = "Peer-edited client name";
 			config.columns.push(PEER_COLUMN);
+			config.listColumnOrder.push(PEER_COLUMN.uuid);
+			config.detailColumnOrder.push(PEER_COLUMN.uuid);
 			config.filter = matchNone();
 		});
 		const hiddenTarget = hidden.modules[
@@ -1051,38 +1070,37 @@ describe("Search field removal", () => {
 		).toBe("Peer-edited sibling");
 	});
 
-	it("replays repair and reveal as one granular batch", () => {
+	it("cannot reveal an invalid dormant definition or enter a repair state", () => {
 		const hiddenColumn = { ...NAME_COLUMN, visibleInList: false };
 		const base = workspaceDoc({ columns: [hiddenColumn, SECOND_COLUMN] });
 		testState.module = base.modules[MODULE_UUID];
 		testState.brokenColumnUuids = [COLUMN_UUID];
-		mutationApi.inlineCommitMany.mockReturnValue({ ok: true });
+		mutationApi.inlineCommitMany.mockReturnValue({
+			ok: false,
+			messages: ["The saved definition is invalid."],
+		});
 		render(<CaseListConfigWorkspace moduleUuid={MODULE_UUID} tab="list" />);
 
 		fireEvent.click(screen.getByRole("button", { name: "Show Client name" }));
-		expect(mutationApi.inlineCommitMany).not.toHaveBeenCalled();
-		fireEvent.click(screen.getByRole("button", { name: "Change information" }));
 		const batch = capturedBatch(mutationApi.inlineCommitMany);
-		expect(batch.map((mutation) => mutation.kind)).toContain("updateColumn");
-
-		const replayed = replayAfterPeerEdit(base, batch, (doc) => {
-			const config = doc.modules[MODULE_UUID].caseListConfig;
-			if (config === undefined) throw new Error("Missing case-list config");
-			config.columns.push(PEER_COLUMN);
-			config.filter = matchNone();
-			const sibling = config.columns.find(
-				(column) => column.uuid === SECOND_COLUMN_UUID,
-			);
-			if (sibling !== undefined) sibling.header = "Peer-edited sibling";
-		});
-		const replayedConfig = replayed.modules[MODULE_UUID].caseListConfig;
-		const target = replayedConfig?.columns.find(
-			(column) => column.uuid === COLUMN_UUID,
+		expect(batch).toEqual([
+			expect.objectContaining({
+				kind: "updateColumn",
+				uuid: COLUMN_UUID,
+				visibilityPatch: { surface: "list", visible: true },
+			}),
+		]);
+		expect(
+			screen.queryByRole("button", { name: "Change information" }),
+		).toBeNull();
+		expect(screen.getByRole("status").textContent).toContain(
+			"Client name could not be added to Results",
 		);
-		expect(target?.header).toBe("Client name updated");
-		expect(target?.visibleInList).not.toBe(false);
-		expect(replayedConfig?.columns).toHaveLength(3);
-		expect(replayedConfig?.filter).toEqual(matchNone());
+		expect(
+			base.modules[MODULE_UUID].caseListConfig?.columns.find(
+				(column) => column.uuid === COLUMN_UUID,
+			)?.visibleInList,
+		).toBe(false);
 	});
 
 	it("replays a Search-field rename over fresh peer inputs and references", () => {

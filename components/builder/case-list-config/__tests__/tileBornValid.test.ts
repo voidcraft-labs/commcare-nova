@@ -9,6 +9,7 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { columnSnapshotMutations } from "@/lib/doc/caseListColumnMutations";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { Mutation } from "@/lib/doc/types";
@@ -106,7 +107,7 @@ describe("turning the tile on", () => {
 		expect(verdict.ok).toBe(false);
 		if (verdict.ok) return;
 		expect(
-			verdict.introduced.some(
+			verdict.findings.some(
 				(finding) => finding.code === "CASE_LIST_TILE_COLUMN_NOT_PLACED",
 			),
 		).toBe(true);
@@ -182,7 +183,7 @@ describe("joining Results while it is a tile", () => {
 		expect(verdict.ok).toBe(false);
 		if (verdict.ok) return;
 		expect(
-			verdict.introduced.some(
+			verdict.findings.some(
 				(finding) => finding.code === "CASE_LIST_TILE_COLUMN_NOT_PLACED",
 			),
 		).toBe(true);
@@ -218,15 +219,13 @@ describe("joining Results while it is a tile", () => {
 		if (hidden === undefined) return;
 
 		// The stale cell would refuse; the re-adjudicated one commits.
-		const stale = accepts(enabled.nextDoc, [
-			{
-				kind: "updateColumn",
-				moduleUuid,
-				uuid: hidden.uuid,
-				column: { ...hidden, visibleInList: undefined } as Column,
-				visibilityPatch: { surface: "list", visible: true },
-			},
-		]);
+		const stale = accepts(
+			enabled.nextDoc,
+			columnSnapshotMutations(moduleUuid, hidden, {
+				...hidden,
+				visibleInList: undefined,
+			} as Column),
+		);
 		expect(stale.ok).toBe(false);
 
 		const place = placementForJoiningTile(
@@ -236,22 +235,14 @@ describe("joining Results while it is a tile", () => {
 		);
 		expect(place).not.toBeNull();
 		if (place === null) return;
-		const revealed = accepts(enabled.nextDoc, [
-			{
-				kind: "updateColumn",
-				moduleUuid,
-				uuid: hidden.uuid,
-				column: { ...hidden, visibleInList: undefined } as Column,
-				visibilityPatch: { surface: "list", visible: true },
-			},
-			{
-				kind: "updateColumn",
-				moduleUuid,
-				uuid: hidden.uuid,
-				column: hidden,
-				tilePatch: place,
-			},
-		]);
+		const revealed = accepts(
+			enabled.nextDoc,
+			columnSnapshotMutations(moduleUuid, hidden, {
+				...hidden,
+				visibleInList: undefined,
+				tile: place,
+			} as Column),
+		);
 		expect(revealed.ok).toBe(true);
 	});
 

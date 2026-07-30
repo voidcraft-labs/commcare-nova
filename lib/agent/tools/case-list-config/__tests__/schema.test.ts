@@ -59,8 +59,8 @@ interface ObjectJsonSchema {
 	items?: ObjectJsonSchema;
 	$ref?: string;
 	$defs?: Record<string, ObjectJsonSchema>;
-	/* Zod 4 lowers `z.discriminatedUnion(...)` to `oneOf`. The
-	 * legacy `z.union(...)` lowers to `anyOf`. Both arms must be
+	/* Zod 4 lowers `z.discriminatedUnion(...)` to `oneOf` and
+	 * `z.union(...)` to `anyOf`. Both forms must be
 	 * checked when counting per-item optionals — missing one of
 	 * the two would silently skip half the union shapes. */
 	oneOf?: readonly ObjectJsonSchema[];
@@ -88,10 +88,10 @@ function resolveArm(
 }
 
 /**
- * Walk every arm of a discriminated-union slot and assert each arm's
+ * Walk every arm of a union slot and assert each arm's
  * per-arm optional count stays ≤8. The arm walker hits both
  * `oneOf`-shaped (Zod 4 discriminated union) and `anyOf`-shaped
- * (legacy `z.union`) outputs; missing one of the two would silently
+ * (`z.union`) outputs; missing one of the two would silently
  * skip half the union arms. Each arm is resolved through `$ref`
  * before counting so a `lib/domain` reshape that lifts an arm into
  * `$defs` doesn't bypass the check.
@@ -216,8 +216,8 @@ describe("case-list-config tool schemas — 8-optional ceiling contract", () => 
 		expect(result.success).toBe(true);
 	});
 
-	it("rejects a newly authored field that has no screen or ordering job", () => {
-		const useless = addCaseListColumnsTool.inputSchema.safeParse({
+	it("accepts a fully hidden saved definition with or without a sort role", () => {
+		const dormant = addCaseListColumnsTool.inputSchema.safeParse({
 			moduleUuid: MODULE_UUID,
 			columns: [
 				{
@@ -243,7 +243,7 @@ describe("case-list-config tool schemas — 8-optional ceiling contract", () => 
 			],
 		});
 
-		expect(useless.success).toBe(false);
+		expect(dormant.success).toBe(true);
 		expect(sortCarrier.success).toBe(true);
 	});
 
@@ -285,7 +285,7 @@ describe("case-list-config tool schemas — 8-optional ceiling contract", () => 
 		expect(result.success).toBe(true);
 	});
 
-	it("column inputs reject tool-owned generic and surface order keys", () => {
+	it("column inputs reject obsolete member-level order keys", () => {
 		for (const key of ["order", "listOrder", "detailOrder"] as const) {
 			const result = updateCaseListColumnTool.inputSchema.safeParse({
 				moduleUuid: MODULE_UUID,
@@ -442,7 +442,7 @@ describe("case-list-config tool schemas — 8-optional ceiling contract", () => 
 					name: "patient_name_input",
 					label: "Patient name",
 					type: "text",
-					property: "name",
+					property: "full_name",
 				},
 			],
 		});
@@ -500,22 +500,19 @@ describe("case-list-config tool schemas — 8-optional ceiling contract", () => 
 		expect(advanced.success).toBe(false);
 	});
 
-	it("SA widget enum tracks the domain enum minus `select`", () => {
+	it("SA widget enum exactly tracks the final domain enum", () => {
 		// Tripwire: adding a member to `SEARCH_INPUT_TYPES` must be a
 		// deliberate decision at the SA boundary too — this fails until
-		// `SA_SEARCH_INPUT_TYPES` names the new member (or documents its
-		// exclusion beside `select`'s).
-		expect([...SA_SEARCH_INPUT_TYPES]).toEqual(
-			SEARCH_INPUT_TYPES.filter((t) => t !== "select"),
-		);
+		// `SA_SEARCH_INPUT_TYPES` names the new member.
+		expect([...SA_SEARCH_INPUT_TYPES]).toEqual(SEARCH_INPUT_TYPES);
 	});
 
-	it("rejects scalar date-range defaults and range/widget mismatches at the tool boundary", () => {
+	it("requires the exact date-range arm at the tool boundary", () => {
 		const base = {
 			moduleUuid: MODULE_UUID,
 			searchInputUuid: "11111111-1111-4111-8111-111111111111",
 		};
-		const legacyDefault = updateSearchInputTool.inputSchema.safeParse({
+		const scalarDefault = updateSearchInputTool.inputSchema.safeParse({
 			...base,
 			searchInput: {
 				kind: "simple",
@@ -524,6 +521,16 @@ describe("case-list-config tool schemas — 8-optional ceiling contract", () => 
 				type: "date-range",
 				property: "visit_date",
 				default: { kind: "today" },
+			},
+		});
+		const missingMode = updateSearchInputTool.inputSchema.safeParse({
+			...base,
+			searchInput: {
+				kind: "simple",
+				name: "visit_window",
+				label: "Visit window",
+				type: "date-range",
+				property: "visit_date",
 			},
 		});
 		const wrongWidget = updateSearchInputTool.inputSchema.safeParse({
@@ -545,10 +552,12 @@ describe("case-list-config tool schemas — 8-optional ceiling contract", () => 
 				label: "Visit window",
 				type: "date-range",
 				property: "visit_date",
+				mode: { kind: "range" },
 			},
 		});
 
-		expect(legacyDefault.success).toBe(false);
+		expect(scalarDefault.success).toBe(false);
+		expect(missingMode.success).toBe(false);
 		expect(wrongWidget.success).toBe(false);
 		expect(validRange.success).toBe(true);
 	});

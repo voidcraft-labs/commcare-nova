@@ -18,7 +18,6 @@ import {
 	gte,
 	isBlank,
 	isIn,
-	isNull,
 	literal,
 	lte,
 	match,
@@ -586,31 +585,7 @@ describe("compilePredicate — normalized relation property reads", () => {
 		]);
 	});
 
-	test("is-null does not invent a related row when no relation exists", async ({
-		db,
-	}) => {
-		await db
-			.insertInto("cases")
-			.values(
-				makeCaseRow({
-					case_id: HOUSEHOLD_ID,
-					app_id: APP_ID,
-					project_id: PROJECT_ID,
-					case_type: "household",
-				}),
-			)
-			.execute();
-
-		const predicate = isNull(
-			prop("household", "nickname", subcasePath("parent", "patient")),
-		);
-
-		expect(await executeHouseholdPredicate(db, predicate)).toEqual([]);
-	});
-
-	test("related null/blank checks quantify real rows and preserve strict absence", async ({
-		db,
-	}) => {
+	test("related blank checks quantify real rows", async ({ db }) => {
 		await seedHouseholdWithTwoChildren(db, {
 			nonmatching: {},
 			matching: { nickname: "" },
@@ -620,9 +595,6 @@ describe("compilePredicate — normalized relation property reads", () => {
 			"nickname",
 			subcasePath("parent", "patient"),
 		);
-		expect(await executeHouseholdPredicate(db, isNull(related))).toEqual([
-			HOUSEHOLD_ID,
-		]);
 		expect(await executeHouseholdPredicate(db, isBlank(related))).toEqual([
 			HOUSEHOLD_ID,
 		]);

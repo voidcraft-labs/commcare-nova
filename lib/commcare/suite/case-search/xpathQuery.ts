@@ -33,6 +33,7 @@
 // time AND silently filter case data on the server, so the inline
 // shape is the only wire-correct option.
 
+import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import {
 	type CaseListConfig,
 	SEARCH_INPUT_RUNTIME_VALUE_TYPES,
@@ -190,6 +191,7 @@ export function composeXPathQueryEmission(
 	caseListConfig: CaseListConfig,
 	caseType: string | undefined,
 	typeContext?: TypeContext,
+	lookupNaming?: LookupWireNaming,
 ): ComposedXPathQuery | undefined {
 	const composed = composeXPathQueryPredicate(
 		caseListConfig,
@@ -204,6 +206,10 @@ export function composeXPathQueryEmission(
 			name: input.name,
 			data_type: SEARCH_INPUT_RUNTIME_VALUE_TYPES[input.type],
 		})),
+	};
+	const csqlContext = {
+		...emissionTypeContext,
+		...(lookupNaming === undefined ? {} : { lookupNaming }),
 	};
 
 	// Defense in depth — the validator rule
@@ -223,7 +229,7 @@ export function composeXPathQueryEmission(
 	assertCsqlRepresentable(composed);
 
 	return {
-		...emitCsql(composed, emissionTypeContext),
+		...emitCsql(composed, csqlContext),
 		predicate: normalizeRelationEvaluationScopes(
 			normalizeCsqlPredicate(composed),
 			emissionTypeContext,
@@ -255,11 +261,8 @@ export function composeXPathQueryPredicate(
 	// wire boundary. A plain non-date exact self target can stay on the
 	// bare prompt; date exact always contributes its typed whole-day
 	// interval, even on self. The gate at
-	// `simpleArmNeedsXPathQueryEmission` is the single contract; it
-	// also returns `false` for blank-property inputs (transient editor
-	// state), so the compile path stays clean while the validator's
-	// `CASE_LIST_SEARCH_INPUT_UNKNOWN_PROPERTY` surfaces the authoring
-	// error to the user.
+	// `simpleArmNeedsXPathQueryEmission` is the single contract. Simple
+	// properties are structurally nonblank before this boundary.
 	if (caseType !== undefined) {
 		for (const input of caseListConfig.searchInputs) {
 			if (input.kind !== "simple") continue;
@@ -364,7 +367,6 @@ function visitPredicate(p: Predicate, gated: Set<string>): void {
 			if (p.lower !== undefined) visitExpression(p.lower, gated);
 			if (p.upper !== undefined) visitExpression(p.upper, gated);
 			return;
-		case "is-null":
 		case "is-blank":
 			visitExpression(p.left, gated);
 			return;
@@ -452,7 +454,6 @@ function visitExpression(expr: ValueExpression, gated: Set<string>): void {
 		case "date-coerce":
 		case "datetime-coerce":
 		case "double":
-		case "unwrap-list":
 			visitExpression(expr.value, gated);
 			return;
 		case "arith":
@@ -491,9 +492,8 @@ function visitExpression(expr: ValueExpression, gated: Set<string>): void {
 			visitExpression(expr.quantity, gated);
 			return;
 		case "table-lookup":
-			throw new Error(
-				"composeXPathQueryEmission: lookup-table expressions are dormant until fixture emission lands; validation should reject them before suite query emission.",
-			);
+			visitPredicate(expr.where, gated);
+			return;
 		default: {
 			const _exhaustive: never = expr;
 			throw new Error(

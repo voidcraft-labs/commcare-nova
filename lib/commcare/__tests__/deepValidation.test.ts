@@ -41,7 +41,7 @@ describe("validateXPath", () => {
 			).toEqual([]);
 			expect(validateXPath("format-date(today(), '%Y-%m-%d')")).toEqual([]);
 			expect(validateXPath("count(/data/visits) > 0")).toEqual([]);
-			expect(validateXPath("#case/total_visits + 1")).toEqual([]);
+			expect(validateXPath("#patient/total_visits + 1")).toEqual([]);
 		});
 
 		it("returns no errors for variadic functions", () => {
@@ -226,17 +226,19 @@ describe("validateXPath", () => {
 			expect(errors[0].message).toContain("mother");
 		});
 
-		it("skips #form/, #user/, and the transitional #case/ namespaces", () => {
-			// `#case/` is resolved by the wire (transitional), so the validator
-			// must NOT reject it as an unknown case type — it would be stricter
-			// than the emitter.
-			for (const ref of ["#form/whatever", "#user/username", "#case/total"]) {
+		it("skips fixed #form/#user namespaces and rejects raw authored #case", () => {
+			for (const ref of ["#form/whatever", "#user/username"]) {
 				expect(
 					validateXPath(ref, undefined, caseTypeProps).filter(
 						(e) => e.code === "INVALID_CASE_REF",
 					),
 				).toEqual([]);
 			}
+			expect(
+				validateXPath("#case/total", undefined, caseTypeProps).filter(
+					(error) => error.code === "INVALID_CASE_REF",
+				),
+			).toHaveLength(1);
 		});
 
 		it("gives a survey-specific message when the accept map is empty", () => {
@@ -495,8 +497,8 @@ describe("validateXPath", () => {
 				expect(validateXPath("/data/age + 1")).toEqual([]);
 			});
 
-			it("#case/visits + 1 (string ref in numeric context — unknowable)", () => {
-				expect(validateXPath("#case/visits + 1")).toEqual([]);
+			it("#patient/visits + 1 (string ref in numeric context — unknowable)", () => {
+				expect(validateXPath("#patient/visits + 1")).toEqual([]);
 			});
 
 			it("'5' + 3 (numeric string literal — parseable)", () => {
@@ -834,7 +836,7 @@ describe("validateBlueprintDeep", () => {
 					kind: "text",
 					id: "case_name",
 					label: proseText("Name"),
-					case_property_on: "patient",
+					caseWrite: { caseType: "patient", property: "case_name" },
 				}),
 				f({
 					kind: "int",
@@ -909,7 +911,7 @@ describe("validateBlueprintDeep", () => {
 					kind: "text",
 					id: "case_name",
 					label: proseText("Name"),
-					case_property_on: "patient",
+					caseWrite: { caseType: "patient", property: "case_name" },
 				}),
 				f({ kind: "hidden", id: "val", calculate: "#patient/nonexistent + 1" }),
 			],
@@ -935,7 +937,7 @@ describe("validateBlueprintDeep", () => {
 					kind: "text",
 					id: "case_name",
 					label: proseText("Name"),
-					case_property_on: "patient",
+					caseWrite: { caseType: "patient", property: "case_name" },
 				}),
 				f({ kind: "hidden", id: "val", calculate: "#mother/code + 1" }),
 			],
@@ -976,7 +978,7 @@ describe("runValidation with deep validation", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Name"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 								f({ kind: "hidden", id: "calc", calculate: "foobar(1)" }),
 							],

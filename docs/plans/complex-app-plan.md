@@ -173,7 +173,11 @@ forbids a new target and a name; `close` forbids a new target, name, owner,
 rename, retype, **and** links — so unlinking is always a separate operation from
 closing, while close may still carry final property writes. There is no
 load-tolerant legacy operation arm in the live domain schema; pre-cutover bytes
-are transformed before this schema is installed.
+are transformed before this schema is installed. This restriction is on the
+Unit 14 case-operation `name` facet, not on Unit 18's independent field
+`caseWrite` binding: CommCare accepts `case_name` in an existing case's
+`<update>`, so a followup/close field may explicitly save that standard property
+under Unit 18's unique-writer admission rules.
 
 Reserved case types are `commcare-user`, `commcare-case-claim`, and
 `user-owner-mapping-case`. Reserved write properties are
@@ -1012,7 +1016,7 @@ signature is the OS file picker. CommCare Android is the contrast, and that
 contrast is a docs fact rather than a Nova behavior.
 
 `lib/commcare/validator/rules/form.ts::mediaCaseProperty` keeps rejecting a
-capture kind carrying `case_property_on`, and `formActions.ts` skips capture
+capture kind carrying `caseWrite`, and `formActions.ts` skips capture
 kinds when building the case-update map. Writing a capture onto the case is
 inseparable from emitting its URL column, so the two ship together (unit 6).
 
@@ -1317,7 +1321,12 @@ server, and `lib/commcare/client.ts` resolves its base URL from the selected one
 Projects are the tenancy and sharing unit: every app carries a `project_id`, every
 user has a personal Project, and shared Projects let members co-edit an app plus
 its case, media, and lookup data at viewer/editor/admin/owner roles. Invitations
-are domain-gated (`lib/projects/invitePolicy.ts`).
+are domain-gated (`lib/projects/invitePolicy.ts`). `apps.project_id` is
+nonblank, `NOT NULL`, and foreign-keyed to the Better Auth Project; membership
+is the only authorization path and `apps.owner` is provenance only. A deferred
+composite foreign key binds every case row's `(project_id, app_id)` to the same
+app tenant, so Project moves may change the complete closure in one transaction
+without admitting a mismatched row.
 
 Cross-Project moves are live. An admin/owner of both ends moves an app plus its
 case, media, and conversation history — including chat-attached files. Media
@@ -1512,13 +1521,19 @@ Make UUID syntax, uploaded-media identity, machine-authored XPath, and
 reference-bearing prose canonical at every storage and editor boundary, collapse
 mutations to one final schema, close document topology so no authored entity can
 persist outside its runnable membership tree, and make select source modes
-exclusive. Human XPath remains friendly text such as `#form/first_name`; UUIDs
-are its stored identity, not syntax a person types.
+exclusive. It also separates a field's local question `id` from its explicit
+`caseWrite` destination and gives app-wide case-property renames one lossless
+semantic operation instead of inferring them from field edits. Human XPath
+remains friendly text such as `#form/first_name`; UUIDs are its stored identity,
+not syntax a person types.
 **The file holds** the exact identity/media types, the document-aware AST
 admission rules, same-call construction shape, topology forensics and
 row-digest-pinned repair, immutable fold baselines and post-horizon history
 replay proof, explicit horizon preservation, production scan, and direct
-maintenance-cutover contract.
+maintenance-cutover contract. It also closes the pre-Project app-state
+exception: the one approved, digest-pinned, inaccessible test orphan is deleted
+under the maintenance backup and exact closure proof, after which nullable
+app tenancy and owner-fallback authorization do not exist.
 
 ---
 

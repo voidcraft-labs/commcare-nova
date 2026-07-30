@@ -1,5 +1,5 @@
 /**
- * Vellum hashtag expansion — converts #form/, #case/, and #user/ shorthand to full XPath.
+ * Hashtag parsing plus private CommCare wire projections.
  *
  * Uses the Lezer XPath parser to identify HashtagRef nodes and their structured
  * children (HashtagType, HashtagSegment), then surgically replaces them with
@@ -27,10 +27,9 @@ const T = (() => {
 })();
 
 // ── Case-loading selector primitives ─────────────────────────────────
-// Single source of truth for the casedb `<case>` selector. Both the
-// `#case/` transforms-metadata prefix below and `expandCaseHashtag`'s
-// relationship walk compose from these, so the loaded-case shape cannot
-// drift between the metadata string and the emitted XPath.
+// Single source of truth for the casedb `<case>` selector. Typed case refs
+// project through `expandCaseToWire`; HQ editor metadata privately projects
+// the same selector to its required `#case/` vocabulary.
 const CASEDB_CASE = "instance('casedb')/casedb/case";
 const CURRENT_CASE_ID = "instance('commcaresession')/session/data/case_id";
 
@@ -43,9 +42,8 @@ function caseById(idExpr: string): string {
  *  `<vellum:hashtagTransforms>` element composes from. */
 export const VELLUM_HASHTAG_TRANSFORMS = {
 	prefixes: {
-		// The loaded case (`#case/<prop>`) — composed from the selector
-		// primitives so it stays identical to `expandCaseHashtag`'s zero-hop
-		// output by construction.
+		// The loaded case in HQ's private editor vocabulary, composed from the
+		// same selector primitive as typed case-ref wire projection.
 		"#case/": `${caseById(CURRENT_CASE_ID)}/`,
 		"#user/":
 			"instance('casedb')/casedb/case[@case_type='commcare-user'][hq_user_id=instance('commcaresession')/session/context/userid]/",
@@ -70,34 +68,13 @@ export const VELLUM_CASE_GENERATION_PREFIXES = [
 /**
  * Flat-prefix expansion by hashtag type, for the types whose expansion is a
  * simple prefix + property path. `#form/` is a trivial `/data/` expansion;
- * `#user/` resolves to the commcare-user case. `#case/` is NOT here — it can
- * carry leading relationship segments (`parent`/`grandparent`) that nest the
- * selector, so it routes through `expandCaseHashtag` instead.
+ * `#user/` resolves to the commcare-user case. Typed case refs require form
+ * context and route through `expandCaseToWire` instead.
  */
 const EXPANSIONS = new Map<string, string>([
 	["form", "/data/"],
 	["user", VELLUM_HASHTAG_TRANSFORMS.prefixes["#user/"]],
 ]);
-
-// ── Case relationship traversal ──────────────────────────────────────
-
-/**
- * The one case-index relationship Nova models in hashtags. A leading
- * `#case/parent/...` segment walks to the loaded case's parent through the
- * case INDEX (`/index/parent`) — NOT a literal `parent` child element of
- * `<case>` — matching commcare-hq's `#parent` hashtag (`app_manager/xpath.py`:
- * `CaseIDXPath(case + '/index/parent').case()`).
- *
- * `parent` is a CommCare-reserved case property (`RESERVED_CASE_PROPERTIES`),
- * so the field-authoring guard rejects it as a real property name — which is
- * what makes a leading `parent` segment unambiguously a relationship walk and
- * not a property read. Deeper ancestry chains the segment: `#case/parent/parent/<prop>`
- * is the grandparent. We deliberately do NOT add a `grandparent` keyword:
- * CommCare reserves no such word (so a property COULD be named `grandparent`,
- * and a keyword would silently shadow it), and chaining `parent` covers every
- * depth. `host` and other index relationships aren't modeled yet.
- */
-const CASE_PARENT_SEGMENT = "parent";
 
 /**
  * The core case-loading walk, addressed by hop depth: `hops` parent-index hops
@@ -107,21 +84,17 @@ const CASE_PARENT_SEGMENT = "parent";
  * nested `caseById(...)/index/parent` walks from the current case to the target
  * ancestor case.
  *
- * The single wire-shape authority for BOTH ways a case is addressed: the legacy
- * `#case/parent…/<prop>` path counts leading `parent` segments into `hops`
- * (`expandCaseHashtag`), and the per-case-type path
- * (`hashtags/formContext.ts::expandHashtagsInContext`) maps a case-type
- * namespace to its `reachableCaseTypes` depth and passes that depth as `hops`.
- * Routing both through here is what makes `#<own_type>/<prop>` byte-identical to
- * `#case/<prop>` and `#<ancestor>/<prop>` byte-identical to the matching
- * `#case/parent…/<prop>` BY CONSTRUCTION, not by parallel walks that could drift.
+ * The single wire-shape authority for canonical typed case refs and the
+ * emitter-private HQ editor/metadata projection. The authored case-type
+ * namespace maps to its `reachableCaseTypes` depth and passes that depth here;
+ * HQ's `#case/parent…` spelling is generated from the same depth after
+ * projection, never accepted as Nova input.
  */
 export function expandCaseToWire(hops: number, propPath: string): string {
 	// Walk to the target case's id — one `/index/parent` per hop; zero hops
 	// leaves it at the current case. Everything flows through `caseById`, so the
-	// zero-hop output is byte-for-byte the loaded-case prefix, which the
-	// `#case/<prop>` regression test pins — transitively guarding these selector
-	// primitives against drift.
+	// zero-hop output is byte-for-byte the loaded-case prefix used by the
+	// private HQ metadata projection.
 	let idExpr = CURRENT_CASE_ID;
 	for (let h = 0; h < hops; h++) {
 		idExpr = `${caseById(idExpr)}/index/parent`;
@@ -129,31 +102,6 @@ export function expandCaseToWire(hops: number, propPath: string): string {
 	// A walk with no trailing property (a bare `#case/parent` relationship)
 	// resolves to the related case node itself.
 	return propPath ? `${caseById(idExpr)}/${propPath}` : caseById(idExpr);
-}
-
-/**
- * Split a literal `#case/...` hashtag's segments into the parent-index hop count
- * (the leading `parent` relationship segments) and the property path read off
- * the target case. The context-aware expander reuses this so its literal-`#case/`
- * branch counts hops identically to `expandCaseHashtag`.
- */
-export function splitCaseSegments(segments: string[]): {
-	hops: number;
-	propPath: string;
-} {
-	let firstProp = 0;
-	while (segments[firstProp] === CASE_PARENT_SEGMENT) firstProp++;
-	return { hops: firstProp, propPath: segments.slice(firstProp).join("/") };
-}
-
-/**
- * Expand a `#case/...` hashtag's segments to full casedb XPath, resolving any
- * leading `parent` relationship segments through the case index into the hop
- * count `expandCaseToWire` walks; the remaining segments are the property path.
- */
-export function expandCaseHashtag(segments: string[]): string {
-	const { hops, propPath } = splitCaseSegments(segments);
-	return expandCaseToWire(hops, propPath);
 }
 
 /**
@@ -187,9 +135,8 @@ function applyPresortedEdits(
  * The resolver receives the hashtag's type name + segment strings and returns
  * the replacement XPath, or `undefined` to leave that ref verbatim.
  *
- * The single tree-walk shared by the context-free {@link expandHashtags} and
- * the context-aware `hashtags/formContext.ts::expandHashtagsInContext`, so the
- * two can never drift in how they locate hashtag spans.
+ * The single tree-walk shared by flat authoring refs and the form-context-aware
+ * typed case-ref projection.
  */
 export function rewriteHashtags(
 	expr: string,
@@ -226,8 +173,8 @@ export function rewriteHashtags(
 /**
  * Flat-prefix resolution for the namespaces whose expansion is a simple
  * `prefix + property path` — `#form/` and `#user/`. Returns `undefined` for any
- * other namespace; `#case/` and the per-case-type namespaces carry
- * relationship / scope that needs the `expandCaseToWire` walk instead.
+ * other namespace; per-case-type namespaces carry relationship/scope that
+ * needs the form-context-aware `expandCaseToWire` projection instead.
  */
 export function resolveFlatHashtag(
 	typeName: string,
@@ -238,18 +185,12 @@ export function resolveFlatHashtag(
 }
 
 /**
- * Expand `#form/`, `#case/`, and `#user/` hashtags to full XPath. Context-free:
- * it CANNOT resolve per-case-type namespaces (`#<type>/<prop>`) because those
- * need the form's reachable-case-type depths — that resolution lives in
- * `hashtags/formContext.ts::expandHashtagsInContext`. The literal `#case/`
- * branch stays as a transitional safety net for any un-migrated reference.
+ * Expand the two context-free authored namespaces, `#form/` and `#user/`.
+ * Typed case refs require the owning form's reachable-case-type depths and are
+ * projected by `hashtags/formContext.ts::expandHashtagsInContext`.
  */
-export function expandHashtags(expr: string): string {
-	return rewriteHashtags(expr, (typeName, segments) =>
-		typeName === "case"
-			? expandCaseHashtag(segments)
-			: resolveFlatHashtag(typeName, segments),
-	);
+export function expandFlatHashtags(expr: string): string {
+	return rewriteHashtags(expr, resolveFlatHashtag);
 }
 
 /**
@@ -301,10 +242,9 @@ function hashtagNamespace(ref: string): string | undefined {
  * Depth ≥ 3 (beyond HQ's three named generations) falls back to the
  * parent-chain spelling (`#case/parent/parent/parent/<prop>`) — HQ's own
  * normalization shows chains are its internal canonical form, and the load map
- * is string-recorded metadata, not editor-parsed XPath. `#case/` / `#user/`
- * refs are already the target vocabulary and pass through verbatim, as does a
- * ref whose namespace isn't a reachable case type (the deep validator rejects
- * that doc; this stays total).
+ * is string-recorded metadata, not editor-parsed XPath. `#user/` is already
+ * target vocabulary and passes through. Literal authored `#case/` is rejected:
+ * only this function's typed-reference projection may generate it.
  */
 export function hqLoadReference(
 	ref: string,
@@ -312,10 +252,12 @@ export function hqLoadReference(
 ): string {
 	const ns = hashtagNamespace(ref);
 	if (ns === undefined) return ref;
-	// `#case` / `#user` are already the target vocabulary — checked BEFORE the
-	// depths lookup, mirroring `expandHashtagsInContext`'s precedence for a
-	// case type literally named `case`.
-	if (ns === "case" || ns === "user") return ref;
+	if (ns === "case") {
+		throw new Error(
+			'Authored "#case/..." is not a Nova reference; HQ case vocabulary is generated only from an explicit case-type namespace',
+		);
+	}
+	if (ns === "user") return ref;
 	const depth = caseTypeDepths.get(ns);
 	if (depth === undefined) return ref;
 	const rest = ref.slice(ns.length + 2);

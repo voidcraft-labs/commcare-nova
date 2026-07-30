@@ -23,8 +23,6 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import {
 	type BlueprintDoc,
-	emptyCaseListConfig,
-	type Module,
 	plainColumn,
 	simpleSearchInputDef,
 } from "@/lib/domain";
@@ -38,7 +36,12 @@ vi.mock("@/lib/db/apps", () => ({
 }));
 
 vi.mock("@/lib/db/applyBlueprintChange", () => ({
-	applyBlueprintChange: vi.fn(() => Promise.resolve({ seq: 0 })),
+	applyBlueprintChange: vi.fn(async (args) => {
+		const { commitApplyBlueprintChangeTestBatch } = await import(
+			"@/lib/db/__tests__/applyBlueprintChangeTestWriter"
+		);
+		return commitApplyBlueprintChangeTestBatch(args);
+	}),
 }));
 
 beforeEach(() => {
@@ -55,17 +58,7 @@ describe("setCaseListFilter", () => {
 		doc: BlueprintDoc;
 		ctx: ReturnType<typeof makeCaseListFixture>["ctx"];
 	} {
-		const { doc: baseDoc, ctx } = makeCaseListFixture();
-		const baseMod = baseDoc.modules[MOD_A];
-		const doc: BlueprintDoc = {
-			...baseDoc,
-			modules: {
-				[MOD_A]: {
-					...baseMod,
-					caseListConfig: emptyCaseListConfig(),
-				} as Module,
-			},
-		};
+		const { doc, ctx } = makeCaseListFixture();
 		return { doc, ctx };
 	}
 
@@ -86,7 +79,7 @@ describe("setCaseListFilter", () => {
 
 	it("persists Nova's canonical standard-property names", async () => {
 		const { doc, ctx } = docWithConfig();
-		const filter = eq(prop("patient", "name"), literal("Ada"));
+		const filter = eq(prop("patient", "case_name"), literal("Ada"));
 
 		const result = await setCaseListFilterTool.execute(
 			{ moduleUuid: MOD_A, filter },
@@ -97,8 +90,9 @@ describe("setCaseListFilter", () => {
 		expect(result.newDoc.modules[MOD_A]?.caseListConfig?.filter).toEqual(
 			eq(prop("patient", "case_name"), literal("Ada")),
 		);
-		// Tool normalization must not rewrite its caller's object in place.
-		expect(filter).toEqual(eq(prop("patient", "name"), literal("Ada")));
+		// The canonical input is stored byte-for-byte; this tool owns no alias
+		// or compatibility rewrite for standard property names.
+		expect(filter).toEqual(eq(prop("patient", "case_name"), literal("Ada")));
 	});
 
 	it("surfaces the predicate kind in the structured result on a set", async () => {
@@ -129,7 +123,7 @@ describe("setCaseListFilter", () => {
 				[MOD_A]: {
 					...baseDoc.modules[MOD_A],
 					caseListConfig: resolveCaseListConfig({
-						columns: [],
+						columns: baseDoc.modules[MOD_A].caseListConfig?.columns ?? [],
 						filter: matchAll(),
 						searchInputs: [],
 					}),
@@ -158,6 +152,8 @@ describe("setCaseListFilter", () => {
 
 	it("keeps an intentional zero-input Search action when its availability rule is cleared", async () => {
 		const { doc: baseDoc, ctx } = docWithConfig();
+		const existingConfig = baseDoc.modules[MOD_A].caseListConfig;
+		if (!existingConfig) throw new Error("fixture case list missing");
 		const doc: BlueprintDoc = {
 			...baseDoc,
 			modules: {
@@ -165,7 +161,7 @@ describe("setCaseListFilter", () => {
 				[MOD_A]: {
 					...baseDoc.modules[MOD_A],
 					caseListConfig: {
-						...(baseDoc.modules[MOD_A].caseListConfig ?? emptyCaseListConfig()),
+						...existingConfig,
 						filter: eq(prop("patient", "status"), literal("active")),
 					},
 					caseSearchConfig: {},
@@ -292,34 +288,6 @@ describe("setCaseListFilter", () => {
 		expect(result.result.error).toContain("No module with UUID");
 	});
 
-	it("does NOT resurrect a config on a config-less module (concurrent-removal signal)", async () => {
-		// Every production case module is born WITH a config
-		// (`caseListConfigWithName`), so a `setCaseListFilter` landing on a
-		// config-less module means a peer concurrently cleared the whole case
-		// list. The `setCaseListMeta` reducer edits an EXISTING config and no
-		// longer runs the semantic case-list ensure, so the config stays absent rather
-		// than reappearing empty-but-present with the filter stranded on it. The
-		// guarded commit turns this into a 409 reload (batchTargetsMissing); the
-		// tool's own reducer run just no-ops.
-		const { doc: baseDoc, ctx } = makeCaseListFixture();
-		const baseMod = baseDoc.modules[MOD_A];
-		const docWithoutConfig: BlueprintDoc = {
-			...baseDoc,
-			modules: {
-				[MOD_A]: { ...baseMod, caseListConfig: undefined } as Module,
-			},
-		};
-
-		const filter: Predicate = eq(prop("patient", "status"), literal("active"));
-		const result = await setCaseListFilterTool.execute(
-			{ moduleUuid: MOD_A, filter },
-			ctx,
-			docWithoutConfig,
-		);
-
-		expect(result.newDoc.modules[MOD_A]?.caseListConfig).toBeUndefined();
-	});
-
 	it("emits the same mutation batch through chat + MCP contexts", async () => {
 		// Cross-surface parity sentinel — driving the same input
 		// through both surfaces' `ToolExecutionContext` implementations
@@ -343,27 +311,5 @@ describe("setCaseListFilter", () => {
 		);
 
 		expect(r1.mutations).toEqual(r2.mutations);
-	});
-
-	it("clearing (filter=null) on a config-less module is a no-op, not a config birth", async () => {
-		// The dual of the resurrection guard: clearing a filter on a module with
-		// no config must NOT materialize an empty config either. `setCaseListMeta`
-		// edits an existing config; absent → absent (no semantic ensure).
-		const { doc: baseDoc, ctx } = makeCaseListFixture();
-		const baseMod = baseDoc.modules[MOD_A];
-		const docWithoutConfig: BlueprintDoc = {
-			...baseDoc,
-			modules: {
-				[MOD_A]: { ...baseMod, caseListConfig: undefined } as Module,
-			},
-		};
-
-		const result = await setCaseListFilterTool.execute(
-			{ moduleUuid: MOD_A, filter: null },
-			ctx,
-			docWithoutConfig,
-		);
-
-		expect(result.newDoc.modules[MOD_A]?.caseListConfig).toBeUndefined();
 	});
 });

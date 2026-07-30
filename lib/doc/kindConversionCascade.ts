@@ -66,7 +66,7 @@ import {
 	convertNeedsOptionSeed,
 	type Field,
 	type FieldKind,
-	fieldCasePropertyOn,
+	fieldCaseWrite,
 	getConvertibleTypes,
 	type SelectOptionsSource,
 } from "@/lib/domain";
@@ -132,10 +132,10 @@ export type KindConversionPlanResult =
 /**
  * Build the conversion batch for `field` → `toKind`.
  *
- * `field` is the shape the CALL leaves in place for planning purposes —
- * a caller whose same call retargets or clears `case_property_on` must
- * pass the field with that override applied, or the plan cascades a
- * binding the field is about to leave.
+ * `field` is the shape the CALL leaves in place for planning purposes — a
+ * caller whose same call retargets or clears `caseWrite` must pass the field
+ * with that override applied, or the plan cascades a binding the field is
+ * about to leave.
  *
  * `optionsSource` supplies the complete source for a converted field whose
  * source kind has none (`convertNeedsOptionSeed`). The authoring boundary has
@@ -180,20 +180,21 @@ export function planKindConversion(args: {
 
 	const addressedConvert = convertMutation(field);
 
-	const caseType = fieldCasePropertyOn(field);
-	if (caseType === undefined || field.id.length === 0) {
+	const write = fieldCaseWrite(field);
+	if (write === undefined) {
 		// Not case-bound — a plain single-field conversion.
 		return { ok: true, mutations: [addressedConvert], peers: [] };
 	}
+	const { caseType, property } = write;
 
 	const fromType = caseDataTypeForFieldKind(field.kind);
 	const toType = caseDataTypeForFieldKind(toKind);
 	const record = doc.caseTypes?.find((ct) => ct.name === caseType);
-	const entry = record?.properties.find((p) => p.name === field.id);
+	const entry = record?.properties.find((p) => p.name === property);
 
 	// Peer writers of the same (caseType, property) — via the reference
 	// index, never a doc walk. The addressed field itself is excluded.
-	const declarerUuids = declarersOf(doc, caseType, field.id).filter(
+	const declarerUuids = declarersOf(doc, caseType, property).filter(
 		(uuid) => uuid !== field.uuid,
 	);
 	const declarers = declarerUuids
@@ -206,7 +207,9 @@ export function planKindConversion(args: {
 		.find(
 			(operation) =>
 				(operation.retype ?? operation.caseType) === caseType &&
-				(operation.writes ?? []).some((write) => write.property === field.id),
+				(operation.writes ?? []).some(
+					(operationWrite) => operationWrite.property === property,
+				),
 		);
 
 	const mutations: Mutation[] = [addressedConvert];
@@ -291,7 +294,7 @@ export function planKindConversion(args: {
 		fromType !== undefined &&
 		toType !== undefined &&
 		castCanFail(fromType, toType)
-			? { caseType, property: field.id, fromType, toType }
+			? { caseType, property, fromType, toType }
 			: undefined;
 
 	return {

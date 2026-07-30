@@ -5,7 +5,7 @@
 // (and silently weaken) a parent's invariant.
 //
 // - `structuralFieldBase` (`{ uuid, id }`) is the minimum any field
-//   carries — identity + CommCare property id. `hidden` extends this
+//   carries — stable identity + form question/node id. `hidden` extends this
 //   directly: CommCare hidden fields have no label (nothing to display).
 // - `containerFieldBase` (structural + optional `label` + optional
 //   `label_media`) is for structural containers (`group`, `repeat`).
@@ -18,7 +18,7 @@
 //   genuinely always needs a label.
 // - `inputFieldBaseSchema` (fieldBase + the optional input-specific
 //   slots: `hint`, `hint_media`, `help`, `help_media`, `required`,
-//   `validate_msg_media`, `relevant`, `case_property_on`) carries the
+//   `validate_msg_media`, `relevant`, `caseWrite`) carries the
 //   input-specific wiring used by text/int/select/etc.
 //
 // Each displayable message slot (label / hint / help / validate-error)
@@ -42,6 +42,10 @@
 // whose label policy matches its semantics.
 
 import { z } from "zod";
+import {
+	type AuthoredCasePropertyName,
+	authoredCasePropertyNameSchema,
+} from "../casePropertyName";
 import { type Media, mediaSchema } from "../multimedia";
 import { type ProseTemplate, proseTemplateSchema, proseText } from "../prose";
 import { type Uuid, uuidSchema } from "../uuid";
@@ -57,17 +61,12 @@ export { mediaSchema, proseTemplateSchema, xpathExpressionSchema };
 /**
  * Minimum shape every field carries: stable uuid + semantic id. Hidden
  * fields extend this directly (they have no label and no input wiring).
- *
- * `order` is the absolute fractional sort key (`lib/doc/order`) that names
- * the field's position among its siblings — display/wire/preview sequence is
- * `sort-by-(order, uuid)`, not `fieldOrder` array position. Optional because
- * legacy fields predate it; backfilled deterministically at hydration. Never
- * reaches CommCare (the emitters read the sorted sequence and drop it).
+ * Sibling position belongs only to the owning `fieldOrder` membership array;
+ * fields carry no parallel ordering property.
  */
 export type StructuralFieldBase = {
 	uuid: Uuid;
 	id: string;
-	order?: string;
 };
 
 export const structuralFieldBase = z
@@ -78,7 +77,7 @@ export const structuralFieldBase = z
 	.strict();
 
 /**
- * Every visible field has identity, a CommCare property id, a display
+ * Every visible field has identity, a form question/node id, a display
  * label, and an optional `label_media` for the image/audio/video
  * shown alongside the label.
  */
@@ -111,6 +110,26 @@ export const containerFieldBase = structuralFieldBase.extend({
 });
 
 /**
+ * One field's explicit case-storage destination.
+ *
+ * Field identity and storage identity are independent: `Field.id` is the
+ * friendly form question/node name, while this pair is the case type and
+ * property written on submit. The complete pair is optional; there is no
+ * half-bound state and no inferred property fallback to `Field.id`.
+ */
+export interface CaseWrite {
+	caseType: string;
+	property: AuthoredCasePropertyName;
+}
+
+export const caseWriteSchema = z
+	.object({
+		caseType: z.string().min(1, "Case type must not be empty."),
+		property: authoredCasePropertyNameSchema,
+	})
+	.strict();
+
+/**
  * Input-capable fields additionally carry hint / required / relevant
  * / case wiring, plus a text + media pair per secondary message slot.
  *
@@ -138,7 +157,7 @@ export type InputFieldBase = FieldBase & {
 	help_media?: Media;
 	required?: XPathExpression; // an expression, or the "true()" sentinel
 	relevant?: XPathExpression;
-	case_property_on?: string; // case type name this field writes to
+	caseWrite?: CaseWrite;
 };
 
 export const inputFieldBaseSchema = fieldBaseSchema.extend({
@@ -148,7 +167,7 @@ export const inputFieldBaseSchema = fieldBaseSchema.extend({
 	help_media: mediaSchema.optional(),
 	required: xpathExpressionSchema.optional(),
 	relevant: xpathExpressionSchema.optional(),
-	case_property_on: z.string().optional(),
+	caseWrite: caseWriteSchema.optional(),
 });
 
 /**
@@ -157,19 +176,15 @@ export const inputFieldBaseSchema = fieldBaseSchema.extend({
  * label text — useful for visual-pick UIs ("pick which symptom
  * matches this image" etc.).
  *
- * `uuid` is the option's stable identity for granular per-option mutations
- * (so two members editing different options merge); `order` is its absolute
- * fractional sort key. Both optional because legacy options predate them and
- * are backfilled deterministically at hydration (`uuid` from
- * `(field uuid, option index)`, `order` from array position). Neither
- * reaches CommCare.
+ * `uuid` is the option's required stable identity for granular per-option
+ * mutations (so two members editing different options merge). The options
+ * array owns sequence; an option carries no parallel ordering property.
  */
 export type SelectOption = {
 	value: string;
 	label: ProseTemplate;
 	media?: Media;
 	uuid: Uuid;
-	order?: string;
 };
 
 export const selectOptionSchema = z

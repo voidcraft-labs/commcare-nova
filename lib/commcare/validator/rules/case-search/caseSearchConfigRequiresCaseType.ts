@@ -17,8 +17,8 @@
  * remove the `caseSearchConfig` — rather than an upload-time error
  * or a silent wire-emission drop. This rule short-circuits cleanly
  * when search is not effective (no `<remote-request>` is emitted, no
- * case-type slot is required). Legacy markerless `searchInputs` still
- * make search effective, so they are deliberately covered.
+ * case-type slot is required). Authored `searchInputs` make search
+ * effective without a separate settings object, so they are covered.
  */
 
 import {

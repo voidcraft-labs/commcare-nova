@@ -13,6 +13,7 @@ import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import {
 	expressionInspectionSource,
 	expressionSurfaceReads,
+	fieldCaseWrite,
 	isContainer,
 } from "@/lib/domain";
 import {
@@ -42,12 +43,12 @@ export interface SearchResult {
 	 *  mutations. For columns / search inputs, this is the entry's own
 	 *  uuid (consumed by `updateCaseListColumn` / `removeCaseListColumn` /
 	 *  `updateSearchInput` / `removeSearchInput`). */
-	uuid?: Uuid;
+	uuid: Uuid;
 	/** Owning module's uuid — surfaced on case-list matches so callers
 	 *  hold the (column-uuid, module-uuid) pair the atomic-op tools
 	 *  need together. */
 	containerUuid?: Uuid;
-	/** Which property matched (e.g. 'label', 'case_property_on', 'id', 'name'). */
+	/** Which property matched (e.g. 'label', 'caseWrite', 'id', 'name'). */
 	field: string;
 	/** The matched value. */
 	value: string;
@@ -198,14 +199,15 @@ function searchFields(
 		if (label?.toLowerCase().includes(query)) {
 			matchFields.push({ field: "label", value: label });
 		}
-		const anyField = field as Record<string, unknown>;
-		if (
-			typeof anyField.case_property_on === "string" &&
-			field.id.toLowerCase().includes(query)
-		) {
+		const caseWrite = fieldCaseWrite(field);
+		const savesTo =
+			caseWrite === undefined
+				? undefined
+				: `${caseWrite.caseType}/${caseWrite.property}`;
+		if (savesTo?.toLowerCase().includes(query)) {
 			matchFields.push({
-				field: "case_property_on",
-				value: `${field.id}→${anyField.case_property_on}`,
+				field: "caseWrite",
+				value: savesTo,
 			});
 		}
 		// The expression slots this search surface covers — a UX choice of
@@ -255,10 +257,7 @@ function searchFields(
 		}
 
 		for (const match of matchFields) {
-			const caseTag =
-				typeof anyField.case_property_on === "string"
-					? `, case_property_on:${anyField.case_property_on}`
-					: "";
+			const caseTag = savesTo === undefined ? "" : `, saves-to:${savesTo}`;
 			results.push({
 				type: "field",
 				moduleIndex: mIdx,

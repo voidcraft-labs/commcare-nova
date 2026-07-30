@@ -7,8 +7,7 @@
  *
  * `applyMutation` operates on an Immer draft — call sites wrap it in
  * `produce()` or let the Zustand store's Immer middleware handle the
- * drafting. Returns a `MutationResult`: `MoveFieldResult` for `moveField`
- * and `undefined` for every other kind.
+ * drafting. Reducers return no side-channel metadata.
  *
  * `applyMutations` is the batched variant — it runs the same dispatch
  * loop and returns a parallel `MutationResult[]` (one entry per input
@@ -18,6 +17,11 @@
  */
 
 import type { Draft } from "immer";
+import {
+	applyCasePropertyRenamePlan,
+	CasePropertyRenamePlanError,
+	planCasePropertyRenames,
+} from "@/lib/doc/casePropertyRenames";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import {
 	applyReferenceIndexMaintenance,
@@ -60,6 +64,15 @@ function dispatchMutation(
 		case "setCaseTypeMeta":
 			applyAppMutation(draft, mut);
 			return;
+		case "renameCaseProperties": {
+			const plan = planCasePropertyRenames(
+				draft as unknown as BlueprintDoc,
+				mut,
+			);
+			if (!plan.ok) throw new CasePropertyRenamePlanError(plan.issue);
+			applyCasePropertyRenamePlan(draft, plan.plan);
+			return;
+		}
 		case "addModule":
 		case "removeModule":
 		case "moveModule":
@@ -95,7 +108,8 @@ function dispatchMutation(
 		case "updateOption":
 		case "removeOption":
 		case "moveOption":
-			return applyFieldMutation(draft, mut);
+			applyFieldMutation(draft, mut);
+			return;
 		case "addUserProperty":
 		case "updateUserProperty":
 		case "removeUserProperty":
@@ -132,8 +146,7 @@ function applyOne(draft: Draft<BlueprintDoc>, mut: Mutation): MutationResult {
 
 /**
  * Apply a single mutation to an Immer draft and return any metadata the
- * reducer produces. `moveField` returns `MoveFieldResult`; all others return
- * `undefined`.
+ * reducer produces. Every mutation returns `undefined`.
  *
  * The reference index is seeded (built from the full doc) on first
  * contact and maintained incrementally by the mutation's application;
@@ -144,17 +157,7 @@ export function applyMutation(
 	draft: Draft<BlueprintDoc>,
 	mut: Mutation,
 ): MutationResult {
-	normalizeBlueprintOwnRecords(draft as unknown as BlueprintDoc);
-	ensureReferenceIndex(draft as unknown as BlueprintDoc);
-	const result = applyOne(draft, mut);
-	// Mutation payloads are often schema-parsed (and therefore already use the
-	// own-record representation), but typed in-process callers may supply an
-	// ordinary JSON-shaped nested value bag. Re-establish the final invariant
-	// before any observer sees the result.
-	normalizeBlueprintOwnRecords(draft as unknown as BlueprintDoc);
-	rebuildFieldParent(draft as unknown as BlueprintDoc);
-	devAssertReferenceIndexParity(draft as unknown as BlueprintDoc);
-	return result;
+	return applyMutations(draft, [mut])[0];
 }
 
 /**

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isPersistableJsonNumber } from "@/lib/domain";
 import { type Mutation, mutationSchema } from "./types";
 
 const intrinsicJsonStringify = JSON.stringify;
@@ -344,7 +345,7 @@ function detachJsonValue(
 		return input;
 	}
 	if (typeof input === "number") {
-		if (!Number.isFinite(input) || Object.is(input, -0)) {
+		if (!isPersistableJsonNumber(input)) {
 			return failJsonTree(path, "non-json-value");
 		}
 		return input;
@@ -529,7 +530,20 @@ function schemaParseDetails(
 	);
 }
 
-const mutationBatchSchema = z.array(mutationSchema);
+const mutationBatchSchema = z
+	.array(mutationSchema)
+	.superRefine((mutations, ctx) => {
+		const renameIndex = mutations.findIndex(
+			(mutation) => mutation.kind === "renameCaseProperties",
+		);
+		if (renameIndex === -1 || mutations.length === 1) return;
+		ctx.addIssue({
+			code: "custom",
+			path: [renameIndex],
+			message:
+				"A case-property rename is the complete app-wide edit and must be the only mutation in its batch.",
+		});
+	});
 
 function admitMutationBatchInternal(
 	value: unknown,
@@ -735,21 +749,6 @@ export function admittedMutationSlice(
 	const values: Mutation[] = [];
 	for (let index = slice.start; index < slice.end; index += 1) {
 		values.push(stages.batch[index] as Mutation);
-	}
-	return admitMutationBatchInternal(values, true);
-}
-
-export function combineAdmittedMutationBatches(
-	batches: readonly AdmittedMutationBatch[],
-): AdmittedMutationBatch {
-	const values: Mutation[] = [];
-	for (const batch of batches) {
-		if (!admittedMutationBatches.has(batch as object)) {
-			throw new MutationWireCanonicalityError(detailsFor([], "non-json-value"));
-		}
-		for (let index = 0; index < batch.length; index += 1) {
-			values.push(batch[index] as Mutation);
-		}
 	}
 	return admitMutationBatchInternal(values, true);
 }

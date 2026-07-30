@@ -145,8 +145,8 @@ export interface CasesTable {
 	 * excludes `case_name` from its property output so the column
 	 * is the single source of truth.
 	 *
-	 * **`is-null` / `is-blank` against this column are structurally
-	 * always false.** The column is `NOT NULL` with `length > 0`,
+	 * **`is-blank` against this column is structurally always false.**
+	 * The column is `NOT NULL` with `length > 0`,
 	 * so the predicate compiler's emitted SQL is trivially false.
 	 * The type checker doesn't reject these AST shapes today
 	 * (admits any `RESERVED_SCALAR_COLUMN_BY_PROPERTY` entry on the left
@@ -161,8 +161,8 @@ export interface CasesTable {
 	 * key. Nova's sample generator fills it with a deterministic,
 	 * readable identifier; imports and other create flows may supply
 	 * their own. The column also ensures standard-name reads
-	 * (`RESERVED_SCALAR_COLUMN_BY_PROPERTY`'s `external_id` /
-	 * `external-id` entries) resolve to an honest column instead of
+	 * (`RESERVED_SCALAR_COLUMN_BY_PROPERTY`'s `external_id` entry)
+	 * resolves to an honest column instead of
 	 * throwing.
 	 */
 	external_id: string | null;
@@ -201,12 +201,32 @@ export interface CaseTypeSchemasTable {
 	 * is never clobbered by an in-flight older write.
 	 *
 	 * `ColumnType<string, number | undefined, number>`: node-postgres returns
-	 * `bigint`/`int8` as a STRING, so the SELECT type is `string` and a reader
-	 * coerces `Number(row.synced_seq)` — the type forces the coercion rather
-	 * than letting a bare `>=`/`+ 1` silently do string math. Insert is OPTIONAL
+	 * `bigint`/`int8` as a STRING, so every reader crosses the shared
+	 * nonnegative safe-sequence boundary instead of rounding with a raw number
+	 * coercion or accidentally performing string arithmetic. Insert is OPTIONAL
 	 * (defaults to 0 via the column DEFAULT); update supplies the seq.
 	 */
 	synced_seq: ColumnType<string, number | undefined, number>;
+	/** Latest schema seq whose expression-index diff still needs convergence. */
+	index_pending_seq: ColumnType<
+		string | null,
+		number | null | undefined,
+		number | null
+	>;
+	/** Latest schema seq whose expression indexes were observed converged. */
+	index_synced_seq: ColumnType<string, number | undefined, number>;
+}
+
+/**
+ * Durable Phase-B work for a deleted case type. The schema row cannot carry
+ * pending state after deletion, so this tombstone remains until every scoped
+ * expression index has been observed absent. A later schema recreation
+ * deletes the tombstone under the same per-type advisory lock and writes its
+ * own pending schema state.
+ */
+export interface CaseSchemaIndexDeletionsTable {
+	app_id: string;
+	case_type: string;
 }
 
 /**
@@ -309,6 +329,7 @@ export interface Database {
 	apps: AppsTable;
 	cases: CasesTable;
 	case_type_schemas: CaseTypeSchemasTable;
+	case_schema_index_deletions: CaseSchemaIndexDeletionsTable;
 	case_indices: CaseIndicesTable;
 	parked_case_values: ParkedCaseValuesTable;
 	lookup_rows: LookupRowsTable;

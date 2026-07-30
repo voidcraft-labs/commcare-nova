@@ -129,7 +129,7 @@ function docWithForm(form: Partial<Form> = {}): BlueprintDoc {
 		moduleOrder: [M("X")],
 		formOrder: { [M("X")]: [F("1")] },
 		fieldOrder: { [F("1")]: [] },
-		fieldParent: {},
+		fieldParent: { [Q("src")]: F("1") },
 	};
 }
 
@@ -150,6 +150,22 @@ function updateFieldId(
 			targetKind,
 			patch: { id },
 		} as Parameters<typeof applyMutation>[1]);
+	});
+	return { next };
+}
+
+/** Apply the one app-wide semantic case-property rename command. */
+function renameCaseProperty(
+	start: BlueprintDoc,
+	caseType: string,
+	from: string,
+	to: string,
+): { next: BlueprintDoc } {
+	const next = produce(resolveDocExpressions(start), (draft) => {
+		applyMutation(draft, {
+			kind: "renameCaseProperties",
+			renames: [{ caseType, from, to }],
+		});
 	});
 	return { next };
 }
@@ -471,14 +487,13 @@ describe("updateField id patch rewrites the owning form's form-level wiring", ()
 		const start: BlueprintDoc = {
 			...docWithForm({
 				connect: {
-					assessment: { user_score: "/data/score * 10" },
-					deliver_unit: {
-						name: "visit",
-						entity_id: "concat(#form/score, '-', today())",
-						entity_name: "#form/score",
+					assessment: {
+						id: "score_assessment",
+						user_score: "/data/score * 10",
 					},
 				} as unknown as Form["connect"],
 			}),
+			connectType: "learn",
 			fields: { [Q("s")]: field_(Q("s"), "score", { kind: "int" }) },
 			fieldOrder: { [F("1")]: [Q("s")] },
 		};
@@ -488,6 +503,27 @@ describe("updateField id patch rewrites the owning form's form-level wiring", ()
 		expect(formExpressionSource(form, "assessment_user_score", next)).toBe(
 			"/data/points * 10",
 		);
+	});
+
+	it("deliver entity slots follow an id patch at print", () => {
+		const start: BlueprintDoc = {
+			...docWithForm({
+				connect: {
+					deliver_unit: {
+						id: "visit",
+						name: "visit",
+						entity_id: "concat(#form/score, '-', today())",
+						entity_name: "#form/score",
+					},
+				} as unknown as Form["connect"],
+			}),
+			connectType: "deliver",
+			fields: { [Q("s")]: field_(Q("s"), "score", { kind: "int" }) },
+			fieldOrder: { [F("1")]: [Q("s")] },
+		};
+		const { next } = updateFieldId(start, Q("s"), "points");
+		const form = next.forms[F("1")];
+		if (!form) throw new Error("fixture form missing");
 		expect(formExpressionSource(form, "deliver_entity_id", next)).toBe(
 			"concat(#form/points, '-', today())",
 		);
@@ -508,9 +544,14 @@ describe("moveField re-anchors form-level wiring", () => {
 					},
 				] as unknown as Form["formLinks"],
 				connect: {
-					deliver_unit: { name: "visit", entity_name: "/data/score" },
+					deliver_unit: {
+						id: "visit",
+						name: "visit",
+						entity_name: "/data/score",
+					},
 				} as unknown as Form["connect"],
 			}),
+			connectType: "deliver",
 			fields: {
 				[Q("grp")]: field_(Q("grp"), "grp", { kind: "group" }),
 				[Q("s")]: field_(Q("s"), "score", { kind: "int" }),
@@ -541,8 +582,8 @@ describe("moveField re-anchors form-level wiring", () => {
 
 /**
  * Two modules: X lists `patient` cases, Y lists `household` cases.
- * The renamed field lives in X's form and writes the `patient.age`
- * case property; per-slot tests hang module-level ASTs off X and Y to
+ * A writer for `patient.age` lives in X's form; per-slot tests hang
+ * module-level ASTs off X and Y to
  * assert (caseType, property) scoping.
  */
 function cascadeDoc(modulePatches: {
@@ -553,7 +594,16 @@ function cascadeDoc(modulePatches: {
 		appId: "test",
 		appName: "A",
 		connectType: null,
-		caseTypes: null,
+		caseTypes: [
+			{
+				name: "patient",
+				properties: [{ name: "age", label: proseText("Age") }],
+			},
+			{
+				name: "household",
+				properties: [{ name: "region", label: proseText("Region") }],
+			},
+		],
 		modules: {
 			[M("X")]: {
 				uuid: M("X"),
@@ -577,17 +627,17 @@ function cascadeDoc(modulePatches: {
 		fields: {
 			[Q("src")]: field_(Q("src"), "age", {
 				kind: "int",
-				case_property_on: "patient",
+				caseWrite: { caseType: "patient", property: "age" },
 			}),
 		},
 		moduleOrder: [M("X"), M("Y")],
 		formOrder: { [M("X")]: [F("1")], [M("Y")]: [F("2")] },
 		fieldOrder: { [F("1")]: [Q("src")], [F("2")]: [] },
-		fieldParent: {},
+		fieldParent: { [Q("src")]: F("1") },
 	};
 }
 
-describe("case-property cascade rewrites module predicate-AST slots", () => {
+describe("renameCaseProperties rewrites module predicate-AST slots", () => {
 	it("rewrites module and form display conditions", () => {
 		const base = cascadeDoc({
 			x: {
@@ -606,7 +656,7 @@ describe("case-property cascade rewrites module predicate-AST slots", () => {
 				} as Form,
 			},
 		};
-		const { next } = updateFieldId(start, Q("src"), "years");
+		const { next } = renameCaseProperty(start, "patient", "age", "years");
 		expect(next.modules[M("X")]?.displayCondition).toEqual(
 			eq(prop("patient", "years"), literal(18)),
 		);
@@ -625,7 +675,7 @@ describe("case-property cascade rewrites module predicate-AST slots", () => {
 				}),
 			},
 		});
-		const { next } = updateFieldId(start, Q("src"), "years");
+		const { next } = renameCaseProperty(start, "patient", "age", "years");
 		const filter = next.modules[M("X")]?.caseListConfig?.filter;
 		expect(filter).toEqual(eq(prop("patient", "years"), literal("1")));
 	});
@@ -641,7 +691,7 @@ describe("case-property cascade rewrites module predicate-AST slots", () => {
 				}),
 			},
 		});
-		const { next } = updateFieldId(start, Q("src"), "years");
+		const { next } = renameCaseProperty(start, "patient", "age", "years");
 		const filter = next.modules[M("Y")]?.caseListConfig?.filter;
 		expect(filter).toEqual(eq(prop("household", "age"), literal("1")));
 	});
@@ -663,7 +713,7 @@ describe("case-property cascade rewrites module predicate-AST slots", () => {
 				}),
 			},
 		});
-		const { next } = updateFieldId(start, Q("src"), "years");
+		const { next } = renameCaseProperty(start, "patient", "age", "years");
 		const filter = next.modules[M("Y")]?.caseListConfig?.filter;
 		expect(filter).toEqual(
 			eq(
@@ -698,12 +748,12 @@ describe("case-property cascade rewrites module predicate-AST slots", () => {
 			fields: {
 				...base.fields,
 				[Q("reg")]: field_(Q("reg"), "region", {
-					case_property_on: "household",
+					caseWrite: { caseType: "household", property: "region" },
 				}),
 			},
 			fieldOrder: { ...base.fieldOrder, [F("2")]: [Q("reg")] },
 		};
-		const { next } = updateFieldId(start, Q("reg"), "zone");
+		const { next } = renameCaseProperty(start, "household", "region", "zone");
 		const filter = next.modules[M("X")]?.caseListConfig?.filter;
 		expect(filter).toEqual(
 			eq(
@@ -738,12 +788,12 @@ describe("case-property cascade rewrites module predicate-AST slots", () => {
 			fields: {
 				...base.fields,
 				[Q("reg")]: field_(Q("reg"), "region", {
-					case_property_on: "household",
+					caseWrite: { caseType: "household", property: "region" },
 				}),
 			},
 			fieldOrder: { ...base.fieldOrder, [F("2")]: [Q("reg")] },
 		};
-		const { next } = updateFieldId(start, Q("reg"), "zone");
+		const { next } = renameCaseProperty(start, "household", "region", "zone");
 		const filter = next.modules[M("X")]?.caseListConfig?.filter;
 		expect(filter).toEqual(
 			eq(
@@ -769,7 +819,7 @@ describe("case-property cascade rewrites module predicate-AST slots", () => {
 				}),
 			},
 		});
-		const { next } = updateFieldId(start, Q("src"), "years");
+		const { next } = renameCaseProperty(start, "patient", "age", "years");
 		const col = next.modules[M("X")]?.caseListConfig?.columns[0];
 		expect(col).toMatchObject({
 			kind: "calculated",
@@ -800,7 +850,7 @@ describe("case-property cascade rewrites module predicate-AST slots", () => {
 				}),
 			},
 		});
-		const { next } = updateFieldId(start, Q("src"), "years");
+		const { next } = renameCaseProperty(start, "patient", "age", "years");
 		const xInput = next.modules[M("X")]?.caseListConfig?.searchInputs[0];
 		const yInput = next.modules[M("Y")]?.caseListConfig?.searchInputs[0];
 		// Module X lists patients — its input targets patient.age → follows.
@@ -830,7 +880,7 @@ describe("case-property cascade rewrites module predicate-AST slots", () => {
 				}),
 			},
 		});
-		const { next } = updateFieldId(start, Q("src"), "years");
+		const { next } = renameCaseProperty(start, "patient", "age", "years");
 		const yInput = next.modules[M("Y")]?.caseListConfig?.searchInputs[0];
 		expect(yInput).toMatchObject({ property: "years" });
 	});
@@ -854,7 +904,7 @@ describe("case-property cascade rewrites module predicate-AST slots", () => {
 				}),
 			},
 		});
-		const { next } = updateFieldId(start, Q("src"), "years");
+		const { next } = renameCaseProperty(start, "patient", "age", "years");
 		const inputDef = next.modules[M("X")]?.caseListConfig?.searchInputs[0];
 		expect(inputDef).toMatchObject({
 			predicate: eq(prop("patient", "years"), literal("18")),
@@ -871,12 +921,15 @@ describe("case-property cascade rewrites module predicate-AST slots", () => {
 				},
 			},
 		});
-		const { next } = updateFieldId(start, Q("src"), "years");
+		const { next } = renameCaseProperty(start, "patient", "age", "years");
 		const search = next.modules[M("X")]?.caseSearchConfig;
-		expect(search?.searchButtonDisplayCondition).toEqual(
+		if (search === undefined || "searchActionEnabled" in search) {
+			throw new Error("expected ordinary Search config");
+		}
+		expect(search.searchButtonDisplayCondition).toEqual(
 			eq(prop("patient", "years"), literal("")),
 		);
-		expect(search?.excludedOwnerIds).toEqual(term(prop("patient", "years")));
+		expect(search.excludedOwnerIds).toEqual(term(prop("patient", "years")));
 	});
 
 	it("rewrites case hashtags in another form's form-level wiring", () => {
@@ -919,7 +972,7 @@ describe("case-property cascade rewrites module predicate-AST slots", () => {
 			formOrder: { ...base.formOrder, [M("X")]: [F("1"), F("3")] },
 			fieldOrder: { ...base.fieldOrder, [F("3")]: [] },
 		};
-		const { next } = updateFieldId(start, Q("src"), "years");
+		const { next } = renameCaseProperty(start, "patient", "age", "years");
 		const f3Condition = next.forms[F("3")]?.formLinks?.[0]?.condition;
 		expect(
 			f3Condition && printXPath(f3Condition, xpathPrintContext(next)),

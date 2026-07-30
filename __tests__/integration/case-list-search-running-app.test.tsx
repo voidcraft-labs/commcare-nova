@@ -67,7 +67,7 @@
 // per concern.
 
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import type { Kysely } from "kysely";
+import { type Kysely, sql } from "kysely";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { CaseListScreen } from "@/components/preview/screens/CaseListScreen";
@@ -314,15 +314,15 @@ function buildFixtureDoc(): BlueprintDoc {
 					searchInputs: [
 						simpleSearchInputDef(
 							SI_NAME_UUID,
-							// `name` is both the input key and the property
-							// it targets — `composeRuntimeFilter` reads the
+							// `name` is the input key; its explicit case destination
+							// is `full_name`. `composeRuntimeFilter` reads the
 							// typed value out of `inputValues.get("name")`
 							// and emits a `case-property` term referencing
-							// `patient.name`.
+							// `patient.full_name`.
 							"name",
 							"Name",
 							"text",
-							"name",
+							"full_name",
 						),
 					],
 				},
@@ -341,19 +341,19 @@ function buildFixtureDoc(): BlueprintDoc {
 								kind: "text",
 								id: "case_name",
 								label: proseText("Patient name"),
-								case_property_on: "patient",
+								caseWrite: { caseType: "patient", property: "case_name" },
 							}),
 							f({
 								kind: "text",
 								id: "name",
 								label: proseText("Full name"),
-								case_property_on: "patient",
+								caseWrite: { caseType: "patient", property: "full_name" },
 							}),
 							f({
 								kind: "int",
 								id: "age",
 								label: proseText("Age"),
-								case_property_on: "patient",
+								caseWrite: { caseType: "patient", property: "age" },
 							}),
 						],
 					},
@@ -366,7 +366,7 @@ function buildFixtureDoc(): BlueprintDoc {
 								kind: "int",
 								id: "age",
 								label: proseText("Age"),
-								case_property_on: "patient",
+								caseWrite: { caseType: "patient", property: "age" },
 							}),
 						],
 					},
@@ -392,7 +392,7 @@ function buildFixtureDoc(): BlueprintDoc {
 			{
 				name: "patient",
 				properties: [
-					{ name: "name", label: proseText("Name"), data_type: "text" },
+					{ name: "full_name", label: proseText("Name"), data_type: "text" },
 					{ name: "age", label: proseText("Age"), data_type: "int" },
 					// `status` is a CommCare standard property reserved
 					// at the scalar-column layer (`RESERVED_SCALAR_COLUMNS`);
@@ -507,6 +507,12 @@ beforeEach(async () => {
 	navigateMock.openForm.mockClear();
 
 	await runCaseStoreMigrations(dbHandle.db);
+	await sql`
+		INSERT INTO apps
+			(id, owner, project_id, app_name, app_name_lower)
+		VALUES
+			(${APP_ID}, ${OWNER_ID}, ${OWNER_ID}, 'Case list search', 'case list search')
+	`.execute(dbHandle.db);
 
 	// Bind a per-test store + sync the case-type schema so `insert`
 	// / `update` validators have a row in `case_type_schemas`. Every
@@ -628,7 +634,7 @@ describe("CaseListScreen with search inputs — real Postgres narrowing", () => 
 				case_type: "patient",
 				case_name: "Alice",
 				status: "open",
-				properties: { name: "Alice", age: 25 },
+				properties: { full_name: "Alice", age: 25 },
 			},
 		});
 		await store.insert({
@@ -637,7 +643,7 @@ describe("CaseListScreen with search inputs — real Postgres narrowing", () => 
 				case_type: "patient",
 				case_name: "Bob",
 				status: "open",
-				properties: { name: "Bob", age: 40 },
+				properties: { full_name: "Bob", age: 40 },
 			},
 		});
 		await store.insert({
@@ -646,7 +652,7 @@ describe("CaseListScreen with search inputs — real Postgres narrowing", () => 
 				case_type: "patient",
 				case_name: "Carol",
 				status: "closed",
-				properties: { name: "Carol", age: 30 },
+				properties: { full_name: "Carol", age: 30 },
 			},
 		});
 
@@ -821,7 +827,7 @@ describe("FormScreen followup submit — patch round-trip to case list", () => {
 				case_type: "patient",
 				case_name: "Alice",
 				status: "open",
-				properties: { name: "Alice", age: 40 },
+				properties: { full_name: "Alice", age: 40 },
 			},
 		});
 		const caseId = insertResult.caseId;
@@ -871,7 +877,7 @@ describe("FormScreen followup submit — patch round-trip to case list", () => {
 				caseType: "patient",
 				caseTypeSchemas: buildCaseTypeMap(doc),
 			});
-			expect(rows[0]?.properties).toEqual({ name: "Alice", age: 41 });
+			expect(rows[0]?.properties).toEqual({ full_name: "Alice", age: 41 });
 		});
 
 		formView.unmount();
@@ -936,7 +942,7 @@ describe("FormScreen close submit — closed_on stamps on the bound row", () => 
 				case_type: "patient",
 				case_name: "Alice",
 				status: "open",
-				properties: { name: "Alice", age: 25 },
+				properties: { full_name: "Alice", age: 25 },
 			},
 		});
 		const caseId = insertResult.caseId;

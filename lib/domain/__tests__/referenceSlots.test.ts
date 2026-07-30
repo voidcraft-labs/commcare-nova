@@ -455,7 +455,7 @@ describe("module slots — paths resolve with the promised shape", () => {
 		for (const [slotId, key] of expectations) {
 			const slot = moduleSlots.find((s) => s.slot === slotId);
 			expect(slot?.searchInputKinds).toBeDefined();
-			for (const arm of searchInputDefSchema.options as z.ZodObject[]) {
+			for (const arm of searchInputDefSchema.options as readonly z.ZodObject[]) {
 				const armKind = (arm.shape.kind as z.ZodLiteral)
 					.value as SearchInputDef["kind"];
 				expect(key in arm.shape).toBe(
@@ -562,7 +562,8 @@ describe("fieldReferenceSlotsFor", () => {
 			"relevant",
 			"calculate",
 			"default_value",
-			"case_property_on",
+			"case_write_case_type",
+			"case_write_property",
 		]);
 	});
 

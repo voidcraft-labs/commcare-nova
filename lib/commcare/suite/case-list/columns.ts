@@ -110,7 +110,6 @@ import {
 	type CaseProperty,
 	type Column,
 	printProseTemplate,
-	resolveCommCareDatePattern,
 	TIME_SINCE_UNIT_DAYS,
 	tileCellFor,
 } from "@/lib/domain";
@@ -205,7 +204,12 @@ function lookupTermContext(
 	return {
 		...(ctx.lookupNaming === undefined
 			? {}
-			: { lookup: { naming: ctx.lookupNaming } }),
+			: {
+					lookup: {
+						naming: ctx.lookupNaming,
+						instanceScope: "suite",
+					},
+				}),
 		...(ctx.userPropertySlugs === undefined
 			? {}
 			: { userPropertySlugs: ctx.userPropertySlugs }),
@@ -498,10 +502,7 @@ export function plainSelectDisplayXpath(
  * concat-fallback shape rather than producing broken XPath.
  */
 function dateDisplayXpath(field: string, pattern: string): string {
-	const quotedPattern = quoteLiteral(
-		resolveCommCareDatePattern(pattern),
-		"case-list-filter",
-	);
+	const quotedPattern = quoteLiteral(pattern, "case-list-filter");
 	return `if(${field} = '', '', format-date(date(${field}), ${quotedPattern}))`;
 }
 

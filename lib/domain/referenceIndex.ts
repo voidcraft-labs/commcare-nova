@@ -28,7 +28,7 @@
 //     and module config's contextual property slots all land here. A property
 //     rename re-keys exactly these edges.
 //   - `t:<caseType>` — a reference that NAMES a case type: a field's
-//     `case_property_on`, a module's own `caseType` (slot id
+//     `caseWrite.caseType`, a module's own `caseType` (slot id
 //     `case_type` — consumers that treat ownership separately filter on the
 //     slot), a typed `case-ref` atom's namespace, a predicate-AST term's origin
 //     type, and relation-walk type hints. Contextual module property slots do
@@ -56,7 +56,7 @@ export interface ReferenceCarrierEntry {
 	/** targetKey → slot ids on this carrier referencing it. */
 	edges: Record<string, Record<string, true>>;
 	/** Fields only: the `<caseType>/<property>` pair this field
-	 *  declares via `case_property_on` + id, mirrored into `decl`. */
+	 *  declares via its explicit `caseWrite` destination, mirrored into `decl`. */
 	decl?: string;
 	/** Form case operations may write several `(caseType, property)`
 	 *  pairs. Each pair is mirrored into `decl`, with the form as the

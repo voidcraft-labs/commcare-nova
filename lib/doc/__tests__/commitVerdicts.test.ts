@@ -5,22 +5,22 @@ import { proseText } from "@/lib/domain/prose";
  * `mutationCommitVerdict` — the shared pre-dispatch gate every commit
  * surface (SA/MCP tool layer, builder dispatch hook) consults. These
  * tests pin the wiring, not the gate semantics themselves —
- * introduced-error diffing and identity stability are
- * `evaluateCommit`'s contract, proven in
+ * whole-candidate validation is `evaluateCommit`'s contract, proven in
  * `lib/commcare/validator/__tests__/gate.test.ts`. What must hold HERE:
  * the candidate doc comes from the same reducer a committed batch runs
- * through, the scope comes from `scopeOfMutations`, rejection carries
- * the introduced findings, and the prose renderer frames them
- * person-to-person.
+ * through, every candidate (including an empty batch) passes the absolute
+ * gate, rejection carries every gating finding, and the prose renderer
+ * frames them person-to-person.
  */
 
 import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
 import { validationError } from "@/lib/commcare/validator/errors";
 import {
-	describeIntroducedErrors,
+	describeCommitFindings,
 	mutationCommitVerdict,
 } from "@/lib/doc/commitVerdicts";
+import { parseXPathForField } from "@/lib/doc/expressionText";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
 
@@ -44,13 +44,16 @@ function minDoc(): BlueprintDoc {
 								kind: "text",
 								id: "case_name",
 								label: proseText("Name"),
-								case_property_on: "patient",
+								caseWrite: {
+									caseType: "patient",
+									property: "case_name",
+								},
 							}),
 							f({
 								kind: "text",
 								id: "village",
 								label: proseText("Village"),
-								case_property_on: "patient",
+								caseWrite: { caseType: "patient", property: "village" },
 							}),
 						],
 					},
@@ -102,6 +105,37 @@ describe("mutationCommitVerdict", () => {
 		);
 	});
 
+	it("rejects raw #case text parsed by the builder before it reaches storage", () => {
+		const doc = minDoc();
+		const target = Object.values(doc.fields).find(
+			(field) => field.id === "village",
+		);
+		if (!target) throw new Error("fixture must have a village field");
+		const parsed = parseXPathForField(doc, target.uuid, "#case/age > 0");
+		expect(parsed.parts).toEqual([{ kind: "text", text: "#case/age > 0" }]);
+
+		const verdict = mutationCommitVerdict(
+			doc,
+			[
+				{
+					kind: "updateField",
+					uuid: target.uuid,
+					targetKind: "text",
+					patch: { relevant: parsed },
+				},
+			],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(verdict.ok).toBe(false);
+		if (!verdict.ok) {
+			expect(verdict.findings.length).toBeGreaterThan(0);
+			expect(describeCommitFindings(verdict.findings)).toMatch(
+				/XPath|expression|reference/i,
+			);
+		}
+		expect(doc.fields[target.uuid].relevant).toBeUndefined();
+	});
+
 	it("rejects removing the final Results field but allows empty Details", () => {
 		const doc = minDoc();
 		const moduleUuid = doc.moduleOrder[0];
@@ -122,7 +156,7 @@ describe("mutationCommitVerdict", () => {
 		);
 		expect(noResults.ok).toBe(false);
 		if (!noResults.ok) {
-			expect(noResults.introduced.map((finding) => finding.code)).toContain(
+			expect(noResults.findings.map((finding) => finding.code)).toContain(
 				"MISSING_CASE_LIST_COLUMNS",
 			);
 		}
@@ -142,7 +176,7 @@ describe("mutationCommitVerdict", () => {
 		expect(noDetails.ok).toBe(true);
 	});
 
-	it("rejects a soundness introduction, with the finding attached", () => {
+	it("rejects a soundness finding, with the finding attached", () => {
 		const doc = minDoc();
 		const target = Object.values(doc.fields).find((fl) => fl.id === "village");
 		const mutations: Mutation[] = [
@@ -153,7 +187,7 @@ describe("mutationCommitVerdict", () => {
 				// An unparseable XPath — XPATH_SYNTAX, soundness class.
 				// (`relevant`, not `calculate`: text fields carry no
 				// `calculate` slot, so that patch key would be dropped by the
-				// reducer's schema parse and nothing would be introduced.)
+				// reducer's schema parse and the candidate would stay valid.)
 				patch: { relevant: xp("if(") },
 			} as Mutation,
 		];
@@ -165,14 +199,14 @@ describe("mutationCommitVerdict", () => {
 		);
 		expect(verdict.ok).toBe(false);
 		if (!verdict.ok) {
-			expect(verdict.introduced.length).toBeGreaterThan(0);
-			expect(
-				verdict.introduced.every((e) => typeof e.message === "string"),
-			).toBe(true);
+			expect(verdict.findings.length).toBeGreaterThan(0);
+			expect(verdict.findings.every((e) => typeof e.message === "string")).toBe(
+				true,
+			);
 		}
 	});
 
-	it("rejects a completeness introduction — an entity lands with what makes it complete", () => {
+	it("rejects a completeness finding — an entity lands with what makes it complete", () => {
 		const doc = minDoc();
 		const mutations: Mutation[] = [
 			{
@@ -194,16 +228,65 @@ describe("mutationCommitVerdict", () => {
 		);
 		expect(verdict.ok).toBe(false);
 		if (!verdict.ok) {
-			expect(verdict.introduced.map((e) => e.code)).toContain("EMPTY_FORM");
+			expect(verdict.findings.map((e) => e.code)).toContain("EMPTY_FORM");
 		}
 	});
 
-	it("tolerates a pre-existing error when the edit doesn't introduce a new one (legacy safety)", () => {
-		// A doc that ALREADY carries an empty form (e.g. persisted before the
-		// gates existed). Renaming the other form is a strict non-worsening
-		// edit — it must pass.
+	it("rejects a missing reducer target before candidate reduction", () => {
+		const doc = minDoc();
+		const verdict = mutationCommitVerdict(
+			doc,
+			[
+				{
+					kind: "updateField",
+					uuid: testUuid("missing-field"),
+					targetKind: "text",
+					patch: { label: proseText("Never applied") },
+				},
+			],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(verdict.ok).toBe(false);
+		if (!verdict.ok) {
+			expect(verdict.nextDoc).toBe(doc);
+			expect(verdict.findings.map((finding) => finding.code)).toEqual([
+				"MUTATION_TARGET_INVALID",
+			]);
+		}
+	});
+
+	it("rejects a wrong-kind reducer target before candidate reduction", () => {
+		const doc = minDoc();
+		const target = Object.values(doc.fields).find(
+			(field) => field.id === "village",
+		);
+		if (target === undefined) throw new Error("fixture must have village");
+		const verdict = mutationCommitVerdict(
+			doc,
+			[
+				{
+					kind: "updateField",
+					uuid: target.uuid,
+					targetKind: "date",
+					patch: { label: proseText("Never applied") },
+				},
+			],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(verdict.ok).toBe(false);
+		if (!verdict.ok) {
+			expect(verdict.nextDoc).toBe(doc);
+			expect(verdict.findings.map((finding) => finding.code)).toEqual([
+				"MUTATION_TARGET_INVALID",
+			]);
+		}
+	});
+
+	it("rejects an already-invalid candidate even when the mutation is unrelated", () => {
+		// The gate owns the complete resulting document. It has no prior-state
+		// exception, so an unrelated edit cannot carry an invalid form forward.
 		const broken = buildDoc({
-			appName: "Test legacy",
+			appName: "Test broken",
 			modules: [
 				{
 					name: "Mod",
@@ -220,11 +303,14 @@ describe("mutationCommitVerdict", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Name"),
-									case_property_on: "patient",
+									caseWrite: {
+										caseType: "patient",
+										property: "case_name",
+									},
 								}),
 							],
 						},
-						// The pre-existing breakage: an empty survey form.
+						// The starting document is invalid: this survey form is empty.
 						{ name: "Old empty", type: "survey", fields: [] },
 					],
 				},
@@ -242,21 +328,44 @@ describe("mutationCommitVerdict", () => {
 			[{ kind: "renameForm", uuid: formUuid(broken), newId: "form_two" }],
 			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
-		expect(verdict.ok).toBe(true);
+		expect(verdict.ok).toBe(false);
+		if (!verdict.ok) {
+			expect(verdict.findings.map((finding) => finding.code)).toContain(
+				"EMPTY_FORM",
+			);
+		}
 	});
 
-	it("passes an empty batch through without validating", () => {
+	it("validates an empty batch and preserves a valid document by reference", () => {
 		const doc = minDoc();
 		const verdict = mutationCommitVerdict(doc, [], LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(verdict).toMatchObject({ ok: true, nextDoc: doc, results: [] });
 		if (!verdict.ok) throw new Error("empty batch rejected");
 		expect(verdict.mutations).toEqual([]);
-		// Reference equality — no candidate apply ran.
 		expect(verdict.nextDoc).toBe(doc);
 	});
 
+	it("rejects an empty batch over an invalid document", () => {
+		const broken = buildDoc({
+			appName: "Invalid",
+			modules: [],
+			caseTypes: [],
+		});
+		const verdict = mutationCommitVerdict(
+			broken,
+			[],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(verdict.ok).toBe(false);
+		if (!verdict.ok) {
+			expect(verdict.findings.map((finding) => finding.code)).toContain(
+				"NO_MODULES",
+			);
+		}
+	});
+
 	it("frames the findings person-to-person, one line each, nothing-was-changed", () => {
-		const message = describeIntroducedErrors([
+		const message = describeCommitFindings([
 			validationError("EMPTY_FORM", "form", '"Visit" has no fields.', {}),
 			validationError(
 				"NO_CASE_TYPE",
@@ -276,10 +385,10 @@ describe("mutationCommitVerdict", () => {
 	});
 
 	it("uses singular phrasing for one finding", () => {
-		const message = describeIntroducedErrors([
+		const message = describeCommitFindings([
 			validationError("EMPTY_FORM", "form", '"Visit" has no fields.', {}),
 		]);
-		expect(message).toContain("a new problem");
+		expect(message).toContain("a problem");
 		expect(message).toContain("this problem");
 	});
 });
@@ -308,13 +417,19 @@ describe("stored-reference bounce prose", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Name"),
-									case_property_on: "patient",
+									caseWrite: {
+										caseType: "patient",
+										property: "case_name",
+									},
 								}),
 								f({
 									kind: "text",
 									id: "village",
 									label: proseText("Village"),
-									case_property_on: "patient",
+									caseWrite: {
+										caseType: "patient",
+										property: "village",
+									},
 								}),
 								f({
 									kind: "hidden",
@@ -348,7 +463,7 @@ describe("stored-reference bounce prose", () => {
 		);
 		expect(verdict.ok).toBe(false);
 		if (verdict.ok) return;
-		const message = describeIntroducedErrors(verdict.introduced);
+		const message = describeCommitFindings(verdict.findings);
 		expect(message).toContain('Field "total"');
 		expect(message).toContain("calculated value");
 		expect(message).toContain("no longer exists");

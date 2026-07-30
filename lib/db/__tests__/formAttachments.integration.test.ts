@@ -35,11 +35,11 @@ const ACTOR = "capture-shared-editor";
 
 describe("form submission authorization snapshot", () => {
 	it("returns one committed app snapshot only after fresh edit authorization", async () => {
-		const doc = buildDoc({ appName: "Authorized submission snapshot" });
-		const appId = await h.seedAppWithBlueprint(doc, {
+		const appId = await h.seedApp({
 			id: "capture-authorized-snapshot-app",
 			owner: "capture-authorized-snapshot-owner",
-			projectId: PROJECT,
+			project_id: PROJECT,
+			app_name: "Authorized submission snapshot",
 		});
 		await h.seedProjectMember(ACTOR, PROJECT, "editor");
 

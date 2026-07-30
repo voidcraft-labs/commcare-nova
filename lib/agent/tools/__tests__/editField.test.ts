@@ -27,12 +27,18 @@ vi.mock("@/lib/db/apps", () => ({
 	completeApp: vi.fn(() => Promise.resolve()),
 }));
 vi.mock("@/lib/db/applyBlueprintChange", () => ({
-	applyBlueprintChange: vi.fn(() => Promise.resolve({ seq: 0 })),
+	applyBlueprintChange: vi.fn(async (args) => {
+		const { commitApplyBlueprintChangeTestBatch } = await import(
+			"@/lib/db/__tests__/applyBlueprintChangeTestWriter"
+		);
+		return commitApplyBlueprintChangeTestBatch(args);
+	}),
 }));
 
 const MOD = testUuid("11111111-1111-1111-1111-111111111111");
 const FORM = testUuid("22222222-2222-2222-2222-222222222222");
 const FIELD = testUuid("33333333-3333-3333-3333-333333333333");
+const COLUMN = testUuid("44444444-4444-4444-8444-444444444444");
 
 /** Minimal doc with one input (`text`) field that supports `help`. */
 function makeDoc(help?: string): BlueprintDoc {
@@ -41,7 +47,7 @@ function makeDoc(help?: string): BlueprintDoc {
 		uuid: FORM,
 		id: "enroll",
 		name: "Enroll",
-		type: "registration",
+		type: "survey",
 	};
 	const field: Field = {
 		uuid: FIELD,
@@ -223,24 +229,37 @@ describe("editField — rename identifier guard", () => {
 		expect(recordSpy).toHaveBeenCalledTimes(1);
 	});
 
-	it("emits id and case_property_on together in one post-declaration updateField patch", async () => {
+	it("emits independent id and caseWrite changes together in one post-declaration updateField patch", async () => {
 		const { ctx } = makeStubToolContext();
 		const doc = makeDoc();
 		doc.modules[MOD] = {
 			...doc.modules[MOD],
 			caseType: "household",
+			caseListConfig: {
+				columns: [
+					{
+						uuid: COLUMN,
+						kind: "plain",
+						field: "case_name",
+						header: "Name",
+					},
+				],
+				listColumnOrder: [COLUMN],
+				detailColumnOrder: [COLUMN],
+				searchInputs: [],
+			},
 		};
 		doc.forms[FORM] = {
 			...doc.forms[FORM],
-			type: "survey",
+			type: "followup",
 		};
 		const result = await editFieldTool.execute(
 			{
 				...ADDRESS,
 				updates: {
 					kind: "text",
-					id: "case_name",
-					case_property_on: "household",
+					id: "household_name",
+					caseWrite: { caseType: "household", property: "case_name" },
 				},
 			},
 			ctx,
@@ -255,8 +274,8 @@ describe("editField — rename identifier guard", () => {
 				uuid: FIELD,
 				targetKind: "text",
 				patch: {
-					id: "case_name",
-					case_property_on: "household",
+					id: "household_name",
+					caseWrite: { caseType: "household", property: "case_name" },
 				},
 			},
 		]);
@@ -265,13 +284,14 @@ describe("editField — rename identifier guard", () => {
 				(mutation) =>
 					mutation.kind === "updateField" &&
 					Object.hasOwn(mutation.patch, "id") &&
-					Object.hasOwn(mutation.patch, "case_property_on"),
+					Object.hasOwn(mutation.patch, "caseWrite"),
 			),
 		).toBe(true);
 	});
 
 	it("rejects the same conflicting rename through an McpContext (same guard, both surfaces)", async () => {
-		const { ctx } = makeMcpTestContext();
+		const doc = makeTwoFieldDoc();
+		const { ctx } = makeMcpTestContext({ initialDoc: doc });
 		const recordSpy = vi.spyOn(ctx, "recordMutationStages");
 		const result = await editFieldTool.execute(
 			{
@@ -279,7 +299,7 @@ describe("editField — rename identifier guard", () => {
 				updates: { kind: "text", id: "age" },
 			},
 			ctx,
-			makeTwoFieldDoc(),
+			doc,
 		);
 
 		expect((result.result as { error: string }).error).toContain('"age"');
@@ -321,7 +341,7 @@ describe("editField — wholesale option-source replacement keeps identity", () 
 	it("carries surviving values' uuids forward and identifies every option", async () => {
 		const { ctx } = makeStubToolContext();
 		// The SA replaces the whole list and explicitly preserves the UUID of
-		// "yes"; "no" is dropped and uuid-less "maybe" is new.
+		// "yes"; "no" is dropped and "maybe" receives a new UUID before commit.
 		const result = await editFieldTool.execute(
 			{
 				moduleUuid: MOD,
@@ -354,8 +374,7 @@ describe("editField — wholesale option-source replacement keeps identity", () 
 					options: Array<{
 						label: ReturnType<typeof proseText>;
 						value: string;
-						uuid?: string;
-						order?: string;
+						uuid: string;
 					}>;
 				};
 			}
@@ -374,5 +393,45 @@ describe("editField — wholesale option-source replacement keeps identity", () 
 		for (const opt of options) {
 			expect(opt.uuid).toBeDefined();
 		}
+		if (!("options" in result.result) || result.result.options === undefined) {
+			throw new Error("expected inline-option identity receipt");
+		}
+		expect(result.result.options).toEqual(
+			options.map((option) => ({
+				uuid: option.uuid,
+				value: option.value,
+			})),
+		);
+	});
+
+	it("rejects an option UUID owned by another authored object before commit", async () => {
+		const { ctx, recordMutationStages } = makeStubToolContext();
+		const result = await editFieldTool.execute(
+			{
+				moduleUuid: MOD,
+				formUuid: FORM,
+				fieldUuid: SEL,
+				updates: {
+					kind: "single_select",
+					optionsSource: {
+						kind: "inline",
+						options: [
+							{
+								optionUuid: FIELD,
+								label: proseText("Captured"),
+								value: "captured",
+							},
+							{ label: proseText("Safe"), value: "safe" },
+						],
+					},
+				},
+			},
+			ctx,
+			makeSelectDoc(),
+		);
+
+		expect("error" in result.result && result.result.error).toContain(FIELD);
+		expect(result.mutations).toEqual([]);
+		expect(recordMutationStages).not.toHaveBeenCalled();
 	});
 });

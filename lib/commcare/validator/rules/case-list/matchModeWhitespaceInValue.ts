@@ -45,7 +45,12 @@
  * Short-circuits cleanly when the module has no in-scope slots.
  */
 
-import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	isOwnerOnlyCaseSearchConfig,
+	type Module,
+	type Uuid,
+} from "@/lib/domain";
 import type { Predicate } from "@/lib/domain/predicate";
 import { type ValidationError, validationError } from "../../errors";
 
@@ -95,7 +100,11 @@ export function matchModeWhitespaceInValue(
 		}
 	}
 
-	const buttonCondition = mod.caseSearchConfig?.searchButtonDisplayCondition;
+	const buttonCondition =
+		mod.caseSearchConfig === undefined ||
+		isOwnerOnlyCaseSearchConfig(mod.caseSearchConfig)
+			? undefined
+			: mod.caseSearchConfig.searchButtonDisplayCondition;
 	if (buttonCondition !== undefined) {
 		for (const match of collectMatches(buttonCondition)) {
 			errors.push(
@@ -250,7 +259,6 @@ function walkPredicateNodes(
 		case "lte":
 		case "in":
 		case "within-distance":
-		case "is-null":
 		case "is-blank":
 		case "between":
 			return;

@@ -140,26 +140,16 @@ describe("LocationRecoveryEffect", () => {
 		expect(replaceStateSpy).not.toHaveBeenCalled();
 	});
 
-	it.each([
-		["cases", "results"],
-		["search-config", "search"],
-		["detail-config", "details"],
-	] as const)(
-		"canonicalizes the legacy /%s authoring alias to /%s",
-		async (legacySegment, canonicalSegment) => {
+	it.each(["cases", "search-config", "detail-config"] as const)(
+		"does not parse or redirect the retired /%s authoring token",
+		(retiredSegment) => {
 			const store = makeStore();
 			const moduleUuid = store.getState().moduleOrder[0];
-			mockSegments.current = [moduleUuid, legacySegment];
+			mockSegments.current = [moduleUuid, retiredSegment];
 
 			renderEffect(store);
 
-			await waitFor(() => {
-				expect(replaceStateSpy).toHaveBeenCalledWith(
-					null,
-					"",
-					`${pathname}/${moduleUuid}/${canonicalSegment}`,
-				);
-			});
+			expect(replaceStateSpy).not.toHaveBeenCalled();
 		},
 	);
 

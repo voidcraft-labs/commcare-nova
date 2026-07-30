@@ -1,6 +1,6 @@
 /** Authoritative attach/delete serialization for Project-scoped media. */
 
-import type { Transaction } from "kysely";
+import { sql, type Transaction } from "kysely";
 import { jsonArrayFrom } from "kysely/helpers/postgres";
 import { type AppCapability, roleAllowsApp } from "@/lib/auth/projectRoles";
 import { collectThreadAttachmentAssetIds } from "@/lib/chat/threadAttachments";
@@ -9,10 +9,13 @@ import type { MediaAssetId } from "@/lib/domain";
 import {
 	asWalkableDoc,
 	describeCarrier,
-	walkAssetRefs,
+	walkAuthoredAssetRefs,
 } from "@/lib/domain/mediaRefs";
-import { assembleBlueprint, type EntityRow } from "./blueprintRows";
 import { type MediaAssetRecord, mediaAssetRecordFromRow } from "./mediaAssets";
+import {
+	assemblePersistedBlueprintJsonText,
+	type PersistedEntityRowText,
+} from "./persistedJson";
 import { type AppDatabase, withAppTx } from "./pg";
 import { projectRoleForInTransaction } from "./projectMembership";
 
@@ -88,7 +91,11 @@ export async function deleteMediaAssetMetadataInTransaction(
 	});
 	if (references.length > 0) return { kind: "referenced", references };
 
-	await tx.deleteFrom("media_assets").where("id", "=", args.assetId).execute();
+	await tx
+		.deleteFrom("media_assets")
+		.where("id", "=", args.assetId)
+		.where("project_id", "=", snapshot.project_id)
+		.execute();
 	return { kind: "deleted", asset: mediaAssetRecordFromRow(row) };
 }
 
@@ -96,39 +103,27 @@ async function persistedAppReferencesInTransaction(
 	tx: Transaction<AppDatabase>,
 	args: { assetId: MediaAssetId; projectId: string },
 ): Promise<string[]> {
-	const state = await tx
-		.selectFrom("media_reference_index_state")
-		.select("audited_complete_at")
-		.where("singleton", "=", true)
-		.executeTakeFirst();
-	let candidateIds: string[] | undefined;
-	if (state?.audited_complete_at !== null && state !== undefined) {
-		candidateIds = (
-			await tx
-				.selectFrom("media_asset_refs")
-				.select("app_id")
-				.where("asset_id", "=", args.assetId)
-				.execute()
-		).map((entry) => entry.app_id);
-		if (candidateIds.length === 0) return [];
-	}
-
-	// The app root, normalized entities, and thread transcripts MUST come from
-	// one statement snapshot. A READ COMMITTED transaction takes a fresh snapshot
-	// per statement: reading roots first and entities later could otherwise miss
-	// an asset that one atomic writer moved from an entity slot to `apps.logo`
-	// between those reads. We deliberately cannot lock apps after the asset lock,
-	// so correlated JSON subqueries make the complete persisted-carrier projection
-	// coherent without reversing the global lock order.
-	let appQuery = tx
-		.selectFrom("apps as app")
-		.select([
-			"app.id",
-			"app.app_name",
-			"app.connect_type",
-			"app.case_types",
-			"app.logo",
-		])
+	// Exact edges, the app root, normalized entities, and thread transcripts MUST
+	// come from one statement snapshot. A READ COMMITTED transaction takes a
+	// fresh snapshot per statement: reading candidate edges first would otherwise
+	// let a concurrent writer remove its edge and carrier before the carrier
+	// statement, producing a false projection-invariant failure. We deliberately
+	// cannot lock apps after the asset lock, so one edge-rooted query with
+	// correlated JSON subqueries makes the complete projection coherent without
+	// reversing the global lock order.
+	const appQuery = tx
+		.selectFrom("media_asset_refs as edge")
+		.innerJoin("apps as app", (join) =>
+			join
+				.onRef("app.id", "=", "edge.app_id")
+				.onRef("app.project_id", "=", "edge.project_id"),
+		)
+		.select(["app.id", "app.app_name", "app.connect_type", "app.logo"])
+		.select(
+			sql<string | null>`${sql.ref("app.case_types")}::text`.as(
+				"case_types_text",
+			),
+		)
 		.select((eb) => [
 			jsonArrayFrom(
 				eb
@@ -138,8 +133,8 @@ async function persistedAppReferencesInTransaction(
 						"entity.kind",
 						"entity.parent_uuid",
 						"entity.ordinal",
-						"entity.data",
 					])
+					.select(sql<string>`${sql.ref("entity.data")}::text`.as("data_text"))
 					.whereRef("entity.app_id", "=", "app.id")
 					.orderBy("entity.uuid"),
 			).as("entities"),
@@ -151,18 +146,16 @@ async function persistedAppReferencesInTransaction(
 					.orderBy("thread.thread_id"),
 			).as("threads"),
 		])
-		.where("app.project_id", "=", args.projectId);
-	if (candidateIds !== undefined) {
-		appQuery = appQuery.where("app.id", "in", [...new Set(candidateIds)]);
-	}
+		.where("edge.project_id", "=", args.projectId)
+		.where("edge.asset_id", "=", args.assetId);
 	const apps = await appQuery.orderBy("app.id").execute();
 	if (apps.length === 0) return [];
 	const threadReferenceCountByApp = new Map<string, number>();
 	for (const app of apps) {
 		for (const thread of app.threads) {
-			const count = collectThreadAttachmentAssetIds(
-				Array.isArray(thread.messages) ? thread.messages : [],
-			).filter((assetId) => assetId === args.assetId).length;
+			const count = collectThreadAttachmentAssetIds(thread.messages).filter(
+				(assetId) => assetId === args.assetId,
+			).length;
 			if (count > 0) {
 				threadReferenceCountByApp.set(
 					app.id,
@@ -174,20 +167,20 @@ async function persistedAppReferencesInTransaction(
 
 	const descriptions: string[] = [];
 	for (const app of apps) {
-		const persisted = assembleBlueprint(
+		const persisted = assemblePersistedBlueprintJsonText(
 			app.id,
 			{
 				app_name: app.app_name,
 				connect_type: app.connect_type,
-				case_types: app.case_types,
+				case_types_text: app.case_types_text,
 				logo: app.logo,
 			},
-			app.entities as EntityRow[],
+			app.entities as PersistedEntityRowText[],
 		);
 		const doc = hydratePersistedBlueprint(persisted);
 		const carriers = [
 			...new Set(
-				[...walkAssetRefs(asWalkableDoc(doc))]
+				[...walkAuthoredAssetRefs(asWalkableDoc(doc))]
 					.filter((ref) => ref.assetId === args.assetId)
 					.map(describeCarrier),
 			),
@@ -206,6 +199,11 @@ async function persistedAppReferencesInTransaction(
 		) {
 			descriptions.push(
 				`"${app.app_name}" (${app.id}) on ${carriers.join("; ")}`,
+			);
+		}
+		if (carriers.length === 0) {
+			throw new Error(
+				`media_asset_refs is not an exact projection for app ${app.id} and asset ${args.assetId}`,
 			);
 		}
 	}

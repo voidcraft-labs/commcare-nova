@@ -7,9 +7,9 @@
  * stays faithful, and with the originals gone nothing else can prove that — so
  * the behaviours it must keep are written down here.
  *
- * `scripts/verify-sequences.ts` is the fleet-scale companion: it runs the same
- * before/after comparison over every stored row, and these cases are what pin
- * the individual behaviours that comparison depends on.
+ * Fleet verification belongs to timestamped migration authority; these cases
+ * pin the individual behaviours that frozen comparison depends on without a
+ * mutable non-timestamped clone of old persisted bytes.
  */
 
 import { describe, expect, it } from "vitest";

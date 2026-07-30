@@ -35,8 +35,8 @@ export function SelectMultiField({
 	onChange,
 	onBlur,
 }: SelectMultiFieldProps) {
-	// Static options render in DISPLAY order (`sort-by-(order, uuid)`,
-	// matching the wire `<item>` order), never `options` array position; a
+	// Static options render in their authored array sequence, matching the wire
+	// `<item>` order; a
 	// lookup-backed select reads the ENGINE's live filtered choices — see
 	// the single-select twin for the loading contract.
 	const lookupBacked = field.optionsSource.kind === "lookup";

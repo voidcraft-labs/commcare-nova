@@ -43,6 +43,7 @@ import * as blueprintUserEntities from "./20260725120000_blueprint_user_entities
 import * as formAttachments from "./20260726000000_form_attachments";
 import * as sequenceIsArrayPosition from "./20260727120000_sequence_is_array_position";
 import * as canonicalIdentityFoundation from "./20260728000000_canonical_identity_foundation";
+import * as caseSchemaIndexConvergence from "./20260728010000_case_schema_index_convergence";
 
 export const CANONICAL_IDENTITY_FOUNDATION_MIGRATION_NAME =
 	"20260728000000_canonical_identity_foundation";
@@ -80,6 +81,7 @@ export const caseStoreMigrations: Record<string, Migration> = {
 	"20260726000000_form_attachments": formAttachments,
 	"20260727120000_sequence_is_array_position": sequenceIsArrayPosition,
 	[CANONICAL_IDENTITY_FOUNDATION_MIGRATION_NAME]: canonicalIdentityFoundation,
+	"20260728010000_case_schema_index_convergence": caseSchemaIndexConvergence,
 };
 
 export const caseStoreMigrationProvider: MigrationProvider = {

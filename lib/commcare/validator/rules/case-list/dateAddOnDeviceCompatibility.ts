@@ -63,7 +63,6 @@ export function dateAddOnDeviceCompatibility(
 	const ctx = moduleTypeContext(mod, doc, lookupTables);
 
 	return collectModuleWireSlotFindings(mod, moduleUuid, {
-		calculatedColumns: "runtime",
 		judgePredicate(predicate, slot) {
 			const offender = firstIncompatibleDateAddInPredicate(predicate, ctx);
 			return offender === undefined ? undefined : buildError(slot, offender);

@@ -86,7 +86,7 @@ const INPUTS_ONLY_CONFIG: CaseListConfig = resolveCaseListConfig({
 			"name",
 			"Name",
 			"text",
-			"name",
+			"case_name",
 		),
 	],
 });
@@ -103,7 +103,7 @@ const FILTER_AND_INPUTS_CONFIG: CaseListConfig = resolveCaseListConfig({
 			"name",
 			"Name",
 			"text",
-			"name",
+			"case_name",
 		),
 	],
 });

@@ -26,7 +26,6 @@ import {
 	term,
 	today,
 } from "@/lib/domain/predicate";
-import { errorIdentity } from "../../../gate";
 import { runValidation } from "../../../runner";
 
 const CODE = "CASE_LIST_DATE_ADD_NOT_ON_DEVICE" as const;
@@ -39,7 +38,7 @@ const standardForm = {
 			kind: "text" as const,
 			id: "case_name",
 			label: "Name",
-			case_property_on: "patient",
+			caseWrite: { caseType: "patient", property: "case_name" },
 		}),
 	],
 };
@@ -69,6 +68,10 @@ function errorsFor(
 	caseListPatch: Partial<NonNullable<Module["caseListConfig"]>> = {},
 	caseSearchConfig?: Module["caseSearchConfig"],
 ) {
+	const columns = caseListPatch.columns ?? [
+		plainColumn(testUuid("column-name"), "case_name", "Name"),
+	];
+	const columnOrder = columns.map((column) => column.uuid);
 	const doc = buildDoc({
 		appName: "T",
 		modules: [
@@ -76,11 +79,11 @@ function errorsFor(
 				name: "Clients",
 				caseType: "patient",
 				caseListConfig: {
-					columns: [plainColumn(testUuid("column-name"), "case_name", "Name")],
-					listColumnOrder: [testUuid("column-name")],
-					detailColumnOrder: [testUuid("column-name")],
 					searchInputs: [],
 					...caseListPatch,
+					columns,
+					listColumnOrder: columnOrder,
+					detailColumnOrder: columnOrder,
 				},
 				...(caseSearchConfig !== undefined ? { caseSearchConfig } : {}),
 				forms: [standardForm],
@@ -172,7 +175,7 @@ describe("dateAddOnDeviceCompatibility", () => {
 		expect(hits[0].details?.surface).toBe("filter");
 	});
 
-	it("checks runtime calculated columns, including a hidden sort key", () => {
+	it("checks every saved calculated column, including a hidden sort key", () => {
 		const columnUuid = testUuid("column-derived");
 		const hits = errorsFor({
 			columns: [
@@ -200,7 +203,7 @@ describe("dateAddOnDeviceCompatibility", () => {
 		);
 	});
 
-	it("ignores a fully off-screen unsorted calculated definition", () => {
+	it("checks a fully off-screen unsorted calculated definition", () => {
 		const hits = errorsFor({
 			columns: [
 				plainColumn(testUuid("column-name"), "case_name", "Name"),
@@ -212,7 +215,12 @@ describe("dateAddOnDeviceCompatibility", () => {
 				),
 			],
 		});
-		expect(hits).toEqual([]);
+		expect(hits).toHaveLength(1);
+		expect(hits[0].details).toMatchObject({
+			columnLabel: "Retired",
+			columnUuid: testUuid("column-retired"),
+			surface: "calculated-column",
+		});
 	});
 
 	it("checks both simple and advanced search-input defaults", () => {
@@ -250,15 +258,6 @@ describe("dateAddOnDeviceCompatibility", () => {
 		expect(userFacingError(hits[1])).toContain(
 			'The default for search field "Other date"',
 		);
-
-		const moved = {
-			...hits[1],
-			details: {
-				...hits[1].details,
-				slot: "caseListConfig.searchInputs[99].default",
-			},
-		};
-		expect(errorIdentity(moved)).toBe(errorIdentity(hits[1]));
 	});
 
 	it("checks the assigned-cases expression and search-button condition", () => {

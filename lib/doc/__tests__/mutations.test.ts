@@ -348,7 +348,7 @@ describe("mutationSchema round-trip", () => {
 			expectRoundTrip({
 				kind: "addCaseProperty",
 				caseType: "patient",
-				property: { name: "name", label: proseText("Name") },
+				property: { name: "full_name", label: proseText("Name") },
 			});
 		});
 	});
@@ -597,8 +597,99 @@ describe("mutationSchema round-trip", () => {
 		});
 	});
 
-	describe("Search-input rename", () => {
+	describe("Search-input final shape", () => {
 		const inputUuid = testUuid("77777777-7777-4777-8777-777777777777");
+		const otherInputUuid = testUuid("88888888-8888-4888-8888-888888888888");
+
+		it("round-trips add, remove, and move envelopes", () => {
+			expectRoundTrip({
+				kind: "addSearchInput",
+				moduleUuid,
+				searchInput: {
+					uuid: inputUuid,
+					kind: "simple",
+					name: "name",
+					label: "Name",
+					type: "text",
+					property: "case_name",
+				},
+			});
+			expectRoundTrip({
+				kind: "removeSearchInput",
+				moduleUuid,
+				uuid: inputUuid,
+			});
+			expectRoundTrip({
+				kind: "moveSearchInput",
+				moduleUuid,
+				uuid: inputUuid,
+				after: otherInputUuid,
+			});
+		});
+
+		it("round-trips every UUID-omitted update arm", () => {
+			const bodies: Extract<
+				Mutation,
+				{ kind: "updateSearchInput" }
+			>["searchInput"][] = [
+				{
+					kind: "simple",
+					name: "name",
+					label: "Name",
+					type: "text",
+					property: "case_name",
+				},
+				{
+					kind: "simple",
+					name: "opened",
+					label: "Opened",
+					type: "date-range",
+					property: "date_opened",
+					mode: { kind: "range" },
+				},
+				{
+					kind: "advanced",
+					name: "active",
+					label: "Active",
+					type: "text",
+					predicate: { kind: "match-all" },
+				},
+				{
+					kind: "advanced",
+					name: "window",
+					label: "Window",
+					type: "date-range",
+					predicate: { kind: "match-all" },
+				},
+			];
+			for (const searchInput of bodies) {
+				expectRoundTrip({
+					kind: "updateSearchInput",
+					moduleUuid,
+					uuid: inputUuid,
+					searchInput,
+				});
+			}
+		});
+
+		it("keeps the scalar/date-range split exact", () => {
+			expect(
+				mutationSchema.safeParse({
+					kind: "updateSearchInput",
+					moduleUuid,
+					uuid: inputUuid,
+					searchInput: {
+						kind: "simple",
+						name: "opened",
+						label: "Opened",
+						type: "date-range",
+						property: "date_opened",
+						mode: { kind: "range" },
+						default: { kind: "today" },
+					},
+				}).success,
+			).toBe(false);
+		});
 
 		it("carries the desired name in the final content row", () => {
 			expectRoundTrip({

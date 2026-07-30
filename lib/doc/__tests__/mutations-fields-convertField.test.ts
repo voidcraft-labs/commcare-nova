@@ -203,14 +203,14 @@ describe("convertField — temporal family", () => {
 		expect(converted.uuid).toBe(testUuid("q-1"));
 	});
 
-	it("datetime → date preserves relevant and case_property_on", () => {
+	it("datetime → date preserves relevant and its case destination", () => {
 		const doc = docWithField({
 			uuid: "q-1",
 			kind: "datetime",
 			id: "appt_dt",
 			label: proseText("Appointment"),
 			relevant: ". != ''",
-			case_property_on: "appointment_dt",
+			caseWrite: { caseType: "appointment_dt", property: "appt_dt" },
 		});
 		const next = produce(doc, (d) => {
 			applyMutation(d, {
@@ -222,7 +222,10 @@ describe("convertField — temporal family", () => {
 		const converted = next.fields[testUuid("q-1")] as Record<string, unknown>;
 		expect(converted.kind).toBe("date");
 		expect(printSlot(converted.relevant, next)).toBe(". != ''");
-		expect(converted.case_property_on).toBe("appointment_dt");
+		expect(converted.caseWrite).toEqual({
+			caseType: "appointment_dt",
+			property: "appt_dt",
+		});
 	});
 });
 
@@ -672,7 +675,7 @@ describe("convertField — string-compatible tier", () => {
 			id: "facility",
 			label: proseText("Specialist facility"),
 			hint: proseText("referral target"),
-			case_property_on: "patient",
+			caseWrite: { caseType: "patient", property: "facility" },
 		});
 		const seed = [
 			{
@@ -699,7 +702,10 @@ describe("convertField — string-compatible tier", () => {
 		expect(converted.id).toBe("facility");
 		expect(converted.uuid).toBe(testUuid("q-1"));
 		expect(printProse(converted.hint, next)).toBe("referral target");
-		expect(converted.case_property_on).toBe("patient");
+		expect(converted.caseWrite).toEqual({
+			caseType: "patient",
+			property: "facility",
+		});
 		// The payload's minted identity survives untouched — the reducer
 		// never re-mints, which is what keeps a replayed/peer-applied batch
 		// byte-identical to the committer's.
@@ -740,7 +746,7 @@ describe("convertField — string-compatible tier", () => {
 			validate: "string-length(.) > 1",
 			relevant: "true()",
 			default_value: '"unnamed"',
-			case_property_on: "patient",
+			caseWrite: { caseType: "patient", property: "full_name" },
 		});
 		const next = produce(doc, (d) => {
 			applyMutation(d, {
@@ -753,7 +759,10 @@ describe("convertField — string-compatible tier", () => {
 		expect(converted.kind).toBe("hidden");
 		expect(converted.id).toBe("full_name");
 		expect(converted.uuid).toBe(testUuid("q-1"));
-		expect(converted.case_property_on).toBe("patient");
+		expect(converted.caseWrite).toEqual({
+			caseType: "patient",
+			property: "full_name",
+		});
 		expect(printSlot(converted.relevant, next)).toBe("true()");
 		expect(printSlot(converted.default_value, next)).toBe('"unnamed"');
 		// Hidden declares none of the visible-control slots.
@@ -774,7 +783,7 @@ describe("convertField — string-compatible tier", () => {
 				{ value: "closed", label: "Closed" },
 			],
 			validate: ". != ''",
-			case_property_on: "patient",
+			caseWrite: { caseType: "patient", property: "status" },
 		});
 		const next = produce(doc, (d) => {
 			applyMutation(d, {
@@ -788,7 +797,10 @@ describe("convertField — string-compatible tier", () => {
 		expect(converted.id).toBe("status");
 		expect(converted.options).toBeUndefined();
 		expect(printSlot(converted.validate, next)).toBe(". != ''");
-		expect(converted.case_property_on).toBe("patient");
+		expect(converted.caseWrite).toEqual({
+			caseType: "patient",
+			property: "status",
+		});
 	});
 
 	it("seed options are ignored when the target kind has no options slot", () => {

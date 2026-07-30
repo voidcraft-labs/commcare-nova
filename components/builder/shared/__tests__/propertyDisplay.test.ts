@@ -36,21 +36,16 @@ describe("propertyDisplayLabel", () => {
 	});
 
 	it.each([
-		["name", "Case name"],
-		["external-id", "External ID"],
-		["date-opened", "Date opened"],
-	])("canonicalizes the legacy %s fallback", (name, label) => {
+		["case_name", "Case name"],
+		["external_id", "External ID"],
+		["date_opened", "Date opened"],
+	])("uses the friendly fallback for standard %s", (name, label) => {
 		expect(propertyFallbackDisplayLabel(name)).toBe(label);
 	});
 
-	it("collapses a generated alias label when its canonical definition is present", () => {
+	it("resolves an exact property definition by name", () => {
 		expect(
-			propertyDisplayLabelForName("external-id", [
-				{
-					name: "external-id",
-					label: proseText("external-id"),
-					data_type: "text",
-				},
+			propertyDisplayLabelForName("external_id", [
 				{
 					name: "external_id",
 					label: proseText("external_id"),
@@ -60,23 +55,6 @@ describe("propertyDisplayLabel", () => {
 		).toBe("External ID");
 	});
 
-	it("preserves meaningful copy authored on a legacy alias", () => {
-		expect(
-			propertyDisplayLabelForName("external-id", [
-				{
-					name: "external-id",
-					label: proseText("Partner registry number"),
-					data_type: "text",
-				},
-				{
-					name: "external_id",
-					label: proseText("external_id"),
-					data_type: "text",
-				},
-			]),
-		).toBe("Partner registry number");
-	});
-
 	it("never repeats the visible label as its own disambiguator", () => {
 		const properties = [
 			{
@@ -84,7 +62,11 @@ describe("propertyDisplayLabel", () => {
 				label: proseText("case_name"),
 				data_type: "text" as const,
 			},
-			{ name: "name", label: proseText("name"), data_type: "text" as const },
+			{
+				name: "display_name",
+				label: proseText("case_name"),
+				data_type: "text" as const,
+			},
 		];
 		expect(friendlyPropertyDisambiguator(properties[0], properties)).toBe(
 			undefined,

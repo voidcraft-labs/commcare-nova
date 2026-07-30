@@ -609,10 +609,8 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		): void => {
 			switch (dest) {
 				case "module":
-				case "parent_module":
 					if (submittedModuleUuid) navigate.openModule(submittedModuleUuid);
 					return;
-				case "root":
 				case "app_home":
 					navigate.goHome();
 					return;
@@ -818,7 +816,6 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 				if (!valid) return "invalid";
 				const mutation = controller.computeSubmissionMutation({
 					caseId: submitted.caseId,
-					caseTypes,
 					/* The zone a datetime answer is stamped with. The device
 					 * stamps its own; in Preview the author's browser stands in
 					 * for it, the same substitution the case-data reads make. */

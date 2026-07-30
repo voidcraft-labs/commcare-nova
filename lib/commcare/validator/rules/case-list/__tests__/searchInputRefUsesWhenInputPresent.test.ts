@@ -38,7 +38,7 @@ const standardForm = {
 			kind: "text" as const,
 			id: "case_name",
 			label: proseText("Name"),
-			case_property_on: "patient",
+			caseWrite: { caseType: "patient", property: "case_name" },
 		}),
 	],
 };
@@ -394,8 +394,8 @@ describe("searchInputRefUsesWhenInputPresent", () => {
 								expression: { kind: "term", term: input(testUuid("query")) },
 							},
 						],
-						listColumnOrder: [testUuid("c-1")],
-						detailColumnOrder: [testUuid("c-1")],
+						listColumnOrder: [testUuid("c-1"), testUuid("c-2")],
+						detailColumnOrder: [testUuid("c-1"), testUuid("c-2")],
 						searchInputs: [
 							simpleSearchInputDef(
 								testUuid("si-1"),

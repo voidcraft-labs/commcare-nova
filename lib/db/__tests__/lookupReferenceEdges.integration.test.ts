@@ -206,44 +206,6 @@ describe("lookup reference edge materialization", () => {
 		expect((await h.readAppRow(APP_ID))?.project_id).toBe(PROJECT_B);
 	});
 
-	it("allows a null-Project app to clear edges but fails closed before a nonempty write", async () => {
-		const table = await createTable(PROJECT_A, "Null Scope");
-		await h.seedApp({ id: APP_ID, project_id: PROJECT_A });
-		await h.withTransaction((tx) =>
-			tx
-				.updateTable("apps")
-				.set({ project_id: null })
-				.where("id", "=", APP_ID)
-				.execute(),
-		);
-
-		await withLockedApp(APP_ID, (tx) =>
-			replaceLookupReferenceEdges(tx, {
-				appId: APP_ID,
-				projectId: null,
-				targets: EMPTY_LOOKUP_REFERENCE_TARGETS,
-			}),
-		);
-		expect(await readTargets()).toEqual(EMPTY_LOOKUP_REFERENCE_TARGETS);
-
-		await expect(
-			withLockedApp(APP_ID, (tx) =>
-				replaceLookupReferenceEdges(tx, {
-					appId: APP_ID,
-					projectId: null,
-					targets: normalizeLookupReferenceTargetSet({
-						tableIds: [table.id],
-					}),
-				}),
-			),
-		).rejects.toMatchObject({
-			name: "LookupReferenceWriteError",
-			code: "mismatch",
-			message: "Lookup reference targets do not match the app scope.",
-		});
-		expect(await readTargets()).toEqual(EMPTY_LOOKUP_REFERENCE_TARGETS);
-	});
-
 	it("makes missing and foreign table locks exactly indistinguishable", async () => {
 		const foreign = await createTable(PROJECT_B, "Foreign");
 		await h.seedApp({ id: APP_ID, project_id: PROJECT_A });

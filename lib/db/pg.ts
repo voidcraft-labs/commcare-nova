@@ -1,5 +1,5 @@
 // Kysely typing + handle for the app-state tables (`apps`,
-// `blueprint_entities`, `accepted_mutations`, `events`, `threads`,
+// `blueprint_entities`, `app_changes`, `events`, `threads`,
 // `run_summaries`, `presence`, `user_settings`, the two monthly ledgers, media
 // assets, and Project-scoped lookup data) — the storage layer behind every
 // `lib/db` module. DDL lives in `lib/case-store/migrations/`; these types and
@@ -40,7 +40,7 @@ import { delay } from "@/lib/utils/delay";
 
 /** Server-set timestamp: read as `Date`, write as `Date`/ISO, omit when defaulted. */
 type Timestamp = ColumnType<Date, Date | string | undefined, Date | string>;
-/** Legacy `bigint` counters whose bounded readers intentionally `Number(...)`. */
+/** `bigint` counters read through the shared nonnegative safe-integer boundary. */
 type BigIntColumn = ColumnType<string | number, number, number>;
 /** Lookup revisions stay exact decimal strings on every application boundary. */
 type LookupRevisionColumn = ColumnType<string, string, string>;
@@ -60,7 +60,7 @@ type DefaultedUuidV7Column<Identity extends string> = ColumnType<
 export interface AppsTable {
 	id: string;
 	owner: string;
-	project_id: string | null;
+	project_id: string;
 	app_name: string;
 	app_name_lower: string;
 	connect_type: ConnectType | null;
@@ -126,7 +126,7 @@ export interface BlueprintEntitiesTable {
 	data: JSONColumnType<Record<string, unknown>>;
 }
 
-export interface AcceptedMutationsTable {
+export interface AppChangesTable {
 	app_id: string;
 	seq: BigIntColumn;
 	batch_id: string;
@@ -134,15 +134,18 @@ export interface AcceptedMutationsTable {
 	actor_id: string;
 	kind: string;
 	mutations: JSONColumnType<Mutation[]>;
+	from_project_id: string | null;
+	to_project_id: string | null;
 	ts: Timestamp;
 }
 
-/** Immutable canonical snapshot establishing one explicit mutation fold
+/** Immutable canonical snapshot establishing one explicit app-change fold
  * horizon. Runtime may read these rows but only a schema migration inserts
  * them; database triggers reject update/delete. */
-export interface MutationFoldBaselinesTable {
+export interface AppChangeFoldBaselinesTable {
 	app_id: string;
 	seq: BigIntColumn;
+	project_id: string;
 	snapshot: JSONColumnType<Record<string, unknown>>;
 	snapshot_digest: string;
 	created_at: Timestamp;
@@ -305,6 +308,7 @@ export interface MediaAssetsTable {
 }
 
 export interface MediaAssetRefsTable {
+	project_id: string;
 	asset_id: MediaAssetId;
 	app_id: string;
 }
@@ -317,11 +321,6 @@ export interface MediaUploadAliasesTable {
 	canonical_asset_id: MediaAssetId;
 	created_at: Timestamp;
 	expires_at: Timestamp;
-}
-
-export interface MediaReferenceIndexStateTable {
-	singleton: boolean;
-	audited_complete_at: ColumnType<Date | null, Date | null, Date | null>;
 }
 
 export interface LookupProjectStateTable {
@@ -468,8 +467,8 @@ export interface FormAttachmentRateLimitsTable {
 export interface AppDatabase {
 	apps: AppsTable;
 	blueprint_entities: BlueprintEntitiesTable;
-	accepted_mutations: AcceptedMutationsTable;
-	mutation_fold_baselines: MutationFoldBaselinesTable;
+	app_changes: AppChangesTable;
+	app_change_fold_baselines: AppChangeFoldBaselinesTable;
 	events: EventsTable;
 	threads: ThreadsTable;
 	chat_stream_chunks: ChatStreamChunksTable;
@@ -482,7 +481,6 @@ export interface AppDatabase {
 	media_assets: MediaAssetsTable;
 	media_asset_refs: MediaAssetRefsTable;
 	media_upload_aliases: MediaUploadAliasesTable;
-	media_reference_index_state: MediaReferenceIndexStateTable;
 	form_attachments: FormAttachmentsTable;
 	form_attachment_rate_limits: FormAttachmentRateLimitsTable;
 	form_submission_intents: FormSubmissionIntentsTable;

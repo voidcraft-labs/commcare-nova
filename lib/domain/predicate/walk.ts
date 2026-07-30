@@ -532,7 +532,6 @@ function walkPredicate(
 				visitor.visitTerm?.(predicate.values[i], [...path, "values", i]);
 			}
 			return;
-		case "is-null":
 		case "is-blank":
 			walkValueExpression(predicate.left, visitor, [...path, "left"]);
 			return;
@@ -621,7 +620,6 @@ function walkValueExpression(
 		case "date-coerce":
 		case "datetime-coerce":
 		case "double":
-		case "unwrap-list":
 			walkValueExpression(expr.value, visitor, [...path, "value"]);
 			return;
 		case "format-date":

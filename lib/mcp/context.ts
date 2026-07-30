@@ -45,7 +45,6 @@ import { describeParkedOutcome } from "@/lib/agent/toolExecutionContext";
 import { withSchemaContext } from "@/lib/case-store";
 import { applyBlueprintChange } from "@/lib/db/applyBlueprintChange";
 import type { PreparedMutationCandidate } from "@/lib/doc/commitVerdicts";
-import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import {
 	type AdmittedMutationBatch,
 	type AdmittedMutationStages,
@@ -60,7 +59,6 @@ import type {
 } from "@/lib/log/types";
 import { LogWriter } from "@/lib/log/writer";
 import { log } from "@/lib/logger";
-import type { MediaAttachExpectation } from "@/lib/media/attachVerdicts";
 import { createProgressEmitter, type ProgressEmitter } from "./progress";
 import type { ToolContext } from "./types";
 
@@ -149,7 +147,6 @@ export class McpContext implements ToolExecutionContext {
 	async recordMutations(
 		prepared: PreparedMutationCandidate,
 		stage?: string,
-		mediaExpectations?: readonly MediaAttachExpectation[],
 	): Promise<RecordMutationsResult> {
 		if (prepared.mutations.length === 0) {
 			return { events: [], committedDoc: prepared.nextDoc };
@@ -158,7 +155,7 @@ export class McpContext implements ToolExecutionContext {
 		 * still reject (or throw on a transport fault), and an event log
 		 * that recorded a batch the blueprint never absorbed would make a
 		 * replay diverge from the persisted doc. */
-		const committedDoc = await this.saveBlueprint(prepared, mediaExpectations);
+		const committedDoc = await this.saveBlueprint(prepared);
 		const events = this.buildEnvelopes(prepared.mutations, stage);
 		for (const e of events) this.logWriter.logEvent(e);
 		return { events, committedDoc };
@@ -254,63 +251,57 @@ export class McpContext implements ToolExecutionContext {
 	}
 
 	/**
-	 * Persist the blueprint snapshot along with the current
-	 * run id. `toPersistableDoc` strips the derived `fieldParent` index;
-	 * see the class-level fail-closed contract for why this is awaited.
+	 * Persist the mutation batch along with the current run id. See the
+	 * class-level fail-closed contract for why this is awaited.
 	 *
-	 * Routes through the cross-store saga so a property-surface
-	 * mutation in this MCP tool call (rename / retype / option add)
-	 * syncs the Postgres `case_type_schemas` row before the blueprint
-	 * commits. Pure non-case-type edits fast-path through the saga
-	 * without touching the case store. See
-	 * `lib/db/applyBlueprintChange.ts` for the compensation contract.
+	 * Routes through the guarded schema boundary. An explicit
+	 * `renameCaseProperties` command commits Blueprint, schema, live rows,
+	 * parked rows, and accepted history in one physical transaction. Other
+	 * schema changes materialize from the committed document; pure
+	 * non-case-type edits do not touch the case store.
 	 *
 	 * Writing `run_id` on every mutation is load-bearing for the
 	 * sliding-window derivation in `lib/mcp/runId.ts` — the next MCP
 	 * tool call reads `app.run_id` + `app.updated_at` to decide whether
-	 * to continue this run or start a new one. The saga threads the
+	 * to continue this run or start a new one. The guarded writer threads the
 	 * `runId` into `commitGuardedBatch` → `writeCommittedSnapshot`, so
 	 * the run id persists alongside the blueprint.
 	 */
 	private async saveBlueprint(
 		prepared: PreparedMutationCandidate,
-		mediaExpectations?: readonly MediaAttachExpectation[],
 	): Promise<BlueprintDoc> {
 		const mutations = prepared.mutations;
 		const result = await applyBlueprintChange({
 			appId: this.appId,
 			userId: this.userId,
 			expectedProjectId: this.projectId,
-			prospective: toPersistableDoc(prepared.nextDoc),
 			runId: this.runId,
 			batchId: crypto.randomUUID(),
 			kind: "mcp",
-			/* Guarded commit: the saga's guarded commit re-reads the stored
+			/* Guarded commit: the persistence boundary re-reads the stored
 			 * blueprint, re-applies this batch, and re-runs the validity
 			 * verdict inside a transaction — two concurrent gate-approved
 			 * batches serialize instead of last-writer-wins, and a batch the
 			 * fresh doc rejects throws (the tool returns its `{ error }`
-			 * envelope) rather than erasing the concurrent commit. A media
-			 * attach's per-asset expectations re-verify inside the SAME
-			 * transaction (the asset rows join its read set), so an asset
-			 * delete racing the attach serializes against this commit. */
-			guard: { mutations, ...(mediaExpectations && { mediaExpectations }) },
+			 * envelope) rather than erasing the concurrent commit. The writer
+			 * derives the complete prospective document and transactionally
+			 * locks and validates every live media reference, so an asset
+			 * delete racing any attach serializes against this commit. */
+			guard: { mutations },
 		});
-		/* `committedDoc` is absent only on a TOP-LEVEL dedup hit (a client retry
-		 * of an already-committed batch); the doc the tool passed in IS that
-		 * committed state, so coalesce to it. A commit whose row migration
-		 * PARKED saved case values surfaces the outcome so the tool result
+		/* A commit whose row migration PARKED saved case values surfaces the
+		 * outcome so the tool result
 		 * tells the client — a park must never be invisible to the caller
 		 * that caused it (this boundary has no toast). */
 		if (result.migration !== undefined && result.migration.parked > 0) {
 			this._parkedNote = describeParkedOutcome(result.migration);
-			log.warn("[mcp] saga commit parked case values", {
+			log.warn("[mcp] commit parked case values", {
 				appId: this.appId,
 				parked: result.migration.parked,
 				failureReasons: result.migration.failureReasons,
 			});
 		}
-		return result.committedDoc ?? prepared.nextDoc;
+		return result.committedDoc;
 	}
 
 	/** See `ToolExecutionContext.consumeParkedNote`. */

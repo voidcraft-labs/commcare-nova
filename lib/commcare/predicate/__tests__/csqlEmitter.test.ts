@@ -63,7 +63,6 @@ import {
 	input,
 	isBlank,
 	isIn,
-	isNull,
 	literal,
 	lt,
 	lte,
@@ -86,7 +85,6 @@ import {
 	subcasePath,
 	term,
 	today,
-	unwrapList,
 	whenInput,
 	within,
 } from "@/lib/domain/predicate/builders";
@@ -460,19 +458,6 @@ describe("emitCsql — is-blank", () => {
 			`instance('commcaresession')/session/context/userid`,
 			` = ''`,
 		);
-	});
-});
-
-describe("emitCsql — is-null faithful emission", () => {
-	it("emits is-null as <term> = '' (the same wire form is-blank uses)", () => {
-		// CCHQ's wire absent/cleared/empty collapse at
-		// `commcare-hq/corehq/apps/es/case_search.py::case_property_query`
-		// makes the strict-absent intent of `is-null` emit the same wire
-		// form `is-blank` produces. The strict semantic surfaces only
-		// on the Postgres target where JSONB key presence is
-		// observable; CSQL gets the closest faithful emission.
-		const result = emitCsql(isNull(prop("patient", "full_name")));
-		expect(result.wrapper).toBe(`concat("full_name = ''")`);
 	});
 });
 
@@ -1526,17 +1511,6 @@ describe("emitCsql — property-via lift (membership + range + null/blank)", () 
 		).toThrow(/mixed-property-scopes/);
 	});
 
-	it("lifts via on is-null.left into ancestor-exists envelope with absence equality", () => {
-		const result = emitCsql(
-			isNull(
-				prop("patient", "full_name", ancestorPath(relationStep("parent"))),
-			),
-		);
-		expect(result.wrapper).toBe(
-			`concat("ancestor-exists(parent, full_name = '')")`,
-		);
-	});
-
 	it("lifts via on is-blank.left into subcase-exists envelope", () => {
 		const result = emitCsql(
 			isBlank(prop("patient", "full_name", subcasePath("child"))),
@@ -1680,13 +1654,6 @@ describe("emitCsql — property-via lift (native value-expression carriers)", ()
 					"days",
 					term(prop("patient", "parent_offset", parentVia)),
 				),
-			),
-		},
-		{
-			carrier: "unwrap-list",
-			predicate: eq(
-				prop("patient", "tags"),
-				unwrapList(term(prop("patient", "parent_tags_json", parentVia))),
 			),
 		},
 	])("fails closed for an ancestor via below $carrier", ({ predicate }) => {
@@ -1965,7 +1932,7 @@ describe("emitCsql — date-coerce / datetime-coerce rename", () => {
 describe("emitCsql — value-function whitelist arms in operand position", () => {
 	// The CSQL value-function whitelist (per
 	// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`)
-	// — `today`, `now`, `double`, `date-add`, `unwrap-list`,
+	// — `today`, `now`, `double`, `date-add`,
 	// `date-coerce` (wire full_name `date`), `datetime-coerce` (wire
 	// full_name `datetime`) — emits through the value-expression emitter
 	// at `lib/commcare/expression/csqlEmitter.ts`. The predicate
@@ -2063,15 +2030,5 @@ describe("emitCsql — value-function whitelist arms in operand position", () =>
 			"concat('due_date = date-add(', ",
 		);
 		expect(result.wrapper).toContain(`'days', 7)`);
-	});
-
-	it("emits unwrap-list in a multi-select-contains shape via the predicate emitter", () => {
-		// `unwrap-list` emits through the value-expression emitter;
-		// the predicate emitter composes the segments with the
-		// comparison's surrounding constants.
-		const result = emitCsql(
-			eq(prop("p", "tags"), unwrapList(term(prop("p", "tags_json")))),
-		);
-		expect(result.wrapper).toBe(`concat('tags = unwrap-list(tags_json)')`);
 	});
 });

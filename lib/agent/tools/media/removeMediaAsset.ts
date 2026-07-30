@@ -121,7 +121,7 @@ export const removeMediaAssetTool = {
 		const chatRunHolder = ctx.chatRunHolder;
 		let deleted: boolean;
 		try {
-			deleted = await purgeAssetStorage(asset, {
+			deleted = await purgeAssetStorage({
 				alsoDeleteForAsset: (deletedAsset) => [
 					extractObjectKeyForAsset(deletedAsset),
 				],

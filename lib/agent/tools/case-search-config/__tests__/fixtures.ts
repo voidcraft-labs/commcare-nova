@@ -35,7 +35,7 @@ export const MOD_A = testUuid("11111111-1111-1111-1111-111111111111");
  * without inventing one in every test. The case list carries one
  * search input: a `caseSearchConfig` is only committable when the
  * search screen has something to fill in or a filter to apply
- * (CASE_SEARCH_CONFIG_NO_SEARCHABLE_SURFACE gates the bare state).
+ * (the exact owner-only arm cannot carry Search action settings).
  */
 export function makeCaseSearchDoc(): BlueprintDoc {
 	const mod: Module = {
@@ -43,8 +43,16 @@ export function makeCaseSearchDoc(): BlueprintDoc {
 		id: "patient",
 		name: "Patient",
 		caseType: "patient",
+		caseListOnly: true,
 		caseListConfig: resolveCaseListConfig({
-			columns: [],
+			columns: [
+				{
+					uuid: testUuid("33333333-3333-3333-3333-333333333333"),
+					kind: "plain",
+					field: "case_name",
+					header: "Name",
+				},
+			],
 			searchInputs: [
 				{
 					uuid: testUuid("22222222-2222-2222-2222-222222222222"),
@@ -107,6 +115,7 @@ export function makeCaseSearchFixture(): CaseSearchFixture {
  * structurally-identical mutation batches.
  */
 export function makeCaseSearchMcpFixture(): CaseSearchMcpFixture {
-	const handles = makeMcpTestContext();
-	return { ...handles, doc: makeCaseSearchDoc() };
+	const doc = makeCaseSearchDoc();
+	const handles = makeMcpTestContext({ initialDoc: doc });
+	return { ...handles, doc };
 }

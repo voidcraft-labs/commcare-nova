@@ -201,6 +201,7 @@ function identitiesClaimedBy(mutation: Mutation): MutationIdentityClaim[] {
 		case "setAppName":
 		case "setConnectType":
 		case "setAppLogo":
+		case "renameCaseProperties":
 		case "declareCaseType":
 		case "retireCaseType":
 		case "addCaseProperty":

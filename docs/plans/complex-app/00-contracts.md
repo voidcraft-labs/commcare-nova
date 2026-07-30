@@ -46,16 +46,24 @@ traffic-split controllers.
 **Valid by construction.** An invalid app cannot exist. Every mutation batch is
 gated before it commits, identically on the chat SA, the visual builder, and the
 MCP API. There is no save/validate/release cycle and no draft state. New
-mutations follow the fold rules in `lib/doc/CLAUDE.md`: persisted
-mutation history after the active baseline must always replay. When a stored
+mutations follow the fold rules in `lib/doc/CLAUDE.md`: mutation-bearing app
+changes after the active baseline must always replay. When a stored
 shape changes incompatibly, the same release either migrates the replayable
 suffix or atomically establishes an explicit fold horizon whose earlier rows
 remain opaque audit history. A horizon expected to support later replay owns an
-immutable, complete persisted baseline keyed to its exact app sequence; a reload
-marker by itself is never treated as reconstructable state. Every app created
-after such a baseline table exists records its complete immutable genesis
-baseline atomically with the app; a nonempty sequence-zero document with neither
-seed history nor a baseline is forbidden.
+immutable, complete Project-bearing persisted baseline keyed to its exact app
+sequence; a reload boundary by itself is never treated as reconstructable
+state. Every app created
+after such a baseline table exists is born in one mandatory canonical
+export-ready shape: a real nonblank name (`Untitled` when none was supplied),
+one survey module, one survey form, and one text question. The name and starter
+are one admitted construction batch; their complete immutable result is
+recorded atomically as the sequence-`1` genesis baseline beside the app root,
+entities, exact lookup/media edges, and an intentionally empty attributed
+`fold-baseline` app change. The construction batch is not replay history.
+Chat, builder, and MCP receive that exact blueprint plus its module/form/field
+UUIDs from the one creation owner; a persisted empty app, optional seed path, or
+independently reconstructed starter is forbidden.
 
 The gate consumes the exact parsed JSON value persistence can replay. Before
 reduction, one shared admission boundary safely detaches a proposed live batch
@@ -68,9 +76,27 @@ otherwise non-JSON value rejects before any reducer, deduplication latch,
 sequence check, saga, or side effect runs. An optional-slot clear is explicit
 `null`, never `undefined`. Accepting writers consume only the opaque, detached,
 deeply immutable admitted batch and persist, stream, and return that same value,
-not a caller-owned object or a re-diffed candidate document. Durable mutation
-readers reassert the same final schema contract before replay. This is mutation
-admission, not a second compatibility parser or a post-commit normalizer.
+not a caller-owned object or a re-diffed candidate document. Mutation-bearing
+durable readers reassert the same final schema contract before replay.
+`app_changes` has its own exact envelope admission: the closed kind set is
+`autosave | mcp | chat | blueprint-migration | fold-baseline | project-move`.
+The first four carry a nonempty admitted mutation batch and null Project-move
+columns; `fold-baseline` carries exactly `[]`, null Project-move columns, and
+one matching immutable baseline; `project-move` carries `[]` or the nonempty
+media-remap batch and requires nonblank distinct source/destination Project
+identities. This is mutation and app-change admission, not a second historical
+parser or a post-write normalizer.
+
+The browser collaboration frame is intentionally narrower: it accepts only
+`autosave | mcp | chat`. If a suffix contains `blueprint-migration`,
+`fold-baseline`, or `project-move`, the server first validates that complete
+durable suffix, then the client reauthorizes and reloads the current app
+snapshot before it may consume any earlier ordinary frames from that suffix.
+Canonical folding starts from the greatest immutable baseline and its stored
+Project, applies every subsequent Project move with exact source/destination
+continuity, and must finish at `apps.project_id`. Historical intermediate
+documents need only reduce strictly; lookup admission validates the single
+final folded document against the final Project's current table definitions.
 
 **Runnable topology is closed.** Every module, form, field, and flat authored
 entity appears exactly once in the membership sequence that owns it. Every
@@ -109,6 +135,15 @@ it in friendly authoring language. Exact UUID parameters and typed payloads
 belong in the callable MCP reference, not in ordinary user guides; an internal
 identity change with no natural reader-facing explanation does not manufacture
 one. Where a vocabulary is deliberately builder-only, the unit says so and why.
+
+**Authored state and emitted state are distinct.** Every saved case-list column
+must remain valid even when it is hidden in both layouts and absent from sort.
+Hiding a column is a reversible presentation edit, so schema admission, the
+commit gate, builder recovery, SA/MCP projections, and migrations retain and
+validate its complete definition. Only preview, CommCare compilation, and
+emitted-reference walks consult the one `caseListColumnIsEmitted` predicate. A
+hidden definition is not deferred invalid data and revealing it never opens a
+repair flow.
 
 **Nova is not CommCare HQ.** HQ, CommCare Core, Formplayer, and CommCare Android
 establish only what the target wire and runtime accept, reject, or execute. Their
@@ -164,8 +199,38 @@ These decisions are closed unless the project owner explicitly reopens them.
   `(caseType, property)` pairs for the CommCare case-data contract and explicit
   CommCare/session field names. They are final domain vocabulary, not
   compatibility aliases for a hidden Nova UUID.
-- A rename or move does not rewrite a stored expression reference. Printers and
-  emitters resolve its current external spelling from immutable identity.
+- A field's immutable `uuid`, local question/path `id`, and optional case-data
+  binding are three different facts. An eligible field writes case data only
+  through `caseWrite: { caseType, property }`; changing `id` changes the
+  friendly form path only, and changing `caseWrite` retargets only that writer.
+  Neither gesture implies an app-wide case-property rename.
+- An app-wide case-property rename is one explicit semantic operation over
+  `(caseType, property)` identities. It rewrites every typed carrier and saved
+  row simultaneously under a lossless partial bijection; it never infers intent
+  from a field-path edit, merges values, invents a temporary name, parks a
+  displaced value, or leaves a second reader/writer representation.
+- Two Blueprint snapshots cannot prove that semantic intent: the same endpoint
+  documents can result from either a property rename or independent writer/read
+  edits with deliberately unchanged saved rows. Generic document diff therefore
+  never synthesizes a property rename. Ordinary local writer, operation,
+  catalog, and typed-reference edits still diff to their own granular commands
+  and deliberately leave saved rows untouched. Undo, replay, and collaboration
+  preserve the original explicit command; an endpoint-only diff whose complete
+  before/after pair is exactly the same carrier-wide rename-shaped
+  transformation refuses that ambiguous interpretation without command
+  provenance. A swap or cycle can even be a Blueprint byte no-op when its
+  declarations and references are symmetric while saved-row keys still move;
+  a nonempty admitted rename is therefore never elided by document equality.
+- A batch-exclusive semantic command is also a persistence boundary. Autosave
+  may queue ordinary commands before or after it, but it never flattens them
+  together: predecessors drain first, the exclusive command is admitted,
+  persisted, acknowledged, and retried alone, and successors retain their
+  original order behind it.
+- Renaming or moving a UUID-owned entity does not rewrite a stored expression
+  reference. Printers and emitters resolve its current external spelling from
+  immutable identity. The explicit name-backed case-property operation above is
+  deliberately different: the `(caseType, property)` pair itself is the
+  identity being renamed, so that command structurally rewrites those leaves.
 - The human XPath editor is a text projection over the canonical stored AST.
   A person continues to type and read `#form/first_name`; the editor resolves it
   once, stores the target UUID, and later prints the target's current friendly
@@ -265,6 +330,39 @@ app-scoped unless a later approved contract says otherwise. Every table has
 explicit tenancy keys, authorization, project-move behavior, indexes, migration
 ownership, and retention/deletion behavior.
 
+Every persisted app has one nonblank Project. `apps.project_id` is `NOT NULL`
+and references the exact Better Auth Project row; Project membership is the
+only app authorization axis, while `apps.owner` is creation provenance rather
+than a fallback ACL. Case rows also carry a nonblank Project, and a deferred
+composite foreign key requires `(cases.project_id, cases.app_id)` to name the
+same `(apps.project_id, apps.id)` pair so a Project move may update the complete
+tenant closure atomically but no mismatched row may commit. A schema-only
+`PostgresCaseStore` may use an internal no-Project constructor state solely to
+materialize schema; that mode cannot perform a tenant-bound read or write and is
+not a persisted app or case shape.
+
+Project identity is the opaque stable Better Auth `organization.id` text. No
+runtime path infers its shape, treats its slug as identity, or applies a UUID
+regular expression to it. The auth migration installs four exact
+`ON UPDATE RESTRICT ON DELETE RESTRICT` foreign keys:
+`apps.project_id`, `app_changes.from_project_id`,
+`app_changes.to_project_id`, and
+`app_change_fold_baselines.project_id`. The two app-change Project columns are
+null for every kind except `project-move`; a move requires nonblank distinct
+source and destination identities, and canonical folding proves the move chain
+against the baseline and final app Project.
+
+`media_asset_refs(project_id, app_id, asset_id)` is the exact whole-app
+projection of every authored Blueprint media reference plus strict canonical
+thread attachments. Every app/thread writer replaces that complete set in its
+own app-locked transaction after sorted asset `FOR SHARE` validation. Asset
+deletion locks the asset `FOR UPDATE`, queries only those exact candidates, and
+coherently re-walks the authored Blueprint and canonical thread carriers before
+deleting. There is no completion marker, full-Project fallback scan, post-commit
+sync, or event-derived edge. Event attachment UUIDs are immutable audit
+receipts; Project moves copy/remap every live Blueprint/thread reference and do
+not touch event receipts.
+
 Realtime updates use committed rows plus LISTEN/NOTIFY pokes and cursor/revision
 catch-up. Notifications are never the data plane.
 
@@ -278,7 +376,7 @@ A vocabulary that is a genuinely new collection — not a new slot on a module,
 form, or field — mints **ordinary new mutation discriminators**. There is no
 honest way to ride an existing one: a user type is not a refinement of a form,
 and encoding it as one puts a lie in the durable log, breaks
-`batchTargetsMissing`, and poisons the reference index. The standing rules are:
+`mutationTargetsInvalid`, and poisons the reference index. The standing rules are:
 
 - Optionality and empty-value omission follow the domain meaning and storage
   shape, never a pre-deploy reader. Compact empty collections may still be

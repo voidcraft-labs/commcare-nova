@@ -50,6 +50,7 @@ import {
 } from "./shared/entityAddresses";
 import {
 	assembleFieldMutations,
+	type CreatedFieldIdentity,
 	describeRejectedFieldIds,
 } from "./shared/fieldAssembly";
 import type {
@@ -94,7 +95,9 @@ export type AddFieldsInput = z.infer<typeof addFieldsInputSchema>;
  * skipped-during-assembly entries — plus a UI-only `summary` for the chat
  * transcript; failure is an error record.
  */
-export type AddFieldsResult = MutationSuccess | { error: string };
+export type AddFieldsResult =
+	| (MutationSuccess & { fields: CreatedFieldIdentity[] })
+	| { error: string };
 
 export const addFieldsTool = {
 	description:
@@ -167,7 +170,7 @@ export const addFieldsTool = {
 					},
 				};
 			}
-			const { mutations, skipped } = assembly;
+			const { mutations, skipped, created } = assembly;
 
 			// Compute the post-mutation doc once and persist via the shared
 			// context. The client applies via `applyMany` — no wire snapshot
@@ -212,14 +215,15 @@ export const addFieldsTool = {
 				mutations: commit.mutations,
 				newDoc,
 				result: {
-					message: `Successfully added ${mutations.length} field${mutations.length === 1 ? "" : "s"} to "${form.name}": ${addedIds}. Form now has ${totalCount} total field${totalCount === 1 ? "" : "s"}.${skippedNote}`,
+					message: `Successfully added ${created.length} field${created.length === 1 ? "" : "s"} to "${form.name}": ${addedIds}. Form now has ${totalCount} total field${totalCount === 1 ? "" : "s"}.${skippedNote}`,
+					fields: created,
 					// Bulk add — no single subject; the count drives the action
 					// ("Added 3 fields") and the form breadcrumb names the container.
 					// `mutations.length` is the count actually added (skipped items
 					// aren't in it), matching the message's own count.
 					summary: {
 						location: form.name,
-						count: mutations.length,
+						count: created.length,
 					} satisfies ToolCallSummary,
 				},
 			};

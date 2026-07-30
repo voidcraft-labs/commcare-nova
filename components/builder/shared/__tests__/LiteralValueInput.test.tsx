@@ -22,6 +22,7 @@ const PATIENT: CaseType = {
 		{ name: "age", label: proseText("Age"), data_type: "int" },
 		{ name: "weight", label: proseText("Weight"), data_type: "decimal" },
 		{ name: "nickname", label: proseText("Nickname"), data_type: "text" },
+		{ name: "location", label: proseText("Location"), data_type: "geopoint" },
 		{ name: "visit_date", label: proseText("Visit date"), data_type: "date" },
 		{ name: "visit_time", label: proseText("Visit time"), data_type: "time" },
 		{
@@ -323,5 +324,31 @@ describe("LiteralValueInput choice labels", () => {
 		expect(screen.getAllByText(LONG_OPTION_LABEL)[1]?.className).toContain(
 			"break-words",
 		);
+	});
+});
+
+describe("LiteralValueInput place literals", () => {
+	it("has no current-value exception for a non-null place literal", () => {
+		render(
+			<PredicateEditProvider
+				caseTypes={[PATIENT]}
+				currentCaseType="patient"
+				knownInputs={[]}
+				validityIndex={new Map()}
+			>
+				<LiteralValueInput
+					value={literal("12.3 45.6")}
+					onChange={() => {}}
+					caseTypeName="patient"
+					propertyName="location"
+					ariaLabel="Place value"
+				/>
+			</PredicateEditProvider>,
+		);
+
+		expect(screen.queryByText("12.3 45.6")).toBeNull();
+		expect(
+			screen.getByText("Compare this place with other case information"),
+		).toBeDefined();
 	});
 });

@@ -36,9 +36,7 @@ export function buildFieldTree(
 	fields: Record<string, Field>,
 	fieldOrder: Record<string, Uuid[]>,
 ): FieldTreeNode[] {
-	// Sequence is derived as `sort-by-(order, uuid)`, not array position — a
-	// same-parent reorder leaves the membership array untouched, so the running
-	// form re-sequences only because the walk sorts here.
+	// The membership array is the one authored sibling sequence.
 	const order = [...(fieldOrder[parentUuid] ?? [])];
 	const nodes: FieldTreeNode[] = [];
 	for (const uuid of order) {

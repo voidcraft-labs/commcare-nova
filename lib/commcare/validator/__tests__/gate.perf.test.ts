@@ -46,7 +46,7 @@ function largeDoc(): BlueprintDoc {
 						kind: "text",
 						id: "case_name",
 						label: proseText("Name"),
-						case_property_on: caseType,
+						caseWrite: { caseType, property: "case_name" },
 					}),
 					...Array.from({ length: 20 }, (_, q) =>
 						f({
@@ -55,7 +55,14 @@ function largeDoc(): BlueprintDoc {
 							label: `Question ${q}`,
 							relevant: q > 0 ? `#form/q_${q - 1} != ''` : undefined,
 							required: "true()",
-							...(fm > 0 && q < 3 ? { case_property_on: caseType } : {}),
+							...(fm > 0 && q < 3
+								? {
+										caseWrite: {
+											caseType,
+											property: `q_${q}`,
+										},
+									}
+								: {}),
 						}),
 					),
 					f({

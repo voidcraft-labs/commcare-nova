@@ -23,7 +23,7 @@ const mutationFrameEnvelopeSchema = z
 		actorId: z.string().min(1),
 		/** Present on a chat-SA frame; absent on an autosave/MCP frame. */
 		runId: z.string().min(1).optional(),
-		kind: z.enum(["autosave", "mcp", "chat", "migration"]),
+		kind: z.enum(["autosave", "mcp", "chat"]),
 		mutations: z.unknown(),
 	})
 	.strict();
@@ -33,7 +33,7 @@ export interface MutationFrame {
 	readonly batchId: string;
 	readonly actorId: string;
 	readonly runId?: string;
-	readonly kind: "autosave" | "mcp" | "chat" | "migration";
+	readonly kind: "autosave" | "mcp" | "chat";
 	readonly mutations: AdmittedMutationBatch;
 }
 

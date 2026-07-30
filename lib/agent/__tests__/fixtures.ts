@@ -21,9 +21,15 @@
 import type { UIMessageStreamWriter } from "ai";
 import { vi } from "vitest";
 import type { Session } from "@/lib/auth";
+import { seedApplyBlueprintChangeTestWriter } from "@/lib/db/__tests__/applyBlueprintChangeTestWriter";
 import { type AccumulatorSeed, UsageAccumulator } from "@/lib/db/usage";
-import type { PreparedMutationCandidate } from "@/lib/doc/commitVerdicts";
+import {
+	mutationCommitVerdict,
+	type PreparedMutationCandidate,
+} from "@/lib/doc/commitVerdicts";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { AdmittedMutationStages } from "@/lib/doc/mutationAdmission";
+import { canonicalAppGenesis } from "@/lib/doc/scaffolds";
 import type { BlueprintDoc } from "@/lib/domain";
 import type { LogWriter } from "@/lib/log/writer";
 import { McpContext } from "@/lib/mcp/context";
@@ -154,6 +160,41 @@ export function makeMinimalDoc(): BlueprintDoc {
 	};
 }
 
+/**
+ * The one legal persisted birth state for tool tests that do not need a
+ * purpose-built app. Mutating tools run the absolute commit gate, so an empty
+ * module-less document is not a neutral seed: it is an impossible persisted
+ * state whose pre-existing findings correctly block unrelated edits.
+ */
+export function makeCanonicalGenesisDoc(
+	appName = "Test app",
+	appId = "test-app",
+): BlueprintDoc {
+	const empty: BlueprintDoc = {
+		appId,
+		appName: "",
+		connectType: null,
+		caseTypes: null,
+		modules: {},
+		forms: {},
+		fields: {},
+		moduleOrder: [],
+		formOrder: {},
+		fieldOrder: {},
+		fieldParent: {},
+	};
+	const genesis = canonicalAppGenesis(empty, appName);
+	const verdict = mutationCommitVerdict(
+		empty,
+		genesis.mutations,
+		LOOKUP_CONTEXT_UNAVAILABLE,
+	);
+	if (!verdict.ok) {
+		throw new Error("Canonical genesis fixture failed its own commit gate.");
+	}
+	return verdict.nextDoc;
+}
+
 /** Handles returned by `makeMcpTestContext` — the context plus the
  *  vi.fn stubs on its log writer and progress emitter so tests can
  *  assert on what the context wrote. */
@@ -168,6 +209,8 @@ export interface MakeMcpTestContextHandles {
 
 /** Options for overriding the default ids on the produced `McpContext`. */
 export interface MakeMcpTestContextOptions {
+	/** Authoritative starting document for the exact in-memory guarded writer. */
+	initialDoc: BlueprintDoc;
 	/** App id. Defaults to `"test-app"`. */
 	appId?: string;
 	/** Better Auth user id. Defaults to `"user-1"`. */
@@ -191,9 +234,9 @@ const emptyConversionImpact: ConversionImpactFn = async () => ({
 
 /**
  * Build an `McpContext` wired to vi.fn stubs for its log writer and
- * progress emitter. Safe to call once per test — nothing in the ctx
- * reaches Postgres as long as the test mocks `@/lib/db/apps`
- * (or never calls `recordMutations`).
+ * progress emitter. The required `initialDoc` seeds the exact in-memory
+ * `applyBlueprintChange` test writer used by tool suites, so every accepted
+ * batch returns a complete authoritative committed document without Postgres.
  *
  * Mirrors `makeTestContext` for the chat surface: both helpers return a
  * `ToolExecutionContext`-compatible value so shared tool modules can be
@@ -202,15 +245,16 @@ const emptyConversionImpact: ConversionImpactFn = async () => ({
  * the same mutation batch on both surfaces.
  */
 export function makeMcpTestContext(
-	opts: MakeMcpTestContextOptions = {},
+	opts: MakeMcpTestContextOptions,
 ): MakeMcpTestContextHandles {
+	seedApplyBlueprintChangeTestWriter(opts.initialDoc);
 	const logWriterStub = {
 		logEvent: vi.fn(),
 		flush: vi.fn(),
 	} as unknown as LogWriter;
 	const progressStub: ProgressEmitter = { notify: vi.fn() };
 	const ctx = new McpContext({
-		appId: opts.appId ?? "test-app",
+		appId: opts.appId ?? opts.initialDoc.appId,
 		userId: opts.userId ?? "user-1",
 		projectId: "project-test",
 		runId: opts.runId ?? "run-1",

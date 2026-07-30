@@ -4,9 +4,11 @@
  * It accepts the complete all-app snapshot, verifies every manifest source,
  * applies the two property projections + 42 deletions + three expression
  * repairs, and requires the ordinary frozen scanner to become clean. The SQL
- * writer persists this result and its repair horizons in one transaction.
+ * writer persists this result in one transaction before the canonical fold
+ * baseline is created.
  */
 
+import { createHash } from "node:crypto";
 import { frozenEntityOccurrencesFor } from "./frozenOccurrenceManifest";
 import {
 	CANONICAL_IDENTITY_AFFECTED_APPS,
@@ -16,6 +18,8 @@ import {
 	CANONICAL_IDENTITY_REPAIR_RESULT_DIGEST,
 	CANONICAL_IDENTITY_REPAIR_VERSION,
 	CANONICAL_IDENTITY_ROW_DELETES,
+	FROZEN_PROJECT_ORPHAN_APP_ID_DIGEST,
+	FROZEN_PROJECT_ORPHAN_LEGACY_SNAPSHOT_DIGEST,
 } from "./frozenRepairManifest";
 import {
 	canonicalIdentityDigest,
@@ -23,8 +27,6 @@ import {
 	type LegacyEntityRow,
 	planCanonicalAppMigration,
 } from "./frozenTransform";
-
-const HASHTAG = /#([A-Za-z_][A-Za-z0-9_-]*)(\/[A-Za-z_][A-Za-z0-9_-]*)+/g;
 
 type JsonRecord = Record<string, unknown>;
 type MutableLegacyAppSnapshot = Omit<LegacyAppSnapshot, "rows"> & {
@@ -44,55 +46,22 @@ function invariant(condition: unknown, message: string): asserts condition {
 		throw new Error(`Canonical identity repair blocked: ${message}`);
 }
 
-function locateField(
-	fieldUuid: string,
-	rowsByUuid: ReadonlyMap<string, LegacyEntityRow>,
-): { readonly formUuid?: string; readonly path: readonly string[] } {
-	const path: string[] = [];
-	const visited = new Set<string>();
-	let current = rowsByUuid.get(fieldUuid);
-	while (current?.kind === "field" && !visited.has(current.uuid)) {
-		visited.add(current.uuid);
-		if (typeof current.data.id === "string") path.unshift(current.data.id);
-		if (current.parentUuid === null) return { path };
-		const parent = rowsByUuid.get(current.parentUuid);
-		if (parent?.kind === "form") return { formUuid: parent.uuid, path };
-		current = parent;
-	}
-	return { path };
+function rawUtf8Digest(value: Uint8Array): string {
+	return createHash("sha256").update(value).digest("hex");
 }
 
-function deriveLabelReplacement(
+function exactLabelReplacement(
 	source: string,
-	owner: LegacyEntityRow,
 	rows: readonly LegacyEntityRow[],
-): {
-	readonly replacement: { readonly parts: readonly JsonRecord[] };
-	readonly targetUuids: readonly string[];
-	readonly clearedTokenIndex: number;
-} {
-	const rowsByUuid = new Map(rows.map((row) => [row.uuid, row] as const));
-	const ownerForm = locateField(owner.uuid, rowsByUuid).formUuid;
+): { readonly parts: readonly JsonRecord[] } {
+	const repair = CANONICAL_IDENTITY_LABEL_REPAIR;
+	const sourceBytes = Buffer.from(source, "utf8");
 	invariant(
-		ownerForm !== undefined,
-		"label repair owner is no longer in a form",
+		sourceBytes.length === repair.sourceBytes,
+		"label repair source byte count drifted",
 	);
-	const fieldsByPath = new Map<string, string[]>();
-	for (const row of rows) {
-		if (row.kind !== "field") continue;
-		const located = locateField(row.uuid, rowsByUuid);
-		if (located.formUuid !== ownerForm) continue;
-		const key = located.path.join("/");
-		const matches = fieldsByPath.get(key) ?? [];
-		matches.push(row.uuid);
-		fieldsByPath.set(key, matches);
-	}
-
+	const rowsByUuid = new Map(rows.map((row) => [row.uuid, row] as const));
 	const parts: JsonRecord[] = [];
-	const targetUuids: string[] = [];
-	let clearedTokenIndex: number | undefined;
-	let cursor = 0;
-	let tokenIndex = 0;
 	const appendText = (text: string): void => {
 		if (text.length === 0) return;
 		const previous = parts.at(-1);
@@ -102,39 +71,47 @@ function deriveLabelReplacement(
 			parts.push({ kind: "text", text });
 		}
 	};
-
-	for (const match of source.matchAll(HASHTAG)) {
-		const start = match.index;
-		invariant(start !== undefined, "label token has no source offset");
-		appendText(source.slice(cursor, start));
-		const token = match[0];
-		const [namespace, ...segments] = token.slice(1).split("/");
-		const matches =
-			namespace === "form" ? (fieldsByPath.get(segments.join("/")) ?? []) : [];
-		if (matches.length === 1) {
-			const uuid = matches[0];
-			invariant(uuid !== undefined, "exact label target disappeared");
-			parts.push({ kind: "field-ref", uuid });
-			targetUuids.push(uuid);
-		} else {
+	let cursor = 0;
+	for (const span of repair.replacementParts) {
+		invariant(
+			span.startByte >= cursor &&
+				span.endByte > span.startByte &&
+				span.endByte <= sourceBytes.length,
+			"label repair span inventory drifted",
+		);
+		const textBytes = sourceBytes.subarray(cursor, span.startByte);
+		const text = textBytes.toString("utf8");
+		invariant(
+			Buffer.from(text, "utf8").equals(textBytes),
+			"label repair text span splits a UTF-8 code point",
+		);
+		appendText(text);
+		const tokenBytes = sourceBytes.subarray(span.startByte, span.endByte);
+		invariant(
+			rawUtf8Digest(tokenBytes) === span.sourceDigest,
+			"label repair source span drifted",
+		);
+		if (span.replacement !== null) {
+			const target = rowsByUuid.get(span.replacement.uuid);
 			invariant(
-				matches.length === 0 && clearedTokenIndex === undefined,
-				"label repair target became ambiguous or gained a second miss",
+				target?.kind === "field",
+				"label repair target identity disappeared",
 			);
-			clearedTokenIndex = tokenIndex;
+			parts.push({
+				kind: span.replacement.kind,
+				uuid: span.replacement.uuid,
+			});
 		}
-		cursor = start + token.length;
-		tokenIndex++;
+		cursor = span.endByte;
 	}
-	appendText(source.slice(cursor));
+	const tailBytes = sourceBytes.subarray(cursor);
+	const tail = tailBytes.toString("utf8");
 	invariant(
-		tokenIndex === 6 &&
-			targetUuids.length === 5 &&
-			new Set(targetUuids).size === 5 &&
-			clearedTokenIndex !== undefined,
-		"label no longer has the reviewed five-target/one-clear shape",
+		Buffer.from(tail, "utf8").equals(tailBytes),
+		"label repair tail splits a UTF-8 code point",
 	);
-	return { replacement: { parts }, targetUuids, clearedTokenIndex };
+	appendText(tail);
+	return { parts };
 }
 
 function snapshotDigest(snapshot: LegacyAppSnapshot): string {
@@ -211,6 +188,7 @@ export interface FrozenRepairResult {
 		readonly beforeDigest: string;
 		readonly afterDigest: string;
 	}[];
+	readonly deletedApps: 1;
 	readonly deletedRows: number;
 	readonly appendedProperties: number;
 	readonly repairedLabelTokens: number;
@@ -228,6 +206,23 @@ export function applyFrozenCanonicalIdentityRepair(
 		invariant(!byDigest.has(digest), `app digest collision at ${digest}`);
 		byDigest.set(digest, snapshot);
 	}
+	const projectOrphan = byDigest.get(FROZEN_PROJECT_ORPHAN_APP_ID_DIGEST);
+	invariant(projectOrphan !== undefined, "Project orphan app disappeared");
+	invariant(
+		snapshotDigest(projectOrphan) ===
+			FROZEN_PROJECT_ORPHAN_LEGACY_SNAPSHOT_DIGEST,
+		"Project orphan legacy snapshot drifted",
+	);
+	invariant(
+		projectOrphan.rows.length === 0,
+		"Project orphan gained a Blueprint entity",
+	);
+	byDigest.delete(FROZEN_PROJECT_ORPHAN_APP_ID_DIGEST);
+	const survivingSnapshots = snapshots.filter(
+		(snapshot) =>
+			canonicalIdentityDigest(snapshot.appId) !==
+			FROZEN_PROJECT_ORPHAN_APP_ID_DIGEST,
+	);
 
 	const expectedAffected = new Map(
 		CANONICAL_IDENTITY_AFFECTED_APPS.map(
@@ -246,7 +241,7 @@ export function applyFrozenCanonicalIdentityRepair(
 		);
 	}
 
-	const preFindings = snapshots.flatMap((snapshot) =>
+	const preFindings = survivingSnapshots.flatMap((snapshot) =>
 		planCanonicalAppMigration(snapshot).findings.map((finding) => ({
 			appDigest: canonicalIdentityDigest(snapshot.appId),
 			...finding,
@@ -287,7 +282,7 @@ export function applyFrozenCanonicalIdentityRepair(
 					)) {
 						invariant(
 							!targets.has(reference),
-							`reachable ${occurrence.id} points at deleted row ${reference}`,
+							`reachable ${occurrence.id} points at deleted row ${canonicalIdentityDigest(reference)}`,
 						);
 					}
 				});
@@ -361,14 +356,17 @@ export function applyFrozenCanonicalIdentityRepair(
 			`row-delete app ${appDigest} disappeared`,
 		);
 		const row = snapshot.rows.find((candidate) => candidate.uuid === rowUuid);
-		invariant(row !== undefined, `row-delete source ${rowUuid} disappeared`);
+		invariant(
+			row !== undefined,
+			`row-delete source ${canonicalIdentityDigest(rowUuid)} disappeared`,
+		);
 		invariant(
 			canonicalIdentityDigest(row) === rowDigest,
-			`row-delete source ${rowUuid} drifted`,
+			`row-delete source ${canonicalIdentityDigest(rowUuid)} drifted`,
 		);
 		invariant(
 			row.kind === "field" && row.parentUuid === null,
-			`row-delete source ${rowUuid} is no longer the reviewed orphan`,
+			`row-delete source ${canonicalIdentityDigest(rowUuid)} is no longer the reviewed orphan`,
 		);
 		snapshot.rows = snapshot.rows.filter(
 			(candidate) => candidate.uuid !== rowUuid,
@@ -388,21 +386,12 @@ export function applyFrozenCanonicalIdentityRepair(
 				canonicalIdentityDigest(source) === repair.sourceDigest,
 			"label repair source bytes drifted",
 		);
-		const derived = deriveLabelReplacement(source, owner, snapshot.rows);
+		const replacement = exactLabelReplacement(source, snapshot.rows);
 		invariant(
-			derived.clearedTokenIndex === repair.clearedTokenIndex,
-			"label clear occurrence drifted",
-		);
-		invariant(
-			JSON.stringify(derived.targetUuids) ===
-				JSON.stringify(repair.exactTargetUuids),
-			"label exact target identities drifted",
-		);
-		invariant(
-			canonicalIdentityDigest(derived.replacement) === repair.replacementDigest,
+			canonicalIdentityDigest(replacement) === repair.replacementDigest,
 			"label replacement AST drifted",
 		);
-		owner.data.label = derived.replacement;
+		owner.data.label = replacement;
 	}
 
 	for (const clear of CANONICAL_IDENTITY_CATALOG_CLEARS) {
@@ -425,7 +414,7 @@ export function applyFrozenCanonicalIdentityRepair(
 		delete property[clear.slot];
 	}
 
-	const postFindings = snapshots.flatMap((snapshot) =>
+	const postFindings = survivingSnapshots.flatMap((snapshot) =>
 		planCanonicalAppMigration(snapshot).findings.map((finding) => ({
 			appDigest: canonicalIdentityDigest(snapshot.appId),
 			...finding,
@@ -450,20 +439,22 @@ export function applyFrozenCanonicalIdentityRepair(
 			};
 		},
 	);
-	const resultDigest = canonicalIdentityDigest(
-		affected.map(({ appDigest, afterDigest }) => ({
+	const resultDigest = canonicalIdentityDigest({
+		affected: affected.map(({ appDigest, afterDigest }) => ({
 			appDigest,
 			afterDigest,
 		})),
-	);
+		deletedProjectOrphan: FROZEN_PROJECT_ORPHAN_APP_ID_DIGEST,
+	});
 	invariant(
 		resultDigest === CANONICAL_IDENTITY_REPAIR_RESULT_DIGEST,
 		"complete repair result digest drifted",
 	);
 	return {
 		version: CANONICAL_IDENTITY_REPAIR_VERSION,
-		snapshots,
+		snapshots: survivingSnapshots,
 		affected,
+		deletedApps: 1,
 		deletedRows: CANONICAL_IDENTITY_ROW_DELETES.length,
 		appendedProperties: CANONICAL_IDENTITY_PROPERTY_PROJECTIONS.length,
 		repairedLabelTokens: 1,

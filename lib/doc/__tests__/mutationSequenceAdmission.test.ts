@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
-import { batchTargetsMissing } from "@/lib/db/commitGuard";
+import { mutationTargetsInvalid } from "@/lib/db/commitGuard";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
@@ -414,7 +414,7 @@ describe("mutation sequence admission", () => {
 			const { doc } = shared;
 			const admission = mutationSequenceAdmissionIssue(doc, [mutation]);
 			expect(admission?.anchor).not.toBeUndefined();
-			expect(batchTargetsMissing(doc, [mutation])).toBe(true);
+			expect(mutationTargetsInvalid(doc, [mutation])).toBe(true);
 			const verdict = mutationCommitVerdict(
 				doc,
 				[mutation],
@@ -422,7 +422,7 @@ describe("mutation sequence admission", () => {
 			);
 			expect(verdict.ok).toBe(false);
 			if (verdict.ok) return;
-			expect(verdict.introduced.map((finding) => finding.code)).toEqual([
+			expect(verdict.findings.map((finding) => finding.code)).toEqual([
 				"MUTATION_SEQUENCE_ANCHOR_INVALID",
 			]);
 		},
@@ -458,7 +458,7 @@ describe("mutation sequence admission", () => {
 			},
 		];
 		expect(mutationSequenceAdmissionIssue(fx.doc, mutations)).toBeUndefined();
-		expect(batchTargetsMissing(fx.doc, mutations)).toBe(false);
+		expect(mutationTargetsInvalid(fx.doc, mutations)).toBe(false);
 	});
 
 	it("keeps operation birth as the one explicit append-only sequence arm", () => {

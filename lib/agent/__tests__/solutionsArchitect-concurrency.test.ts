@@ -26,6 +26,7 @@
 import { produce } from "immer";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { caseListConfig } from "@/lib/__tests__/docHelpers";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { BlueprintDoc, Field, Form, Module } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
@@ -79,19 +80,22 @@ function makeDoc(): BlueprintDoc {
 		id: "patient",
 		name: "Patient",
 		caseType: "patient",
+		caseListConfig: caseListConfig([
+			{ field: "case_name", header: "Patient name" },
+		]),
 	};
 	const form: Form = {
 		uuid: FORM,
 		id: "enroll",
 		name: "Enroll Patient",
-		type: "registration",
+		type: "followup",
 	};
 	const field: Field = {
 		uuid: SEED_FIELD,
 		id: "case_name",
 		kind: "text",
 		label: proseText("Patient name"),
-		case_property_on: "case_name",
+		caseWrite: { caseType: "patient", property: "case_name" },
 	} as Field;
 	return {
 		appId: "test-app",

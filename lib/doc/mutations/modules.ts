@@ -10,7 +10,6 @@ import {
 	caseSearchConfigHasAuthoredSettings,
 	emptyCaseListConfig,
 	isOwnerOnlyCaseSearchConfig,
-	normalizeOwnerOnlyCaseSearchConfig,
 } from "@/lib/domain";
 import { effectiveFilterForEmission } from "@/lib/domain/predicate";
 import { cascadeDeleteForm } from "./helpers";
@@ -141,16 +140,20 @@ export function applyModuleMutation(
 						([, next]) => next === null || next === undefined,
 					);
 					if (mod.caseSearchConfig === undefined && clearOnly) continue;
-					const fresh = mod.caseSearchConfig ?? {};
+					const fresh =
+						mod.caseSearchConfig === undefined
+							? {}
+							: isOwnerOnlyCaseSearchConfig(mod.caseSearchConfig)
+								? {
+										excludedOwnerIds: mod.caseSearchConfig.excludedOwnerIds,
+									}
+								: mod.caseSearchConfig;
 					const targetSearch = fresh as unknown as Record<string, unknown>;
 					for (const [slot, next] of entries) {
 						if (next === null || next === undefined) delete targetSearch[slot];
 						else targetSearch[slot] = structuredClone(next);
 					}
-					if (
-						fresh.searchActionEnabled === false &&
-						!caseSearchConfigHasAuthoredSettings(fresh)
-					) {
+					if (!caseSearchConfigHasAuthoredSettings(fresh)) {
 						delete mod.caseSearchConfig;
 					} else {
 						mod.caseSearchConfig = fresh;
@@ -162,18 +165,19 @@ export function applyModuleMutation(
 					if (operation === "set-owner-only") {
 						const desiredOwnerIds = mut.caseSearchConfigValue?.excludedOwnerIds;
 						if (desiredOwnerIds === undefined) continue;
-						const freshRaw = mod.caseSearchConfig;
-						const fresh =
-							freshRaw === undefined
-								? undefined
-								: normalizeOwnerOnlyCaseSearchConfig(freshRaw);
+						const fresh = mod.caseSearchConfig;
 						const searchIsFreshlyEnabled =
 							(mod.caseListConfig?.searchInputs.length ?? 0) > 0 ||
 							(fresh !== undefined && !isOwnerOnlyCaseSearchConfig(fresh));
 						if (searchIsFreshlyEnabled) {
 							// Same-slot owner edits are last-writer-wins, while every peer Search
 							// setting and the peer's enabled action state survive this stale edit.
-							const { searchActionEnabled: _intent, ...enabled } = fresh ?? {};
+							const enabled =
+								fresh === undefined
+									? {}
+									: isOwnerOnlyCaseSearchConfig(fresh)
+										? { excludedOwnerIds: fresh.excludedOwnerIds }
+										: fresh;
 							mod.caseSearchConfig = {
 								...enabled,
 								excludedOwnerIds: desiredOwnerIds,
@@ -192,11 +196,9 @@ export function applyModuleMutation(
 						if (mod.caseSearchConfig === undefined) {
 							mod.caseSearchConfig = {};
 						} else if (isOwnerOnlyCaseSearchConfig(mod.caseSearchConfig)) {
-							const normalized = normalizeOwnerOnlyCaseSearchConfig(
-								mod.caseSearchConfig,
-							);
-							const { searchActionEnabled: _disabled, ...enabled } = normalized;
-							mod.caseSearchConfig = enabled;
+							mod.caseSearchConfig = {
+								excludedOwnerIds: mod.caseSearchConfig.excludedOwnerIds,
+							};
 						}
 						continue;
 					}
@@ -206,7 +208,7 @@ export function applyModuleMutation(
 						// synthetic unused marker is safe to remove.
 						if (
 							mod.caseSearchConfig !== undefined &&
-							mod.caseSearchConfig.searchActionEnabled !== false &&
+							!isOwnerOnlyCaseSearchConfig(mod.caseSearchConfig) &&
 							!caseSearchConfigHasAuthoredSettings(mod.caseSearchConfig) &&
 							(mod.caseListConfig?.searchInputs.length ?? 0) === 0 &&
 							effectiveFilterForEmission(mod.caseListConfig?.filter) ===
@@ -237,9 +239,7 @@ export function applyModuleMutation(
 						mod.caseSearchConfig !== undefined &&
 						isOwnerOnlyCaseSearchConfig(mod.caseSearchConfig)
 					) {
-						mod.caseSearchConfig = normalizeOwnerOnlyCaseSearchConfig(
-							mod.caseSearchConfig,
-						);
+						continue;
 					}
 					const config = mod.caseSearchConfig;
 					if (config === undefined) continue;
@@ -252,11 +252,13 @@ export function applyModuleMutation(
 						effectiveFilterForEmission(mod.caseListConfig?.filter) !==
 						undefined;
 					if (hasSearchActionSetting || hasCasesAvailableCondition) {
-						delete config.searchActionEnabled;
 						continue;
 					}
 					if (config.excludedOwnerIds !== undefined) {
-						config.searchActionEnabled = false;
+						mod.caseSearchConfig = {
+							searchActionEnabled: false,
+							excludedOwnerIds: config.excludedOwnerIds,
+						};
 						continue;
 					}
 					delete mod.caseSearchConfig;
@@ -433,7 +435,7 @@ export function applyModuleMutation(
 		case "setCaseListMeta": {
 			// Edit the metadata of an EXISTING config — never births one. A
 			// module whose config a peer concurrently cleared is a MISSING target
-			// (the guarded commit's `batchTargetsMissing` turns this into a 409
+			// (the guarded commit's `mutationTargetsInvalid` turns this into a 409
 			// reload), not a config to resurrect empty: reading the config directly
 			// (not the semantic config ensure) leaves this a no-op if the guard is ever
 			// bypassed, so a removed case list can't reappear as `{columns:[],

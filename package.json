@@ -155,7 +155,6 @@
 		"google-auth-library": "^10.9.0",
 		"happy-dom": "^20.10.6",
 		"lefthook": "^2.1.10",
-		"oxc-parser": "0.132.0",
 		"pg": "^8.22.0",
 		"react-scan": "^0.5.3",
 		"tailwindcss": "^4",

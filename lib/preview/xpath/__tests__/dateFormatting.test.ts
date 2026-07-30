@@ -1,5 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { formatCommCareDate, formatTimezoneOffset } from "../dateFormatting";
+import {
+	formatCommCareDate,
+	formatConcreteCommCareDate,
+	formatTimezoneOffset,
+} from "../dateFormatting";
 import { XPathDate } from "../types";
 
 const originalTimeZone = process.env.TZ;
@@ -38,6 +42,15 @@ describe("formatCommCareDate", () => {
 		expect(formatCommCareDate(requireDate("2026-07-14"), preset)).toEqual({
 			kind: "formatted",
 			text: expected,
+		});
+	});
+
+	it("keeps the concrete column vocabulary distinct from semantic presets", () => {
+		expect(
+			formatConcreteCommCareDate(requireDate("2026-07-14"), "short"),
+		).toEqual({
+			kind: "formatted",
+			text: "short",
 		});
 	});
 

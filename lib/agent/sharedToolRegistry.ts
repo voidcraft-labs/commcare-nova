@@ -25,6 +25,7 @@ import { removeCaseOperationTool } from "@/lib/agent/tools/case-operations/remov
 import { updateCaseOperationTool } from "@/lib/agent/tools/case-operations/updateCaseOperation";
 import { setCaseSearchAdvancedTool } from "@/lib/agent/tools/case-search-config/setCaseSearchAdvanced";
 import { setCaseSearchDisplayTool } from "@/lib/agent/tools/case-search-config/setCaseSearchDisplay";
+import { configureConnectTool } from "@/lib/agent/tools/configureConnect";
 import { createFormTool } from "@/lib/agent/tools/createForm";
 import { createModuleTool } from "@/lib/agent/tools/createModule";
 import { editFieldTool } from "@/lib/agent/tools/editField";
@@ -42,6 +43,7 @@ import { moveFieldTool } from "@/lib/agent/tools/moveField";
 import { removeFieldTool } from "@/lib/agent/tools/removeField";
 import { removeFormTool } from "@/lib/agent/tools/removeForm";
 import { removeModuleTool } from "@/lib/agent/tools/removeModule";
+import { renameCasePropertiesTool } from "@/lib/agent/tools/renameCaseProperties";
 import { searchBlueprintTool } from "@/lib/agent/tools/searchBlueprint";
 import { updateAppTool } from "@/lib/agent/tools/updateApp";
 import { updateFormTool } from "@/lib/agent/tools/updateForm";
@@ -73,6 +75,12 @@ export const SHARED_TOOL_REGISTRY = [
 		saName: "addFields",
 		mcpName: "add_fields",
 		tool: addFieldsTool,
+		requires: "edit",
+	},
+	{
+		saName: "configureConnect",
+		mcpName: "configure_connect",
+		tool: configureConnectTool,
 		requires: "edit",
 	},
 	{
@@ -145,6 +153,12 @@ export const SHARED_TOOL_REGISTRY = [
 		saName: "removeModule",
 		mcpName: "remove_module",
 		tool: removeModuleTool,
+		requires: "edit",
+	},
+	{
+		saName: "renameCaseProperties",
+		mcpName: "rename_case_properties",
+		tool: renameCasePropertiesTool,
 		requires: "edit",
 	},
 	{

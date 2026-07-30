@@ -12,20 +12,20 @@ import {
 	imageMapEntry,
 	plainColumn,
 	type SearchInputDef,
-	simpleSearchInputDef,
 } from "@/lib/domain";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import {
+	dateAdd,
 	eq,
-	isNull,
+	isBlank,
 	literal,
 	matchAll,
+	now,
 	type Predicate,
 	prop,
 	sessionContext,
 	tableLookup,
 	term,
-	unwrapList,
 } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
 import { caseWorkspaceBoundaryVerdicts } from "../commitVerdicts";
@@ -44,7 +44,7 @@ const form = {
 			kind: "text" as const,
 			id: "case_name",
 			label: "Name",
-			case_property_on: "client",
+			caseWrite: { caseType: "client", property: "case_name" },
 		}),
 	],
 };
@@ -120,7 +120,7 @@ describe("caseWorkspaceBoundaryVerdicts", () => {
 	it("attributes Search-action and row-dependent assigned-case findings to different surfaces", () => {
 		const doc = docWith({
 			caseSearchConfig: {
-				searchButtonDisplayCondition: isNull(prop("client", "case_name")),
+				searchButtonDisplayCondition: isBlank(prop("client", "case_name")),
 				// Text-typed on purpose: this is broken because the global setting
 				// has no case row, not because the result type is wrong.
 				excludedOwnerIds: term(prop("client", "case_name")),
@@ -156,7 +156,7 @@ describe("caseWorkspaceBoundaryVerdicts", () => {
 				calculatedColumn(
 					CALCULATED_UUID,
 					"Tags",
-					unwrapList(term(prop("client", "tags"))),
+					dateAdd(now(), "months", term(literal(1))),
 				),
 			],
 		});
@@ -213,32 +213,6 @@ describe("caseWorkspaceBoundaryVerdicts", () => {
 				LOOKUP_CONTEXT_UNAVAILABLE,
 			).brokenColumnUuids,
 		).toContain(columnUuid);
-	});
-
-	it("marks search inputs broken for a range mode on a single-value widget", () => {
-		// `CASE_LIST_SIMPLE_INPUT_VIA_INCOMPATIBLE_MODE` gates the commit;
-		// the workspace's Search surface must mirror it.
-		const doc = docWith({
-			searchInputs: [
-				simpleSearchInputDef(
-					testUuid("age-range-input"),
-					"age",
-					"Age",
-					"text",
-					"age",
-					{ mode: { kind: "range" } },
-				),
-			],
-			caseSearchConfig: {},
-		});
-
-		expect(
-			caseWorkspaceBoundaryVerdicts(
-				doc,
-				MODULE_UUID,
-				LOOKUP_CONTEXT_UNAVAILABLE,
-			).searchInputsBroken,
-		).toBe(true);
 	});
 
 	it("does not apply the remote-query restriction to an on-device-only filter", () => {

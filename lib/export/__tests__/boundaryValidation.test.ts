@@ -58,13 +58,13 @@ function validDoc() {
 								kind: "text",
 								id: "case_name",
 								label: proseText("Name"),
-								case_property_on: "patient",
+								caseWrite: { caseType: "patient", property: "case_name" },
 							}),
 							f({
 								kind: "text",
 								id: "village",
 								label: proseText("Village"),
-								case_property_on: "patient",
+								caseWrite: { caseType: "patient", property: "village" },
 							}),
 						],
 					},
@@ -396,7 +396,7 @@ describe("prepareExportBoundary", () => {
 		if (!result.ok) throw new Error("expected prepared ccz export");
 		const wire = result.prepared.lookupWire;
 		expect(wire).toBeDefined();
-		expect(wire?.naming.tableFor(CARRIER_TABLE).instanceId).toBe(
+		expect(wire?.naming.tableFor(CARRIER_TABLE).fixtureId).toBe(
 			"item-list:statuses",
 		);
 		expect(wire?.fixtures.fixtures.map((fixture) => fixture.xml)).toEqual([

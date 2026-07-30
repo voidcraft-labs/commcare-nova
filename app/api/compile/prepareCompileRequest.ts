@@ -64,11 +64,9 @@ export async function prepareCompileRequest(
 	const access = await resolveAppAccess(appId, session.user.id, "view");
 	const { app } = access;
 
-	// The shared hydration chokepoint: fieldParent rebuilt + the
-	// deterministic `order`/option-`uuid` backfill a legacy stored doc needs,
-	// so the wire the compiler emits reflects the SAME display sequence the
-	// builder shows (a partially-keyed legacy doc otherwise sorts keyed-ahead-
-	// of-keyless and the export order diverges from the canvas).
+	// Hydration rebuilds derived in-memory indexes on the already-canonical
+	// persisted document. It does not backfill or admit an alternate stored
+	// representation.
 	const docWithParent = hydratePersistedBlueprint(
 		app.blueprint as PersistableDoc,
 	);

@@ -18,9 +18,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	type BlueprintDoc,
+	type CaseSearchConfig,
 	caseSearchConfigSchema,
-	emptyCaseListConfig,
+	isOrdinaryCaseSearchConfig,
+	isOwnerOnlyCaseSearchConfig,
 	type Module,
+	type OrdinaryCaseSearchConfig,
+	type OwnerOnlyCaseSearchConfig,
 } from "@/lib/domain";
 import { matchAll, prop, term } from "@/lib/domain/predicate";
 import { setCaseSearchAdvancedTool } from "../setCaseSearchAdvanced";
@@ -32,12 +36,35 @@ import {
 
 const MISSING_MODULE = testUuid("missing-case-search-module");
 
+function ordinary(
+	config: CaseSearchConfig | undefined,
+): OrdinaryCaseSearchConfig {
+	if (!isOrdinaryCaseSearchConfig(config)) {
+		throw new Error("expected ordinary Search config");
+	}
+	return config;
+}
+
+function ownerOnly(
+	config: CaseSearchConfig | undefined,
+): OwnerOnlyCaseSearchConfig {
+	if (!isOwnerOnlyCaseSearchConfig(config)) {
+		throw new Error("expected owner-only Search config");
+	}
+	return config;
+}
+
 vi.mock("@/lib/db/apps", () => ({
 	completeApp: vi.fn(() => Promise.resolve()),
 }));
 
 vi.mock("@/lib/db/applyBlueprintChange", () => ({
-	applyBlueprintChange: vi.fn(() => Promise.resolve({ seq: 0 })),
+	applyBlueprintChange: vi.fn(async (args) => {
+		const { commitApplyBlueprintChangeTestBatch } = await import(
+			"@/lib/db/__tests__/applyBlueprintChangeTestWriter"
+		);
+		return commitApplyBlueprintChangeTestBatch(args);
+	}),
 }));
 
 beforeEach(() => {
@@ -50,7 +77,7 @@ describe("setCaseSearchAdvanced", () => {
 		const result = await setCaseSearchAdvancedTool.execute(
 			{
 				moduleUuid: MOD_A,
-				excludedOwnerIds: term(prop("patient", "name")),
+				excludedOwnerIds: term(prop("patient", "external_id")),
 			},
 			ctx,
 			doc,
@@ -139,8 +166,7 @@ describe("setCaseSearchAdvanced", () => {
 		);
 
 		const config = result.newDoc.modules[MOD_A]?.caseSearchConfig;
-		expect(config?.excludedOwnerIds).toBeUndefined();
-		expect(config && "excludedOwnerIds" in config).toBe(false);
+		expect(config).toBeUndefined();
 		if ("error" in result.result) {
 			throw new Error(`unexpected error: ${result.result.error}`);
 		}
@@ -181,12 +207,13 @@ describe("setCaseSearchAdvanced", () => {
 		);
 
 		const config = result.newDoc.modules[MOD_A]?.caseSearchConfig;
-		expect(config?.searchScreenTitle).toBe("Find a patient");
-		expect(config?.searchScreenSubtitle).toBe("Type to filter");
-		expect(config?.searchButtonLabel).toBe("Search");
-		expect(config?.searchButtonDisplayCondition).toEqual(matchAll());
+		const search = ordinary(config);
+		expect(search.searchScreenTitle).toBe("Find a patient");
+		expect(search.searchScreenSubtitle).toBe("Type to filter");
+		expect(search.searchButtonLabel).toBe("Search");
+		expect(search.searchButtonDisplayCondition).toEqual(matchAll());
 		// Advanced cluster updated.
-		expect(config?.excludedOwnerIds).toBeDefined();
+		expect(search.excludedOwnerIds).toBeDefined();
 	});
 
 	it("returns an Elm-style error for an unknown module UUID", async () => {
@@ -228,20 +255,24 @@ describe("setCaseSearchAdvanced", () => {
 		);
 
 		const config = result.newDoc.modules[MOD_A]?.caseSearchConfig;
-		expect(config).toBeDefined();
-		expect(config?.excludedOwnerIds).toBeDefined();
-		expect(config?.searchActionEnabled).toBeUndefined();
+		expect(ordinary(config).excludedOwnerIds).toBeDefined();
 	});
 
 	it("marks a fresh owner-only rule as not authoring Search", async () => {
 		const { doc: baseDoc, ctx } = makeCaseSearchFixture();
 		const mod = baseDoc.modules[MOD_A];
+		if (mod?.caseListConfig === undefined) {
+			throw new Error("fixture must carry a case-list config");
+		}
 		const ownerOnlyDoc: BlueprintDoc = {
 			...baseDoc,
 			modules: {
 				[MOD_A]: {
 					...mod,
-					caseListConfig: emptyCaseListConfig(),
+					caseListConfig: {
+						...mod.caseListConfig,
+						searchInputs: [],
+					},
 					caseSearchConfig: undefined,
 				} as Module,
 			},
@@ -254,19 +285,27 @@ describe("setCaseSearchAdvanced", () => {
 			ctx,
 			ownerOnlyDoc,
 		);
-		expect(result.newDoc.modules[MOD_A]?.caseSearchConfig).toMatchObject({
-			searchActionEnabled: false,
-		});
+		expect(
+			ownerOnly(result.newDoc.modules[MOD_A]?.caseSearchConfig)
+				.searchActionEnabled,
+		).toBe(false);
 	});
 
 	it("deletes the owner-only config when its owner rule is cleared", async () => {
 		const { doc: baseDoc, ctx } = makeCaseSearchFixture();
+		const mod = baseDoc.modules[MOD_A];
+		if (mod?.caseListConfig === undefined) {
+			throw new Error("fixture must carry a case-list config");
+		}
 		const ownerOnlyDoc: BlueprintDoc = {
 			...baseDoc,
 			modules: {
 				[MOD_A]: {
-					...baseDoc.modules[MOD_A],
-					caseListConfig: emptyCaseListConfig(),
+					...mod,
+					caseListConfig: {
+						...mod.caseListConfig,
+						searchInputs: [],
+					},
 					caseSearchConfig: {
 						searchActionEnabled: false,
 						excludedOwnerIds: term({ kind: "literal", value: "owner-a" }),

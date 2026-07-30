@@ -24,11 +24,6 @@ interface FieldDesc {
 	kind: string;
 	parentUuid: Uuid;
 	childrenOrder?: Uuid[];
-	/** Fractional order key. Absent → display order falls back to array
-	 *  position (`bySortKey` treats both-absent as equal). Present → display
-	 *  order is `sort-by-(order, uuid)`, which a reorder can diverge from the
-	 *  membership array. */
-	order?: string;
 }
 
 function buildDoc(formUuid: Uuid, descs: FieldDesc[]): BlueprintDoc {
@@ -46,7 +41,6 @@ function buildDoc(formUuid: Uuid, descs: FieldDesc[]): BlueprintDoc {
 			uuid: d.uuid,
 			id: d.id,
 			kind: d.kind,
-			...(d.order !== undefined && { order: d.order }),
 		} as unknown as Field;
 		fieldParent[d.uuid] = d.parentUuid;
 

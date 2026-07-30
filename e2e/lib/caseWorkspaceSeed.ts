@@ -328,7 +328,7 @@ export function buildCaseWorkspaceBlueprint(appId: string): BlueprintDoc {
 								kind: "text",
 								id: "visit_note",
 								label: proseText("Visit note"),
-								case_property_on: ids.caseType,
+								caseWrite: { caseType: ids.caseType, property: "visit_note" },
 							}),
 							// The two answers whose stored shape a native browser
 							// input cannot render: a datetime carries a zone
@@ -339,13 +339,16 @@ export function buildCaseWorkspaceBlueprint(appId: string): BlueprintDoc {
 								kind: "datetime",
 								id: "visit_started",
 								label: proseText("Visit started"),
-								case_property_on: ids.caseType,
+								caseWrite: {
+									caseType: ids.caseType,
+									property: "visit_started",
+								},
 							}),
 							f({
 								kind: "time",
 								id: "next_dose",
 								label: proseText("Next dose"),
-								case_property_on: ids.caseType,
+								caseWrite: { caseType: ids.caseType, property: "next_dose" },
 							}),
 						],
 					},

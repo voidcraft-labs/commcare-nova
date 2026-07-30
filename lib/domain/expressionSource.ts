@@ -16,15 +16,14 @@
 // (`predicate-ast`) or a bare name ref, so there is no expression
 // source text to read.
 //
-// Reads are TOTAL over the stored value and SHAPE-DRIVEN: a string
-// slot returns its stored text; an AST slot (`lib/domain/xpath`)
-// returns its PRINTED projection — identity leaves resolve against
-// the doc at read time, which is how a renamed field's new name
-// reaches every expression with no slot rewrite. Anything else
-// (including a string parked in a slot a degenerate doc never
-// migrated) reads as the string it is, so hand-built or partial docs
-// that bypass Zod behave exactly as before. Applicability gating
-// lives only in the registry-projection iterator
+// Reads are TOTAL over the stored value and SHAPE-DRIVEN. XPath slots
+// accept only `XPathExpression`; prose slots accept only
+// `ProseTemplate`. Each prints its current source projection —
+// identity leaves resolve against the doc at read time, which is how
+// a renamed field's new name reaches every expression with no slot
+// rewrite. Any other stored shape reads as absent, so a hand-built
+// string can never become a second live expression representation.
+// Applicability gating lives only in the registry-projection iterator
 // (`expressionSurfaceReads`), whose callers want "the slots a field
 // of this kind carries".
 
@@ -153,7 +152,7 @@ export const CONNECT_XPATH_SLOT_IDS: readonly ScalarFormExpressionSlotId[] =
  * Is `key` the id of a scalar field expression slot? The narrowing
  * `readFieldString` (the emitters' shared accessor) uses to decide
  * whether a requested key delegates here or stays a plain
- * non-expression property read (`case_property_on`, ids).
+ * non-expression property read (`caseWrite`, ids).
  */
 export function isScalarFieldExpressionSlotId(
 	key: string,
@@ -161,14 +160,14 @@ export function isScalarFieldExpressionSlotId(
 	return SCALAR_FIELD_EXPRESSION_SLOT_IDS.has(key);
 }
 
-/** Project one stored slot value to source text: strings verbatim,
- *  expression ASTs printed against `doc`, anything else absent. */
+/** Project one canonical stored slot value to source text. Expression slots
+ * are AST-only; an unexpected non-AST shape is absent rather than becoming a
+ * second live string representation. */
 function projectSlotValue(
 	value: unknown,
 	doc: XPathPrintableDoc,
 	kind: FieldExpressionSlotEntry["kind"],
 ): string | undefined {
-	if (typeof value === "string") return value;
 	if (kind === "prose" && isProseTemplate(value)) {
 		return printProseTemplate(value, doc);
 	}
@@ -179,15 +178,14 @@ function projectSlotValue(
 }
 
 /** Human/validator projection of one slot. Unlike the strict runtime/wire
- * accessor above, an unresolved identity returns repair text so validation can
- * report the dangling carrier instead of throwing before it reaches the deep
- * reference rule. */
+ * accessor above, an unresolved identity returns ephemeral repair text so the
+ * editor and validator can identify the dangling carrier. That text is never
+ * stored or emitted. */
 function projectSlotValueForInspection(
 	value: unknown,
 	doc: XPathPrintableDoc,
 	kind: FieldExpressionSlotEntry["kind"],
 ): string | undefined {
-	if (typeof value === "string") return value;
 	if (kind === "prose" && isProseTemplate(value)) {
 		return projectProseTemplate(value, doc).text;
 	}
@@ -199,8 +197,8 @@ function projectSlotValueForInspection(
 
 /**
  * The source text a scalar expression slot reads as, or `undefined`
- * when the slot is absent. String slots read verbatim; AST slots
- * print against `doc` (identity leaves resolve to current names).
+ * when the slot is absent. AST slots print against `doc` (identity
+ * leaves resolve to current names).
  * The empty string / empty expression is a real stored value and is
  * returned as-is — blank-skip policy belongs to callers.
  */
@@ -352,9 +350,7 @@ export function expressionSurfaceReads(
 					? projectXPath(value, xpathPrintContext(doc)).text
 					: entry.kind === "prose" && isProseTemplate(value)
 						? projectProseTemplate(value, doc).text
-						: typeof value === "string"
-							? value
-							: undefined;
+						: undefined;
 			if (text !== undefined) {
 				reads.push({
 					slot: entry.slot,

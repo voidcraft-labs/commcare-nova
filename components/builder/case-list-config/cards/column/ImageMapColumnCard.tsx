@@ -24,6 +24,7 @@ import { INSPECTOR_LABEL_CLS } from "@/components/builder/inspector/inspectorChr
 import { SingleAssetSlot } from "@/components/builder/media/MediaSlot";
 import { BlurCommitTextInput } from "@/components/builder/shared/primitives/BlurCommitTextInput";
 import { useStableListIdentity } from "@/components/builder/shared/useStableListIdentity";
+import { Input } from "@/components/shadcn/input";
 import {
 	type Column,
 	type ImageMapEntry,
@@ -61,6 +62,7 @@ export function ImageMapColumnCard({
 		sort: value.sort,
 		visibleInList: value.visibleInList,
 		visibleInDetail: value.visibleInDetail,
+		tile: value.tile,
 	};
 	const setField = (next: string) =>
 		onChange(
@@ -75,12 +77,18 @@ export function ImageMapColumnCard({
 			imageMapColumn(value.uuid, value.field, value.header, next, slots),
 		);
 
-	const updateEntry = (index: number, patch: Partial<ImageMapEntry>) => {
+	const updateEntry = (
+		index: number,
+		patch: Partial<ImageMapEntry>,
+	): string | null => {
 		const next = value.mapping.map((entry, entryIndex) =>
 			entryIndex === index ? { ...entry, ...patch } : entry,
 		);
+		const issue = imageMapValueIssue(next[index]?.value ?? "", next, index);
+		if (issue !== null) return issue;
 		rowIdentity.stage(next, { kind: "replace" });
 		setMapping(next);
+		return null;
 	};
 
 	const removeEntry = (index: number) => {
@@ -186,10 +194,13 @@ export function ImageMapColumnCard({
 						<div className="grid grid-cols-1 gap-3">
 							<div>
 								<div className={`mb-2 ${INSPECTOR_LABEL_CLS}`}>Saved value</div>
-								<BlurCommitTextInput
+								<Input
+									type="text"
 									value={pendingValue}
-									onCommit={setPendingValue}
-									ariaLabel={`Value ${value.mapping.length + 1} saved value`}
+									onChange={(event) => setPendingValue(event.target.value)}
+									aria-label={`Value ${value.mapping.length + 1} saved value`}
+									autoComplete="off"
+									data-1p-ignore
 								/>
 							</div>
 							<div>
@@ -227,7 +238,7 @@ interface MappingRowProps {
 	readonly slotKey: string;
 	readonly isFirst: boolean;
 	readonly isLast: boolean;
-	readonly onUpdate: (patch: Partial<ImageMapEntry>) => void;
+	readonly onUpdate: (patch: Partial<ImageMapEntry>) => string | null;
 	readonly onRemove: () => void;
 	readonly onMoveUp: () => void;
 	readonly onMoveDown: () => void;
@@ -248,6 +259,7 @@ function MappingRow({
 	onMoveUp,
 	onMoveDown,
 }: MappingRowProps) {
+	const [valueIssue, setValueIssue] = useState<string | null>(null);
 	return (
 		<MappingRowShell
 			index={index}
@@ -262,9 +274,14 @@ function MappingRow({
 					<div className={`mb-2 ${INSPECTOR_LABEL_CLS}`}>Saved value</div>
 					<BlurCommitTextInput
 						value={entry.value}
-						onCommit={(next) => onUpdate({ value: next })}
+						onCommit={(next) => setValueIssue(onUpdate({ value: next }))}
 						ariaLabel={`Value ${index + 1} saved value`}
 					/>
+					{valueIssue !== null ? (
+						<p className="mt-1.5 text-[13px] leading-5 text-nova-rose">
+							{valueIssue}
+						</p>
+					) : null}
 				</div>
 				<div>
 					<div className={`mb-2 ${INSPECTOR_LABEL_CLS}`}>Image shown</div>
@@ -282,4 +299,18 @@ function MappingRow({
 			</div>
 		</MappingRowShell>
 	);
+}
+
+function imageMapValueIssue(
+	candidate: string,
+	entries: readonly ImageMapEntry[],
+	candidateIndex: number,
+): string | null {
+	if (candidate.length === 0) return "Enter a saved value.";
+	if (/\s/.test(candidate)) return "Saved values cannot contain spaces.";
+	return entries.some(
+		(entry, index) => index !== candidateIndex && entry.value === candidate,
+	)
+		? "That saved value already has an image."
+		: null;
 }

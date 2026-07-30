@@ -69,7 +69,7 @@ function fixtureDoc(appName: string, moduleName: string): BlueprintDoc {
 	};
 }
 
-/** The degenerate doc `createApp` writes before generation starts. */
+/** Defensive in-memory empty shape; persisted `createApp` never writes this. */
 function fixtureEmptyDoc(): BlueprintDoc {
 	return {
 		appId: "a-empty",
@@ -127,6 +127,11 @@ describe("buildSolutionsArchitectPrompt", () => {
 			buildSolutionsArchitectPrompt(fixtureEmptyDoc()),
 		]) {
 			expect(sp).toContain("Initial Build");
+			expect(sp).toContain("canonical survey starter");
+			expect(sp).toContain("Never reconstruct the starter or guess its UUIDs");
+			expect(sp).toContain(
+				"remove the starter only after its replacement has landed",
+			);
 			expect(sp).not.toContain("Editing Mode");
 		}
 	});

@@ -2,8 +2,8 @@
 //
 // Renders the `id-mapping` Column kind — looks up a label for
 // each property value via an explicitly-authored value→label
-// table. The runtime renders the matched label or falls back to
-// the raw value when no mapping entry matches.
+// table. The runtime renders mapped labels and leaves unmatched
+// values blank, matching CommCare's enum display.
 //
 // Slots:
 //   - `field` — case-property name. Accepts every property type;
@@ -22,9 +22,12 @@
 // cleanly.
 
 "use client";
+import { useState } from "react";
 import { INSPECTOR_LABEL_CLS } from "@/components/builder/inspector/inspectorChrome";
 import { BlurCommitTextInput } from "@/components/builder/shared/primitives/BlurCommitTextInput";
 import { useStableListIdentity } from "@/components/builder/shared/useStableListIdentity";
+import { Button } from "@/components/shadcn/button";
+import { Input } from "@/components/shadcn/input";
 import {
 	type Column,
 	type IdMappingEntry,
@@ -51,10 +54,14 @@ interface IdMappingCardProps {
 export function IdMappingCard({ value, onChange, errors }: IdMappingCardProps) {
 	const { rootRef, removeWithFocus } = useMappingRemovalFocus();
 	const rowIdentity = useStableListIdentity(value.mapping);
+	const [adding, setAdding] = useState(false);
+	const [pendingValue, setPendingValue] = useState("");
+	const [pendingLabel, setPendingLabel] = useState("");
 	const slots = {
 		sort: value.sort,
 		visibleInList: value.visibleInList,
 		visibleInDetail: value.visibleInDetail,
+		tile: value.tile,
 	};
 	const setField = (next: string) =>
 		onChange(
@@ -69,12 +76,18 @@ export function IdMappingCard({ value, onChange, errors }: IdMappingCardProps) {
 			idMappingColumn(value.uuid, value.field, value.header, next, slots),
 		);
 
-	const updateEntry = (index: number, patch: Partial<IdMappingEntry>) => {
+	const updateEntry = (
+		index: number,
+		patch: Partial<IdMappingEntry>,
+	): string | null => {
 		const next = value.mapping.map((entry, entryIndex) =>
 			entryIndex === index ? { ...entry, ...patch } : entry,
 		);
+		const issue = mappingValueIssue(next[index]?.value ?? "", next, index);
+		if (issue !== null) return issue;
 		rowIdentity.stage(next, { kind: "replace" });
 		setMapping(next);
+		return null;
 	};
 
 	const removeEntry = (index: number) => {
@@ -105,7 +118,13 @@ export function IdMappingCard({ value, onChange, errors }: IdMappingCardProps) {
 	};
 
 	const appendEntry = () => {
-		const next = [...value.mapping, idMappingEntry("", "")];
+		const issue = mappingValueIssue(
+			pendingValue,
+			value.mapping,
+			value.mapping.length,
+		);
+		if (issue !== null) return;
+		const next = [...value.mapping, idMappingEntry(pendingValue, pendingLabel)];
 		rowIdentity.stage(next, {
 			kind: "splice",
 			index: value.mapping.length,
@@ -113,7 +132,15 @@ export function IdMappingCard({ value, onChange, errors }: IdMappingCardProps) {
 			insertCount: 1,
 		});
 		setMapping(next);
+		setPendingValue("");
+		setPendingLabel("");
+		setAdding(false);
 	};
+	const pendingValueIssue = mappingValueIssue(
+		pendingValue,
+		value.mapping,
+		value.mapping.length,
+	);
 
 	return (
 		<div className="space-y-4">
@@ -128,7 +155,7 @@ export function IdMappingCard({ value, onChange, errors }: IdMappingCardProps) {
 				<MappingSectionLabel />
 				{value.mapping.length === 0 && (
 					<MappingEmptyNotice>
-						Without replacements, values appear as saved
+						Add a saved value and label to show replacement text
 					</MappingEmptyNotice>
 				)}
 				{value.mapping.map((entry, i) => (
@@ -147,7 +174,62 @@ export function IdMappingCard({ value, onChange, errors }: IdMappingCardProps) {
 						onMoveDown={() => moveEntry(i, i + 1)}
 					/>
 				))}
-				<AddMappingButton onClick={appendEntry} />
+				{adding ? (
+					<MappingRowShell
+						index={value.mapping.length}
+						isFirst
+						isLast
+						onMoveUp={() => undefined}
+						onMoveDown={() => undefined}
+						onRemove={() => {
+							setPendingValue("");
+							setPendingLabel("");
+							setAdding(false);
+						}}
+					>
+						<div className="grid grid-cols-1 gap-3">
+							<div>
+								<div className={`mb-2 ${INSPECTOR_LABEL_CLS}`}>Saved value</div>
+								<Input
+									type="text"
+									value={pendingValue}
+									onChange={(event) => setPendingValue(event.target.value)}
+									aria-label={`Value ${value.mapping.length + 1} saved value`}
+									autoComplete="off"
+									data-1p-ignore
+								/>
+								{pendingValueIssue !== null && pendingValue.length > 0 ? (
+									<p className="mt-1.5 text-[13px] leading-5 text-nova-rose">
+										{pendingValueIssue}
+									</p>
+								) : null}
+							</div>
+							<div>
+								<div className={`mb-2 ${INSPECTOR_LABEL_CLS}`}>Label shown</div>
+								<Input
+									type="text"
+									value={pendingLabel}
+									onChange={(event) => setPendingLabel(event.target.value)}
+									aria-label={`Value ${value.mapping.length + 1} display label`}
+									autoComplete="off"
+									data-1p-ignore
+								/>
+							</div>
+							<Button
+								type="button"
+								variant="secondary"
+								size="xl"
+								disabled={pendingValueIssue !== null}
+								onClick={appendEntry}
+								className="w-full"
+							>
+								Save value
+							</Button>
+						</div>
+					</MappingRowShell>
+				) : (
+					<AddMappingButton onClick={() => setAdding(true)} />
+				)}
 			</div>
 		</div>
 	);
@@ -158,7 +240,7 @@ interface MappingRowProps {
 	readonly entry: IdMappingEntry;
 	readonly isFirst: boolean;
 	readonly isLast: boolean;
-	readonly onUpdate: (patch: Partial<IdMappingEntry>) => void;
+	readonly onUpdate: (patch: Partial<IdMappingEntry>) => string | null;
 	readonly onRemove: () => void;
 	readonly onMoveUp: () => void;
 	readonly onMoveDown: () => void;
@@ -177,6 +259,7 @@ function MappingRow({
 	onMoveUp,
 	onMoveDown,
 }: MappingRowProps) {
+	const [valueIssue, setValueIssue] = useState<string | null>(null);
 	return (
 		<MappingRowShell
 			index={index}
@@ -191,9 +274,14 @@ function MappingRow({
 					<div className={`mb-2 ${INSPECTOR_LABEL_CLS}`}>Saved value</div>
 					<BlurCommitTextInput
 						value={entry.value}
-						onCommit={(next) => onUpdate({ value: next })}
+						onCommit={(next) => setValueIssue(onUpdate({ value: next }))}
 						ariaLabel={`Value ${index + 1} saved value`}
 					/>
+					{valueIssue !== null ? (
+						<p className="mt-1.5 text-[13px] leading-5 text-nova-rose">
+							{valueIssue}
+						</p>
+					) : null}
 				</div>
 				<div>
 					<div className={`mb-2 ${INSPECTOR_LABEL_CLS}`}>Label shown</div>
@@ -201,11 +289,27 @@ function MappingRow({
 					 *  human-readable data, so Nova does not style it like code. */}
 					<BlurCommitTextInput
 						value={entry.label}
-						onCommit={(next) => onUpdate({ label: next })}
+						onCommit={(next) => {
+							onUpdate({ label: next });
+						}}
 						ariaLabel={`Value ${index + 1} display label`}
 					/>
 				</div>
 			</div>
 		</MappingRowShell>
 	);
+}
+
+function mappingValueIssue(
+	candidate: string,
+	entries: readonly IdMappingEntry[],
+	candidateIndex: number,
+): string | null {
+	if (candidate.length === 0) return "Enter a saved value.";
+	if (/\s/.test(candidate)) return "Saved values cannot contain spaces.";
+	return entries.some(
+		(entry, index) => index !== candidateIndex && entry.value === candidate,
+	)
+		? "That saved value already has a label."
+		: null;
 }

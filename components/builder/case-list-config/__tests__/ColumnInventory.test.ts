@@ -14,17 +14,20 @@ function blankHeaderColumn(field: string): Column {
 
 describe("columnLabel", () => {
 	it.each([
-		["name", "Case name"],
-		["external-id", "External ID"],
-		["date-opened", "Date opened"],
-	])("renders the legacy %s field with its canonical label", (field, label) => {
-		expect(columnLabel(blankHeaderColumn(field))).toBe(label);
-	});
+		["case_name", "Case name"],
+		["external_id", "External ID"],
+		["date_opened", "Date opened"],
+	])(
+		"renders the standard %s field with its friendly label",
+		(field, label) => {
+			expect(columnLabel(blankHeaderColumn(field))).toBe(label);
+		},
+	);
 
 	it("keeps meaningful authored copy ahead of the fallback", () => {
 		expect(
 			columnLabel({
-				...blankHeaderColumn("name"),
+				...blankHeaderColumn("case_name"),
 				header: "Participant",
 			}),
 		).toBe("Participant");

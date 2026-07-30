@@ -19,10 +19,11 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, f, xp } from "@/lib/__tests__/docHelpers";
+import { buildDoc as buildFixtureDoc, f, xp } from "@/lib/__tests__/docHelpers";
 import {
 	type BlueprintDoc,
 	fallbackProseProjection,
+	fieldCaseWrite,
 	type SelectOption,
 } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
@@ -33,8 +34,41 @@ vi.mock("@/lib/db/apps", () => ({
 	completeApp: vi.fn(() => Promise.resolve()),
 }));
 vi.mock("@/lib/db/applyBlueprintChange", () => ({
-	applyBlueprintChange: vi.fn(() => Promise.resolve({ seq: 0 })),
+	applyBlueprintChange: vi.fn(async (args) => {
+		const { commitApplyBlueprintChangeTestBatch } = await import(
+			"@/lib/db/__tests__/applyBlueprintChangeTestWriter"
+		);
+		return commitApplyBlueprintChangeTestBatch(args);
+	}),
 }));
+
+/**
+ * Every case-carrying module in these conversion fixtures starts valid at the
+ * absolute gate: one visible Results column names the primary case.
+ */
+function buildDoc(spec: Parameters<typeof buildFixtureDoc>[0]): BlueprintDoc {
+	const doc = buildFixtureDoc(spec);
+	for (const module of Object.values(doc.modules)) {
+		if (module.caseType === undefined || module.caseListConfig !== undefined) {
+			continue;
+		}
+		const columnUuid = testUuid(`kind-conversion-column-${module.uuid}`);
+		module.caseListConfig = {
+			columns: [
+				{
+					uuid: columnUuid,
+					kind: "plain",
+					field: "case_name",
+					header: "Name",
+				},
+			],
+			listColumnOrder: [columnUuid],
+			detailColumnOrder: [columnUuid],
+			searchInputs: [],
+		};
+	}
+	return doc;
+}
 
 function makeDoc(field: Parameters<typeof f>[0]): BlueprintDoc {
 	const doc = buildDoc({
@@ -146,6 +180,15 @@ describe("editField — convert to single_select", () => {
 		for (const opt of options) {
 			expect(opt.uuid).toBeTruthy();
 		}
+		if (!("options" in result.result) || result.result.options === undefined) {
+			throw new Error("expected converted-option identity receipt");
+		}
+		expect(result.result.options).toEqual(
+			options.map((option) => ({
+				uuid: option.uuid,
+				value: option.value,
+			})),
+		);
 
 		// The options were CONSUMED into the convertField mutation — one
 		// carrier, no second updateField application of the same list.
@@ -370,13 +413,19 @@ describe("editField — demotions", () => {
 									id: "case_name",
 									kind: "text",
 									label: proseText("Name"),
-									case_property_on: "patient",
+									caseWrite: {
+										caseType: "patient",
+										property: "case_name",
+									},
 								}),
 								f({
 									id: "facility",
 									kind: "text",
 									label: proseText("Facility"),
-									case_property_on: "patient",
+									caseWrite: {
+										caseType: "patient",
+										property: "facility",
+									},
 								}),
 							],
 						},
@@ -429,7 +478,7 @@ describe("editField — demotions", () => {
 					name: "patient",
 					properties: [
 						{ name: "case_name", label: proseText("Name") },
-						{ name: "status", label: proseText("Status") },
+						{ name: "patient_status", label: proseText("Status") },
 					],
 				},
 			],
@@ -446,13 +495,19 @@ describe("editField — demotions", () => {
 									id: "case_name",
 									kind: "text",
 									label: proseText("Name"),
-									case_property_on: "patient",
+									caseWrite: {
+										caseType: "patient",
+										property: "case_name",
+									},
 								}),
 								f({
 									id: "status",
 									kind: "text",
 									label: proseText("Status"),
-									case_property_on: "patient",
+									caseWrite: {
+										caseType: "patient",
+										property: "patient_status",
+									},
 								}),
 							],
 						},
@@ -464,7 +519,10 @@ describe("editField — demotions", () => {
 									id: "status",
 									kind: "text",
 									label: proseText("Status"),
-									case_property_on: "patient",
+									caseWrite: {
+										caseType: "patient",
+										property: "patient_status",
+									},
 								}),
 							],
 						},
@@ -537,13 +595,19 @@ describe("editField — demotions", () => {
 									id: "case_name",
 									kind: "text",
 									label: proseText("Name"),
-									case_property_on: "patient",
+									caseWrite: {
+										caseType: "patient",
+										property: "case_name",
+									},
 								}),
 								f({
 									id: "sample_id",
 									kind: "text",
 									label: proseText("Sample"),
-									case_property_on: "patient",
+									caseWrite: {
+										caseType: "patient",
+										property: "sample_id",
+									},
 								}),
 							],
 						},
@@ -555,7 +619,10 @@ describe("editField — demotions", () => {
 									id: "sample_id",
 									kind: "barcode",
 									label: proseText("Sample scan"),
-									case_property_on: "patient",
+									caseWrite: {
+										caseType: "patient",
+										property: "sample_id",
+									},
 								}),
 							],
 						},
@@ -582,14 +649,14 @@ describe("editField — demotions", () => {
 		expect(recordMutationStages).not.toHaveBeenCalled();
 	});
 
-	it("a same-call case_property_on clear converts only the addressed field — no cascade for a binding it leaves", async () => {
+	it("a same-call caseWrite clear converts only the addressed field — no cascade for a destination it leaves", async () => {
 		const doc = buildDoc({
 			caseTypes: [
 				{
 					name: "patient",
 					properties: [
 						{ name: "case_name", label: proseText("Name") },
-						{ name: "status", label: proseText("Status") },
+						{ name: "patient_status", label: proseText("Status") },
 					],
 				},
 			],
@@ -606,13 +673,19 @@ describe("editField — demotions", () => {
 									id: "case_name",
 									kind: "text",
 									label: proseText("Name"),
-									case_property_on: "patient",
+									caseWrite: {
+										caseType: "patient",
+										property: "case_name",
+									},
 								}),
 								f({
 									id: "status",
 									kind: "text",
 									label: proseText("Status"),
-									case_property_on: "patient",
+									caseWrite: {
+										caseType: "patient",
+										property: "patient_status",
+									},
 								}),
 							],
 						},
@@ -624,7 +697,10 @@ describe("editField — demotions", () => {
 									id: "status",
 									kind: "text",
 									label: proseText("Status"),
-									case_property_on: "patient",
+									caseWrite: {
+										caseType: "patient",
+										property: "patient_status",
+									},
 								}),
 							],
 						},
@@ -650,7 +726,7 @@ describe("editField — demotions", () => {
 						["open", "Open"],
 						["closed", "Closed"],
 					),
-					case_property_on: null,
+					caseWrite: null,
 				},
 			},
 			ctx,
@@ -665,9 +741,7 @@ describe("editField — demotions", () => {
 			result.newDoc.fields[registerStatus?.uuid ?? ("" as never)];
 		expect(addressed?.kind).toBe("single_select");
 		expect(addressed?.id).toBe("local_status");
-		expect(
-			(addressed as { case_property_on?: string }).case_property_on,
-		).toBeUndefined();
+		expect(addressed && fieldCaseWrite(addressed)).toBeUndefined();
 		expect(result.mutations).toEqual([
 			expect.objectContaining({
 				kind: "convertField",
@@ -680,7 +754,7 @@ describe("editField — demotions", () => {
 				targetKind: "single_select",
 				patch: expect.objectContaining({
 					id: "local_status",
-					case_property_on: null,
+					caseWrite: null,
 				}),
 			}),
 		]);
@@ -690,7 +764,7 @@ describe("editField — demotions", () => {
 		expect(peer?.kind).toBe("text");
 	});
 
-	it("plans conversion against the final pair when id and case_property_on retarget together", async () => {
+	it("plans conversion against the final id and caseWrite pair when they retarget together", async () => {
 		const doc = buildDoc({
 			caseTypes: [
 				{
@@ -718,7 +792,10 @@ describe("editField — demotions", () => {
 									id: "case_name",
 									kind: "text",
 									label: proseText("Patient name"),
-									case_property_on: "patient",
+									caseWrite: {
+										caseType: "patient",
+										property: "case_name",
+									},
 								}),
 								f({
 									id: "score",
@@ -735,7 +812,10 @@ describe("editField — demotions", () => {
 									id: "risk_score",
 									kind: "text",
 									label: proseText("Risk score"),
-									case_property_on: "patient",
+									caseWrite: {
+										caseType: "patient",
+										property: "risk_score",
+									},
 								}),
 							],
 						},
@@ -771,7 +851,10 @@ describe("editField — demotions", () => {
 				updates: {
 					kind: "single_select",
 					id: "risk_score",
-					case_property_on: "patient",
+					caseWrite: {
+						caseType: "patient",
+						property: "risk_score",
+					},
 					optionsSource: toolInlineOptions(["low", "Low"], ["high", "High"]),
 				},
 			},
@@ -783,7 +866,10 @@ describe("editField — demotions", () => {
 		expect(result.newDoc.fields[addressed.uuid]).toMatchObject({
 			id: "risk_score",
 			kind: "single_select",
-			case_property_on: "patient",
+			caseWrite: {
+				caseType: "patient",
+				property: "risk_score",
+			},
 		});
 		// Planning against the call's final pair carries the existing
 		// household writer across too; planning against the abandoned
@@ -803,7 +889,10 @@ describe("editField — demotions", () => {
 			targetKind: "single_select",
 			patch: {
 				id: "risk_score",
-				case_property_on: "patient",
+				caseWrite: {
+					caseType: "patient",
+					property: "risk_score",
+				},
 			},
 		});
 	});
@@ -845,13 +934,19 @@ describe("editField — demotions", () => {
 									id: "case_name",
 									kind: "text",
 									label: proseText("Name"),
-									case_property_on: "patient",
+									caseWrite: {
+										caseType: "patient",
+										property: "case_name",
+									},
 								}),
 								f({
 									id: "language",
 									kind: "single_select",
 									label: proseText("Language"),
-									case_property_on: "patient",
+									caseWrite: {
+										caseType: "patient",
+										property: "language",
+									},
 									optionsSource: storedInlineOptions(
 										["en", "English"],
 										["fr", "French"],
@@ -923,13 +1018,19 @@ describe("editField — demotions", () => {
 									id: "case_name",
 									kind: "text",
 									label: proseText("Name"),
-									case_property_on: "patient",
+									caseWrite: {
+										caseType: "patient",
+										property: "case_name",
+									},
 								}),
 								f({
 									id: "visit_note",
 									kind: "text",
 									label: proseText("Visit note"),
-									case_property_on: "patient",
+									caseWrite: {
+										caseType: "patient",
+										property: "visit_note",
+									},
 								}),
 							],
 						},

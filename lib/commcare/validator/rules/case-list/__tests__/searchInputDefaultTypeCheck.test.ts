@@ -58,13 +58,13 @@ describe("searchInputDefaultTypeCheck", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Name"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 								f({
 									kind: "text",
 									id: "region",
 									label: proseText("Region"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "region" },
 								}),
 							],
 						},
@@ -137,7 +137,7 @@ describe("searchInputDefaultTypeCheck", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Name"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},
@@ -195,7 +195,7 @@ describe("searchInputDefaultTypeCheck", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Name"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},
@@ -257,7 +257,7 @@ describe("searchInputDefaultTypeCheck", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Name"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},
@@ -278,71 +278,6 @@ describe("searchInputDefaultTypeCheck", () => {
 				(e) => e.code === "CASE_LIST_SEARCH_INPUT_DEFAULT_TYPE_ERROR",
 			),
 		).toBe(false);
-	});
-
-	it("rejects a legacy scalar default on a date-range input with one repair", () => {
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: {
-						columns: [plainColumn(testUuid("col-name"), "case_name", "Name")],
-						listColumnOrder: [testUuid("col-name")],
-						detailColumnOrder: [testUuid("col-name")],
-						searchInputs: [
-							simpleSearchInputDef(
-								testUuid("si-range"),
-								"visit_window",
-								"Visit window",
-								"date-range",
-								"visit_date",
-								{ default: today() },
-							),
-						],
-					},
-					forms: [
-						{
-							name: "Reg",
-							type: "registration",
-							fields: [
-								f({
-									kind: "text",
-									id: "case_name",
-									label: proseText("Name"),
-									case_property_on: "patient",
-								}),
-							],
-						},
-					],
-				},
-			],
-			caseTypes: [
-				{
-					name: "patient",
-					properties: [
-						{ name: "case_name", label: proseText("Name"), data_type: "text" },
-						{
-							name: "visit_date",
-							label: proseText("Visit"),
-							data_type: "date",
-						},
-					],
-				},
-			],
-		});
-
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(error) => error.code === "CASE_LIST_SEARCH_INPUT_DEFAULT_TYPE_ERROR",
-		);
-		expect(hits).toHaveLength(1);
-		expect(hits[0].details).toMatchObject({
-			inputName: "visit_window",
-			reason: "date-range-default-unsupported",
-		});
-		expect(hits[0].message).toContain("needs both a start and an end");
-		expect(hits[0].message).toContain("Remove the starting value");
 	});
 
 	it("short-circuits per-input when the `default` slot is absent", () => {
@@ -376,7 +311,7 @@ describe("searchInputDefaultTypeCheck", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Name"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},
@@ -442,7 +377,7 @@ describe("searchInputDefaultTypeCheck", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Name"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},

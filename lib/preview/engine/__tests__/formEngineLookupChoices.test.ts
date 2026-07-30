@@ -104,6 +104,7 @@ function dTree(
 		formUuid,
 		fields: fieldMap,
 		fieldOrder: { [formUuid as string]: order },
+		caseTypes: [],
 	};
 }
 

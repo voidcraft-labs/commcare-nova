@@ -169,20 +169,16 @@ describe("copyAssetsIntoProject", () => {
 
 		await expect(
 			copyAssetsIntoProject({
-				requiredAssetIds: [requiredMissing],
-				historicalAssetIds: [historicalMissing],
+				assetIds: [requiredMissing, historicalMissing],
 				fromProjectId: FROM,
 				toProjectId: TO,
 				actorUserId: "actor-1",
 			}),
-		).rejects.toMatchObject({
-			name: "MediaCopyFailedError",
-			assetId: requiredMissing,
-		});
+		).rejects.toBeInstanceOf(MediaCopyFailedError);
 		expect(copyAssetObject).not.toHaveBeenCalled();
 	});
 
-	it("copies every ready kind, including a historical document and its ready extract", async () => {
+	it("copies every live kind, including a document and its ready extract", async () => {
 		const image = asset("image-source");
 		const document = asset("document-source", {
 			contentHash: "d".repeat(64),
@@ -203,10 +199,8 @@ describe("copyAssetsIntoProject", () => {
 		});
 		arrangeLoadedAssets([image, document]);
 
-		const oldMissing = testMediaAssetId("old-missing");
 		const result = await copyAssetsIntoProject({
-			requiredAssetIds: [image.id],
-			historicalAssetIds: [document.id, oldMissing],
+			assetIds: [image.id, document.id],
 			fromProjectId: FROM,
 			toProjectId: TO,
 			actorUserId: "actor-1",
@@ -214,7 +208,6 @@ describe("copyAssetsIntoProject", () => {
 
 		expect(result.get(image.id)).toBeDefined();
 		expect(result.get(document.id)).toBeDefined();
-		expect(result.has(oldMissing)).toBe(false);
 		expect(copyAssetObject).toHaveBeenCalledWith(
 			document.gcsObjectKey,
 			`projects/${TO}/${"d".repeat(64)}.pdf`,
@@ -271,8 +264,7 @@ describe("copyAssetsIntoProject", () => {
 		freshSourceRows = new Map([[fresh.id, fresh]]);
 
 		await copyAssetsIntoProject({
-			requiredAssetIds: [initial.id],
-			historicalAssetIds: [],
+			assetIds: [initial.id],
 			fromProjectId: FROM,
 			toProjectId: TO,
 			actorUserId: "actor-1",
@@ -344,8 +336,7 @@ describe("copyAssetsIntoProject", () => {
 		await publisherEntered.promise;
 
 		const move = copyAssetsIntoProject({
-			requiredAssetIds: [initial.id],
-			historicalAssetIds: [],
+			assetIds: [initial.id],
 			fromProjectId: FROM,
 			toProjectId: TO,
 			actorUserId: "actor-1",
@@ -402,8 +393,7 @@ describe("copyAssetsIntoProject", () => {
 		});
 
 		const move = copyAssetsIntoProject({
-			requiredAssetIds: [initial.id],
-			historicalAssetIds: [],
+			assetIds: [initial.id],
 			fromProjectId: FROM,
 			toProjectId: TO,
 			actorUserId: "actor-1",
@@ -452,8 +442,7 @@ describe("copyAssetsIntoProject", () => {
 
 		await expect(
 			copyAssetsIntoProject({
-				requiredAssetIds: [source.id],
-				historicalAssetIds: [],
+				assetIds: [source.id],
 				fromProjectId: FROM,
 				toProjectId: TO,
 				actorUserId: "actor-1",
@@ -505,8 +494,7 @@ describe("copyAssetsIntoProject", () => {
 
 		await expect(
 			copyAssetsIntoProject({
-				requiredAssetIds: [source.id],
-				historicalAssetIds: [],
+				assetIds: [source.id],
 				fromProjectId: FROM,
 				toProjectId: TO,
 				actorUserId: "actor-1",
@@ -552,8 +540,7 @@ describe("copyAssetsIntoProject", () => {
 		});
 
 		const result = await copyAssetsIntoProject({
-			requiredAssetIds: [source.id],
-			historicalAssetIds: [],
+			assetIds: [source.id],
 			fromProjectId: FROM,
 			toProjectId: TO,
 			actorUserId: "actor-1",
@@ -587,8 +574,7 @@ describe("copyAssetsIntoProject", () => {
 
 		await expect(
 			copyAssetsIntoProject({
-				requiredAssetIds: [source.id],
-				historicalAssetIds: [],
+				assetIds: [source.id],
 				fromProjectId: FROM,
 				toProjectId: TO,
 				actorUserId: "actor-1",
@@ -629,8 +615,7 @@ describe("copyAssetsIntoProject", () => {
 		findReadyAssetByProjectAndHash.mockResolvedValue(existing);
 
 		const result = await copyAssetsIntoProject({
-			requiredAssetIds: [],
-			historicalAssetIds: [source.id],
+			assetIds: [source.id],
 			fromProjectId: FROM,
 			toProjectId: TO,
 			actorUserId: "actor-1",
@@ -706,8 +691,7 @@ describe("copyAssetsIntoProject", () => {
 		});
 
 		const result = await copyAssetsIntoProject({
-			requiredAssetIds: [source.id],
-			historicalAssetIds: [],
+			assetIds: [source.id],
 			fromProjectId: FROM,
 			toProjectId: TO,
 			actorUserId: "actor-1",
@@ -772,8 +756,7 @@ describe("copyAssetsIntoProject", () => {
 		findReadyExtractForProjectAndHash.mockResolvedValue(sharedReady);
 
 		const result = await copyAssetsIntoProject({
-			requiredAssetIds: [source.id],
-			historicalAssetIds: [],
+			assetIds: [source.id],
 			fromProjectId: FROM,
 			toProjectId: TO,
 			actorUserId: "actor-1",
@@ -831,8 +814,7 @@ describe("copyAssetsIntoProject", () => {
 			.mockResolvedValueOnce(null);
 
 		await copyAssetsIntoProject({
-			requiredAssetIds: [source.id],
-			historicalAssetIds: [],
+			assetIds: [source.id],
 			fromProjectId: FROM,
 			toProjectId: TO,
 			actorUserId: "actor-1",
@@ -888,8 +870,7 @@ describe("copyAssetsIntoProject", () => {
 		findReadyExtractForProjectAndHash.mockResolvedValue(existing.extract);
 
 		const result = await copyAssetsIntoProject({
-			requiredAssetIds: [source.id],
-			historicalAssetIds: [],
+			assetIds: [source.id],
 			fromProjectId: FROM,
 			toProjectId: TO,
 			actorUserId: "actor-1",
@@ -942,8 +923,7 @@ describe("copyAssetsIntoProject", () => {
 		findReadyExtractForProjectAndHash.mockResolvedValue(existing.extract);
 
 		const result = await copyAssetsIntoProject({
-			requiredAssetIds: [source.id],
-			historicalAssetIds: [],
+			assetIds: [source.id],
 			fromProjectId: FROM,
 			toProjectId: TO,
 			actorUserId: "actor-1",
@@ -972,8 +952,7 @@ describe("copyAssetsIntoProject", () => {
 		arrangeLoadedAssets([source]);
 
 		await copyAssetsIntoProject({
-			requiredAssetIds: [source.id],
-			historicalAssetIds: [],
+			assetIds: [source.id],
 			fromProjectId: FROM,
 			toProjectId: TO,
 			actorUserId: "actor-1",
@@ -986,7 +965,7 @@ describe("copyAssetsIntoProject", () => {
 		);
 	});
 
-	it("does not block when a historical-only attachment is deleted during pre-copy", async () => {
+	it("fails closed when a thread attachment is deleted during pre-copy", async () => {
 		const historical = asset("historical-race");
 		freshSourceRows = new Map([[historical.id, historical]]);
 		loadAssetsByIds
@@ -994,16 +973,14 @@ describe("copyAssetsIntoProject", () => {
 			.mockResolvedValueOnce([]);
 		copyAssetObject.mockRejectedValue(new Error("source object vanished"));
 
-		const result = await copyAssetsIntoProject({
-			requiredAssetIds: [],
-			historicalAssetIds: [historical.id],
-			fromProjectId: FROM,
-			toProjectId: TO,
-			actorUserId: "actor-1",
-		});
-
-		expect(result.has(historical.id)).toBe(false);
-		expect(loadAssetsByIds).toHaveBeenCalledTimes(2);
+		await expect(
+			copyAssetsIntoProject({
+				assetIds: [historical.id],
+				fromProjectId: FROM,
+				toProjectId: TO,
+				actorUserId: "actor-1",
+			}),
+		).rejects.toBeInstanceOf(MediaCopyFailedError);
 	});
 
 	it("still fails when a historical asset row remains ready but its bytes cannot be copied", async () => {
@@ -1016,8 +993,7 @@ describe("copyAssetsIntoProject", () => {
 
 		await expect(
 			copyAssetsIntoProject({
-				requiredAssetIds: [],
-				historicalAssetIds: [historical.id],
+				assetIds: [historical.id],
 				fromProjectId: FROM,
 				toProjectId: TO,
 				actorUserId: "actor-1",

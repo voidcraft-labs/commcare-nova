@@ -6,6 +6,7 @@
 // Text that merely looks like `#form/question` is therefore still text.
 
 import { z } from "zod";
+import { authoredCasePropertyNameSchema } from "./casePropertyName";
 import { externalUserPropertyNameSchema } from "./externalUserProperty";
 import { uuidSchema } from "./uuid";
 import { type XPathPrintableDoc, xpathPrintContext } from "./xpath/print";
@@ -28,7 +29,7 @@ export const proseCaseRefPartSchema = z
 	.object({
 		kind: z.literal("case-ref"),
 		caseType: z.string().min(1),
-		property: z.string().min(1),
+		property: authoredCasePropertyNameSchema,
 	})
 	.strict();
 
@@ -318,22 +319,28 @@ export function resolveProseTemplate(
 }
 
 /** Rename the only prose reference family whose identity is name-based. */
+export function mapCasePropertiesInProse(
+	template: ProseTemplate,
+	resolve: (caseType: string, property: string) => string | undefined,
+): number {
+	let changed = 0;
+	for (const part of template.parts) {
+		if (part.kind !== "case-ref") continue;
+		const destination = resolve(part.caseType, part.property);
+		if (destination === undefined || destination === part.property) continue;
+		part.property = destination;
+		changed++;
+	}
+	return changed;
+}
+
 export function renameCasePropertyInProse(
 	template: ProseTemplate,
 	caseType: string,
 	oldName: string,
 	newName: string,
 ): number {
-	let changed = 0;
-	for (const part of template.parts) {
-		if (
-			part.kind === "case-ref" &&
-			part.caseType === caseType &&
-			part.property === oldName
-		) {
-			part.property = newName;
-			changed++;
-		}
-	}
-	return changed;
+	return mapCasePropertiesInProse(template, (candidateType, property) =>
+		candidateType === caseType && property === oldName ? newName : undefined,
+	);
 }

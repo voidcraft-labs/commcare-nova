@@ -95,7 +95,6 @@ export function normalizeRelationEvaluationScopes(
 		case "lt":
 		case "lte":
 		case "in":
-		case "is-null":
 		case "is-blank":
 		case "match":
 		case "multi-select-contains":
@@ -261,7 +260,6 @@ function normalizeNestedBoundaryScopes(
 				: { ...predicate, left, right };
 		}
 		case "in":
-		case "is-null":
 		case "is-blank": {
 			const left = normalizeExpressionBoundaryScopes(predicate.left, context);
 			return left === predicate.left ? predicate : { ...predicate, left };
@@ -355,8 +353,7 @@ function normalizeExpressionBoundaryScopes(
 		}
 		case "date-coerce":
 		case "datetime-coerce":
-		case "double":
-		case "unwrap-list": {
+		case "double": {
 			const value = normalizeExpressionBoundaryScopes(
 				expression.value,
 				context,
@@ -522,7 +519,6 @@ function inspectPredicate(
 			if (predicate.upper !== undefined)
 				inspectExpression(predicate.upper, inspection, context);
 			return;
-		case "is-null":
 		case "is-blank":
 			inspectExpression(predicate.left, inspection, context);
 			return;
@@ -587,7 +583,6 @@ function inspectExpression(
 		case "date-coerce":
 		case "datetime-coerce":
 		case "double":
-		case "unwrap-list":
 			inspectExpression(expression.value, inspection, context);
 			return;
 		case "format-date":
@@ -889,7 +884,6 @@ function rebasePredicate(
 					? {}
 					: { upper: rebaseExpression(predicate.upper, scopeKey, context) }),
 			};
-		case "is-null":
 		case "is-blank":
 			return {
 				...predicate,
@@ -975,7 +969,6 @@ function rebaseExpression(
 		case "date-coerce":
 		case "datetime-coerce":
 		case "double":
-		case "unwrap-list":
 			return {
 				...expression,
 				value: rebaseExpression(expression.value, scopeKey, context),

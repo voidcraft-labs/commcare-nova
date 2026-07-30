@@ -1,117 +1,63 @@
 import { describe, expect, it } from "vitest";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import {
-	authorableCaseProperties,
-	canonicalCasePropertyName,
+	authoredCasePropertyNameSchema,
+	casePropertySchema,
 	effectiveCaseTypes,
+	FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES,
+	FORBIDDEN_CASE_WRITE_PROPERTIES,
+	isWritableStandardCaseProperty,
 	standardCasePropertyDisplayLabel,
+	WRITABLE_STANDARD_CASE_PROPERTIES,
 } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 
 describe("Nova standard case-property vocabulary", () => {
 	it.each([
-		["case_name", "case_name"],
-		["name", "case_name"],
-		["external_id", "external_id"],
-		["external-id", "external_id"],
-		["date_opened", "date_opened"],
-		["date-opened", "date_opened"],
-		["status", "status"],
-		["current_status", "current_status"],
-	])("canonicalizes %s to %s", (input, expected) => {
-		expect(canonicalCasePropertyName(input)).toBe(expected);
+		"case_name",
+		"external_id",
+		"date_opened",
+		"status",
+		"current_status",
+		"client-code",
+		"toString",
+	])("accepts the authored property name %s exactly", (name) => {
+		expect(authoredCasePropertyNameSchema.parse(name)).toBe(name);
 	});
 
-	it("offers one canonical choice for each CCHQ alias pair", () => {
-		const properties = authorableCaseProperties([
-			{ name: "case_name", label: proseText("Case name"), data_type: "text" },
-			{ name: "name", label: proseText("Name"), data_type: "text" },
-			{
-				name: "external_id",
-				label: proseText("External ID"),
-				data_type: "text",
-			},
-			{
-				name: "external-id",
-				label: proseText("External ID"),
-				data_type: "text",
-			},
-			{
-				name: "date_opened",
-				label: proseText("Date opened"),
-				data_type: "datetime",
-			},
-			{
-				name: "date-opened",
-				label: proseText("Date opened"),
-				data_type: "datetime",
-			},
-			{ name: "status", label: proseText("Status"), data_type: "text" },
-			{
-				name: "current_status",
-				label: proseText("Workflow status"),
-				data_type: "text",
-			},
-		]);
-
-		expect(properties.map((property) => property.name)).toEqual([
-			"case_name",
-			"external_id",
-			"date_opened",
-			"status",
-			"current_status",
-		]);
-	});
-
-	it("promotes an alias-only catalog entry to Nova's canonical name", () => {
-		expect(
-			authorableCaseProperties([
-				{
-					name: "external-id",
-					label: proseText("Legacy external ID"),
+	it.each(["name", "external-id", "date-opened"])(
+		"rejects the retired CCHQ spelling %s instead of normalizing it",
+		(name) => {
+			expect(authoredCasePropertyNameSchema.safeParse(name).success).toBe(
+				false,
+			);
+			expect(
+				casePropertySchema.safeParse({
+					name,
+					label: proseText("Value"),
 					data_type: "text",
-				},
-			]),
-		).toEqual([
-			{
-				name: "external_id",
-				label: proseText("Legacy external ID"),
-				data_type: "text",
-			},
-		]);
-	});
+				}).success,
+			).toBe(false);
+		},
+	);
 
-	it("preserves legacy authored copy while taking canonical standard semantics", () => {
+	it("materializes only Nova's exact standard names", () => {
 		const doc = buildDoc({
-			appName: "Legacy labels",
+			appName: "Standard properties",
 			modules: [],
-			caseTypes: [
-				{
-					name: "patient",
-					properties: [
-						{
-							name: "name",
-							label: proseText("Patient name"),
-							hint: proseText("As shown on their card"),
-							data_type: "date",
-						},
-					],
-				},
-			],
+			caseTypes: [{ name: "patient", properties: [] }],
 		});
 		const patient = effectiveCaseTypes(doc).find(
 			(type) => type.name === "patient",
 		);
-		const property = authorableCaseProperties(patient?.properties ?? []).find(
-			(candidate) => candidate.name === "case_name",
-		);
+		const names = patient?.properties.map((property) => property.name) ?? [];
 
-		expect(property).toMatchObject({
-			name: "case_name",
-			label: proseText("Patient name"),
-			hint: proseText("As shown on their card"),
-			data_type: "text",
-		});
+		expect(names).toContain("case_name");
+		expect(names).toContain("external_id");
+		expect(names).toContain("date_opened");
+		expect(names).not.toContain("name");
+		expect(names).not.toContain("external-id");
+		expect(names).not.toContain("date-opened");
 	});
 
 	it("explains the built-in case lifecycle status without conflating current_status", () => {
@@ -123,23 +69,28 @@ describe("Nova standard case-property vocabulary", () => {
 		);
 	});
 
-	it("treats prototype-shaped user properties as ordinary property names", () => {
-		expect(canonicalCasePropertyName("toString")).toBe("toString");
+	it("treats prototype-shaped property names as ordinary exact names", () => {
+		expect(authoredCasePropertyNameSchema.parse("toString")).toBe("toString");
 		expect(standardCasePropertyDisplayLabel("constructor")).toBe("constructor");
-		expect(
-			authorableCaseProperties([
-				{
-					name: "toString",
-					label: proseText("Display text"),
-					data_type: "text",
-				},
-			]),
-		).toEqual([
-			{
-				name: "toString",
-				label: proseText("Display text"),
-				data_type: "text",
-			},
+	});
+
+	it("defines one exact standard-scalar write contract for fields and operations", () => {
+		expect([...WRITABLE_STANDARD_CASE_PROPERTIES].sort()).toEqual([
+			"case_name",
+			"external_id",
 		]);
+		expect(isWritableStandardCaseProperty("case_name")).toBe(true);
+		expect(isWritableStandardCaseProperty("external_id")).toBe(true);
+		expect(isWritableStandardCaseProperty("owner_id")).toBe(false);
+
+		for (const property of WRITABLE_STANDARD_CASE_PROPERTIES) {
+			expect(FORBIDDEN_CASE_WRITE_PROPERTIES.has(property)).toBe(false);
+		}
+		expect(FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES.has("case_name")).toBe(
+			true,
+		);
+		expect(FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES.has("external_id")).toBe(
+			false,
+		);
 	});
 });

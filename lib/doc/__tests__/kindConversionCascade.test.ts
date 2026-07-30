@@ -46,13 +46,13 @@ function temporalDoc(): BlueprintDoc {
 								id: "case_name",
 								kind: "text",
 								label: proseText("Name"),
-								case_property_on: "patient",
+								caseWrite: { caseType: "patient", property: "case_name" },
 							}),
 							f({
 								id: "visit_on",
 								kind: "date",
 								label: proseText("Visited"),
-								case_property_on: "patient",
+								caseWrite: { caseType: "patient", property: "visit_on" },
 							}),
 						],
 					},
@@ -64,7 +64,7 @@ function temporalDoc(): BlueprintDoc {
 								id: "visit_on",
 								kind: "date",
 								label: proseText("Visited"),
-								case_property_on: "patient",
+								caseWrite: { caseType: "patient", property: "visit_on" },
 							}),
 						],
 					},
@@ -112,6 +112,37 @@ describe("planKindConversion — generalized escort", () => {
 		expect(result.redeclaredTo).toBe("datetime");
 	});
 
+	it("keys the conversion plan by caseWrite.property, never the field id", () => {
+		const doc = temporalDoc();
+		const addressed = fieldIn(doc, "visit_on");
+		addressed.id = "visit_date_question";
+		doc.refIndex = buildReferenceIndex(doc);
+
+		const result = planKindConversion({
+			doc,
+			field: addressed,
+			toKind: "time",
+		});
+		if (!result.ok) throw new Error("conversion unexpectedly blocked");
+
+		expect(result.dataLossRisk).toEqual({
+			caseType: "patient",
+			property: "visit_on",
+			fromType: "date",
+			toType: "time",
+		});
+		expect(
+			result.mutations.find((mutation) => mutation.kind === "setCaseProperty"),
+		).toEqual(
+			expect.objectContaining({
+				property: expect.objectContaining({
+					name: "visit_on",
+					data_type: "time",
+				}),
+			}),
+		);
+	});
+
 	it("multi_select → text converts every selection writer and re-declares without options", () => {
 		const doc = buildDoc({
 			caseTypes: [
@@ -144,13 +175,16 @@ describe("planKindConversion — generalized escort", () => {
 									id: "case_name",
 									kind: "text",
 									label: proseText("Name"),
-									case_property_on: "patient",
+									caseWrite: {
+										caseType: "patient",
+										property: "case_name",
+									},
 								}),
 								f({
 									id: "symptoms",
 									kind: "multi_select",
 									label: proseText("Symptoms"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "symptoms" },
 									options: [
 										{ value: "fever", label: "Fever" },
 										{ value: "cough", label: "Cough" },
@@ -166,7 +200,7 @@ describe("planKindConversion — generalized escort", () => {
 									id: "symptoms",
 									kind: "multi_select",
 									label: proseText("Symptoms"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "symptoms" },
 									options: [
 										{ value: "fever", label: "Fever" },
 										{ value: "cough", label: "Cough" },

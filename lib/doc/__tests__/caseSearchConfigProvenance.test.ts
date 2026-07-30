@@ -13,7 +13,6 @@ import {
 	effectiveCaseSearchConfig,
 	emptyCaseListConfig,
 	isOwnerOnlyCaseSearchConfig,
-	normalizeOwnerOnlyCaseSearchConfig,
 } from "@/lib/domain";
 
 const MODULE = testUuid("10000000-0000-4000-8000-000000000001");
@@ -64,9 +63,6 @@ function apply(
 describe("case-search owner-only provenance", () => {
 	it("does not infer private provenance from an authored Never condition", () => {
 		expect(isOwnerOnlyCaseSearchConfig(AUTHORED_NEVER)).toBe(false);
-		expect(normalizeOwnerOnlyCaseSearchConfig(AUTHORED_NEVER)).toBe(
-			AUTHORED_NEVER,
-		);
 	});
 
 	it("keeps an authored Never condition active with zero inputs without rewriting it", () => {

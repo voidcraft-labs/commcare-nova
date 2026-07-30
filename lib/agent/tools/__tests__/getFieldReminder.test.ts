@@ -96,7 +96,10 @@ describe("getField — unwritten-property reminder", () => {
 			f({
 				id: "order_status",
 				kind: "text",
-				case_property_on: "medication_order",
+				caseWrite: {
+					caseType: "medication_order",
+					property: "order_status",
+				},
 			}),
 		]);
 		const data = await getField(doc, "med_given");

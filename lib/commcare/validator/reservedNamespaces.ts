@@ -7,19 +7,15 @@
  */
 
 /**
- * Namespaces the wire's hashtag resolver (`hashtags.ts::resolveFlatHashtag` +
- * the transitional `#case/` arm) handles directly, BEFORE any per-case-type
- * lookup. A `#<one-of-these>/<...>` ref always resolves to its built-in
+ * Namespaces the wire's flat hashtag resolver handles directly, before any
+ * per-case-type lookup. A `#<one-of-these>/<...>` ref always resolves to its built-in
  * namespace, never to a project case type of the same name — so the validator
  * must NOT reject one as an "unknown case type" (it would be stricter than the
- * wire, which resolves it). `case` is here because the wire still resolves the
- * transitional `#case/<prop>` shape directly, ahead of any per-case-type lookup,
- * for references not yet migrated to a named case type.
+ * wire, which resolves it).
  */
 export const RESOLVED_REFERENCE_NAMESPACES: ReadonlySet<string> = new Set([
 	"form",
 	"user",
-	"case",
 ]);
 
 /**
@@ -31,5 +27,6 @@ export const RESOLVED_REFERENCE_NAMESPACES: ReadonlySet<string> = new Set([
  */
 export const RESERVED_CASE_TYPE_NAMES: ReadonlySet<string> = new Set([
 	...RESOLVED_REFERENCE_NAMESPACES,
+	"case",
 	"parent",
 ]);

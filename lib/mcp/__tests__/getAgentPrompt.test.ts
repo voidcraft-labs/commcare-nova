@@ -18,8 +18,8 @@
  *     short-circuit the classifier with a precise wire `error_type`.
  *   - Edit mode unowned `app_id`: collapses to `not_found` (IDOR
  *     hardening — same envelope as a missing-id probe).
- *   - Edit mode empty-modules doc: `buildSolutionsArchitectPrompt` treats
- *     empty docs as build, so the emitted text contains build markers.
+ *   - Defensive in-memory empty-modules doc: `buildSolutionsArchitectPrompt`
+ *     treats the impossible persisted shape as build framing.
  *   - Error envelope parity: a thrown `renderAgentPrompt` surfaces as
  *     an MCP `isError: true` envelope classified through the shared
  *     taxonomy.
@@ -115,11 +115,9 @@ function fixturePopulatedDoc(): BlueprintDoc {
 }
 
 /**
- * Empty-doc fixture — the degenerate edit case `createApp` produces
- * before any modules land. `buildSolutionsArchitectPrompt` keys off
- * `doc?.moduleOrder.length > 0` and routes empty docs into the build
- * branch; the regression test below confirms that fallthrough is
- * preserved when the doc comes through the MCP tool boundary.
+ * Defensive in-memory empty-doc fixture. Persisted `createApp` always returns
+ * canonical genesis, but `buildSolutionsArchitectPrompt` still fails safe to
+ * build framing when this impossible persisted shape reaches the MCP boundary.
  */
 function fixtureEmptyDoc(): BlueprintDoc {
 	return {
@@ -147,7 +145,7 @@ function loadedFor(doc: BlueprintDoc): LoadedApp {
 		doc,
 		app: {
 			owner: "u1",
-			project_id: null,
+			project_id: "project-1",
 			app_name: doc.appName,
 			mutation_seq: 0,
 			connect_type: null,
@@ -345,11 +343,8 @@ describe("registerGetAgentPrompt — edit mode unowned app_id", () => {
 
 describe("registerGetAgentPrompt — edit mode empty-modules doc", () => {
 	it("falls back to the build prompt body when the loaded doc has no modules", async () => {
-		/* Degenerate edit case: `createApp` writes an empty doc before
-		 * any generation tools fire. `buildSolutionsArchitectPrompt`
-		 * routes empty docs into the build branch; the tool must
-		 * inherit that fallthrough so the emitted text isn't a
-		 * malformed edit prompt against an empty structure. */
+		/* Persisted creation always has the canonical starter. This defensive
+		 * in-memory empty shape still falls back to build framing. */
 		const empty = fixtureEmptyDoc();
 		vi.mocked(loadAppBlueprint).mockResolvedValueOnce(loadedFor(empty));
 
@@ -361,9 +356,9 @@ describe("registerGetAgentPrompt — edit mode empty-modules doc", () => {
 		};
 
 		const text = out.content[0]?.text ?? "";
-		/* Build framing leaked through, edit framing did not — the
-		 * underlying `buildSolutionsArchitectPrompt` did the right
-		 * thing with the empty doc and the tool didn't paper over it. */
+		/* Build framing came through and edit framing did not — the
+		 * tool preserves the renderer's defensive handling of the
+		 * impossible persisted shape. */
 		expect(text).toContain("Initial Build");
 		expect(text).not.toContain("Editing Mode");
 	});

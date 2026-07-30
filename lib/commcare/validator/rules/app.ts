@@ -12,6 +12,8 @@ import {
 	type BlueprintAuthoredIdentityKind,
 	type BlueprintDoc,
 	blueprintTopologyIssues,
+	deriveCaseWriteInventory,
+	isConnectLearnConfig,
 	projectXPath,
 	type Uuid,
 	xpathPrintContext,
@@ -19,10 +21,7 @@ import {
 import { proseTemplateSurvivesTiptapRoundTrip } from "@/lib/tiptap/proseTemplateCodec";
 import { type ValidationError, validationError } from "../errors";
 import { RESERVED_CASE_TYPE_NAMES } from "../reservedNamespaces";
-import {
-	fieldKindMatchesPropertyType,
-	readCasePropertyOn,
-} from "./fieldKindMatchesPropertyType";
+import { fieldKindMatchesPropertyType } from "./fieldKindMatchesPropertyType";
 import { USER_RULES } from "./users";
 
 function closedBlueprintTopology(doc: BlueprintDoc): ValidationError[] {
@@ -263,18 +262,17 @@ function reservedCaseTypeName(doc: BlueprintDoc): ValidationError[] {
 }
 
 /**
- * Every case type that forms actually WRITE (`case_property_on`) needs a
- * module of its own — a cross-type writer creates cases, and a created
+ * Every direct-child case type that canonical form inventories actually emit
+ * needs a module of its own — a child bucket creates cases, and a created
  * case with no module has no case list to appear in, so it is invisible
  * to every user. Keyed on WRITERS, not on the catalog: a planned record
  * (committed by `generateSchema` ahead of its module) is legal on its
  * own — the finding fires only once a form would create cases nobody can
  * open. This is also what sequences a build: a case type's own module
  * must land before any other module's forms create cases of it. The code
- * keeps its historical name (finding identity is stable across the gate
- * and the legacy-repair judgments); child buckets are how cross-type
- * writers normally arise, but a written standalone type without a module
- * is the same defect and fires too.
+ * consumes emitted buckets rather than interpreting field annotations again:
+ * survey/module-less writers are no-action admission failures, and invalid
+ * sibling/ancestor/unrelated destinations never become child creates.
  */
 function childCaseTypeMissingModule(doc: BlueprintDoc): ValidationError[] {
 	const errors: ValidationError[] = [];
@@ -284,26 +282,21 @@ function childCaseTypeMissingModule(doc: BlueprintDoc): ValidationError[] {
 			.filter((v): v is string => Boolean(v)),
 	);
 
-	// Every case type any form field writes, walking each form's field
-	// tree (groups/repeats nest writers). Survey forms are skipped: their
-	// case annotations are wire-inert (`deriveCaseConfig` derives an empty
-	// case config for a survey form), so nothing they "write" ever creates
-	// a case — counting them would demand a module for cases that never
-	// exist.
 	const writtenTypes = new Set<string>();
-	const walk = (parentUuid: string): void => {
-		for (const fieldUuid of doc.fieldOrder[parentUuid] ?? []) {
-			const field = doc.fields[fieldUuid];
-			if (!field) continue;
-			const target = readCasePropertyOn(field);
-			if (target) writtenTypes.add(target);
-			if (doc.fieldOrder[fieldUuid] !== undefined) walk(fieldUuid);
-		}
-	};
 	for (const moduleUuid of doc.moduleOrder) {
+		const module = doc.modules[moduleUuid];
 		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
-			if (doc.forms[formUuid]?.type === "survey") continue;
-			walk(formUuid);
+			const form = doc.forms[formUuid];
+			if (form === undefined) continue;
+			const inventory = deriveCaseWriteInventory(
+				doc,
+				formUuid,
+				module,
+				form.type,
+			);
+			for (const bucket of inventory.buckets) {
+				if (bucket.kind === "child") writtenTypes.add(bucket.caseType);
+			}
 		}
 	}
 
@@ -402,30 +395,14 @@ function circularFormLinks(doc: BlueprintDoc): ValidationError[] {
  * `connectIdConflictError`) and the emit tripwire in `buildConnectSlugMap` —
  * one shared notion of "taken" everywhere.
  *
- * Only kinds matching the app's `connectType` are scanned, so the rule
- * agrees with the resolver/defaulter, which only ever process matching-mode
- * blocks (a stray cross-mode block is never emitted, so it can't collide on
- * the wire). App-scope because the collision spans forms; this is the
- * surface that gives the user a fixable error before export.
+ * A separate form rule rejects a dormant block or a block whose family does
+ * not match the app mode. This rule therefore runs only for an enabled mode
+ * and inventories every final stored block; app scope gives the user a
+ * fixable error before export when the collision spans forms.
  */
 function duplicateConnectIds(doc: BlueprintDoc): ValidationError[] {
 	if (!doc.connectType) return [];
 	const errors: ValidationError[] = [];
-
-	// The kinds that are real for this mode, paired with a human label.
-	const liveKinds: ReadonlyArray<{
-		kind: "learn_module" | "assessment" | "deliver_unit" | "task";
-		label: string;
-	}> =
-		doc.connectType === "learn"
-			? [
-					{ kind: "learn_module", label: "learn-module" },
-					{ kind: "assessment", label: "assessment" },
-				]
-			: [
-					{ kind: "deliver_unit", label: "deliver-unit" },
-					{ kind: "task", label: "task" },
-				];
 
 	// First occurrence of each id (in document order) wins; every later
 	// occurrence is the duplicate that gets flagged.
@@ -435,9 +412,18 @@ function duplicateConnectIds(doc: BlueprintDoc): ValidationError[] {
 			const form = doc.forms[formUuid];
 			const connect = form?.connect;
 			if (!connect) continue;
-			for (const { kind, label } of liveKinds) {
-				const id = connect[kind]?.id;
-				if (!id) continue;
+			const blocks = isConnectLearnConfig(connect)
+				? [
+						{ block: connect.learn_module, label: "learn-module" },
+						{ block: connect.assessment, label: "assessment" },
+					]
+				: [
+						{ block: connect.deliver_unit, label: "deliver-unit" },
+						{ block: connect.task, label: "task" },
+					];
+			for (const { block, label } of blocks) {
+				if (block === undefined) continue;
+				const id = block.id;
 				const site = `"${form.name}" (${label})`;
 				const prior = firstSite.get(id);
 				if (prior) {
@@ -477,38 +463,34 @@ function duplicateConnectIds(doc: BlueprintDoc): ValidationError[] {
  * no rows of its mode produces an opportunity that can never progress or
  * pay. That floor is this rule.
  *
- * An app with no forms at all stays clean: an empty Connect app is the
- * documented starting state of a Connect build (`updateApp` flips
- * `connect_type` first, then each creation lands participating forms with
- * their blocks), so the floor only binds once forms exist.
+ * The floor binds immediately. Connect mode and the complete nonempty
+ * participant set are configured in one atomic target-state command, so a
+ * mode-only intermediate is neither needed nor valid.
  */
 function connectNoParticipatingForms(doc: BlueprintDoc): ValidationError[] {
 	if (!doc.connectType) return [];
 	const isLearn = doc.connectType === "learn";
-	let formCount = 0;
 	for (const moduleUuid of doc.moduleOrder) {
 		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
-			formCount++;
 			const connect = doc.forms[formUuid]?.connect;
 			if (!connect) continue;
 			const participates = isLearn
-				? connect.learn_module || connect.assessment
-				: connect.deliver_unit || connect.task;
+				? isConnectLearnConfig(connect)
+				: !isConnectLearnConfig(connect);
 			if (participates) return [];
 		}
 	}
-	if (formCount === 0) return [];
 	const detail = isLearn
 		? "no form carries a learn module or an assessment, so there is nothing for workers to complete and learning progress can never move"
 		: "no form carries a deliver unit or a task, so there is nothing payable to deliver";
 	const fix = isLearn
-		? "Give at least one form a connect block (a learn_module for educational content, an assessment for a quiz, or both — via the form's Connect settings or update_form)"
-		: "Give at least one form a connect block (a deliver_unit, and optionally a task — via the form's Connect settings or update_form)";
+		? "Configure the complete target with at least one participating form (a learn_module for educational content, an assessment for a quiz, or both)"
+		: "Configure the complete target with at least one participating form (a deliver_unit, and optionally a task)";
 	return [
 		validationError(
 			"CONNECT_NO_PARTICIPATING_FORMS",
 			"app",
-			`This is a Connect ${doc.connectType} app, but ${detail}. A Connect app needs at least one participating form — a form without a connect block simply stays out of Connect, which is fine for the rest. ${fix}, or turn Connect off for the whole app (App Settings, or update_app with connect_type null).`,
+			`This is a Connect ${doc.connectType} app, but ${detail}. A Connect app needs at least one participating form — a form without a connect block simply stays out of Connect, which is fine for the rest. ${fix} through configureConnect/configure_connect, or turn Connect off there with mode null.`,
 			{},
 		),
 	];

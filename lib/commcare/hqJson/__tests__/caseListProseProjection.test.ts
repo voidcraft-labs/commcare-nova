@@ -25,7 +25,7 @@ describe("case-list HQ JSON prose projection", () => {
 									kind: "text",
 									id: "priority",
 									label: proseText("Priority"),
-									case_property_on: "case",
+									caseWrite: { caseType: "case", property: "priority" },
 								}),
 							],
 						},

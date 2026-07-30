@@ -13,10 +13,11 @@
 // same bulk-insert path real inserts use, so all three concerns
 // run uniformly at the case-store layer.
 
-import type {
-	CaseProperty,
-	CasePropertyDataType,
-	CaseType,
+import {
+	CASE_SCALAR_PROPERTY_NAMES,
+	type CaseProperty,
+	type CasePropertyDataType,
+	type CaseType,
 } from "@/lib/domain";
 import { unhandledKindMessage } from "@/lib/domain/predicate/errors";
 import type { JsonObject, JsonValue } from "../sql/database";
@@ -63,14 +64,11 @@ export class HeuristicCaseGenerator implements SampleCaseGenerator {
 		for (let i = 0; i < args.count; i++) {
 			const properties: JsonObject = {};
 			for (const property of caseType.properties) {
-				// `case_name` routes to the top-level column, not the
-				// JSONB document — emitted directly from the names
-				// pool below. The blueprint surface admits the
-				// property declaration (the SA + author UI carry its
-				// label / default-value config there), so the loop
-				// routes around it rather than fighting the upstream
-				// shape.
-				if (property.name === "case_name") continue;
+				// Explicit standard entries can remain in the catalog for
+				// authoring metadata/order, but every standard value is backed
+				// by a first-class case column. The JSONB generator must use the
+				// same exclusion set as schema and index projection.
+				if (CASE_SCALAR_PROPERTY_NAMES.has(property.name)) continue;
 				properties[property.name] = pickValueForProperty({
 					property,
 					prng,

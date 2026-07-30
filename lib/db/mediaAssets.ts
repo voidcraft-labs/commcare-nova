@@ -2,8 +2,8 @@
  * Media asset CRUD against Postgres.
  *
  * The asset row lives in `media_assets` (keyed by the asset's UUID); the
- * referencing-apps reverse index lives in the `media_asset_refs` join table
- * (one row per `(asset, app)` candidate edge). A successful browser confirm
+ * exact authored/thread reverse projection lives in the `media_asset_refs`
+ * join table (one row per `(Project, app, asset)` live edge). A successful browser confirm
  * that deduplicates to another row leaves a 24-hour `media_upload_aliases`
  * replay record keyed by the original attempt id. `project_id` is the tenant
  * and the only access gate — every read SITE authorizes Project membership on
@@ -25,7 +25,6 @@ import {
 	type MediaAssetStatus,
 	pendingGcsObjectKeyFor,
 } from "@/lib/domain/multimedia";
-import { log } from "@/lib/logger";
 import {
 	type AppDatabase,
 	getAppDb,
@@ -1180,15 +1179,14 @@ export async function loadAssetsByIds(
  * the attach) serializes against the blueprint commit instead of slipping
  * between a pre-commit check and the write.
  *
- * Missing rows are simply absent from the returned map — the caller's judgment
- * (`describeMediaExpectationFailures`) owns the missing/foreign distinction,
- * including the privacy rule that both read as "not found".
+ * Missing rows are simply absent from the returned map; the complete
+ * post-state projection caller owns the fail-closed admission message.
  */
 export async function getAssetsInTransaction(
 	tx: Transaction<AppDatabase>,
 	ids: readonly MediaAssetId[],
 ): Promise<Map<MediaAssetId, MediaAssetRecord>> {
-	const unique = [...new Set(ids)];
+	const unique = [...new Set(ids)].sort();
 	const out = new Map<MediaAssetId, MediaAssetRecord>();
 	if (unique.length === 0) return out;
 	const rows = await tx
@@ -1333,84 +1331,79 @@ export class MalformedCursorError extends Error {
 	}
 }
 
-/**
- * Reverse-index maintenance: record that `appId`'s persisted blueprint
- * references each of `assetIds`, so the delete reference guard can read an
- * asset's candidate referencing-app set instead of scanning every app the
- * Project has. Called by the blueprint writers on every save
- * (`syncMediaReferences`).
- *
- * Append-only by design: `ON CONFLICT DO NOTHING` is idempotent at the edge
- * level (re-adding a present `(asset, app)` leaves the set unchanged) and never
- * removes an app that stopped referencing the asset — the guard re-walks each
- * candidate to confirm + prune-by-omission, so a stale edge costs one extra app
- * load, never a wrong block. An empty `assetIds` (the overwhelming common case —
- * no media) does nothing.
- *
- * Each asset is written INDEPENDENTLY (settled, not one atomic batch): a saved
- * blueprint can carry a dangling asset id — a ref to a recovered or purged asset
- * with no `media_assets` row — and the `media_asset_refs.asset_id` foreign key
- * rejects the insert. In an atomic batch that one bad ref would drop EVERY edge
- * in the save; settled independently, the bogus id skips itself and every valid
- * edge still lands.
- */
-export async function addReferencingApp(
-	assetIds: readonly MediaAssetId[],
-	appId: string,
-): Promise<void> {
-	const unique = [...new Set(assetIds)];
-	if (unique.length === 0) return;
-	const db = await getAppDb();
-	const results = await Promise.allSettled(
-		unique.map((assetId) =>
-			db
-				.insertInto("media_asset_refs")
-				.values({ asset_id: assetId, app_id: appId })
-				.onConflict((oc) => oc.columns(["asset_id", "app_id"]).doNothing())
-				.execute(),
-		),
-	);
-	results.forEach((r, i) => {
-		// A rejection is almost always a dangling ref (no asset row → FK
-		// violation). The valid edges still landed; log the orphan so it's
-		// diagnosable, don't throw.
-		if (r.status === "rejected") {
-			log.warn("[addReferencingApp] couldn't index a referenced asset", {
-				assetId: unique[i],
-				appId,
-				err: r.reason,
-			});
-		}
-	});
+export interface MediaReferenceRequirement {
+	readonly assetId: MediaAssetId;
+	readonly expectedKind: AssetKind;
 }
 
-/**
- * Persist newly introduced reverse edges on the authoritative app-write
- * transaction. Callers must already hold every named asset `FOR SHARE` and
- * have validated its Project/readiness; an FK failure therefore aborts the app
- * write instead of silently leaving the completeness protocol behind.
- */
-export async function addReferencingAppInTransaction(
+export class MediaReferenceProjectionError extends Error {
+	readonly name = "MediaReferenceProjectionError";
+	constructor(
+		message: string,
+		readonly assetId?: MediaAssetId,
+	) {
+		super(message);
+	}
+}
+
+/** Lock every referenced asset in UUID order and prove its exact live shape. */
+export async function lockAndValidateMediaReferences(
 	tx: Transaction<AppDatabase>,
-	assetIds: readonly MediaAssetId[],
+	projectId: string,
+	requirements: readonly MediaReferenceRequirement[],
+): Promise<MediaAssetId[]> {
+	const ids = [...new Set(requirements.map((entry) => entry.assetId))].sort();
+	const assets = await getAssetsInTransaction(tx, ids);
+	for (const requirement of requirements) {
+		const asset = assets.get(requirement.assetId);
+		if (
+			asset === undefined ||
+			asset.project_id !== projectId ||
+			asset.status !== "ready" ||
+			asset.kind !== requirement.expectedKind
+		) {
+			throw new MediaReferenceProjectionError(
+				"A referenced media file is unavailable, not ready, outside this Project, or has the wrong kind for its authored slot.",
+				requirement.assetId,
+			);
+		}
+	}
+	return ids;
+}
+
+/** Remove the complete derived reference projection for one app. */
+export async function deleteMediaReferenceEdges(
+	tx: Transaction<AppDatabase>,
 	appId: string,
 ): Promise<void> {
-	const unique = [...new Set(assetIds)].sort();
-	if (unique.length === 0) return;
+	await tx.deleteFrom("media_asset_refs").where("app_id", "=", appId).execute();
+}
+
+/** Insert one app's already-validated exact Project-scoped projection. */
+export async function insertMediaReferenceEdges(
+	tx: Transaction<AppDatabase>,
+	args: {
+		readonly projectId: string;
+		readonly appId: string;
+		readonly assetIds: readonly MediaAssetId[];
+	},
+): Promise<string[]> {
+	const unique = [...new Set(args.assetIds)].sort();
+	if (unique.length === 0) return [];
 	await tx
 		.insertInto("media_asset_refs")
-		.values(unique.map((assetId) => ({ asset_id: assetId, app_id: appId })))
-		.onConflict((oc) => oc.columns(["asset_id", "app_id"]).doNothing())
+		.values(
+			unique.map((assetId) => ({
+				project_id: args.projectId,
+				app_id: args.appId,
+				asset_id: assetId,
+			})),
+		)
 		.execute();
+	return unique;
 }
 
-/**
- * The apps whose persisted blueprint has EVER referenced `assetId` — the asset's
- * reverse-index candidate set (`media_asset_refs`), read by the deletion guard
- * so it re-walks only the 0–2 candidates instead of the Project's whole app
- * list. Append-only, so a candidate may be stale; the guard re-walks each to
- * confirm.
- */
+/** Exact app ids whose live authored/thread projection references an asset. */
 export async function listReferencingAppIds(
 	assetId: MediaAssetId,
 ): Promise<string[]> {
@@ -1419,20 +1412,7 @@ export async function listReferencingAppIds(
 		.selectFrom("media_asset_refs")
 		.select("app_id")
 		.where("asset_id", "=", assetId)
+		.orderBy("app_id")
 		.execute();
 	return rows.map((row) => row.app_id);
-}
-
-/**
- * Hard-delete an asset row. Caller is responsible for the GCS object cleanup AND
- * for ensuring no live blueprint references the asset — the deletion MCP tool
- * refuses to call this if any reference is found. The `media_asset_refs` edges
- * cascade on the row delete.
- */
-export async function deleteAsset(
-	assetId: MediaAssetId,
-	lockedDb?: Kysely<AppDatabase>,
-): Promise<void> {
-	const db = lockedDb ?? (await getAppDb());
-	await db.deleteFrom("media_assets").where("id", "=", assetId).execute();
 }

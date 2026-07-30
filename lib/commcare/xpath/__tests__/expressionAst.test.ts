@@ -17,7 +17,10 @@ import {
 	XPathProjectionError,
 	xpathPrintContext,
 } from "@/lib/domain";
-import { parseXPathExpression } from "../expressionAst";
+import {
+	parseXPathExpression,
+	parseXPathExpressionWithIssues,
+} from "../expressionAst";
 
 const FORM = testUuid("form-1");
 const AGE = testUuid("f-age");
@@ -108,6 +111,26 @@ describe("leaf classification", () => {
 		]);
 	});
 
+	it("rejects raw #case authoring instead of minting a contextual identity", () => {
+		const doc = makeDoc();
+		const parsed = parseXPathExpressionWithIssues(
+			"#case/age",
+			fieldPathResolver(doc, FORM),
+			resolvableUserPropertySlug(doc),
+		);
+		expect(parsed.expression.parts).toEqual([
+			{ kind: "text", text: "#case/age" },
+		]);
+		expect(parsed.issues).toEqual([
+			{
+				kind: "unresolved-reference",
+				source: "#case/age",
+				from: 0,
+				to: 9,
+			},
+		]);
+	});
+
 	it("parses a syntax-broken source to one opaque text run", () => {
 		const doc = makeDoc();
 		expect(parse("if(#form/age", doc).parts).toEqual([
@@ -121,6 +144,39 @@ describe("leaf classification", () => {
 });
 
 describe("resolve at print", () => {
+	it("stores #form identity while the editor projects only the current friendly id", () => {
+		const doc = makeDoc();
+		(doc.fields as Record<string, { id: string }>)[AGE].id = "first_name";
+		const expr = parse("#form/first_name != ''", doc);
+
+		expect(expr.parts).toEqual([
+			{ kind: "field-ref", uuid: AGE },
+			{ kind: "text", text: " != ''" },
+		]);
+		const stored = structuredClone(expr);
+		const before = projectXPath(expr, xpathPrintContext(doc));
+		expect(before).toEqual({ ok: true, text: "#form/first_name != ''" });
+		if (before.ok) expect(before.text).not.toContain(AGE);
+
+		(doc.fields as Record<string, { id: string }>)[AGE].id = "given_name";
+		expect(expr).toEqual(stored);
+		const after = projectXPath(expr, xpathPrintContext(doc));
+		expect(after).toEqual({ ok: true, text: "#form/given_name != ''" });
+		if (after.ok) expect(after.text).not.toContain(AGE);
+	});
+
+	it("resolves a UUID-looking friendly field id by path, not by identity text", () => {
+		const doc = makeDoc();
+		const uuidLookingId = testUuid("friendly-looking-id");
+		(doc.fields as Record<string, { id: string }>)[AGE].id = uuidLookingId;
+
+		const expr = parse(`#form/${uuidLookingId}`, doc);
+		expect(expr.parts).toEqual([{ kind: "field-ref", uuid: AGE }]);
+		expect(printXPath(expr, xpathPrintContext(doc))).toBe(
+			`#form/${uuidLookingId}`,
+		);
+	});
+
 	it("prints the target's CURRENT name after a rename — no rewrite", () => {
 		const doc = makeDoc();
 		const expr = parse("#form/age > 18 and /data/age != ''", doc);
@@ -219,20 +275,20 @@ describe("resolve at print", () => {
 		]);
 	});
 
-	it("keeps built-in names raw even when an invalid legacy custom property collides", () => {
+	it("keeps built-in names raw when an invalid custom property collides", () => {
 		const doc = makeDoc();
 		doc.userProperties = {
-			[testUuid("legacy")]: { slug: "user_type" },
+			[testUuid("invalid-built-in-collision")]: { slug: "user_type" },
 		};
 		expect(parse("#user/user_type", doc).parts).toEqual([
 			{ kind: "user-ref", property: "user_type" },
 		]);
 	});
 
-	it("keeps reserved legacy custom-property names raw", () => {
+	it("keeps invalid reserved custom-property names raw", () => {
 		const doc = makeDoc();
 		doc.userProperties = {
-			[testUuid("legacy")]: { slug: "case_id" },
+			[testUuid("invalid-reserved-collision")]: { slug: "case_id" },
 		};
 		expect(parse("#user/case_id", doc).parts).toEqual([
 			{ kind: "user-ref", property: "case_id" },
@@ -271,7 +327,7 @@ describe("resolve at print", () => {
 });
 
 describe("structural case-property rename", () => {
-	it("renames only the explicit case-type/property identity", () => {
+	it("renames only the explicit identity and never rejected raw #case text", () => {
 		const doc = makeDoc();
 		const expr = parse("#mother/age + #case/age + #other/age", doc);
 		const renamed = renameCasePropertyInXPath(expr, {
@@ -283,28 +339,5 @@ describe("structural case-property rename", () => {
 		expect(printXPath(expr, xpathPrintContext(doc))).toBe(
 			"#mother/years + #case/age + #other/age",
 		);
-	});
-
-	it("leaves contextual refs alone when the carrier's module type differs", () => {
-		const doc = makeDoc();
-		const expr = parse("#case/age", doc);
-		const renamed = renameCasePropertyInXPath(expr, {
-			caseType: "mother",
-			oldName: "age",
-			newName: "years",
-		});
-		expect(renamed).toBe(0);
-		expect(printXPath(expr, xpathPrintContext(doc))).toBe("#case/age");
-	});
-
-	it("never touches multi-segment contextual refs", () => {
-		const doc = makeDoc();
-		const expr = parse("#case/parent/age", doc);
-		const renamed = renameCasePropertyInXPath(expr, {
-			caseType: "mother",
-			oldName: "age",
-			newName: "years",
-		});
-		expect(renamed).toBe(0);
 	});
 });

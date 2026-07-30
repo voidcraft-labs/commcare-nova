@@ -109,6 +109,21 @@ describe("toMcpErrorResult", () => {
 		expect(payload.app_id).toBe("app-9");
 	});
 
+	it("serializes authoritative rename occupancy as invalid_input", () => {
+		const message =
+			'Saved case data now occupies "village" on "patient". Review the rename conflicts and try again.';
+		const payload = parsePayload(
+			toMcpErrorResult(new BlueprintCommitRejectedError(message), {
+				appId: "app-rename",
+			}),
+		);
+		expect(payload).toMatchObject({
+			error_type: "invalid_input",
+			message,
+			app_id: "app-rename",
+		});
+	});
+
 	it("serializes AppProjectChangedError as reloadable invalid_input with app context", () => {
 		const projectChanged = new AppProjectChangedError();
 		const result = toMcpErrorResult(projectChanged, {

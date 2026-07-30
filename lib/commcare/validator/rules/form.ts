@@ -3,9 +3,9 @@
  *
  * Each rule receives the normalized `BlueprintDoc`, the form entity, and its
  * `formUuid` (plus the owning module for rules that need sibling context).
- * Case configuration is derived once per form and threaded through to rules
- * that depend on it — `deriveCaseConfig` operates directly on the doc, so
- * there's no wire-shape adapter in this file.
+ * Case-write action assignment, path resolution, repeat scope, and admission
+ * are derived once per form through `deriveCaseWriteInventory`; every
+ * case-write finding below consumes that one inventory.
  */
 
 import {
@@ -13,23 +13,20 @@ import {
 	MAX_CASE_PROPERTY_LENGTH,
 	MAX_FORM_ATTACHMENTS,
 	MEDIA_FIELD_KINDS,
-	RESERVED_CASE_PROPERTIES,
 	XML_ELEMENT_NAME_REGEX,
 } from "@/lib/commcare";
+import { caseWriteAdmissionIssues } from "@/lib/commcare/caseWriteAdmission";
 import { connectIdError } from "@/lib/commcare/connectSlugs";
-import {
-	type DerivedCaseConfig,
-	deriveCaseConfig,
-} from "@/lib/commcare/deriveCaseConfig";
-import { readFieldString } from "@/lib/commcare/fieldProps";
 import { detectUnquotedStringLiteral } from "@/lib/commcare/xpath";
 import {
 	type BlueprintDoc,
-	type Field,
+	type CaseWriteInventory,
+	deriveCaseWriteInventory,
 	FORM_REFERENCE_SLOTS,
 	type Form,
 	fieldReferenceSlotsFor,
 	formExpressionValue,
+	isConnectLearnConfig,
 	type Module,
 	POST_SUBMIT_DESTINATIONS,
 	type ProseTemplate,
@@ -64,42 +61,6 @@ function collectFieldUuids(doc: BlueprintDoc, parentUuid: Uuid): Set<string> {
 	};
 	walk(parentUuid);
 	return uuids;
-}
-
-function collectFieldIds(doc: BlueprintDoc, parentUuid: Uuid): string[] {
-	const ids: string[] = [];
-	const walk = (uuid: Uuid) => {
-		for (const childUuid of doc.fieldOrder[uuid] ?? []) {
-			const field = doc.fields[childUuid];
-			if (!field) continue;
-			ids.push(field.id);
-			if (doc.fieldOrder[childUuid] !== undefined) walk(childUuid);
-		}
-	};
-	walk(parentUuid);
-	return ids;
-}
-
-/**
- * Find a field anywhere under `parentUuid` (recurses through containers)
- * whose `id` matches. Returns the first match or `undefined`.
- */
-function findFieldById(
-	doc: BlueprintDoc,
-	parentUuid: Uuid,
-	id: string,
-): Field | undefined {
-	const stack: Uuid[] = [...(doc.fieldOrder[parentUuid] ?? [])];
-	while (stack.length > 0) {
-		const uuid = stack.pop();
-		if (!uuid) break;
-		const field = doc.fields[uuid];
-		if (!field) continue;
-		if (field.id === id) return field;
-		const children = doc.fieldOrder[uuid];
-		if (children) stack.push(...children);
-	}
-	return undefined;
 }
 
 interface FormContext {
@@ -137,115 +98,163 @@ function emptyForm(
 	];
 }
 
-function noCaseNameField(
-	form: Form,
+function caseWriteAdmission(
 	ctx: FormContext,
-	caseConfig: DerivedCaseConfig,
+	inventory: CaseWriteInventory,
 ): ValidationError[] {
-	if (form.type === "registration" && !caseConfig.case_name_field) {
-		return [
-			validationError(
-				"NO_CASE_NAME_FIELD",
-				"form",
-				`"${ctx.formName}" is a registration form but none of its fields has id "case_name". Every new case needs a name — add a text field with id "case_name" and \`case_property_on\` set to the module's case type.`,
-				baseLocation(ctx),
-			),
-		];
-	}
-	return [];
-}
-
-function caseNameFieldMissing(
-	doc: BlueprintDoc,
-	form: Form,
-	ctx: FormContext,
-	caseConfig: DerivedCaseConfig,
-): ValidationError[] {
-	if (form.type !== "registration" || !caseConfig.case_name_field) return [];
-	const ids = collectFieldIds(doc, ctx.formUuid);
-	if (ids.includes(caseConfig.case_name_field)) return [];
-	return [
-		validationError(
-			"CASE_NAME_FIELD_MISSING",
-			"form",
-			`"${ctx.formName}" expects a field with id "${caseConfig.case_name_field}" for the case name, but no such field exists. Either add this field or rename an existing one.`,
-			baseLocation(ctx),
-		),
-	];
-}
-
-function reservedCaseProperty(
-	ctx: FormContext,
-	caseConfig: DerivedCaseConfig,
-): ValidationError[] {
-	if (!caseConfig.case_properties) return [];
 	const errors: ValidationError[] = [];
-	for (const { case_property: prop } of caseConfig.case_properties) {
-		if (RESERVED_CASE_PROPERTIES.has(prop) && prop !== "case_name") {
+	const bucketScope = (
+		bucket: CaseWriteInventory["buckets"][number],
+	): string =>
+		bucket.kind === "primary"
+			? `the primary ${bucket.caseType} case`
+			: bucket.repeatId
+				? `the ${bucket.caseType} child case inside repeat "${bucket.repeatId}"`
+				: `the ${bucket.caseType} child case`;
+
+	for (const issue of caseWriteAdmissionIssues(inventory)) {
+		if (issue.kind === "no-case-action") {
+			const { writer } = issue;
+			errors.push(
+				validationError(
+					"CASE_WRITE_NO_CASE_ACTION",
+					"form",
+					`"${ctx.formName}" gives field "${writer.fieldId}" a case destination (${writer.caseType}.${writer.property}), but this form emits no case action. Remove the case destination, or move the field to a registration, followup, or close form in a module with a case type.`,
+					{
+						...baseLocation(ctx),
+						fieldUuid: writer.fieldUuid,
+						fieldId: writer.fieldId,
+					},
+					{ caseType: writer.caseType, property: writer.property },
+				),
+			);
+			continue;
+		}
+		if (
+			issue.kind === "destination-type-unknown" ||
+			issue.kind === "destination-not-direct-child"
+		) {
+			const { writer } = issue;
+			const unknown = issue.kind === "destination-type-unknown";
+			errors.push(
+				validationError(
+					unknown ? "CASE_WRITE_UNKNOWN_TYPE" : "CASE_WRITE_NOT_DIRECT_CHILD",
+					"form",
+					unknown
+						? `"${ctx.formName}" gives field "${writer.fieldId}" a case destination on unknown type "${writer.caseType}". Add that case type, or point the field at the module's own case type or one of its exact direct child types.`
+						: `"${ctx.formName}" gives field "${writer.fieldId}" a case destination on "${writer.caseType}", but a field can save only to the module's own case type or one of its exact direct child types. Choose an eligible destination or clear the case destination.`,
+					{
+						...baseLocation(ctx),
+						fieldUuid: writer.fieldUuid,
+						fieldId: writer.fieldId,
+					},
+					{ caseType: writer.caseType, property: writer.property },
+				),
+			);
+			continue;
+		}
+		if (issue.kind === "reserved-property") {
+			const { writer } = issue;
 			errors.push(
 				validationError(
 					"RESERVED_CASE_PROPERTY",
 					"form",
-					`"${ctx.formName}" saves to case property "${prop}", which is a reserved name in CommCare (used internally for case tracking). Rename the field to something like "${prop}_value" or "case_${prop}" instead.`,
-					baseLocation(ctx),
-					{ reservedName: prop },
+					`"${ctx.formName}" saves field "${writer.fieldId}" to case property "${writer.property}", which is reserved for case mechanics. Use Nova's "case_name" for the display name, or choose a custom property.`,
+					{
+						...baseLocation(ctx),
+						fieldUuid: writer.fieldUuid,
+						fieldId: writer.fieldId,
+					},
+					{ reservedName: writer.property },
 				),
 			);
+			continue;
 		}
-	}
-	return errors;
-}
-
-function casePropertyMissingField(
-	doc: BlueprintDoc,
-	ctx: FormContext,
-	caseConfig: DerivedCaseConfig,
-): ValidationError[] {
-	if (!caseConfig.case_properties) return [];
-	const errors: ValidationError[] = [];
-	const ids = collectFieldIds(doc, ctx.formUuid);
-	for (const {
-		case_property: prop,
-		question_id: qId,
-	} of caseConfig.case_properties) {
-		if (!ids.includes(qId)) {
-			errors.push(
-				validationError(
-					"CASE_PROPERTY_MISSING_FIELD",
-					"form",
-					`"${ctx.formName}" maps case property "${prop}" to field "${qId}", but that field doesn't exist in this form. Either add the field or remove the case property mapping.`,
-					baseLocation(ctx),
-				),
-			);
-		}
-	}
-	return errors;
-}
-
-function mediaCaseProperty(
-	doc: BlueprintDoc,
-	ctx: FormContext,
-	caseConfig: DerivedCaseConfig,
-): ValidationError[] {
-	if (!caseConfig.case_properties) return [];
-	const errors: ValidationError[] = [];
-	for (const {
-		case_property: prop,
-		question_id: qId,
-	} of caseConfig.case_properties) {
-		const field = findFieldById(doc, ctx.formUuid, qId);
-		if (field && MEDIA_FIELD_KINDS.has(field.kind)) {
+		if (issue.kind === "media-field") {
+			const { writer } = issue;
 			errors.push(
 				validationError(
 					"MEDIA_CASE_PROPERTY",
 					"form",
-					`"${ctx.formName}" tries to save the ${field.kind} field "${qId}" as case property "${prop}". Attachments (photos, audio, video, signatures, files) can't be stored as case properties — CommCare carries them through its attachment system instead. Clear \`case_property_on\` on this field.`,
-					baseLocation(ctx),
-					{ property: prop, questionId: qId },
+					`"${ctx.formName}" tries to save the ${writer.fieldKind} field "${writer.fieldId}" as case property "${writer.property}". Attachments can't be stored as case properties; clear this case destination.`,
+					{
+						...baseLocation(ctx),
+						fieldUuid: writer.fieldUuid,
+						fieldId: writer.fieldId,
+					},
+					{ property: writer.property, questionId: writer.fieldId },
 				),
 			);
+			continue;
 		}
+		if (issue.kind === "primary-writer-in-repeat") {
+			const { writer, bucket } = issue;
+			errors.push(
+				validationError(
+					"PRIMARY_CASE_FIELD_IN_REPEAT",
+					"form",
+					`"${ctx.formName}" has field "${writer.fieldId}" inside repeat "${writer.repeatId}" saving to the module's own case type "${bucket.caseType}". A form creates or updates one primary case, so move the field out of the repeat or save it to an exact direct child case type.`,
+					{
+						...baseLocation(ctx),
+						fieldUuid: writer.fieldUuid,
+						fieldId: writer.fieldId,
+					},
+					{
+						fieldId: writer.fieldId,
+						repeatId: writer.repeatId ?? "",
+						caseType: bucket.caseType,
+					},
+				),
+			);
+			continue;
+		}
+		if (issue.kind === "duplicate-property") {
+			const fieldIds = issue.writers.map((writer) => writer.fieldId);
+			errors.push(
+				validationError(
+					"CASE_WRITE_DUPLICATE_PROPERTY",
+					"form",
+					`"${ctx.formName}" has ${fieldIds.length} fields (${fieldIds.map((id) => `"${id}"`).join(", ")}) all saving property "${issue.property}" on ${bucketScope(issue.bucket)}. One emitted case action can have exactly one ordinary field writer per property — change or clear the extra case destinations.`,
+					{
+						...baseLocation(ctx),
+						fieldUuid: issue.writers[1]?.fieldUuid,
+						fieldId: issue.writers[1]?.fieldId,
+					},
+					{
+						caseType: issue.bucket.caseType,
+						property: issue.property,
+						fieldIds: fieldIds.join(","),
+						...(issue.bucket.repeatId
+							? { repeatId: issue.bucket.repeatId }
+							: {}),
+					},
+				),
+			);
+			continue;
+		}
+		const duplicate = issue.kind === "create-name-duplicate";
+		const names = duplicate ? issue.writers : [];
+		errors.push(
+			validationError(
+				duplicate ? "CASE_CREATE_NAME_DUPLICATE" : "CASE_CREATE_NAME_MISSING",
+				"form",
+				duplicate
+					? `"${ctx.formName}" creates ${bucketScope(issue.bucket)}, but ${names.length} fields (${names.map((writer) => `"${writer.fieldId}"`).join(", ")}) write its "case_name". Every case-create action needs exactly one name writer — keep one destination and change or clear the others.`
+					: `"${ctx.formName}" creates ${bucketScope(issue.bucket)}, but no field writes its "case_name". Every case-create action needs exactly one name writer — set one field's case destination to type "${issue.bucket.caseType}", property "case_name".`,
+				{
+					...baseLocation(ctx),
+					fieldUuid: names[1]?.fieldUuid,
+					fieldId: names[1]?.fieldId,
+				},
+				{
+					caseType: issue.bucket.caseType,
+					writerCount: String(names.length),
+					...(issue.bucket.repeatId ? { repeatId: issue.bucket.repeatId } : {}),
+				},
+			),
+		);
 	}
+
 	return errors;
 }
 
@@ -297,82 +306,6 @@ function tooManyAttachments(
 			{ captureCount: String(captureIds.length) },
 		),
 	];
-}
-
-function casePreloadMissingField(
-	doc: BlueprintDoc,
-	ctx: FormContext,
-	caseConfig: DerivedCaseConfig,
-): ValidationError[] {
-	if (!caseConfig.case_preload) return [];
-	const errors: ValidationError[] = [];
-	const ids = collectFieldIds(doc, ctx.formUuid);
-	for (const {
-		question_id: qId,
-		case_property: prop,
-	} of caseConfig.case_preload) {
-		if (!ids.includes(qId)) {
-			errors.push(
-				validationError(
-					"CASE_PRELOAD_MISSING_FIELD",
-					"form",
-					`"${ctx.formName}" tries to preload case property "${prop}" into field "${qId}", but that field doesn't exist. The preload needs a matching field to receive the data.`,
-					baseLocation(ctx),
-				),
-			);
-		}
-	}
-	return errors;
-}
-
-function casePreloadReserved(
-	ctx: FormContext,
-	caseConfig: DerivedCaseConfig,
-): ValidationError[] {
-	if (!caseConfig.case_preload) return [];
-	const errors: ValidationError[] = [];
-	for (const { case_property: prop } of caseConfig.case_preload) {
-		if (RESERVED_CASE_PROPERTIES.has(prop)) {
-			errors.push(
-				validationError(
-					"CASE_PRELOAD_RESERVED",
-					"form",
-					`"${ctx.formName}" tries to preload reserved property "${prop}". CommCare reserves this name for internal use. Use a custom property name instead.`,
-					baseLocation(ctx),
-				),
-			);
-		}
-	}
-	return errors;
-}
-
-function duplicateCasePropertyMapping(
-	ctx: FormContext,
-	caseConfig: DerivedCaseConfig,
-): ValidationError[] {
-	if (!caseConfig.case_properties) return [];
-	const errors: ValidationError[] = [];
-	const seen = new Map<string, string>();
-	for (const {
-		case_property: prop,
-		question_id: qId,
-	} of caseConfig.case_properties) {
-		const prev = seen.get(prop);
-		if (prev && prev !== qId) {
-			errors.push(
-				validationError(
-					"DUPLICATE_CASE_PROPERTY",
-					"form",
-					`"${ctx.formName}" has two fields ("${prev}" and "${qId}") both saving to case property "${prop}". Each case property can only be updated by one field — rename one of the field IDs so they map to different properties.`,
-					baseLocation(ctx),
-					{ property: prop, questionId1: prev, questionId2: qId },
-				),
-			);
-		} else {
-			seen.set(prop, qId);
-		}
-	}
-	return errors;
 }
 
 /**
@@ -469,26 +402,12 @@ function postSubmitValidation(
 			validationError(
 				"INVALID_POST_SUBMIT",
 				"form",
-				`"${ctx.formName}" has post_submit set to "${dest}", which isn't a recognized destination. Use one of: "app_home", "root", "module", "parent_module", "previous".`,
+				`"${ctx.formName}" has post_submit set to "${dest}", which isn't a recognized destination. Use one of: "app_home", "module", "previous".`,
 				loc,
 				{ value: String(dest) },
 			),
 		);
 		return errors;
-	}
-
-	// parent_module: Nova doesn't model root_module yet, so this is always
-	// an error. When root_module is added, verify: (1) mod.rootModule exists,
-	// (2) the parent module isn't put_in_root.
-	if (dest === "parent_module") {
-		errors.push(
-			validationError(
-				"POST_SUBMIT_PARENT_MODULE_UNSUPPORTED",
-				"form",
-				`"${ctx.formName}" has post_submit set to "parent_module", but "${ctx.moduleName}" has no parent module (parent modules aren't modeled yet). Use "module", "previous", or "app_home" instead.`,
-				loc,
-			),
-		);
 	}
 
 	// module: invalid when module is display-only (no form list to return to).
@@ -615,9 +534,25 @@ function connectValidation(
 	form: Form,
 	ctx: FormContext,
 ): ValidationError[] {
-	if (!doc.connectType) return [];
 	const errors: ValidationError[] = [];
 	const loc = baseLocation(ctx);
+
+	// Standard apps carry no dormant Connect configuration. A mode switch is
+	// one app-wide target-state command that clears incompatible/unlisted
+	// blocks; individual form edits are available only after a mode exists.
+	if (!doc.connectType) {
+		if (form.connect) {
+			errors.push(
+				validationError(
+					"CONNECT_MODE_MISMATCH",
+					"form",
+					`"${ctx.formName}" carries a Connect block while Connect is off for the app. Configure the app's mode and complete participant set together with configureConnect/configure_connect, or remove this form block.`,
+					loc,
+				),
+			);
+		}
+		return errors;
+	}
 
 	// A form WITHOUT a connect block is a legal, meaningful state on a
 	// Connect app: the block marks that the form PARTICIPATES in Connect,
@@ -633,6 +568,19 @@ function connectValidation(
 	// everything below adjudicates a block that IS present.
 	if (!form.connect) return errors;
 
+	const blockIsLearn = isConnectLearnConfig(form.connect);
+	if ((doc.connectType === "learn") !== blockIsLearn) {
+		errors.push(
+			validationError(
+				"CONNECT_MODE_MISMATCH",
+				"form",
+				`"${ctx.formName}" carries a ${blockIsLearn ? "learn" : "deliver"} Connect block, but the app is in ${doc.connectType} mode. Configure the mode and complete participant set together with configureConnect/configure_connect.`,
+				loc,
+			),
+		);
+		return errors;
+	}
+
 	// A Connect id becomes an XML element name in the emitted form (the
 	// wrapper `<id vellum:role=...>` and the Connect-namespaced `id=`
 	// attribute) and lands in a Connect DB slug column (tightest is
@@ -641,65 +589,46 @@ function connectValidation(
 	// the field-level commit guard uses, so the field and the server never
 	// disagree. We reject a bad id here rather than silently fixing it.
 	//
-	// Every source path leaves the id SET: the SA tools autofill or reject
-	// (`enforceConnectIds`), the UI seed/restore paths derive
-	// (`dedupeRestoredConnectIds`). Nothing downstream supplies a default —
-	// the emit resolver (`buildConnectSlugMap`) THROWS on a missing id — so
-	// a block that reaches validation id-less is a doc that skipped that
-	// enforcement, and the unset id is its own finding (CONNECT_ID_MISSING)
-	// rather than a 500 at export. Only the app mode's live kinds are
-	// checked for absence, mirroring the resolver (a cross-mode stray never
-	// emits, so its missing id breaks nothing).
-	//
-	// For a SET id, `connectIdError` returns one reason; we pick the
+	// Stored blocks always carry ids. `connectIdError` returns one reason; we pick the
 	// structured code from the cheap element-name check (a char failure →
 	// INVALID_FORMAT, otherwise the only remaining failure is length →
 	// TOO_LONG) and wrap the reason with the form/kind context.
-	const liveKindLabels: ReadonlySet<string> =
-		doc.connectType === "learn"
-			? new Set(["learn-module", "assessment"])
-			: new Set(["deliver-unit", "task"]);
 	const connectIds: ReadonlyArray<{
 		label: string;
-		present: boolean;
-		id: string | undefined;
-	}> = [
-		{
-			label: "learn-module",
-			present: form.connect.learn_module !== undefined,
-			id: form.connect.learn_module?.id,
-		},
-		{
-			label: "assessment",
-			present: form.connect.assessment !== undefined,
-			id: form.connect.assessment?.id,
-		},
-		{
-			label: "deliver-unit",
-			present: form.connect.deliver_unit !== undefined,
-			id: form.connect.deliver_unit?.id,
-		},
-		{
-			label: "task",
-			present: form.connect.task !== undefined,
-			id: form.connect.task?.id,
-		},
-	];
-	for (const { label, present, id } of connectIds) {
-		if (!id) {
-			if (present && liveKindLabels.has(label)) {
-				errors.push(
-					validationError(
-						"CONNECT_ID_MISSING",
-						"form",
-						`The Connect ${label} block in "${ctx.formName}" has no id. Set one — letters, numbers, and underscores, 50 characters or fewer, unique across the app — via update_form or the form's Connect settings.`,
-						loc,
-						{ connectKind: label },
-					),
-				);
-			}
-			continue;
-		}
+		id: string;
+	}> = isConnectLearnConfig(form.connect)
+		? [
+				...(form.connect.learn_module === undefined
+					? []
+					: [
+							{
+								label: "learn-module",
+								id: form.connect.learn_module.id,
+							},
+						]),
+				...(form.connect.assessment === undefined
+					? []
+					: [
+							{
+								label: "assessment",
+								id: form.connect.assessment.id,
+							},
+						]),
+			]
+		: [
+				...(form.connect.deliver_unit === undefined
+					? []
+					: [
+							{
+								label: "deliver-unit",
+								id: form.connect.deliver_unit.id,
+							},
+						]),
+				...(form.connect.task === undefined
+					? []
+					: [{ label: "task", id: form.connect.task.id }]),
+			];
+	for (const { label, id } of connectIds) {
 		const reason = connectIdError(id);
 		if (!reason) continue;
 		const code = XML_ELEMENT_NAME_REGEX.test(id)
@@ -712,35 +641,6 @@ function connectValidation(
 				`Connect ${label} id in "${ctx.formName}" — ${reason}`,
 				loc,
 				{ connectId: id },
-			),
-		);
-	}
-
-	if (
-		doc.connectType === "learn" &&
-		!form.connect.learn_module &&
-		!form.connect.assessment
-	) {
-		errors.push(
-			validationError(
-				"CONNECT_MISSING_LEARN",
-				"form",
-				`"${ctx.formName}" is opted into Connect but has neither a learn module nor an assessment. Enable at least one.`,
-				loc,
-			),
-		);
-	}
-	if (
-		doc.connectType === "deliver" &&
-		!form.connect.deliver_unit &&
-		!form.connect.task
-	) {
-		errors.push(
-			validationError(
-				"CONNECT_MISSING_DELIVER",
-				"form",
-				`"${ctx.formName}" is opted into Connect but has neither a deliver unit nor a task. Enable at least one.`,
-				loc,
 			),
 		);
 	}
@@ -767,7 +667,7 @@ function connectValidation(
 			? undefined
 			: projectXPath(expression, xpathPrintContext(doc)).text;
 	};
-	if (form.connect.assessment) {
+	if (isConnectLearnConfig(form.connect) && form.connect.assessment) {
 		// `user_score` is optional in the domain — an absent value skips both
 		// checks below (the wire layer substitutes the canonical default),
 		// same as the deliver entity slots. AST-stored values project to
@@ -777,7 +677,7 @@ function connectValidation(
 			expr: projectConnectXPath("assessment_user_score"),
 		});
 	}
-	if (form.connect.deliver_unit) {
+	if (!isConnectLearnConfig(form.connect) && form.connect.deliver_unit) {
 		connectXPaths.push(
 			{
 				label: "Connect deliver entity_id",
@@ -861,11 +761,11 @@ function duplicateFieldIds(
 
 function casePropertyBadFormat(
 	ctx: FormContext,
-	caseConfig: DerivedCaseConfig,
+	inventory: CaseWriteInventory,
 ): ValidationError[] {
-	if (!caseConfig.case_properties) return [];
 	const errors: ValidationError[] = [];
-	for (const { case_property: prop } of caseConfig.case_properties) {
+	for (const writer of inventory.writers) {
+		const prop = writer.property;
 		if (prop === "case_name") continue;
 		if (!CASE_PROPERTY_REGEX.test(prop)) {
 			errors.push(
@@ -873,7 +773,11 @@ function casePropertyBadFormat(
 					"CASE_PROPERTY_BAD_FORMAT",
 					"form",
 					`"${ctx.formName}" has case property "${prop}" which isn't a valid identifier. Property names must start with a letter and can only contain letters, digits, underscores, or hyphens. Try renaming it to something like "${prop.replace(/[^a-zA-Z0-9_-]/g, "_").replace(/^[^a-zA-Z]/, "q_")}".`,
-					baseLocation(ctx),
+					{
+						...baseLocation(ctx),
+						fieldUuid: writer.fieldUuid,
+						fieldId: writer.fieldId,
+					},
 					{ property: prop },
 				),
 			);
@@ -989,127 +893,24 @@ function caseHashtagOnCreateForm(
 	return errors;
 }
 
-/**
- * A primary case field — one whose `case_property_on` equals the
- * module's own case type — placed inside a repeat is structurally
- * invalid. A form creates or updates exactly ONE primary case, but a
- * repeat iterates zero or more independent values per iteration —
- * there's no rule to decide which iteration's value "wins" for the
- * primary case property.
- *
- * Both Vellum and CCHQ enforce this invariant upstream. Vellum's
- * per-field case-management section is hidden when any ancestor is a
- * Repeat (`Vellum/src/caseManagement.js::getSectionDisplay`); CCHQ's
- * case-config UI rejects with "Inside the wrong repeat!" when the
- * property's `repeat_context` doesn't match the transaction's (and a
- * primary transaction's `repeat_context` is always empty —
- * `commcare-hq/.../case_config_ui.js::caseProperty.validate`). Nova's
- * authoring layer matches: the error lands in the editor at edit time,
- * not at compile time.
- *
- * Cross-case-type fields (`case_property_on != mod.caseType`) inside a
- * repeat are the supported subcase-creation shape (one new child case
- * per iteration); they're handled by the splice algorithm in
- * `xform/caseBlocks.ts::addCaseBlocks` and never reach this rule.
- *
- * Survey forms carry no case actions — `deriveCaseConfig` returns `{}`
- * for them, so their `case_property_on` annotations never become case
- * properties on the wire. Flagging one would be a false positive (the
- * field has no case effect to conflict with), so survey forms are
- * skipped entirely.
- */
-function primaryCaseFieldInRepeat(
-	doc: BlueprintDoc,
-	ctx: FormContext,
-	mod: Module,
-): ValidationError[] {
-	if (!mod.caseType) return [];
-	if (doc.forms[ctx.formUuid].type === "survey") return [];
-	const errors: ValidationError[] = [];
-	const walk = (parentUuid: Uuid, repeatAncestor: string | undefined): void => {
-		for (const uuid of doc.fieldOrder[parentUuid] ?? []) {
-			const field = doc.fields[uuid];
-			if (!field) continue;
-			const casePropertyOn = readFieldString(field, "case_property_on", doc);
-			if (repeatAncestor && casePropertyOn === mod.caseType) {
-				errors.push(
-					validationError(
-						"PRIMARY_CASE_FIELD_IN_REPEAT",
-						"form",
-						`"${ctx.formName}" has field "${field.id}" inside repeat "${repeatAncestor}" saving to the module's own case type "${mod.caseType}". A form creates or updates one primary case, but a repeat captures zero or more independent values per iteration — they can't coexist. Either move "${field.id}" out of the repeat (so its value applies to the parent case), or change \`case_property_on\` to a child case type (so each iteration creates a child case).`,
-						baseLocation(ctx),
-						{ fieldId: field.id, repeatId: repeatAncestor },
-					),
-				);
-			}
-			if (doc.fieldOrder[uuid] !== undefined) {
-				walk(uuid, field.kind === "repeat" ? field.id : repeatAncestor);
-			}
-		}
-	};
-	walk(ctx.formUuid, undefined);
-	return errors;
-}
-
-/**
- * Mirror of the primary case's `NO_CASE_NAME_FIELD` rule for child
- * cases. Every child-case bucket — derived by
- * `deriveCaseConfig::deriveChildCases` from `(case_property_on,
- * repeat_ancestor_path)` — needs a field with id `case_name` in that
- * scope so the new case has a display name. Without this rule, a
- * missing `case_name` would either ship a nameless case to CommCare
- * or silently re-purpose an unrelated field; the message names the
- * case type AND (when applicable) the repeat the bucket lives inside.
- */
-function childCaseNoNameField(
-	ctx: FormContext,
-	caseConfig: DerivedCaseConfig,
-): ValidationError[] {
-	if (!caseConfig.child_cases || caseConfig.child_cases.length === 0) return [];
-	const errors: ValidationError[] = [];
-	for (const child of caseConfig.child_cases) {
-		if (child.case_name_field) continue;
-		// Author-facing scope label uses the bare repeat id (`kids`), not the
-		// wire XPath (`/data/group_a/kids/item`). The wire path is correct
-		// emission data but the wrong vocabulary for an authoring error: the
-		// user named the repeat `kids` in the editor and that's what should
-		// appear in quotes. The bare id travels alongside `repeat_context`
-		// on `DerivedChildCase` for exactly this reason.
-		const scope = child.repeat_ancestor_id
-			? ` inside repeat "${child.repeat_ancestor_id}"`
-			: "";
-		errors.push(
-			validationError(
-				"CHILD_CASE_NO_NAME_FIELD",
-				"form",
-				`"${ctx.formName}" creates a child case of type "${child.case_type}"${scope} but no field at that scope has id "case_name". Every new case needs a name — add a text field with id "case_name" and \`case_property_on: "${child.case_type}"\`${scope}.`,
-				baseLocation(ctx),
-				{
-					caseType: child.case_type,
-					...(child.repeat_ancestor_id
-						? { repeatId: child.repeat_ancestor_id }
-						: {}),
-				},
-			),
-		);
-	}
-	return errors;
-}
-
 function casePropertyTooLong(
 	ctx: FormContext,
-	caseConfig: DerivedCaseConfig,
+	inventory: CaseWriteInventory,
 ): ValidationError[] {
-	if (!caseConfig.case_properties) return [];
 	const errors: ValidationError[] = [];
-	for (const { case_property: prop } of caseConfig.case_properties) {
+	for (const writer of inventory.writers) {
+		const prop = writer.property;
 		if (prop.length > MAX_CASE_PROPERTY_LENGTH) {
 			errors.push(
 				validationError(
 					"CASE_PROPERTY_TOO_LONG",
 					"form",
 					`"${ctx.formName}" has case property "${prop.slice(0, 40)}..." which is ${prop.length} characters long. CommCare limits property names to ${MAX_CASE_PROPERTY_LENGTH} characters. Use a shorter, more concise name.`,
-					baseLocation(ctx),
+					{
+						...baseLocation(ctx),
+						fieldUuid: writer.fieldUuid,
+						fieldId: writer.fieldId,
+					},
 					{ property: prop },
 				),
 			);
@@ -1135,16 +936,12 @@ export function runFormRules(
 		moduleName: mod.name,
 	};
 
-	// `primaryCaseFieldInRepeat` runs BEFORE `deriveCaseConfig`-derived
-	// rules so a primary-case field misplaced inside a repeat shows up as
-	// its own error rather than silently propagating through the
-	// derivation. The derivation itself can't tell the misplacement from
-	// an intentional non-repeat primary-case field (the walker just bucks
-	// based on `(case_property_on, repeatAncestor)`), so the rule fires
-	// against the offending field independently.
-	const primaryInRepeatErrors = primaryCaseFieldInRepeat(doc, ctx, mod);
-
-	const caseConfig = deriveCaseConfig(doc, formUuid, mod.caseType, form.type);
+	const caseWriteInventory = deriveCaseWriteInventory(
+		doc,
+		formUuid,
+		mod,
+		form.type,
+	);
 
 	const errors: ValidationError[] = [];
 	errors.push(...emptyForm(doc, form, ctx));
@@ -1156,23 +953,14 @@ export function runFormRules(
 	}
 	errors.push(...closeConditionValidation(doc, form, ctx, mod));
 	errors.push(...duplicateFieldIds(doc, ctx));
-	errors.push(...primaryInRepeatErrors);
-	errors.push(...noCaseNameField(form, ctx, caseConfig));
-	errors.push(...caseNameFieldMissing(doc, form, ctx, caseConfig));
-	errors.push(...reservedCaseProperty(ctx, caseConfig));
-	errors.push(...casePropertyMissingField(doc, ctx, caseConfig));
-	errors.push(...mediaCaseProperty(doc, ctx, caseConfig));
+	errors.push(...caseWriteAdmission(ctx, caseWriteInventory));
 	errors.push(...tooManyAttachments(doc, ctx));
-	errors.push(...casePreloadMissingField(doc, ctx, caseConfig));
-	errors.push(...casePreloadReserved(ctx, caseConfig));
-	errors.push(...duplicateCasePropertyMapping(ctx, caseConfig));
-	errors.push(...casePropertyBadFormat(ctx, caseConfig));
-	errors.push(...casePropertyTooLong(ctx, caseConfig));
+	errors.push(...casePropertyBadFormat(ctx, caseWriteInventory));
+	errors.push(...casePropertyTooLong(ctx, caseWriteInventory));
 	errors.push(...postSubmitValidation(form, ctx, mod));
 	errors.push(...formLinkValidation(doc, form, ctx));
 	errors.push(...connectValidation(doc, form, ctx));
 	errors.push(...caseHashtagOnCreateForm(doc, form, ctx));
-	errors.push(...childCaseNoNameField(ctx, caseConfig));
 	errors.push(
 		...validateCaseOperations(doc, formUuid, moduleUuid, lookupTables),
 	);

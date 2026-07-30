@@ -15,7 +15,14 @@
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import type { Field, Form, ProseTemplate, Uuid } from "@/lib/domain";
+import { xp } from "@/lib/__tests__/docHelpers";
+import type {
+	Field,
+	Form,
+	ProseTemplate,
+	Uuid,
+	XPathExpression,
+} from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 
 import { FormEngine, type FormEngineInput } from "../formEngine";
@@ -26,7 +33,7 @@ type Spec = {
 	id: string;
 	kind: Field["kind"];
 	label?: ProseTemplate;
-	relevant?: string;
+	relevant?: XPathExpression;
 	repeat_mode?: string;
 	children?: Spec[];
 };
@@ -48,17 +55,13 @@ function input(fields: Spec[]): FormEngineInput {
 			const uuid = testUuid(`${prefix}.${node.id}`);
 			order.push(uuid);
 			const { children, ...rest } = node;
-			// `relevant` rides through as a plain string: the engine reads
-			// expression slots via `expressionSource`, which passes a legacy
-			// string straight through, and that is what the sibling engine
-			// fixtures use.
 			fieldMap[uuid as string] = { uuid, ...rest } as unknown as Field;
 			if (children) walk(children, uuid, `${prefix}.${node.id}`);
 		}
 		fieldOrder[parentUuid as string] = order;
 	};
 	walk(fields, formUuid, "form");
-	return { form, formUuid, fields: fieldMap, fieldOrder };
+	return { form, formUuid, fields: fieldMap, fieldOrder, caseTypes: [] };
 }
 
 function referenceNames(engine: FormEngine): string[] {
@@ -147,7 +150,7 @@ describe("collectAttachmentReferences", () => {
 					id: "photo",
 					kind: "image",
 					label: proseText("Photo"),
-					relevant: "/data/gate = 'yes'",
+					relevant: xp("/data/gate = 'yes'"),
 				},
 			]),
 		);
@@ -170,7 +173,7 @@ describe("collectAttachmentReferences", () => {
 					id: "section",
 					kind: "group",
 					label: proseText("Section"),
-					relevant: "/data/gate = 'yes'",
+					relevant: xp("/data/gate = 'yes'"),
 					children: [{ id: "photo", kind: "image", label: proseText("Photo") }],
 				},
 			]),
@@ -197,7 +200,7 @@ describe("collectAttachmentReferences", () => {
 					kind: "repeat",
 					label: proseText("Visits"),
 					repeat_mode: "user_controlled",
-					relevant: "/data/gate = 'yes'",
+					relevant: xp("/data/gate = 'yes'"),
 					children: [{ id: "photo", kind: "image", label: proseText("Photo") }],
 				},
 			]),
@@ -258,7 +261,6 @@ describe("the mutation's attachment slots", () => {
 			input([{ id: "photo", kind: "image", label: proseText("Photo") }]),
 		);
 		const mutation = engine.computeSubmissionMutation({
-			caseTypes: [],
 			entryKey: ENTRY_KEY,
 		});
 		expect(mutation.entryKey).toBe(ENTRY_KEY);
@@ -271,7 +273,6 @@ describe("the mutation's attachment slots", () => {
 		);
 		engine.setValue("/data/photo", "att-1.jpg");
 		const mutation = engine.computeSubmissionMutation({
-			caseTypes: [],
 			entryKey: ENTRY_KEY,
 		});
 		expect(mutation.attachmentRefs).toEqual([

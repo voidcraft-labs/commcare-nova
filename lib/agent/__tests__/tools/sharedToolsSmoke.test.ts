@@ -19,16 +19,23 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { xp } from "@/lib/__tests__/docHelpers";
+import {
+	buildDoc,
+	caseListConfig,
+	f,
+	xp,
+	xpIn,
+} from "@/lib/__tests__/docHelpers";
 import type { Mutation } from "@/lib/doc/types";
 import type {
 	BlueprintDoc,
 	ConnectConfig,
+	ConnectDeliverConfig,
+	ConnectLearnConfig,
 	Form,
-	Module,
 	Uuid,
 } from "@/lib/domain";
-import { formExpressionSource } from "@/lib/domain";
+import { formExpressionSource, isConnectLearnConfig } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import { addFieldsTool } from "../../tools/addFields";
 import { updateFormTool } from "../../tools/updateForm";
@@ -42,13 +49,16 @@ vi.mock("@/lib/db/apps", () => ({
 	completeApp: vi.fn(() => Promise.resolve()),
 }));
 
-/* Mock the cross-store saga so `McpContext.recordMutations` — which
- * routes through `applyBlueprintChange` for the awaited blueprint
- * write — doesn't try to reach the app-state store + case-store. The chat surface
- * doesn't go through the saga (it commits inline through
- * `commitGuardedBatch`), so this mock only matters for the MCP path. */
+/* The MCP surface uses the exact in-memory guarded writer seeded by
+ * `makeMcpTestContext`, preserving replay and a complete committedDoc without
+ * reaching Postgres. */
 vi.mock("@/lib/db/applyBlueprintChange", () => ({
-	applyBlueprintChange: vi.fn(() => Promise.resolve({ seq: 0 })),
+	applyBlueprintChange: vi.fn(async (args) => {
+		const { commitApplyBlueprintChangeTestBatch } = await import(
+			"@/lib/db/__tests__/applyBlueprintChangeTestWriter"
+		);
+		return commitApplyBlueprintChangeTestBatch(args);
+	}),
 }));
 
 // ── Uuid constants ──────────────────────────────────────────────────────
@@ -56,28 +66,35 @@ vi.mock("@/lib/db/applyBlueprintChange", () => ({
 const MOD_A = testUuid("11111111-1111-1111-1111-111111111111");
 const FORM_A = testUuid("33333333-3333-3333-3333-333333333333");
 
+function requireLearnConnect(
+	connect: ConnectConfig | null | undefined,
+): ConnectLearnConfig {
+	if (connect == null || !isConnectLearnConfig(connect)) {
+		throw new Error("expected learn-mode Connect config");
+	}
+	return connect;
+}
+
+function requireDeliverConnect(
+	connect: ConnectConfig | null | undefined,
+): ConnectDeliverConfig {
+	if (connect == null || isConnectLearnConfig(connect)) {
+		throw new Error("expected deliver-mode Connect config");
+	}
+	return connect;
+}
+
 // ── Fixture builder ─────────────────────────────────────────────────────
 
 /**
  * Minimal `BlueprintDoc` with one case-carrying module and one
- * registration form. Enough state for `addFieldsTool` to resolve its
- * stable `(moduleUuid, formUuid)` lookup against; no existing
- * fields so the insert lands at index 0 deterministically.
+ * registration form. The fixture is valid before the tool call: registration
+ * already writes its required case name and the case module has a case-list
+ * column. This matters because every authoring call now enters through the
+ * absolute gate rather than growing out of a malformed partial document.
  */
 function makeFixtureDoc(): BlueprintDoc {
-	const mod: Module = {
-		uuid: MOD_A,
-		id: "patient",
-		name: "Patient",
-		caseType: "patient",
-	};
-	const form: Form = {
-		uuid: FORM_A,
-		id: "enroll",
-		name: "Enroll Patient",
-		type: "registration",
-	};
-	return {
+	return buildDoc({
 		appId: "test-app",
 		appName: "Clinic Intake",
 		connectType: null,
@@ -87,14 +104,37 @@ function makeFixtureDoc(): BlueprintDoc {
 				properties: [{ name: "case_name", label: proseText("Full name") }],
 			},
 		],
-		modules: { [MOD_A]: mod },
-		forms: { [FORM_A]: form },
-		fields: {},
-		moduleOrder: [MOD_A],
-		formOrder: { [MOD_A]: [FORM_A] },
-		fieldOrder: { [FORM_A]: [] },
-		fieldParent: {},
-	};
+		modules: [
+			{
+				uuid: MOD_A,
+				id: "patient",
+				name: "Patient",
+				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						uuid: FORM_A,
+						id: "enroll",
+						name: "Enroll Patient",
+						type: "registration",
+						fields: [
+							f({
+								kind: "text",
+								id: "case_name",
+								label: proseText("Full name"),
+								caseWrite: {
+									caseType: "patient",
+									property: "case_name",
+								},
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
 }
 
 function fieldUuid(doc: BlueprintDoc, id: string): Uuid {
@@ -123,7 +163,7 @@ function makeDocWithFullConnect(): BlueprintDoc {
 		},
 		assessment: {
 			id: "patient_enroll_quiz",
-			user_score: xp("#form/quiz_score"),
+			user_score: xp("100"),
 		},
 	};
 	return {
@@ -173,7 +213,7 @@ describe("shared tool modules drive uniform behavior across surfaces", () => {
 			doc,
 		);
 
-		const { ctx: mcpCtx } = makeMcpTestContext();
+		const { ctx: mcpCtx } = makeMcpTestContext({ initialDoc: doc });
 		const mcpResult = await addFieldsTool.execute(
 			ADD_FIELDS_INPUT,
 			mcpCtx,
@@ -205,6 +245,122 @@ describe("shared tool modules drive uniform behavior across surfaces", () => {
 // ── addFields add-path pipeline ──────────────────────────────────────────
 
 describe("addFields add-path pipeline", () => {
+	it("returns every field and inline-option identity in input/source order", async () => {
+		const doc = makeFixtureDoc();
+		const fieldUuids = [
+			testUuid("add-receipt-notes"),
+			testUuid("add-receipt-status"),
+		];
+		const optionUuids = [
+			testUuid("add-receipt-open"),
+			testUuid("add-receipt-done"),
+		];
+		const { ctx } = makeStubToolContext();
+		const out = await addFieldsTool.execute(
+			{
+				moduleUuid: MOD_A,
+				formUuid: FORM_A,
+				fields: [
+					{
+						fieldUuid: fieldUuids[0],
+						id: "notes",
+						kind: "text",
+						label: proseText("Notes"),
+					},
+					{
+						fieldUuid: fieldUuids[1],
+						id: "status",
+						kind: "single_select",
+						label: proseText("Status"),
+						optionsSource: {
+							kind: "inline",
+							options: [
+								{
+									optionUuid: optionUuids[0],
+									value: "open",
+									label: proseText("Open"),
+								},
+								{
+									optionUuid: optionUuids[1],
+									value: "done",
+									label: proseText("Done"),
+								},
+							],
+						},
+					},
+				],
+			},
+			ctx,
+			doc,
+		);
+		if (!("fields" in out.result)) {
+			throw new Error(`expected success: ${JSON.stringify(out.result)}`);
+		}
+		expect(out.result.fields).toEqual([
+			{ uuid: fieldUuids[0], id: "notes", options: [] },
+			{
+				uuid: fieldUuids[1],
+				id: "status",
+				options: [
+					{ uuid: optionUuids[0], value: "open" },
+					{ uuid: optionUuids[1], value: "done" },
+				],
+			},
+		]);
+	});
+
+	it("returns inline identities minted from a case-property catalog default", async () => {
+		const doc = makeFixtureDoc();
+		const patient = doc.caseTypes?.find(
+			(caseType) => caseType.name === "patient",
+		);
+		if (!patient) throw new Error("patient catalog fixture missing");
+		patient.properties.push({
+			name: "consent_level",
+			data_type: "single_select",
+			label: proseText("Consent level"),
+			options: [
+				{ value: "open", label: proseText("Open") },
+				{ value: "done", label: proseText("Done") },
+			],
+		});
+		const { ctx } = makeStubToolContext();
+		const out = await addFieldsTool.execute(
+			{
+				moduleUuid: MOD_A,
+				formUuid: FORM_A,
+				fields: [
+					{
+						id: "consent_level",
+						kind: "single_select",
+						caseWrite: {
+							caseType: "patient",
+							property: "consent_level",
+						},
+					},
+				],
+			},
+			ctx,
+			doc,
+		);
+		if (!("fields" in out.result)) {
+			throw new Error(`expected success: ${JSON.stringify(out.result)}`);
+		}
+		const [receipt] = out.result.fields;
+		expect(receipt?.options.map((option) => option.value)).toEqual([
+			"open",
+			"done",
+		]);
+		const stored = out.newDoc.fields[receipt?.uuid ?? ""];
+		expect(
+			stored &&
+				"optionsSource" in stored &&
+				stored.optionsSource.kind === "inline"
+				? stored.optionsSource.options.map((option) => option.uuid)
+				: [],
+		).toEqual(receipt?.options.map((option) => option.uuid));
+	});
+
 	it("inserts the batch's top-level fields at a `beforeFieldUuid` anchor", async () => {
 		/* The identity anchor folded in from the removed single `addField`
 		 * tool: the batch's top-level fields land as a contiguous block at
@@ -245,7 +401,14 @@ describe("addFields add-path pipeline", () => {
 		const order = (final.fieldOrder[formUuid] ?? []).map(
 			(u) => final.fields[u]?.id,
 		);
-		expect(order).toEqual(["first", "ins_a", "ins_b", "middle", "last"]);
+		expect(order).toEqual([
+			"case_name",
+			"first",
+			"ins_a",
+			"ins_b",
+			"middle",
+			"last",
+		]);
 	});
 
 	it("applies a batch-level parentUuid, with a field's own parentUuid overriding it", async () => {
@@ -376,16 +539,17 @@ describe("updateFormTool partial connect-config updates", () => {
 			throw new Error(`expected updateForm mutation, got ${mut?.kind}`);
 		}
 		const patchConnect = mut.patch.connect;
+		const learnConnect = requireLearnConnect(patchConnect);
 		/* Both sub-configs must be present after the partial update:
 		 * `learn_module` unchanged (preserved from `existing`) and
 		 * `assessment` merged with the incoming patch. */
-		expect(patchConnect?.learn_module).toEqual({
+		expect(learnConnect.learn_module).toEqual({
 			id: "patient_module",
 			name: "Patient Module",
 			description: "How to enroll patients",
 			time_estimate: 20,
 		});
-		expect(patchConnect?.assessment?.id).toBe("patient_enroll_quiz");
+		expect(learnConnect.assessment?.id).toBe("patient_enroll_quiz");
 		const patchedForm = result.newDoc.forms[FORM_A];
 		expect(
 			patchedForm &&
@@ -426,7 +590,8 @@ describe("updateFormTool partial connect-config updates", () => {
 			throw new Error(`expected updateForm mutation, got ${mut?.kind}`);
 		}
 		const patchConnect = mut.patch.connect;
-		expect(patchConnect?.assessment?.id).toBe("patient_enroll_quiz");
+		const learnConnect = requireLearnConnect(patchConnect);
+		expect(learnConnect.assessment?.id).toBe("patient_enroll_quiz");
 		const patchedForm = result.newDoc.forms[FORM_A];
 		expect(
 			patchedForm &&
@@ -435,11 +600,11 @@ describe("updateFormTool partial connect-config updates", () => {
 					"assessment_user_score",
 					result.newDoc,
 				),
-		).toBe("#form/quiz_score");
+		).toBe("100");
 		/* Merge semantics: the spread keeps pre-existing `id` from the
 		 * existing learn_module plus the new name/description/time
 		 * the patch supplied. */
-		expect(patchConnect?.learn_module).toEqual({
+		expect(learnConnect.learn_module).toEqual({
 			id: "patient_module",
 			name: "Patient Module v2",
 			description: "Updated copy",
@@ -502,8 +667,9 @@ describe("updateFormTool connect-id validity", () => {
 	it("fails the call when an explicit id duplicates the co-located block's id", async () => {
 		/* Same-form cross-kind duplicate via the tool: set assessment.id to
 		 * the existing learn_module.id. The merge + `enforceConnectIds`
-		 * reject it (learn_module accumulated before assessment is checked) →
-		 * `{ error }`, zero mutations, nothing written. */
+		 * reserve every stated identity before deriving omissions, so the
+		 * duplicate rejects independently of block order → `{ error }`, zero
+		 * mutations, nothing written. */
 		const doc = makeDocWithFullConnect();
 		const { ctx } = makeStubToolContext();
 		const result = await updateFormTool.execute(
@@ -525,11 +691,15 @@ describe("updateFormTool connect-id validity", () => {
 		);
 	});
 
-	it("autofills a valid id when a newly-enabled block omits one", async () => {
-		/* A block enabled without an explicit id gets a name-derived,
-		 * valid, unique id STORED on the doc — visible to the SA on the
-		 * next read, not conjured at emit. */
-		const doc = makeDeliverDocWithoutConnect();
+	it("refuses to add a new participant through the single-form edit tool", async () => {
+		const base = makeDeliverParticipantDoc();
+		const doc: BlueprintDoc = {
+			...base,
+			forms: {
+				...base.forms,
+				[FORM_A]: { ...base.forms[FORM_A], connect: undefined } as Form,
+			},
+		};
 		const { ctx } = makeStubToolContext();
 		const result = await updateFormTool.execute(
 			{
@@ -540,40 +710,47 @@ describe("updateFormTool connect-id validity", () => {
 			ctx,
 			doc,
 		);
-		const du = result.newDoc.forms[FORM_A]?.connect?.deliver_unit;
-		expect(du?.id).toBeDefined();
-		expect((du as { id: string }).id.length).toBeGreaterThan(0);
-		// The autofilled id is derived from the module name ("Patient").
-		expect(du?.id).toBe("patient");
+		expect(result.mutations).toEqual([]);
+		expect(result.result).toEqual({
+			error: expect.stringContaining("configureConnect/configure_connect"),
+		});
 	});
 });
 
 // ── updateForm deliver_unit ───────────────────────────────────────────
 
 /**
- * Build a Deliver-typed fixture with no per-form connect block — the
- * starting state when the SA is about to attach `deliver_unit` to a
- * form for the first time. The SA's call shape is `update_form` with
- * `connect.deliver_unit.name`; the test assertions below pin the
- * post-mutation invariant: the doc carries only what the SA supplied,
- * with `entity_id` / `entity_name` left absent for the wire-emit
- * fallback to substitute at bind time.
+ * Build an existing Deliver participant. `update_form` may refine this one
+ * participant, while the app-wide configure tool alone changes membership.
+ * The seed omits `entity_id` / `entity_name` so the assertions below pin that
+ * a partial refinement does not invent either wire-defaulted slot.
  */
-function makeDeliverDocWithoutConnect(): BlueprintDoc {
+function makeDeliverParticipantDoc(): BlueprintDoc {
 	const doc = makeFixtureDoc();
-	return { ...doc, connectType: "deliver" };
+	return {
+		...doc,
+		connectType: "deliver",
+		forms: {
+			...doc.forms,
+			[FORM_A]: {
+				...doc.forms[FORM_A],
+				connect: {
+					deliver_unit: { id: "patient", name: "Initial delivery" },
+				},
+			} as Form,
+		},
+	};
 }
 
 describe("updateFormTool deliver_unit", () => {
-	it("autofills the id from the module name; no entity_id/entity_name injected", async () => {
-		/* Source-correctness: an id-less deliver_unit gets a valid id
-		 * autofilled from the module name ("Patient" → "patient"), stored on
-		 * the doc. `entity_id` / `entity_name` are NOT injected — those are
-		 * absent on the input and remain absent (the XForm builder
+	it("preserves the participant id; no entity_id/entity_name injected", async () => {
+		/* A partial edit keeps the existing final id. `entity_id` /
+		 * `entity_name` are NOT injected — those are absent on the input and
+		 * remain absent (the XForm builder
 		 * substitutes the canonical defaults at emit time; writing empties at
 		 * the agent layer would produce `<bind … calculate=""/>` which CCHQ
 		 * rejects). */
-		const doc = makeDeliverDocWithoutConnect();
+		const doc = makeDeliverParticipantDoc();
 		const { ctx } = makeStubToolContext();
 
 		const result = await updateFormTool.execute(
@@ -590,7 +767,7 @@ describe("updateFormTool deliver_unit", () => {
 
 		expect(result.mutations).toHaveLength(1);
 		const finalForm = result.newDoc.forms[FORM_A];
-		expect(finalForm?.connect?.deliver_unit).toEqual({
+		expect(requireDeliverConnect(finalForm?.connect).deliver_unit).toEqual({
 			id: "patient",
 			name: "Vendor visit",
 		});
@@ -604,7 +781,7 @@ describe("updateFormTool deliver_unit", () => {
 		 * entity expressions alone. The structural merge
 		 * (`{...existing.deliver_unit, ...input.deliver_unit}`)
 		 * handles this without any defaulting logic. */
-		const docBase = makeDeliverDocWithoutConnect();
+		const docBase = makeDeliverParticipantDoc();
 		const seeded: BlueprintDoc = {
 			...docBase,
 			forms: {
@@ -614,8 +791,8 @@ describe("updateFormTool deliver_unit", () => {
 						deliver_unit: {
 							id: "vendor_visit",
 							name: "Vendor visit",
-							entity_id: xp("concat(#form/loc_id, '-', uuid())"),
-							entity_name: xp("#form/loc_id/market_name"),
+							entity_id: xp("concat('vendor-', uuid())"),
+							entity_name: xp("'Vendor'"),
 						},
 					},
 				} as Form,
@@ -635,19 +812,22 @@ describe("updateFormTool deliver_unit", () => {
 			seeded,
 		);
 
+		expect(result.result).not.toHaveProperty("error");
 		const finalForm = result.newDoc.forms[FORM_A];
-		expect(finalForm?.connect?.deliver_unit).toMatchObject({
+		expect(
+			requireDeliverConnect(finalForm?.connect).deliver_unit,
+		).toMatchObject({
 			id: "vendor_visit",
 			name: "Vendor visit (updated)",
 		});
 		expect(
 			finalForm &&
 				formExpressionSource(finalForm, "deliver_entity_id", result.newDoc),
-		).toBe("concat(#form/loc_id, '-', uuid())");
+		).toBe("concat('vendor-', uuid())");
 		expect(
 			finalForm &&
 				formExpressionSource(finalForm, "deliver_entity_name", result.newDoc),
-		).toBe("#form/loc_id/market_name");
+		).toBe("'Vendor'");
 	});
 
 	it("accepts SA-supplied entity_id and entity_name and lands them on the doc verbatim", async () => {
@@ -658,7 +838,7 @@ describe("updateFormTool deliver_unit", () => {
 		 * site-keyed deliveries, etc. The SA's expression must reach
 		 * the doc verbatim; the wire emitter's `||` fallback only
 		 * activates on absence/empty, so a non-empty SA value wins. */
-		const registrationDoc = makeDeliverDocWithoutConnect();
+		const registrationDoc = makeDeliverParticipantDoc();
 		const doc: BlueprintDoc = {
 			...registrationDoc,
 			forms: {
@@ -678,8 +858,8 @@ describe("updateFormTool deliver_unit", () => {
 				connect: {
 					deliver_unit: {
 						name: "Beneficiary visit",
-						entity_id: xp("#patient/case_id"),
-						entity_name: xp("#patient/case_name"),
+						entity_id: xpIn(doc, FORM_A, "#form/case_name"),
+						entity_name: xpIn(doc, FORM_A, "#form/case_name"),
 					},
 				},
 			},
@@ -687,19 +867,22 @@ describe("updateFormTool deliver_unit", () => {
 			doc,
 		);
 
+		expect(result.result).not.toHaveProperty("error");
 		const finalForm = result.newDoc.forms[FORM_A];
-		expect(finalForm?.connect?.deliver_unit).toMatchObject({
+		expect(
+			requireDeliverConnect(finalForm?.connect).deliver_unit,
+		).toMatchObject({
 			id: "patient",
 			name: "Beneficiary visit",
 		});
 		expect(
 			finalForm &&
 				formExpressionSource(finalForm, "deliver_entity_id", result.newDoc),
-		).toBe("#patient/case_id");
+		).toBe("#form/case_name");
 		expect(
 			finalForm &&
 				formExpressionSource(finalForm, "deliver_entity_name", result.newDoc),
-		).toBe("#patient/case_name");
+		).toBe("#form/case_name");
 	});
 
 	it("schema accepts a partial deliver_unit with only entity_id set (entity_name still falls through to wire default)", async () => {
@@ -707,7 +890,7 @@ describe("updateFormTool deliver_unit", () => {
 		 * fine with the default display label. Both fields are
 		 * independently optional; setting one doesn't force the
 		 * other. */
-		const doc = makeDeliverDocWithoutConnect();
+		const doc = makeDeliverParticipantDoc();
 		const { ctx } = makeStubToolContext();
 
 		const result = await updateFormTool.execute(
@@ -717,7 +900,7 @@ describe("updateFormTool deliver_unit", () => {
 				connect: {
 					deliver_unit: {
 						name: "Site visit",
-						entity_id: xp("#patient/case_id"),
+						entity_id: xpIn(doc, FORM_A, "#form/case_name"),
 					},
 				},
 			},
@@ -725,15 +908,20 @@ describe("updateFormTool deliver_unit", () => {
 			doc,
 		);
 
+		expect(result.result).not.toHaveProperty("error");
 		const finalForm = result.newDoc.forms[FORM_A];
-		expect(finalForm?.connect?.deliver_unit).toMatchObject({
+		expect(
+			requireDeliverConnect(finalForm?.connect).deliver_unit,
+		).toMatchObject({
 			id: "patient",
 			name: "Site visit",
 		});
 		expect(
 			finalForm &&
 				formExpressionSource(finalForm, "deliver_entity_id", result.newDoc),
-		).toBe("#patient/case_id");
-		expect(finalForm?.connect?.deliver_unit?.entity_name).toBeUndefined();
+		).toBe("#form/case_name");
+		expect(
+			requireDeliverConnect(finalForm?.connect).deliver_unit?.entity_name,
+		).toBeUndefined();
 	});
 });

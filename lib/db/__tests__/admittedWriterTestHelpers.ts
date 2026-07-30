@@ -2,7 +2,11 @@ import {
 	type ApplyBlueprintChangeArgs,
 	applyBlueprintChange,
 } from "@/lib/db/applyBlueprintChange";
-import { type CommitGuardedBatchArgs, commitGuardedBatch } from "@/lib/db/apps";
+import {
+	type CommitGuardedBatchArgs,
+	type CommitGuardedBatchTransactionHooks,
+	commitGuardedBatch,
+} from "@/lib/db/apps";
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 
 export type CommitGuardedBatchProposalArgs = Omit<
@@ -14,11 +18,15 @@ export type CommitGuardedBatchProposalArgs = Omit<
 
 export function commitGuardedBatchProposal(
 	args: CommitGuardedBatchProposalArgs,
+	hooks: CommitGuardedBatchTransactionHooks = {},
 ) {
-	return commitGuardedBatch({
-		...args,
-		mutations: admitMutationBatch(args.mutations),
-	});
+	return commitGuardedBatch(
+		{
+			...args,
+			mutations: admitMutationBatch(args.mutations),
+		},
+		hooks,
+	);
 }
 
 export type ApplyBlueprintChangeProposalArgs = Omit<

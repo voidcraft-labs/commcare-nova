@@ -43,7 +43,7 @@ describe("columnKindPropertyType", () => {
 					kind: "text",
 					id: "nickname",
 					label: proseText("Nickname"),
-					case_property_on: "patient",
+					caseWrite: { caseType: "patient", property: "nickname" },
 				}),
 			],
 		});
@@ -61,7 +61,7 @@ describe("columnKindPropertyType", () => {
 					kind: "date",
 					id: "dob",
 					label: proseText("DOB"),
-					case_property_on: "patient",
+					caseWrite: { caseType: "patient", property: "dob" },
 				}),
 			],
 		});
@@ -81,7 +81,7 @@ describe("columnKindPropertyType", () => {
 				f({
 					kind: "hidden",
 					id: "visit_date",
-					case_property_on: "patient",
+					caseWrite: { caseType: "patient", property: "visit_date" },
 					default_value: "today()",
 				}),
 			],
@@ -102,7 +102,7 @@ describe("columnKindPropertyType", () => {
 				f({
 					kind: "hidden",
 					id: "mystery",
-					case_property_on: "patient",
+					caseWrite: { caseType: "patient", property: "mystery" },
 					default_value: "concat('a', 'b')",
 				}),
 			],
@@ -122,7 +122,7 @@ describe("columnKindPropertyType", () => {
 					kind: "text",
 					id: "case_name",
 					label: proseText("Name"),
-					case_property_on: "patient",
+					caseWrite: { caseType: "patient", property: "case_name" },
 				}),
 			],
 		});

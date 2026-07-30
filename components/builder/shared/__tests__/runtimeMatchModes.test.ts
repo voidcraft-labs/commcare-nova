@@ -87,6 +87,10 @@ describe("match modes follow the carrier's runtime", () => {
 		);
 	});
 
+	it("offers only the shared subset when the same rule runs in both runtimes", () => {
+		expect(admittedModes("on-device-and-case-search")).toEqual(["starts-with"]);
+	});
+
 	// The axis is optional on the type, so a surface that never passes it
 	// gets whatever the default is. That default must be the STRICT one:
 	// a forgotten axis then offers less than it could, which is visible

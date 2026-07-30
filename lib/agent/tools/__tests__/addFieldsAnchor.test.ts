@@ -1,15 +1,12 @@
 /**
  * SA `add_fields` anchored insert — a `beforeFieldUuid` / `afterFieldUuid` batch
- * lands AT the anchor in DISPLAY order, not appended.
- *
- * Sequence is derived (`sort-by-(order, uuid)`), so the anchored fields must
- * take `order` keys BETWEEN the anchor's display neighbors — the same neighbor
- * bounds the builder's `orderKeyForFieldSlot` uses. These would fail while the
- * order-minting pass always appended.
+ * lands at the anchor in `fieldOrder`, not appended. These regressions would
+ * fail if the creation batch always appended.
  */
 
 import { describe, expect, it, vi } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import type { PreparedMutationCandidate } from "@/lib/doc/commitVerdicts";
 import {
 	hydratePersistedBlueprint,
 	toPersistableDoc,
@@ -23,14 +20,16 @@ import { addFieldsTool } from "../addFields";
 function makeCtx() {
 	// The guarded writer returns `{ events, committedDoc }`; echo the passed
 	// post-mutation doc so the tool's `newDoc` reflects the anchored insert.
-	const recordMutations = vi.fn(async (_m: unknown, doc: unknown) => ({
-		events: [],
-		committedDoc: doc,
-	}));
-	const recordMutationStages = vi.fn(
-		async (stages: Array<{ doc: unknown }>) => ({
+	const recordMutations = vi.fn(
+		async (prepared: PreparedMutationCandidate) => ({
 			events: [],
-			committedDoc: stages[stages.length - 1]?.doc,
+			committedDoc: prepared.nextDoc,
+		}),
+	);
+	const recordMutationStages = vi.fn(
+		async (prepared: PreparedMutationCandidate) => ({
+			events: [],
+			committedDoc: prepared.nextDoc,
 		}),
 	);
 	const ctx = {

@@ -4,20 +4,23 @@
  *
  *   - XML element-name legality (spaces, hyphens, leading digits, empty)
  *   - the reserved `__nova_` synthetic-node prefix
- *   - the case-property length cap (255 per CommCare Core's
- *     CaseXmlParser constraint — `MAX_CASE_PROPERTY_LENGTH`): 255 passes,
- *     256 fails
  *   - sibling-id uniqueness: siblings conflict, cousins share freely,
  *     a field re-checking its own id passes (excludeUuid), and in-flight
  *     batch ids count as siblings (pendingSiblingIds)
- *   - the rename verdict's peer-aware scan: renaming a case-bound field
- *     also renames its (id, case_property_on) peers, so a collision in a
- *     PEER's form rejects — and the message names that form
+ *   - rename checks stay local to the UUID-addressed field's parent;
+ *     case destinations are independent and never widen an ID rename
  */
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import type { BlueprintDoc, Field, Form, Module, Uuid } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	type Field,
+	FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES,
+	type Form,
+	type Module,
+	type Uuid,
+} from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import {
 	caseOperationIdVerdict,
@@ -28,6 +31,7 @@ import {
 	findRenameSiblingConflict,
 	renameFieldIdVerdict,
 } from "../identifierVerdicts";
+import { mutationSchema } from "../types";
 
 const MOD = testUuid("11111111-1111-1111-1111-111111111111");
 const F1 = testUuid("22222222-2222-2222-2222-222222222222");
@@ -42,10 +46,8 @@ const TARGET_F2 = testUuid("99999999-9999-9999-9999-999999999999");
 /**
  * One module, two forms.
  *
- * Registration: `age`, group `grp` (child `kid_name`), and `weight`
- * (case-bound to "patient"). Follow Up: `weight` (the case-property
- * peer, also bound to "patient") and `target` — the sibling a peer-
- * cascade rename can collide with.
+ * Registration: `age`, group `grp` (child `kid_name`), and `weight`.
+ * Follow Up: another `weight` (cousins may share IDs) and `target`.
  */
 function makeDoc(): BlueprintDoc {
 	const mod: Module = {
@@ -90,14 +92,12 @@ function makeDoc(): BlueprintDoc {
 			id: "weight",
 			kind: "decimal",
 			label: proseText("Weight"),
-			case_property_on: "patient",
 		} as Field,
 		[WEIGHT_F2]: {
 			uuid: WEIGHT_F2,
 			id: "weight",
 			kind: "decimal",
 			label: proseText("Weight"),
-			case_property_on: "patient",
 		} as Field,
 		[TARGET_F2]: {
 			uuid: TARGET_F2,
@@ -167,13 +167,6 @@ describe("fieldIdVerdict — format classes", () => {
 		const v = at("__nova_count_x");
 		expect(codeOf(v)).toBe("reserved_prefix");
 		expect(v.ok ? "" : v.message).toContain("__nova_");
-	});
-
-	it("accepts a 255-character id and rejects 256 (the case-property cap)", () => {
-		expect(at("a".repeat(255))).toEqual({ ok: true });
-		const v = at("a".repeat(256));
-		expect(codeOf(v)).toBe("too_long");
-		expect(v.ok ? "" : v.message).toContain("256");
 	});
 });
 
@@ -251,21 +244,7 @@ describe("renameFieldIdVerdict", () => {
 		).toEqual({ ok: true });
 	});
 
-	it("rejects when a case-property PEER's sibling holds the id, naming the peer's form", () => {
-		// Renaming Register's `weight` cascades to Follow Up's `weight`
-		// (same id + case_property_on); Follow Up already has `target`.
-		const v = renameFieldIdVerdict({
-			doc,
-			fieldUuid: WEIGHT_F1,
-			newId: "target",
-		});
-		expect(codeOf(v)).toBe("sibling_conflict");
-		expect(v.ok ? "" : v.message).toContain('"Follow Up"');
-	});
-
-	it("passes when the only id-sharing field renames in lockstep", () => {
-		// `weight` exists in both forms, but both rename together (peer
-		// cascade) — neither is a conflict for the other.
+	it("passes when a cousin in another form already uses the current id", () => {
 		expect(
 			renameFieldIdVerdict({ doc, fieldUuid: WEIGHT_F1, newId: "bmi" }),
 		).toEqual({ ok: true });
@@ -278,15 +257,6 @@ describe("renameFieldIdVerdict", () => {
 		expect(
 			codeOf(renameFieldIdVerdict({ doc, fieldUuid: AGE, newId: "__nova_x" })),
 		).toBe("reserved_prefix");
-		expect(
-			codeOf(
-				renameFieldIdVerdict({
-					doc,
-					fieldUuid: AGE,
-					newId: "a".repeat(256),
-				}),
-			),
-		).toBe("too_long");
 	});
 });
 
@@ -295,7 +265,6 @@ describe("findRenameSiblingConflict (the store-level backstop's scan)", () => {
 
 	it("returns the conflicting parent uuid", () => {
 		expect(findRenameSiblingConflict(doc, AGE, "grp")).toBe(F1);
-		expect(findRenameSiblingConflict(doc, WEIGHT_F1, "target")).toBe(F2);
 	});
 
 	it("returns undefined when the rename is conflict-free", () => {
@@ -362,6 +331,18 @@ describe("case-operation identifier vocabulary", () => {
 		expect(caseOperationLinkIdentifierVerdict("_parent2", new Set())).toEqual({
 			ok: true,
 		});
+		expect(caseOperationWritePropertyVerdict("external_id", new Set())).toEqual(
+			{ ok: true },
+		);
+	});
+
+	it("rejects every forbidden operation-write property before mutation dispatch", () => {
+		for (const property of FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES) {
+			expect(
+				caseOperationWritePropertyVerdict(property, new Set()).ok,
+				`operation writer accepted ${property}`,
+			).toBe(false);
+		}
 	});
 
 	it("rejects hyphens, dots, and boundary whitespace with one honest message", () => {
@@ -394,4 +375,20 @@ describe("case-operation identifier vocabulary", () => {
 			});
 		}
 	});
+
+	it.each(["name", "external-id", "date-opened"])(
+		"rejects the retired standard property spelling %s at both writer and mutation-reference admission",
+		(property) => {
+			expect(caseOperationWritePropertyVerdict(property, new Set()).ok).toBe(
+				false,
+			);
+			expect(
+				mutationSchema.safeParse({
+					kind: "removeCaseProperty",
+					caseType: "patient",
+					property,
+				}).success,
+			).toBe(false);
+		},
+	);
 });

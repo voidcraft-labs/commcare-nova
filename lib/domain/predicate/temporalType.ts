@@ -61,7 +61,6 @@ export function inferStructuralTemporalType(
 		case "acting-user":
 		case "unowned":
 		case "table-lookup":
-		case "unwrap-list":
 			return undefined;
 		default: {
 			const _exhaustive: never = expression;

@@ -58,9 +58,9 @@ describe("effectiveCaseTypes — writer derivation", () => {
 			fields: [
 				f({
 					kind: "date",
-					id: "dob",
+					id: "date_of_birth_question",
 					label: proseText("DOB"),
-					case_property_on: "patient",
+					caseWrite: { caseType: "patient", property: "dob" },
 				}),
 			],
 		});
@@ -82,7 +82,7 @@ describe("effectiveCaseTypes — writer derivation", () => {
 					kind: "date",
 					id: "dob",
 					label: proseText("DOB"),
-					case_property_on: "patient",
+					caseWrite: { caseType: "patient", property: "dob" },
 				}),
 			],
 		});
@@ -97,7 +97,7 @@ describe("effectiveCaseTypes — writer derivation", () => {
 				f({
 					kind: "hidden",
 					id: "visit_date",
-					case_property_on: "patient",
+					caseWrite: { caseType: "patient", property: "visit_date" },
 					default_value: "today()",
 				}),
 			],
@@ -113,7 +113,7 @@ describe("effectiveCaseTypes — writer derivation", () => {
 				f({
 					kind: "hidden",
 					id: "stamp",
-					case_property_on: "patient",
+					caseWrite: { caseType: "patient", property: "stamp" },
 					default_value: "  now()  ",
 				}),
 			],
@@ -143,7 +143,7 @@ describe("effectiveCaseTypes — writer derivation", () => {
 									kind: "date",
 									id: "dob",
 									label: proseText("DOB"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "dob" },
 								}),
 							],
 						},
@@ -160,7 +160,7 @@ describe("effectiveCaseTypes — writer derivation", () => {
 								f({
 									kind: "hidden",
 									id: "dob",
-									case_property_on: "visit",
+									caseWrite: { caseType: "visit", property: "dob" },
 									default_value: "#patient/dob",
 								}),
 							],
@@ -178,7 +178,7 @@ describe("effectiveCaseTypes — writer derivation", () => {
 				f({
 					kind: "hidden",
 					id: "score",
-					case_property_on: "patient",
+					caseWrite: { caseType: "patient", property: "score" },
 					default_value: "1 + 2",
 				}),
 			],
@@ -201,13 +201,13 @@ describe("effectiveCaseTypes — writer derivation", () => {
 					kind: "date",
 					id: "x",
 					label: proseText("X"),
-					case_property_on: "patient",
+					caseWrite: { caseType: "patient", property: "x" },
 				}),
 				f({
 					kind: "int",
 					id: "x",
 					label: proseText("X"),
-					case_property_on: "patient",
+					caseWrite: { caseType: "patient", property: "x" },
 				}),
 			],
 		});
@@ -233,7 +233,7 @@ describe("effectiveCaseTypes — writer derivation", () => {
 								f({
 									kind: "hidden",
 									id: "p",
-									case_property_on: "a",
+									caseWrite: { caseType: "a", property: "p" },
 									default_value: "#b/p",
 								}),
 							],
@@ -251,7 +251,7 @@ describe("effectiveCaseTypes — writer derivation", () => {
 								f({
 									kind: "hidden",
 									id: "p",
-									case_property_on: "b",
+									caseWrite: { caseType: "b", property: "p" },
 									default_value: "#a/p",
 								}),
 							],
@@ -283,7 +283,7 @@ describe("effectiveCaseTypes — the assembled view", () => {
 					kind: "text",
 					id: "n",
 					label: proseText("N"),
-					case_property_on: "undeclared_type",
+					caseWrite: { caseType: "undeclared_type", property: "n" },
 				}),
 			],
 		});

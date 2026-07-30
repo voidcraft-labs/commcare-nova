@@ -15,6 +15,34 @@ export interface XPathCasePropertyRename {
 	newName: string;
 }
 
+/** Resolve a name-keyed case property to its simultaneous destination. */
+export type CasePropertyNameResolver = (
+	caseType: string,
+	property: string,
+) => string | undefined;
+
+/**
+ * Apply a complete case-property name relation in one structural pass.
+ *
+ * The resolver always receives the leaf's batch-start value. This is what
+ * makes chains and swaps simultaneous: a rewritten destination is never fed
+ * back through the relation during the same pass.
+ */
+export function mapCasePropertiesInXPath(
+	expr: XPathExpression,
+	resolve: CasePropertyNameResolver,
+): number {
+	let changed = 0;
+	for (const part of expr.parts) {
+		if (part.kind !== "case-ref") continue;
+		const destination = resolve(part.caseType, part.property);
+		if (destination === undefined || destination === part.property) continue;
+		part.property = destination;
+		changed++;
+	}
+	return changed;
+}
+
 /**
  * Rename exact case-property leaves in place (callers hand in Immer drafts).
  *
@@ -24,16 +52,9 @@ export function renameCasePropertyInXPath(
 	expr: XPathExpression,
 	rename: XPathCasePropertyRename,
 ): number {
-	let changed = 0;
-	for (const part of expr.parts) {
-		if (
-			part.kind === "case-ref" &&
-			part.caseType === rename.caseType &&
-			part.property === rename.oldName
-		) {
-			part.property = rename.newName;
-			changed++;
-		}
-	}
-	return changed;
+	return mapCasePropertiesInXPath(expr, (caseType, property) =>
+		caseType === rename.caseType && property === rename.oldName
+			? rename.newName
+			: undefined,
+	);
 }

@@ -13,7 +13,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
-import { type BlueprintDoc, simpleSearchInputDef } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	plainColumn,
+	simpleSearchInputDef,
+} from "@/lib/domain";
 import { reorderSearchInputsTool } from "../reorderSearchInputs";
 import { MOD_A, makeCaseListFixture } from "./fixtures";
 
@@ -22,7 +26,12 @@ vi.mock("@/lib/db/apps", () => ({
 }));
 
 vi.mock("@/lib/db/applyBlueprintChange", () => ({
-	applyBlueprintChange: vi.fn(() => Promise.resolve({ seq: 0 })),
+	applyBlueprintChange: vi.fn(async (args) => {
+		const { commitApplyBlueprintChangeTestBatch } = await import(
+			"@/lib/db/__tests__/applyBlueprintChangeTestWriter"
+		);
+		return commitApplyBlueprintChangeTestBatch(args);
+	}),
 }));
 
 beforeEach(() => {
@@ -41,11 +50,17 @@ function fixtureWithThreeInputs(): BlueprintDoc {
 			[MOD_A]: {
 				...doc.modules[MOD_A],
 				caseListConfig: resolveCaseListConfig({
-					columns: [],
+					columns: [
+						plainColumn(
+							testUuid("reorder-search-input-results-column"),
+							"case_name",
+							"Name",
+						),
+					],
 					searchInputs: [
-						simpleSearchInputDef(A, "alpha", "Alpha", "text", "alpha"),
-						simpleSearchInputDef(B, "beta", "Beta", "text", "beta"),
-						simpleSearchInputDef(C, "charlie", "Charlie", "text", "charlie"),
+						simpleSearchInputDef(A, "alpha", "Alpha", "text", "case_name"),
+						simpleSearchInputDef(B, "beta", "Beta", "text", "phone"),
+						simpleSearchInputDef(C, "charlie", "Charlie", "text", "region"),
 					],
 				}),
 			},

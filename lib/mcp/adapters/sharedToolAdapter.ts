@@ -43,12 +43,12 @@
  * mutation event into the log stream. The adapter's job is to delegate
  * + envelope, never to re-apply.
  *
- * **`app_id` splicing.** The MCP tool schema injects an `app_id`
- * argument (the shared tool schemas don't declare it — they take
- * `appId` from `ctx`), so we surface it to the LLM at the tool
- * boundary and strip it before forwarding to the shared tool's
- * `execute`. Leaving it in would either be ignored (tool schemas are
- * narrow) or would fail Zod parsing on stricter tools.
+ * **`app_id` splicing.** The MCP tool schema safely extends the shared
+ * tool's exact Zod object with an `app_id` argument (shared tools take
+ * `appId` from `ctx`). Keeping the Zod object intact is load-bearing:
+ * spreading `.shape` would silently discard object-level refinements such
+ * as configure_connect's mode/participants relationship. The callback
+ * strips `app_id` before forwarding to the shared tool's `execute`.
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -94,9 +94,9 @@ export interface SharedToolModule {
 	/** Human-readable description surfaced to the LLM in MCP tool listing. */
 	readonly description: string;
 	/**
-	 * Full ZodObject input schema — NOT a raw shape. We read `.shape`
-	 * internally to hand the raw shape to `McpServer.tool`, which
-	 * expects `ZodRawShapeCompat` (`Record<string, AnySchema>`).
+	 * Full ZodObject input schema — never a raw shape. The MCP SDK accepts an
+	 * exact schema, so the adapter preserves object-level refinements while
+	 * adding its boundary-owned `app_id` field.
 	 */
 	readonly inputSchema: z.ZodObject<z.ZodRawShape>;
 	execute(
@@ -128,23 +128,16 @@ export function registerSharedTool(
 	ctx: ToolContext,
 	required: AppCapability,
 ): void {
-	/* Compose the MCP-surfaced schema from the tool's own shape plus
-	 * the boundary-layer `app_id` injection — shared tool modules
-	 * don't declare it because the chat surface passes it via
-	 * `ctx.appId`. The adapter strips it before forwarding to
-	 * `tool.execute`.
-	 *
-	 * `ZodObject.shape` is a `ZodRawShape`
-	 * (`Record<string, ZodTypeAny>`) — exactly what the SDK's
-	 * `ZodRawShapeCompat` expects. We don't wrap back in `z.object`
-	 * because `McpServer.tool`'s overload takes the raw shape directly
-	 * and wraps it internally. */
-	const mcpSchema = {
-		...tool.inputSchema.shape,
+	/* Extend the exact shared schema with the boundary-owned app id. The SDK's
+	 * `registerTool` accepts a complete Zod schema, and `safeExtend` preserves
+	 * all object-level checks. Never project through `.shape`: doing so turns a
+	 * relationally refined schema into independent fields and makes invalid
+	 * mode/participant combinations appear callable. */
+	const mcpSchema = tool.inputSchema.safeExtend({
 		app_id: z
 			.string()
 			.describe("App id to target. Must be an app the caller can access."),
-	};
+	});
 
 	/* Both return branches (success / error envelope) structurally
 	 * satisfy the SDK's `CallToolResult` type — success has a
@@ -173,7 +166,7 @@ export function registerSharedTool(
 			 * inferred object output of `mcpSchema`. `app_id` is always a
 			 * string by schema, so we cache it before branching for both
 			 * the ownership check and the error envelope. */
-			const appId = args.app_id;
+			const appId = args.app_id as string;
 
 			try {
 				/* `loadAppBlueprint` ownership-gates and loads in one
@@ -221,7 +214,7 @@ export function registerSharedTool(
 					const { app_id: _discardedAppId, ...toolInput } = args;
 					const outcome = await tool.execute(toolInput, mcpCtx, loaded.doc);
 					const payload = projectResult(outcome);
-					/* A saga commit that PARKED saved case values stashed a note
+					/* A committed row migration that PARKED saved case values stashed a note
 					 * on the context — append it to a message-bearing payload so
 					 * the client hears about the data consequence with the
 					 * result, never silently. */

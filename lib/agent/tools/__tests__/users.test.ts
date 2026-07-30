@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { buildDoc, f, withUserSequences } from "@/lib/__tests__/docHelpers";
 import type { PreparedMutationCandidate } from "@/lib/doc/commitVerdicts";
 import type { BlueprintDoc } from "@/lib/domain";
 import { eq, literal, sessionUserProperty } from "@/lib/domain/predicate";
+import { makeCanonicalGenesisDoc } from "../../__tests__/fixtures";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import {
 	addPersonasTool,
@@ -43,7 +44,7 @@ function makeCtx() {
 }
 
 function emptyDoc(): BlueprintDoc {
-	return buildDoc({ appName: "Users", modules: [] });
+	return makeCanonicalGenesisDoc("Users", "app-users");
 }
 
 describe("user authoring tools", () => {
@@ -364,24 +365,33 @@ describe("user authoring tools", () => {
 
 	it("refuses to remove referenced worker information without committing", async () => {
 		const propertyUuid = testUuid("worker-region");
-		const doc = buildDoc({
-			modules: [
-				{
-					name: "Patients",
-					displayCondition: eq(
-						sessionUserProperty(propertyUuid),
-						literal("north"),
-					),
+		const doc = withUserSequences({
+			...buildDoc({
+				modules: [
+					{
+						name: "Patients",
+						displayCondition: eq(
+							sessionUserProperty(propertyUuid),
+							literal("north"),
+						),
+						forms: [
+							{
+								name: "Survey",
+								type: "survey",
+								fields: [f({ id: "note", kind: "text" })],
+							},
+						],
+					},
+				],
+			}),
+			userProperties: {
+				[propertyUuid]: {
+					uuid: propertyUuid,
+					slug: "region",
+					label: "Region",
 				},
-			],
-		});
-		doc.userProperties = {
-			[propertyUuid]: {
-				uuid: propertyUuid,
-				slug: "region",
-				label: "Region",
 			},
-		};
+		});
 		const { ctx, recordMutations } = makeCtx();
 
 		const result = await removeUserPropertyTool.execute(

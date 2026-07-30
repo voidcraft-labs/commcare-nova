@@ -40,7 +40,6 @@ import {
 	and,
 	eq,
 	exists,
-	isBlank,
 	literal,
 	prop,
 	relationStep,
@@ -64,7 +63,7 @@ const PATIENT: CaseType = {
 	parent_type: "household",
 	properties: [
 		{ name: "age", label: proseText("Age"), data_type: "int" },
-		{ name: "name", label: proseText("Name"), data_type: "text" },
+		{ name: "case_name", label: proseText("Case name"), data_type: "text" },
 	],
 };
 const CASE_TYPES: readonly CaseType[] = [HOUSEHOLD, PATIENT];
@@ -124,23 +123,13 @@ describe("preservedOperandSwap — exists ↔ missing", () => {
 describe("preservedOperandSwap — and ↔ or", () => {
 	it("and([p1, p2, p3]) → or preserves the three clauses verbatim", () => {
 		const p1 = eq(prop("patient", "age"), literal(18));
-		const p2 = eq(prop("patient", "name"), literal("Alice"));
-		const p3 = eq(prop("patient", "name"), literal("Bob"));
+		const p2 = eq(prop("patient", "case_name"), literal("Alice"));
+		const p3 = eq(prop("patient", "case_name"), literal("Bob"));
 		// Logical-group twins share `{ clauses }` — switching the
 		// discriminator routes through the target's variadic builder and
 		// preserves the author's clause list verbatim.
 		const next = preservedOperandSwap(and(p1, p2, p3), "or");
 		expect(next).toEqual({ kind: "or", clauses: [p1, p2, p3] });
-	});
-});
-
-describe("preservedOperandSwap — is-null ↔ is-blank", () => {
-	it("is-blank(prop) → is-null preserves left", () => {
-		const left = term(prop("patient", "name"));
-		// Null/blank twins share `{ left }` — only the strict-vs-portable
-		// absence semantic differs, so the operand carries over verbatim.
-		const next = preservedOperandSwap(isBlank(left), "is-null");
-		expect(next).toEqual({ kind: "is-null", left });
 	});
 });
 

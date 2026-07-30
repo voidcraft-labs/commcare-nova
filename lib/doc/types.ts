@@ -13,6 +13,7 @@ export { asUuid } from "@/lib/domain";
 
 import { z } from "zod";
 import {
+	authoredCasePropertyNameSchema,
 	CONNECT_TYPES,
 	type Column,
 	caseOperationSchema,
@@ -30,6 +31,8 @@ import {
 	mediaSchema,
 	moduleIconRefSchema,
 	moduleSchema,
+	ordinaryCaseSearchConfigSchema,
+	ownerOnlyCaseSearchConfigSchema,
 	personaSchema,
 	type SearchInputDef,
 	searchInputDefSchema,
@@ -293,7 +296,7 @@ function caseOperationPatchSchemaFor(
 }
 
 function caseSearchConfigPatchSchemaFor(
-	configSchema: typeof caseSearchConfigSchema,
+	configSchema: typeof ordinaryCaseSearchConfigSchema,
 ) {
 	return z
 		.object({
@@ -308,10 +311,9 @@ function caseSearchConfigPatchSchemaFor(
 		.strict();
 }
 
-// Every clearable slot is
-// null-as-delete-safe: an absent `order` sorts last by uuid, an absent
-// `required` is not required, an absent `choices` is free text, an absent
-// `description` is none, an absent `userTypeUuid` is no role, and an
+// Every clearable slot is null-as-delete-safe: an absent `required` is not
+// required, an absent `choices` is free text, an absent `description` is none,
+// an absent `userTypeUuid` is no role, and an
 // absent `values` bag is read as empty by `userTypesOf` / `personasOf`'s
 // consumers. The required slots (`slug`, `label`, `name`) stay
 // non-nullable, so a stray `null` for one is a parse error rather than a
@@ -360,7 +362,7 @@ const canonicalCaseOperationChangeSchema =
 const canonicalCaseOperationPatchSchema =
 	caseOperationPatchSchemaFor(caseOperationSchema);
 const canonicalCaseSearchConfigPatchSchema = caseSearchConfigPatchSchemaFor(
-	caseSearchConfigSchema,
+	ordinaryCaseSearchConfigSchema,
 );
 
 type WithoutColumnFacets<T> = T extends Column
@@ -387,8 +389,18 @@ type SearchInputContent = SearchInputDef extends infer T
 		: never
 	: never;
 
-const searchInputContentSchema = z.discriminatedUnion(
-	"kind",
+/**
+ * The UUID-omitted projection of the domain's exact four-arm Search-input
+ * union.
+ *
+ * `kind` alone is deliberately not a discriminator here: both `simple` and
+ * `advanced` each have a scalar-widget arm and a date-range arm. The widget
+ * split is structural (date-range owns range mode and cannot own a scalar
+ * default), so collapsing those pairs to make `kind` unique would weaken the
+ * final stored shape. Keep the mutation projection as the same strict union
+ * the domain owns.
+ */
+const searchInputContentSchema = z.union(
 	searchInputDefSchema.options.map((arm) =>
 		(arm as z.ZodObject<z.ZodRawShape>).omit({ uuid: true }),
 	) as unknown as [z.ZodObject<z.ZodRawShape>, ...z.ZodObject<z.ZodRawShape>[]],
@@ -559,7 +571,6 @@ function prevalidateRawMutationInput<Schema extends z.ZodType>(
 function createMutationSchema({
 	module: mutationModuleSchema,
 	moduleUpdatePatch: mutationModuleUpdatePatchSchema,
-	caseSearchConfig: mutationCaseSearchConfigSchema,
 	caseSearchConfigPatch: mutationCaseSearchConfigPatchSchema,
 	form: mutationFormSchema,
 	formUpdatePatch: mutationFormUpdatePatchSchema,
@@ -615,7 +626,7 @@ function createMutationSchema({
 						"set-owner-only",
 					])
 					.optional(),
-				caseSearchConfigValue: mutationCaseSearchConfigSchema.optional(),
+				caseSearchConfigValue: ownerOnlyCaseSearchConfigSchema.optional(),
 				caseSearchConfigPatch: mutationCaseSearchConfigPatchSchema.optional(),
 			})
 			.superRefine((mutation, ctx) => {
@@ -677,10 +688,7 @@ function createMutationSchema({
 					return;
 				}
 				if (operation === "set-owner-only") {
-					if (
-						mutation.caseSearchConfigValue?.searchActionEnabled !== false ||
-						mutation.caseSearchConfigValue.excludedOwnerIds === undefined
-					) {
+					if (mutation.caseSearchConfigValue === undefined) {
 						ctx.addIssue({
 							code: "custom",
 							path: ["caseSearchConfigValue"],
@@ -780,10 +788,9 @@ function createMutationSchema({
 			// Born options for a conversion INTO a select kind from a kind with
 			// no options slot (text → single_select) — the select schemas
 			// require `.min(2)` options the source can't carry, so the
-			// reducer's reconcile would otherwise always fail. Minted (uuid +
-			// order) at the batch-building layer so the reducer stays
-			// deterministic for replay and peers. Ignored when the target kind
-			// has no options slot.
+			// reducer's reconcile would otherwise always fail. UUIDs are minted
+			// at the batch-building layer so the reducer stays deterministic for
+			// replay and peers. Ignored when the target kind has no options slot.
 			optionsSource: selectOptionsSourceSchema.optional(),
 		}),
 		// App-level
@@ -804,6 +811,24 @@ function createMutationSchema({
 			kind: z.literal("setAppLogo"),
 			logo: mediaAssetIdSchema.nullable(),
 		}),
+		// A case-property rename is an app-wide semantic operation, not a
+		// field-id patch. Its batch is required to be exclusive at the admitted
+		// batch boundary so the complete simultaneous relation is one durable,
+		// invertible command.
+		z.object({
+			kind: z.literal("renameCaseProperties"),
+			renames: z
+				.array(
+					z
+						.object({
+							caseType: z.string().min(1),
+							from: authoredCasePropertyNameSchema,
+							to: authoredCasePropertyNameSchema,
+						})
+						.strict(),
+				)
+				.min(1),
+		}),
 		// ─── Granular case-type catalog ──────────────────────────────────────
 		//
 		// The catalog is keyed by `(case-type name, property name)`. These
@@ -819,6 +844,7 @@ function createMutationSchema({
 			kind: z.literal("addCaseProperty"),
 			caseType: z.string(),
 			property: casePropertySchema,
+			after: authoredCasePropertyNameSchema.nullable().optional(),
 		}),
 		z.object({
 			kind: z.literal("setCaseProperty"),
@@ -828,7 +854,7 @@ function createMutationSchema({
 		z.object({
 			kind: z.literal("removeCaseProperty"),
 			caseType: z.string(),
-			property: z.string(),
+			property: authoredCasePropertyNameSchema,
 		}),
 		z.object({
 			kind: z.literal("setCaseTypeMeta"),
@@ -839,11 +865,9 @@ function createMutationSchema({
 		// ─── User properties, user types, and personas ───────────────────────
 		//
 		// Three flat UUID-keyed collections (`lib/domain/users.ts`), each with
-		// the same add / update / remove trio. There is no `move*` kind: these
-		// collections carry no membership array, so a reorder is an `update`
-		// whose patch names only `order` — which merges with a concurrent
-		// content edit by construction, the same reason columns split their
-		// move from their content update.
+		// the same add / update / remove trio and a membership array. Adds state
+		// their predecessor. No reorder gesture is exposed yet, so there is no
+		// `move*` mutation; updates carry content only.
 		//
 		// Removal never cascades inside the reducer. A property removal
 		// rewrites every value bag that referenced it, and a user-type removal
@@ -890,12 +914,12 @@ function createMutationSchema({
 		// ─── Granular case-list collections ──────────────────────────────────
 		//
 		// `caseListConfig.columns` / `.searchInputs` are membership arrays whose
-		// position is NOT authoritative. Search inputs use `sort-by-(order, uuid)`;
-		// columns additionally carry independent `listOrder` / `detailOrder` keys
-		// (each falling back to `order`). Every kind is keyed by the owning module
-		// uuid + item uuid, so concurrent edits merge. New column content updates
-		// preserve all three current order keys plus both current visibility slots;
-		// each move or visibility mutation changes only its named surface.
+		// position is NOT authoritative. Search inputs use their collection
+		// sequence; columns use the case-list config's exact Results and Details
+		// UUID permutations. Every kind is keyed by the owning module uuid + item
+		// uuid, so concurrent edits merge. Column content updates preserve both
+		// sequences and current visibility slots; each move or visibility mutation
+		// changes only its named surface.
 		// A config's absent -> present transition is the semantic ensure on
 		// `updateModule` above.
 		z.object({
@@ -1095,22 +1119,8 @@ export type Mutation = z.infer<typeof mutationSchema>;
 
 // ─── MutationResult ────────────────────────────────────────────────────
 //
-// Per-mutation result returned by the reducer.
-//
-// `applyMany(mutations)` returns `MutationResult[]` — one entry per input
-// mutation, same order. Most mutation kinds produce `undefined`; `moveField`
-// produces `MoveFieldResult` with cross-level auto-rename info.
-//
-// A flat union (rather than a positionally-typed tuple or a
-// generic-per-mutation result) keeps the public API uniform and easy to
-// type at call sites. Callers that need metadata destructure by known
-// position and narrow via `typeof` / kind check. This shape is final —
-// it will not expand to a mapped type when new mutation kinds are added,
-// because those kinds return `undefined` and `undefined` already belongs
-// to this union.
-
-import type { MoveFieldResult } from "@/lib/doc/mutations/fields";
-
-export type MutationResult = MoveFieldResult | undefined;
-
-export type { MoveFieldResult };
+// Reducers are deterministic state transitions and return no side-channel
+// metadata. `applyMany(mutations)` retains one `undefined` entry per input so
+// existing batched call sites can preserve positional accounting without
+// inventing a second result protocol.
+export type MutationResult = undefined;

@@ -13,8 +13,8 @@ import {
 } from "@/lib/domain";
 
 /**
- * Extract bare hashtag references (#form/x, #case/x, #user/x) from label text.
- * Used by the TriggerDag to register label dependencies.
+ * Project typed prose atoms to friendly reference expressions. Used by the
+ * TriggerDag to register label dependencies.
  */
 export function proseReferenceExpressions(
 	template: ProseTemplate | undefined,

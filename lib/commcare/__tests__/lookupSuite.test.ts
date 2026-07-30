@@ -111,7 +111,7 @@ function lookupApp() {
 								kind: "text",
 								id: "case_name",
 								label: proseText("Name"),
-								case_property_on: "patient",
+								caseWrite: { caseType: "patient", property: "case_name" },
 							}),
 							f({
 								kind: "single_select",
@@ -208,15 +208,16 @@ describe("compileCcz — lookup wire embedding", () => {
 		const itemsets = findAll((el) => el.name === "itemset", root.children);
 		expect(itemsets).toHaveLength(1);
 		expect(getAttributeValue(itemsets[0], "nodeset")).toBe(
-			"instance('item-list:regions')/regions_list/regions",
+			"instance('regions')/regions_list/regions",
 		);
 		const formFixtureInstances = findAll(
 			(el) => el.name === "instance",
 			root.children,
-		).filter(
-			(instance) => getAttributeValue(instance, "id") === "item-list:regions",
-		);
+		).filter((instance) => getAttributeValue(instance, "id") === "regions");
 		expect(formFixtureInstances).toHaveLength(1);
+		expect(getAttributeValue(formFixtureInstances[0], "src")).toBe(
+			"jr://fixture/item-list:regions",
+		);
 	});
 });
 

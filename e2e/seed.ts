@@ -181,6 +181,7 @@ async function seedSettledThread(args: {
 		holderNonce: claimed.holderNonce,
 		threadType: args.threadType,
 		messages: tallThreadHistory(args.prefix, args.firstUserText),
+		expectedProjectId: args.projectId,
 	});
 	if (!written) throw new Error("e2e/seed.ts: thread seed write failed");
 	const releaseOutcome =
@@ -399,35 +400,38 @@ async function main(): Promise<void> {
 
 	// App state → Postgres, via the real no-LLM create path (status
 	// `complete`), one throwaway "delete me" app per possible Playwright attempt.
-	const openAppId = await createApp(SEED.userId, seedProjectId, randomUUID(), {
-		appName: SEED.openAppName,
-		status: "complete",
-	});
+	const { appId: openAppId } = await createApp(
+		SEED.userId,
+		seedProjectId,
+		randomUUID(),
+		{
+			name: SEED.openAppName,
+			status: "complete",
+		},
+	);
 
 	/* Full Search / Results / Details visual-QA fixture. The authored ids and
 	 * patient values are stable; the app + case ids are minted by their real
 	 * stores and written into seed.json for exact deep links. Materialize before
 	 * inserting so the fixture exercises the same schema gate as live case data. */
-	const caseWorkspaceAppId = await createApp(
-		SEED.userId,
-		seedProjectId,
-		randomUUID(),
-		{ appName: CASE_WORKSPACE_SEED.appName, status: "complete" },
-	);
+	const { appId: caseWorkspaceAppId, baseSeq: caseWorkspaceGenesisSeq } =
+		await createApp(SEED.userId, seedProjectId, randomUUID(), {
+			name: CASE_WORKSPACE_SEED.appName,
+			status: "complete",
+		});
 	const caseWorkspaceDoc = toPersistableDoc(
 		buildCaseWorkspaceBlueprint(caseWorkspaceAppId),
 	);
 	await appendSyntheticBatch({
 		appId: caseWorkspaceAppId,
-		expectedBaseSeq: 0,
+		expectedBaseSeq: caseWorkspaceGenesisSeq,
 		targetDoc: caseWorkspaceDoc,
 		authority: { kind: "user", actorUserId: SEED.userId },
 	});
 	await materializeCaseStoreSchemas({
 		appId: caseWorkspaceAppId,
 		blueprint: caseWorkspaceDoc,
-		// A newly-created app starts at seq 0; appendSyntheticBatch advances it once.
-		syncedSeq: 1,
+		syncedSeq: caseWorkspaceGenesisSeq + 1,
 	});
 	const caseStore = await withProjectContext(
 		seedProjectId,
@@ -469,12 +473,11 @@ async function main(): Promise<void> {
 		viewerStateFile: string;
 	}[] = [];
 	for (let attempt = 0; attempt < CASE_CHANGES_FIXTURE_COUNT; attempt++) {
-		const caseChangesAppId = await createApp(
-			SEED.userId,
-			seedProjectId,
-			randomUUID(),
-			{ appName: CASE_CHANGES_SEED.appName, status: "complete" },
-		);
+		const { appId: caseChangesAppId, baseSeq: caseChangesGenesisSeq } =
+			await createApp(SEED.userId, seedProjectId, randomUUID(), {
+				name: CASE_CHANGES_SEED.appName,
+				status: "complete",
+			});
 		const caseChangesLookup = await createLookupTable(
 			{
 				projectId: seedProjectId,
@@ -505,14 +508,14 @@ async function main(): Promise<void> {
 		);
 		await appendSyntheticBatch({
 			appId: caseChangesAppId,
-			expectedBaseSeq: 0,
+			expectedBaseSeq: caseChangesGenesisSeq,
 			targetDoc: caseChangesDoc,
 			authority: { kind: "user", actorUserId: SEED.userId },
 		});
 		await materializeCaseStoreSchemas({
 			appId: caseChangesAppId,
 			blueprint: caseChangesDoc,
-			syncedSeq: 1,
+			syncedSeq: caseChangesGenesisSeq + 1,
 		});
 		const caseChangesPatient = await caseStore.insert({
 			appId: caseChangesAppId,
@@ -537,15 +540,15 @@ async function main(): Promise<void> {
 	 * upsert + response append, live marker cleared) — exactly the rows finished
 	 * runs leave. The builder must hydrate the newest transcript on load and
 	 * switch to the older one without exposing the prior transcript. */
-	const threadsAppId = await createApp(
+	const { appId: threadsAppId, baseSeq: threadsGenesisSeq } = await createApp(
 		SEED.userId,
 		seedProjectId,
 		randomUUID(),
-		{ appName: SEED.threadsAppName, status: "complete" },
+		{ name: SEED.threadsAppName, status: "complete" },
 	);
 	await appendSyntheticBatch({
 		appId: threadsAppId,
-		expectedBaseSeq: 0,
+		expectedBaseSeq: threadsGenesisSeq,
 		authority: { kind: "user", actorUserId: SEED.userId },
 		targetDoc: toPersistableDoc(
 			buildDoc({
@@ -618,15 +621,15 @@ async function main(): Promise<void> {
 	 * upsert marks the thread live, and the response append (the assistant
 	 * message carrying the input-available tool part) retires the marker — so
 	 * opening it must not attempt a stream resume. */
-	const scrollAppId = await createApp(
+	const { appId: scrollAppId, baseSeq: scrollGenesisSeq } = await createApp(
 		SEED.userId,
 		seedProjectId,
 		randomUUID(),
-		{ appName: SEED.scrollAppName, status: "complete" },
+		{ name: SEED.scrollAppName, status: "complete" },
 	);
 	await appendSyntheticBatch({
 		appId: scrollAppId,
-		expectedBaseSeq: 0,
+		expectedBaseSeq: scrollGenesisSeq,
 		authority: { kind: "user", actorUserId: SEED.userId },
 		targetDoc: toPersistableDoc(
 			buildDoc({
@@ -679,6 +682,7 @@ async function main(): Promise<void> {
 				"smoke-scroll-q",
 				SEED.scrollQuestionThreadUserText,
 			),
+			expectedProjectId: seedProjectId,
 		});
 		if (!written) {
 			throw new Error("e2e/seed.ts: scroll question thread seed write failed");
@@ -763,10 +767,12 @@ async function main(): Promise<void> {
 	const deleteAppIds: string[] = [];
 	for (let i = 0; i < DELETE_APP_COUNT; i++) {
 		deleteAppIds.push(
-			await createApp(SEED.userId, seedProjectId, randomUUID(), {
-				appName: SEED.deleteAppName,
-				status: "complete",
-			}),
+			(
+				await createApp(SEED.userId, seedProjectId, randomUUID(), {
+					name: SEED.deleteAppName,
+					status: "complete",
+				})
+			).appId,
 		);
 	}
 
@@ -777,10 +783,12 @@ async function main(): Promise<void> {
 	const moveAppIds: string[] = [];
 	for (let i = 0; i < MOVE_APP_COUNT; i++) {
 		moveAppIds.push(
-			await createApp(SEED.userId, seedProjectId, randomUUID(), {
-				appName: SEED.moveAppName,
-				status: "complete",
-			}),
+			(
+				await createApp(SEED.userId, seedProjectId, randomUUID(), {
+					name: SEED.moveAppName,
+					status: "complete",
+				})
+			).appId,
 		);
 	}
 

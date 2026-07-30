@@ -173,13 +173,12 @@ describe("parsePathToLocation", () => {
 		});
 	});
 
-	it("accepts the legacy /cases authoring alias", () => {
+	it("rejects the retired two-segment /cases authoring token", () => {
 		const doc = makeParseDoc({
 			modules: { [modUuid]: { uuid: modUuid } as never },
 		});
 		expect(parsePathToLocation([modUuid, "cases"], doc)).toEqual({
-			kind: "cases",
-			moduleUuid: modUuid,
+			kind: "home",
 		});
 	});
 
@@ -236,13 +235,12 @@ describe("parsePathToLocation", () => {
 		});
 	});
 
-	it("accepts the legacy /search-config authoring alias", () => {
+	it("rejects the retired /search-config authoring token", () => {
 		const doc = makeParseDoc({
 			modules: { [modUuid]: { uuid: modUuid } as never },
 		});
 		expect(parsePathToLocation([modUuid, "search-config"], doc)).toEqual({
-			kind: "search-config",
-			moduleUuid: modUuid,
+			kind: "home",
 		});
 	});
 
@@ -284,13 +282,12 @@ describe("parsePathToLocation", () => {
 		});
 	});
 
-	it("accepts the legacy /detail-config authoring alias", () => {
+	it("rejects the retired /detail-config authoring token", () => {
 		const doc = makeParseDoc({
 			modules: { [modUuid]: { uuid: modUuid } as never },
 		});
 		expect(parsePathToLocation([modUuid, "detail-config"], doc)).toEqual({
-			kind: "detail-config",
-			moduleUuid: modUuid,
+			kind: "home",
 		});
 	});
 

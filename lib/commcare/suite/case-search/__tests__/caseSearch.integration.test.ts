@@ -70,6 +70,7 @@ import {
 	advancedSearchInputDef,
 	type BlueprintDoc,
 	caseSearchConfigSchema,
+	isOwnerOnlyCaseSearchConfig,
 	plainColumn,
 	simpleSearchInputDef,
 } from "@/lib/domain";
@@ -196,19 +197,18 @@ function buildSearchBlueprint(): BlueprintDoc {
 								kind: "text",
 								id: "case_name",
 								label: proseText("Name"),
-								case_property_on: "patient",
+								caseWrite: { caseType: "patient", property: "case_name" },
 							}),
 							f({
 								kind: "text",
 								id: "region",
 								label: proseText("Region"),
-								case_property_on: "patient",
+								caseWrite: { caseType: "patient", property: "region" },
 							}),
 							f({
 								kind: "text",
 								id: "status",
 								label: proseText("Status"),
-								case_property_on: "patient",
 							}),
 						],
 					},
@@ -259,7 +259,12 @@ vi.mock("@/lib/db/apps", () => ({
 }));
 
 vi.mock("@/lib/db/applyBlueprintChange", () => ({
-	applyBlueprintChange: vi.fn(() => Promise.resolve({ seq: 0 })),
+	applyBlueprintChange: vi.fn(async (args) => {
+		const { commitApplyBlueprintChangeTestBatch } = await import(
+			"@/lib/db/__tests__/applyBlueprintChangeTestWriter"
+		);
+		return commitApplyBlueprintChangeTestBatch(args);
+	}),
 }));
 
 beforeEach(() => {
@@ -431,6 +436,9 @@ describe("case-search integration — SA tool round-trip", () => {
 		// Final state — both clusters present.
 		const moduleUuid = r2.newDoc.moduleOrder[0];
 		const config = r2.newDoc.modules[moduleUuid]?.caseSearchConfig;
+		if (config === undefined || isOwnerOnlyCaseSearchConfig(config)) {
+			throw new Error("expected ordinary Search configuration");
+		}
 		expect(config?.searchScreenTitle).toBe("Find a patient");
 		expect(config?.searchButtonLabel).toBe("Search");
 		expect(config?.searchButtonDisplayCondition).toEqual(matchAll());

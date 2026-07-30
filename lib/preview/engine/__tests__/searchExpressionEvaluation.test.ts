@@ -4,7 +4,6 @@ import { simpleSearchInputDef } from "@/lib/domain";
 import {
 	concat,
 	dateAdd,
-	dateLiteral,
 	eq,
 	input,
 	literal,
@@ -145,7 +144,7 @@ describe("preview case-search expression evaluation", () => {
 		).toBe(false);
 	});
 
-	it("resolves scalar defaults but never invents a one-sided date-range default", () => {
+	it("resolves scalar defaults while date-range inputs have no default slot", () => {
 		const defaults = resolveSearchInputDefaults(
 			[
 				simpleSearchInputDef(
@@ -162,7 +161,6 @@ describe("preview case-search expression evaluation", () => {
 					"Visit date",
 					"date-range",
 					"visit_date",
-					{ default: term(dateLiteral("2026-07-16")) },
 				),
 			],
 			SESSION,

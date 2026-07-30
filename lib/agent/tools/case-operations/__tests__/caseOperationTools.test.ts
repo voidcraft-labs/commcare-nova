@@ -1,11 +1,11 @@
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { wireToolSchema } from "@/lib/agent/wireSchemas";
 import {
 	BlueprintCommitRejectedError,
-	batchTargetsMissing,
+	mutationTargetsInvalid,
 } from "@/lib/db/commitGuard";
 import type {
 	BlueprintDoc,
@@ -102,6 +102,9 @@ function fixture(): {
 				id: "patients",
 				name: "Patients",
 				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "nickname", header: "Nickname" },
+				]),
 				forms: [
 					{
 						id: "edit",
@@ -113,7 +116,7 @@ function fixture(): {
 								kind: "text",
 								id: "nickname",
 								label: proseText("Nickname"),
-								case_property_on: "patient",
+								caseWrite: { caseType: "patient", property: "nickname" },
 							}),
 						],
 					},
@@ -572,7 +575,7 @@ describe("shared case-operation tools", () => {
 		});
 		const { ctx, recordMutations } = makeStubToolContext();
 		recordMutations.mockImplementation(async (prepared) => {
-			if (batchTargetsMissing(fresh, prepared.mutations)) {
+			if (mutationTargetsInvalid(fresh, prepared.mutations)) {
 				throw new BlueprintCommitRejectedError(
 					"A peer changed this case operation first.",
 				);
@@ -617,6 +620,7 @@ describe("dependency refusals name the actual constraint", () => {
 				{
 					name: "Leads",
 					caseType: "lead",
+					caseListConfig: caseListConfig([{ field: "note", header: "Note" }]),
 					forms: [
 						{
 							name: "Edit",

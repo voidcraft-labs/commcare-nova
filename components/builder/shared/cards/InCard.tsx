@@ -11,7 +11,7 @@ import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerX from "@iconify-icons/tabler/x";
 import { Button } from "@/components/shadcn/button";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
-import { canonicalCasePropertyName, effectiveDataType } from "@/lib/domain";
+import { effectiveDataType } from "@/lib/domain";
 import {
 	acceptsType,
 	compatibleTypesFor,
@@ -25,6 +25,7 @@ import {
 	prop,
 	type ResolvedType,
 	sessionContext,
+	tableColumn,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
 import {
@@ -32,7 +33,11 @@ import {
 	usePredicateEditContext,
 	useResolvedType,
 } from "../editorContext";
-import { caseDataInScope, type PredicateEditContext } from "../editorSchemas";
+import {
+	caseDataInScope,
+	type PredicateEditContext,
+	tableRowInScope,
+} from "../editorSchemas";
 import { removeAndRestoreFocus } from "../focusAfterRemoval";
 import { appendSlot, appendSlotIndex, type EditorPath } from "../path";
 import { InlineError } from "../primitives/CardShell";
@@ -49,17 +54,34 @@ import {
 export function inDefault(
 	ctx: PredicateEditContext,
 ): Extract<Predicate, { kind: "in" }> {
+	const subjectConstraint = inSubjectConstraint();
+	if (tableRowInScope(ctx)) {
+		const column = ctx.tableScope?.columns.find((candidate) =>
+			acceptsType(subjectConstraint, candidate.dataType),
+		);
+		if (ctx.tableScope === undefined || column === undefined) {
+			throw new Error(
+				"A table-row membership condition requires one admitted active-table column.",
+			);
+		}
+		return isIn(
+			tableColumn(ctx.tableScope.tableId, column.id),
+			reseedLiteralForConstraint(
+				literal(""),
+				compatibleTypesFor(column.dataType),
+			),
+		);
+	}
 	// A global slot has no case to read; membership on a session value
 	// (text) is the meaningful shape there.
 	if (!caseDataInScope(ctx)) {
 		return isIn(sessionContext("username"), literal(""));
 	}
 	const ct = ctx.caseTypes.find((c) => c.name === ctx.currentCaseType);
-	const subjectConstraint = inSubjectConstraint();
 	const property = ct?.properties.find((candidate) =>
 		acceptsType(subjectConstraint, effectiveDataType(candidate)),
 	);
-	const propName = canonicalCasePropertyName(property?.name ?? "");
+	const propName = property?.name ?? "";
 	// Seed the value of the property's OWN type — a text `literal("")`
 	// opposite a non-text first property would be a soundness error.
 	return isIn(

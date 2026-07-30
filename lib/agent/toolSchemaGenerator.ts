@@ -35,7 +35,7 @@
 // (`group` / `repeat` — null/""/absent = transparent / titleless, and
 // `contentProcessing.stripEmpty()` collapses the `""` to absence), and
 // rejected on `hidden` (which declares no label). No `""` sentinel exists
-// on the tool surface. Case-bound fields (`case_property_on` set) are the
+// on the tool surface. Case-writing fields (`caseWrite` set) are the
 // one exemption from the label/options floors: those slots inherit from
 // the field's catalog record (`applyDefaults` seeds them after parse), so
 // omitting them is the normal, instructed shape — stated values are
@@ -44,7 +44,7 @@
 // ## Vocabulary
 //
 // The SA speaks domain vocabulary end-to-end: `kind`, `validate`,
-// `validate_msg`, `case_property_on`. There is no translation layer between
+// `validate_msg`, `caseWrite`. There is no translation layer between
 // the LLM and the mutation reducer — tool args flow straight through.
 // CommCare wire terms live only at the emission boundary in
 // `lib/commcare/` (XForm output). The domain never round-trips
@@ -61,12 +61,12 @@
 import { z } from "zod";
 import type { FieldKind } from "@/lib/domain";
 import {
+	caseWriteSchema,
 	fieldKindDeclaresKey,
 	fieldKinds,
 	fieldRegistry,
 	lookupOptionsSourceSchema,
 	proseTemplateSchema,
-	selectOptionSchema,
 	uuidSchema,
 	xpathExpressionSchema,
 } from "@/lib/domain";
@@ -101,15 +101,16 @@ function makeKindEnum(kinds: readonly FieldKind[]) {
 // whereas these strings describe the EXTERNAL LLM contract (how to
 // fill each slot, when to use sentinels, hashtag reference rules, etc.).
 //
-// Field names here are the domain names (`validate`, `case_property_on`,
+// Field names here are the domain names (`validate`, `caseWrite`,
 // …). If we ever flip to per-type tools (one schema per kind), these
 // strings still apply — they carry the per-property guidance, not the
 // per-kind shape.
 
 const FIELD_DOCS = {
 	id:
-		"snake_case identifier, letter first. Becomes the XForm node name " +
-		"and (with case_property_on) the case-property key.",
+		"snake_case identifier, letter first. Names this question in the form " +
+		"and in friendly XPath such as #form/first_name. It is independent " +
+		"from any case property the answer writes.",
 	label:
 		"User-facing label — markdown and hashtag references OK, never " +
 		'{curly} templates. An explicit "" makes a group transparent and a ' +
@@ -132,10 +133,12 @@ const FIELD_DOCS = {
 	optionsSource:
 		'Choice source. Use kind "inline" with at least 2 options, or kind ' +
 		'"lookup" with stable table/column UUIDs and an optional canonical filter.',
-	case_property_on:
-		"Case type this field saves to. The module's own type = a normal " +
-		"case property; a different type creates a child case (its " +
-		'case-name writer must have id "case_name"). Never on media kinds.',
+	caseWrite:
+		"Complete case destination for this answer. `caseType` names the case " +
+		"type and `property` names the property on that type. The module's own " +
+		"type writes its primary case; a different type creates a child case " +
+		"(that child needs a writer whose `property` is `case_name`). The field " +
+		"id may differ from the property. Never set this on media kinds.",
 	repeat_mode:
 		'"user_controlled" — user adds/removes rows at fill. "count_bound" ' +
 		'— row count from `count`. "query_bound" — one row per case id ' +
@@ -146,10 +149,13 @@ const FIELD_DOCS = {
 
 // ── Reusable Zod field primitives ───────────────────────────────────
 //
-// Each helper returns a fresh Zod schema — never share an instance
+// Each generic helper returns a fresh Zod schema — never share an instance
 // across multiple generator outputs, because downstream consumers
 // (e.g. `z.toJSONSchema`) mutate the Zod node's internal cache and a
-// shared instance can leak that cache between tools.
+// shared instance can leak that cache between tools. The one deliberate
+// exception is `projectedOptionsSourceSchema`: its machine contract must be one
+// exported schema/type across all four field writers, and it is materialized
+// once alongside the generated schemas in `toolSchemas.ts`.
 
 const idField = () => z.string().describe(FIELD_DOCS.id);
 
@@ -203,38 +209,49 @@ const defaultValueField = () =>
 		.nullable()
 		.optional()
 		.describe(FIELD_DOCS.default_value);
-// The SA's option shape omits media and projects stored `uuid` through the
-// creation/address slot `optionUuid`. `selectOptionSchema` carries an optional
-// per-option `media` reference, but
-// the field-mutation tools expose neither the asset library nor an upload
-// affordance, so the agent can't mint or validate an asset id here —
-// exposing the slot would only let the model write a dangling reference into
-// the doc. Option media is set through the dedicated media tools.
-const saOptionSchema = selectOptionSchema
-	.omit({
-		media: true,
-		uuid: true,
-	})
-	.extend({
+/**
+ * The exact machine-authored inline-option projection.
+ *
+ * Persisted options carry `{ uuid, value, label, media? }`, but machine
+ * writers deliberately get only `{ optionUuid?, value, label }`:
+ * `optionUuid` is the creation/preservation handle, while `uuid`, `media`,
+ * and every historical alias are unknown-key rejections. Dedicated media
+ * tools remain the sole owner of option media.
+ */
+export const projectedSelectOptionSchema = z
+	.object({
 		optionUuid: uuidSchema
 			.optional()
 			.describe(
 				"Stable UUID for this option. Supply it when preserving an existing option or when another same-call value refers to it; otherwise Nova mints it.",
 			),
-	});
+		value: z.string(),
+		label: proseTemplateSchema,
+	})
+	.strict();
 
-const optionsSourceField = () =>
-	z
-		.discriminatedUnion("kind", [
-			z
-				.object({
-					kind: z.literal("inline"),
-					options: z.array(saOptionSchema).min(2),
-				})
-				.strict(),
-			lookupOptionsSourceSchema,
-		])
-		.describe(FIELD_DOCS.optionsSource);
+/**
+ * One canonical projected select-source contract shared by add_fields,
+ * create_form, create_module, and edit_field. The lookup arm is the stored
+ * canonical identity shape; no table/column UUID aliases are admitted.
+ */
+export const projectedOptionsSourceSchema = z
+	.discriminatedUnion("kind", [
+		z
+			.object({
+				kind: z.literal("inline"),
+				options: z.array(projectedSelectOptionSchema).min(2),
+			})
+			.strict(),
+		lookupOptionsSourceSchema,
+	])
+	.describe(FIELD_DOCS.optionsSource);
+
+export type ProjectedOptionsSource = z.infer<
+	typeof projectedOptionsSourceSchema
+>;
+
+const optionsSourceField = () => projectedOptionsSourceSchema;
 
 // Nested-object factories — return the bare object so callers wrap it
 // with `.optional()` (add tools) or `.nullable().optional()` (edit
@@ -253,8 +270,8 @@ const validateConfigField = () =>
 				"object entirely to skip validation.",
 		);
 
-const casePropertyOnField = () =>
-	z.string().nullable().optional().describe(FIELD_DOCS.case_property_on);
+const caseWriteField = () =>
+	caseWriteSchema.nullable().optional().describe(FIELD_DOCS.caseWrite);
 
 // ── Flat tool inputs, kind-gated by refinement ───────────────────────
 //
@@ -312,7 +329,7 @@ const ADD_GATED_KEYS = [
 	"calculate",
 	"default_value",
 	"optionsSource",
-	"case_property_on",
+	"caseWrite",
 ] as const;
 
 const EDIT_GATED_KEYS = [...ADD_GATED_KEYS, "help"] as const;
@@ -369,7 +386,7 @@ function buildAddFieldsItemSchema(kinds: readonly FieldKind[]) {
 			calculate: calculateField(),
 			default_value: defaultValueField(),
 			optionsSource: optionsSourceField().nullable().optional(),
-			case_property_on: casePropertyOnField(),
+			caseWrite: caseWriteField(),
 			repeat: repeatConfigDiscriminated().nullable().optional(),
 			// `.strict()` so a key outside the shape is REJECTED at the boundary —
 			// the SA is told and retries, rather than the stray key being
@@ -382,7 +399,7 @@ function buildAddFieldsItemSchema(kinds: readonly FieldKind[]) {
 					undeclaredSlotIssue(ctx, item.kind, key);
 				}
 			}
-			// A case-bound field (`case_property_on` set) INHERITS label /
+			// A case-writing field (`caseWrite` set) INHERITS label /
 			// optionsSource / validation / required from its catalog record —
 			// `applyDefaults` seeds them after this parse, and the prompt
 			// teaches stating those slots only to override. Absence is
@@ -390,9 +407,7 @@ function buildAddFieldsItemSchema(kinds: readonly FieldKind[]) {
 			// gap (a select bound to a property recorded without options)
 			// still fails the per-kind assembly parse downstream, naming the
 			// offending field.
-			const caseBound =
-				typeof item.case_property_on === "string" &&
-				item.case_property_on.length > 0;
+			const caseBound = item.caseWrite != null;
 			if (
 				fieldKindDeclaresKey(item.kind, "label") &&
 				!fieldRegistry[item.kind].isContainer &&
@@ -473,7 +488,7 @@ function buildEditFieldUpdatesSchema(kinds: readonly FieldKind[]) {
 			// A select source is required state and cannot be cleared. Omission
 			// keeps it; a value atomically replaces the complete arm.
 			optionsSource: optionsSourceField().optional(),
-			case_property_on: casePropertyOnField(),
+			caseWrite: caseWriteField(),
 			repeat: repeatConfigDiscriminated().optional(),
 			// `.strict()` — same boundary rejection as the add item: a key
 			// outside the shape is an error, not a silent strip.

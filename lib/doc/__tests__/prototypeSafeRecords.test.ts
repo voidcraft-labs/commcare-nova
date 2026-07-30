@@ -391,7 +391,7 @@ describe("prototype-safe normalized blueprint records", () => {
 					parentUuid: FORM_UUID,
 					field: {
 						...textField("prototype-status", "status"),
-						case_property_on: "patient",
+						caseWrite: { caseType: "patient", property: "status" },
 					},
 				},
 				{
@@ -399,7 +399,7 @@ describe("prototype-safe normalized blueprint records", () => {
 					parentUuid: FORM_UUID,
 					field: {
 						...textField("prototype-watcher", "watcher"),
-						label: proseText("See #form/status and #case/status"),
+						label: proseText("See #form/status and #patient/status"),
 						relevant: {
 							parts: [
 								{

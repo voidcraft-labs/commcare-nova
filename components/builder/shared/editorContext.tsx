@@ -48,6 +48,10 @@ import {
 } from "./editorTypeContext";
 import type { OperationValueScope } from "./expressionEditorSchemas";
 import type { EditorFormFieldDecl } from "./formFieldPresentation";
+import type {
+	EditorLookupTableDecl,
+	EditorLookupTableScope,
+} from "./lookupTablePresentation";
 import type { EditorPath } from "./path";
 import { serializePath } from "./path";
 import type { EditorSearchInputDecl } from "./searchInputPresentation";
@@ -105,6 +109,8 @@ interface PredicateEditContextValue {
 	 * every surface that reads no form answers at all.
 	 */
 	readonly formFields: readonly EditorFormFieldDecl[];
+	readonly lookupTables: readonly EditorLookupTableDecl[];
+	readonly tableScope: EditorLookupTableScope | undefined;
 	/**
 	 * The submission-local vocabulary, present only inside a case
 	 * operation: the acting user, no owner, and the case an earlier create
@@ -112,6 +118,8 @@ interface PredicateEditContextValue {
 	 * three.
 	 */
 	readonly operationScope: OperationValueScope | undefined;
+	/** Owner sentinels are available only in a case-owner value slot. */
+	readonly ownerValues: boolean;
 	/**
 	 * Whether this slot evaluates against a case row (`"per-case"`) or
 	 * once before any case is selected (`"global"`). Kind menus and
@@ -159,7 +167,10 @@ interface PredicateEditProviderProps {
 	readonly knownInputs: readonly EditorSearchInputDecl[];
 	readonly userProperties?: readonly UserProperty[];
 	readonly formFields?: readonly EditorFormFieldDecl[];
+	readonly lookupTables?: readonly EditorLookupTableDecl[];
+	readonly tableScope?: EditorLookupTableScope;
 	readonly operationScope?: OperationValueScope;
+	readonly ownerValues?: boolean;
 	/** Absent means the ordinary per-case scope. */
 	readonly caseDataScope?: CaseDataScope;
 	readonly allowsNeverMatch?: boolean;
@@ -189,7 +200,10 @@ export function PredicateEditProvider({
 	knownInputs,
 	userProperties = EMPTY_USER_PROPERTIES,
 	formFields = EMPTY_FORM_FIELDS,
+	lookupTables = [],
+	tableScope,
 	operationScope,
+	ownerValues = false,
 	caseDataScope = "per-case",
 	allowsNeverMatch = true,
 	evaluationTarget = "on-device",
@@ -213,7 +227,10 @@ export function PredicateEditProvider({
 			knownInputs,
 			userProperties,
 			formFields,
+			lookupTables,
+			tableScope,
 			operationScope,
+			ownerValues,
 			caseDataScope,
 			allowsNeverMatch,
 			evaluationTarget,
@@ -227,7 +244,10 @@ export function PredicateEditProvider({
 			knownInputs,
 			userProperties,
 			formFields,
+			lookupTables,
+			tableScope,
 			operationScope,
+			ownerValues,
 			caseDataScope,
 			allowsNeverMatch,
 			evaluationTarget,
@@ -336,6 +356,29 @@ export function WithCurrentCaseType({
 	);
 }
 
+export function WithLookupTableScope({
+	table,
+	children,
+}: {
+	readonly table: EditorLookupTableDecl;
+	readonly children: ReactNode;
+}) {
+	const outer = usePredicateEditContext();
+	const value = useMemo<PredicateEditContextValue>(
+		() => ({
+			...outer,
+			caseDataScope: "table-row",
+			tableScope: { tableId: table.id, columns: table.columns },
+		}),
+		[outer, table],
+	);
+	return (
+		<PredicateEditContext.Provider value={value}>
+			{children}
+		</PredicateEditContext.Provider>
+	);
+}
+
 /**
  * Read the editor context. Use this when a card needs the full
  * trio (case types + current scope + known inputs) — typical for
@@ -366,7 +409,10 @@ export function predicateEditContextFrom(
 		knownInputs: ctx.knownInputs,
 		userProperties: ctx.userProperties,
 		formFields: ctx.formFields,
+		lookupTables: ctx.lookupTables,
+		tableScope: ctx.tableScope,
 		operationScope: ctx.operationScope,
+		ownerValues: ctx.ownerValues,
 		caseDataScope: ctx.caseDataScope,
 		allowsNeverMatch: ctx.allowsNeverMatch,
 		evaluationTarget: ctx.evaluationTarget,
@@ -422,7 +468,10 @@ export function useEditorTypeContext(): TypeContext {
 		knownInputs,
 		userProperties,
 		formFields,
+		lookupTables,
+		tableScope,
 		operationScope,
+		ownerValues,
 	} = usePredicateEditContext();
 	return useMemo(
 		() =>
@@ -432,7 +481,10 @@ export function useEditorTypeContext(): TypeContext {
 				knownInputs,
 				userProperties,
 				formFields,
+				lookupTables,
+				tableScope,
 				operationScope,
+				ownerValues,
 			}),
 		[
 			caseTypes,
@@ -440,7 +492,10 @@ export function useEditorTypeContext(): TypeContext {
 			knownInputs,
 			userProperties,
 			formFields,
+			lookupTables,
+			tableScope,
 			operationScope,
+			ownerValues,
 		],
 	);
 }

@@ -18,7 +18,9 @@ import {
 	type BlueprintDoc,
 	type Field,
 	type Form,
+	isOwnerOnlyCaseSearchConfig,
 	type Module,
+	searchInputDefault,
 	type Uuid,
 } from "@/lib/domain";
 import type { LookupOptionsSource } from "@/lib/domain/lookupCarriers";
@@ -443,15 +445,16 @@ function extractSearchInputDefaults(
 	doc: BlueprintDoc,
 ): ExtractedLookupReference[] {
 	return sortedModules(doc).flatMap((module) =>
-		(module.caseListConfig?.searchInputs ?? []).flatMap((input) =>
-			input.default === undefined
+		(module.caseListConfig?.searchInputs ?? []).flatMap((input) => {
+			const defaultValue = searchInputDefault(input);
+			return defaultValue === undefined
 				? []
 				: extractAstLookupReferences({
 						carrierUuid: input.uuid,
-						ast: input.default,
+						ast: defaultValue,
 						location: moduleLocation(module),
-					}),
-		),
+					});
+		}),
 	);
 }
 
@@ -475,7 +478,11 @@ function extractSearchButtonDisplayConditions(
 	doc: BlueprintDoc,
 ): ExtractedLookupReference[] {
 	return sortedModules(doc).flatMap((module) => {
-		const condition = module.caseSearchConfig?.searchButtonDisplayCondition;
+		const condition =
+			module.caseSearchConfig === undefined ||
+			isOwnerOnlyCaseSearchConfig(module.caseSearchConfig)
+				? undefined
+				: module.caseSearchConfig.searchButtonDisplayCondition;
 		return condition === undefined
 			? []
 			: extractAstLookupReferences({
@@ -644,7 +651,7 @@ function productionExtractor(
 }
 
 /**
- * S05a production registry. Each entry names one immutable domain slot; array
+ * Production registry. Each entry names one immutable domain slot; array
  * members without their own UUID (operation writes/links) retain the owning
  * operation UUID and use their validator-enforced unique property/identifier
  * as a semantic member anchor below the slot.

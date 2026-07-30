@@ -319,7 +319,8 @@ export type PopulateSampleCasesResult =
  *
  * Per-arm shape:
  * - `registration` — `primary` is the new case the form creates;
- *   `children` are additional cases bucketed by `case_property_on`.
+ *   `children` are additional cases bucketed by explicit `caseWrite`
+ *   destination and repeat identity.
  *   Children carry NO `parentCaseId`; the case-store's submission
  *   envelope threads the primary's generated id at write time.
  * - `followup` — `caseId` is the bound case the form updates;
@@ -334,14 +335,10 @@ export type PopulateSampleCasesResult =
  * in ONE Postgres transaction — primary write, every child, and the
  * close transition together or not at all.
  *
- * `caseName` is a separate slot from `properties` because the
- * case-store routes the case display name to the top-level
- * `cases.case_name` column; the JSONB document carries only the
- * user-defined property bag (see `lib/case-store/store.ts` —
- * `CaseInsert.case_name` and `CaseUpdate.case_name` are top-level
- * fields, not extracted from `properties`). The walker plucks the
- * field whose `id === "case_name"` into the slot and never
- * includes it in `properties`.
+ * `caseName` and `externalId` are separate from `properties` because the
+ * case-store routes them to dedicated row columns. The JSONB document carries
+ * only user-defined properties. The walker keys off the explicit
+ * `caseWrite.property`, not the editable form-field id.
  */
 /** One collected answer for the operation program — plain JSON for the
  *  Server Action wire (a Map would flip the call to multipart and trip
@@ -411,21 +408,28 @@ export type SubmissionMutation = SubmissionProtocol &
 				primary: {
 					caseType: string;
 					caseName?: string;
+					externalId?: string;
 					properties: JsonObject;
 				};
 				children: ReadonlyArray<{
 					caseType: string;
 					caseName?: string;
+					externalId?: string;
 					properties: JsonObject;
 				}>;
 		  }
 		| {
 				kind: "followup";
 				caseId: string;
-				patch: { caseName?: string; properties: JsonObject };
+				patch: {
+					caseName?: string;
+					externalId?: string;
+					properties: JsonObject;
+				};
 				children: ReadonlyArray<{
 					caseType: string;
 					caseName?: string;
+					externalId?: string;
 					properties: JsonObject;
 					parentCaseId: string;
 				}>;
@@ -433,10 +437,15 @@ export type SubmissionMutation = SubmissionProtocol &
 		| {
 				kind: "close";
 				caseId: string;
-				patch: { caseName?: string; properties: JsonObject };
+				patch: {
+					caseName?: string;
+					externalId?: string;
+					properties: JsonObject;
+				};
 				children: ReadonlyArray<{
 					caseType: string;
 					caseName?: string;
+					externalId?: string;
 					properties: JsonObject;
 					parentCaseId: string;
 				}>;

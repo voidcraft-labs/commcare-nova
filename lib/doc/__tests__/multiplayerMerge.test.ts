@@ -17,7 +17,7 @@ import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { updateColumnMutation } from "@/lib/agent/blueprintHelpers";
 import { assembleFieldMutations } from "@/lib/agent/tools/shared/fieldAssembly";
-import { batchTargetsMissing } from "@/lib/db/commitGuard";
+import { mutationTargetsInvalid } from "@/lib/db/commitGuard";
 import {
 	columnContentSnapshot,
 	columnSnapshotMutations,
@@ -49,6 +49,7 @@ import {
 	emptyCaseListConfig,
 	type Field,
 	fallbackProseProjection,
+	fieldCaseWrite,
 	simpleSearchInputDef,
 } from "@/lib/domain";
 import { input, literal, term } from "@/lib/domain/predicate";
@@ -213,49 +214,6 @@ describe("granular catalog merges", () => {
 		expect(reverseNames).toEqual(["age", "village"]);
 	});
 
-	it("a field on a concurrently-retired type is 409'd via CASE_PROPERTY_ON_UNKNOWN_TYPE", () => {
-		// `prev` has the type declared with a writer; a peer retired it. Re-apply
-		// the writer-add batch on the retired `freshDoc` → the field points at an
-		// absent type → the gate rejects.
-		const freshDoc = buildDoc({
-			caseTypes: null,
-			modules: [
-				{
-					name: "Patients",
-					caseType: "patient",
-					forms: [{ name: "F", type: "survey", fields: [] }],
-				},
-			],
-		});
-		const formUuid = freshDoc.formOrder[freshDoc.moduleOrder[0]][0];
-		const batch: Mutation[] = [
-			{
-				kind: "addField",
-				parentUuid: formUuid,
-				field: {
-					uuid: testUuid("concurrent-retired-age"),
-					kind: "text",
-					id: "age",
-					label: proseText("Age"),
-					case_property_on: "patient",
-				},
-			},
-		];
-		const verdict = mutationCommitVerdict(
-			freshDoc,
-			batch,
-			LOOKUP_CONTEXT_UNAVAILABLE,
-		);
-		expect(verdict.ok).toBe(false);
-		if (!verdict.ok) {
-			expect(
-				verdict.introduced.some(
-					(e) => e.code === "CASE_PROPERTY_ON_UNKNOWN_TYPE",
-				),
-			).toBe(true);
-		}
-	});
-
 	it("the diff emits setCaseTypeMeta with ONLY the changed ancestry slot", () => {
 		const prev = buildDoc({
 			caseTypes: [
@@ -351,13 +309,16 @@ describe("disjoint collection edits merge", () => {
 										kind: "text",
 										id: "case_name",
 										label: proseText("Name"),
-										case_property_on: "patient",
+										caseWrite: {
+											caseType: "patient",
+											property: "case_name",
+										},
 									}),
 									f({
 										kind: "int",
 										id: "age",
 										label: proseText("Age"),
-										case_property_on: "patient",
+										caseWrite: { caseType: "patient", property: "age" },
 									}),
 								],
 							},
@@ -900,7 +861,7 @@ describe("disjoint collection edits merge", () => {
 		expect(verdict.ok).toBe(false);
 		if (!verdict.ok) {
 			expect(
-				verdict.introduced.some((e) => e.code === "SELECT_TOO_FEW_OPTIONS"),
+				verdict.findings.some((e) => e.code === "SELECT_TOO_FEW_OPTIONS"),
 			).toBe(true);
 		}
 	});
@@ -960,7 +921,7 @@ describe("setCaseListMeta on a peer-removed config", () => {
 		// On the guarded re-apply against A's committed doc, B's edit targets a
 		// config that no longer exists → a conflict (→ BlueprintCommitRejectedError
 		// → 409 reload), NOT a silent no-op that resurrects the case list.
-		expect(batchTargetsMissing(aCommitted, bBatch)).toBe(true);
+		expect(mutationTargetsInvalid(aCommitted, bBatch)).toBe(true);
 	});
 
 	it("reducer does not resurrect the config even if the guard is bypassed", () => {
@@ -994,7 +955,7 @@ describe("setCaseListMeta on a peer-removed config", () => {
 				patch: { filter: { kind: "match-none" } },
 			},
 		];
-		expect(batchTargetsMissing(doc, batch)).toBe(false);
+		expect(mutationTargetsInvalid(doc, batch)).toBe(false);
 		const merged = apply(doc, batch);
 		expect(merged.modules[moduleUuid].caseListConfig?.filter).toEqual({
 			kind: "match-none",
@@ -1034,7 +995,7 @@ describe("setCaseListMeta on a peer-removed config", () => {
 				patch: { filter: { kind: "match-all" } },
 			},
 		];
-		expect(batchTargetsMissing(cleared, rebirth)).toBe(false);
+		expect(mutationTargetsInvalid(cleared, rebirth)).toBe(false);
 	});
 });
 
@@ -1110,7 +1071,7 @@ describe("diff — case-list presence transition", () => {
 				afterInDetail: null,
 			},
 		]);
-		expect(batchTargetsMissing(peerFresh, localBatch)).toBe(false);
+		expect(mutationTargetsInvalid(peerFresh, localBatch)).toBe(false);
 		const merged = apply(peerFresh, localBatch);
 		expect(
 			merged.modules[moduleUuid].caseListConfig?.columns
@@ -1187,7 +1148,7 @@ describe("diff — case-list presence transition", () => {
 				},
 			},
 		]);
-		expect(batchTargetsMissing(peerFresh, localBatch)).toBe(false);
+		expect(mutationTargetsInvalid(peerFresh, localBatch)).toBe(false);
 		const merged = apply(peerFresh, localBatch);
 		expect(merged.modules[moduleUuid].caseType).toBe("visit");
 		expect(
@@ -1205,7 +1166,7 @@ describe("diff — case-list presence transition", () => {
 
 // ── Declaration chokepoint ─────────────────────────────────────────────
 
-describe("every case_property_on surface declares the type", () => {
+describe("every caseWrite surface declares the type", () => {
 	const baseDoc = () =>
 		buildDoc({
 			caseTypes: null,
@@ -1224,7 +1185,7 @@ describe("every case_property_on surface declares the type", () => {
 			kind: "text",
 			id: "age",
 			label: proseText("Age"),
-			case_property_on: "patient",
+			caseWrite: { caseType: "patient", property: "age" },
 		}) as unknown as Field;
 		const muts = declareCaseTypeForField(doc, writer);
 		expect(muts).toEqual([{ kind: "declareCaseType", caseType: "patient" }]);
@@ -1252,7 +1213,7 @@ describe("every case_property_on surface declares the type", () => {
 					kind: "text",
 					id: "age",
 					label: proseText("Age"),
-					case_property_on: "patient",
+					caseWrite: { caseType: "patient", property: "age" },
 				},
 			] as never,
 		});
@@ -1271,8 +1232,8 @@ describe("every case_property_on surface declares the type", () => {
 		// A viewer whose case type was dropped from the catalog while the module
 		// kept its `caseType` (a data-model edit, or a retire-vs-add race). Adding
 		// a registration form births a `case_name` writer on `patient`; without a
-		// prepended declare that trips CASE_PROPERTY_ON_UNKNOWN_TYPE and the form
-		// is silently not created.
+		// prepended declaration that makes both the viewer column and born field
+		// resolvable; without it the absolute gate rejects the whole candidate.
 		const doc = produce(
 			buildDoc({
 				caseTypes: [
@@ -1307,8 +1268,7 @@ describe("every case_property_on surface declares the type", () => {
 		const writerIdx = scaffold.mutations.findIndex(
 			(m) =>
 				m.kind === "addField" &&
-				(m.field as { case_property_on?: string }).case_property_on ===
-					"patient",
+				fieldCaseWrite(m.field)?.caseType === "patient",
 		);
 		expect(declareIdx).toBeGreaterThanOrEqual(0);
 		expect(writerIdx).toBeGreaterThanOrEqual(0);
@@ -1316,7 +1276,7 @@ describe("every case_property_on surface declares the type", () => {
 		expect(declareIdx).toBeLessThan(writerIdx);
 
 		// Stripping the declare from the SAME batch reproduces the bug: the
-		// case_name writer targets an absent type → gate-rejected.
+		// case_name writer and Name column target an absent type → gate-rejected.
 		const withoutDeclare = scaffold.mutations.filter(
 			(m) => m.kind !== "declareCaseType",
 		);
@@ -1328,9 +1288,10 @@ describe("every case_property_on surface declares the type", () => {
 		expect(rejected.ok).toBe(false);
 		if (!rejected.ok) {
 			expect(
-				rejected.introduced.some(
-					(e) => e.code === "CASE_PROPERTY_ON_UNKNOWN_TYPE",
+				rejected.findings.some(
+					(e) => e.code === "CASE_LIST_COLUMN_UNKNOWN_FIELD",
 				),
+				JSON.stringify(rejected.findings),
 			).toBe(true);
 		}
 
@@ -1816,11 +1777,12 @@ describe("case-search marker merges", () => {
 			};
 		});
 		const diff = diffDocsToMutations(markerless, ownerOnly);
+		const ownerConfig = ownerOnly.modules[moduleUuid].caseSearchConfig;
+		if (ownerConfig === undefined || !("searchActionEnabled" in ownerConfig)) {
+			throw new Error("expected owner-only Search config");
+		}
 		expect(diff).toContainEqual(
-			setOwnerOnlyCaseSearchMutation(
-				moduleUuid,
-				ownerOnly.modules[moduleUuid].caseSearchConfig ?? {},
-			),
+			setOwnerOnlyCaseSearchMutation(moduleUuid, ownerConfig),
 		);
 		expect(
 			diff.some(
@@ -1878,7 +1840,12 @@ describe("case-search marker merges", () => {
 		});
 		const locallyEnabled = produce(ownerOnly, (draft) => {
 			const config = draft.modules[moduleUuid].caseSearchConfig;
-			if (config !== undefined) delete config.searchActionEnabled;
+			if (config === undefined || !("searchActionEnabled" in config)) {
+				throw new Error("missing owner-only Search config");
+			}
+			draft.modules[moduleUuid].caseSearchConfig = {
+				excludedOwnerIds: config.excludedOwnerIds,
+			};
 		});
 		const localBatch = diffDocsToMutations(ownerOnly, locallyEnabled);
 		expect(localBatch).toEqual([
@@ -1951,7 +1918,9 @@ describe("case-search marker merges", () => {
 
 		const peerEdited = produce(base, (draft) => {
 			const config = draft.modules[moduleUuid].caseSearchConfig;
-			if (config === undefined) throw new Error("missing Search config");
+			if (config === undefined || "searchActionEnabled" in config) {
+				throw new Error("missing ordinary Search config");
+			}
 			config.searchButtonLabel = "Peer search";
 			config.excludedOwnerIds = {
 				kind: "term",
@@ -2071,6 +2040,8 @@ describe("Search-input identity merges", () => {
 		config.columns.push(
 			calculatedColumn(calculatedUuid, "Copied answer", term(input(inputUuid))),
 		);
+		config.listColumnOrder.push(calculatedUuid);
+		config.detailColumnOrder.push(calculatedUuid);
 		const doc = buildDoc({
 			modules: [{ name: "Patients", caseListConfig: config }],
 		});
@@ -2153,7 +2124,7 @@ describe("diff — evacuation into a same-diff-added container", () => {
 		// creates G: the server-side guard walks the batch in order, and a
 		// move into a not-yet-existing container reads as a phantom conflict
 		// (409 → the reload silently drops the user's create+move+delete).
-		expect(batchTargetsMissing(prev, diff)).toBe(false);
+		expect(mutationTargetsInvalid(prev, diff)).toBe(false);
 		// The add of G comes before the move of X, which precedes H's remove
 		// (the evacuation contract) — assert the actual order.
 		const addG = diff.findIndex(
@@ -2216,8 +2187,12 @@ describe("user-data value multiplayer convergence", () => {
 		const leftBatch = diffDocsToMutations(base, left);
 		const rightBatch = diffDocsToMutations(base, right);
 
-		expect(batchTargetsMissing(apply(base, leftBatch), rightBatch)).toBe(false);
-		expect(batchTargetsMissing(apply(base, rightBatch), leftBatch)).toBe(false);
+		expect(mutationTargetsInvalid(apply(base, leftBatch), rightBatch)).toBe(
+			false,
+		);
+		expect(mutationTargetsInvalid(apply(base, rightBatch), leftBatch)).toBe(
+			false,
+		);
 		const leftThenRight = apply(base, leftBatch, rightBatch);
 		const rightThenLeft = apply(base, rightBatch, leftBatch);
 		expect(leftThenRight.userTypes?.[roleUuid]?.values).toEqual({

@@ -7,6 +7,7 @@ import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import {
 	type CaseType,
 	type Column,
+	columnSchema,
 	idMappingColumn,
 	imageMapColumn,
 	type MediaAssetId,
@@ -59,6 +60,67 @@ function ControlledColumnEditor({ initial }: { initial: Column }) {
 }
 
 describe("mapping row UI identity", () => {
+	it("keeps a new image mapping local until both value and image are complete", () => {
+		const onChange = vi.fn();
+		render(
+			<ColumnEditor
+				value={imageMapColumn(TEST_UUID, "status", "Status", [])}
+				onChange={onChange}
+				caseTypes={[PATIENT]}
+				currentCaseType="patient"
+			/>,
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "Add value" }));
+		expect(onChange).not.toHaveBeenCalled();
+		expect(screen.queryByRole("button", { name: "Choose image" })).toBeNull();
+
+		fireEvent.change(screen.getByLabelText("Value 1 saved value"), {
+			target: { value: "open" },
+		});
+		expect(onChange).not.toHaveBeenCalled();
+		fireEvent.click(screen.getByRole("button", { name: "Choose image" }));
+
+		const next = onChange.mock.lastCall?.[0] as Column | undefined;
+		expect(next?.kind).toBe("image-map");
+		if (next?.kind !== "image-map") throw new Error("expected image-map");
+		expect(next.mapping).toEqual([
+			{
+				value: "open",
+				assetId: testMediaAssetId("asset-selected"),
+			},
+		]);
+		expect(() => columnSchema.parse(next)).not.toThrow();
+	});
+
+	it.each([
+		["whitespace", "not open"],
+		["a duplicate", "open"],
+	] as const)(
+		"does not expose an image picker for %s in a pending mapping value",
+		(_label, candidate) => {
+			const onChange = vi.fn();
+			render(
+				<ColumnEditor
+					value={imageMapColumn(TEST_UUID, "status", "Status", [
+						{ value: "open", assetId: ASSET_OPEN },
+					])}
+					onChange={onChange}
+					caseTypes={[PATIENT]}
+					currentCaseType="patient"
+				/>,
+			);
+
+			fireEvent.click(screen.getByRole("button", { name: "Add value" }));
+			fireEvent.change(screen.getByLabelText("Value 2 saved value"), {
+				target: { value: candidate },
+			});
+
+			expect(screen.queryByRole("group", { name: "Value 2 image" })).toBeNull();
+			expect(onChange).not.toHaveBeenCalled();
+		},
+	);
+
 	it.each([
 		[
 			"text labels",

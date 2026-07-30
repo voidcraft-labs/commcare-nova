@@ -151,7 +151,6 @@ describe("HQ-JSON oracle — clean baseline", () => {
 			testUuid("00000000-0000-4000-8000-000000000091"),
 			"name",
 			"Name",
-			{ listOrder: "a", detailOrder: "b" },
 		);
 		const age = calculatedColumn(
 			testUuid("00000000-0000-4000-8000-000000000092"),
@@ -254,12 +253,12 @@ describe("HQ-JSON oracle — clean baseline", () => {
 
 		const details = app.modules[0].case_details;
 		expect(details.short.columns.map((column) => column.field)).toEqual([
-			"case_name",
+			"name",
 			"external_id",
 		]);
 		expect(details.short.columns[1].format).toBe("invisible");
 		expect(details.long.columns.map((column) => column.field)).toEqual([
-			"case_name",
+			"name",
 		]);
 		expect(details.short.sort_elements[0]?.field).toBe("external_id");
 		expect(validateHqJson(app)).toEqual([]);
@@ -274,7 +273,7 @@ describe("HQ-JSON oracle — clean baseline", () => {
 		);
 		const hidden = plainColumn(
 			testUuid("00000000-0000-4000-8000-000000000096"),
-			"external-id",
+			"external_id",
 			"External ID",
 			{ visibleInList: false, visibleInDetail: false },
 		);
@@ -332,13 +331,13 @@ describe("HQ-JSON oracle — clean baseline", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Name"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "case_name" },
 								},
 								{
 									kind: "text",
 									id: "notes",
 									label: proseText("Notes"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "notes" },
 								},
 							],
 						},
@@ -357,7 +356,7 @@ describe("HQ-JSON oracle — clean baseline", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Visit name"),
-									case_property_on: "visit",
+									caseWrite: { caseType: "visit", property: "case_name" },
 								},
 							],
 						},

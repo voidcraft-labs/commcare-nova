@@ -11,21 +11,13 @@ import {
 } from "@/lib/runtimeCapabilities";
 
 /**
- * How many `acceptedMutations/{seq}` deltas to retain per app: entries older
+ * How many `appChanges/{seq}` deltas to retain per app: entries older
  * than `head − RETENTION_COUNT` are pruned, so a client whose recovery cursor
  * falls below that window reloads the full blueprint rather than replaying
  * deltas. Sized so an ordinary editing session never overruns the window
  * between reconnects.
  */
 export const RETENTION_COUNT = 500;
-
-/**
- * Nominal ~7-day TTL floor for an `accepted_mutations` entry, sitting beneath
- * the count-bounded retention (`RETENTION_COUNT`). The `accepted_mutations` log
- * is retained permanently today (no prune), so this value backs no active
- * sweep.
- */
-export const ACCEPTED_MUTATIONS_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
  * TTL for a `presence/{userId}:{sessionId}` entry (~60 s). A tab heartbeats

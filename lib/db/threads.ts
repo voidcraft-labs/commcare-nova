@@ -34,19 +34,12 @@
 import type { UIMessage } from "ai";
 import { sql, type Transaction } from "kysely";
 import { holderNonceReplayDigest } from "@/lib/chat/privateHolderNonce";
-import {
-	collectThreadAttachmentAssetIds,
-	preserveStoredThreadAttachments,
-} from "@/lib/chat/threadAttachments";
-import { isBuiltinIconRef } from "@/lib/domain/builtinIcons";
+import { preserveStoredThreadAttachments } from "@/lib/chat/threadAttachments";
 import { log } from "@/lib/logger";
-import { appHeldLive } from "./apps";
+import { appHeldLive, replaceExactMediaReferencesForApp } from "./apps";
 import { RunHolderLostError } from "./commitGuard";
 import { LEASE_COLUMNS, leaseView } from "./leaseView";
-import {
-	addReferencingAppInTransaction,
-	getAssetsInTransaction,
-} from "./mediaAssets";
+import { MediaReferenceProjectionError } from "./mediaAssets";
 import { type AppDatabase, getAppDb, withAppTx } from "./pg";
 import { exactRunHolderMatches } from "./runHolderWrites";
 import { runLeaseState } from "./runLiveness";
@@ -105,46 +98,35 @@ export class ThreadAttachmentUnavailableError extends Error {
 }
 
 /**
- * Admit newly persisted conversation attachments in the same app transaction.
- * The asset rows stay share-locked through the thread write, serializing the
- * attach against authoritative metadata deletion, and the reverse edges make
- * the complete-carrier deletion scan safe to narrow after its audited backfill.
+ * Replace the app's complete authored media projection in the same transaction
+ * as the candidate transcript. The app lock serializes every Blueprint/thread
+ * writer, while shared asset locks serialize admission against metadata
+ * deletion, so a committed carrier and its exact reverse edge cannot diverge.
  */
-async function admitIntroducedThreadAttachments(
+async function admitExactThreadMediaProjection(
 	tx: Transaction<AppDatabase>,
 	args: {
 		appId: string;
-		projectId: string | null;
-		previousMessages: readonly unknown[];
+		projectId: string;
 		candidateMessages: readonly unknown[];
+		threadId: string;
 	},
 ): Promise<void> {
-	const previous = new Set(
-		collectThreadAttachmentAssetIds(args.previousMessages).filter(
-			(assetId) => !isBuiltinIconRef(assetId),
-		),
-	);
-	const introduced = [
-		...new Set(
-			collectThreadAttachmentAssetIds(args.candidateMessages).filter(
-				(assetId) => !isBuiltinIconRef(assetId) && !previous.has(assetId),
-			),
-		),
-	].sort();
-	if (introduced.length === 0) return;
-	if (args.projectId === null) throw new ThreadAttachmentUnavailableError();
-	const assets = await getAssetsInTransaction(tx, introduced);
-	for (const assetId of introduced) {
-		const asset = assets.get(assetId);
-		if (
-			asset === undefined ||
-			asset.project_id !== args.projectId ||
-			asset.status !== "ready"
-		) {
+	try {
+		await replaceExactMediaReferencesForApp(tx, {
+			appId: args.appId,
+			projectId: args.projectId,
+			candidateThread: {
+				threadId: args.threadId,
+				messages: args.candidateMessages,
+			},
+		});
+	} catch (error) {
+		if (error instanceof MediaReferenceProjectionError) {
 			throw new ThreadAttachmentUnavailableError();
 		}
+		throw error;
 	}
-	await addReferencingAppInTransaction(tx, introduced, args.appId);
 }
 
 /**
@@ -210,8 +192,8 @@ export async function upsertThreadTurn(args: {
 	holderNonce: string;
 	threadType: "build" | "edit";
 	messages: UIMessage[];
-	/** Project captured by chat admission; omitted only by legacy fixtures. */
-	expectedProjectId?: string;
+	/** Project captured by chat admission. */
+	expectedProjectId: string;
 }): Promise<boolean> {
 	const now = new Date().toISOString();
 	const result = await withAppTx(async (tx) => {
@@ -224,10 +206,7 @@ export async function upsertThreadTurn(args: {
 			.where("id", "=", args.appId)
 			.forUpdate()
 			.executeTakeFirst();
-		if (
-			args.expectedProjectId !== undefined &&
-			app?.project_id !== args.expectedProjectId
-		) {
+		if (app?.project_id !== args.expectedProjectId) {
 			throw new RunHolderLostError("released");
 		}
 		let holderLost: "superseded" | "released" | null = "released";
@@ -255,11 +234,11 @@ export async function upsertThreadTurn(args: {
 					(existing.messages ?? []) as StoredMessage[],
 					args.messages,
 				);
-				await admitIntroducedThreadAttachments(tx, {
+				await admitExactThreadMediaProjection(tx, {
 					appId: args.appId,
-					projectId: app?.project_id ?? null,
-					previousMessages: (existing.messages ?? []) as StoredMessage[],
+					projectId: app.project_id,
 					candidateMessages: merged,
+					threadId: args.threadId,
 				});
 				await tx
 					.updateTable("threads")
@@ -274,11 +253,11 @@ export async function upsertThreadTurn(args: {
 			return false;
 		}
 		if (!existing) {
-			await admitIntroducedThreadAttachments(tx, {
+			await admitExactThreadMediaProjection(tx, {
 				appId: args.appId,
-				projectId: app?.project_id ?? null,
-				previousMessages: [],
+				projectId: app.project_id,
 				candidateMessages: args.messages,
+				threadId: args.threadId,
 			});
 			await tx
 				.insertInto("threads")
@@ -301,11 +280,11 @@ export async function upsertThreadTurn(args: {
 			(existing.messages ?? []) as StoredMessage[],
 			args.messages,
 		);
-		await admitIntroducedThreadAttachments(tx, {
+		await admitExactThreadMediaProjection(tx, {
 			appId: args.appId,
-			projectId: app?.project_id ?? null,
-			previousMessages: (existing.messages ?? []) as StoredMessage[],
+			projectId: app.project_id,
 			candidateMessages: merged,
+			threadId: args.threadId,
 		});
 		await tx
 			.updateTable("threads")
@@ -344,7 +323,7 @@ export async function mergeThreadTurnMessages(args: {
 	appId: string;
 	threadId: string;
 	messages: UIMessage[];
-	expectedProjectId?: string;
+	expectedProjectId: string;
 }): Promise<boolean> {
 	const now = new Date().toISOString();
 	return await withAppTx(async (tx) => {
@@ -352,13 +331,9 @@ export async function mergeThreadTurnMessages(args: {
 			.selectFrom("apps")
 			.select("project_id")
 			.where("id", "=", args.appId)
-			.forShare()
+			.forUpdate()
 			.executeTakeFirst();
-		if (
-			!app ||
-			(args.expectedProjectId !== undefined &&
-				app.project_id !== args.expectedProjectId)
-		) {
+		if (!app || app.project_id !== args.expectedProjectId) {
 			return false;
 		}
 		const existing = await tx
@@ -372,11 +347,11 @@ export async function mergeThreadTurnMessages(args: {
 			(existing.messages ?? []) as StoredMessage[],
 			args.messages,
 		);
-		await admitIntroducedThreadAttachments(tx, {
+		await admitExactThreadMediaProjection(tx, {
 			appId: args.appId,
 			projectId: app.project_id,
-			previousMessages: (existing.messages ?? []) as StoredMessage[],
 			candidateMessages: merged,
+			threadId: args.threadId,
 		});
 		await tx
 			.updateTable("threads")
@@ -419,7 +394,7 @@ export async function appendThreadResponse(args: {
 			.selectFrom("apps")
 			.select(["id", "project_id"])
 			.where("id", "=", args.appId)
-			.forShare()
+			.forUpdate()
 			.executeTakeFirst();
 		if (!app) return;
 		const row = await tx
@@ -438,11 +413,11 @@ export async function appendThreadResponse(args: {
 				])
 			: undefined;
 		if (merged) {
-			await admitIntroducedThreadAttachments(tx, {
+			await admitExactThreadMediaProjection(tx, {
 				appId: args.appId,
 				projectId: app.project_id,
-				previousMessages: (row.messages ?? []) as StoredMessage[],
 				candidateMessages: merged,
+				threadId: args.threadId,
 			});
 		}
 		await tx

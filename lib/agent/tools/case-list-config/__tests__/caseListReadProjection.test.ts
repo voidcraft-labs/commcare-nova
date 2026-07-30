@@ -53,16 +53,45 @@ describe("case-list read projections", () => {
 		expect(result.data.details_column_order).toEqual([A, C]);
 	});
 
-	it("summary describes Results and Details as compositions, not hidden columns", () => {
-		const { doc } = independentlyArrangedFixture();
+	it("summary preserves dormant definitions separately from screen compositions", () => {
+		const base = independentlyArrangedFixture();
+		const dormant = plainColumn(
+			testUuid("dddddddd-dddd-dddd-dddd-dddddddddddd"),
+			"external_id",
+			"External ID",
+			{ visibleInList: false, visibleInDetail: false },
+		);
+		const config = base.doc.modules[MOD_A]?.caseListConfig;
+		if (config === undefined) throw new Error("fixture config missing");
+		const doc = {
+			...base.doc,
+			modules: {
+				...base.doc.modules,
+				[MOD_A]: {
+					...base.doc.modules[MOD_A],
+					caseListConfig: {
+						...config,
+						columns: [...config.columns, dormant],
+						listColumnOrder: [...config.listColumnOrder, dormant.uuid],
+						detailColumnOrder: [...config.detailColumnOrder, dormant.uuid],
+					},
+				},
+			},
+		};
 		const summary = summarizeBlueprint(doc);
 		const results = summary.indexOf("      results:");
 		const details = summary.indexOf("      details:");
+		const saved = summary.indexOf("      saved_off_screen:");
 
 		expect(results).toBeGreaterThan(-1);
 		expect(details).toBeGreaterThan(results);
+		expect(saved).toBeGreaterThan(details);
 		expect(summary.slice(results, details)).toMatch(/Phone[\s\S]*Patient/);
-		expect(summary.slice(details)).toMatch(/Patient[\s\S]*Date of birth/);
+		expect(summary.slice(details, saved)).toMatch(
+			/Patient[\s\S]*Date of birth/,
+		);
+		expect(summary.slice(saved)).toContain(String(dormant.uuid));
+		expect(summary.slice(saved)).toContain("External ID");
 		expect(summary).not.toContain("[list:");
 		expect(summary).not.toContain("      columns:");
 	});

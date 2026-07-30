@@ -19,7 +19,7 @@
  *      returning a tagged success/reason result.
  *
  * Vocabulary is domain-side (`kind`, `validate`, `validate_msg`,
- * `case_property_on`); there is no CommCare → domain translation inside
+ * `caseWrite`); there is no CommCare → domain translation inside
  * the agent. The one boundary translation this file does is
  * case-type → field: case-type property metadata uses CommCare-flavored
  * `validation` / `validation_msg` (case-type properties describe the
@@ -35,8 +35,6 @@ import type {
 	Uuid,
 } from "@/lib/domain";
 import {
-	authorableCaseProperties,
-	canonicalCasePropertyName,
 	fieldKindDeclaresKey,
 	fieldKinds,
 	fieldSchema,
@@ -46,6 +44,7 @@ import {
 	uuidSchema,
 } from "@/lib/domain";
 import { log } from "@/lib/logger";
+import type { ProjectedOptionsSource } from "./toolSchemaGenerator";
 import type { addFieldsItemSchema } from "./toolSchemas";
 
 /** Narrow a possibly-unknown kind string to a `FieldKind` before asking the
@@ -91,11 +90,14 @@ export type PreparedFlatField = Omit<FlatField, "optionsSource"> & {
 	optionsSource?: SelectOptionsSource | null;
 };
 
-type ToolSelectOptionsSource = NonNullable<FlatField["optionsSource"]>;
-
-/** Convert one machine-authored source arm to its persisted domain shape. */
+/**
+ * Convert the one machine-authored select-source projection to persisted
+ * domain state. This is the sole `optionUuid` -> `uuid` bridge: callers invoke
+ * it once before collision/admission checks and carry the returned object
+ * through mutation assembly unchanged.
+ */
 export function prepareToolOptionsSource(
-	source: ToolSelectOptionsSource,
+	source: ProjectedOptionsSource,
 ): SelectOptionsSource {
 	if (source.kind === "lookup") return source;
 	return {
@@ -168,8 +170,8 @@ export function stripEmpty(q: PreparedFlatField): Partial<PreparedFlatField> & {
 // ── Data-model defaults ──────────────────────────────────────────────
 
 /**
- * Apply case-type defaults to a flat field. When `case_property_on` is set, the
- *      matching case type's property metadata seeds any unset keys on
+ * Apply case-type defaults to a flat field. When `caseWrite` is set, its
+ *      matching case type and property metadata seed any unset keys on
  *      the field:
  *        - `kind` from `property.data_type` (defaulting to "text")
  *        - `label`, `hint`, `required`, `options` verbatim
@@ -190,10 +192,10 @@ export function applyDefaults<E extends object = object>(
 ): Partial<PreparedFlatField> & E {
 	const result = { ...q };
 
-	if (result.case_property_on && caseTypes) {
-		const ct = caseTypes.find((c) => c.name === result.case_property_on);
-		const prop = authorableCaseProperties(ct?.properties ?? []).find(
-			(p) => p.name === canonicalCasePropertyName(result.id ?? ""),
+	if (result.caseWrite && caseTypes) {
+		const ct = caseTypes.find((c) => c.name === result.caseWrite?.caseType);
+		const prop = ct?.properties.find(
+			(p) => p.name === result.caseWrite?.property,
 		);
 		if (prop) {
 			// Seed the kind first — every other default depends on knowing it.
@@ -351,10 +353,7 @@ export function flatFieldToField(
 		...(q.default_value !== undefined &&
 			q.default_value !== null && { default_value: q.default_value }),
 		...(q.optionsSource != null && { optionsSource: q.optionsSource }),
-		...(typeof q.case_property_on === "string" &&
-			q.case_property_on.length > 0 && {
-				case_property_on: q.case_property_on,
-			}),
+		...(q.caseWrite != null && { caseWrite: q.caseWrite }),
 		// Nested repeat config: the SA's `repeat` is discriminated on `mode`
 		// (`count` exists only on count_bound, `ids_query` only on
 		// query_bound); the domain schema discriminates over `repeat_mode`

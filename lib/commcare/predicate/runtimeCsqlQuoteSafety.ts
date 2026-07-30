@@ -85,7 +85,6 @@ function collectPredicateRuntimeStringInputs(
 			collectServerOperandRuntimeStringInputs(predicate.right, "value", names);
 			return;
 		case "in":
-		case "is-null":
 		case "is-blank":
 			collectServerOperandRuntimeStringInputs(
 				predicate.left,
@@ -187,7 +186,6 @@ function collectServerOperandRuntimeStringInputs(
 		case "date-coerce":
 		case "datetime-coerce":
 		case "double":
-		case "unwrap-list":
 			collectServerOperandRuntimeStringInputs(expression.value, "value", names);
 			return;
 		case "date-add":
@@ -248,9 +246,6 @@ function collectOnDeviceOutputTaint(
 			}
 			collectOnDeviceOutputTaint(expression.fallback, names);
 			return;
-		case "unwrap-list":
-			collectOnDeviceOutputTaint(expression.value, names);
-			return;
 		case "today":
 		case "now":
 		case "date-add":
@@ -264,9 +259,7 @@ function collectOnDeviceOutputTaint(
 		case "acting-user":
 		case "unowned":
 		case "table-lookup":
-			// Lookup-result bytes do not originate in a search input. The
-			// dormant-carrier compatibility rule rejects this expression before
-			// CSQL emission.
+			// Lookup-result bytes do not originate in a search input.
 			return;
 		default: {
 			const _exhaustive: never = expression;

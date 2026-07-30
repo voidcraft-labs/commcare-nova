@@ -6,24 +6,16 @@
  * and complete (the validity gate evaluates the whole batch — on a
  * complete app, an empty form would introduce EMPTY_FORM and a
  * registration form without a `case_name` writer would introduce
- * NO_CASE_NAME_FIELD, both rejected at this call with the validator's
+ * CASE_CREATE_NAME_MISSING, both rejected at this call with the validator's
  * own repair guidance, all satisfiable by adjusting THIS call's
  * `fields`). The field items ride the same shared per-kind schema
  * `addFields` uses, through the same assembly pipeline
  * (`shared/fieldAssembly.ts`), so groups + nested children compose
  * identically on both tools.
  *
- * A `connect` block carries the exact canonical expression AST
- * (`shared/connectInput.ts::buildConnectConfig`, same as `updateForm`).
- * A reference to a field landing in this same call uses that field's
- * predeclared final UUID, so no name/path resolution occurs here. The
- * merged block then runs through
- * `enforceConnectIds` (the agent-path source guard, same as
- * `updateForm` / `createModule`): an omitted connect id is autofilled
- * with a valid, unique, name-derived id (stored on the doc from then
- * on), and an explicit invalid or duplicate id fails the call — the
- * schema's "leave the id unset and Nova fills it in" promise holds on
- * this tool too.
+ * A new form is auxiliary on a Connect app. App-wide participation is
+ * configured afterward through `configureConnect`, once the form's final UUID
+ * exists; creation cannot become a second participant-set writer.
  *
  * Both the SA chat factory and the MCP adapter call this through the
  * shared `ToolExecutionContext` interface. Exit branches:
@@ -32,11 +24,9 @@
  *   2. Identifier guard rejection (any field id illegal / reserved /
  *      over-long / batch-conflicting) → `{ error }` naming EVERY failing
  *      item, nothing persisted.
- *   3. An explicit connect id is invalid/duplicate → `{ error }`, no
- *      mutations.
- *   4. Commit-gate rejection (the batch would introduce a validator
+ *   3. Commit-gate rejection (the batch would introduce a validator
  *      finding) → `{ error }` listing each finding, nothing persisted.
- *   5. Success → human-readable summary with the new form's positional
+ *   4. Success → human-readable summary with the new form's positional
  *      index + field count, tagged under `module:M` so the event log
  *      groups this creation with the rest of that module's activity.
  */
@@ -45,7 +35,6 @@ import { z } from "zod";
 import { orderedFormUuids } from "@/lib/doc/fieldWalk";
 import type {
 	BlueprintDoc,
-	ConnectConfig,
 	FormType,
 	PostSubmitDestination,
 } from "@/lib/domain";
@@ -53,14 +42,11 @@ import {
 	asUuid,
 	FORM_TYPES,
 	findAuthoredBlueprintIdentity,
-	USER_FACING_DESTINATIONS,
+	POST_SUBMIT_DESTINATIONS,
 	uuidSchema,
 } from "@/lib/domain";
 import { addFormMutations } from "../blueprintHelpers";
-import {
-	closeConditionInputSchema,
-	connectFormConfigSchema,
-} from "../planningSchemas";
+import { closeConditionInputSchema } from "../planningSchemas";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import { addFieldsItemSchema } from "../toolSchemas";
 import {
@@ -68,14 +54,13 @@ import {
 	type MutatingToolResult,
 	toToolErrorResult,
 } from "./common";
-import { collectConnectIds, enforceConnectIds } from "./shared/connectIds";
-import { buildConnectConfig } from "./shared/connectInput";
 import {
 	moduleAddressSchema,
 	resolveModuleAddress,
 } from "./shared/entityAddresses";
 import {
 	assembleFieldMutations,
+	type CreatedFieldIdentity,
 	describeRejectedFieldIds,
 	resolveCloseCondition,
 } from "./shared/fieldAssembly";
@@ -112,7 +97,7 @@ export const createFormInputSchema = moduleAddressSchema
 				"Brief description of what this form collects and why. null when there's nothing to add.",
 			),
 		post_submit: z
-			.enum(USER_FACING_DESTINATIONS)
+			.enum(POST_SUBMIT_DESTINATIONS)
 			.nullable()
 			.optional()
 			.describe(
@@ -124,12 +109,6 @@ export const createFormInputSchema = moduleAddressSchema
 			.describe(
 				"Close forms only — close the case only when the UUID-addressed field matches (the field may be predeclared in this same call). null for an unconditional close.",
 			),
-		connect: connectFormConfigSchema
-			.nullable()
-			.optional()
-			.describe(
-				"Per-form Connect config — a block opts the form INTO Connect, and a participating form lands with its block in this call. Pass null on a form that shouldn't participate (a Connect app just needs at least one participating form), and always on standard apps.",
-			),
 	})
 	.strict();
 
@@ -139,7 +118,7 @@ export type CreateFormInput = z.infer<typeof createFormInputSchema>;
 export type CreateFormResult =
 	| (MutationSuccess & {
 			formUuid: string;
-			fields: Array<{ uuid: string; id: string }>;
+			fields: CreatedFieldIdentity[];
 	  })
 	| { error: string };
 
@@ -161,7 +140,6 @@ export const createFormTool = {
 			purpose,
 			post_submit,
 			close_condition,
-			connect,
 		} = input;
 		try {
 			const address = resolveModuleAddress(doc, {
@@ -175,7 +153,7 @@ export const createFormTool = {
 					result: { error: address.error },
 				};
 			}
-			const { moduleUuid, module } = address;
+			const { moduleUuid } = address;
 
 			// Mint the form's uuid here so the field assembly can target it —
 			// the form only exists once the addForm mutation applies, but the
@@ -193,8 +171,7 @@ export const createFormTool = {
 				};
 			}
 
-			// Assemble the fields first so their predeclared UUIDs are present
-			// in the same atomic mutation batch as any connect references.
+			// Assemble every field into the same atomic form-creation batch.
 			const assembly = assembleFieldMutations({
 				doc,
 				formUuid,
@@ -233,34 +210,6 @@ export const createFormTool = {
 				};
 			}
 
-			// The connect block already carries canonical AST. A same-call
-			// field reference names the field's predeclared UUID. Then force
-			// connect ids correct at the source: autofill an omitted id
-			// (valid + unique, derived from the module/form name), reject an
-			// explicit invalid or duplicate id by failing the call (writes
-			// nothing).
-			// No exclusion is passed to the collector — the form this call
-			// creates doesn't exist in the doc yet, so every stored id is a
-			// potential conflict.
-			let enforcedConnect: ConnectConfig | undefined;
-			if (connect) {
-				const enforced = enforceConnectIds(
-					buildConnectConfig(connect, undefined),
-					module.name,
-					name,
-					collectConnectIds(doc),
-				);
-				if (!enforced.ok) {
-					return {
-						kind: "mutate" as const,
-						mutations: [],
-						newDoc: doc,
-						result: { error: enforced.error },
-					};
-				}
-				enforcedConnect = enforced.config;
-			}
-
 			if (
 				close_condition &&
 				!assembly.created.some(
@@ -286,7 +235,6 @@ export const createFormTool = {
 					postSubmit: post_submit as PostSubmitDestination,
 				}),
 				...(closeCondition && { closeCondition }),
-				...(enforcedConnect && { connect: enforcedConnect }),
 			});
 
 			// Tag under the parent module — the event log groups this

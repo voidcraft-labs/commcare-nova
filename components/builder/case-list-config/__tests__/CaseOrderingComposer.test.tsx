@@ -433,9 +433,9 @@ describe("CaseOrderingComposer", () => {
 		expect(screen.queryByText("A to Z")).toBeNull();
 	});
 
-	it("uses canonical fallback labels for legacy default-order fields", () => {
-		const legacyCaseType: CaseType = {
-			name: "legacy_patient",
+	it("uses friendly fallback labels for standard default-order fields", () => {
+		const caseType: CaseType = {
+			name: "patient",
 			properties: [
 				{ name: "case_name", label: proseText("case_name"), data_type: "text" },
 				{
@@ -450,13 +450,13 @@ describe("CaseOrderingComposer", () => {
 				},
 			],
 		};
-		const legacyColumns = [
-			column("101", "name", "", { direction: "asc", priority: 0 }),
-			column("102", "external-id", "", {
+		const columns = [
+			column("101", "case_name", "", { direction: "asc", priority: 0 }),
+			column("102", "external_id", "", {
 				direction: "asc",
 				priority: 1,
 			}),
-			column("103", "date-opened", "", {
+			column("103", "date_opened", "", {
 				direction: "desc",
 				priority: 2,
 			}),
@@ -464,9 +464,9 @@ describe("CaseOrderingComposer", () => {
 
 		render(
 			<CaseOrderingComposer
-				value={legacyColumns}
-				config={configOf(legacyColumns)}
-				caseType={legacyCaseType}
+				value={columns}
+				config={configOf(columns)}
+				caseType={caseType}
 				onChange={() => {}}
 			/>,
 		);

@@ -20,7 +20,7 @@ import { assertNever } from "@/lib/utils/assertNever";
  * TOTAL, like every reducer here: an update or remove naming an absent
  * uuid is a no-op rather than a throw, so a historical event whose target
  * was concurrently removed still replays. The commit gate's
- * `batchTargetsMissing` is what refuses a live edit against a
+ * `mutationTargetsInvalid` is what refuses a live edit against a
  * concurrently-removed entity; a reducer that threw would break replay
  * instead.
  *

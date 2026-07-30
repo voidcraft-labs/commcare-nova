@@ -48,8 +48,10 @@ const {
 		Promise.resolve({ apps: [] }),
 	),
 	loadApp: vi.fn(),
-	loadAppProjectId: vi.fn(() => Promise.resolve("project-1")),
-	deleteMediaAssetForChatRun: vi.fn(() => Promise.resolve(true)),
+	loadAppProjectId: vi.fn(() =>
+		Promise.resolve({ kind: "found", projectId: "project-1" }),
+	),
+	deleteMediaAssetForChatRun: vi.fn(),
 	deleteMediaAssetForActor: vi.fn(),
 	withMediaObjectKeyLock: vi.fn(
 		async (_key: string, body: (lockedDb: unknown) => Promise<unknown>) =>
@@ -91,7 +93,9 @@ beforeEach(() => {
 	// The reverse index (`media_asset_refs`) is now a separate query, not a field
 	// on the asset row — default to no other referencing app.
 	listReferencingAppIds.mockResolvedValue([]);
-	deleteMediaAssetForChatRun.mockResolvedValue(true);
+	deleteMediaAssetForChatRun.mockImplementation(async ({ assetId }) =>
+		ownedAsset(assetId),
+	);
 	deleteMediaAssetForActor.mockImplementation(async ({ assetId }) => ({
 		kind: "deleted",
 		asset: ownedAsset(assetId),
@@ -134,12 +138,18 @@ function removeInput(assetId: string) {
 describe("removeMediaAsset", () => {
 	it("deletes the GCS object and the row when unreferenced", async () => {
 		const { doc, ctx } = makeMediaFixture();
-		loadAssetById.mockResolvedValue(
-			ownedAsset("40000000-0000-4000-8000-000000000001"),
-		);
+		const assetId = "40000000-0000-4000-8000-000000000001";
+		loadAssetById.mockResolvedValue(ownedAsset(assetId));
+		deleteMediaAssetForActor.mockResolvedValueOnce({
+			kind: "deleted",
+			asset: {
+				...ownedAsset(assetId),
+				gcsObjectKey: "projects/project-1/authoritative-deleted-row.png",
+			},
+		});
 
 		const result = await removeMediaAssetTool.execute(
-			removeInput("40000000-0000-4000-8000-000000000001"),
+			removeInput(assetId),
 			ctx,
 			doc,
 		);
@@ -150,15 +160,15 @@ describe("removeMediaAsset", () => {
 		}
 		expect(result.data.removed).toBe(true);
 		expect(hasOtherAssetForGcsObjectKey).toHaveBeenCalledWith(
-			"projects/project-1/40000000-0000-4000-8000-000000000001.png",
-			"40000000-0000-4000-8000-000000000001",
+			"projects/project-1/authoritative-deleted-row.png",
+			assetId,
 			expect.anything(),
 		);
 		expect(deleteGcsObject).toHaveBeenCalledWith(
-			"projects/project-1/40000000-0000-4000-8000-000000000001.png",
+			"projects/project-1/authoritative-deleted-row.png",
 		);
 		expect(deleteMediaAssetForActor).toHaveBeenCalledWith({
-			assetId: "40000000-0000-4000-8000-000000000001",
+			assetId,
 			actorUserId: ctx.userId,
 			expectedProjectId: "project-1",
 		});

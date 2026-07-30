@@ -287,7 +287,10 @@ describe("unwrittenProperties — when it stays empty", () => {
 								f({
 									id: "order_status",
 									kind: "text",
-									case_property_on: "medication_order",
+									caseWrite: {
+										caseType: "medication_order",
+										property: "order_status",
+									},
 								}),
 							],
 						},

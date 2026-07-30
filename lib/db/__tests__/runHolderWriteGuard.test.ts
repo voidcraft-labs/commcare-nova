@@ -76,21 +76,18 @@ describe("run-holder write structural guard", () => {
 			.filter((path) => appDml.test(source(path)))
 			.sort();
 
-		expect(writers).toEqual([
-			"lib/db/apps.ts",
-			"lib/db/canonicalIdentityFoundationRepair.ts",
-			"lib/db/credits.ts",
-		]);
+		expect(writers).toEqual(["lib/db/apps.ts", "lib/db/credits.ts"]);
 		// Operator recovery delegates to `recoverAppStatus` rather than issuing its
 		// own DML, so its writes go through the same holder proof as everything else.
 		expect(source("scripts/recover-app.ts")).not.toMatch(appDml);
-		// The frozen pre-canonical repair owns its one catalog-row update; its
-		// operator script delegates into that transaction authority.
-		expect(
-			source("lib/db/canonicalIdentityFoundationRepair.ts").match(
-				new RegExp(appDml, "g"),
-			)?.length,
-		).toBe(1);
+		// The frozen pre-canonical repair owns its catalog-row update and exact
+		// manifest-pinned orphan-app deletion; its operator script delegates into
+		// that transaction authority.
+		const frozenRepair = source(
+			"lib/case-store/migrations/20260728000000_canonical_identity_foundation/frozenDatabaseRepair.ts",
+		);
+		expect(frozenRepair.match(/\bUPDATE apps\b/g)?.length).toBe(2);
+		expect(frozenRepair.match(/\bDELETE FROM apps\b/g)?.length).toBe(1);
 		expect(
 			source("scripts/repair-canonical-identity-foundation.ts"),
 		).not.toMatch(appDml);

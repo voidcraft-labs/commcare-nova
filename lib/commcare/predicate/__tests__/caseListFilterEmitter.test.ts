@@ -40,7 +40,6 @@ import {
 	input,
 	isBlank,
 	isIn,
-	isNull,
 	literal,
 	lt,
 	lte,
@@ -664,33 +663,6 @@ describe("emitCaseListFilter — within-distance", () => {
 	});
 });
 
-describe("emitCaseListFilter — is-null", () => {
-	// CCHQ wire collapses absent / cleared / empty alike on every
-	// dialect — `prop = ''` is the closest CCHQ form for a strict-
-	// absent semantic. The AST distinction (`is-null` vs `is-blank`)
-	// is preserved on the Postgres runtime; both collapse to the same
-	// CCHQ wire string.
-
-	it("emits is-null against a property reference as prop = ''", () => {
-		const p = isNull(prop("patient", "full_name"));
-		expect(emitCaseListFilter(p)).toBe("full_name = ''");
-	});
-
-	it("emits is-null identically to is-blank for the same operand", () => {
-		const left = prop("patient", "full_name");
-		expect(emitCaseListFilter(isNull(left))).toBe(
-			emitCaseListFilter(isBlank(left)),
-		);
-	});
-
-	it("emits is-null against a search-input reference as input = ''", () => {
-		const p = isNull(input(testUuid("name_query")));
-		expect(emitCaseListFilter(p)).toBe(
-			"instance('search-input:results')/input/field[@name='name_query'] = ''",
-		);
-	});
-});
-
 describe("emitCaseListFilter — relational property node sets", () => {
 	// JavaRosa cannot unpack a multi-node value for a general comparison. Nova
 	// lowers each scalar leaf to immediate-scope membership instead: all values
@@ -738,15 +710,6 @@ describe("emitCaseListFilter — relational property node sets", () => {
 		);
 		expect(emitCaseListFilter(p)).toBe(
 			"count(@case_id) > 0 and selected(join(' ', instance('casedb')/casedb/case[@case_type='patient' and (age >= 20)]/index/parent), @case_id) and count(@case_id) > 0 and selected(join(' ', instance('casedb')/casedb/case[@case_type='patient' and (age <= 25)]/index/parent), @case_id)",
-		);
-	});
-
-	it("emits related is-null as node-set equality with the empty string", () => {
-		const p = isNull(
-			prop("household", "nickname", subcasePath("parent", "patient")),
-		);
-		expect(emitCaseListFilter(p)).toBe(
-			"count(@case_id) > 0 and selected(join(' ', instance('casedb')/casedb/case[@case_type='patient' and (nickname = '')]/index/parent), @case_id)",
 		);
 	});
 

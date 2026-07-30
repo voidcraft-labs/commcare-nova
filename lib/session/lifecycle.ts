@@ -139,11 +139,11 @@ export function deriveAttachmentPrep(events: readonly Event[]): boolean {
 /**
  * Whether the active run is a post-build edit. True iff a run is in
  * progress (buffer non-empty — see `BuilderSessionState.events`) AND
- * the run OPENED on a doc that already had data (`runStartedWithData`,
- * captured by `beginRun`). Initial builds and edits share every stage
+ * the run BEGAN from an existing app (`runStartedWithData`, captured by
+ * `beginRun`). Initial builds and edits share every stage
  * tag now (both build through `createModule` / `addFields`), so the
- * run-start capture is the discriminator — a build's own mutations
- * populating the doc mid-run can't flip the derivation. The
+ * run-start capture is the discriminator — canonical genesis and the build's
+ * later mutations cannot flip the derivation after app creation. The
  * empty-buffer check catches the between-runs window, matching the
  * semantics of the pre-refactor `agentActive` latch without
  * maintaining a separate flag.

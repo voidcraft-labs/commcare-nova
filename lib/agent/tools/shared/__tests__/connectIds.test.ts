@@ -2,18 +2,19 @@
 //
 // Covers the explicit-duplicate-rejection arm (previously untested):
 //   - `enforceConnectIds` rejects an explicit id that duplicates another
-//     block's id (→ `{ ok: false }`, no config), including the
-//     order-dependent same-form cross-kind case (learn_module accumulated
-//     before assessment is checked);
-//   - `collectConnectIds` counts only mode-matching (live) kinds, so a
-//     stray cross-mode block isn't "taken" — matching the UI / emit /
-//     validator scopes.
+//     block's id (→ `{ ok: false }`, no config), including a same-form,
+//     cross-kind duplicate found by the explicit-id reservation pass;
+//   - `collectConnectIds` reads every id from complete final configs.
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { xp } from "@/lib/__tests__/docHelpers";
 import type { BlueprintDoc, ConnectConfig } from "@/lib/domain";
-import { collectConnectIds, enforceConnectIds } from "../connectIds";
+import {
+	collectConnectIds,
+	enforceConnectIds,
+	reserveExplicitConnectIds,
+} from "../connectIds";
 
 const FORM_A = testUuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
 const FORM_B = testUuid("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
@@ -33,6 +34,7 @@ describe("enforceConnectIds — explicit-duplicate rejection", () => {
 		};
 		const result = enforceConnectIds(
 			config,
+			"learn",
 			"Module",
 			"Form",
 			new Set(["intro"]),
@@ -42,10 +44,10 @@ describe("enforceConnectIds — explicit-duplicate rejection", () => {
 		expect(result.error).toContain("intro");
 	});
 
-	it("rejects a same-form cross-kind explicit duplicate (pins the ordering invariant)", () => {
-		// learn_module.id === assessment.id in one call. learn_module is
-		// accumulated into the taken set before assessment is checked, so the
-		// assessment id is caught as a duplicate.
+	it("rejects a same-form cross-kind explicit duplicate in the reservation pass", () => {
+		// learn_module.id === assessment.id in one call. The first pass reserves
+		// every stated identity before any omission derives, so the duplicate is
+		// rejected independently of derivation order.
 		const config: ConnectConfig = {
 			learn_module: {
 				id: "dup",
@@ -55,7 +57,13 @@ describe("enforceConnectIds — explicit-duplicate rejection", () => {
 			},
 			assessment: { id: "dup", user_score: xp("100") },
 		};
-		const result = enforceConnectIds(config, "Module", "Form", new Set());
+		const result = enforceConnectIds(
+			config,
+			"learn",
+			"Module",
+			"Form",
+			new Set(),
+		);
 		expect(result.ok).toBe(false);
 		if (result.ok) throw new Error("expected rejection");
 		expect(result.error).toContain("dup");
@@ -71,15 +79,65 @@ describe("enforceConnectIds — explicit-duplicate rejection", () => {
 			},
 			assessment: { id: "as", user_score: xp("100") },
 		};
-		const result = enforceConnectIds(config, "Module", "Form", new Set());
+		const result = enforceConnectIds(
+			config,
+			"learn",
+			"Module",
+			"Form",
+			new Set(),
+		);
 		expect(result.ok).toBe(true);
+	});
+
+	it("reserves a later explicit id before deriving an earlier omitted id", () => {
+		const result = enforceConnectIds(
+			{
+				learn_module: {
+					name: "Learning",
+					description: "x",
+					time_estimate: 5,
+				},
+				assessment: { id: "learning", user_score: xp("100") },
+			},
+			"learn",
+			"Learning",
+			"Assessment",
+			new Set(),
+		);
+		expect(result).toMatchObject({
+			ok: true,
+			config: {
+				learn_module: { id: "learning_2" },
+				assessment: { id: "learning" },
+			},
+		});
 	});
 });
 
-describe("collectConnectIds — mode-matching scope", () => {
-	/** Learn doc: FORM_A has learn_module "intro" + a stray deliver_unit
-	 *  "stray"; FORM_B has learn_module "lesson_two". */
-	function learnDocWithStray(): BlueprintDoc {
+describe("reserveExplicitConnectIds — complete target preflight", () => {
+	it("reserves every present id and reports duplicates without rewriting them", () => {
+		const taken = new Set<string>();
+		expect(
+			reserveExplicitConnectIds(
+				{
+					learn_module: {
+						id: "same",
+						name: "L",
+						description: "x",
+						time_estimate: 5,
+					},
+					assessment: { id: "same", user_score: xp("100") },
+				},
+				taken,
+			),
+		).toEqual([expect.stringContaining('"same" is already used')]);
+		expect(taken).toEqual(new Set(["same"]));
+	});
+});
+
+describe("collectConnectIds — final config scope", () => {
+	/** Learn doc: FORM_A has two distinct learn-mode ids; FORM_B has one. */
+	function learnDoc(): BlueprintDoc {
 		return {
 			appId: "app",
 			appName: "n",
@@ -99,7 +157,7 @@ describe("collectConnectIds — mode-matching scope", () => {
 							description: "x",
 							time_estimate: 5,
 						},
-						deliver_unit: { id: "stray", name: "Stray" },
+						assessment: { id: "quiz", user_score: xp("100") },
 					},
 				},
 				[FORM_B]: {
@@ -126,7 +184,7 @@ describe("collectConnectIds — mode-matching scope", () => {
 	}
 
 	it("counts only live (mode-matching) kinds and excludes the named form", () => {
-		const doc = learnDocWithStray();
+		const doc = learnDoc();
 		// Excluding FORM_A: FORM_B's learn_module "lesson_two" is in scope.
 		const scope = collectConnectIds(doc, FORM_A);
 		expect(scope.has("lesson_two")).toBe(true);
@@ -134,12 +192,10 @@ describe("collectConnectIds — mode-matching scope", () => {
 		expect(scope.has("intro")).toBe(false);
 	});
 
-	it("excludes a stray cross-mode block from the taken set", () => {
-		const doc = learnDocWithStray();
-		// Excluding FORM_B: FORM_A's learn_module "intro" is in scope, but its
-		// stray deliver_unit "stray" is NOT (deliver_unit isn't live in learn).
+	it("includes every subkind in a mode-compatible config", () => {
+		const doc = learnDoc();
 		const scope = collectConnectIds(doc, FORM_B);
 		expect(scope.has("intro")).toBe(true);
-		expect(scope.has("stray")).toBe(false);
+		expect(scope.has("quiz")).toBe(true);
 	});
 });

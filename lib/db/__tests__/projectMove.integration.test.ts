@@ -1,14 +1,15 @@
-/** Dormant S02c3 Project-move protocol against one shared Postgres database. */
+/** Final atomic Project-move protocol against one shared Postgres database. */
 
 import type { UIMessage } from "ai";
 import type { Kysely } from "kysely";
 import { Client } from "pg";
 import { describe, expect, it } from "vitest";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { PostgresCaseStore } from "@/lib/case-store/postgres/store";
 import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
 import type { Database } from "@/lib/case-store/sql/database";
-import type { CaseType } from "@/lib/domain";
+import type { BlueprintDoc, CaseType } from "@/lib/domain";
 import type { MediaAssetId } from "@/lib/domain/multimedia";
 import {
 	commitAppProjectMoveInTransaction,
@@ -33,6 +34,62 @@ const SOURCE_OWNER = "source-owner";
 const SOURCE = "project-source";
 const DESTINATION = "project-destination";
 
+function moveableBlueprint(
+	appName: string,
+	caseTypes?: readonly CaseType[],
+): BlueprintDoc {
+	return buildDoc({
+		appName,
+		modules: [
+			{
+				name: "Workflow",
+				forms: [
+					{
+						name: "Survey",
+						type: "survey",
+						fields: [f({ kind: "text", id: "note" })],
+					},
+				],
+			},
+		],
+		...(caseTypes !== undefined && { caseTypes: [...caseTypes] }),
+	});
+}
+
+async function seedMoveableApp(args: {
+	id: string;
+	owner?: string;
+	projectId?: string;
+	appName?: string;
+	caseTypes?: readonly CaseType[];
+	state?: {
+		status?: "generating" | "complete" | "error";
+		awaiting_input?: boolean;
+		run_id?: string | null;
+		run_holder_nonce?: string | null;
+		updated_at?: Date;
+		deleted_at?: Date | null;
+	};
+}): Promise<string> {
+	const appId = await h.seedAppWithBlueprint(
+		moveableBlueprint(args.appName ?? "Project move", args.caseTypes),
+		{
+			id: args.id,
+			owner: args.owner ?? ACTOR,
+			projectId: args.projectId ?? SOURCE,
+		},
+	);
+	if (args.state !== undefined) {
+		await h
+			.db()
+			.updateTable("apps")
+			.set(args.state)
+			.where("id", "=", appId)
+			.execute();
+	}
+	return appId;
+}
+
 async function prepareMove(appId: string, actorUserId = ACTOR) {
 	return h
 		.db()
@@ -51,7 +108,6 @@ async function commitMove(
 	appId: string,
 	options: {
 		assetIdMap?: ReadonlyMap<MediaAssetId, MediaAssetId>;
-		attemptedRealIds?: ReadonlySet<MediaAssetId>;
 		insideTransaction?: () => Promise<void>;
 	} = {},
 ) {
@@ -67,7 +123,6 @@ async function commitMove(
 					toProjectId: DESTINATION,
 					actorUserId: ACTOR,
 					assetIdMap: options.assetIdMap ?? new Map(),
-					attemptedRealIds: options.attemptedRealIds ?? new Set(),
 				},
 				{
 					batchId: crypto.randomUUID(),
@@ -101,7 +156,7 @@ async function seedReadyAsset(args: {
 					? JSON.stringify({ width: 32, height: 32 })
 					: null,
 			duration_ms: null,
-			kind: args.kind,
+			kind: args.kind === "image" ? "image" : "pdf",
 			gcs_object_key: `projects/${args.projectId}/${args.id}${extension}`,
 			original_filename:
 				args.kind === "image" ? "field-photo.png" : "requirements.pdf",
@@ -160,10 +215,7 @@ async function seedThread(
 		.execute();
 }
 
-async function seedCase(
-	appId: string,
-	projectId: string | null,
-): Promise<void> {
+async function seedCase(appId: string, projectId: string): Promise<void> {
 	await h.pool().query(
 		`INSERT INTO cases
 			(case_id, app_id, project_id, case_type, case_name, owner_id, status, properties)
@@ -244,12 +296,11 @@ async function waitForBlockedLocks(
 	throw new Error(`Timed out waiting for ${minimum} blocked database lock(s).`);
 }
 
-describe("dormant atomic Project move", () => {
+describe("atomic Project move", () => {
 	it("schema-first holds the app placement through Phase A before a Project move", async () => {
-		const appId = await h.seedApp({
+		const appId = await seedMoveableApp({
 			id: "app-schema-first-move",
-			owner: ACTOR,
-			project_id: SOURCE,
+			caseTypes: [{ name: "household", properties: [] }],
 		});
 		await h.seedProjectMember(ACTOR, DESTINATION, "owner");
 		const observedProjects: string[] = [];
@@ -304,10 +355,9 @@ describe("dormant atomic Project move", () => {
 	}, 15_000);
 
 	it("move-first makes a waiting system schema write bind the destination Project", async () => {
-		const appId = await h.seedApp({
+		const appId = await seedMoveableApp({
 			id: "app-move-first-schema",
-			owner: ACTOR,
-			project_id: SOURCE,
+			caseTypes: [{ name: "household", properties: [] }],
 		});
 		await h.seedProjectMember(ACTOR, DESTINATION, "owner");
 		const observedProjects: string[] = [];
@@ -353,10 +403,9 @@ describe("dormant atomic Project move", () => {
 	}, 15_000);
 
 	it("case-writer-first commits in the source placement before the move rehomes its row", async () => {
-		const appId = await h.seedApp({
+		const appId = await seedMoveableApp({
 			id: "app-case-writer-first",
-			owner: ACTOR,
-			project_id: SOURCE,
+			caseTypes: [{ name: "household", properties: [] }],
 		});
 		await h.seedProjectMember(ACTOR, DESTINATION, "owner");
 		await applyHouseholdSchema(makeSystemSchemaStore([]), appId);
@@ -419,10 +468,9 @@ describe("dormant atomic Project move", () => {
 	}, 15_000);
 
 	it("move-first makes a waiting source-bound case writer reject without a stray row", async () => {
-		const appId = await h.seedApp({
+		const appId = await seedMoveableApp({
 			id: "app-move-first-case-writer",
-			owner: ACTOR,
-			project_id: SOURCE,
+			caseTypes: [{ name: "household", properties: [] }],
 		});
 		await h.seedProjectMember(ACTOR, DESTINATION, "owner");
 		await applyHouseholdSchema(makeSystemSchemaStore([]), appId);
@@ -477,11 +525,10 @@ describe("dormant atomic Project move", () => {
 	}, 15_000);
 
 	it("moves the complete tenant closure atomically and preserves transcript metadata", async () => {
-		const appId = await h.seedApp({
+		const appId = await seedMoveableApp({
 			id: "app-atomic-move",
-			owner: ACTOR,
-			project_id: SOURCE,
-			app_name: "Atomic move",
+			appName: "Atomic move",
+			caseTypes: [{ name: "household", properties: [] }],
 		});
 		await h.seedProjectMember(ACTOR, DESTINATION, "owner");
 		// A source owner is allowed to move even when another source owner is not
@@ -511,7 +558,20 @@ describe("dormant atomic Project move", () => {
 			.where("id", "=", appId)
 			.execute();
 
-		const missingHistorical = testMediaAssetId("missing-historical-document");
+		const sourceHistorical = testMediaAssetId("source-historical-document");
+		const destinationHistorical = testMediaAssetId(
+			"destination-historical-document",
+		);
+		await seedReadyAsset({
+			id: sourceHistorical,
+			projectId: SOURCE,
+			kind: "document",
+		});
+		await seedReadyAsset({
+			id: destinationHistorical,
+			projectId: DESTINATION,
+			kind: "document",
+		});
 		const originalMessages = [
 			attachedMessage("message-1", [
 				{
@@ -529,7 +589,7 @@ describe("dormant atomic Project move", () => {
 					summary: "Requirements summary",
 				},
 				{
-					assetId: missingHistorical,
+					assetId: sourceHistorical,
 					kind: "pdf",
 					filename: "deleted.pdf",
 					mimeType: "application/pdf",
@@ -538,7 +598,7 @@ describe("dormant atomic Project move", () => {
 		];
 		await seedThread(appId, "thread-atomic", originalMessages);
 		await seedCase(appId, SOURCE);
-		await seedCase(appId, null);
+		await seedCase(appId, SOURCE);
 		await h
 			.db()
 			.insertInto("presence")
@@ -570,12 +630,7 @@ describe("dormant atomic Project move", () => {
 					[sourceLogo, destinationLogo],
 					[sourceImage, destinationImage],
 					[sourceDocument, destinationDocument],
-				]),
-				attemptedRealIds: new Set([
-					sourceLogo,
-					sourceImage,
-					sourceDocument,
-					missingHistorical,
+					[sourceHistorical, destinationHistorical],
 				]),
 				insideTransaction: async () => {
 					const outside = await listener.query<{
@@ -632,6 +687,7 @@ describe("dormant atomic Project move", () => {
 		}>;
 		expectedMessages[0].metadata.attachments[0].assetId = destinationImage;
 		expectedMessages[0].metadata.attachments[1].assetId = destinationDocument;
+		expectedMessages[0].metadata.attachments[2].assetId = destinationHistorical;
 		expect(storedThread.messages).toEqual(expectedMessages);
 
 		const destinationEdges = await h
@@ -643,20 +699,31 @@ describe("dormant atomic Project move", () => {
 				destinationLogo,
 				destinationImage,
 				destinationDocument,
+				destinationHistorical,
 			])
 			.orderBy("asset_id")
 			.execute();
 		expect(destinationEdges.map((edge) => edge.asset_id)).toEqual(
-			[destinationLogo, destinationImage, destinationDocument].sort(),
+			[
+				destinationLogo,
+				destinationImage,
+				destinationDocument,
+				destinationHistorical,
+			].sort(),
 		);
-		const migration = await h
+		const moveChange = await h
 			.db()
-			.selectFrom("accepted_mutations")
-			.select(["seq", "actor_id", "kind"])
+			.selectFrom("app_changes")
+			.select(["seq", "actor_id", "kind", "from_project_id", "to_project_id"])
 			.where("app_id", "=", appId)
 			.executeTakeFirstOrThrow();
-		expect(migration).toMatchObject({ actor_id: ACTOR, kind: "migration" });
-		expect(Number(migration.seq)).toBe(1);
+		expect(moveChange).toMatchObject({
+			actor_id: ACTOR,
+			kind: "project-move",
+			from_project_id: SOURCE,
+			to_project_id: DESTINATION,
+		});
+		expect(Number(moveChange.seq)).toBe(1);
 
 		// Move-first order: a stale source-Project history writer cannot restore
 		// source ids after the atomic thread rewrite.
@@ -681,10 +748,9 @@ describe("dormant atomic Project move", () => {
 	});
 
 	it("requires owner retention for a non-owner admin and fails closed on an ownerless source", async () => {
-		const appId = await h.seedApp({
+		const appId = await seedMoveableApp({
 			id: "app-admin-governance",
 			owner: SOURCE_OWNER,
-			project_id: SOURCE,
 		});
 		await h.seedProjectMember(ACTOR, SOURCE, "admin");
 		await h.seedProjectMember(ACTOR, DESTINATION, "admin");
@@ -698,31 +764,31 @@ describe("dormant atomic Project move", () => {
 	});
 
 	it("classifies live, stale-paused, and corrupt holders solely through runLeaseState", async () => {
-		const live = await h.seedApp({
+		const live = await seedMoveableApp({
 			id: "app-live-run",
-			owner: ACTOR,
-			project_id: SOURCE,
-			status: "generating",
-			run_id: "run-live",
-			updated_at: new Date(),
+			state: {
+				status: "generating",
+				run_id: "run-live",
+				updated_at: new Date(),
+			},
 		});
-		const stalePaused = await h.seedApp({
+		const stalePaused = await seedMoveableApp({
 			id: "app-stale-paused-run",
-			owner: ACTOR,
-			project_id: SOURCE,
-			status: "generating",
-			awaiting_input: true,
-			run_id: "run-stale-paused",
-			run_holder_nonce: "00000000-0000-4000-8000-000000000001",
-			updated_at: new Date(Date.now() - 20 * 60_000),
+			state: {
+				status: "generating",
+				awaiting_input: true,
+				run_id: "run-stale-paused",
+				run_holder_nonce: "00000000-0000-4000-8000-000000000001",
+				updated_at: new Date(Date.now() - 20 * 60_000),
+			},
 		});
-		const corrupt = await h.seedApp({
+		const corrupt = await seedMoveableApp({
 			id: "app-corrupt-run",
-			owner: ACTOR,
-			project_id: SOURCE,
-			status: "generating",
-			run_id: null,
-			updated_at: new Date(Date.now() - 20 * 60_000),
+			state: {
+				status: "generating",
+				run_id: null,
+				updated_at: new Date(Date.now() - 20 * 60_000),
+			},
 		});
 		await h.seedProjectMember(ACTOR, DESTINATION, "owner");
 
@@ -741,11 +807,9 @@ describe("dormant atomic Project move", () => {
 	});
 
 	it("rejects deleted apps", async () => {
-		const deleted = await h.seedApp({
+		const deleted = await seedMoveableApp({
 			id: "app-deleted-move",
-			owner: ACTOR,
-			project_id: SOURCE,
-			deleted_at: new Date(),
+			state: { deleted_at: new Date() },
 		});
 		await h.seedProjectMember(ACTOR, DESTINATION, "owner");
 
@@ -755,10 +819,8 @@ describe("dormant atomic Project move", () => {
 	});
 
 	it("blocks a Project move while any capture row or durable submission intent belongs to the app", async () => {
-		const appId = await h.seedApp({
+		const appId = await seedMoveableApp({
 			id: "app-capture-move-block",
-			owner: ACTOR,
-			project_id: SOURCE,
 		});
 		await h.seedProjectMember(ACTOR, DESTINATION, "owner");
 		const attachmentId = crypto.randomUUID();
@@ -818,11 +880,9 @@ describe("dormant atomic Project move", () => {
 		expect((await h.readAppRow(appId))?.project_id).toBe(SOURCE);
 	});
 
-	it("uses the shared production capability after the test explicitly enables moves", async () => {
-		const appId = await h.seedApp({
-			id: "app-production-dormant",
-			owner: ACTOR,
-			project_id: SOURCE,
+	it("uses the shared production Project-move capability", async () => {
+		const appId = await seedMoveableApp({
+			id: "app-production-move",
 		});
 		await h.seedProjectMember(ACTOR, DESTINATION, "owner");
 
@@ -836,29 +896,26 @@ describe("dormant atomic Project move", () => {
 			}),
 		).resolves.toEqual({
 			kind: "ready",
-			requiredAssetIds: [],
-			historicalAssetIds: [],
+			assetIds: [],
 		});
 	});
 
-	it("same-Project repair follows the fresh app Project on both sides of a true move", async () => {
-		const appId = await h.seedApp({
+	it("same-Project repair is an idempotent case-only check on both sides of a true move", async () => {
+		const appId = await seedMoveableApp({
 			id: "app-repair-race",
-			owner: ACTOR,
-			project_id: SOURCE,
+			caseTypes: [{ name: "household", properties: [] }],
 		});
 		await h.seedProjectMember(ACTOR, DESTINATION, "owner");
-		await seedCase(appId, DESTINATION);
+		await seedCase(appId, SOURCE);
 
 		await expect(repairAppCaseTenancy(appId, ACTOR)).resolves.toEqual({
 			projectId: SOURCE,
-			moved: 1,
+			moved: 0,
 		});
 		await expect(commitMove(appId)).resolves.toEqual({ kind: "moved" });
-		await seedCase(appId, SOURCE);
 		await expect(repairAppCaseTenancy(appId, ACTOR)).resolves.toEqual({
 			projectId: DESTINATION,
-			moved: 1,
+			moved: 0,
 		});
 		const projects = await h
 			.pool()
@@ -869,12 +926,19 @@ describe("dormant atomic Project move", () => {
 		expect(new Set(projects.rows.map((row) => row.project_id))).toEqual(
 			new Set([DESTINATION]),
 		);
-		const migrationCount = await h
+		const changes = await h
 			.db()
-			.selectFrom("accepted_mutations")
-			.select(({ fn }) => fn.countAll().as("count"))
+			.selectFrom("app_changes")
+			.select(["kind", "mutations", "from_project_id", "to_project_id"])
 			.where("app_id", "=", appId)
-			.executeTakeFirstOrThrow();
-		expect(Number(migrationCount.count)).toBe(1);
+			.execute();
+		expect(changes).toEqual([
+			{
+				kind: "project-move",
+				mutations: [],
+				from_project_id: SOURCE,
+				to_project_id: DESTINATION,
+			},
+		]);
 	});
 });

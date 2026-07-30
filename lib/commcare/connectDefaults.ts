@@ -14,16 +14,15 @@
  * different consumers need it. Importing from `./xform/builder` would
  * pull `htmlparser2` / `dom-serializer` / `domhandler` / `domutils`
  * (top-level imports in that file) into every barrel consumer —
- * `RESERVED_CASE_PROPERTIES`, `expandHashtags`, etc. would each drag
+ * `RESERVED_CASE_PROPERTIES` and other client-safe exports would each drag
  * the DOM-parser graph through `formActions` into client bundles.
  * The Node-only modules (`./xform`, `./expander`) and the heavy
  * emission pipeline are therefore reached by sub-path only, so
  * Turbopack tree-shakes them out of client bundles.
  */
 
-import type { ConnectConfig } from "@/lib/domain";
+import type { ConnectAssessment, ConnectDeliverUnit } from "@/lib/domain";
 import {
-	isXPathExpression,
 	printXPath,
 	type XPathPrintableDoc,
 	xpathPrintContext,
@@ -70,34 +69,31 @@ export const DEFAULT_ASSESSMENT_USER_SCORE = "100";
 /**
  * Resolve the effective `user_score` XPath expression for a Connect
  * assessment. Returns the doc's explicit value when present and
- * non-empty; otherwise the canonical default. The `||` (vs `??`) treats
- * both `undefined` and `""` as absent for the same reason
- * {@link effectiveDeliverEntities} does — a stray empty string must not
- * produce `<bind … calculate=""/>`, which CCHQ rejects (the validator's
- * `CONNECT_EMPTY_XPATH` catches that state as defense in depth).
+ * otherwise the canonical default.
  */
 export function effectiveAssessmentUserScore(
-	assessment: NonNullable<ConnectConfig["assessment"]>,
+	assessment: ConnectAssessment,
 	doc: XPathPrintableDoc,
 ): string {
 	return (
-		projectConnectXPath(assessment.user_score, doc) ||
+		projectConnectXPath(assessment.user_score, doc) ??
 		DEFAULT_ASSESSMENT_USER_SCORE
 	);
 }
 
-/** Shape-driven projection of a stored Connect XPath slot: AST values
- *  print against the doc; a legacy string (a doc read mid-migration)
- *  reads verbatim — total either way. */
+/** Project a canonical stored Connect XPath slot. Live Connect expressions
+ * are AST-only; pre-cutover text is handled exclusively by the frozen
+ * migration before a Blueprint reaches this boundary. */
 function projectConnectXPath(
-	value: unknown,
+	value:
+		| ConnectAssessment["user_score"]
+		| ConnectDeliverUnit["entity_id"]
+		| ConnectDeliverUnit["entity_name"],
 	doc: XPathPrintableDoc,
 ): string | undefined {
-	if (typeof value === "string") return value;
-	if (isXPathExpression(value)) {
-		return printXPath(value, xpathPrintContext(doc));
-	}
-	return undefined;
+	return value === undefined
+		? undefined
+		: printXPath(value, xpathPrintContext(doc));
 }
 
 /**
@@ -105,26 +101,17 @@ function projectConnectXPath(
  * for a Connect deliver_unit. Returns the doc's explicit values when
  * present and non-empty; otherwise the canonical defaults.
  *
- * Single home for the wire-fallback policy. A future change to "what
- * counts as absent" (e.g. switching `||` to `??` so explicit empty
- * strings surface in the wire output rather than being silently
- * defaulted) lands in one place and every consumer stays in lockstep.
- *
- * The `||` (vs `??`) treats both `undefined` and `""` as absent — the
- * doc's optional schema lets the field be missing, and a stray empty
- * string from an upstream caller still falls through to the default
- * rather than producing `<bind … calculate=""/>` which CCHQ rejects.
- * The validator's `CONNECT_EMPTY_XPATH` rule catches the explicit
- * empty-string state at validate-time as defense in depth.
+ * Single home for the wire-default policy. Only an absent slot gets a
+ * default; an authored expression is emitted exactly.
  */
 export function effectiveDeliverEntities(
-	du: NonNullable<ConnectConfig["deliver_unit"]>,
+	du: ConnectDeliverUnit,
 	doc: XPathPrintableDoc,
 ): { entityId: string; entityName: string } {
 	return {
 		entityId:
-			projectConnectXPath(du.entity_id, doc) || DEFAULT_DELIVER_ENTITY_ID,
+			projectConnectXPath(du.entity_id, doc) ?? DEFAULT_DELIVER_ENTITY_ID,
 		entityName:
-			projectConnectXPath(du.entity_name, doc) || DEFAULT_DELIVER_ENTITY_NAME,
+			projectConnectXPath(du.entity_name, doc) ?? DEFAULT_DELIVER_ENTITY_NAME,
 	};
 }

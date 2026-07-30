@@ -11,8 +11,8 @@ import type { CaseType } from "@/lib/domain";
  * rewrite the whole `caseTypes` array, so two members concurrently editing
  * different types / properties merge by construction. They are total:
  * targeting an absent type is a no-op (the commit gate adjudicates a field
- * left writing to it via `CASE_PROPERTY_ON_UNKNOWN_TYPE`, and the guarded
- * writer's `batchTargetsMissing` rejects a catalog edit against a
+ * left writing to it via `CASE_WRITE_UNKNOWN_TYPE`, and the guarded
+ * writer's `mutationTargetsInvalid` rejects a catalog edit against a
  * concurrently-retired type).
  */
 export function applyAppMutation(
@@ -68,15 +68,28 @@ export function applyAppMutation(
 			return;
 		}
 		case "addCaseProperty": {
-			// Append to an EXISTING declared type only; idempotent on the
-			// property name (two concurrent `addCaseProperty` for different
-			// names both land). An absent type is a no-op.
+			// Insert into an EXISTING declared type only; idempotent on the
+			// property name. Omitted `after` means an intentional append,
+			// `null` means first, and a name means immediately after that
+			// property. Document-aware sequence admission proves an authored
+			// anchor still exists in this exact case type before reduction.
 			const ct = findCaseType(draft, mut.caseType);
 			if (!ct) return;
 			if (!ct.properties.some((p) => p.name === mut.property.name)) {
 				// Cloned: a batch is applied more than once and Immer freezes what
 				// `produce` returns, so the payload must never BE the stored record.
-				ct.properties.push(structuredClone(mut.property));
+				const property = structuredClone(mut.property);
+				if (mut.after === undefined) {
+					ct.properties.push(property);
+				} else if (mut.after === null) {
+					ct.properties.unshift(property);
+				} else {
+					const anchorIndex = ct.properties.findIndex(
+						(existing) => existing.name === mut.after,
+					);
+					if (anchorIndex < 0) return;
+					ct.properties.splice(anchorIndex + 1, 0, property);
+				}
 			}
 			return;
 		}

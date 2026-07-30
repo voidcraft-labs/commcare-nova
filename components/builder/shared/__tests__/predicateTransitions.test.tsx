@@ -51,7 +51,7 @@ const CASE_TYPES: readonly CaseType[] = [
 		parent_type: "household",
 		properties: [
 			{ name: "age", label: proseText("Age"), data_type: "int" },
-			{ name: "name", label: proseText("Name"), data_type: "text" },
+			{ name: "case_name", label: proseText("Case name"), data_type: "text" },
 			{
 				name: "tags",
 				label: proseText("Tags"),
@@ -138,7 +138,7 @@ describe("predicate transition planning", () => {
 
 	it("keeps an admissible computed comparison value when switching to text match", () => {
 		const computed = concat(term(literal("Braxton")), term(literal(" Perry")));
-		const current = eq(prop("patient", "name"), computed);
+		const current = eq(prop("patient", "case_name"), computed);
 		const next = buildMatch("starts-with", current, EDIT_CTX);
 
 		expect(next.kind).toBe("match");
@@ -165,7 +165,7 @@ describe("predicate transition planning", () => {
 
 	it("moves a saved literal into a list without claiming the value is lost", () => {
 		const savedValue = literal("active");
-		const comparison = eq(prop("patient", "name"), savedValue);
+		const comparison = eq(prop("patient", "case_name"), savedValue);
 		const comparisonList = buildWithSubjectLeft("in", comparison, EDIT_CTX);
 		if (
 			comparison.right.kind !== "term" ||
@@ -185,7 +185,7 @@ describe("predicate transition planning", () => {
 		const matchValue = literal("Taylor");
 		const textMatch = {
 			kind: "match" as const,
-			property: prop("patient", "name"),
+			property: prop("patient", "case_name"),
 			value: term(matchValue),
 			mode: "starts-with" as const,
 		};
@@ -201,7 +201,7 @@ describe("predicate transition planning", () => {
 	it("replaces a null-only candidate when moving into a persisted value list", () => {
 		const membership = buildWithSubjectLeft(
 			"in",
-			eq(prop("patient", "name"), literal(null)),
+			eq(prop("patient", "case_name"), literal(null)),
 			EDIT_CTX,
 		);
 		const contains = buildContains(
@@ -274,7 +274,7 @@ describe("predicate transition planning", () => {
 	});
 
 	it("preserves a wrapper's child but confirms before removing its search-answer gate", () => {
-		const clause = eq(prop("patient", "name"), literal("Alice"));
+		const clause = eq(prop("patient", "case_name"), literal("Alice"));
 		const current = whenInput(input(testUuid("query")), clause);
 		const next = buildPredicateKindReplacement(current, "eq", EDIT_CTX);
 
@@ -368,9 +368,9 @@ describe("predicate transition confirmation", () => {
 			fireEvent.click(item);
 		};
 		fireEvent.click(typeTrigger);
-		// Strict absence is preserved when imported, but it is not an
-		// authorable target. The structural Change menu must use the same
-		// product boundary as the sentence verb and Add-condition menus.
+		// Strict absence is not part of the stored or authorable vocabulary.
+		// The structural Change menu must agree with the sentence verb and
+		// Add-condition menus.
 		expect(screen.queryByText("Was never recorded")).toBeNull();
 		await selectEquality();
 		let dialog = await screen.findByRole("alertdialog");

@@ -312,7 +312,7 @@ describe("emitRemoteRequest — <instance> declarations", () => {
 			"primary_q",
 			"Primary",
 			"text",
-			"name",
+			"case_name",
 		);
 		const echoInput = {
 			...simpleSearchInputDef(
@@ -320,7 +320,7 @@ describe("emitRemoteRequest — <instance> declarations", () => {
 				"echo_q",
 				"Echo",
 				"text",
-				"name",
+				"case_name",
 			),
 			default: term(input(primaryInput.uuid)),
 		};
@@ -475,7 +475,7 @@ describe("emitRemoteRequest — Nova-shaped end-to-end composition", () => {
 							"name",
 							"Name",
 							"text",
-							"name",
+							"case_name",
 						),
 						advancedSearchInputDef(
 							testUuid("00000000-0000-4000-8000-aaaa00000002"),

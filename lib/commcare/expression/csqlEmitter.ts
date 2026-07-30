@@ -6,11 +6,12 @@
 // surfaces into one `concat(...)` wrapper without parsing constants
 // out of an intermediate string.
 //
-// Emission policy: emit the eight `ValueExpression` arms that ARE in
+// Emission policy: emit the seven `ValueExpression` arms that ARE in
 // CCHQ's CSQL value-function whitelist
 // (`commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`).
-// The remaining ten arms (`arith`, `concat`, `coalesce`, `if`,
-// `switch`, `count`, `format-date`, `id-of`, `acting-user`, `unowned`)
+// The remaining eleven arms (`arith`, `concat`, `coalesce`, `if`,
+// `switch`, `count`, `format-date`, `table-lookup`, `id-of`,
+// `acting-user`, `unowned`)
 // inline as on-device XPath
 // fragments. At predicate-operand boundaries that happens in
 // `lib/commcare/predicate/csqlEmitter.ts::inlineAsRuntimeOperand`;
@@ -30,7 +31,7 @@
 // `../predicate/csqlSegment` and is the single shape both predicate
 // and expression emitters return.
 //
-// Coverage of the eight whitelist arms (per CCHQ's
+// Coverage of the seven whitelist arms (per CCHQ's
 // `XPATH_VALUE_FUNCTIONS` registry):
 //
 //   - `today` / `now` — discriminator-only. Emit `today()` / `now()`
@@ -50,8 +51,6 @@
 //     separate arguments. Whitelist registrations at the `date-add` and
 //     `datetime-add` entries cover both wire forms; the canonical type
 //     context (or an unambiguous structural type) selects the wire name.
-//   - `unwrap-list(value)` → `unwrap-list(<value>)`. Sequence-source
-//     value function. Registration at the `unwrap-list` entry.
 //   - `term(t)` → delegate to the shared CSQL term-segment emitter at
 //     `../predicate/termEmitter:emitTermSegment`. Property refs and
 //     literals emit as constant segments; runtime refs emit through
@@ -171,17 +170,6 @@ export function emitCsqlExpressionSegments(
 			// value space, but routing through the shared lexical helper
 			// keeps the escape rule centralised.
 			return emitDateAddSegments(expr, typeContext);
-		case "unwrap-list":
-			// CCHQ value function at the `unwrap-list` entry on
-			// `XPATH_VALUE_FUNCTIONS`.
-			return emitFunctionCallSegments(
-				"unwrap-list",
-				// CCHQ's own list-value wire path emits
-				// `unwrap-list('${json.dumps(value)}')`: JSON necessarily
-				// contains double quotes, so a double-quoted wrapper would
-				// produce invalid CSQL (`unwrap-list("["a"]")`).
-				emitCsqlFunctionArgumentSegments(expr.value, typeContext, "single"),
-			);
 		case "arith":
 		case "concat":
 		case "coalesce":
@@ -192,6 +180,7 @@ export function emitCsqlExpressionSegments(
 		case "id-of":
 		case "acting-user":
 		case "unowned":
+		case "table-lookup":
 			// These arms are absent from CSQL's value-function
 			// whitelist. Callers must route them through either the
 			// predicate-side inline-runtime path or this file's native-call
@@ -199,10 +188,6 @@ export function emitCsqlExpressionSegments(
 			// CSQL position, so throwing here defends against broken wire.
 			throw new Error(
 				`csqlExpressionEmitter: tried to emit a value-expression of kind '${expr.kind}' as native CSQL, but CCHQ's CSQL value-function whitelist (commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS) does not include this arm. The predicate-side emitter at lib/commcare/predicate/csqlEmitter.ts should have inlined it as an on-device XPath fragment via emitOnDeviceExpression. Look at the operand dispatch in emitOperandSegments; a new ValueExpression kind needs to route through inlineAsRuntimeOperand.`,
-			);
-		case "table-lookup":
-			throw new Error(
-				"csqlExpressionEmitter: lookup-table expressions are dormant until fixture emission lands; validation should reject them before CSQL emission.",
 			);
 		default: {
 			const _exhaustive: never = expr;
@@ -267,7 +252,6 @@ export function isNativeCsqlValueExpression(expr: ValueExpression): boolean {
 		case "datetime-coerce":
 		case "double":
 		case "date-add":
-		case "unwrap-list":
 			return true;
 		case "arith":
 		case "concat":

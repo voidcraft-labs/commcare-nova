@@ -167,13 +167,20 @@ describe("case mutation authorization", () => {
 		const appId = await seedAuthorizedApp();
 		const caseId = await insertPatient(appId);
 		await h.seedProjectMember(USER, OTHER_PROJECT, "editor");
-		await h.withTransaction((tx) =>
-			tx
-				.updateTable("apps")
-				.set({ project_id: OTHER_PROJECT })
-				.where("id", "=", appId)
-				.execute(),
-		);
+		await caseDb()
+			.transaction()
+			.execute(async (tx) => {
+				await tx
+					.updateTable("cases")
+					.set({ project_id: OTHER_PROJECT })
+					.where("app_id", "=", appId)
+					.execute();
+				await tx
+					.updateTable("apps")
+					.set({ project_id: OTHER_PROJECT })
+					.where("id", "=", appId)
+					.execute();
+			});
 
 		await expect(store().close({ appId, caseId })).rejects.toMatchObject({
 			name: "AppAccessError",
@@ -184,7 +191,7 @@ describe("case mutation authorization", () => {
 			.select(["status", "project_id"])
 			.where("case_id", "=", caseId)
 			.executeTakeFirstOrThrow();
-		expect(row).toEqual({ status: "open", project_id: PROJECT });
+		expect(row).toEqual({ status: "open", project_id: OTHER_PROJECT });
 	});
 
 	it("rejects every write after the actor loses edit capability", async () => {

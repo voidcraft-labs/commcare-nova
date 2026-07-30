@@ -43,6 +43,7 @@
 // schema row whose properties cannot all be indexed.
 
 import { createHash } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import Ajv2020, { type ValidateFunction } from "ajv/dist/2020";
 import addFormats from "ajv-formats";
 import {
@@ -60,6 +61,11 @@ import type {
 	CaseType,
 } from "@/lib/domain";
 import {
+	CASE_SCALAR_PROPERTY_NAMES,
+	casePropertyDataTypes,
+	prepareCaseScalarTextValue,
+} from "@/lib/domain";
+import {
 	compilerBugMessage,
 	unhandledKindMessage,
 } from "@/lib/domain/predicate/errors";
@@ -69,10 +75,12 @@ import {
 	schemaForDataType,
 } from "@/lib/domain/predicate/jsonSchema";
 import type { RelationPath } from "@/lib/domain/predicate/types";
+import { proseText } from "@/lib/domain/prose";
 import {
 	storageDatetimeValue,
 	storageTimeValue,
 } from "@/lib/domain/temporalValues";
+import { safePersistedSequence } from "@/lib/utils/persistedSequence";
 import {
 	CaseNotFoundError,
 	CasePropertiesValidationError,
@@ -98,6 +106,7 @@ import type {
 	ParkedCaseValuesTable,
 } from "../sql/database";
 import type {
+	ApplyCasePropertyRenameArgs,
 	ApplySchemaChangeArgs,
 	CalculatedColumn,
 	CalculatedValue,
@@ -111,11 +120,13 @@ import type {
 	GenerateSampleDataArgs,
 	MigrationReport,
 	ParkedValueEntry,
+	PreparedCasePropertyRenamePhaseB,
 	PreparedSchemaChangePhaseB,
 	QueryArgs,
 	ResetSampleDataArgs,
 	SchemaChangeKind,
 } from "../store";
+import { CasePropertyRenameStorageConflictError } from "../store";
 import type {
 	ApplySubmissionArgs,
 	SubmissionEnvelopeResult,
@@ -681,8 +692,7 @@ export class PostgresCaseStore implements CaseStore {
 			bindings: args.bindings ?? {},
 		});
 
-		// `eb.fn.countAll<string>()` matches the existing usage at
-		// `runRenameMigration` — pg-driver returns BIGINT counts as
+		// pg-driver returns BIGINT counts as
 		// strings (numeric-precision-preserving), so the typed
 		// builder declares the column as string and the caller
 		// `Number(...)` coerces. Tenant filter on the outer scan;
@@ -789,6 +799,20 @@ export class PostgresCaseStore implements CaseStore {
 		// on non-string inputs to a text-cast slot).
 		const insertRow: InsertObject<Database, "cases"> = {
 			...args.row,
+			case_name: normalizedCaseScalar(
+				"case_name",
+				args.row.case_name,
+				"reject",
+			),
+			...(args.row.external_id === null || args.row.external_id === undefined
+				? { external_id: null }
+				: {
+						external_id: normalizedCaseScalar(
+							"external_id",
+							args.row.external_id,
+							"allow",
+						),
+					}),
 			...(args.caseId === undefined ? {} : { case_id: args.caseId }),
 			app_id: args.appId,
 			project_id: this.requireProjectId(),
@@ -898,6 +922,7 @@ export class PostgresCaseStore implements CaseStore {
 					row: {
 						case_type: a.seed.caseType,
 						case_name: a.seed.caseName,
+						external_id: a.seed.externalId ?? null,
 						status: "open",
 						properties: a.seed.properties,
 						...(a.seed.parentCaseId === undefined
@@ -1006,6 +1031,16 @@ export class PostgresCaseStore implements CaseStore {
 					// signed-in member while everything else that persona wrote
 					// belonged to the persona.
 					owner_id: this.requireOwnerId(),
+					case_name: normalizedCaseScalar("case_name", row.case_name, "reject"),
+					...(row.external_id === null || row.external_id === undefined
+						? { external_id: null }
+						: {
+								external_id: normalizedCaseScalar(
+									"external_id",
+									row.external_id,
+									"allow",
+								),
+							}),
 					...creationStamps(row),
 					properties: JSON.stringify(propertiesObject),
 				};
@@ -1116,10 +1151,31 @@ export class PostgresCaseStore implements CaseStore {
 		}
 
 		const { properties: _patchProperties, ...patchRest } = args.patch;
+		const normalizedPatch = {
+			...patchRest,
+			...(args.patch.case_name === undefined
+				? {}
+				: {
+						case_name: normalizedCaseScalar(
+							"case_name",
+							args.patch.case_name,
+							"reject",
+						),
+					}),
+			...(args.patch.external_id === undefined
+				? {}
+				: {
+						external_id: normalizedCaseScalar(
+							"external_id",
+							args.patch.external_id,
+							"allow",
+						),
+					}),
+		};
 		await trx
 			.updateTable("cases as c")
 			.set({
-				...patchRest,
+				...normalizedPatch,
 				modified_on: sql<Date>`now()`,
 				...(mergedProperties !== undefined
 					? { properties: JSON.stringify(mergedProperties) }
@@ -1340,6 +1396,402 @@ export class PostgresCaseStore implements CaseStore {
 		return phaseA.report;
 	}
 
+	async applyCasePropertyRenamePhaseA(
+		tx: Transaction<Database>,
+		args: ApplyCasePropertyRenameArgs,
+	): Promise<PreparedCasePropertyRenamePhaseB> {
+		const desiredSeq = safePersistedSequence(
+			args.desiredSeq,
+			`case-property rename sequence for app ${args.appId}`,
+		);
+		if (args.entries.length === 0) {
+			throw new Error("A case-property rename plan must not be empty.");
+		}
+		const sourceKeys = new Set<string>();
+		const destinationKeys = new Set<string>();
+		const entriesByCaseType = new Map<
+			string,
+			Array<{ from: string; to: string }>
+		>();
+		for (const entry of args.entries) {
+			const sourceKey = `${entry.caseType}\0${entry.from}`;
+			const destinationKey = `${entry.caseType}\0${entry.to}`;
+			if (
+				entry.from === entry.to ||
+				sourceKeys.has(sourceKey) ||
+				destinationKeys.has(destinationKey) ||
+				CASE_SCALAR_PROPERTY_NAMES.has(entry.from) ||
+				CASE_SCALAR_PROPERTY_NAMES.has(entry.to)
+			) {
+				throw new Error(
+					"Case-property rename storage received a non-bijective or scalar plan.",
+				);
+			}
+			sourceKeys.add(sourceKey);
+			destinationKeys.add(destinationKey);
+			const caseType = args.caseTypeSchemas.get(entry.caseType);
+			if (
+				caseType === undefined ||
+				!caseType.properties.some((property) => property.name === entry.to)
+			) {
+				throw new Error(
+					"Case-property rename storage plan disagrees with the committed candidate catalog.",
+				);
+			}
+			const group = entriesByCaseType.get(entry.caseType) ?? [];
+			group.push({ from: entry.from, to: entry.to });
+			entriesByCaseType.set(entry.caseType, group);
+		}
+		const caseTypes = [...entriesByCaseType.keys()].sort();
+		for (const caseType of caseTypes) {
+			await sql`
+				SELECT pg_advisory_xact_lock(
+					hashtextextended(${caseSchemaIndexLockScope(args.appId, caseType)}, 0)
+				)
+			`.execute(tx);
+			await tx
+				.deleteFrom("case_schema_index_deletions")
+				.where("app_id", "=", args.appId)
+				.where("case_type", "=", caseType)
+				.execute();
+		}
+
+		// App lock is already held by the guarded writer. Lock schemas before
+		// cases, matching every ordinary row writer's schema→case order.
+		const priorSchemaRows = await tx
+			.selectFrom("case_type_schemas")
+			.select(["case_type", "schema"])
+			.where("app_id", "=", args.appId)
+			.where("case_type", "in", caseTypes)
+			.orderBy("case_type")
+			.forUpdate()
+			.execute();
+		const caseRows = await tx
+			.selectFrom("cases")
+			.select(["case_id", "case_type", "properties"])
+			.where("app_id", "=", args.appId)
+			.where("case_type", "in", caseTypes)
+			.orderBy("case_type")
+			.orderBy("case_id")
+			.forUpdate()
+			.execute();
+		const parkedRows = await tx
+			.selectFrom("parked_case_values")
+			.select(["id", "case_id", "case_type", "property"])
+			.where("app_id", "=", args.appId)
+			.where("case_type", "in", caseTypes)
+			.orderBy("case_type")
+			.orderBy("case_id")
+			.orderBy("id")
+			.forUpdate()
+			.execute();
+
+		for (const caseType of caseTypes) {
+			const renames = entriesByCaseType.get(caseType) ?? [];
+			const movingSources = new Set(renames.map((entry) => entry.from));
+			for (const row of caseRows) {
+				if (row.case_type !== caseType) continue;
+				for (const rename of renames) {
+					if (
+						!movingSources.has(rename.to) &&
+						Object.hasOwn(row.properties, rename.to)
+					) {
+						throw new CasePropertyRenameStorageConflictError(
+							caseType,
+							rename.to,
+							"case-row",
+						);
+					}
+				}
+			}
+			for (const rename of renames) {
+				if (
+					!movingSources.has(rename.to) &&
+					parkedRows.some(
+						(row) => row.case_type === caseType && row.property === rename.to,
+					)
+				) {
+					throw new CasePropertyRenameStorageConflictError(
+						caseType,
+						rename.to,
+						"parked-value",
+					);
+				}
+			}
+		}
+
+		for (const caseType of caseTypes) {
+			const priorSchemaRow = priorSchemaRows.find(
+				(row) => row.case_type === caseType,
+			);
+			const priorSchema =
+				priorSchemaRow === undefined
+					? undefined
+					: decodeStoredCaseSchema(args.appId, caseType, priorSchemaRow.schema);
+			const nextType = args.caseTypeSchemas.get(caseType);
+			if (nextType === undefined) {
+				throw new CaseTypeNotInBlueprintError(args.appId, caseType);
+			}
+			const transitions: DetectedRetype[] = [];
+			for (const rename of entriesByCaseType.get(caseType) ?? []) {
+				const oldDestinationType = priorSchema?.dataTypes.get(rename.to);
+				const incomingType =
+					nextType.properties.find((property) => property.name === rename.to)
+						?.data_type ?? "text";
+				if (oldDestinationType !== undefined) {
+					transitions.push({
+						property: rename.to,
+						fromType: oldDestinationType,
+						toType: incomingType,
+					});
+				}
+			}
+			await this.dropStaleNumericIndexes(tx, {
+				appId: args.appId,
+				caseType,
+				transitions,
+			});
+		}
+
+		for (const caseType of caseTypes) {
+			const declaration = args.caseTypeSchemas.get(caseType);
+			if (declaration === undefined) {
+				throw new CaseTypeNotInBlueprintError(args.appId, caseType);
+			}
+			const schema = caseTypeToJsonSchema(declaration);
+			computeDesiredIndexSet(args.appId, caseType, declaration.properties);
+			await tx
+				.insertInto("case_type_schemas")
+				.values({
+					app_id: args.appId,
+					case_type: caseType,
+					schema: JSON.stringify(schema),
+					synced_seq: desiredSeq,
+					index_pending_seq: desiredSeq,
+				})
+				.onConflict((conflict) =>
+					conflict.columns(["app_id", "case_type"]).doUpdateSet({
+						schema: JSON.stringify(schema),
+						synced_seq: desiredSeq,
+						index_pending_seq: desiredSeq,
+					}),
+				)
+				.execute();
+		}
+
+		const caseUpdates: Array<{
+			caseId: string;
+			properties: JsonObject;
+		}> = [];
+		for (const row of caseRows) {
+			const renames = entriesByCaseType.get(row.case_type) ?? [];
+			if (
+				!renames.some((rename) => Object.hasOwn(row.properties, rename.from))
+			) {
+				continue;
+			}
+			const sources = new Set(renames.map((rename) => rename.from));
+			const properties: JsonObject = {};
+			for (const [key, value] of Object.entries(row.properties)) {
+				if (!sources.has(key)) properties[key] = value;
+			}
+			for (const rename of renames) {
+				if (Object.hasOwn(row.properties, rename.from)) {
+					properties[rename.to] = row.properties[rename.from] as JsonValue;
+				}
+			}
+			caseUpdates.push({ caseId: row.case_id, properties });
+		}
+		if (caseUpdates.length > 0) {
+			const values = caseUpdates.map(
+				(row) =>
+					sql`(${row.caseId}::text, ${JSON.stringify(row.properties)}::jsonb)`,
+			);
+			const updated = await sql`
+				UPDATE cases
+				SET properties = incoming.properties
+				FROM (VALUES ${sql.join(values)})
+					AS incoming(case_id, properties)
+				WHERE cases.app_id = ${args.appId}
+				  AND cases.case_id = incoming.case_id
+			`.execute(tx);
+			if (Number(updated.numAffectedRows) !== caseUpdates.length) {
+				throw new Error("Case-property rename lost a locked live case row.");
+			}
+		}
+
+		const parkedUpdates = parkedRows.flatMap((row) => {
+			const rename = (entriesByCaseType.get(row.case_type) ?? []).find(
+				(entry) => entry.from === row.property,
+			);
+			return rename === undefined ? [] : [{ id: row.id, property: rename.to }];
+		});
+		if (parkedUpdates.length > 0) {
+			const values = parkedUpdates.map(
+				(row) => sql`(${row.id}::uuid, ${row.property}::text)`,
+			);
+			const updated = await sql`
+				UPDATE parked_case_values
+				SET property = incoming.property
+				FROM (VALUES ${sql.join(values)})
+					AS incoming(id, property)
+				WHERE parked_case_values.app_id = ${args.appId}
+				  AND parked_case_values.id = incoming.id
+			`.execute(tx);
+			if (Number(updated.numAffectedRows) !== parkedUpdates.length) {
+				throw new Error("Case-property rename lost a locked parked value.");
+			}
+		}
+
+		return {
+			report: {
+				renamedRows: caseUpdates.length,
+				renamedParkedValues: parkedUpdates.length,
+				caseTypes,
+			},
+			completeAfterCommit: async () => {
+				await this.drainPendingIndexConvergence({
+					appId: args.appId,
+					caseTypes,
+				});
+			},
+		};
+	}
+
+	async drainPendingIndexConvergence(args: {
+		readonly appId: string;
+		readonly caseTypes?: readonly string[];
+	}): Promise<void> {
+		const pendingSchemas = await this.db
+			.selectFrom("case_type_schemas")
+			.select("case_type")
+			.where("app_id", "=", args.appId)
+			.where("index_pending_seq", "is not", null)
+			.$if(args.caseTypes !== undefined, (query) =>
+				query.where("case_type", "in", [...(args.caseTypes ?? [])]),
+			)
+			.orderBy("case_type")
+			.execute();
+		const pendingDeletions = await this.db
+			.selectFrom("case_schema_index_deletions")
+			.select("case_type")
+			.where("app_id", "=", args.appId)
+			.$if(args.caseTypes !== undefined, (query) =>
+				query.where("case_type", "in", [...(args.caseTypes ?? [])]),
+			)
+			.orderBy("case_type")
+			.execute();
+		const caseTypes = new Set([
+			...pendingSchemas.map((row) => row.case_type),
+			...pendingDeletions.map((row) => row.case_type),
+		]);
+		for (const caseType of [...caseTypes].sort()) {
+			await this.drainPendingIndexConvergenceForType(args.appId, caseType);
+		}
+	}
+
+	async drainAllPendingIndexConvergence(): Promise<void> {
+		while (true) {
+			const pending = await sql<{ app_id: string; case_type: string }>`
+				SELECT app_id, case_type
+				FROM case_type_schemas
+				WHERE index_pending_seq IS NOT NULL
+				UNION
+				SELECT app_id, case_type
+				FROM case_schema_index_deletions
+				ORDER BY app_id, case_type
+			`.execute(this.db);
+			if (pending.rows.length === 0) return;
+			for (const row of pending.rows) {
+				await this.drainPendingIndexConvergenceForType(
+					row.app_id,
+					row.case_type,
+				);
+			}
+		}
+	}
+
+	private async drainPendingIndexConvergenceForType(
+		appId: string,
+		caseType: string,
+	): Promise<void> {
+		await this.db.connection().execute(async (connection) => {
+			const scope = caseSchemaIndexLockScope(appId, caseType);
+			await sql`
+				SELECT pg_advisory_lock(hashtextextended(${scope}, 0))
+			`.execute(connection);
+			try {
+				const latest = await connection
+					.selectFrom("case_type_schemas")
+					.select(["schema", "index_pending_seq"])
+					.where("app_id", "=", appId)
+					.where("case_type", "=", caseType)
+					.executeTakeFirst();
+				const pendingDeletion = await connection
+					.selectFrom("case_schema_index_deletions")
+					.select("case_type")
+					.where("app_id", "=", appId)
+					.where("case_type", "=", caseType)
+					.executeTakeFirst();
+				if (latest === undefined) {
+					if (pendingDeletion === undefined) return;
+					await this.syncExpressionIndexes({
+						db: connection,
+						appId,
+						caseType,
+						desired: new Map(),
+					});
+					await connection
+						.deleteFrom("case_schema_index_deletions")
+						.where("app_id", "=", appId)
+						.where("case_type", "=", caseType)
+						.execute();
+					return;
+				}
+				if (pendingDeletion !== undefined) {
+					// A schema recreated after a drop is authoritative. Phase A
+					// normally removed this tombstone under the same lock; this
+					// branch also converges a stale Phase-B owner that observed
+					// the recreation after it began.
+					await connection
+						.deleteFrom("case_schema_index_deletions")
+						.where("app_id", "=", appId)
+						.where("case_type", "=", caseType)
+						.execute();
+				}
+				if (latest.index_pending_seq === null) return;
+				const pendingSeq = safePersistedSequence(
+					latest.index_pending_seq,
+					`case_type_schemas.index_pending_seq for ${appId}/${caseType}`,
+				);
+				await this.syncExpressionIndexes({
+					db: connection,
+					appId,
+					caseType,
+					desired: desiredIndexesFromStoredSchema(
+						appId,
+						caseType,
+						latest.schema,
+					),
+				});
+				await connection
+					.updateTable("case_type_schemas")
+					.set({
+						index_pending_seq: null,
+						index_synced_seq: pendingSeq,
+					})
+					.where("app_id", "=", appId)
+					.where("case_type", "=", caseType)
+					.where("index_pending_seq", "=", String(pendingSeq))
+					.execute();
+			} finally {
+				await sql`
+					SELECT pg_advisory_unlock(hashtextextended(${scope}, 0))
+				`.execute(connection);
+			}
+		});
+	}
+
 	async applySchemaChangePhaseA(
 		tx: Transaction<Database>,
 		args: ApplySchemaChangeArgs,
@@ -1361,6 +1813,13 @@ export class PostgresCaseStore implements CaseStore {
 				}),
 			);
 		}
+		const incomingSeq =
+			args.syncedSeq === undefined
+				? undefined
+				: safePersistedSequence(
+						args.syncedSeq,
+						`case_type_schemas.synced_seq for ${args.appId}/${args.caseType}`,
+					);
 		const caseType = args.caseTypeSchemas.get(args.caseType);
 		if (caseType === undefined) {
 			throw new CaseTypeNotInBlueprintError(args.appId, args.caseType);
@@ -1372,11 +1831,20 @@ export class PostgresCaseStore implements CaseStore {
 		// (non-conforming characters, post-transform collisions,
 		// 63-byte identifier cap). A throw here leaves
 		// `case_type_schemas` untouched. Pure CPU, no I/O.
-		const desiredIndexes = computeDesiredIndexSet(
-			args.appId,
-			args.caseType,
-			caseType.properties,
-		);
+		computeDesiredIndexSet(args.appId, args.caseType, caseType.properties);
+		await sql`
+			SELECT pg_advisory_xact_lock(
+				hashtextextended(
+					${caseSchemaIndexLockScope(args.appId, args.caseType)},
+					0
+				)
+			)
+		`.execute(tx);
+		await tx
+			.deleteFrom("case_schema_index_deletions")
+			.where("app_id", "=", args.appId)
+			.where("case_type", "=", args.caseType)
+			.execute();
 
 		// Monotone `synced_seq` gate — the coarse half. When the caller carries
 		// a `syncedSeq` (the multiplayer additive sync + heal), read the row's
@@ -1391,9 +1859,9 @@ export class PostgresCaseStore implements CaseStore {
 		// that advanced the row already ran its own detection against the same
 		// stored state in its own transaction. An absent row means "proceed"
 		// (first sync). node-postgres returns `bigint`/`int8` as a string, so
-		// coerce with `Number(...)`. The fine half is the guarded UPSERT SET
-		// below — a lost SELECT→UPSERT race re-converges on the next sync
-		// (perf-only, not a correctness gate).
+		// every read crosses the shared nonnegative safe-sequence boundary. The
+		// fine half is the guarded UPSERT SET below — a lost SELECT→UPSERT race
+		// re-converges on the next sync (perf-only, not a correctness gate).
 		if (args.syncedSeq !== undefined) {
 			const existing = await tx
 				.selectFrom("case_type_schemas")
@@ -1403,7 +1871,12 @@ export class PostgresCaseStore implements CaseStore {
 				.executeTakeFirst();
 			if (
 				existing !== undefined &&
-				args.syncedSeq < Number(existing.synced_seq)
+				incomingSeq !== undefined &&
+				incomingSeq <
+					safePersistedSequence(
+						existing.synced_seq,
+						`stored case_type_schemas.synced_seq for ${args.appId}/${args.caseType}`,
+					)
 			) {
 				return {
 					report: {
@@ -1419,8 +1892,6 @@ export class PostgresCaseStore implements CaseStore {
 				};
 			}
 		}
-
-		const incomingSeq = args.syncedSeq;
 
 		// Phase A: schema sync + per-row work in one transaction. `won` records
 		// whether THIS call actually advanced the row — false only when the
@@ -1485,15 +1956,29 @@ export class PostgresCaseStore implements CaseStore {
 			// A versioned loser returns no row. The un-versioned path never has
 			// a suppressing WHERE, so it always returns a row (always a winner).
 			won = upserted !== undefined;
+			if (won && upserted !== undefined) {
+				const wonSeq = safePersistedSequence(
+					upserted.synced_seq,
+					`returned case_type_schemas.synced_seq for ${args.appId}/${args.caseType}`,
+				);
+				await trx
+					.updateTable("case_type_schemas")
+					.set({
+						index_pending_seq: wonSeq,
+					})
+					.where("app_id", "=", args.appId)
+					.where("case_type", "=", args.caseType)
+					.execute();
+			}
 
 			// Step 2: stored↔desired per-property transition detection. On
 			// every WINNING sync the stored schema diffs against the newly
 			// derived one and every same-name property whose validation
 			// semantics changed migrates in the SAME transaction as the
 			// schema write — so the schema row and the row population can
-			// never disagree, whichever caller synced (the saga's sweep,
-			// the drain-end materialize, the point-of-use heal, the
-			// compensate path, the drift scripts). Without it, a
+			// never disagree, whichever caller synced (the guarded
+			// post-commit sweep, drain-end materialize, point-of-use heal,
+			// or a drift script). Without it, a
 			// regenerated schema strands every pre-transition row:
 			// merged-document write validation rejects the old value on
 			// the row's next write of ANY property. Two families:
@@ -1514,21 +1999,21 @@ export class PostgresCaseStore implements CaseStore {
 				widenings: [],
 			};
 			if (won) {
-				// Exclude only a RETYPE/NARROW-targeted property — those
-				// migrations rewrite the same key their caller named, and a
-				// double rewrite would double-count. A RENAME's keys are
-				// deliberately NOT excluded: its FROM keys are absent from
-				// the derived schema (invisible here), and a merge-rename
-				// DESTINATION whose own population changes type must still
-				// migrate the rows the rename never visits — this step runs
-				// first, and the rename arm's conflict rule then treats the
-				// freshly-cast destination value as the surviving one.
+				// Exclude the caller-targeted property: the explicit generic
+				// migration rewrites that same key, so detecting it here would
+				// double rewrite and double count.
+				const priorSchema =
+					priorRow === undefined
+						? undefined
+						: decodeStoredCaseSchema(
+								args.appId,
+								args.caseType,
+								priorRow.schema,
+							);
 				transitions = detectPropertyTransitions(
-					priorRow?.schema,
-					schema,
-					args.change !== undefined && args.change.kind !== "rename"
-						? args.property
-						: undefined,
+					priorSchema,
+					caseType,
+					args.change === undefined ? undefined : args.property,
 				);
 				// A numeric-source transition writes values the stale
 				// `::integer` / `::numeric` expression index can't cast (an
@@ -1592,15 +2077,12 @@ export class PostgresCaseStore implements CaseStore {
 							caseType: args.caseType,
 							property: args.property,
 							change: args.change,
-							caseTypeDecl: caseType,
-							storedSchema: priorRow?.schema,
 						});
 
 			// Step 4: restore previously-parked values whose property's
 			// declared TYPE changed in this sync and whose original value
 			// the new schema accepts — the winning sync's closing move, so
-			// a convert-back (a fresh conversion, an undo batch, the
-			// saga's compensating re-sync) automatically recovers what the
+			// a convert-back or an undo batch automatically recovers what the
 			// forward conversion set aside. Identity WIDENINGS count: a
 			// date→text convert-back rewrites no rows, but it is exactly
 			// the transition the parked text values were waiting for.
@@ -1668,15 +2150,14 @@ export class PostgresCaseStore implements CaseStore {
 			completeAfterCommit: async () => {
 				if (!won) return;
 				try {
-					await this.syncExpressionIndexes({
+					await this.drainPendingIndexConvergence({
 						appId: args.appId,
-						caseType: args.caseType,
-						desired: desiredIndexes,
+						caseTypes: [args.caseType],
 					});
 				} catch (phaseBErr) {
 					// Phase A is already durable — wrap so the COMMITTED report
-					// (parked ids and all) survives the throw for compensating
-					// callers; `cause` keeps transient classification working.
+					// (parked ids and all) survives the throw; `cause` keeps
+					// transient classification working.
 					throw new SchemaChangePhaseBError({
 						appId: args.appId,
 						caseType: args.caseType,
@@ -1693,10 +2174,25 @@ export class PostgresCaseStore implements CaseStore {
 		// that same transaction. Idempotent when the schema row is absent.
 		await this.db.transaction().execute(async (trx) => {
 			await this.authorizeSchemaMutation(trx, args.appId);
+			await sql`
+				SELECT pg_advisory_xact_lock(
+					hashtextextended(
+						${caseSchemaIndexLockScope(args.appId, args.caseType)},
+						0
+					)
+				)
+			`.execute(trx);
 			await trx
 				.deleteFrom("case_type_schemas")
 				.where("app_id", "=", args.appId)
 				.where("case_type", "=", args.caseType)
+				.execute();
+			await trx
+				.insertInto("case_schema_index_deletions")
+				.values({ app_id: args.appId, case_type: args.caseType })
+				.onConflict((conflict) =>
+					conflict.columns(["app_id", "case_type"]).doNothing(),
+				)
 				.execute();
 		});
 
@@ -1711,11 +2207,7 @@ export class PostgresCaseStore implements CaseStore {
 		// plumbing in one place. `DROP INDEX CONCURRENTLY IF EXISTS`
 		// survives a missing-index path (Phase B already committed in a
 		// prior run, the schema-row DELETE is the only outstanding work).
-		await this.syncExpressionIndexes({
-			appId: args.appId,
-			caseType: args.caseType,
-			desired: new Map(),
-		});
+		await this.drainPendingIndexConvergenceForType(args.appId, args.caseType);
 	}
 
 	/**
@@ -1735,11 +2227,13 @@ export class PostgresCaseStore implements CaseStore {
 	 * collide.
 	 */
 	private async syncExpressionIndexes(args: {
+		db?: Kysely<Database>;
 		appId: string;
 		caseType: string;
 		desired: ReadonlyMap<string, DesiredIndex>;
 	}): Promise<void> {
-		const live = await readLiveIndexSet(this.db, args.appId, args.caseType);
+		const db = args.db ?? this.db;
+		const live = await readLiveIndexSet(db, args.appId, args.caseType);
 		const { creates, drops } = diffIndexSets(args.desired, live);
 
 		// Drops first so a same-name INVALID artifact clears before
@@ -1752,11 +2246,11 @@ export class PostgresCaseStore implements CaseStore {
 		// whatever a bare name resolves to on the search path.
 		for (const drop of drops) {
 			await sql`DROP INDEX CONCURRENTLY IF EXISTS ${sql.id(drop.schema, drop.name)}`.execute(
-				this.db,
+				db,
 			);
 		}
 		for (const create of creates) {
-			await emitCreateIndex(this.db, create);
+			await emitCreateIndex(db, create);
 		}
 	}
 
@@ -1784,12 +2278,16 @@ export class PostgresCaseStore implements CaseStore {
 			if (transition.fromType !== "int" && transition.fromType !== "decimal") {
 				continue;
 			}
-			// The one tolerated pair: every int the decimal→int migration
-			// writes still parses under the stale `::numeric` cast. The
-			// reverse does NOT hold — the int→decimal widening's restore
-			// writes fractions the stale `::integer` cast rejects — and no
-			// non-numeric target survives either cast.
-			if (transition.fromType === "decimal" && transition.toType === "int") {
+			// Keep a cast-bearing destination index exactly when every incoming
+			// value remains in its acceptance set. `::integer` admits only int;
+			// `::numeric` admits both int and decimal. The reverse widening can
+			// restore fractions through a stale integer cast and therefore must
+			// still pre-drop it.
+			if (
+				(transition.fromType === "int" && transition.toType === "int") ||
+				(transition.fromType === "decimal" &&
+					(transition.toType === "int" || transition.toType === "decimal"))
+			) {
 				continue;
 			}
 			const staleName = indexName(
@@ -1966,7 +2464,7 @@ export class PostgresCaseStore implements CaseStore {
 
 	/**
 	 * Dispatch to the per-row migration matching the `change` shape.
-	 * Three arms: `rename(renames[])`, `retype(fromType, toType)`, and
+	 * Two arms: `retype(fromType, toType)` and
 	 * `narrow-options(removedOptions)`. No arm removes a row — a value
 	 * the new declaration cannot hold PARKS (`parked_case_values`) with
 	 * its key dropped, and the row stays present and writable.
@@ -1978,42 +2476,9 @@ export class PostgresCaseStore implements CaseStore {
 			caseType: string;
 			property: string | undefined;
 			change: SchemaChangeKind;
-			caseTypeDecl: CaseType;
-			/** The stored (pre-sync) schema document — the rename arm reads each SOURCE property's type off it for its parks' `from_type`. */
-			storedSchema: unknown;
 		},
 	): Promise<MigrationReport> {
 		switch (args.change.kind) {
-			case "rename": {
-				// Each DESTINATION declaration's type drives its pair's
-				// per-row cast. A plain rename carried its declaration with
-				// it (identity cast); a merge-rename adopted the surviving
-				// entry's type. An undeclared `data_type` derives a plain
-				// string schema, so it casts as `text`. The SOURCE type
-				// comes off the STORED schema (the declaration the parked
-				// value was last valid under) with the same plain-string
-				// fallback.
-				const storedProps =
-					typeof args.storedSchema === "object" && args.storedSchema !== null
-						? ((args.storedSchema as { properties?: unknown }).properties as
-								| Record<string, unknown>
-								| undefined)
-						: undefined;
-				const renames = args.change.renames.map((pair) => ({
-					from: pair.from,
-					to: pair.to,
-					fromType:
-						dataTypeTokenOf(storedProps?.[pair.from]) ?? ("text" as const),
-					toType:
-						args.caseTypeDecl.properties.find((p) => p.name === pair.to)
-							?.data_type ?? ("text" as const),
-				}));
-				return await this.runRenameMigration(trx, {
-					appId: args.appId,
-					caseType: args.caseType,
-					renames,
-				});
-			}
 			case "retype":
 				return await this.runRetypeMigrations(trx, {
 					appId: args.appId,
@@ -2146,171 +2611,6 @@ export class PostgresCaseStore implements CaseStore {
 			});
 		}
 		return migratedRows.length;
-	}
-
-	/**
-	 * Rename: move each row's values from the old JSONB keys to the
-	 * new ones — ALL pairs applied SIMULTANEOUSLY against the row's
-	 * pre-migration document, so a same-batch swap (A→B while B→A) or
-	 * name-reuse (A→B while a second writer's B→C) lands every value
-	 * at its true destination with no ordering hazard: every old key
-	 * drops first, then each destination fills from the OLD document's
-	 * source value.
-	 *
-	 * Values cast into the DESTINATION declaration. A plain rename
-	 * carries its declaration with it, so the cast is an identity pass
-	 * — but a MERGE-rename (the destination name was already declared;
-	 * the doc layer's cascade drops the old entry and keeps the
-	 * existing declaration) can land a value under a differently-typed
-	 * key, and an uncast move would re-strand the row on the
-	 * destination's `type` keyword — or abort Phase B's typed
-	 * expression index.
-	 *
-	 * Per-pair, per-row rules:
-	 *   - Destination key already holds a non-null value that is NOT
-	 *     itself being renamed away (a merge-rename conflict): the
-	 *     destination value WINS — it already conforms to the
-	 *     surviving declaration — and the old key's displaced value
-	 *     PARKS. Preferring the old value would overwrite schema-valid
-	 *     data with a value that may need a failable cast.
-	 *   - Old key holds JSON `null` or a blank string: the key drops
-	 *     and nothing parks — there is no data to keep, and the KEY
-	 *     must still go (merged-document validation rejects the
-	 *     undeclared key regardless of its value).
-	 *   - Otherwise: `tryCastValue` into the destination type; success
-	 *     writes the cast value under the new key, failure PARKS the
-	 *     value with its old key dropped and records a
-	 *     `failureReasons` entry. Never a row removal: a rename is a
-	 *     first-class conversational/builder gesture, and making an
-	 *     entire case vanish from every list over one uncastable field
-	 *     value is worse than setting that value aside loudly. The row
-	 *     stays present and writable.
-	 */
-	private async runRenameMigration(
-		trx: Transaction<Database>,
-		args: {
-			appId: string;
-			caseType: string;
-			renames: ReadonlyArray<{
-				from: string;
-				to: string;
-				/** The SOURCE property's type in the stored (pre-migration) schema — a park's `from_type`. */
-				fromType: CasePropertyDataType;
-				toType: CasePropertyDataType;
-			}>;
-		},
-	): Promise<MigrationReport> {
-		// Count the full row population first so `migrated` + `skipped`
-		// stay an exact partition. Both queries share the caller's
-		// transaction so no concurrent inserter can land between them.
-		// App-scoped, NOT tenant-scoped: a schema change migrates EVERY
-		// member's rows of the app's case type (a property rename is an
-		// app-wide event, not a per-Project one), so every per-row
-		// migration below filters on `(app_id, case_type)` only — never
-		// `project_id` / `owner_id`. The store is typically a
-		// `withSchemaContext` instance with no bound tenant; binding one
-		// here would wrongly skip co-members' rows.
-		const totalRow = await trx
-			.selectFrom("cases as c")
-			.select((eb) => eb.fn.countAll<string>().as("total"))
-			.where("c.app_id", "=", args.appId)
-			.where("c.case_type", "=", args.caseType)
-			.executeTakeFirstOrThrow();
-		const totalCount = Number(totalRow.total);
-
-		// Only rows holding at least one old key leave Postgres — `?`
-		// tests key presence, so conforming and key-less rows never load
-		// into Node.
-		const rows = await trx
-			.selectFrom("cases as c")
-			.selectAll("c")
-			.where("c.app_id", "=", args.appId)
-			.where("c.case_type", "=", args.caseType)
-			.where((eb) =>
-				eb.or(
-					args.renames.map(
-						(pair) => sql<boolean>`c.properties ? ${sql.lit(pair.from)}`,
-					),
-				),
-			)
-			.execute();
-
-		const fromKeys = new Set(args.renames.map((pair) => pair.from));
-		const migratedRows: { caseId: string; newProperties: JsonObject }[] = [];
-		const parks: ParkEntry[] = [];
-		const failureReasons: string[] = [];
-
-		for (const row of rows) {
-			const old = row.properties;
-			const next: JsonObject = {};
-			for (const [key, value] of Object.entries(old)) {
-				if (!fromKeys.has(key)) next[key] = value;
-			}
-			for (const pair of args.renames) {
-				if (!Object.hasOwn(old, pair.from)) continue;
-				const value = old[pair.from];
-				if (hasNoDataToKeep(value)) {
-					continue; // no data to keep — the key drop above suffices
-				}
-				const destination = old[pair.to];
-				if (
-					destination !== undefined &&
-					destination !== null &&
-					!fromKeys.has(pair.to)
-				) {
-					// Merge-rename conflict — the destination's surviving,
-					// already-conforming value wins; the displaced source
-					// value parks instead of silently vanishing.
-					const reason = `rename ${pair.from}→${pair.to} on case ${row.case_id} kept the destination's existing value; the '${pair.from}' value was set aside`;
-					parks.push({
-						caseId: row.case_id,
-						caseType: row.case_type,
-						property: pair.from,
-						value,
-						reason,
-						fromType: pair.fromType,
-						toType: pair.toType,
-					});
-					failureReasons.push(reason);
-					continue;
-				}
-				const cast = tryCastValue(value, pair.toType);
-				if (cast.ok) {
-					next[pair.to] = cast.value as JsonValue;
-				} else {
-					const reason = `rename ${pair.from}→${pair.to} set aside a value on case ${row.case_id}: it cannot live under the destination's \`${pair.toType}\` declaration: ${cast.reason}`;
-					parks.push({
-						caseId: row.case_id,
-						caseType: row.case_type,
-						property: pair.from,
-						value,
-						reason,
-						fromType: pair.fromType,
-						toType: pair.toType,
-					});
-					failureReasons.push(reason);
-				}
-			}
-			migratedRows.push({ caseId: row.case_id, newProperties: next });
-		}
-
-		if (migratedRows.length > 0) {
-			await this.bulkUpdateProperties(trx, {
-				appId: args.appId,
-				rows: migratedRows,
-			});
-		}
-		const parkedIds = await this.bulkPark(trx, args.appId, parks);
-
-		return {
-			migrated: migratedRows.length,
-			reshaped: 0,
-			retyped: 0,
-			restored: 0,
-			skipped: totalCount - rows.length,
-			parkedIds,
-			failureReasons,
-		};
 	}
 
 	/**
@@ -2696,10 +2996,8 @@ export class PostgresCaseStore implements CaseStore {
 	}
 
 	/**
-	 * Write parked values back under their keys and delete the
-	 * restored entries — the cross-store saga's compensation half for
-	 * a failed blueprint commit (`parkedIds` off the forward apply's
-	 * `MigrationReport`). A restore happens ONLY when it is safe on
+	 * Write parked values back under their keys and delete the restored
+	 * entries. A restore happens ONLY when it is safe on
 	 * every axis, else the entry is KEPT (lossless beats tidy; the
 	 * review surface settles it):
 	 *
@@ -2708,10 +3006,9 @@ export class PostgresCaseStore implements CaseStore {
 	 *     `update()`'s merged write serializes against the restore
 	 *     instead of clobbering it);
 	 *   - the value CONFORMS to the property's declaration in the
-	 *     CURRENTLY-STORED schema row, checked here rather than
-	 *     trusted from the caller — compensation's re-sync can lose a
-	 *     race to a concurrent peer's differently-typed commit (or
-	 *     fail and be swallowed), and an unchecked restore would then
+	 *     CURRENTLY-STORED schema row, checked here rather than trusted from
+	 *     the caller — a concurrent peer can commit a differently typed
+	 *     declaration before restoration, and an unchecked restore would then
 	 *     poison the row against merged-document validation, abort on
 	 *     a live typed expression index, or write an orphan key the
 	 *     write-time shed silently eats. An undeclared property keeps
@@ -2746,8 +3043,8 @@ export class PostgresCaseStore implements CaseStore {
 	}
 
 	/**
-	 * The shared restore core `unparkValues` (the saga's compensation)
-	 * and `restoreParkedValues` (the review surface) both run on their
+	 * The shared restore core `unparkValues` and `restoreParkedValues`
+	 * (the review surface) both run on their
 	 * ALREADY-FETCHED entries: lock the case rows `FOR UPDATE`, prove
 	 * each entry safe (row exists, value conforms to the
 	 * CURRENTLY-stored schema), write the safe values back grouped per
@@ -2757,8 +3054,8 @@ export class PostgresCaseStore implements CaseStore {
 	 * `overwriteExisting` splits the two callers on the one axis where
 	 * they differ: the review's Put back is a HUMAN decision made
 	 * against the whole record, so it writes the original over
-	 * whatever the slot holds; the saga's compensation is automatic
-	 * and never overwrites — an occupied key keeps its entry for
+	 * whatever the slot holds; automatic restoration never overwrites —
+	 * an occupied key keeps its entry for
 	 * review. An overwrite never DESTROYS: when the displaced value
 	 * carries information the original doesn't already contain (it
 	 * isn't equal, and isn't a multi-select subset — the narrow
@@ -3083,10 +3380,11 @@ export class PostgresCaseStore implements CaseStore {
 	 * Build the per-`(caseType, property)` fit classifier both restores
 	 * and the review listing read: it loads the involved types'
 	 * CURRENTLY-STORED schema rows inside the caller's transaction and
-	 * compiles a per-property ajv validator on demand. `"fits"` is the
-	 * only arm a restore proceeds on; `"undeclared"` covers a property
-	 * the schema no longer declares AND an absent or unparseable stored
-	 * schema document (a restore never proceeds on a guess);
+	 * strictly decodes their canonical Nova shape before compiling a
+	 * per-property ajv validator on demand. `"fits"` is the only arm a
+	 * restore proceeds on; `"undeclared"` covers only a property the
+	 * canonical schema no longer declares or an absent schema row;
+	 * malformed stored bytes throw rather than becoming a second format;
 	 * `"blocked"` is a live declaration rejecting the value.
 	 */
 	private async parkedValueFitClassifier(
@@ -3101,7 +3399,7 @@ export class PostgresCaseStore implements CaseStore {
 		) => "fits" | "blocked" | "undeclared";
 		/** The CURRENT declared type token for a property, from the same
 		 *  stored schema the classifier validates against — `undefined`
-		 *  for an undeclared property or an unparseable schema. */
+		 *  only for an undeclared property or absent schema row. */
 		currentTypeOf: (
 			caseType: string,
 			property: string,
@@ -3115,13 +3413,12 @@ export class PostgresCaseStore implements CaseStore {
 			.orderBy("case_type")
 			.forShare()
 			.execute();
-		const propsByType = new Map<string, Record<string, unknown>>();
+		const schemasByType = new Map<string, DecodedStoredCaseSchema>();
 		for (const row of schemaRows) {
-			const stored = row.schema;
-			if (typeof stored !== "object" || stored === null) continue;
-			const props = (stored as { properties?: unknown }).properties;
-			if (typeof props !== "object" || props === null) continue;
-			propsByType.set(row.case_type, props as Record<string, unknown>);
+			schemasByType.set(
+				row.case_type,
+				decodeStoredCaseSchema(appId, row.case_type, row.schema),
+			);
 		}
 		const ajv = new Ajv2020({ strict: false });
 		addFormats(ajv);
@@ -3131,18 +3428,16 @@ export class PostgresCaseStore implements CaseStore {
 				const key = `${caseType}\u0000${property}`;
 				let validate = cache.get(key);
 				if (validate === undefined) {
-					const propSchema = propsByType.get(caseType)?.[property];
-					validate =
-						typeof propSchema === "object" && propSchema !== null
-							? ajv.compile(propSchema)
-							: null;
+					const propSchema =
+						schemasByType.get(caseType)?.schema.properties[property];
+					validate = propSchema === undefined ? null : ajv.compile(propSchema);
 					cache.set(key, validate);
 				}
 				if (validate === null) return "undeclared";
 				return validate(value) === true ? "fits" : "blocked";
 			},
 			currentTypeOf: (caseType, property) =>
-				dataTypeTokenOf(propsByType.get(caseType)?.[property]),
+				schemasByType.get(caseType)?.dataTypes.get(property),
 		};
 	}
 
@@ -3253,12 +3548,12 @@ export class PostgresCaseStore implements CaseStore {
 			return cached;
 		}
 
-		const validate = this.ajv.compile(row.schema as object);
-		const declaredProps = (row.schema as { properties?: object }).properties;
+		const decoded = decodeStoredCaseSchema(appId, caseType, row.schema);
+		const validate = this.ajv.compile(decoded.schema);
 		const entry: ValidatorCacheEntry = {
 			schemaJson,
 			validate,
-			declared: new Set(Object.keys(declaredProps ?? {})),
+			declared: new Set(decoded.dataTypes.keys()),
 		};
 		this.validatorCache.set(cacheKey, entry);
 		return entry;
@@ -3372,7 +3667,7 @@ function stripTenantKey<T extends object>(row: T): Omit<T, "project_id"> {
  * server time. This mirrors CommCare's own case lifecycle — a device sets
  * `date_opened` AND `last_modified` the moment a case is created
  * (`commcare-core .../cases/model/Case.java` constructor), and the casedb
- * exposes both locally with no sync involved — so the standard-name aliases
+ * exposes both locally with no sync involved — so the standard-name projections
  * (`date_opened` → `opened_on`, `last_modified` → `modified_on`) resolve to
  * real values on a freshly registered case, exactly as they would on a
  * device. `update`/`close` keep re-stamping `modified_on` on every write.
@@ -3386,6 +3681,22 @@ function creationStamps(
 		opened_on: row.opened_on ?? sql<Date>`now()`,
 		modified_on: row.modified_on ?? sql<Date>`now()`,
 	};
+}
+
+/**
+ * Normalize a writable case-row scalar exactly as CommCare Core does before
+ * any Postgres write. Java/JavaScript string length is UTF-16 code units.
+ */
+function normalizedCaseScalar(
+	property: "case_name" | "external_id",
+	value: string,
+	blank: "allow" | "reject",
+): string {
+	const prepared = prepareCaseScalarTextValue(value, blank);
+	if (prepared.ok) return prepared.value;
+	throw new Error(
+		`Case scalar "${property}" is ${prepared.reason === "blank" ? "blank after boundary U+0000..U+0020 code units are removed" : "longer than 255 UTF-16 code units"}.`,
+	);
 }
 
 /**
@@ -3486,18 +3797,6 @@ interface PropertyTransitions {
 }
 
 /**
- * Read a property-schema shape back to the `data_type` that emits it —
- * the inverse of `schemaForDataType`, tolerant of the stored side's
- * `unknown`. A select survives only through the generator's
- * `x-novaDataType` annotation (its validation shape is an
- * unconstrained string); an UNANNOTATED bare string reads as `text`,
- * which is ambiguous for schemas stored before the annotation existed
- * — `detectPropertyTransitions` refuses to classify the ambiguous
- * text→single_select pair for exactly that reason. An unrecognized
- * shape returns `undefined` and detection skips the property (fail
- * open — the behavior of nothing stored to diff).
- */
-/**
  * Whether an occupying value carries nothing the restored original
  * doesn't already contain — equal values, or a multi-select occupant
  * that is a subset of the original's selections (the narrow-options
@@ -3512,35 +3811,6 @@ function occupantRedundant(occupant: unknown, original: unknown): boolean {
 		Array.isArray(original) &&
 		occupant.every((element) => original.includes(element))
 	);
-}
-
-function dataTypeTokenOf(
-	propSchema: unknown,
-): CasePropertyDataType | undefined {
-	if (typeof propSchema !== "object" || propSchema === null) return undefined;
-	const { type, format, pattern } = propSchema as {
-		type?: unknown;
-		format?: unknown;
-		pattern?: unknown;
-	};
-	const annotation = (propSchema as Record<string, unknown>)["x-novaDataType"];
-	if (type === "integer") return "int";
-	if (type === "number") return "decimal";
-	if (type === "array") return "multi_select";
-	if (type !== "string") return undefined;
-	if (typeof pattern === "string") return "geopoint";
-	if (format === undefined) {
-		// A select's VALIDATION shape is plain text (no enum — see the
-		// generator's `single_select` arm), so the authored type survives
-		// only through the generator's annotation keyword. A pre-annotation
-		// stored select reads as `text` — the ambiguity the detection
-		// loop's text→single_select skip exists for.
-		return annotation === "single_select" ? "single_select" : "text";
-	}
-	if (format === "date") return "date";
-	if (format === "time") return "time";
-	if (format === "date-time") return "datetime";
-	return undefined;
 }
 
 /**
@@ -3605,52 +3875,42 @@ function castIsIdentityWidening(
  * satisfies the destination schema, so a rewrite would only churn
  * `modified_on`. `text` and `single_select` share one VALIDATION
  * shape but distinct tokens (the generator's `x-novaDataType`
- * annotation, read by `dataTypeTokenOf`), so a select's park
+ * annotation, required by the canonical decoder), so a select's park
  * records its authored type while flips between the two still
  * migrate nothing.
  *
- * `exclude` names the property a caller-intent `retype` /
+ * The stored schema has already passed the exact canonical decoder; malformed
+ * or pre-cutover shapes throw before classification. `exclude` names the
+ * property a caller-intent `retype` /
  * `narrow-options` migration already owns in the same call, so its
  * rows aren't rewritten twice. Matching is same-name only: a rename
  * is indistinguishable from remove+add at this layer and never
  * reports (the rename arm owns its keys — including casting values
  * INTO its destinations — while a merge-rename destination's
  * OWN-population type change still surfaces here as a retype, which
- * runs before the rename arm and composes with its conflict rule). A
- * malformed or absent stored schema yields no transitions — detection
- * fails open to "nothing to migrate".
+ * runs before the rename arm and composes with its conflict rule). An absent
+ * schema row alone yields no transitions because there is no prior population
+ * contract to migrate.
  */
 function detectPropertyTransitions(
-	stored: unknown,
-	next: CaseTypeJsonSchema,
+	stored: DecodedStoredCaseSchema | undefined,
+	next: CaseType,
 	exclude: string | undefined,
 ): PropertyTransitions {
 	const none: PropertyTransitions = { flips: [], retypes: [], widenings: [] };
-	if (typeof stored !== "object" || stored === null) return none;
-	const storedProps = (stored as { properties?: unknown }).properties;
-	if (typeof storedProps !== "object" || storedProps === null) return none;
-	const storedByName = storedProps as Record<string, unknown>;
+	if (stored === undefined) return none;
 
 	const flips: ShapeFlip[] = [];
 	const retypes: DetectedRetype[] = [];
 	const widenings: DetectedRetype[] = [];
-	for (const [name, nextProp] of Object.entries(next.properties)) {
+	for (const nextProperty of next.properties) {
+		const name = nextProperty.name;
+		if (CASE_SCALAR_PROPERTY_NAMES.has(name)) continue;
 		if (name === exclude) continue;
-		const fromType = dataTypeTokenOf(storedByName[name]);
-		const toType = dataTypeTokenOf(nextProp);
-		if (fromType === undefined || toType === undefined) continue;
+		const fromType = stored.dataTypes.get(name);
+		if (fromType === undefined) continue;
+		const toType = nextProperty.data_type ?? "text";
 		if (fromType === toType) continue;
-		// A bare-string stored schema reads as `text` whether it was a
-		// real text property or a select written before the generator's
-		// annotation existed (only the select arm ever writes one), so
-		// a text→single_select diff cannot be trusted as a transition:
-		// classifying it would run the widening auto-restore over every
-		// pre-annotation select on its first post-deploy sync — undoing
-		// deliberate narrow-options flushes. The pair stays unclassified
-		// (parked values there restore by hand, or through the caller-
-		// intent retype scope when a user really converts text→select);
-		// the annotated direction (single_select→…) stays classified.
-		if (fromType === "text" && toType === "single_select") continue;
 		if (castIsIdentityWidening(fromType, toType)) {
 			widenings.push({ property: name, fromType, toType });
 			continue;
@@ -4015,6 +4275,10 @@ export interface DesiredIndex {
 	 */
 	expression: ReturnType<typeof sql>;
 	opclass?: "gin_trgm_ops" | "jsonb_ops";
+	/** Catalog-normalized expression expected after Postgres parses the DDL. */
+	catalogExpression: string;
+	/** Effective opclass, including the default btree opclass. */
+	catalogOpclass: "gin_trgm_ops" | "jsonb_ops" | "int4_ops" | "numeric_ops";
 	/**
 	 * Feeds the partial-index predicate
 	 * `WHERE app_id = ... AND case_type = ...`. The `app_id` scope is
@@ -4049,6 +4313,12 @@ interface LiveIndex {
 	name: string;
 	schema: string;
 	isValid: boolean;
+	isUnique: boolean;
+	keyCount: number;
+	accessMethod: string;
+	opclass: string | null;
+	expression: string | null;
+	predicate: string | null;
 }
 
 /**
@@ -4074,6 +4344,13 @@ function computeDesiredIndexSet(
 	// the composed hash.
 	const sourceProperty = new Map<string, string>();
 	for (const property of properties) {
+		// Explicit standard entries remain useful in the effective catalog for
+		// authoring metadata/order, but their values live in first-class case
+		// columns. A JSONB expression index for one would index a key that no
+		// valid row can carry and would disagree with `caseTypeToJsonSchema`.
+		if (CASE_SCALAR_PROPERTY_NAMES.has(property.name)) {
+			continue;
+		}
 		const entry = desiredIndexForProperty(appId, caseType, property);
 		if (entry === undefined) {
 			continue;
@@ -4093,6 +4370,99 @@ function computeDesiredIndexSet(
 		result.set(entry.name, entry);
 	}
 	return result;
+}
+
+function caseSchemaIndexLockScope(appId: string, caseType: string): string {
+	return `nova:case-schema-index:${JSON.stringify([appId, caseType])}`;
+}
+
+interface DecodedStoredCaseSchema {
+	readonly schema: CaseTypeJsonSchema;
+	readonly dataTypes: ReadonlyMap<string, CasePropertyDataType>;
+}
+
+/**
+ * Decode the one canonical persisted case-schema representation. The frozen
+ * identity migration owns every pre-cutover shape; steady-state readers never
+ * infer, normalize, or skip malformed schema bytes.
+ */
+function decodeStoredCaseSchema(
+	appId: string,
+	caseType: string,
+	stored: unknown,
+): DecodedStoredCaseSchema {
+	if (typeof stored !== "object" || stored === null || Array.isArray(stored)) {
+		throw new Error(
+			`Stored case schema for "${caseType}" in app "${appId}" is not Nova's exact canonical object schema.`,
+		);
+	}
+	const record = stored as Record<string, unknown>;
+	if (
+		record.type !== "object" ||
+		record.additionalProperties !== false ||
+		typeof record.properties !== "object" ||
+		record.properties === null ||
+		Array.isArray(record.properties) ||
+		!isDeepStrictEqual(Object.keys(record).sort(), [
+			"additionalProperties",
+			"properties",
+			"type",
+		])
+	) {
+		throw new Error(
+			`Stored case schema for "${caseType}" in app "${appId}" is not Nova's exact canonical object schema.`,
+		);
+	}
+	const dataTypes = new Map<string, CasePropertyDataType>();
+	for (const [name, propertySchema] of Object.entries(record.properties)) {
+		assertSafeIdentifierFragment(name, "property");
+		if (CASE_SCALAR_PROPERTY_NAMES.has(name)) {
+			throw new Error(
+				`Stored case schema for "${caseType}" in app "${appId}" declares reserved scalar "${name}" as a JSON property.`,
+			);
+		}
+		dataTypes.set(
+			name,
+			strictStoredDataType(appId, caseType, name, propertySchema),
+		);
+	}
+	return {
+		schema: stored as CaseTypeJsonSchema,
+		dataTypes,
+	};
+}
+
+function desiredIndexesFromStoredSchema(
+	appId: string,
+	caseType: string,
+	schema: JsonObject,
+): Map<string, DesiredIndex> {
+	const decoded = decodeStoredCaseSchema(appId, caseType, schema);
+	const declarations: CaseProperty[] = [];
+	for (const [name, dataType] of decoded.dataTypes) {
+		declarations.push({
+			name,
+			label: proseText(name),
+			data_type: dataType,
+		});
+	}
+	return computeDesiredIndexSet(appId, caseType, declarations);
+}
+
+function strictStoredDataType(
+	appId: string,
+	caseType: string,
+	property: string,
+	propertySchema: unknown,
+): CasePropertyDataType {
+	for (const dataType of casePropertyDataTypes) {
+		if (isDeepStrictEqual(propertySchema, schemaForDataType(dataType))) {
+			return dataType;
+		}
+	}
+	throw new Error(
+		`Stored case schema for "${caseType}.${property}" in app "${appId}" has an unknown or noncanonical property declaration.`,
+	);
 }
 
 /**
@@ -4136,6 +4506,8 @@ export function desiredIndexForProperty(
 				// parenthesized.
 				expression: sql`((properties->>${sql.lit(propertyKey)}))`,
 				opclass: "gin_trgm_ops",
+				catalogExpression: `properties->>${postgresCatalogString(propertyKey)}`,
+				catalogOpclass: "gin_trgm_ops",
 				appId,
 				caseType,
 			};
@@ -4163,6 +4535,8 @@ export function desiredIndexForProperty(
 				// the query path reads, so retyping retargets both
 				// surfaces in lockstep.
 				expression: sql`(((properties->>${sql.lit(propertyKey)}))::${sql.raw(cast)})`,
+				catalogExpression: `properties->>${postgresCatalogString(propertyKey)}::${cast}`,
+				catalogOpclass: dataType === "int" ? "int4_ops" : "numeric_ops",
 				appId,
 				caseType,
 			};
@@ -4179,6 +4553,8 @@ export function desiredIndexForProperty(
 				// to a sequential scan.
 				expression: sql`((properties->${sql.lit(propertyKey)}))`,
 				opclass: "jsonb_ops",
+				catalogExpression: `properties->${postgresCatalogString(propertyKey)}`,
+				catalogOpclass: "jsonb_ops",
 				appId,
 				caseType,
 			};
@@ -4381,10 +4757,31 @@ async function readLiveIndexSet(
 		indexname: string;
 		indexschema: string;
 		isvalid: boolean;
-	}>`SELECT c.relname AS indexname, n.nspname AS indexschema, i.indisvalid AS isvalid
+		isunique: boolean;
+		keycount: number;
+		accessmethod: string;
+		opclass: string | null;
+		expression: string | null;
+		predicate: string | null;
+	}>`SELECT
+			c.relname AS indexname,
+			n.nspname AS indexschema,
+			i.indisvalid AS isvalid,
+			i.indisunique AS isunique,
+			i.indnkeyatts AS keycount,
+			am.amname AS accessmethod,
+			(
+				SELECT opc.opcname
+				FROM unnest(i.indclass::oid[]) WITH ORDINALITY AS classes(opclass_oid, position)
+				JOIN pg_opclass AS opc ON opc.oid = classes.opclass_oid
+				WHERE classes.position = 1
+			) AS opclass,
+			pg_get_expr(i.indexprs, i.indrelid, true) AS expression,
+			pg_get_expr(i.indpred, i.indrelid, true) AS predicate
 		FROM pg_index i
 		JOIN pg_class c ON c.oid = i.indexrelid
 		JOIN pg_namespace n ON n.oid = c.relnamespace
+		JOIN pg_am am ON am.oid = c.relam
 		WHERE i.indrelid = to_regclass('cases')
 		  AND c.relname LIKE ${prefix} ESCAPE '\\'`.execute(executor);
 	const live = new Map<string, LiveIndex>();
@@ -4393,6 +4790,12 @@ async function readLiveIndexSet(
 			name: row.indexname,
 			schema: row.indexschema,
 			isValid: row.isvalid,
+			isUnique: row.isunique,
+			keyCount: Number(row.keycount),
+			accessMethod: row.accessmethod,
+			opclass: row.opclass,
+			expression: row.expression,
+			predicate: row.predicate,
 		});
 	}
 	return live;
@@ -4424,9 +4827,8 @@ function diffIndexSets(
 			creates.push(entry);
 			continue;
 		}
-		if (!liveEntry.isValid) {
-			// INVALID artifact from a prior failed CONCURRENTLY build:
-			// drop and recreate.
+		if (!liveIndexMatchesDesired(liveEntry, entry)) {
+			// INVALID or physically wrong same-name artifact: drop and recreate.
 			drops.push(liveEntry);
 			creates.push(entry);
 		}
@@ -4437,6 +4839,33 @@ function diffIndexSets(
 		}
 	}
 	return { creates, drops };
+}
+
+function postgresCatalogString(value: string): string {
+	return `'${value.replaceAll("'", "''")}'`;
+}
+
+function normalizeCatalogSql(value: string): string {
+	return value.replaceAll(/::text\b/g, "").replaceAll(/[()\s"]/g, "");
+}
+
+function liveIndexMatchesDesired(
+	live: LiveIndex,
+	desired: DesiredIndex,
+): boolean {
+	const desiredPredicate = `app_id=${postgresCatalogString(desired.appId)}ANDcase_type=${postgresCatalogString(desired.caseType)}`;
+	return (
+		live.isValid &&
+		!live.isUnique &&
+		live.keyCount === 1 &&
+		live.accessMethod === desired.using &&
+		live.opclass === desired.catalogOpclass &&
+		live.expression !== null &&
+		normalizeCatalogSql(live.expression) ===
+			normalizeCatalogSql(desired.catalogExpression) &&
+		live.predicate !== null &&
+		normalizeCatalogSql(live.predicate) === desiredPredicate
+	);
 }
 
 /**

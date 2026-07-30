@@ -41,7 +41,7 @@ import {
 	type ModuleIconRef,
 } from "./builtinIcons";
 import { type Field, isContainer } from "./fields";
-import { caseListColumnHasRuntimeRole } from "./modules";
+import { caseListColumnIsEmitted } from "./modules";
 import type { Media, MediaAssetId } from "./multimedia";
 import type { Uuid } from "./uuid";
 
@@ -239,7 +239,7 @@ export function* walkAssetRefs(doc: BlueprintDoc): Generator<AssetRef> {
 		}
 		const columns = mod.caseListConfig?.columns ?? [];
 		for (const column of columns) {
-			if (!caseListColumnHasRuntimeRole(column)) continue;
+			if (!caseListColumnIsEmitted(column)) continue;
 			if (column.kind !== "image-map") continue;
 			for (let rowIndex = 0; rowIndex < column.mapping.length; rowIndex++) {
 				const row = column.mapping[rowIndex];
@@ -496,7 +496,7 @@ export function collectAssetRefs(doc: BlueprintDoc): Set<IconRef> {
  * Every asset id PRESENT in the doc — the superset {@link collectAssetRefs} would
  * yield if nothing were render-gated. It adds the one gated slot the gated walk
  * omits: `caseListConfig.icon` / `audioLabel` on NON-`caseListOnly` modules and
- * image-map rows on fully off-screen, unsorted legacy columns. Those don't
+ * image-map rows on fully off-screen, unsorted saved columns. Those don't
  * render today (so the validator/manifest rightly ignore them), but they
  * PERSIST in the doc and {@link remapAssetRefs} rewrites them un-gated — so a
  * move must copy + repoint them too, or making the carrier active later would
@@ -504,7 +504,7 @@ export function collectAssetRefs(doc: BlueprintDoc): Set<IconRef> {
  * index's) collection basis; the gated `collectAssetRefs` stays the emit/
  * validate basis.
  */
-export function collectMovableAssetRefs(doc: BlueprintDoc): Set<IconRef> {
+export function collectAuthoredAssetRefs(doc: BlueprintDoc): Set<IconRef> {
 	const ids = collectAssetRefs(doc);
 	for (const mod of Object.values(doc.modules)) {
 		if (!mod.caseListOnly) {
@@ -526,13 +526,70 @@ export function collectMovableAssetRefs(doc: BlueprintDoc): Set<IconRef> {
  * (non-built-in) refs" idiom shared by the reverse-index sync and the
  * cross-Project move (which copy + re-tenant only real assets; built-ins are
  * shared and row-less, so they must never reach the reverse index or a copy).
- * Built on {@link collectMovableAssetRefs} so a dead-but-present ref is still
+ * Built on {@link collectAuthoredAssetRefs} so a dormant-but-present ref is still
  * indexed (deletion guard) and carried by a move.
  */
 export function collectRealAssetRefs(doc: BlueprintDoc): MediaAssetId[] {
-	return [...collectMovableAssetRefs(doc)].filter(
+	return [...collectAuthoredAssetRefs(doc)].filter(
 		(id): id is MediaAssetId => !isBuiltinIconRef(id),
 	);
+}
+
+/**
+ * Yield every authored reference, including carriers that are currently
+ * dormant and therefore omitted from CommCare emission. This is the canonical
+ * persistence walk used by reverse-index admission, deletion, and Project
+ * moves. The emitted-only {@link walkAssetRefs} remains the manifest/validator
+ * walk.
+ */
+export function* walkAuthoredAssetRefs(doc: BlueprintDoc): Generator<AssetRef> {
+	yield* walkAssetRefs(doc);
+	for (const moduleUuid of doc.moduleOrder) {
+		const mod = doc.modules[moduleUuid];
+		if (!mod) continue;
+		const moduleName = mod.name;
+		if (!mod.caseListOnly) {
+			if (mod.caseListConfig?.icon) {
+				yield {
+					assetId: mod.caseListConfig.icon,
+					slotKind: "image",
+					location: { kind: "case_list_icon", moduleUuid, moduleName },
+				};
+			}
+			if (mod.caseListConfig?.audioLabel) {
+				yield {
+					assetId: mod.caseListConfig.audioLabel,
+					slotKind: "audio",
+					location: {
+						kind: "case_list_audio_label",
+						moduleUuid,
+						moduleName,
+					},
+				};
+			}
+		}
+		for (const column of mod.caseListConfig?.columns ?? []) {
+			if (column.kind !== "image-map" || caseListColumnIsEmitted(column)) {
+				continue;
+			}
+			for (let rowIndex = 0; rowIndex < column.mapping.length; rowIndex++) {
+				const row = column.mapping[rowIndex];
+				yield {
+					assetId: row.assetId,
+					slotKind: "image",
+					location: {
+						kind: "image_map_mapping",
+						moduleUuid,
+						moduleName,
+						columnUuid: column.uuid,
+						columnHeader: column.header,
+						rowIndex,
+						rowValue: row.value,
+					},
+				};
+			}
+		}
+	}
 }
 
 /**

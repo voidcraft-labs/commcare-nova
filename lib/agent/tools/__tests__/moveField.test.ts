@@ -11,14 +11,14 @@
  *     the form's top level;
  *   - every reducer warn-and-skip condition (own-subtree destination)
  *     comes back as a real `{ error }`, never a false success;
- *   - a cross-parent move that collides with a sibling id reports the
- *     reducer's dedup rename.
+ *   - a cross-parent move that collides with a sibling id is refused before
+ *     dispatch; moving never performs a hidden semantic rename.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import type { PreparedMutationCandidate } from "@/lib/doc/commitVerdicts";
 import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
-import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { fallbackProseProjection, proseText } from "@/lib/domain/prose";
 import { makeStubToolContext } from "../../__tests__/fixtures";
@@ -30,7 +30,12 @@ vi.mock("@/lib/db/apps", () => ({
 	completeApp: vi.fn(() => Promise.resolve()),
 }));
 vi.mock("@/lib/db/applyBlueprintChange", () => ({
-	applyBlueprintChange: vi.fn(() => Promise.resolve({ seq: 0 })),
+	applyBlueprintChange: vi.fn(async (args) => {
+		const { commitApplyBlueprintChangeTestBatch } = await import(
+			"@/lib/db/__tests__/applyBlueprintChangeTestWriter"
+		);
+		return commitApplyBlueprintChangeTestBatch(args);
+	}),
 }));
 
 /**
@@ -232,7 +237,7 @@ describe("moveField — parentUuid placement", () => {
 		expect(idsUnder(result.newDoc, uuidOf(doc, "grp"))).toEqual(["golf_two"]);
 	});
 
-	it("reports the reducer's dedup rename when the new level already holds the id", async () => {
+	it("refuses a cross-parent collision instead of silently renaming identity text", async () => {
 		// A top-level twin of a group child — legal (per-level uniqueness),
 		// and the exact collision a cross-parent move must dedup.
 		const twinDoc = buildDoc({
@@ -286,9 +291,11 @@ describe("moveField — parentUuid placement", () => {
 			ctx,
 			twinDoc,
 		);
-		if ("error" in result.result) throw new Error(result.result.error);
-		expect(result.newDoc.fields[nested.uuid]?.id).toBe("dup_2");
-		expect(result.result.message).toContain('Renamed to "dup_2"');
+		expect(result.mutations).toEqual([]);
+		if (!("error" in result.result)) throw new Error("expected error");
+		expect(result.result.error).toContain("same ID");
+		expect(result.result.error).toContain("Rename this field explicitly");
+		expect(result.newDoc).toBe(twinDoc);
 	});
 });
 
@@ -335,9 +342,9 @@ describe("moveField — refusals", () => {
 			appId: "test-app",
 			userId: "user-1",
 			runId: "run-1",
-			recordMutations: vi.fn(async (mutations: Mutation[]) => ({
+			recordMutations: vi.fn(async (prepared: PreparedMutationCandidate) => ({
 				events: [],
-				committedDoc: applyToDoc(peerDoc, mutations),
+				committedDoc: applyToDoc(peerDoc, prepared.mutations),
 			})),
 			recordMutationStages: vi.fn(),
 			recordConversation: vi.fn(),

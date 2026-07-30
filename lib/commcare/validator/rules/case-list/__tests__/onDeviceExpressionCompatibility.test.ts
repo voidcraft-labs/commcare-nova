@@ -16,7 +16,6 @@ import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import {
 	ancestorPath,
 	anyRelationPath,
-	concat,
 	count,
 	eq,
 	exists,
@@ -30,9 +29,8 @@ import {
 	tableColumn,
 	tableLookup,
 	term,
-	unwrapList,
 } from "@/lib/domain/predicate";
-import { classifyError, errorIdentity } from "../../../gate";
+import { classifyError } from "../../../gate";
 import { runValidation } from "../../../runner";
 
 const CODE = "CASE_LIST_EXPRESSION_NOT_ON_DEVICE" as const;
@@ -45,7 +43,7 @@ const standardForm = {
 			kind: "text" as const,
 			id: "case_name",
 			label: "Name",
-			case_property_on: "patient",
+			caseWrite: { caseType: "patient", property: "case_name" },
 		}),
 	],
 };
@@ -84,10 +82,6 @@ const standardCaseTypes = [
 	},
 ];
 
-function listUnwrap() {
-	return unwrapList(term(literal('["north","south"]')));
-}
-
 function childNote() {
 	return term(prop("patient", "note", subcasePath("parent", "visit")));
 }
@@ -100,6 +94,11 @@ interface FixtureArgs {
 }
 
 function errorsFor(args: FixtureArgs) {
+	const columns = [
+		plainColumn(testUuid("column-name"), "case_name", "Name"),
+		...(args.columns ?? []),
+	];
+	const columnOrder = columns.map((column) => column.uuid);
 	const doc = buildDoc({
 		appName: "Clinic",
 		modules: [
@@ -107,12 +106,9 @@ function errorsFor(args: FixtureArgs) {
 				name: "Clients",
 				caseType: "patient",
 				caseListConfig: {
-					columns: [
-						plainColumn(testUuid("column-name"), "case_name", "Name"),
-						...(args.columns ?? []),
-					],
-					listColumnOrder: [testUuid("column-name")],
-					detailColumnOrder: [testUuid("column-name")],
+					columns,
+					listColumnOrder: columnOrder,
+					detailColumnOrder: columnOrder,
 					...(args.filter !== undefined ? { filter: args.filter } : {}),
 					searchInputs: args.searchInputs ?? [],
 				},
@@ -132,24 +128,11 @@ function findingsFor(args: FixtureArgs) {
 }
 
 describe("onDeviceExpressionCompatibility", () => {
-	it("rejects unwrap-list anywhere inside the effective case-list filter", () => {
-		const hits = findingsFor({
-			filter: eq(prop("patient", "tags_json"), listUnwrap()),
-		});
-		expect(hits).toHaveLength(1);
-		expect(hits[0].details).toMatchObject({
-			reason: "unwrap-list",
-			slot: "caseListConfig.filter",
-			surface: "filter",
-		});
-		expect(userFacingError(hits[0])).toContain("Cases available rule");
-	});
-
 	it("checks latent calculated definitions before a visibility toggle can activate them", () => {
 		const columnUuid = testUuid("column-list");
 		const hits = findingsFor({
 			columns: [
-				calculatedColumn(columnUuid, "Saved regions", listUnwrap(), {
+				calculatedColumn(columnUuid, "Saved regions", childNote(), {
 					visibleInList: false,
 					visibleInDetail: false,
 				}),
@@ -238,7 +221,7 @@ describe("onDeviceExpressionCompatibility", () => {
 					"Saved tags",
 					"text",
 					eq(prop("patient", "case_name"), literal("Alice")),
-					{ default: listUnwrap() },
+					{ default: childNote() },
 				),
 			],
 		});
@@ -250,14 +233,6 @@ describe("onDeviceExpressionCompatibility", () => {
 		expect(
 			hits.every((hit) => hit.details?.surface === "search-input-default"),
 		).toBe(true);
-		const moved = {
-			...hits[1],
-			details: {
-				...hits[1].details,
-				slot: "caseListConfig.searchInputs[99].default",
-			},
-		};
-		expect(errorIdentity(moved)).toBe(errorIdentity(hits[1]));
 	});
 
 	it("checks the assigned-cases scalar expression", () => {
@@ -267,57 +242,6 @@ describe("onDeviceExpressionCompatibility", () => {
 		expect(hits).toHaveLength(1);
 		expect(hits[0].details?.surface).toBe("excluded-owner-ids");
 		expect(userFacingError(hits[0])).toContain("assigned cases setting");
-	});
-
-	it("rejects unwrap-list inside the search-button predicate", () => {
-		const hits = findingsFor({
-			caseSearchConfig: {
-				searchButtonDisplayCondition: eq(
-					prop("patient", "tags_json"),
-					listUnwrap(),
-				),
-			},
-		});
-		expect(hits).toHaveLength(1);
-		expect(hits[0].details?.surface).toBe("search-button");
-		expect(userFacingError(hits[0])).toContain("Search button condition");
-	});
-
-	it("preserves genuine server-native unwrap-list in an advanced predicate", () => {
-		const hits = findingsFor({
-			searchInputs: [
-				advancedSearchInputDef(
-					testUuid("input-native"),
-					"tags",
-					"Tags",
-					"text",
-					eq(prop("patient", "tags_json"), listUnwrap()),
-				),
-			],
-		});
-		expect(hits).toEqual([]);
-	});
-
-	it("rejects unwrap-list only when a non-native CSQL value subtree moves on-device", () => {
-		const hits = findingsFor({
-			searchInputs: [
-				advancedSearchInputDef(
-					testUuid("input-runtime"),
-					"tags",
-					"Tags",
-					"text",
-					eq(
-						prop("patient", "tags_json"),
-						concat(term(literal("")), listUnwrap()),
-					),
-				),
-			],
-		});
-		expect(hits).toHaveLength(1);
-		expect(hits[0].details).toMatchObject({
-			reason: "unwrap-list",
-			surface: "advanced-input",
-		});
 	});
 
 	it("leaves relation reads in predicate scopes to the quantifier normalizer", () => {

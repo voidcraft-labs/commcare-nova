@@ -131,11 +131,10 @@ export function useSearchFilter(query: string): SearchResult | null {
 		const visibleFormIds = new Set<string>();
 		const visibleFieldUuids = new Set<string>();
 
-		// DISPLAY order (`sort-by-(order, uuid)`), so `mIdx` / `fIdx` — the keys
-		// the row components (`AppTree` / `ModuleCard` / `FormCard`, which render
-		// from the sorted `useModuleIds` / `useFormIds`) look up as `m${idx}` /
-		// `f${mIdx}_${fIdx}` and `visibleModuleIndices` — align with the rendered
-		// positions, not the `moduleOrder` array order.
+		// Membership-array order, so `mIdx` / `fIdx` — the keys the row components
+		// (`AppTree` / `ModuleCard` / `FormCard`) look up as `m${idx}` /
+		// `f${mIdx}_${fIdx}` and `visibleModuleIndices` — align with rendered
+		// positions.
 		const sortedModules = [...moduleOrder];
 		for (let mIdx = 0; mIdx < sortedModules.length; mIdx++) {
 			const moduleId = sortedModules[mIdx];

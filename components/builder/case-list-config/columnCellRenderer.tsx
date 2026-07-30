@@ -48,7 +48,7 @@ import type {
 	CaseRowWithCalculated,
 } from "@/lib/preview/engine/caseDataBindingTypes";
 import { toDate } from "@/lib/preview/xpath/coerce";
-import { formatCommCareDate } from "@/lib/preview/xpath/dateFormatting";
+import { formatConcreteCommCareDate } from "@/lib/preview/xpath/dateFormatting";
 import { XPathDate } from "@/lib/preview/xpath/types";
 
 /**
@@ -410,9 +410,10 @@ const CALCULATED_DATETIME_FORMAT_OPTIONS: Intl.DateTimeFormatOptions = {
 // ── Runtime-aligned formatters ────────────────────────────────────
 
 /**
- * Parse a stored date and apply the column's authored JavaRosa pattern. A
- * malformed value or unsupported legacy style stays visible as raw data with
- * a plain-language explanation; Preview never substitutes a locale default.
+ * Parse a stored date and apply the column's exact authored JavaRosa pattern.
+ * A malformed value stays visible as raw data with a plain-language
+ * explanation; Preview never substitutes a locale default or resolves the
+ * expression layer's semantic preset names.
  */
 export type PreviewFormattedValue =
 	| {
@@ -447,14 +448,11 @@ export function formatDateForPreview(
 			message: "Showing the original value because it isn’t a valid date",
 		};
 	}
-	const formatted = formatCommCareDate(parsed, pattern);
+	const formatted = formatConcreteCommCareDate(parsed, pattern);
 	if (formatted.kind === "unsupported-pattern") {
-		return {
-			kind: "fallback",
-			text: raw,
-			message:
-				"Showing the original value because Preview can’t use this saved date style",
-		};
+		throw new Error(
+			"Unsupported case-list date pattern reached Preview after document admission.",
+		);
 	}
 	return { kind: "value", text: formatted.text };
 }

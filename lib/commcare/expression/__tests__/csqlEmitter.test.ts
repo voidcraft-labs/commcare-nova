@@ -52,7 +52,6 @@ import {
 	term,
 	today,
 	unowned,
-	unwrapList,
 } from "@/lib/domain/predicate/builders";
 import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
 import { proseText } from "@/lib/domain/prose";
@@ -386,36 +385,6 @@ describe("emitCsqlExpressionSegments — date-add", () => {
 		expect(() => emitCsqlExpressionSegmentsRaw(propertyExpr)).toThrow(
 			/cannot choose between/i,
 		);
-	});
-});
-
-describe("emitCsqlExpressionSegments — unwrap-list", () => {
-	it("emits unwrap-list(<value>) for a property as constant segments", () => {
-		const expr = unwrapList(term(prop("p", "tags")));
-		expect(emitCsqlExpressionSegments(expr)).toEqual([
-			{ kind: "constant", text: "unwrap-list(" },
-			{ kind: "constant", text: "tags" },
-			{ kind: "constant", text: ")" },
-		]);
-	});
-
-	it("single-quotes runtime JSON so its required double quotes remain valid", () => {
-		const expr = unwrapList(term(input(testUuid("selected_values"))));
-		const segments = emitCsqlExpressionSegments(expr);
-		const xpath = `instance('search-input:results')/input/field[@name='selected_values']`;
-		const materialized = materializeSegments(
-			// `quoteRuntimeCsqlValue` is asserted structurally below; this
-			// representative server-side result pins the parser round trip.
-			[{ kind: "constant", text: 'unwrap-list(\'["north","south"]\')' }],
-			new Map(),
-		);
-		expect(materialized).toBe(`unwrap-list('["north","south"]')`);
-		expect(segments).toEqual([
-			{ kind: "constant", text: "unwrap-list(" },
-			...quoteRuntimeCsqlValue(xpath, "single", ["selected_values"]),
-			{ kind: "constant", text: ")" },
-		]);
-		expectCleanCsqlParse(materialized);
 	});
 });
 

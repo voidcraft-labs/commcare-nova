@@ -37,6 +37,20 @@ import {
 /** The reserved first path segment the App setup workspace owns. */
 const APP_SETUP_SEGMENT = "setup";
 
+/**
+ * Retired two-segment authoring URLs. They intentionally neither parse nor
+ * redirect: old bookmarks stop resolving under the direct cutover, while
+ * `cases/{caseId}` remains the distinct record deep link.
+ */
+export function isRetiredAuthoringPath(segments: readonly string[]): boolean {
+	return (
+		segments.length === 2 &&
+		(segments[1] === "cases" ||
+			segments[1] === "search-config" ||
+			segments[1] === "detail-config")
+	);
+}
+
 function isAppSetupSection(value: string): value is AppSetupSection {
 	return (APP_SETUP_SECTIONS as readonly string[]).includes(value);
 }
@@ -272,14 +286,11 @@ export function parsePathToLocation(
 	}
 
 	if (second === "cases") {
-		/* `/cases/{caseId}` remains the running case-record deep link.
-		 * The two-segment `/cases` form is a legacy Results-authoring alias;
-		 * LocationRecoveryEffect replaces it with the canonical `/results`. */
+		/* `/cases/{caseId}` remains the running case-record deep link. The
+		 * retired two-segment `/cases` authoring token does not parse. */
 		if (doc.modules[first] === undefined) return { kind: "home" };
-		if (segments.length === 2) {
-			return { kind: "cases", moduleUuid: first };
-		}
-		/* segments.length >= 3 — the third segment is the caseId,
+		if (segments.length !== 3) return { kind: "home" };
+		/* The third segment is the caseId,
 		 * percent-encoded by `serializePath`. */
 		return {
 			kind: "cases",
@@ -288,16 +299,14 @@ export function parsePathToLocation(
 		};
 	}
 
-	if (second === "search" || second === "search-config") {
-		/* `/search` is canonical; `/search-config` remains a legacy alias.
-		 * The module must exist or the path falls back to home. */
+	if (second === "search") {
+		/* The module must exist or the path falls back to home. */
 		if (doc.modules[first] === undefined) return { kind: "home" };
 		return { kind: "search-config", moduleUuid: first };
 	}
 
-	if (second === "details" || second === "detail-config") {
-		/* `/details` is canonical; `/detail-config` remains a legacy alias.
-		 * This is the third tab of the case workspace. */
+	if (second === "details") {
+		/* This is the third tab of the case workspace. */
 		if (doc.modules[first] === undefined) return { kind: "home" };
 		return { kind: "detail-config", moduleUuid: first };
 	}

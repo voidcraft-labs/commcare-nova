@@ -21,7 +21,6 @@ import {
 	exists,
 	gte,
 	isBlank,
-	isNull,
 	literal,
 	lte,
 	match,
@@ -49,7 +48,7 @@ describe("normalizeRelationPropertyReads", () => {
 	it("rewrites eq with ancestor via on LHS into exists envelope", () => {
 		const result = normalizeRelationPropertyReads(
 			eq(
-				prop("patient", "name", ancestorPath(relationStep("parent"))),
+				prop("patient", "case_name", ancestorPath(relationStep("parent"))),
 				literal("Alice"),
 			),
 		);
@@ -59,24 +58,24 @@ describe("normalizeRelationPropertyReads", () => {
 		expect(result).toEqual(
 			exists(
 				ancestorPath(relationStep("parent")),
-				eq(prop("patient", "name"), literal("Alice")),
+				eq(prop("patient", "case_name"), literal("Alice")),
 			),
 		);
 	});
 
 	it("rewrites is-blank with subcase via on its left operand into exists envelope", () => {
 		const result = normalizeRelationPropertyReads(
-			isBlank(prop("patient", "name", subcasePath("child"))),
+			isBlank(prop("patient", "case_name", subcasePath("child"))),
 		);
 		expect(result).toEqual(
-			exists(subcasePath("child"), isBlank(prop("patient", "name"))),
+			exists(subcasePath("child"), isBlank(prop("patient", "case_name"))),
 		);
 	});
 
 	it("rewrites any-relation via into an OR of direction-specific envelopes", () => {
 		const result = normalizeRelationPropertyReads(
 			eq(
-				prop("household", "name", anyRelationPath("rel", "patient")),
+				prop("household", "case_name", anyRelationPath("rel", "patient")),
 				literal("Alice"),
 			),
 		);
@@ -84,7 +83,7 @@ describe("normalizeRelationPropertyReads", () => {
 		// expands to OR-of-direction-specific envelopes, mirroring
 		// the on-device emitter's any-relation expansion at
 		// `caseListFilterEmitter.ts::emitExistsOrMissing`.
-		const inner = eq(prop("patient", "name"), literal("Alice"));
+		const inner = eq(prop("patient", "case_name"), literal("Alice"));
 		expect(result).toEqual({
 			kind: "or",
 			clauses: [
@@ -96,7 +95,10 @@ describe("normalizeRelationPropertyReads", () => {
 
 	it("resolves an unqualified destination case type from schema context", () => {
 		const result = normalizeRelationPropertyReads(
-			eq(prop("household", "name", subcasePath("parent")), literal("Alice")),
+			eq(
+				prop("household", "case_name", subcasePath("parent")),
+				literal("Alice"),
+			),
 			{
 				caseTypes: [
 					{ name: "household", properties: [] },
@@ -104,7 +106,11 @@ describe("normalizeRelationPropertyReads", () => {
 						name: "patient",
 						parent_type: "household",
 						properties: [
-							{ name: "name", label: proseText("Name"), data_type: "text" },
+							{
+								name: "case_name",
+								label: proseText("Case name"),
+								data_type: "text",
+							},
 						],
 					},
 				],
@@ -113,7 +119,7 @@ describe("normalizeRelationPropertyReads", () => {
 		expect(result).toEqual(
 			exists(
 				subcasePath("parent"),
-				eq(prop("patient", "name"), literal("Alice")),
+				eq(prop("patient", "case_name"), literal("Alice")),
 			),
 		);
 	});
@@ -134,13 +140,6 @@ describe("normalizeRelationPropertyReads", () => {
 		);
 	});
 
-	it("makes a related is-null require an actual related row", () => {
-		const via = subcasePath("parent", "patient");
-		expect(
-			normalizeRelationPropertyReads(isNull(prop("household", "name", via))),
-		).toEqual(exists(via, isNull(prop("patient", "name"))));
-	});
-
 	it("preserves relational reads below non-native scalar expressions", () => {
 		const viaProperty = prop(
 			"household",
@@ -157,7 +156,7 @@ describe("normalizeRelationPropertyReads", () => {
 	it("preserves mixed scopes for on-device and SQL-specific compilation", () => {
 		const predicate = eq(
 			prop("household", "region"),
-			prop("household", "name", subcasePath("parent", "patient")),
+			prop("household", "case_name", subcasePath("parent", "patient")),
 		);
 		expect(normalizeRelationPropertyReads(predicate)).toBe(predicate);
 		expect(() =>
@@ -170,7 +169,7 @@ describe("normalizeRelationPropertyReads", () => {
 	it("keeps same-relation property pairs for on-device but fails closed for CSQL", () => {
 		const via = subcasePath("parent", "patient");
 		const predicate = eq(
-			prop("household", "name", via),
+			prop("household", "case_name", via),
 			prop("household", "nickname", via),
 		);
 		expect(normalizeRelationPropertyReads(predicate)).toBe(predicate);
@@ -208,7 +207,7 @@ describe("normalizeRelationPropertyReads", () => {
 
 	it("is idempotent — second pass produces the same AST", () => {
 		const p = eq(
-			prop("patient", "name", ancestorPath(relationStep("parent"))),
+			prop("patient", "case_name", ancestorPath(relationStep("parent"))),
 			literal("Alice"),
 		);
 		const first = normalizeRelationPropertyReads(p);
@@ -221,7 +220,7 @@ describe("normalizeRelationPropertyReads", () => {
 		// flows through the walker without any transformations. The
 		// output is a fresh allocation so the caller can mutate
 		// either copy without disturbing the other.
-		const p = eq(prop("patient", "name"), literal("Alice"));
+		const p = eq(prop("patient", "case_name"), literal("Alice"));
 		const result = normalizeRelationPropertyReads(p);
 		expect(result).toEqual(p);
 		// Identity-preserving leaf shapes are allowed — the walker
@@ -235,10 +234,10 @@ describe("normalizeRelationPredicateSubjects", () => {
 	it("wraps related match, multi-select, and distance subjects", () => {
 		expect(
 			normalizeRelationPredicateSubjects(
-				match(prop("household", "name", via), "Ali", "starts-with"),
+				match(prop("household", "case_name", via), "Ali", "starts-with"),
 			),
 		).toEqual(
-			exists(via, match(prop("patient", "name"), "Ali", "starts-with")),
+			exists(via, match(prop("patient", "case_name"), "Ali", "starts-with")),
 		);
 		expect(
 			normalizeRelationPredicateSubjects(
@@ -276,7 +275,10 @@ describe("normalizeRelationPredicateSubjects", () => {
 	});
 
 	it("leaves general comparison and between node-set operands authored", () => {
-		const comparison = eq(prop("household", "name", via), literal("Alice"));
+		const comparison = eq(
+			prop("household", "case_name", via),
+			literal("Alice"),
+		);
 		const range = between(prop("household", "age", via), {
 			lower: literal(18),
 			upper: literal(65),

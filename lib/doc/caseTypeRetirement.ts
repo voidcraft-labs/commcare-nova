@@ -24,7 +24,7 @@
  *
  * "References" are the slots that NAME the case type:
  *   - another case-type record declaring it as `parent_type`;
- *   - a field's `case_property_on` (the field writes to it);
+ *   - a field's `caseWrite.caseType` (the field writes to it);
  *   - a typed `case-ref` atom in any XPath or prose slot (the reference-slot
  *     registry enumerates them);
  *   - a predicate/expression AST leaf whose `PropertyRef.caseType` or
@@ -52,11 +52,13 @@ import {
 	caseTypeTargetKey,
 	FORM_REFERENCE_SLOTS,
 	fieldReferenceSlotsFor,
+	isOwnerOnlyCaseSearchConfig,
 	isXPathExpression,
 	MODULE_REFERENCE_SLOTS,
 	type ProseTemplate,
 	readSlotStrings,
 	readSlotValues,
+	searchInputDefault,
 	uuidSchema,
 	xpathRefParts,
 } from "@/lib/domain";
@@ -76,8 +78,8 @@ import {
 // ── Outcome shape ───────────────────────────────────────────────────────
 
 /** A blocked retirement's reference site, rendered for TWO audiences:
- *  `verbose` keeps the wire spelling the SA self-corrects on (the raw
- *  `case_property_on` slot key, the literal `#<type>/…` hashtag);
+ *  `verbose` keeps the canonical machine-facing spelling the SA self-corrects
+ *  on (`caseWrite.caseType`, the literal `#<type>/…` hashtag);
  *  `concise` is the jargon-free line the builder toast shows. Equal for
  *  sites that never carried wire vocabulary (the case type name itself is
  *  a user concept). */
@@ -278,7 +280,7 @@ function userBlockedRetirementMessage(
  * The carriers come from ONE reference-index lookup on the case type's
  * name — never a doc walk. The index's `t:` bucket holds exactly the
  * type-NAMING reference classes this planner adjudicates (a field's
- * `case_property_on`, typed XPath/prose case atoms, AST origin types and
+ * `caseWrite.caseType`, typed XPath/prose case atoms, AST origin types and
  * relation-walk hints) and deliberately excludes contextual shapes that follow
  * a module's current type (column `field`s, simple search-input properties). The
  * per-entity collectors below then re-derive each carrier's
@@ -383,16 +385,15 @@ interface FormPosition {
 	formIndex: number;
 }
 
-/** Sorted-position lookups built ONCE per scan and threaded through every
- *  `placeCarrier` call, so a heavily-referenced type doesn't re-sort the whole
- *  module list (and each module's forms) per referencing carrier. */
+/** Sequence-position lookups built once per scan and threaded through every
+ * `placeCarrier` call. */
 interface CarrierScanIndex {
 	moduleIndex: ReadonlyMap<Uuid, number>;
 	formPosition: ReadonlyMap<Uuid, FormPosition>;
 }
 
-/** Walk the sorted module + form sequences ONCE, indexing every module's and
- *  form's DISPLAY position (`sort-by-(order, uuid)`). */
+/** Walk the module + form membership sequences once, indexing every display
+ * position. */
 function buildCarrierScanIndex(doc: BlueprintDoc): CarrierScanIndex {
 	const moduleIndex = new Map<Uuid, number>();
 	const formPosition = new Map<Uuid, FormPosition>();
@@ -432,9 +433,8 @@ function placeCarrier(
 		};
 	}
 	if (doc.fields[uuid]) {
-		// Climb to the containing form collecting each level's DISPLAY (sorted)
-		// sibling index — the depth-first rank within the form. Sequence is
-		// `sort-by-(order, uuid)`, not array position.
+		// Climb to the containing form collecting each level's membership-array
+		// sibling index — the depth-first display rank within the form.
 		const childIndices: number[] = [];
 		let cursor: Uuid = uuid;
 		const seen = new Set<Uuid>();
@@ -473,7 +473,7 @@ function collectFieldReferences(
 				for (const entry of readSlotStrings(field, slot.path)) {
 					if (entry.text === caseType) {
 						out.push({
-							verbose: `field "${field.id}" in ${where} saves to it (case_property_on)`,
+							verbose: `field "${field.id}" in ${where} saves to it (caseWrite.caseType)`,
 							concise: `field "${field.id}" in ${where} saves to it`,
 						});
 					}
@@ -739,9 +739,10 @@ function collectModuleConfigReferences(
 			}
 			case "search_input_default": {
 				for (const input of list?.searchInputs ?? []) {
+					const defaultValue = searchInputDefault(input);
 					if (
-						input.default !== undefined &&
-						expressionRefsCaseType(input.default, caseType)
+						defaultValue !== undefined &&
+						expressionRefsCaseType(defaultValue, caseType)
 					) {
 						out.push({
 							verbose: `${inputName(input.name)} defaults from a "${caseType}" property`,
@@ -767,7 +768,9 @@ function collectModuleConfigReferences(
 			}
 			case "search_button_display_condition": {
 				if (
-					search?.searchButtonDisplayCondition &&
+					search !== undefined &&
+					!isOwnerOnlyCaseSearchConfig(search) &&
+					search.searchButtonDisplayCondition &&
 					predicateRefsCaseType(search.searchButtonDisplayCondition, caseType)
 				) {
 					out.push({

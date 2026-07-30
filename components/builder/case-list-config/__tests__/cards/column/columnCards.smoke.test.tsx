@@ -5,8 +5,8 @@
 // Table-driven smoke + round-trip test for every column card in
 // the registry. Two invariants pinned here:
 //
-//   1. Every kind's `defaultValue(ctx)` factory produces a Column
-//      that round-trips through `columnSchema.parse`. The schema
+//   1. Every kind available in this complete context produces a
+//      Column that round-trips through `columnSchema.parse`. The schema
 //      is the structural contract every wire emitter trusts;
 //      defaults that fail to parse would surface only at save
 //      time and break the editor's "what you author is what gets
@@ -29,7 +29,7 @@ import {
 const PATIENT: CaseType = {
 	name: "patient",
 	properties: [
-		{ name: "name", label: proseText("Name"), data_type: "text" },
+		{ name: "case_name", label: proseText("Name"), data_type: "text" },
 		{ name: "age", label: proseText("Age"), data_type: "int" },
 		{ name: "weight", label: proseText("Weight"), data_type: "decimal" },
 		{ name: "dob", label: proseText("Date of birth"), data_type: "date" },
@@ -67,6 +67,8 @@ describe("column cards smoke — defaultValue parses through columnSchema", () =
 	for (const kind of allKinds) {
 		it(`${kind}: default value is parseable`, () => {
 			const value = columnCardSchemas[kind].defaultValue(ctx);
+			expect(value).toBeDefined();
+			if (value === undefined) throw new Error(`expected ${kind} seed`);
 			expect(() => columnSchema.parse(value)).not.toThrow();
 			expect(value.kind).toBe(kind);
 		});
@@ -77,6 +79,8 @@ describe("column cards smoke — mount via ColumnEditor", () => {
 	for (const kind of allKinds) {
 		it(`${kind}: mounts inside ColumnEditor`, () => {
 			const value = columnCardSchemas[kind].defaultValue(ctx);
+			expect(value).toBeDefined();
+			if (value === undefined) throw new Error(`expected ${kind} seed`);
 			const { container } = render(
 				<ColumnEditor
 					value={value}

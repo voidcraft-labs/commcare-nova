@@ -107,7 +107,7 @@ describe("buildXForm — lookup-backed select itemset", () => {
 
 		const [itemset] = directChildren(select, "itemset");
 		const nodeset = getAttributeValue(itemset, "nodeset");
-		expect(nodeset).toBe("instance('item-list:regions')/regions_list/regions");
+		expect(nodeset).toBe("instance('regions')/regions_list/regions");
 		expect(nodeset).not.toContain("[");
 		expect(getAttributeValue(directChildren(itemset, "label")[0], "ref")).toBe(
 			"label",
@@ -126,7 +126,7 @@ describe("buildXForm — lookup-backed select itemset", () => {
 		});
 
 		const fixtureInstances = allNamed(xml, "instance").filter(
-			(instance) => getAttributeValue(instance, "id") === "item-list:regions",
+			(instance) => getAttributeValue(instance, "id") === "regions",
 		);
 		expect(fixtureInstances).toHaveLength(1);
 		expect(getAttributeValue(fixtureInstances[0], "src")).toBe(
@@ -211,7 +211,7 @@ describe("buildXForm — lookup itemset filters", () => {
 		});
 		const [itemset] = allNamed(xml, "itemset");
 		expect(getAttributeValue(itemset, "nodeset")).toBe(
-			"instance('item-list:regions')/regions_list/regions[value = /data/province]",
+			"instance('regions')/regions_list/regions[value = /data/province]",
 		);
 		/* The predicated nodeset must satisfy the itemset oracle contract —
 		 * predicates are allowed in the nodeset, and only there. */
@@ -270,7 +270,7 @@ describe("buildXForm — lookup itemset filters", () => {
 		});
 		const [itemset] = allNamed(xml, "itemset");
 		expect(getAttributeValue(itemset, "nodeset")).toBe(
-			"instance('item-list:regions')/regions_list/regions[value = current()/../zone]",
+			"instance('regions')/regions_list/regions[value = current()/../zone]",
 		);
 	});
 
@@ -284,7 +284,7 @@ describe("buildXForm — lookup itemset filters", () => {
 		});
 		const [itemset] = allNamed(xml, "itemset");
 		expect(getAttributeValue(itemset, "nodeset")).toBe(
-			"instance('item-list:regions')/regions_list/regions[value = instance('commcaresession')/session/user/data/region]",
+			"instance('regions')/regions_list/regions[value = instance('commcaresession')/session/user/data/region]",
 		);
 		const sessionInstances = allNamed(xml, "instance").filter(
 			(instance) => getAttributeValue(instance, "id") === "commcaresession",

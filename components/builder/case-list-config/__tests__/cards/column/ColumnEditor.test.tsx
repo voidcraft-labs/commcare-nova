@@ -44,7 +44,7 @@ import { ColumnEditor } from "../../../ColumnEditor";
 const PATIENT: CaseType = {
 	name: "patient",
 	properties: [
-		{ name: "name", label: proseText("Name"), data_type: "text" },
+		{ name: "case_name", label: proseText("Name"), data_type: "text" },
 		{ name: "phone", label: proseText("Phone"), data_type: "text" },
 		{ name: "dob", label: proseText("Date of birth"), data_type: "date" },
 		{ name: "last_seen", label: proseText("Last seen"), data_type: "datetime" },
@@ -85,7 +85,7 @@ describe("ColumnEditor — applicability errors", () => {
 	it("uses the inspector's readable section, label, and control hierarchy", () => {
 		render(
 			<ColumnEditor
-				value={plainColumn(TEST_UUID, "name", "Patient")}
+				value={plainColumn(TEST_UUID, "case_name", "Patient")}
 				onChange={() => {}}
 				caseTypes={[PATIENT]}
 				currentCaseType="patient"
@@ -106,7 +106,7 @@ describe("ColumnEditor — applicability errors", () => {
 	it("shows an inherited property label as the input's effective value", () => {
 		render(
 			<ColumnEditor
-				value={plainColumn(TEST_UUID, "name", "")}
+				value={plainColumn(TEST_UUID, "case_name", "")}
 				onChange={() => {}}
 				caseTypes={[PATIENT]}
 				currentCaseType="patient"
@@ -114,7 +114,7 @@ describe("ColumnEditor — applicability errors", () => {
 		);
 
 		const input = screen.getByLabelText("Display label") as HTMLInputElement;
-		expect(input.value).toBe("Case name");
+		expect(input.value).toBe("Name");
 		expect(input.placeholder).toBe("");
 		expect(screen.getByText("Uses information label")).toBeDefined();
 	});
@@ -135,10 +135,10 @@ describe("ColumnEditor — applicability errors", () => {
 		expect(screen.getByText("Default")).toBeDefined();
 	});
 
-	it("names a legacy case-name reference with Nova's canonical label", () => {
+	it("names the canonical case-name property with its authored label", () => {
 		render(
 			<ColumnEditor
-				value={plainColumn(TEST_UUID, "name", "Patient")}
+				value={plainColumn(TEST_UUID, "case_name", "Patient")}
 				onChange={() => {}}
 				caseTypes={[PATIENT]}
 				currentCaseType="patient"
@@ -146,7 +146,7 @@ describe("ColumnEditor — applicability errors", () => {
 		);
 
 		expect(
-			screen.getByRole("button", { name: "Information from: Case name" }),
+			screen.getByRole("button", { name: "Information from: Name" }),
 		).toBeDefined();
 		expect(screen.queryByText("name")).toBeNull();
 	});
@@ -242,20 +242,14 @@ describe("ColumnEditor — applicability errors", () => {
 		expect(screen.queryByText("clinic-code")).toBeNull();
 	});
 
-	it("offers one friendly choice for each CCHQ system alias", () => {
+	it("offers friendly choices for the exact standard properties", () => {
 		const caseType: CaseType = {
 			name: "patient",
 			properties: [
 				{ name: "case_name", label: proseText("case_name"), data_type: "text" },
-				{ name: "name", label: proseText("name"), data_type: "text" },
 				{
 					name: "external_id",
 					label: proseText("external_id"),
-					data_type: "text",
-				},
-				{
-					name: "external-id",
-					label: proseText("external-id"),
 					data_type: "text",
 				},
 				{ name: "status", label: proseText("status"), data_type: "text" },
@@ -285,14 +279,13 @@ describe("ColumnEditor — applicability errors", () => {
 				name: /^Case status \(open or closed\)\s+Text$/,
 			}),
 		).toBeDefined();
-		expect(screen.queryByText("external-id")).toBeNull();
 	});
 
 	it("keeps incompatible display choices visible but disabled with a reason", () => {
 		const onChange = vi.fn();
 		render(
 			<ColumnEditor
-				value={plainColumn(TEST_UUID, "name", "Patient")}
+				value={plainColumn(TEST_UUID, "case_name", "Patient")}
 				onChange={onChange}
 				caseTypes={[PATIENT]}
 				currentCaseType="patient"
@@ -313,11 +306,37 @@ describe("ColumnEditor — applicability errors", () => {
 		expect(onChange).not.toHaveBeenCalled();
 	});
 
+	it("does not offer an unbound field display from a calculated column", () => {
+		const onChange = vi.fn();
+		render(
+			<ColumnEditor
+				value={calculatedColumn(TEST_UUID, "Computed", term(literal("Ready")))}
+				onChange={onChange}
+				caseTypes={[{ name: "patient", properties: [] }]}
+				currentCaseType="patient"
+			/>,
+		);
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "Display as: Calculated" }),
+		);
+		const textChoice = screen.getByRole("menuitem", {
+			name: /text.*choose different information/i,
+		});
+		const dateChoice = screen.getByRole("menuitem", {
+			name: /date.*choose date or date-and-time information/i,
+		});
+		expect(textChoice.getAttribute("aria-disabled")).toBe("true");
+		expect(dateChoice.getAttribute("aria-disabled")).toBe("true");
+		fireEvent.click(textChoice);
+		expect(onChange).not.toHaveBeenCalled();
+	});
+
 	it("reports invalid + surfaces inline error for Interval (flag) on a text property", async () => {
 		const onValidityChange = vi.fn();
 		const value = intervalColumn(
 			TEST_UUID,
-			"name",
+			"case_name",
 			"Header",
 			7,
 			"days",
@@ -344,7 +363,7 @@ describe("ColumnEditor — applicability errors", () => {
 
 	it("reports invalid + surfaces inline error for Date on a text property", async () => {
 		const onValidityChange = vi.fn();
-		const value = dateColumn(TEST_UUID, "name", "Header", "%Y-%m-%d");
+		const value = dateColumn(TEST_UUID, "case_name", "Header", "%Y-%m-%d");
 		const { container } = render(
 			<ColumnEditor
 				value={value}
@@ -403,7 +422,7 @@ describe("ColumnEditor — applicability errors", () => {
 		const onValidityChange = vi.fn();
 		const value = intervalColumn(
 			TEST_UUID,
-			"name",
+			"case_name",
 			"Header",
 			7,
 			"days",
@@ -475,35 +494,6 @@ describe("ColumnEditor — applicability errors", () => {
 		// case-type with properties that wouldn't fit a non-calc kind.
 		const onValidityChange = vi.fn();
 		const value = calculatedColumn(TEST_UUID, "Computed", term(literal("hi")));
-		render(
-			<ColumnEditor
-				value={value}
-				onChange={() => {}}
-				caseTypes={[PATIENT]}
-				currentCaseType="patient"
-				onValidityChange={onValidityChange}
-			/>,
-		);
-		await waitFor(() => {
-			expect(onValidityChange).toHaveBeenLastCalledWith(true);
-		});
-	});
-
-	it("stays permissive while the field is unset (empty string)", async () => {
-		// An empty `field` slot means "no property selected yet" —
-		// the kind picker should stay permissive so the user can
-		// finish authoring. The editor reports valid until a
-		// concrete property is chosen.
-		const onValidityChange = vi.fn();
-		const value = intervalColumn(
-			TEST_UUID,
-			"",
-			"Header",
-			7,
-			"days",
-			"flag",
-			"Overdue",
-		);
 		render(
 			<ColumnEditor
 				value={value}

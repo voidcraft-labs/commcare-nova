@@ -4,7 +4,7 @@
  * The most complex of the field-edit tools: a single call can carry a
  * kind conversion, an id change, AND a scalar-property patch. Kind
  * conversion remains its dedicated mutation; every field property,
- * including `id` and `case_property_on`, lands in one post-conversion
+ * including `id` and `caseWrite`, lands in one post-conversion
  * `updateField` patch so the reducer sees the complete semantic edit
  * atomically. Both the SA chat factory and the MCP adapter call this
  * through the shared `ToolExecutionContext` interface.
@@ -28,7 +28,7 @@
  *      before ANY stage builds) → `{ error }`, nothing persisted.
  *   3. Illegal kind conversion (target not in the source kind's
  *      `convertTargets`), or a conversion into a select kind without
- *      the `options` the destination schema requires (they must ride
+ *      the `optionsSource` the destination schema requires (it must ride
  *      the same call — the seed travels on the `convertField` mutation
  *      itself) → `{ error }`, no mutations.
  *   4. A failable conversion (`plan.dataLossRisk`) whose counted
@@ -63,6 +63,7 @@ import type {
 import {
 	convertNeedsOptionSeed,
 	fallbackProseProjection,
+	findAuthoredBlueprintIdentity,
 	getConvertibleTypes,
 } from "@/lib/domain";
 import { updateFieldMutations } from "../blueprintHelpers";
@@ -80,6 +81,7 @@ import {
 	fieldAddressSchema,
 	resolveFieldAddress,
 } from "./shared/entityAddresses";
+import type { CreatedOptionIdentity } from "./shared/fieldAssembly";
 import type {
 	MutationSuccess,
 	ToolCallSummary,
@@ -105,7 +107,7 @@ export type EditFieldInput = z.infer<typeof editFieldInputSchema>;
  *  the counts state what the conversion would set aside, and the same call
  *  with `confirmConversion: true` proceeds. */
 export type EditFieldResult =
-	| MutationSuccess
+	| (MutationSuccess & { options?: CreatedOptionIdentity[] })
 	| { error: string }
 	| {
 			needsConfirmation: {
@@ -128,9 +130,9 @@ export type EditFieldResult =
 /**
  * Coerce the property-patch portion of an `editField` call into the
  * reducer's field-patch shape. `kind` alone lands via its dedicated
- * `convertField` mutation. `id` remains in this patch alongside
- * `case_property_on`, allowing the reducer to distinguish a same-property
- * rename from a writer retarget without reconstructing caller intent.
+ * `convertField` mutation. `id` and `caseWrite` remain independent slots:
+ * changing the form-local id never renames a case property, while setting or
+ * clearing `caseWrite` retargets only this writer.
  *
  * Every clearable key in the edit schema is `.nullable().optional()`:
  *   - absent  → leave the current value alone (key omitted from the
@@ -146,10 +148,13 @@ type EditUpdatesPatch = Omit<z.infer<typeof editFieldUpdatesSchema>, "kind">;
 
 function editPatchToFieldPatch(
 	updates: EditUpdatesPatch,
+	preparedOptionsSource: SelectOptionsSource | undefined,
 ): FieldPatchFor<FieldKind> {
 	const patch: Record<string, unknown> = {};
-	// SA/MCP sends the exact stored structure. A value sets the property,
-	// `null` clears it, and omission leaves it unchanged.
+	// Scalar SA/MCP values already use stored structures. A value sets the
+	// property, `null` clears it, and omission leaves it unchanged. The
+	// projected options source is the one exception, supplied separately after
+	// its identity bridge.
 	const scalarKeys = [
 		"id",
 		"label",
@@ -159,7 +164,7 @@ function editPatchToFieldPatch(
 		"relevant",
 		"calculate",
 		"default_value",
-		"case_property_on",
+		"caseWrite",
 	] as const;
 	for (const key of scalarKeys) {
 		const value = updates[key];
@@ -167,9 +172,12 @@ function editPatchToFieldPatch(
 		patch[key] = value;
 	}
 	if (updates.optionsSource !== undefined) {
-		// Source replacement is atomic. The tool's `optionUuid` creation slots
-		// become required stored `uuid`s before the mutation is built.
-		patch.optionsSource = prepareToolOptionsSource(updates.optionsSource);
+		if (preparedOptionsSource === undefined) {
+			throw new Error("Prepared select-source identity projection is missing.");
+		}
+		// Source replacement is atomic. The one boundary bridge already mapped
+		// every `optionUuid` creation slot before collision/admission.
+		patch.optionsSource = preparedOptionsSource;
 	}
 	// Nested `validate: { expr, msg? }` config. SA passes:
 	//   - object → replace; flatten back to schema's `validate` +
@@ -202,7 +210,7 @@ function editPatchToFieldPatch(
 
 export const editFieldTool = {
 	description:
-		"Update a field. Pass its current kind to edit in place, or a different kind to convert it. A value sets a property, null REMOVES it, leaving it out keeps it. An id change keeps UUID-backed field references attached; when case_property_on stays the same, it also renames that case property and its peer writers. A conversion that would set saved case values aside returns needsConfirmation instead of converting — relay it and re-call with confirmConversion: true once the user agrees.",
+		"Update a field. Pass its current kind to edit in place, or a different kind to convert it. A value sets a property, null REMOVES it, leaving it out keeps it. `id` is the form-local question name used in friendly XPath; changing it keeps UUID-backed references attached and never renames case data. Set `caseWrite` to a complete {caseType, property} pair to retarget this writer, or null to stop this field from writing a case property. A conversion that would set saved case values aside returns needsConfirmation instead of converting — relay it and re-call with confirmConversion: true once the user agrees.",
 	inputSchema: editFieldInputSchema,
 	async execute(
 		input: EditFieldInput,
@@ -223,6 +231,42 @@ export const editFieldTool = {
 			const currentId = resolved.field.id;
 
 			const { id: newId, kind: newKind, ...fieldUpdates } = updates;
+			const preparedOptionsSource =
+				fieldUpdates.optionsSource === undefined
+					? undefined
+					: prepareToolOptionsSource(fieldUpdates.optionsSource);
+
+			// Replacement options may preserve identities already owned by this
+			// field, but may not capture another authored object's UUID or repeat
+			// one UUID inside the source. Admission runs on the prepared stored
+			// shape, after the one optionUuid -> uuid bridge and before any
+			// conversion or mutation is planned.
+			if (preparedOptionsSource?.kind === "inline") {
+				const ownOptionUuids = new Set(
+					"optionsSource" in resolved.field &&
+						resolved.field.optionsSource.kind === "inline"
+						? resolved.field.optionsSource.options.map((option) => option.uuid)
+						: [],
+				);
+				const seen = new Set<Uuid>();
+				for (const option of preparedOptionsSource.options) {
+					const existing = findAuthoredBlueprintIdentity(doc, option.uuid);
+					if (
+						seen.has(option.uuid) ||
+						(existing !== undefined && !ownOptionUuids.has(option.uuid))
+					) {
+						return {
+							kind: "mutate" as const,
+							mutations: [],
+							newDoc: doc,
+							result: {
+								error: `Option UUID ${option.uuid} is duplicated in this call or already belongs to another authored object.`,
+							},
+						};
+					}
+					seen.add(option.uuid);
+				}
+			}
 
 			// Candidate doc walks forward through each stage's batch so the
 			// next stage builds against prior changes — locally only; nothing
@@ -239,12 +283,15 @@ export const editFieldTool = {
 			// (sibling scope and id format don't depend on the kind, so
 			// checking against the pre-convert doc is equivalent). The shared
 			// verdict (`lib/doc/identifierVerdicts.ts`) covers XML-name
-			// legality, the reserved `__nova_` prefix, the case-property
-			// length cap, and the peer-aware sibling-conflict scan — the same
-			// rules the UI commit guard applies, with the validator's
+			// legality, the reserved `__nova_` prefix, and the sibling-conflict
+			// scan — the same rules the UI commit guard applies, with the validator's
 			// DUPLICATE_FIELD_ID / INVALID_FIELD_ID rules as backstops.
 			if (newId && newId !== currentId) {
-				const verdict = renameFieldIdVerdict({ doc, fieldUuid, newId });
+				const verdict = renameFieldIdVerdict({
+					doc,
+					fieldUuid,
+					newId,
+				});
 				if (!verdict.ok) {
 					return {
 						kind: "mutate" as const,
@@ -301,12 +348,11 @@ export const editFieldTool = {
 				// here, at the batch-building layer) and dropped from the
 				// later scalar-patch stage. Kinds that already carry options
 				// (single ↔ multi) keep the existing behavior: options
-				// transfer verbatim in the reducer, and a same-call `options`
+				// transfer verbatim in the reducer, and a same-call `optionsSource`
 				// patch reconciles uuid identity in the patch stage.
 				let selectSource: SelectOptionsSource | undefined;
 				if (convertNeedsOptionSeed(resolved.field, newKind)) {
-					const seedInput = fieldUpdates.optionsSource;
-					if (!seedInput) {
+					if (!preparedOptionsSource) {
 						return {
 							kind: "mutate" as const,
 							mutations: [],
@@ -316,7 +362,7 @@ export const editFieldTool = {
 							},
 						};
 					}
-					selectSource = prepareToolOptionsSource(seedInput);
+					selectSource = preparedOptionsSource;
 					// Consumed by the convert — the patch stage must not apply
 					// it a second time against the already-seeded options.
 					delete fieldUpdates.optionsSource;
@@ -327,29 +373,15 @@ export const editFieldTool = {
 				// the same batch and re-declares a stale declared data_type —
 				// one field at a time can never cross the agreement gate. The
 				// plan must see the binding as THIS CALL leaves it: a
-				// same-call `case_property_on` change (retarget or null-clear)
+				// same-call `caseWrite` change (retarget or null-clear)
 				// must not cascade a binding the field is leaving.
-				const nextBinding = fieldUpdates.case_property_on;
-				const currentBinding =
-					"case_property_on" in resolved.field
-						? resolved.field.case_property_on
-						: undefined;
-				const retargetsBinding =
-					nextBinding !== undefined && nextBinding !== currentBinding;
-				const planField =
-					nextBinding === undefined && !retargetsBinding
-						? resolved.field
-						: ({
-								...resolved.field,
-								// Conversion executes before the property patch. For a
-								// same-binding ID change, plan against the old property:
-								// its existing rows and peer writers are what convert,
-								// then the updateField cascade renames that complete pair.
-								// A retarget instead joins the call's final pair, so plan
-								// against the final ID there.
-								...(retargetsBinding && newId !== undefined && { id: newId }),
-								case_property_on: nextBinding ?? undefined,
-							} as Field);
+				const changesCaseWrite = Object.hasOwn(fieldUpdates, "caseWrite");
+				const planField = changesCaseWrite
+					? ({
+							...resolved.field,
+							caseWrite: fieldUpdates.caseWrite ?? undefined,
+						} as Field)
+					: resolved.field;
 				const plan = planKindConversion({
 					doc: workingDoc,
 					field: planField,
@@ -507,11 +539,9 @@ export const editFieldTool = {
 				};
 			}
 
-			// Every property, including an ID change, lands in ONE final
-			// updateField patch. Keeping `id` and `case_property_on` together
-			// lets the reducer apply exactly one semantic rule: an unchanged
-			// binding renames the case property; a changed/cleared binding
-			// retargets this writer and does not rewrite the old property.
+			// Every property, including an id change and a case destination,
+			// lands in ONE final updateField patch. They remain independent:
+			// id is form-local identity text; caseWrite retargets this writer.
 			const propertyUpdates: EditUpdatesPatch = {
 				...fieldUpdates,
 				...(newId !== undefined &&
@@ -520,15 +550,24 @@ export const editFieldTool = {
 					}),
 			};
 			if (Object.keys(propertyUpdates).length > 0) {
-				const patch = editPatchToFieldPatch(propertyUpdates);
+				const patch = editPatchToFieldPatch(
+					propertyUpdates,
+					preparedOptionsSource,
+				);
 				if (Object.keys(patch).length > 0) {
-					// Declaration chokepoint: a patch RE-TARGETING `case_property_on`
+					// Declaration chokepoint: a patch RE-TARGETING `caseWrite`
 					// to a type absent from the catalog declares it FIRST (a stage of
 					// its own, so the type exists before the field's catalog sync
 					// runs) — the reducer no longer auto-creates the type.
-					const nextType = (patch as { case_property_on?: unknown })
-						.case_property_on;
-					if (typeof nextType === "string" && nextType.length > 0) {
+					const nextWrite = (patch as { caseWrite?: unknown }).caseWrite;
+					const nextType =
+						typeof nextWrite === "object" &&
+						nextWrite !== null &&
+						"caseType" in nextWrite &&
+						typeof nextWrite.caseType === "string"
+							? nextWrite.caseType
+							: undefined;
+					if (nextType !== undefined && nextType.length > 0) {
 						const declMuts = declareCaseTypeMutations(workingDoc, nextType);
 						if (declMuts.length > 0) {
 							workingDoc = applyToDoc(workingDoc, declMuts);
@@ -613,6 +652,12 @@ export const editFieldTool = {
 				newDoc: commit.newDoc,
 				result: {
 					message: `Successfully updated "${finalId}"${renameNote} in "${formName}". ${changeNote} Current label: "${label}", kind: ${kind}.${conversionNote}`,
+					...(preparedOptionsSource?.kind === "inline" && {
+						options: preparedOptionsSource.options.map((option) => ({
+							uuid: option.uuid,
+							value: option.value,
+						})),
+					}),
 					summary: {
 						location: formName,
 						subject: label || finalId,

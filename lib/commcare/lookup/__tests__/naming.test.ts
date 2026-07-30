@@ -3,8 +3,8 @@ import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import type { LookupRevision, LookupTableDefinition } from "@/lib/lookup/types";
 import {
 	inertLookupWireNaming,
-	lookupFixtureInstanceId,
-	lookupFixtureInstanceSrc,
+	lookupFixtureId,
+	lookupFixtureSrc,
 	lookupWireNaming,
 } from "../naming";
 
@@ -27,13 +27,13 @@ const definitions: readonly LookupTableDefinition[] = [
 	},
 ];
 
-describe("lookupFixtureInstanceId / lookupFixtureInstanceSrc", () => {
+describe("lookupFixtureId / lookupFixtureSrc", () => {
 	it("builds the item-list fixture id from a table tag", () => {
-		expect(lookupFixtureInstanceId("statuses")).toBe("item-list:statuses");
+		expect(lookupFixtureId("statuses")).toBe("item-list:statuses");
 	});
 
-	it("builds the jr fixture src from an instance id", () => {
-		expect(lookupFixtureInstanceSrc("item-list:statuses")).toBe(
+	it("builds the jr fixture src from a fixture id", () => {
+		expect(lookupFixtureSrc("item-list:statuses")).toBe(
 			"jr://fixture/item-list:statuses",
 		);
 	});
@@ -46,7 +46,8 @@ describe("lookupWireNaming", () => {
 
 		const table = naming.tableFor(TABLE);
 		expect(table.tag).toBe("statuses");
-		expect(table.instanceId).toBe("item-list:statuses");
+		expect(table.xformInstanceId).toBe("statuses");
+		expect(table.fixtureId).toBe("item-list:statuses");
 		expect(table.listElementName).toBe("statuses_list");
 		expect(table.rowElementName).toBe("statuses");
 		expect(table.wireNameFor(VALUE_COL)).toBe("value");
@@ -81,7 +82,8 @@ describe("inertLookupWireNaming", () => {
 
 		const table = naming.tableFor(UNKNOWN_TABLE);
 		expect(table.tag).toBe("nova_lookup");
-		expect(table.instanceId).toBe("item-list:nova_lookup");
+		expect(table.xformInstanceId).toBe("nova_lookup");
+		expect(table.fixtureId).toBe("item-list:nova_lookup");
 		expect(table.listElementName).toBe("nova_lookup_list");
 		expect(table.rowElementName).toBe("nova_lookup");
 		expect(table.wireNameFor(UNKNOWN_COLUMN)).toBe("nova_lookup_column");

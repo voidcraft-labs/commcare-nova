@@ -5,13 +5,13 @@
  * tool (`generateSchema` — a build's first commit, and how a new case
  * type enters an existing app), reads, mutations, case-list /
  * case-search config, media. Build vs edit picks the prompt and the
- * model — never the tool set. Both prompts are static; an edit turn's
+ * model — never the tool set. Both prompts are static; each turn's
  * blueprint summary rides a per-turn message the route appends
  * (`buildAppStateMessage`), keeping the system prompt cache-stable.
  *
  * Vocabulary is domain-native: tool arguments, return shapes, and the
  * system prompt all use `field` / `kind` / `validate` / `validate_msg` /
- * `case_property_on`. Tool args flow straight into the reducer helpers in
+ * `caseWrite`. Tool args flow straight into the reducer helpers in
  * `blueprintHelpers.ts`.
  *
  * Stream-event payloads carry fine-grained `data-mutations` events
@@ -55,8 +55,8 @@ import { wireToolSchema } from "./wireSchemas";
  * Create the Solutions Architect agent.
  *
  * @param initialDoc - The SA's starting `BlueprintDoc`. On initial builds
- *   this is the empty doc created by `createApp`; during edits it's the
- *   app's current state loaded from Postgres. The SA owns this doc for
+ *   this is the exact canonical starter returned by `createApp`; during edits
+ *   it's the app's current state loaded from Postgres. The SA owns this doc for
  *   the lifetime of the agent — every tool call mutates it in place.
  * @param editing - True when the app already exists (appReady). The SA gets
  *   the editing preamble in its prompt (the blueprint summary arrives as a
@@ -183,7 +183,7 @@ export function createSolutionsArchitect(
 								return outcome.data;
 							case "mutate": {
 								if (outcome.mutations.length > 0) doc = outcome.newDoc;
-								/* A saga commit that PARKED saved case values stashed a
+								/* A committed row migration that PARKED saved case values stashed a
 								 * note on the context — append it to a message-bearing
 								 * result so the SA relays the data consequence to the
 								 * user, never silently. */
@@ -299,7 +299,7 @@ export function createSolutionsArchitect(
 		model: ctx.model(editing ? SA_EDIT_MODEL : SA_BUILD_MODEL),
 		// The doc picks the build-vs-edit branch and contributes no bytes —
 		// both prompts are static so the provider's exact-prefix cache
-		// survives doc mutations. The edit turn's blueprint summary rides
+		// survives doc mutations. The current blueprint summary rides
 		// the per-turn message the route appends (`buildAppStateMessage`).
 		instructions: buildSolutionsArchitectPrompt(editing ? doc : undefined),
 		stopWhen: stepCountIs(80),

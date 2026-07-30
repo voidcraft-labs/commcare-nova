@@ -31,6 +31,7 @@ import { CaseListWorkspaceProvider } from "@/components/builder/case-list-config
 import { EditGuardProvider } from "@/components/builder/contexts/EditGuardContext";
 import { ScrollRegistryProvider } from "@/components/builder/contexts/ScrollRegistryContext";
 import { LocationRecoveryEffect } from "@/components/builder/LocationRecoveryEffect";
+import { BuilderLookupCatalogProvider } from "@/components/builder/lookup/BuilderLookupCatalogProvider";
 import { PresenceProvider } from "@/lib/collab/PresenceProvider";
 import { ReconcilerProvider } from "@/lib/collab/ReconcilerProvider";
 import {
@@ -175,7 +176,9 @@ function BuilderProviderInner({
 						 *  It reads the LIVE app id from the session store (not
 						 *  `buildId`), so a new build's creator heartbeats the instant
 						 *  the SA mints the app. */}
-						<PresenceProvider userId={userId ?? ""}>{inner}</PresenceProvider>
+						<BuilderLookupCatalogProvider>
+							<PresenceProvider userId={userId ?? ""}>{inner}</PresenceProvider>
+						</BuilderLookupCatalogProvider>
 					</ReconcilerProvider>
 				</BlueprintEditableBridge>
 			</BuilderSessionProvider>

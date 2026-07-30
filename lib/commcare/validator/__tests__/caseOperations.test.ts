@@ -8,6 +8,8 @@ import {
 	CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE,
 	CASE_OPERATION_PROPERTY_FORMAT_MESSAGE,
 	type CaseOperation,
+	deriveCaseWriteInventory,
+	FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES,
 	type Form,
 	type Uuid,
 } from "@/lib/domain";
@@ -23,7 +25,6 @@ import {
 	idOf,
 	ifExpr,
 	isBlank,
-	isNull,
 	literal,
 	match,
 	prop,
@@ -31,7 +32,6 @@ import {
 	tableLookup,
 	term,
 	today,
-	unwrapList,
 } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
 import type { ValidationErrorCode } from "../errors";
@@ -75,7 +75,6 @@ function fixture(
 		"owner_id",
 		"location_id",
 		"hq_user_id",
-		"external_id",
 		"category",
 		"state",
 	];
@@ -95,6 +94,7 @@ function fixture(
 			},
 			{
 				name: "visit",
+				parent_type: "patient",
 				properties: [{ name: "source_id", label: proseText("Source ID") }],
 			},
 			{
@@ -332,13 +332,14 @@ function mapFieldToCaseType(
 	fieldUuid: Uuid,
 	id: string,
 	caseType: string,
+	property: string = id,
 ): void {
 	const field = doc.fields[fieldUuid] as unknown as {
 		id: string;
-		case_property_on?: string;
+		caseWrite?: { caseType: string; property: string };
 	};
 	field.id = id;
-	field.case_property_on = caseType;
+	field.caseWrite = { caseType, property };
 }
 
 describe("case-operation on-device portability", () => {
@@ -379,15 +380,6 @@ describe("case-operation on-device portability", () => {
 					},
 				],
 			}),
-		]);
-	});
-
-	// Unlike the match modes, the emitter cannot catch this one: it emits
-	// `<term> = ''` for `is-null` and `is-blank` alike, so the dry-run
-	// succeeds and the wire quietly answers a different question.
-	it("rejects a strict missing-value check the wire cannot express", () => {
-		expectCode("CASE_OPERATION_EXPRESSION_TYPE", [
-			update({ condition: isNull(term(prop("patient", "nickname"))) }),
 		]);
 	});
 
@@ -633,7 +625,7 @@ describe("case-operation action, catalog, and reserved vocabulary", () => {
 		]);
 	});
 
-	it("rejects undeclared, duplicate, malformed, and every reserved property write", () => {
+	it("rejects undeclared, duplicate, malformed, and every forbidden property write", () => {
 		expectCode("CASE_OPERATION_UNKNOWN_PROPERTY", [
 			update({ writes: [{ property: "missing", value: term(literal("x")) }] }),
 		]);
@@ -650,23 +642,32 @@ describe("case-operation action, catalog, and reserved vocabulary", () => {
 				writes: [{ property: "not-wire-safe", value: term(literal("x")) }],
 			}),
 		]);
-		for (const property of [
-			"case_id",
-			"case_name",
-			"case_type",
-			"date_modified",
-			"date_opened",
-			"owner_id",
-			"location_id",
-			"hq_user_id",
-			"external_id",
-			"category",
-			"state",
-		]) {
+		for (const property of FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES) {
 			expectCode("CASE_OPERATION_RESERVED_PROPERTY", [
 				update({ writes: [{ property, value: term(literal("x")) }] }),
 			]);
 		}
+	});
+
+	it("admits external_id through the generic write slot without a catalog declaration", () => {
+		const built = fixture();
+		(built.doc.forms[built.formUuid] as Form).caseOperations = [
+			update({
+				writes: [
+					{
+						property: "external_id",
+						value: term(literal("patient-123")),
+					},
+				],
+			}),
+		];
+		const codes = validateCaseOperations(
+			built.doc,
+			built.formUuid,
+			built.moduleUuid,
+		).map((error) => error.code);
+		expect(codes).not.toContain("CASE_OPERATION_UNKNOWN_PROPERTY");
+		expect(codes).not.toContain("CASE_OPERATION_RESERVED_PROPERTY");
 	});
 
 	it("admits only wire-portable retypes after destination requirements are met", () => {
@@ -1033,6 +1034,44 @@ describe("case-operation target and dependency safety", () => {
 				(error) => error.code === "CASE_OPERATION_TARGET_TYPE_MISMATCH",
 			)?.message,
 		).toContain("ordinary form action's session target");
+
+		const primaryName = fixture();
+		mapFieldToCaseType(
+			primaryName.doc,
+			TEXT,
+			"friendly_name",
+			"patient",
+			"case_name",
+		);
+		(primaryName.doc.forms[primaryName.formUuid] as Form).caseOperations = [
+			update({ retype: "visit" }),
+		];
+		const primaryNameModule = primaryName.doc.modules[primaryName.moduleUuid];
+		if (primaryNameModule === undefined) {
+			throw new Error("fixture module is missing");
+		}
+		const primaryNameInventory = deriveCaseWriteInventory(
+			primaryName.doc,
+			primaryName.formUuid,
+			primaryNameModule,
+			(primaryName.doc.forms[primaryName.formUuid] as Form).type,
+		);
+		expect(primaryNameInventory.writers).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					fieldId: "friendly_name",
+					caseType: "patient",
+					property: "case_name",
+				}),
+			]),
+		);
+		expect(
+			validateCaseOperations(
+				primaryName.doc,
+				primaryName.formUuid,
+				primaryName.moduleUuid,
+			).map((error) => error.code),
+		).toContain("CASE_OPERATION_TARGET_TYPE_MISMATCH");
 
 		const runtimeAlias = fixture();
 		mapFieldToCaseType(runtimeAlias.doc, TEXT, "nickname", "patient");
@@ -1445,11 +1484,6 @@ describe("case-operation links and on-device totality", () => {
 		expectCode("CASE_OPERATION_EXPRESSION_TYPE", [
 			update({
 				owner: dateAdd(today(), "months", term(literal(1))),
-			}),
-		]);
-		expectCode("CASE_OPERATION_EXPRESSION_TYPE", [
-			update({
-				owner: unwrapList(term(prop("patient", "nickname"))),
 			}),
 		]);
 		expectCode("CASE_OPERATION_EXPRESSION_TYPE", [

@@ -103,8 +103,8 @@ describe("user collection mutations", () => {
 
 			expect(verdict.ok).toBe(false);
 			if (verdict.ok) throw new Error("invalid slug unexpectedly passed");
-			expect(verdict.introduced.map((finding) => finding.code)).toContain(
-				"USER_PROPERTY_SLUG_INVALID",
+			expect(verdict.findings.map((finding) => finding.code)).toContain(
+				"MUTATION_WIRE_CANONICALITY_INVALID",
 			);
 		},
 	);

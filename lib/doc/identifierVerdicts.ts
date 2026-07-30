@@ -3,12 +3,13 @@
  * decision every authoring surface consults BEFORE dispatching a
  * mutation.
  *
- * A field's semantic ID is three names at once: the XForm XML element
- * name, the case property name it saves to, and the handle sibling
- * XPath references resolve against. Each role carries a constraint —
- * XML element-name legality, the case-property length cap, the reserved
- * `__nova_` synthetic-node namespace, and sibling-ID uniqueness
- * (CommCare requires unique ids among siblings; cousins may share).
+ * A field's semantic ID is its XForm XML element name and the handle sibling
+ * XPath references resolve against. Its case-storage destination is the
+ * independent `caseWrite` pair. Field IDs therefore carry only form-path
+ * constraints:
+ * XML element-name legality, the reserved `__nova_` synthetic-node namespace,
+ * and sibling-ID uniqueness (CommCare requires unique ids among siblings;
+ * cousins may share).
  *
  * This module is the single home of those checks for the commit
  * boundary (the connect-slug pattern: one verdict, every caller). The
@@ -17,7 +18,7 @@
  * and the SA/MCP tools (`addFields`, `editField`'s rename path) all
  * consume the same functions, so "rejected here, accepted there" can't
  * drift. The validator rules (`DUPLICATE_FIELD_ID`, `INVALID_FIELD_ID`,
- * `RESERVED_FIELD_ID_PREFIX`, `CASE_PROPERTY_TOO_LONG`) stay as
+ * `RESERVED_FIELD_ID_PREFIX`) stay as
  * backstops for docs that predate the guards.
  *
  * Pure — reads the doc, never mutates. Reducers stay total and never
@@ -33,17 +34,15 @@ import {
 	XML_ELEMENT_NAME_REGEX,
 } from "@/lib/commcare";
 import { RESERVED_CASE_TYPE_NAMES } from "@/lib/commcare/validator/reservedNamespaces";
-import { RESERVED_OPERATION_PROPERTIES } from "@/lib/commcare/validator/rules/caseOperations";
-import { declarersOf } from "@/lib/doc/referenceIndex";
 import {
+	authoredCasePropertyNameSchema,
 	type BlueprintDoc,
 	CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE,
 	CASE_OPERATION_PROPERTY_FORMAT_MESSAGE,
-	fieldCasePropertyOn,
+	FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES,
 	isCaseOperationIdentifier,
 	isCaseOperationProperty,
 	type Uuid,
-	uuidSchema,
 } from "@/lib/domain";
 
 /** Why an ID was rejected. Useful for tests and for callers that brand
@@ -52,7 +51,6 @@ import {
 export type FieldIdRejectionCode =
 	| "illegal_xml_name"
 	| "reserved_prefix"
-	| "too_long"
 	| "sibling_conflict";
 
 /**
@@ -83,17 +81,16 @@ export type FieldIdVerdict =
 
 const OK: FieldIdVerdict = { ok: true };
 
-/** Format-class checks shared by the add and rename verdicts: XML
- *  element-name legality, the reserved synthetic-node prefix, and the
- *  case-property length cap. Sibling uniqueness is scope-dependent and
- *  lives with each caller-shaped verdict below. */
+/** Format-class checks shared by the add and rename verdicts: XML element-name
+ * legality and the reserved synthetic-node prefix. Sibling uniqueness lives
+ * with each caller-shaped verdict below. */
 function formatVerdict(proposedId: string): FieldIdVerdict {
 	if (proposedId.length === 0) {
 		return {
 			ok: false,
 			code: "illegal_xml_name",
 			message:
-				"A field ID can't be empty. The ID becomes the question's name in the form and the case property it saves to — give it a short name like \"first_name\".",
+				"A field ID can't be empty. The ID becomes the question's name in the form — give it a short name like \"first_name\".",
 			userMessage:
 				'A field needs an ID. Try something short, like "first_name".',
 		};
@@ -112,14 +109,6 @@ function formatVerdict(proposedId: string): FieldIdVerdict {
 			code: "reserved_prefix",
 			message: `"${proposedId}" starts with "${RESERVED_XFORM_NODE_PREFIX}", which is reserved for nodes Nova generates behind the scenes (for example the hidden counter a fixed-count repeat needs). Pick an ID that doesn't start with "${RESERVED_XFORM_NODE_PREFIX}".`,
 			userMessage: `"${proposedId}" starts with "${RESERVED_XFORM_NODE_PREFIX}", which is reserved. Pick an ID that starts with something else.`,
-		};
-	}
-	if (proposedId.length > MAX_CASE_PROPERTY_LENGTH) {
-		return {
-			ok: false,
-			code: "too_long",
-			message: `"${proposedId.slice(0, 40)}…" is ${proposedId.length} characters long. A field ID is also the name of the case property it saves to, and CommCare caps property names at ${MAX_CASE_PROPERTY_LENGTH} characters. Use a shorter, more concise ID.`,
-			userMessage: `That ID's a bit too long (${proposedId.length} characters). Keep it to ${MAX_CASE_PROPERTY_LENGTH} or fewer.`,
 		};
 	}
 	return OK;
@@ -150,24 +139,6 @@ function parentHasSibling(
 		if (doc.fields[siblingUuid]?.id === proposedId) return true;
 	}
 	return false;
-}
-
-/** Walk `fieldParent` up from a parent handle (a form uuid or a
- *  container-field uuid) to the containing form's display name.
- *  Returns `undefined` if the walk dead-ends (degenerate doc). */
-function containingFormName(
-	doc: BlueprintDoc,
-	parentUuid: Uuid,
-): string | undefined {
-	const seen = new Set<Uuid>();
-	let cursor: Uuid | null | undefined = parentUuid;
-	while (cursor && !seen.has(cursor)) {
-		const form = doc.forms[cursor];
-		if (form) return form.name;
-		seen.add(cursor);
-		cursor = doc.fieldParent[cursor];
-	}
-	return undefined;
 }
 
 /** Input for {@link fieldIdVerdict} — the add-shaped, single-parent
@@ -218,14 +189,6 @@ export function fieldIdVerdict({
  * collide with an existing sibling, or `undefined` when the rename is
  * conflict-free.
  *
- * The scan is peer-aware: a rename of a case-bound field also renames
- * every other field with the same `(ID, case_property_on)` pair (the
- * reducer's case-property cascade), so the destination parents are the
- * primary field's parent AND each peer's parent. Skipping the peers
- * would let the cascade silently mint duplicate sibling ids in another
- * form. A sibling that is itself in the renaming set is NOT a conflict
- * — it becomes `newId` in lockstep.
- *
  * Exported on its own (alongside {@link renameFieldIdVerdict}) because
  * the store-level pre-check in `useBlueprintMutations.renameField`
  * consumes just the conflict scan — its callers own format checking.
@@ -238,34 +201,11 @@ export function findRenameSiblingConflict(
 	const field = doc.fields[fieldUuid];
 	if (!field) return undefined;
 
-	// Peers rename in lockstep with the primary — same ID, same
-	// non-empty case_property_on. The candidates come from the reference
-	// index's declarations lookup (the same source the reducer's cascade
-	// consumes), each verified against the live doc so the verdict's
-	// peer set mirrors `cascadeCasePropertyRename`'s exactly.
-	const caseType = fieldCasePropertyOn(field);
-	const renaming = new Set<Uuid>([fieldUuid]);
-	if (caseType !== undefined) {
-		for (const uuid of declarersOf(doc, caseType, field.id)) {
-			if (uuid === fieldUuid) continue;
-			const parsedUuid = uuidSchema.safeParse(uuid);
-			if (!parsedUuid.success) continue;
-			const candidate = doc.fields[parsedUuid.data];
-			if (!candidate || candidate.id !== field.id) continue;
-			if (fieldCasePropertyOn(candidate) !== caseType) continue;
-			renaming.add(parsedUuid.data);
-		}
-	}
-
-	const parents = new Set<Uuid>();
-	for (const uuid of renaming) {
-		const parent = doc.fieldParent[uuid];
-		if (parent) parents.add(parent);
-	}
-	for (const parent of parents) {
-		if (parentHasSibling(doc, parent, newId, renaming)) return parent;
-	}
-	return undefined;
+	const parent = doc.fieldParent[fieldUuid];
+	if (parent === undefined) return undefined;
+	return parentHasSibling(doc, parent, newId, new Set([fieldUuid]))
+		? parent
+		: undefined;
 }
 
 /** Input for {@link renameFieldIdVerdict}. */
@@ -280,10 +220,7 @@ export interface RenameFieldIdVerdictInput {
 /**
  * Verdict for renaming `fieldUuid` to `newId`: a rename to the current
  * ID passes (no-op), then format legality, the reserved namespace, the
- * length cap, and the peer-aware sibling-conflict scan. When the
- * conflict sits in a different form than the renamed field (a
- * case-property peer's destination), the message names that form — the
- * collision isn't on the caller's screen.
+ * sibling-conflict scan.
  */
 export function renameFieldIdVerdict({
 	doc,
@@ -292,21 +229,14 @@ export function renameFieldIdVerdict({
 }: RenameFieldIdVerdictInput): FieldIdVerdict {
 	const field = doc.fields[fieldUuid];
 	if (!field) return OK;
-	if (field.id === newId) return OK;
 
 	const format = formatVerdict(newId);
 	if (!format.ok) return format;
+	if (field.id === newId) return OK;
 
 	const conflictParent = findRenameSiblingConflict(doc, fieldUuid, newId);
 	if (conflictParent !== undefined) {
-		const ownParent = doc.fieldParent[fieldUuid];
-		const conflictForm = containingFormName(doc, conflictParent);
-		const ownForm = ownParent ? containingFormName(doc, ownParent) : undefined;
-		const where =
-			conflictForm !== undefined && conflictForm !== ownForm
-				? ` in "${conflictForm}"`
-				: "";
-		return siblingConflict(newId, where);
+		return siblingConflict(newId);
 	}
 	return OK;
 }
@@ -469,6 +399,7 @@ export function caseOperationIdVerdict(
 /** Why a proposed case-operation write property can't be used. */
 export type CaseOperationPropertyRejectionCode =
 	| "empty"
+	| "invalid_case_property_name"
 	| "illegal_format"
 	| "reserved"
 	| "too_long"
@@ -508,6 +439,16 @@ export function caseOperationWritePropertyVerdict(
 			userMessage: CASE_OPERATION_PROPERTY_FORMAT_MESSAGE,
 		};
 	}
+	const authoredName = authoredCasePropertyNameSchema.safeParse(trimmed);
+	if (!authoredName.success) {
+		return {
+			ok: false,
+			code: "invalid_case_property_name",
+			userMessage:
+				authoredName.error.issues[0]?.message ??
+				"Enter a valid Nova case property name.",
+		};
+	}
 	if (trimmed.length > MAX_CASE_PROPERTY_LENGTH) {
 		return {
 			ok: false,
@@ -515,7 +456,7 @@ export function caseOperationWritePropertyVerdict(
 			userMessage: `Keep it to ${MAX_CASE_PROPERTY_LENGTH} characters or fewer.`,
 		};
 	}
-	if (RESERVED_OPERATION_PROPERTIES.has(trimmed)) {
+	if (FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES.has(trimmed)) {
 		return {
 			ok: false,
 			code: "reserved",
@@ -534,7 +475,7 @@ export function caseOperationWritePropertyVerdict(
 
 /** Whether a property is owned by an operation facet rather than a write. */
 export function isReservedCaseOperationProperty(property: string): boolean {
-	return RESERVED_OPERATION_PROPERTIES.has(property);
+	return FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES.has(property);
 }
 
 /**

@@ -30,7 +30,10 @@ import {
 	type CommCareDatePatternParseResult,
 	parseCommCareDatePattern,
 } from "@/lib/domain/commCareDatePattern";
-import { formatCommCareDate } from "@/lib/preview/xpath/dateFormatting";
+import {
+	formatCommCareDate,
+	formatConcreteCommCareDate,
+} from "@/lib/preview/xpath/dateFormatting";
 import { XPathDate } from "@/lib/preview/xpath/types";
 
 /** A memorable sample with leading-zero and time pieces that differ clearly. */
@@ -51,19 +54,27 @@ interface CustomDatePatternInputProps {
 	readonly presets: readonly DatePatternPreset[];
 	/** A real pattern to start from when Custom is first selected. */
 	readonly customSeed?: string;
+	/**
+	 * `format-date` expressions store semantic preset ids while case-list
+	 * columns store exact JavaRosa patterns. This affects only the live example;
+	 * the authored bytes always pass through unchanged.
+	 */
+	readonly patternVocabulary?: "expression" | "concrete";
 }
 
 /**
  * Presets plus one progressively disclosed custom editor. The custom branch
  * never normalizes a saved pattern, so arbitrary supported imports round-trip
- * unchanged. Preset values may be semantic ids (`short`) or concrete patterns;
- * the shared Preview formatter resolves both.
+ * unchanged. Expression presets may be semantic ids (`short`); case-list
+ * columns select the concrete vocabulary so equal literal text is never
+ * reinterpreted as an expression preset.
  */
 export function CustomDatePatternInput({
 	value,
 	onChange,
 	presets,
 	customSeed = "%d-%b-%Y",
+	patternVocabulary = "expression",
 }: CustomDatePatternInputProps) {
 	const isPreset = presets.some((preset) => preset.pattern === value);
 
@@ -77,9 +88,16 @@ export function CustomDatePatternInput({
 				customSeed={customSeed}
 			/>
 			{isPreset ? (
-				<DatePatternExample pattern={value} />
+				<DatePatternExample
+					pattern={value}
+					patternVocabulary={patternVocabulary}
+				/>
 			) : (
-				<CustomEditor value={value} onChange={onChange} />
+				<CustomEditor
+					value={value}
+					onChange={onChange}
+					patternVocabulary={patternVocabulary}
+				/>
 			)}
 		</div>
 	);
@@ -148,9 +166,14 @@ function PresetRow({
 interface CustomEditorProps {
 	readonly value: string;
 	readonly onChange: (next: string) => void;
+	readonly patternVocabulary: "expression" | "concrete";
 }
 
-function CustomEditor({ value, onChange }: CustomEditorProps) {
+function CustomEditor({
+	value,
+	onChange,
+	patternVocabulary,
+}: CustomEditorProps) {
 	const inputRef = useRef<HTMLInputElement>(null);
 	const previousValueRef = useRef(value);
 	const errorId = useId();
@@ -241,13 +264,22 @@ function CustomEditor({ value, onChange }: CustomEditorProps) {
 				) : null}
 			</div>
 
-			<DatePatternExample pattern={problem === null ? draft : null} />
+			<DatePatternExample
+				pattern={problem === null ? draft : null}
+				patternVocabulary={patternVocabulary}
+			/>
 			<DatePieceBuilder onInsert={insertPiece} />
 		</div>
 	);
 }
 
-function DatePatternExample({ pattern }: { readonly pattern: string | null }) {
+function DatePatternExample({
+	pattern,
+	patternVocabulary,
+}: {
+	readonly pattern: string | null;
+	readonly patternVocabulary: "expression" | "concrete";
+}) {
 	// The formatter's time-zone token is intentionally device-local. Match the
 	// first client render to SSR, then calculate the example in the browser so a
 	// `%Z` example never hydrates with the server's zone.
@@ -256,7 +288,9 @@ function DatePatternExample({ pattern }: { readonly pattern: string | null }) {
 
 	const example =
 		mounted && pattern !== null
-			? formatCommCareDate(DATE_STYLE_EXAMPLE, pattern)
+			? patternVocabulary === "concrete"
+				? formatConcreteCommCareDate(DATE_STYLE_EXAMPLE, pattern)
+				: formatCommCareDate(DATE_STYLE_EXAMPLE, pattern)
 			: null;
 	const text = !mounted
 		? "\u00a0"

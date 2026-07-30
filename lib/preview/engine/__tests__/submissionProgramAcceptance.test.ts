@@ -7,7 +7,7 @@
 // repeat expansion; the ordinary action landing LAST with its
 // caseType folded into the rolling proof).
 
-import type { Kysely } from "kysely";
+import { type Kysely, sql } from "kysely";
 import { beforeEach, describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import type { CaseStore, LookupTableSchemas } from "@/lib/case-store";
@@ -54,6 +54,19 @@ const dbHandle = setupPerTestDatabase({
 
 beforeEach(async () => {
 	await runCaseStoreMigrations(dbHandle.db);
+	// Case rows are structurally tenant-bound to their authoritative app row.
+	// Establish the real `(app, Project)` parent before materializing schemas
+	// or data; bypassing it would exercise a state production cannot represent.
+	await sql`
+		INSERT INTO apps (id, owner, project_id, app_name, app_name_lower)
+		VALUES (
+			${APP_ID},
+			${ACTOR},
+			${PROJECT},
+			'Submission program acceptance',
+			'submission program acceptance'
+		)
+	`.execute(dbHandle.db);
 });
 
 const APP_ID = "app-program-acceptance";
@@ -88,12 +101,12 @@ const OP_REPEAT = testUuid("60000000-0000-7000-8000-00000000a002");
 const LOOKUP_TABLE = "70000000-0000-7000-8000-000000000001" as LookupTableId;
 const LOOKUP_COLUMN = "70000000-0000-7000-8000-000000000002" as LookupColumnId;
 
-/** One followup doc: a status writer (ordinary), a free root answer, and
+/** One followup doc: an external-id writer (ordinary), a free root answer, and
  *  a repeat of visit notes — with `operations` built from the minted
  *  field uuids per test. */
 function acceptanceDoc(
 	operationsFor: (uuids: {
-		status: Uuid;
+		externalCode: Uuid;
 		note: Uuid;
 		extra: Uuid;
 		visits: Uuid;
@@ -103,7 +116,7 @@ function acceptanceDoc(
 	doc: BlueprintDoc;
 	formUuid: Uuid;
 	uuids: {
-		status: Uuid;
+		externalCode: Uuid;
 		note: Uuid;
 		extra: Uuid;
 		visits: Uuid;
@@ -116,7 +129,6 @@ function acceptanceDoc(
 			{
 				name: "patient",
 				properties: [
-					{ name: "status", label: proseText("Status"), data_type: "text" },
 					{
 						name: "op_status",
 						label: proseText("Op status"),
@@ -143,9 +155,12 @@ function acceptanceDoc(
 						fields: [
 							f({
 								kind: "text",
-								id: "status",
-								label: proseText("Status"),
-								case_property_on: "patient",
+								id: "external_code",
+								label: proseText("External code"),
+								caseWrite: {
+									caseType: "patient",
+									property: "external_id",
+								},
 							}),
 							f({ kind: "text", id: "note", label: proseText("Note") }),
 							f({ kind: "text", id: "extra", label: proseText("Extra") }),
@@ -172,7 +187,7 @@ function acceptanceDoc(
 		Object.values(doc.fields).map((field) => [field.id, field.uuid]),
 	);
 	const uuids = {
-		status: byId.get("status") as Uuid,
+		externalCode: byId.get("external_code") as Uuid,
 		note: byId.get("note") as Uuid,
 		extra: byId.get("extra") as Uuid,
 		visits: byId.get("visits") as Uuid,
@@ -198,6 +213,7 @@ function engineFor(doc: BlueprintDoc, formUuid: Uuid): FormEngine {
 		formUuid,
 		fields: doc.fields as FormEngineInput["fields"],
 		fieldOrder: doc.fieldOrder as FormEngineInput["fieldOrder"],
+		caseTypes: doc.caseTypes ?? [],
 	};
 	return new FormEngine(input, "patient", undefined, null);
 }
@@ -214,8 +230,9 @@ async function seedSessionCase(store: CaseStore, doc: BlueprintDoc) {
 			case_id: SESSION_CASE,
 			case_type: "patient",
 			case_name: "Ada",
+			external_id: "seed-external",
 			status: "open",
-			properties: { status: "open" },
+			properties: {},
 		},
 	});
 }
@@ -228,7 +245,6 @@ async function submit(
 ) {
 	const mutation = engine.computeSubmissionMutation({
 		caseId: SESSION_CASE,
-		caseTypes: doc.caseTypes ?? [],
 		entryKey: ENTRY_KEY,
 	});
 	const projection = validateCaptureSubmissionProjection(mutation);
@@ -269,7 +285,7 @@ async function loadCase(store: CaseStore, caseId: string) {
 }
 
 describe("engine → builder → executor acceptance", () => {
-	it("a root operation writes the collected answer; a blank answer leaves the key absent; the ordinary action lands last", async () => {
+	it("a root operation writes custom and scalar values; the ordinary scalar action lands last", async () => {
 		const { doc, formUuid } = acceptanceDoc((ids) => [
 			{
 				uuid: OP_ROOT,
@@ -286,7 +302,7 @@ describe("engine → builder → executor acceptance", () => {
 					{ property: "visit_note", value: term(formField(ids.extra)) },
 					// Contends with the ordinary patch — the ordinary action
 					// executes LAST, so its value must win.
-					{ property: "status", value: term(formField(ids.note)) },
+					{ property: "external_id", value: term(formField(ids.note)) },
 				],
 			} as CaseOperation,
 		]);
@@ -295,7 +311,7 @@ describe("engine → builder → executor acceptance", () => {
 
 		const engine = engineFor(doc, formUuid);
 		engine.setValue("/data/note", "from-operation");
-		engine.setValue("/data/status", "from-ordinary");
+		engine.setValue("/data/external_code", "from-ordinary");
 
 		const result = await submit(doc, engine, store);
 		expect(result.primaryCaseId).toBe(SESSION_CASE);
@@ -305,7 +321,8 @@ describe("engine → builder → executor acceptance", () => {
 		const row = await loadCase(store, SESSION_CASE);
 		expect(row?.properties.op_status).toBe("from-operation");
 		expect("visit_note" in (row?.properties ?? {})).toBe(false);
-		expect(row?.properties.status).toBe("from-ordinary");
+		expect(row?.external_id).toBe("from-ordinary");
+		expect(row?.properties).not.toHaveProperty("external_id");
 	});
 
 	it("a repeat-scoped create runs per live iteration with that iteration's answers", async () => {
@@ -359,14 +376,15 @@ describe("engine → builder → executor acceptance", () => {
 
 		const engine = engineFor(doc, formUuid);
 		// The authored key's source answer stays BLANK; the ordinary patch
-		// still carries a status write that must not survive the rollback.
-		engine.setValue("/data/status", "should-roll-back");
+		// still carries a scalar write that must not survive the rollback.
+		engine.setValue("/data/external_code", "should-roll-back");
 
 		await expect(submit(doc, engine, store)).rejects.toThrow(
 			SubmissionRejectedError,
 		);
 		const row = await loadCase(store, SESSION_CASE);
-		expect(row?.properties.status).toBe("open");
+		expect(row?.external_id).toBe("seed-external");
+		expect(row?.properties).not.toHaveProperty("external_id");
 	});
 
 	it("operations present but no collected answer bags rejects the final protocol", async () => {
@@ -377,14 +395,13 @@ describe("engine → builder → executor acceptance", () => {
 				action: "update",
 				caseType: "patient",
 				target: { kind: "session" },
-				writes: [{ property: "op_status", value: term(formField(ids.note)) }],
+				writes: [{ property: "external_id", value: term(formField(ids.note)) }],
 			} as CaseOperation,
 		]);
 		const engine = engineFor(doc, formUuid);
 		engine.setValue("/data/note", "collected");
 		const mutation = engine.computeSubmissionMutation({
 			caseId: SESSION_CASE,
-			caseTypes: doc.caseTypes ?? [],
 			entryKey: ENTRY_KEY,
 		});
 		const missingAnswers = { ...mutation, operationAnswers: undefined };
@@ -422,7 +439,11 @@ describe("engine → builder → executor acceptance", () => {
 		const result = await submit(doc, engine, store);
 		expect(result.operations[0]?.executed).toBe(false);
 		const row = await loadCase(store, SESSION_CASE);
-		expect("op_status" in (row?.properties ?? {})).toBe(false);
+		// The gated operation is skipped, while the form's ordinary blank
+		// `external_id` writer still executes under scalar semantics: blank
+		// explicitly clears that optional scalar rather than preserving it.
+		expect(row?.external_id).toBe("");
+		expect(row?.properties).not.toHaveProperty("external_id");
 	});
 
 	it("a lookup-backed false condition skips its operation while the ordinary effect commits", async () => {
@@ -449,7 +470,7 @@ describe("engine → builder → executor acceptance", () => {
 
 		const engine = engineFor(doc, formUuid);
 		engine.setValue("/data/note", "never-lands");
-		engine.setValue("/data/status", "ordinary-landed");
+		engine.setValue("/data/external_code", "ordinary-landed");
 		const lookupTableSchemas: LookupTableSchemas = new Map([
 			[LOOKUP_TABLE, new Map([[LOOKUP_COLUMN, "text" as const]])],
 		]);
@@ -462,7 +483,8 @@ describe("engine → builder → executor acceptance", () => {
 			}),
 		]);
 		const row = await loadCase(store, SESSION_CASE);
-		expect(row?.properties.status).toBe("ordinary-landed");
+		expect(row?.external_id).toBe("ordinary-landed");
+		expect(row?.properties).not.toHaveProperty("external_id");
 		expect("op_status" in (row?.properties ?? {})).toBe(false);
 	});
 });

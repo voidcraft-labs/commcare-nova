@@ -100,6 +100,20 @@ describe("projectCaseWorkspaceColumns", () => {
 
 		expect(storageOrder).toEqual([later, earlier]);
 	});
+
+	it("asserts the exact stored permutations instead of skipping unknown uuids", () => {
+		const saved = column("saved");
+		expect(() =>
+			projectCaseWorkspaceColumns({
+				...emptyCaseListConfig(),
+				columns: [saved],
+				listColumnOrder: [testUuid("unknown")],
+				detailColumnOrder: [saved.uuid],
+			}),
+		).toThrow(
+			"Invalid list case-list column permutation reached orderedColumns.",
+		);
+	});
 });
 
 describe("removeColumnFromDisplay", () => {
@@ -172,12 +186,12 @@ describe("pruneStoppedSortOrphans", () => {
 		expect(pruneStoppedSortOrphans([before], [after])).toEqual([after]);
 	});
 
-	it("preserves untouched legacy off-screen definitions", () => {
-		const legacy = column("legacy-search-only", {
+	it("preserves untouched dormant off-screen definitions", () => {
+		const dormant = column("saved-search-only", {
 			visibleInList: false,
 			visibleInDetail: false,
 		});
 
-		expect(pruneStoppedSortOrphans([legacy], [legacy])).toEqual([legacy]);
+		expect(pruneStoppedSortOrphans([dormant], [dormant])).toEqual([dormant]);
 	});
 });

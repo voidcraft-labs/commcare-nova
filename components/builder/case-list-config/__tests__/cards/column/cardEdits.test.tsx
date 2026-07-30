@@ -33,6 +33,7 @@ import {
 	intervalColumn,
 	phoneColumn,
 	plainColumn,
+	tileCell,
 } from "@/lib/domain";
 import { literal, term } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
@@ -41,7 +42,7 @@ import { ColumnEditor } from "../../../ColumnEditor";
 const PATIENT: CaseType = {
 	name: "patient",
 	properties: [
-		{ name: "name", label: proseText("Name"), data_type: "text" },
+		{ name: "case_name", label: proseText("Name"), data_type: "text" },
 		{ name: "phone", label: proseText("Phone"), data_type: "text" },
 		{ name: "dob", label: proseText("Date of birth"), data_type: "date" },
 		{
@@ -58,14 +59,18 @@ const SURFACE_SLOTS = {
 	sort: { direction: "asc" as const, priority: 0 },
 	visibleInList: true,
 	visibleInDetail: true,
+	tile: tileCell(2, 3, 4, 2, {
+		horizontalAlign: "center",
+		showBorder: true,
+	}),
 };
 
 const ORDERED_COLUMN_KINDS: readonly Column[] = [
-	plainColumn(TEST_UUID, "name", "Name", SURFACE_SLOTS),
+	plainColumn(TEST_UUID, "case_name", "Name", SURFACE_SLOTS),
 	phoneColumn(TEST_UUID, "phone", "Phone", SURFACE_SLOTS),
-	dateColumn(TEST_UUID, "dob", "Birthday", "short", SURFACE_SLOTS),
-	idMappingColumn(TEST_UUID, "name", "Name", [], SURFACE_SLOTS),
-	imageMapColumn(TEST_UUID, "name", "Name", [], SURFACE_SLOTS),
+	dateColumn(TEST_UUID, "dob", "Birthday", "%m/%d/%Y", SURFACE_SLOTS),
+	idMappingColumn(TEST_UUID, "case_name", "Name", [], SURFACE_SLOTS),
+	imageMapColumn(TEST_UUID, "case_name", "Name", [], SURFACE_SLOTS),
 	intervalColumn(
 		TEST_UUID,
 		"dob",
@@ -104,7 +109,7 @@ function emitFromEdit(
 
 describe("display-item edits preserve the slots they do not touch", () => {
 	it.each(ORDERED_COLUMN_KINDS.map((column) => [column.kind, column] as const))(
-		"%s label edits retain sort and visibility",
+		"%s label edits retain sort, visibility, and tile presentation",
 		(_kind, value) => {
 			const next = emitFromEdit(value, () => {
 				const input = screen.getByLabelText(
@@ -118,6 +123,7 @@ describe("display-item edits preserve the slots they do not touch", () => {
 			expect(next.sort).toEqual(SURFACE_SLOTS.sort);
 			expect(next.visibleInList).toBe(true);
 			expect(next.visibleInDetail).toBe(true);
+			expect(next.tile).toEqual(SURFACE_SLOTS.tile);
 		},
 	);
 });
@@ -157,7 +163,7 @@ describe("DateColumnCard — pattern edits", () => {
 		const onChange = vi.fn();
 		render(
 			<ColumnEditor
-				value={dateColumn(TEST_UUID, "dob", "Birthday", "short")}
+				value={dateColumn(TEST_UUID, "dob", "Birthday", "%m/%d/%Y")}
 				onChange={onChange}
 				caseTypes={[PATIENT]}
 				currentCaseType="patient"

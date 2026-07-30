@@ -52,6 +52,7 @@
 // concern.
 
 import { z } from "zod";
+import { authoredCasePropertyNameSchema } from "../casePropertyName";
 import { externalUserPropertyNameSchema } from "../externalUserProperty";
 import { uuidSchema } from "../uuid";
 
@@ -80,7 +81,7 @@ const xpathCaseRefPartSchema = z
 	.object({
 		kind: z.literal("case-ref"),
 		caseType: z.string(),
-		property: z.string(),
+		property: authoredCasePropertyNameSchema,
 	})
 	.strict();
 
@@ -128,15 +129,11 @@ export const xpathExpressionSchema = z
 
 export type XPathExpression = z.infer<typeof xpathExpressionSchema>;
 
-/** Is this stored slot value an expression AST (vs any legacy shape a
- *  degenerate doc might carry)? A cheap structural probe for total
- *  readers that cannot assume schema-parsed input. */
+/** Is this stored slot value an exact canonical expression AST? Total readers
+ * cannot assume schema-parsed input, so the predicate validates every part and
+ * rejects missing, unknown, or extra leaf fields. */
 export function isXPathExpression(value: unknown): value is XPathExpression {
-	return (
-		typeof value === "object" &&
-		value !== null &&
-		Array.isArray((value as { parts?: unknown }).parts)
-	);
+	return xpathExpressionSchema.safeParse(value).success;
 }
 
 /** The empty expression — prints as `""`. */

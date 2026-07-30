@@ -9,7 +9,7 @@ import {
 	xp,
 } from "@/lib/__tests__/docHelpers";
 import { expandDoc } from "@/lib/commcare/expander";
-import { expandHashtags } from "@/lib/commcare/hashtags";
+import { expandCaseToWire } from "@/lib/commcare/hashtags";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { validateXForm } from "@/lib/commcare/validator/xformOracle";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
@@ -124,15 +124,15 @@ const followupDoc = buildDoc({
 									kind: "text",
 									id: "full_name",
 									label: proseText("Name"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "full_name" },
 								}),
 							],
 						}),
 						f({
 							kind: "hidden",
 							id: "total_visits",
-							calculate: "#case/total_visits + 1",
-							case_property_on: "patient",
+							calculate: "#patient/total_visits + 1",
+							caseWrite: { caseType: "patient", property: "total_visits" },
 						}),
 						f({ kind: "text", id: "notes", label: proseText("Notes") }),
 					],
@@ -171,14 +171,14 @@ const registrationDoc = buildDoc({
 							id: "case_name",
 							label: proseText("Full Name"),
 							required: "true()",
-							case_property_on: "patient",
+							caseWrite: { caseType: "patient", property: "case_name" },
 						}),
 						f({
 							kind: "int",
 							id: "age",
 							label: proseText("Age"),
 							validate: ". > 0 and . < 150",
-							case_property_on: "patient",
+							caseWrite: { caseType: "patient", property: "age" },
 						}),
 						f({
 							kind: "hidden",
@@ -202,7 +202,7 @@ const registrationDoc = buildDoc({
 });
 
 describe("expandDoc", () => {
-	it("populates case_references_data.load with #case/ hashtag references", () => {
+	it("projects typed case refs into HQ's private #case load vocabulary", () => {
 		const hq = expandDoc(followupDoc);
 		const form = hq.modules[0].forms[0];
 		const load = form.case_references_data.load;
@@ -225,7 +225,7 @@ describe("expandDoc", () => {
 			modules: [
 				{
 					name: "M",
-					caseType: "case",
+					caseType: "patient",
 					forms: [
 						{
 							name: "F",
@@ -239,8 +239,11 @@ describe("expandDoc", () => {
 										f({
 											kind: "hidden",
 											id: "some_prop",
-											calculate: "#case/some_prop + #user/role",
-											case_property_on: "case",
+											calculate: "#patient/some_prop + #user/role",
+											caseWrite: {
+												caseType: "patient",
+												property: "some_prop",
+											},
 										}),
 									],
 								}),
@@ -251,7 +254,7 @@ describe("expandDoc", () => {
 			],
 			caseTypes: [
 				{
-					name: "case",
+					name: "patient",
 					properties: [{ name: "some_prop", label: proseText("Some Prop") }],
 				},
 			],
@@ -262,7 +265,7 @@ describe("expandDoc", () => {
 		);
 	});
 
-	it("expands #case/ to full XPath in calculate, keeps shorthand in vellum:calculate", () => {
+	it("expands a typed case ref and emits private HQ editor shorthand", () => {
 		const hq = expandDoc(followupDoc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
 
@@ -338,7 +341,7 @@ describe("expandDoc", () => {
 		expect(xform).not.toContain("vellum:value=");
 	});
 
-	it("expands #case/ in setvalue default_value, keeps shorthand in vellum:value", () => {
+	it("expands a typed case ref in default_value and emits HQ editor shorthand", () => {
 		const doc = buildDoc({
 			appName: "DV",
 			modules: [
@@ -354,8 +357,8 @@ describe("expandDoc", () => {
 									kind: "text",
 									id: "full_name",
 									label: proseText("Name"),
-									default_value: "#case/full_name",
-									case_property_on: "c",
+									default_value: "#c/full_name",
+									caseWrite: { caseType: "c", property: "full_name" },
 								}),
 							],
 						},
@@ -464,7 +467,7 @@ describe("case_name in case list columns", () => {
 								kind: "text",
 								id: "case_name",
 								label: proseText("Name"),
-								case_property_on: "patient",
+								caseWrite: { caseType: "patient", property: "case_name" },
 							}),
 						],
 					},
@@ -516,7 +519,7 @@ describe("runValidation", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Q"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},
@@ -547,7 +550,7 @@ describe("runValidation", () => {
 									kind: "text",
 									id: "name",
 									label: proseText("Q"),
-									case_property_on: "c",
+									caseWrite: { caseType: "c", property: "name" },
 								}),
 							],
 						},
@@ -586,7 +589,9 @@ describe("runValidation", () => {
 			],
 		});
 		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
-		expect(errors.some((e) => e.code === "NO_CASE_NAME_FIELD")).toBe(true);
+		expect(errors.some((e) => e.code === "CASE_CREATE_NAME_MISSING")).toBe(
+			true,
+		);
 	});
 });
 
@@ -594,7 +599,7 @@ describe("runValidation", () => {
 
 describe("output references in labels", () => {
 	// Authoring surfaces turn friendly hashtags (`#form/name`,
-	// `#case/prop`) into typed prose refs; the emitter lowers those refs into
+	// `#patient/prop`) into typed prose refs; the emitter lowers those refs into
 	// `<output>` elements.
 	// Raw `<output ...>` markup is NOT a supported authoring input — a label
 	// that literally contains it is prose and serializes as escaped text.
@@ -649,7 +654,7 @@ describe("output references in labels", () => {
 									kind: "text",
 									id: "full_name",
 									label: proseText("Name"),
-									case_property_on: "c",
+									caseWrite: { caseType: "c", property: "full_name" },
 								}),
 								f({
 									kind: "label",
@@ -698,19 +703,19 @@ describe("output references in labels", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Name"),
-									case_property_on: "c",
+									caseWrite: { caseType: "c", property: "case_name" },
 								}),
 								f({
 									kind: "date",
 									id: "start_date",
 									label: proseText("Start"),
-									case_property_on: "c",
+									caseWrite: { caseType: "c", property: "start_date" },
 								}),
 								f({
 									kind: "date",
 									id: "end_date",
 									label: proseText("End"),
-									case_property_on: "c",
+									caseWrite: { caseType: "c", property: "end_date" },
 								}),
 								f({
 									kind: "label",
@@ -754,7 +759,7 @@ describe("output references in labels", () => {
 		});
 		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
-		// Bare #case/ text should not appear in label content
+		// HQ's private #case spelling should not appear as literal label text.
 		expect(xform).not.toContain("#case/case_name**");
 		expect(xform).not.toContain("to #case/end_date");
 		// Shorthand preserved in vellum:value attributes on output tags
@@ -825,13 +830,16 @@ describe("output references in labels", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Name"),
-									case_property_on: "c",
+									caseWrite: { caseType: "c", property: "case_name" },
 								}),
 								f({
 									kind: "text",
 									id: "status",
 									label: proseText("Status"),
-									case_property_on: "c",
+									caseWrite: {
+										caseType: "c",
+										property: "workflow_status",
+									},
 								}),
 								f({
 									kind: "label",
@@ -847,7 +855,7 @@ describe("output references in labels", () => {
 										{
 											kind: "case-ref",
 											caseType: "c",
-											property: "status",
+											property: "workflow_status",
 										},
 									),
 								}),
@@ -861,7 +869,7 @@ describe("output references in labels", () => {
 					name: "c",
 					properties: [
 						{ name: "case_name", label: proseText("Name") },
-						{ name: "status", label: proseText("Status") },
+						{ name: "workflow_status", label: proseText("Status") },
 					],
 				},
 			],
@@ -871,9 +879,9 @@ describe("output references in labels", () => {
 		// Both typed refs are lowered with their friendly current-case shadows.
 		const infoLabel =
 			xform.match(/<text id="info-label">.*?<\/text>/s)?.[0] || "";
-		expect(infoLabel).not.toContain("status: #case/status");
+		expect(infoLabel).not.toContain("status: #case/workflow_status");
 		expect(infoLabel).toContain('vellum:value="#case/case_name"');
-		expect(infoLabel).toContain('vellum:value="#case/status"');
+		expect(infoLabel).toContain('vellum:value="#case/workflow_status"');
 	});
 });
 
@@ -957,7 +965,7 @@ describe("label/hint prose entity escaping", () => {
 									kind: "text",
 									id: "full_name",
 									label: proseText("Name"),
-									case_property_on: "c",
+									caseWrite: { caseType: "c", property: "full_name" },
 								}),
 								f({
 									kind: "label",
@@ -1020,7 +1028,7 @@ describe("label/hint prose entity escaping", () => {
 									kind: "text",
 									id: "name",
 									label: proseText("Name"),
-									case_property_on: "c",
+									caseWrite: { caseType: "c", property: "display_name" },
 								}),
 								f({
 									kind: "label",
@@ -1030,7 +1038,7 @@ describe("label/hint prose entity escaping", () => {
 										{
 											kind: "case-ref",
 											caseType: "c",
-											property: "name",
+											property: "display_name",
 										},
 									),
 								}),
@@ -1040,12 +1048,15 @@ describe("label/hint prose entity escaping", () => {
 				},
 			],
 			caseTypes: [
-				{ name: "c", properties: [{ name: "name", label: proseText("Name") }] },
+				{
+					name: "c",
+					properties: [{ name: "display_name", label: proseText("Name") }],
+				},
 			],
 		});
 		const xml = firstFormXml(doc);
-		expect(xml).not.toContain("Hello #case/name<");
-		expect(xml).toContain('vellum:value="#case/name"');
+		expect(xml).not.toContain("Hello #case/display_name<");
+		expect(xml).toContain('vellum:value="#case/display_name"');
 		expect(xml).toContain('<output value="instance(');
 	});
 
@@ -1982,12 +1993,13 @@ describe("#form/ hashtag expansion", () => {
 		expect(xform).toContain('calculate="/data/a * 2"');
 	});
 
-	it("resolves a #<case_type>/<prop> ref to the same parent-index walk as #case/", () => {
+	it("resolves a typed case ref to the private HQ parent-index wire walk", () => {
 		// `pregnancy` (own, depth 0) → `mother` (parent, depth 1). A field's
 		// calculate reads the mother's household_code via the per-type namespace;
 		// the wire XPath must be the depth-1 parent-index walk, byte-identical to
-		// what `#case/parent/household_code` emits. This is also the casedb-instance
-		// guard: the ONLY case reference here is `#mother/...` (no `#case/`), so a
+		// the private HQ `#case/parent/household_code` projection names. This is
+		// also the casedb-instance guard: the only authored case reference here
+		// is `#mother/...`, so a
 		// missing instance declaration would emit a casedb lookup with no source.
 		const doc = buildDoc({
 			appName: "CaseTypeRefs",
@@ -2030,9 +2042,10 @@ describe("#form/ hashtag expansion", () => {
 		// The resolved `calculate` is byte-identical to the established
 		// `#case/parent`
 		// walk (apostrophes XML-escaped by the serializer in the attribute value).
-		const escapedWalk = expandHashtags(
-			"#case/parent/household_code",
-		).replaceAll("'", "&apos;");
+		const escapedWalk = expandCaseToWire(1, "household_code").replaceAll(
+			"'",
+			"&apos;",
+		);
 		expect(xform).toContain(`calculate="${escapedWalk}"`);
 		// No shadow at all for an ancestor ref: HQ's editor has no `#mother`
 		// namespace, and even `#case/parent/` is only present when the app's own
@@ -2096,9 +2109,10 @@ describe("#form/ hashtag expansion", () => {
 		});
 		const hq = expandDoc(doc);
 		const xform = Object.values(hq._attachments)[0] as string;
-		const escapedWalk = expandHashtags(
-			"#case/parent/household_code",
-		).replaceAll("'", "&apos;");
+		const escapedWalk = expandCaseToWire(1, "household_code").replaceAll(
+			"'",
+			"&apos;",
+		);
 		// Prose lowers to an `<output>` carrying the resolved parent-index walk.
 		// No `vellum:value` shadow: an ancestor generation isn't guaranteed
 		// vocabulary in HQ's editor (see the calculate variant of this test), and
@@ -2162,9 +2176,11 @@ describe("#form/ hashtag expansion", () => {
 		const xform = Object.values(hq._attachments)[0] as string;
 
 		// Real attribute: fully expanded XPath, no hashtags.
-		const expanded = expandHashtags(
-			"/data/selected_medication != '' and contains(lower-case(#case/allergen), 'penicillin')",
-		).replaceAll("'", "&apos;");
+		const expanded =
+			`/data/selected_medication != '' and contains(lower-case(${expandCaseToWire(
+				0,
+				"allergen",
+			)}), 'penicillin')`.replaceAll("'", "&apos;");
 		expect(xform).toContain(`relevant="${expanded}"`);
 		// Shadow attribute: the editor's vocabulary, not Nova's per-type namespace.
 		expect(xform).toContain(
@@ -2179,14 +2195,16 @@ describe("#form/ hashtag expansion", () => {
 			s.replaceAll('"', "&quot;").replaceAll("'", "&apos;");
 		expect(xform).toContain(
 			`<vellum:hashtags>${xmlEscape(
-				JSON.stringify({ "#case/allergen": expandHashtags("#case/allergen") }),
+				JSON.stringify({
+					"#case/allergen": expandCaseToWire(0, "allergen"),
+				}),
 			)}</vellum:hashtags>`,
 		);
 		expect(xform).toContain(
 			`<vellum:hashtagTransforms>${xmlEscape(
 				JSON.stringify({
 					prefixes: {
-						"#case/": expandHashtags("#case/allergen").slice(
+						"#case/": expandCaseToWire(0, "allergen").slice(
 							0,
 							-"allergen".length,
 						),
@@ -2221,7 +2239,7 @@ describe("#form/ hashtag expansion", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Name"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 								f({
 									kind: "hidden",
@@ -2349,9 +2367,10 @@ describe("#form/ hashtag expansion", () => {
 		});
 		const hq = expandDoc(doc);
 		const xform = Object.values(hq._attachments)[0] as string;
-		const escapedWalk = expandHashtags(
-			"#case/parent/household_code",
-		).replaceAll("'", "&apos;");
+		const escapedWalk = expandCaseToWire(1, "household_code").replaceAll(
+			"'",
+			"&apos;",
+		);
 		// The validate_msg prose lowered to an <output> carrying the resolved walk…
 		expect(xform).toContain(`<output value="${escapedWalk}"`);
 		// …and the casedb instance is declared (the bug this guards against).
@@ -2464,7 +2483,7 @@ describe("conditional required", () => {
 		expect(xform).not.toContain('required="true()"');
 	});
 
-	it("expands #case/ hashtags in required XPath and adds vellum:requiredCondition", () => {
+	it("expands a typed case ref in required XPath and emits HQ shorthand", () => {
 		const doc = buildDoc({
 			appName: "R",
 			modules: [
@@ -2480,13 +2499,13 @@ describe("conditional required", () => {
 									kind: "text",
 									id: "risk",
 									label: proseText("Q"),
-									case_property_on: "c",
+									caseWrite: { caseType: "c", property: "risk" },
 								}),
 								f({
 									kind: "text",
 									id: "notes",
 									label: proseText("Notes"),
-									required: "#case/risk = 'high'",
+									required: "#c/risk = 'high'",
 								}),
 							],
 						},
@@ -2529,7 +2548,7 @@ describe("case detail (long) view", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Name"),
-									case_property_on: "c",
+									caseWrite: { caseType: "c", property: "case_name" },
 								}),
 							],
 						},
@@ -2594,7 +2613,7 @@ describe("case detail (long) view", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Name"),
-									case_property_on: "c",
+									caseWrite: { caseType: "c", property: "case_name" },
 								}),
 							],
 						},
@@ -2791,13 +2810,13 @@ describe("expansion with complete fields", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Patient Name"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 								f({
 									kind: "int",
 									id: "age",
 									label: proseText("Age"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "age" },
 								}),
 							],
 						},
@@ -2833,7 +2852,7 @@ describe("expansion with complete fields", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Patient Name"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},
@@ -2964,7 +2983,7 @@ describe("unquoted string literal detection", () => {
 
 	it("allows hashtag references", () => {
 		const errors = runValidation(
-			makeDoc({ kind: "hidden", calculate: "#case/status" }),
+			makeDoc({ kind: "hidden", calculate: "#patient/status" }),
 			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		expect(errors.some((e) => e.code === "UNQUOTED_STRING_LITERAL")).toBe(
@@ -3048,7 +3067,7 @@ describe("unquoted string literal detection", () => {
 describe("child case type module requirement", () => {
 	it("errors when forms create cases of a type that has no module", () => {
 		// The finding keys on WRITERS: the parent form registers `service`
-		// child cases (a `case_property_on: service` bucket), but no module
+		// child cases (a `caseWrite: service.case_name` bucket), but no module
 		// owns `service` — the created cases would be invisible. A record
 		// alone (no writers) is a legal plan and stays clean.
 		const doc = buildDoc({
@@ -3069,13 +3088,13 @@ describe("child case type module requirement", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Plan Name"),
-									case_property_on: "plan",
+									caseWrite: { caseType: "plan", property: "case_name" },
 								}),
 								f({
 									kind: "text",
 									id: "service_note",
 									label: proseText("Service note"),
-									case_property_on: "service",
+									caseWrite: { caseType: "service", property: "service_note" },
 								}),
 							],
 						},
@@ -3119,7 +3138,7 @@ describe("child case type module requirement", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Plan Name"),
-									case_property_on: "plan",
+									caseWrite: { caseType: "plan", property: "case_name" },
 								}),
 							],
 						},
@@ -3245,7 +3264,7 @@ describe("case_list_only expansion", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Plan Name"),
-									case_property_on: "plan",
+									caseWrite: { caseType: "plan", property: "case_name" },
 								}),
 							],
 						},
@@ -3320,7 +3339,7 @@ describe("case_list_only expansion", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Plan Name"),
-									case_property_on: "plan",
+									caseWrite: { caseType: "plan", property: "case_name" },
 								}),
 							],
 						},
@@ -3568,17 +3587,6 @@ describe("Connect learn-only expansion", () => {
 		expect(xml).not.toContain('vellum:role="ConnectAssessment"');
 		expect(xml).not.toContain('vellum:role="ConnectTask"');
 	});
-
-	it("passes validation when a learn-app form carries only a learn module", () => {
-		// CONNECT_MISSING_LEARN fires only when a learn form has *neither*
-		// a learn_module nor an assessment — the learn-only config here
-		// satisfies the requirement.
-		expect(
-			runValidation(learnOnlyDoc, LOOKUP_CONTEXT_UNAVAILABLE).some(
-				(e) => e.code === "CONNECT_MISSING_LEARN",
-			),
-		).toBe(false);
-	});
 });
 
 // ── Deliver-unit entity-XPath defaults ────────────────────────────────
@@ -3627,8 +3635,7 @@ describe("Connect deliver_unit entity defaults", () => {
 		// canonical defaults — `today()` for entity_id (from
 		// `concat(#user/username, '-', today())`) and the `#user/...`
 		// expansion for entity_name. We don't pin the full expanded
-		// XPath because `expandHashtags` is allowed to evolve (it
-		// already differs for case-loading vs survey contexts); the
+		// XPath because the private projection may evolve by form context; the
 		// load-bearing assertion is "the calculate is non-empty and
 		// derived from the SA-invisible defaults".
 		const idBindMatch = xml.match(
@@ -3946,15 +3953,11 @@ describe("form_links emission", () => {
 		expect(expandDoc(doc).modules[0].forms[0].form_links).toEqual([]);
 	});
 
-	// Defense-in-depth: the validator (FORM_LINK_TARGET_NOT_FOUND) blocks
-	// dangling targets before they ever reach the expander in production,
-	// but `translateFormLinks` drops them anyway so an unchecked caller
-	// (e.g. a test bypass or a future codepath) never produces HQ JSON
-	// with an unresolvable index. Pinning the drop prevents a future
-	// refactor from silently switching to "throw" — every current
-	// assertion would still pass, but an upload path would suddenly
-	// start 500-ing on a formerly-tolerable input.
-	it("drops form-link entries whose target uuid isn't registered", () => {
+	// The validator blocks dangling targets before they reach the expander.
+	// The wire boundary must also fail closed if an unchecked caller violates
+	// that invariant; silently dropping authored behavior would turn an
+	// invalid document into a different export.
+	it("refuses a form-link target whose uuid isn't registered", () => {
 		const moduleUuid = "mod-dangling";
 		const formUuid = "frm-dangling";
 		const doc = buildDoc({
@@ -3990,50 +3993,46 @@ describe("form_links emission", () => {
 			],
 		});
 
-		const hq = expandDoc(doc);
-		expect(hq.modules[0].forms[0].form_links).toEqual([]);
+		expect(() => expandDoc(doc)).toThrowError(
+			"Cannot emit form link: target module",
+		);
 	});
 });
 
 // ── Connect mode gate ──────────────────────────────────────────────────
 //
-// `expandDoc` strips `form.connect` when `doc.connectType` is unset —
-// the builder stashes per-form Connect configs so mode toggles don't
-// lose work, but the emit path must see them as absent when the app is
-// out of Connect mode. Without this gate, a stashed learn module would
-// leak into a non-Connect export as a spurious data block + bind.
+// Connect content and the app's Connect mode are one exact topology. There is
+// no dormant/stashed form arm for the emitter to strip.
 
 describe("Connect mode gate", () => {
-	it("strips form.connect when doc.connectType is unset", () => {
-		const doc = buildDoc({
-			appName: "Stashed",
-			// connectType intentionally omitted — app is not in Connect mode.
-			modules: [
-				{
-					name: "Quiz",
-					forms: [
-						{
-							name: "Take Quiz",
-							type: "survey",
-							connect: {
-								learn_module: {
-									id: "stashed",
-									name: "Stashed",
-									description: "Hidden behind mode toggle",
-									time_estimate: 10,
+	it("refuses form.connect when doc.connectType is unset", () => {
+		expect(() =>
+			buildDoc({
+				appName: "Invalid Connect topology",
+				modules: [
+					{
+						name: "Quiz",
+						forms: [
+							{
+								name: "Take Quiz",
+								type: "survey",
+								connect: {
+									learn_module: {
+										id: "invalid",
+										name: "Invalid",
+										description: "Cannot exist outside Connect mode",
+										time_estimate: 10,
+									},
 								},
+								fields: [f({ kind: "text", id: "q1", label: proseText("Q1") })],
 							},
-							fields: [f({ kind: "text", id: "q1", label: proseText("Q1") })],
-						},
-					],
-				},
-			],
-		});
-		const hq = expandDoc(doc);
-		const xml: string = Object.values(hq._attachments)[0] as string;
-
-		// No Connect role attributes appear anywhere in the XForm.
-		expect(xml).not.toMatch(/vellum:role="Connect/);
+						],
+					},
+				],
+			}),
+		).toThrowError(
+			"Form Connect configuration must match the app Connect mode",
+		);
 	});
 });
 
@@ -4114,7 +4113,7 @@ function buildHqProjectionDoc(
 								kind: "text",
 								id: "case_name",
 								label: proseText("Name"),
-								case_property_on: "patient",
+								caseWrite: { caseType: "patient", property: "case_name" },
 							}),
 						],
 					},
@@ -4192,7 +4191,7 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 		expect(shortCols[0].field).toBe("last_visit");
 	});
 
-	it("lowers semantic date presets before HQ JSON emission", () => {
+	it("emits an authored literal pattern without semantic reinterpretation", () => {
 		const doc = buildHqProjectionDoc(
 			resolveCaseListConfig({
 				columns: [
@@ -4208,7 +4207,7 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 		);
 		const [column] = expandDoc(doc).modules[0].case_details.short.columns;
 		expect(column.format).toBe("date");
-		expect(column.date_format).toBe("%B %e, %Y");
+		expect(column.date_format).toBe("long");
 	});
 
 	it("projects phone columns with `phone` format and the bare property reference", () => {
@@ -4832,32 +4831,17 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 		expect(properties[2].appearance).toBe("barcode_scan");
 	});
 
-	it("omits an imported scalar default from a paired date-range property", () => {
-		const doc = buildHqProjectionDoc({
-			columns: [
-				plainColumn(
-					testUuid("00000000-0000-4000-8000-000000040014"),
-					"case_name",
-					"Name",
-				),
-			],
-			searchInputs: [
-				simpleSearchInputDef(
-					testUuid("00000000-0000-4000-8000-000000040015"),
-					"last_visit",
-					"Visit window",
-					"date-range",
-					"last_visit",
-					{ default: today() },
-				),
-			],
-		});
-
-		const [property] = expandDoc(doc).modules[0].search_config.properties;
-		expect(property).toEqual(
-			expect.objectContaining({ name: "last_visit", input_: "daterange" }),
-		);
-		expect(property.default_value).toBeUndefined();
+	it("refuses a scalar default on a paired date-range property", () => {
+		expect(() =>
+			simpleSearchInputDef(
+				testUuid("00000000-0000-4000-8000-000000040015"),
+				"last_visit",
+				"Visit window",
+				"date-range",
+				"last_visit",
+				{ default: today() },
+			),
+		).toThrow();
 	});
 
 	it("keeps mixed simple and advanced prompt bindings with shared widget/default metadata", () => {
@@ -5154,7 +5138,7 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 									kind: "text",
 									id: "case_name",
 									label: proseText("Name"),
-									case_property_on: "patient",
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},

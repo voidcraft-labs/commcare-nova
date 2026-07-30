@@ -47,13 +47,13 @@ function minDoc(): BlueprintDoc {
 								kind: "text",
 								id: "case_name",
 								label: proseText("Name"),
-								case_property_on: "patient",
+								caseWrite: { caseType: "patient", property: "case_name" },
 							}),
 							f({
 								kind: "text",
 								id: "village",
 								label: proseText("Village"),
-								case_property_on: "patient",
+								caseWrite: { caseType: "patient", property: "village" },
 							}),
 						],
 					},
@@ -80,11 +80,7 @@ function minDoc(): BlueprintDoc {
  *  hydrated `nextDoc` — here with no concurrent peer edit to merge). */
 function makeCtx() {
 	const recordMutations = vi.fn(
-		async (
-			prepared: PreparedMutationCandidate,
-			_stage?: string,
-			_mediaExpectations?: unknown,
-		) => ({
+		async (prepared: PreparedMutationCandidate, _stage?: string) => ({
 			events: [],
 			committedDoc: prepared.nextDoc,
 		}),

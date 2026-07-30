@@ -80,7 +80,6 @@ import type {
 } from "@/lib/log/types";
 import type { LogWriter } from "@/lib/log/writer";
 import { log } from "@/lib/logger";
-import type { MediaAttachExpectation } from "@/lib/media/attachVerdicts";
 import {
 	MODEL_DEFAULT,
 	OPENAI_BASE_OPTIONS,
@@ -129,9 +128,9 @@ export function logWarnings(
  * `appId` is required — the chat route creates the app doc via `createApp`
  * before constructing the context (Postgres-down = 503, not an orphaned
  * build). Every `GenerationContext` has a target app because each tool batch
- * commits inline through `commitGuardedBatch(appId, …)` — the same shape as
- * `McpContext` — except field-ID-changing batches, which ride the cross-store
- * saga so the case-store row migration runs with the commit.
+ * commits inline through the guarded writer. The batch-exclusive
+ * `renameCaseProperties` command additionally composes its case-schema and
+ * row movement into that same physical transaction.
  */
 interface GenerationContextOptions {
 	/** Server-shared OpenAI API key (resolved by `resolveOpenAIKey`) —
@@ -237,7 +236,7 @@ export class GenerationContext implements ToolExecutionContext {
 	 * a hard-killed one and refund its still-live hold. */
 	private _pausedOnInput = false;
 	/** The `mutation_seq` the run's most recent batch committed at — the head
-	 * of the durable `acceptedMutations` stream. The route stamps it on
+	 * of the durable `appChanges` stream. The route stamps it on
 	 * `data-done` so a reconnecting client knows the run's terminal cursor.
 	 * Absent until the first mutation batch lands. */
 	private _latestSeq: number | undefined;
@@ -389,8 +388,9 @@ export class GenerationContext implements ToolExecutionContext {
 	 *   - `data-done` — the route's drain-end build-finished signal,
 	 *     carrying the final doc snapshot for client reconciliation.
 	 *   - `data-blueprint-updated` — edit-mode coarse-tool replacements.
-	 *   - `data-app-id` — one-shot appId announcement driving the
-	 *     `/build/new` → `/build/{id}` URL swap on new builds.
+	 *   - `data-app-id` — the one-shot canonical genesis receipt that installs
+	 *     the exact blueprint/cursor before driving the `/build/new` →
+	 *     `/build/{id}` URL swap and multiplayer activation.
 	 *   - `data-run-id` — server-minted run identifier the client echoes
 	 *     back on follow-up requests.
 	 *
@@ -494,9 +494,9 @@ export class GenerationContext implements ToolExecutionContext {
 	}
 
 	/**
-	 * Commit one batch through the unified guarded writer (field-id-changing
-	 * batches detour through the cross-store saga — see the branch below),
-	 * then — AFTER the commit resolves — emit the `data-mutations` SSE
+	 * Commit one batch through the unified guarded writer (the explicit rename
+	 * command composes its case-row movement into that transaction), then —
+	 * AFTER the commit resolves — emit the `data-mutations` SSE
 	 * event and log the envelopes. Awaited-inline: the SA's `serial()`
 	 * mutex serializes tool
 	 * bodies, so the commit that lands here always builds on the previous one's
@@ -512,56 +512,28 @@ export class GenerationContext implements ToolExecutionContext {
 	 * latched before RE-THROWING: the tool + SA still see the failure and stop,
 	 * while the route can recover the signal after the AI SDK turns a tool throw
 	 * into a non-fatal chunk. Any other error rethrows unchanged.
-	 *
-	 * `mediaExpectations` forwards to the guarded commit so a media attach is
-	 * re-verified against asset rows read INSIDE the transaction — the same
-	 * in-txn re-check MCP performs — closing the window where a peer deletes the
-	 * asset between the pre-commit verdict and this commit.
 	 */
 	private async commitBatch(
 		prepared: PreparedMutationCandidate,
 		events: MutationEvent[],
 		stage: string | undefined,
-		mediaExpectations?: readonly MediaAttachExpectation[],
 	): Promise<RecordMutationsResult> {
 		const mutations = prepared.mutations;
 		const batchId = crypto.randomUUID();
 		const chatRunHolder = this.chatRunHolder;
 		let result: { seq: number; committedDoc: BlueprintDoc };
 		try {
-			// A batch that can RENAME a case property routes through the
-			// cross-store saga instead of the bare guarded commit: the
-			// classifier proves the rename from the snapshots and the
-			// case-store migrates row values old-key → new-key in the same
-			// transaction as the schema regen. Committing such a batch
-			// bare would leave the rename's diff evidence expired at the
-			// drain-end additive materialize (the committed doc holds the
-			// new name on both sides), permanently stranding rows on the
-			// old key. The chat-emitted carriers are an `updateField` patch
-			// with its own `id` key and `moveField` — a cross-parent move's
-			// sibling-id dedup can rename the field, and when the colliding
-			// sibling is NOT a writer of the same pair (a survey field sharing
-			// the id), the old property leaves the materializable view exactly
-			// like a rename. A moveField that renamed nothing classifies to
-			// zero entries and falls through the saga's fast path, so the
-			// over-trigger costs one in-memory replay. The diff-shaped undo
-			// batches exist only on the auto-save surface, which always rides
-			// the saga. Every other batch keeps the bare
-			// inline commit; the drain-end materialize covers its schema
-			// sync in one pass — including a `convertField` batch, whose
-			// row migration needs no batch intent: the property KEY is
-			// stable across a retype, so the materialize sync's own
-			// stored↔derived schema diff (`detectPropertyTransitions` in
-			// the case store) proves and runs the cast there, no saga
-			// detour required.
+			// Explicit property rename is the only batch that needs the
+			// cross-store boundary: its canonical relation moves Blueprint,
+			// schema, live rows, parked rows, and accepted history in one
+			// transaction. Ordinary batches keep the guarded writer fast path;
+			// drain-end materialization derives their schemas from the committed
+			// document.
 			if (
-				mutations.some(
-					(m) =>
-						m.kind === "moveField" ||
-						(m.kind === "updateField" && Object.hasOwn(m.patch, "id")),
-				)
+				mutations.length === 1 &&
+				mutations[0]?.kind === "renameCaseProperties"
 			) {
-				const saga = await applyBlueprintChange({
+				const renameResult = await applyBlueprintChange({
 					appId: this.appId,
 					userId: this.session.user.id,
 					expectedProjectId: this.projectId,
@@ -569,34 +541,28 @@ export class GenerationContext implements ToolExecutionContext {
 					chatRunHolder,
 					batchId,
 					kind: "chat",
-					...(this._latestDoc !== undefined && {
-						priorBlueprint: this._latestDoc,
-					}),
 					guard: {
 						mutations,
-						...(mediaExpectations !== undefined && { mediaExpectations }),
 					},
 				});
-				if (saga.committedDoc === undefined) {
-					// Only a top-level dedup omits the doc, and this batch's
-					// id was minted moments ago — reaching this is a latch
-					// collision on a fresh uuid.
-					throw new Error(
-						`[generationContext] identity-changing batch ${batchId} deduped against an existing latch for app ${this.appId} — a freshly-minted batch id cannot have committed before`,
-					);
-				}
-				result = { seq: saga.seq, committedDoc: saga.committedDoc };
-				// A saga commit's row migration can PARK saved case values.
+				result = {
+					seq: renameResult.seq,
+					committedDoc: renameResult.committedDoc,
+				};
+				// A rename can PARK saved case values.
 				// Stash the note for the tool wrapper to append to its
 				// success message — and log it, since this boundary has no
 				// toast.
-				if (saga.migration !== undefined && saga.migration.parked > 0) {
-					this._parkedNote = describeParkedOutcome(saga.migration);
-					log.warn("[generationContext] saga commit parked case values", {
+				if (
+					renameResult.migration !== undefined &&
+					renameResult.migration.parked > 0
+				) {
+					this._parkedNote = describeParkedOutcome(renameResult.migration);
+					log.warn("[generationContext] rename parked case values", {
 						appId: this.appId,
 						batchId,
-						parked: saga.migration.parked,
-						failureReasons: saga.migration.failureReasons,
+						parked: renameResult.migration.parked,
+						failureReasons: renameResult.migration.failureReasons,
 					});
 				}
 			} else {
@@ -609,7 +575,6 @@ export class GenerationContext implements ToolExecutionContext {
 					actorUserId: this.session.user.id,
 					expectedProjectId: this.projectId,
 					kind: "chat",
-					...(mediaExpectations !== undefined && { mediaExpectations }),
 				});
 			}
 		} catch (err) {
@@ -659,20 +624,16 @@ export class GenerationContext implements ToolExecutionContext {
 	 * is what lets `consumeStream()` resolving imply every commit settled —
 	 * removing either reintroduces lost concurrent edits and unsettled writes at
 	 * drain end. A rejection propagates (the batch is not emitted).
-	 *
-	 * `mediaExpectations` (present when the batch attaches a media reference)
-	 * rides into the guarded commit for the in-transaction re-verification.
 	 */
 	async recordMutations(
 		prepared: PreparedMutationCandidate,
 		stage?: string,
-		mediaExpectations?: readonly MediaAttachExpectation[],
 	): Promise<RecordMutationsResult> {
 		if (prepared.mutations.length === 0) {
 			return { events: [], committedDoc: prepared.nextDoc };
 		}
 		const events = this.buildEnvelopes(prepared.mutations, stage);
-		return this.commitBatch(prepared, events, stage, mediaExpectations);
+		return this.commitBatch(prepared, events, stage);
 	}
 
 	/**

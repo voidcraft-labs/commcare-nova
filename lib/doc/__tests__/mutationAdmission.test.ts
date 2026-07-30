@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	admitMutationBatch,
 	admitMutationStages,
@@ -53,6 +54,24 @@ describe("admitMutationBatch", () => {
 		expect(admitted[0]).not.toBe(admitted[1]);
 	});
 
+	it("rejects null for repeat_mode because the stored discriminator is required", () => {
+		const error = canonicalityError(() =>
+			admitMutationBatch([
+				{
+					kind: "updateField",
+					uuid: testUuid("repeat-field"),
+					targetKind: "repeat",
+					patch: { repeat_mode: null },
+				},
+			]),
+		);
+		expect(error.details).toEqual({
+			mutationIndex: 0,
+			pointer: "/0/patch",
+			reason: "schema-parse",
+		});
+	});
+
 	it.each([
 		{
 			label: "undefined",
@@ -85,6 +104,51 @@ describe("admitMutationBatch", () => {
 			pointer,
 			reason,
 		});
+	});
+
+	it.each([
+		["positive unsafe integer", 9_007_199_254_740_992],
+		["negative unsafe integer", -9_007_199_254_740_992],
+		["larger unsafe integer", 1e20],
+	] as const)(
+		"rejects a %s at the generic JSON boundary before schema parsing",
+		(_label, value) => {
+			const error = canonicalityError(() =>
+				admitMutationBatch([
+					{ kind: "setAppName", name: "Nova", extra: value },
+				]),
+			);
+			expect(error.details).toEqual({
+				mutationIndex: 0,
+				pointer: "/0/extra",
+				reason: "non-json-value",
+			});
+		},
+	);
+
+	it.each([
+		["ordinary fraction", 0.1],
+		["smallest positive number", 5e-324],
+	] as const)("admits a persistable %s", (_label, value) => {
+		const literal = {
+			kind: "term" as const,
+			term: { kind: "literal" as const, value },
+		};
+		expect(
+			admitMutationBatch([
+				{
+					kind: "setCaseListMeta",
+					uuid: testUuid("numeric-module"),
+					patch: {
+						filter: {
+							kind: "eq",
+							left: literal,
+							right: literal,
+						},
+					},
+				},
+			]),
+		).toHaveLength(1);
 	});
 
 	it.each([

@@ -41,8 +41,7 @@
  *   5. The committed doc shows the move didn't land (a concurrent edit
  *      displaced the field or its destination) → `{ error }` pointing
  *      at a re-read.
- *   6. Success → a human-readable `message` (noting a sibling-collision
- *      auto-rename when the reducer deduped the id) + a UI `summary`.
+ *   6. Success → a human-readable `message` + a UI `summary`.
  */
 
 import type { z } from "zod";
@@ -86,9 +85,7 @@ export const moveFieldInputSchema = fieldAddressSchema
 
 export type MoveFieldInput = z.infer<typeof moveFieldInputSchema>;
 
-/** Human-readable success `message` + UI `summary`, or an error record.
- *  Named apart from the doc layer's `MoveFieldResult` (the reducer's
- *  dedup-rename metadata) — same mutation, unrelated shape. */
+/** Human-readable success `message` + UI `summary`, or an error record. */
 export type MoveFieldToolResult = MutationSuccess | { error: string };
 
 export const moveFieldTool = {
@@ -206,11 +203,21 @@ export const moveFieldTool = {
 				cursor = doc.fieldParent[cursor] ?? undefined;
 			}
 
-			// The shared slot → order-key computation — the same one the
-			// builder's drag dispatches through, so the SA's move and a drag
-			// of the same gesture land the same key. The moved field is
-			// excluded from the neighbor set so a same-parent reorder keys
-			// between the OTHER siblings.
+			const collision = (doc.fieldOrder[destParentUuid] ?? [])
+				.filter((uuid) => uuid !== moved.uuid)
+				.map((uuid) => doc.fields[uuid])
+				.find((sibling) => sibling?.id === moved.id);
+			if (collision !== undefined) {
+				return fail(
+					`"${moved.id}" can't move there because that level already has a field with the same ID. Rename this field explicitly, then move it again.`,
+				);
+			}
+
+			// The shared slot → predecessor computation is the same one the
+			// builder's drag dispatches through, so the SA's move and a drag of
+			// the same gesture land in the same array position. The moved field
+			// is excluded from the neighbor set so a same-parent reorder anchors
+			// among the other siblings.
 			const after = fieldSlotAfter(
 				doc,
 				destParentUuid,
@@ -270,15 +277,6 @@ export const moveFieldTool = {
 					? ""
 					: ` A collaborator removed the field it was meant to follow while this was in flight, so it went to the end instead — move it again if it belongs elsewhere.`;
 
-			// A cross-parent move can rename the field to keep sibling ids
-			// unique at the new level (the reducer's dedup) — read the id off
-			// the committed doc and report it, or the SA keeps addressing a
-			// name that no longer exists.
-			const finalId = postField?.id ?? moved.id;
-			const renameNote =
-				finalId !== moved.id
-					? ` Renamed to "${finalId}" to keep sibling ids unique at its new level.`
-					: "";
 			const destField = doc.fields[destParentUuid];
 			const placement = anchor
 				? `${anchorSide} "${anchor.id}"`
@@ -294,10 +292,10 @@ export const moveFieldTool = {
 				mutations: commit.mutations,
 				newDoc,
 				result: {
-					message: `Moved "${moved.id}" ${placement} in "${formName}".${renameNote}${displacedNote}`,
+					message: `Moved "${moved.id}" ${placement} in "${formName}".${displacedNote}`,
 					summary: {
 						location: formName,
-						subject: label || finalId,
+						subject: label || moved.id,
 					} satisfies ToolCallSummary,
 				},
 			};

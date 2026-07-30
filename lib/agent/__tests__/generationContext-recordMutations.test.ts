@@ -15,7 +15,8 @@
 
 import type { LanguageModelUsage } from "ai";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import type { ClassifiedError } from "@/lib/agent/errorClassifier";
 import { applyBlueprintChange } from "@/lib/db/applyBlueprintChange";
 import { commitGuardedBatch } from "@/lib/db/apps";
@@ -47,9 +48,8 @@ vi.mock("@/lib/db/apps", () => ({
 	refreshBuildLiveness: vi.fn(() => Promise.resolve()),
 }));
 
-/* Field-ID-changing batches detour through the cross-store saga so the
- * case-store row migration runs with the commit — mock it as its own
- * seam. */
+/* The explicit rename command composes case-row movement into the guarded
+ * commit through this boundary. */
 vi.mock("@/lib/db/applyBlueprintChange", () => ({
 	applyBlueprintChange: vi.fn(),
 }));
@@ -88,17 +88,49 @@ function committedDocFor(appName: string) {
 	return { ...makeMinimalDoc(), appName };
 }
 
+function renameableDoc() {
+	return buildDoc({
+		appId: "test-app",
+		appName: "Renameable",
+		caseTypes: [
+			{
+				name: "patient",
+				properties: [{ name: "age", label: proseText("Age") }],
+			},
+		],
+		modules: [
+			{
+				name: "Patients",
+				caseType: "patient",
+				forms: [
+					{
+						name: "Update",
+						type: "followup",
+						fields: [
+							f({
+								uuid: testUuid("renameable-age-field"),
+								kind: "text",
+								id: "age",
+								label: proseText("Age"),
+								caseWrite: { caseType: "patient", property: "age" },
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+}
+
 function recordProposal(
 	ctx: GenerationContext,
 	mutations: unknown,
 	doc: ReturnType<typeof makeMinimalDoc>,
 	stage?: string,
-	mediaExpectations?: Parameters<GenerationContext["recordMutations"]>[2],
 ) {
 	return ctx.recordMutations(
 		prepareMutationCandidate(doc, admitMutationBatch(mutations)),
 		stage,
-		mediaExpectations,
 	);
 }
 
@@ -123,6 +155,7 @@ describe("GenerationContext.recordMutations", () => {
 
 	beforeEach(() => {
 		vi.mocked(commitGuardedBatch).mockReset();
+		vi.mocked(applyBlueprintChange).mockReset();
 		// Default: the writer commits at seq 1 and returns a distinct hydrated
 		// doc so tests can distinguish "adopted committedDoc" from "kept DOC".
 		vi.mocked(commitGuardedBatch).mockResolvedValue({
@@ -173,23 +206,17 @@ describe("GenerationContext.recordMutations", () => {
 		});
 	});
 
-	it("routes an own-id updateField patch through the cross-store saga instead of the bare writer", async () => {
-		// The canonical ID-changing updateField patch must run the
-		// classifier-proven rename's row migration WITH the commit —
-		// committing it bare would leave the diff evidence expired for
-		// every later sync and strand the rows on the old key.
+	it("routes only the explicit rename command through the cross-store boundary", async () => {
 		vi.mocked(applyBlueprintChange).mockResolvedValue({
 			seq: 3,
-			committedDoc: committedDocFor("saga-committed"),
+			committedDoc: committedDocFor("rename-committed"),
 		});
-		const idChange: Mutation = {
-			kind: "updateField",
-			uuid: testUuid("field-uuid"),
-			targetKind: "text",
-			patch: { id: "patient_full_name" },
+		const rename: Mutation = {
+			kind: "renameCaseProperties",
+			renames: [{ caseType: "patient", from: "age", to: "years" }],
 		};
 
-		const result = await recordProposal(ctx, [idChange], DOC);
+		const result = await recordProposal(ctx, [rename], renameableDoc());
 
 		expect(vi.mocked(commitGuardedBatch)).not.toHaveBeenCalled();
 		expect(vi.mocked(applyBlueprintChange)).toHaveBeenCalledTimes(1);
@@ -205,22 +232,20 @@ describe("GenerationContext.recordMutations", () => {
 			},
 			userId: "user-1",
 			kind: "chat",
-			guard: { mutations: [idChange] },
+			guard: { mutations: [rename] },
 		});
 		expect(args?.batchId).toEqual(expect.any(String));
-		// The SA adopts the saga's committed doc, and the SSE frame
-		// carries the saga's seq.
-		expect(result.committedDoc?.appName).toBe("saga-committed");
+		expect(result.committedDoc?.appName).toBe("rename-committed");
 		const frame = writer.write.mock.calls[0]?.[0] as {
 			data: { seq: number };
 		};
 		expect(frame.data.seq).toBe(3);
 	});
 
-	it("stashes a saga commit's park outcome as the consumable note for the tool wrapper", async () => {
+	it("stashes a rename's park outcome as the consumable note for the tool wrapper", async () => {
 		vi.mocked(applyBlueprintChange).mockResolvedValue({
 			seq: 4,
-			committedDoc: committedDocFor("saga-committed"),
+			committedDoc: committedDocFor("rename-committed"),
 			migration: {
 				migrated: 2,
 				reshaped: 0,
@@ -233,14 +258,12 @@ describe("GenerationContext.recordMutations", () => {
 				],
 			},
 		});
-		const idChange: Mutation = {
-			kind: "updateField",
-			uuid: testUuid("field-uuid"),
-			targetKind: "text",
-			patch: { id: "patient_full_name" },
+		const rename: Mutation = {
+			kind: "renameCaseProperties",
+			renames: [{ caseType: "patient", from: "age", to: "years" }],
 		};
 
-		await recordProposal(ctx, [idChange], DOC);
+		await recordProposal(ctx, [rename], renameableDoc());
 
 		// Read-and-clear: the first consume returns the person-readable
 		// note (the tool wrapper appends it to its success message so the
@@ -252,22 +275,30 @@ describe("GenerationContext.recordMutations", () => {
 		expect(ctx.consumeParkedNote()).toBeUndefined();
 	});
 
-	it("routes a moveField batch through the saga too — a cross-parent dedup can rename a property", async () => {
-		vi.mocked(applyBlueprintChange).mockResolvedValue({
-			seq: 4,
-			committedDoc: committedDocFor("saga-committed"),
-		});
-		const move: Mutation = {
-			kind: "moveField",
-			uuid: testUuid("field-uuid"),
-			toParentUuid: testUuid("form-uuid"),
-			after: null,
-		};
+	it.each([
+		{
+			label: "field id edit",
+			mutation: {
+				kind: "updateField",
+				uuid: testUuid("field-uuid"),
+				targetKind: "text",
+				patch: { id: "patient_full_name" },
+			} as Mutation,
+		},
+		{
+			label: "field move",
+			mutation: {
+				kind: "moveField",
+				uuid: testUuid("field-uuid"),
+				toParentUuid: testUuid("form-uuid"),
+				after: null,
+			} as Mutation,
+		},
+	])("does not infer a rename from a generic $label", async ({ mutation }) => {
+		await recordProposal(ctx, [mutation], DOC);
 
-		await recordProposal(ctx, [move], DOC);
-
-		expect(vi.mocked(commitGuardedBatch)).not.toHaveBeenCalled();
-		expect(vi.mocked(applyBlueprintChange)).toHaveBeenCalledTimes(1);
+		expect(vi.mocked(commitGuardedBatch)).toHaveBeenCalledTimes(1);
+		expect(vi.mocked(applyBlueprintChange)).not.toHaveBeenCalled();
 	});
 
 	it("emits data-mutations AFTER the commit, carrying raw mutations + envelopes + seq + batchId", async () => {
@@ -474,31 +505,6 @@ describe("GenerationContext.recordMutations", () => {
 		// may claim the rejected mutation happened.
 		expect(writer.write).not.toHaveBeenCalled();
 		expect(logWriter.logEvent).not.toHaveBeenCalled();
-	});
-
-	it("forwards mediaExpectations into the guarded commit for the in-txn re-check", async () => {
-		const mediaExpectations = [
-			{
-				assetId: testMediaAssetId("asset-1"),
-				kind: "image",
-				slot: "label media",
-			},
-		] as const;
-		await recordProposal(
-			ctx,
-			[TEXT_FIELD_MUTATION],
-			DOC,
-			undefined,
-			mediaExpectations,
-		);
-		const args = vi.mocked(commitGuardedBatch).mock.calls[0]?.[0];
-		expect(args?.mediaExpectations).toEqual(mediaExpectations);
-	});
-
-	it("omits mediaExpectations from the commit args when the batch attaches no media", async () => {
-		await recordProposal(ctx, [TEXT_FIELD_MUTATION], DOC);
-		const args = vi.mocked(commitGuardedBatch).mock.calls[0]?.[0];
-		expect(args && "mediaExpectations" in args).toBe(false);
 	});
 
 	it("latestPersistedDoc + latestCommittedSeq reflect the committed batch (absent before any)", async () => {

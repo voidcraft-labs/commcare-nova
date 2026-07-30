@@ -40,7 +40,7 @@ import {
 	plainColumn,
 	type Uuid,
 } from "@/lib/domain";
-import { literal, prop, term, unwrapList } from "@/lib/domain/predicate";
+import { literal, prop, term } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
 import {
 	applicableSortTypes,
@@ -182,7 +182,7 @@ describe("buildSortDirectives — sortable-column collection", () => {
 					uuid: "a",
 					column: plainColumn(
 						testUuid("00000000-0000-4000-8000-aaaa00000001"),
-						"name",
+						"case_name",
 						"Name",
 					),
 				},
@@ -191,7 +191,7 @@ describe("buildSortDirectives — sortable-column collection", () => {
 		const doc = buildDoc({
 			module: mod,
 			caseType: "patient",
-			properties: [{ name: "name", data_type: "text" }],
+			properties: [{ name: "case_name", data_type: "text" }],
 		});
 		const directives = buildSortDirectives(mod, doc);
 		expect(directives.size).toBe(0);
@@ -212,7 +212,7 @@ describe("buildSortDirectives — sortable-column collection", () => {
 	it("includes only the columns whose `sort` slot is defined", () => {
 		const sorted = plainColumn(
 			testUuid("00000000-0000-4000-8000-aaaa00000010"),
-			"name",
+			"case_name",
 			"Name",
 			{ sort: { direction: "asc", priority: 0 } },
 		);
@@ -232,7 +232,7 @@ describe("buildSortDirectives — sortable-column collection", () => {
 			module: mod,
 			caseType: "patient",
 			properties: [
-				{ name: "name", data_type: "text" },
+				{ name: "case_name", data_type: "text" },
 				{ name: "phone", data_type: "text" },
 			],
 		});
@@ -430,7 +430,7 @@ describe("buildSortDirectives — comparator type derivation", () => {
 	it("picks `plain` for text-typed properties", () => {
 		const col = plainColumn(
 			testUuid("00000000-0000-4000-8000-aaaa00000050"),
-			"name",
+			"case_name",
 			"Name",
 			{ sort: { direction: "asc", priority: 0 } },
 		);
@@ -441,7 +441,7 @@ describe("buildSortDirectives — comparator type derivation", () => {
 		const doc = buildDoc({
 			module: mod,
 			caseType: "patient",
-			properties: [{ name: "name", data_type: "text" }],
+			properties: [{ name: "case_name", data_type: "text" }],
 		});
 		const directives = buildSortDirectives(mod, doc);
 		expect(directives.get(col.uuid)?.type).toBe("plain");
@@ -511,7 +511,7 @@ describe("buildSortDirectives — comparator type derivation", () => {
 	it("picks `date` for datetime-typed properties", () => {
 		const col = plainColumn(
 			testUuid("00000000-0000-4000-8000-aaaa00000054"),
-			"opened_on",
+			"date_opened",
 			"Opened",
 			{ sort: { direction: "desc", priority: 0 } },
 		);
@@ -522,7 +522,7 @@ describe("buildSortDirectives — comparator type derivation", () => {
 		const doc = buildDoc({
 			module: mod,
 			caseType: "patient",
-			properties: [{ name: "opened_on", data_type: "datetime" }],
+			properties: [{ name: "date_opened", data_type: "datetime" }],
 		});
 		const directives = buildSortDirectives(mod, doc);
 		expect(directives.get(col.uuid)?.type).toBe("date");
@@ -662,34 +662,6 @@ describe("buildSortDirectives — calc fallback: ANY_TYPE result type", () => {
 	});
 });
 
-describe("buildSortDirectives — calc fallback: unmapped ResolvedType", () => {
-	it("refuses an unwrap-list sort that CommCare Core cannot evaluate on-device", () => {
-		// `unwrapList(term(prop("patient", "tags")))` resolves to
-		// `SEQUENCE_TYPE`, but `unwrap-list` exists only in CCHQ's server-side
-		// case-search function table. A case-list sort executes in CommCare
-		// Core's on-device evaluator, so the validator must reject this shape
-		// and the low-level emitter must fail closed if a caller bypasses it.
-		const col = calculatedColumn(
-			testUuid("00000000-0000-4000-8000-aaaa00000072"),
-			"Tags sequence",
-			unwrapList(term(prop("patient", "tags"))),
-			{ sort: { direction: "asc", priority: 0 } },
-		);
-		const mod = makeModule({
-			caseType: "patient",
-			columns: [{ uuid: "a", column: col }],
-		});
-		const doc = buildDoc({
-			module: mod,
-			caseType: "patient",
-			properties: [{ name: "tags", data_type: "text" }],
-		});
-		expect(() => buildSortDirectives(mod, doc)).toThrow(
-			/unwrap-list is a server-side case-search function/i,
-		);
-	});
-});
-
 // ============================================================
 // Shell 4 — emitSortBlock wire shape
 // ============================================================
@@ -770,7 +742,7 @@ describe("emitSortBlock — calculated arm", () => {
 			order: 1,
 			direction: "desc",
 			type: "integer",
-			calcXpath: "(today() - date(opened_on)) div 7",
+			calcXpath: "(today() - date(date_opened)) div 7",
 		});
 		expect(xml).toContain('type="int"');
 		expect(xml).toContain('order="1"');
@@ -782,7 +754,7 @@ describe("emitSortBlock — calculated arm", () => {
 		expect(xml).toContain('<xpath function="$calculated_property">');
 		expect(xml).toContain('<variable name="calculated_property">');
 		// The inner xpath carries the calc's lowered expression.
-		expect(xml).toContain("today() - date(opened_on)");
+		expect(xml).toContain("today() - date(date_opened)");
 	});
 
 	it("XML-escapes the inner calc xpath", () => {

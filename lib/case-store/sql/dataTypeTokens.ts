@@ -84,8 +84,8 @@ export interface ReservedScalarColumn {
  * never the JSONB document (a JSONB read would return `NULL`), and
  * these names ARE the wire's authoring vocabulary for case metadata
  * (a CommCare detail column's `field` says `date_opened`; the device
- * reads the case's open timestamp). The `is-null` / `is-blank` arms
- * read the same map so both compilers stay in lockstep, and the
+ * reads the case's open timestamp). The `is-blank` arm reads the
+ * same map so both compilers stay in lockstep, and the
  * running-preview display seam
  * (`lib/preview/engine/caseDataBindingClient.ts::caseRowDisplayValue`)
  * resolves the same names off the row object.
@@ -97,7 +97,7 @@ export interface ReservedScalarColumn {
  * **Shadowing:** these names are also syntactically valid property
  * identifiers, but a field cannot write one — the validator's
  * `RESERVED_CASE_PROPERTY` rule rejects every entry here except
- * `case_name` as a `case_property_on` target — so the scalar read
+ * `case_name` as an explicit `caseWrite.property` target — so the scalar read
  * can never shadow authored case data; the compilers trust that
  * rejection upstream.
  */
@@ -110,11 +110,8 @@ export const RESERVED_SCALAR_COLUMN_BY_PROPERTY: ReadonlyMap<
 	["owner_id", { column: "owner_id", blankable: true }],
 	["status", { column: "status", blankable: true }],
 	["case_name", { column: "case_name", blankable: true }],
-	["name", { column: "case_name", blankable: true }],
 	["external_id", { column: "external_id", blankable: true }],
-	["external-id", { column: "external_id", blankable: true }],
 	["date_opened", { column: "opened_on", blankable: false }],
-	["date-opened", { column: "opened_on", blankable: false }],
 	["last_modified", { column: "modified_on", blankable: false }],
 ]);
 

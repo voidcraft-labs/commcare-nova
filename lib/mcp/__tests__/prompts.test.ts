@@ -86,11 +86,9 @@ function fixturePopulatedDoc(): BlueprintDoc {
 }
 
 /**
- * Empty-doc fixture — the degenerate edit case `createApp` produces
- * before any modules land. `buildSolutionsArchitectPrompt` keys off
- * `doc?.moduleOrder.length > 0` and routes empty docs into the build
- * branch; the test confirms that fallthrough is preserved when the doc
- * comes through the MCP renderer.
+ * Defensive in-memory empty-doc fixture. Persisted `createApp` always returns
+ * canonical genesis, but `buildSolutionsArchitectPrompt` still fails safe to
+ * build framing when this impossible persisted shape reaches the MCP renderer.
  */
 function fixtureEmptyDoc(): BlueprintDoc {
 	return {
@@ -149,11 +147,8 @@ describe("renderAgentPrompt", () => {
 	});
 
 	it("edit mode with an empty-modules doc falls back to the build prompt", () => {
-		/* `createApp` writes an empty doc before any generation tools
-		 * fire — there's nothing to "edit" yet, so
-		 * `buildSolutionsArchitectPrompt` routes empty docs into the
-		 * build branch. The test confirms the MCP renderer inherits
-		 * that behavior end-to-end. */
+		/* Persisted creation never supplies this shape, but a defensive
+		 * in-memory empty doc still routes to build framing. */
 		const sp = renderAgentPrompt(true, fixtureEmptyDoc());
 		expect(sp).toContain("Initial Build");
 		expect(sp).not.toContain("Editing Mode");

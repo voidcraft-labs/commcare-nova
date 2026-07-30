@@ -53,18 +53,25 @@ describe("case-list Preview cell formatting", () => {
 	});
 
 	describe("date columns", () => {
-		it("renders every semantic preset with its supported CommCare pattern", () => {
-			expect(formatDateForPreview("2026-07-14", "short")).toEqual({
+		it("renders every preset's exact stored CommCare pattern", () => {
+			expect(formatDateForPreview("2026-07-14", "%m/%d/%Y")).toEqual({
 				kind: "value",
 				text: "07/14/2026",
 			});
-			expect(formatDateForPreview("2026-07-14", "long")).toEqual({
+			expect(formatDateForPreview("2026-07-14", "%B %e, %Y")).toEqual({
 				kind: "value",
 				text: "July 14, 2026",
 			});
-			expect(formatDateForPreview("2026-07-14", "iso")).toEqual({
+			expect(formatDateForPreview("2026-07-14", "%Y-%m-%d")).toEqual({
 				kind: "value",
 				text: "2026-07-14",
+			});
+		});
+
+		it("treats preset-like literal text as exact column bytes", () => {
+			expect(formatDateForPreview("2026-07-14", "short")).toEqual({
+				kind: "value",
+				text: "short",
 			});
 		});
 
@@ -85,17 +92,11 @@ describe("case-list Preview cell formatting", () => {
 			).toEqual({ kind: "value", text: "2026-07-13 18:30" });
 		});
 
-		it("uses an explained raw-value fallback for invalid data or a legacy style", () => {
+		it("uses an explained raw-value fallback for invalid case data", () => {
 			expect(formatDateForPreview("2026-02-31", "%Y-%m-%d")).toEqual({
 				kind: "fallback",
 				text: "2026-02-31",
 				message: "Showing the original value because it isn’t a valid date",
-			});
-			expect(formatDateForPreview("2026-07-14", "%Q")).toEqual({
-				kind: "fallback",
-				text: "2026-07-14",
-				message:
-					"Showing the original value because Preview can’t use this saved date style",
 			});
 		});
 	});
@@ -121,7 +122,7 @@ describe("case-list Preview cell formatting", () => {
 		it("uses the exact 30.4375-day month divisor and threshold replacement", () => {
 			const withinThreshold = intervalColumn(
 				COLUMN_UUID,
-				"opened_on",
+				"date_opened",
 				"Months open",
 				3,
 				"months",
@@ -351,7 +352,7 @@ describe("case-list Preview cell formatting", () => {
 			testUuid("00000000-0000-4000-8000-000000000003"),
 			"visit_date",
 			"Visit date",
-			"long",
+			"%B %e, %Y",
 		);
 		const followUp = intervalColumn(
 			testUuid("00000000-0000-4000-8000-000000000004"),
@@ -425,7 +426,7 @@ describe("case-list Preview cell formatting", () => {
 	it("opens malformed-value guidance from a real keyboard and touch target", async () => {
 		render(
 			renderColumnCell(
-				dateColumn(COLUMN_UUID, "visit", "Visit", "long"),
+				dateColumn(COLUMN_UUID, "visit", "Visit", "%B %e, %Y"),
 				makeRow({ visit: "not-a-date" }),
 				EMPTY_CONTEXT,
 			) as ReactElement,

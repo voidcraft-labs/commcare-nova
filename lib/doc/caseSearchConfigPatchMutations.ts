@@ -9,7 +9,8 @@ import { deepEqual } from "@/lib/doc/deepEqual";
 import type { Mutation } from "@/lib/doc/types";
 import {
 	type CaseSearchConfig,
-	normalizeOwnerOnlyCaseSearchConfig,
+	isOwnerOnlyCaseSearchConfig,
+	type OrdinaryCaseSearchConfig,
 	type Uuid,
 } from "@/lib/domain";
 
@@ -32,24 +33,19 @@ export function caseSearchConfigPatchMutations(
 	current: CaseSearchConfig | undefined,
 	next: CaseSearchConfig,
 ): Mutation[] {
-	if (next.searchActionEnabled === false) {
+	if (isOwnerOnlyCaseSearchConfig(next)) {
 		return [setOwnerOnlyCaseSearchMutation(uuid, next)];
 	}
 
-	const normalizedCurrent =
+	const currentEnabled =
+		current !== undefined && !isOwnerOnlyCaseSearchConfig(current);
+	const baseline: OrdinaryCaseSearchConfig =
 		current === undefined
-			? undefined
-			: normalizeOwnerOnlyCaseSearchConfig(current);
-	const currentEnabled = normalizedCurrent?.searchActionEnabled !== false;
-	const baseline: CaseSearchConfig =
-		normalizedCurrent === undefined
 			? {}
-			: (() => {
-					const { searchActionEnabled: _intent, ...enabled } =
-						normalizedCurrent;
-					return enabled;
-				})();
-	const desired = structuredClone(next);
+			: isOwnerOnlyCaseSearchConfig(current)
+				? { excludedOwnerIds: current.excludedOwnerIds }
+				: current;
+	const desired: OrdinaryCaseSearchConfig = structuredClone(next);
 	const patch: CaseSearchConfigPatch = {};
 	for (const key of SETTINGS) {
 		if (deepEqual(baseline[key], desired[key])) continue;
@@ -81,7 +77,11 @@ export function clearCaseSearchConfigSettingsMutations(
 	current: CaseSearchConfig | undefined,
 ): Mutation[] {
 	if (current === undefined) return [];
-	const normalized = normalizeOwnerOnlyCaseSearchConfig(current);
+	const normalized: OrdinaryCaseSearchConfig = isOwnerOnlyCaseSearchConfig(
+		current,
+	)
+		? { excludedOwnerIds: current.excludedOwnerIds }
+		: current;
 	const patch: CaseSearchConfigPatch = {};
 	for (const key of SETTINGS) {
 		if (normalized[key] !== undefined) {
