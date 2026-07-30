@@ -324,6 +324,14 @@ interface ExpressionSlot {
 	 *  other slot — see `editorScope.ts`. */
 	readonly runtimeTarget: boolean;
 	/**
+	 * Whether the editor mounts the owner-value axis on this slot. It governs
+	 * `acting-user` and `unowned` — and nothing else does — so it has to be
+	 * part of the slot table or the one slot those sentinels live on is driven
+	 * with the opposite of what the canvas mounts
+	 * (`CaseOperationDetailCanvas.tsx:441`) and never exercised at all.
+	 */
+	readonly ownerValues: boolean;
+	/**
 	 * A name / rename / owner slot, where `validateTextExpression` refuses a
 	 * BLANK literal on top of the type rule — a constraint `SlotConstraint`
 	 * has no axis for, so the picker's typed literal seed is an empty string
@@ -360,12 +368,14 @@ const EXPRESSION_SLOTS: readonly ExpressionSlot[] = [
 		name: "which case to change",
 		constraint: caseOperationRuntimeTargetConstraint(),
 		runtimeTarget: true,
+		ownerValues: false,
 		place: (expr) => subjectOperation({ target: { kind: "expression", expr } }),
 	},
 	{
 		name: "a link's runtime target",
 		constraint: caseOperationRuntimeTargetConstraint(),
 		runtimeTarget: true,
+		ownerValues: false,
 		place: (expr) =>
 			subjectOperation({
 				links: [
@@ -382,6 +392,7 @@ const EXPRESSION_SLOTS: readonly ExpressionSlot[] = [
 		name: "the case's name",
 		constraint: TEXT_FACET,
 		runtimeTarget: false,
+		ownerValues: false,
 		place: (name) =>
 			subjectOperation({
 				action: "create",
@@ -394,18 +405,21 @@ const EXPRESSION_SLOTS: readonly ExpressionSlot[] = [
 		name: "give the case a new name",
 		constraint: TEXT_FACET,
 		runtimeTarget: false,
+		ownerValues: false,
 		place: (rename) => subjectOperation({ rename }),
 	},
 	{
 		name: "who owns the case",
 		constraint: TEXT_FACET,
 		runtimeTarget: false,
+		ownerValues: true,
 		place: (owner) => subjectOperation({ owner }),
 	},
 	{
 		name: "what it saves",
 		constraint: TEXT_STORAGE,
 		runtimeTarget: false,
+		ownerValues: false,
 		place: (value) =>
 			subjectOperation({ writes: [{ property: "note", value }] }),
 	},
@@ -524,10 +538,12 @@ describe("every value the editor offers is admitted by the commit gate", () => {
 			const editCtx: ExpressionEditContext = {
 				...vocabulary,
 				operationScope: scope,
+				ownerValues: slot.ownerValues,
 			};
 			const slotTypeCtx = buildEditorTypeContext({
 				...vocabulary,
 				operationScope: scope,
+				ownerValues: slot.ownerValues,
 			});
 			for (const schema of expressionCardSchemaList) {
 				if (!isAuthorableExpressionKind(schema.kind, editCtx)) continue;
@@ -573,11 +589,19 @@ describe("every value the editor offers is admitted by the commit gate", () => {
 						.ok,
 				).toBe(true);
 			}
-			// The owner sentinels survive in BOTH, which is the reason the
-			// runtime-target scope is empty rather than absent.
-			expect(checkValueExpression(actingUser(), slotTypeCtx).ok).toBe(true);
-			expect(isAuthorableExpressionKind("acting-user", editCtx)).toBe(true);
-			expect(isAuthorableExpressionKind("unowned", editCtx)).toBe(true);
+			// The owner sentinels live on the owner slot and nowhere else: the
+			// editor mounts `ownerValues` on exactly one section and the gate
+			// passes it for exactly one facet, so the offered set and the
+			// accepted set move together on that single axis.
+			expect(checkValueExpression(actingUser(), slotTypeCtx).ok).toBe(
+				slot.ownerValues,
+			);
+			expect(isAuthorableExpressionKind("acting-user", editCtx)).toBe(
+				slot.ownerValues,
+			);
+			expect(isAuthorableExpressionKind("unowned", editCtx)).toBe(
+				slot.ownerValues,
+			);
 			expect(isAuthorableExpressionKind("id-of", editCtx)).toBe(
 				!slot.runtimeTarget,
 			);
