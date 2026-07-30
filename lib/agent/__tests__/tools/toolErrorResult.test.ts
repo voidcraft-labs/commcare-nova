@@ -24,8 +24,8 @@ describe("toToolErrorResult", () => {
 	it("re-throws every failure the model cannot resolve by retrying", () => {
 		for (const err of [
 			new AppProjectChangedError(),
-			new BlueprintCommitRejectedError([]),
-			new CommitReauthError(),
+			new BlueprintCommitRejectedError("a peer changed the target"),
+			new CommitReauthError("the actor lost edit access"),
 			new RunHolderLostError(),
 			new MutationBatchIdCollisionError(),
 		]) {
