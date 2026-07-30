@@ -5,32 +5,55 @@
 			"source": "vercel/ai-elements",
 			"sourceType": "github",
 			"skillPath": "skills/ai-elements/SKILL.md",
-			"computedHash": "7e81acdd3028bb68aa4387b2bd083c5812a50e2be1bea08c76994dcfb8f6a3d3"
+			"computedHash": "6d7ccc65b98adb04d6c47632746dbfea55528903de9b027f6b39b80983d5aa55"
 		},
 		"ai-sdk": {
 			"source": "vercel/ai",
 			"sourceType": "github",
-			"computedHash": "58ce68f628890c3925aea2b5435a649251ac182057541045c68fc19a27aaa0ec"
+			"skillPath": "skills/use-ai-sdk/SKILL.md",
+			"computedHash": "0883204d11b055e968dee697c5858e68064c27dfd4deb6310212895daa65c5ad"
 		},
 		"better-auth-best-practices": {
 			"source": "better-auth/skills",
 			"sourceType": "github",
-			"computedHash": "a4c830509e85557b59339d8d93a4e243e9e59c686e7678854d39230e12c2a6dc"
+			"skillPath": "better-auth/best-practices/SKILL.md",
+			"computedHash": "61ba0ef64ed2e7c424401cc848ca33dd6d790a720c44727717dc0c5cba5fc122"
 		},
 		"better-auth-security-best-practices": {
 			"source": "better-auth/skills",
 			"sourceType": "github",
-			"computedHash": "5717187bba9c22030c7174c74012f01c359f21e2ce87e0eb80e24244d8b8c915"
+			"skillPath": "security/SKILL.md",
+			"computedHash": "7a230edf3a24ce18162cb4379f59b6a19b8d24ca04db530609d0f15cede556dc"
 		},
-		"ui-ux-pro-max": {
-			"source": "nextlevelbuilder/ui-ux-pro-max-skill",
+		"create-auth": {
+			"source": "better-auth/skills",
 			"sourceType": "github",
-			"computedHash": "0a413bf988d06481f69bb81df2070741c3ba12dd9f1be2706d57f259c905992d"
+			"skillPath": "better-auth/create-auth/SKILL.md",
+			"computedHash": "4e261efac2ae9a2321c4495c846ef97cf239818fc8bd2ab7e92ed1f9d25470f7"
 		},
-		"web-design-guidelines": {
-			"source": "vercel-labs/agent-skills",
+		"email-and-password-best-practices": {
+			"source": "better-auth/skills",
 			"sourceType": "github",
-			"computedHash": "f3bc47f890f42a44db1007ab390709ec368e4b8c089baee6b0007182236ac474"
+			"skillPath": "better-auth/emailAndPassword/SKILL.md",
+			"computedHash": "747d7f73bd9e2ec5317b8ef88dc70f97df716d00e3d02de4051feebaa48b062d"
+		},
+		"migrate-ai-sdk-v6-to-v7": {
+			"source": "vercel/ai",
+			"sourceType": "github",
+			"skillPath": "skills/migrate-ai-sdk-v6-to-v7/SKILL.md",
+			"computedHash": "92a68769c5a82e6bd35cb8fe13537a80f6341742306d6a23c52afb6c1f7b5ab9"
+		},
+		"organization-best-practices": {
+			"source": "better-auth/skills",
+			"sourceType": "github",
+			"skillPath": "better-auth/organization/SKILL.md",
+			"computedHash": "27627eb3a13bd44eff3a5d890f96e7db052b623db90e01684f759abe3e7fe56b"
+		},
+		"two-factor-authentication-best-practices": {
+			"source": "better-auth/skills",
+			"sourceType": "github",
+			"skillPath": "better-auth/twoFactor/SKILL.md",
+			"computedHash": "a6f720042e5a090909e0d519a6a50a7eb8179553cd5315f0bbad852a6d20dac8"
 		}
 	}
 }
