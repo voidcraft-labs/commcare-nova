@@ -15,12 +15,13 @@
  *   reference the runtime can't honor.
  * - `createInlineEditorExtensions` — base + CommcareRef + Mention, for
  *   form-context surfaces (labels, hints) where hashtag references are
- *   real. CommcareRef nodes round-trip through the markdown-it pipeline:
- *   serialize writes bare `#type/path` hashtags; the CommcareRef
- *   extension's own `markdown.parse.setup` hook installs an inline rule
- *   that tokenizes those hashtags back into `<span data-commcare-ref>`
- *   HTML during markdown-to-HTML rendering, so the PM document already
- *   contains commcareRef nodes before any React NodeView is mounted.
+ *   real. CommcareRef nodes round-trip through the markdown-it pipeline as
+ *   `<span data-nova-prose-ref="…">`, carrying the ENCODED typed part rather
+ *   than a hashtag, so identity survives the trip and no text is ever parsed
+ *   back into a reference. The carrier holds no `data-label`, so a chip parsed
+ *   from it has none: the atom's label is a projection of the owning document,
+ *   and this boundary has no document. Anything keyed on that label — the
+ *   Backspace-to-text conversion — must decline rather than substitute.
  *
  * Contrast with RefLabelInput which uses StarterKit with everything
  * disabled except paragraphs — that editor is text-only with chips.

@@ -506,11 +506,14 @@ export function removeFrozenThreadAttachmentTargets(
 			target.attachmentIndex,
 		) as { readonly assetId?: unknown; readonly kind?: unknown } | undefined;
 		// Identity here is the coordinate plus the two fields the repair acts on.
-		// Every other byte is already covered twice over: the caller proves
+		// Every other byte is already covered: the caller proves
 		// `sourceMessagesDigest` across the whole column BEFORE calling this, and
-		// the per-target SQL digest covers the exact object again. Holding the
-		// attachment body here would mean keeping real customer filenames and
-		// document summaries in source to re-derive a check those two already make.
+		// that digest pins every attachment byte in it. The per-target SQL digest
+		// is a second cover, but it runs AFTER this function, so it is not what
+		// makes this check safe — the column digest is. Holding the attachment
+		// body here would mean keeping real customer filenames and document
+		// summaries in source to re-derive a check the column digest already
+		// makes.
 		if (
 			value === undefined ||
 			value.assetId !== target.assetId ||
