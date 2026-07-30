@@ -302,6 +302,22 @@ export const FROZEN_PROJECT_ORPHAN_APP_ROW_DIGEST =
 export const FROZEN_PROJECT_ORPHAN_APP_ROWS_DIGEST =
 	"a7eb7d5e887df5d8a1433a30f9001e1ca8d00bbbe41caae5d20fca0468198d7d";
 
+/**
+ * Relations this cutover renames, pre-cutover name to post-cutover name.
+ *
+ * The forensic repair runs before the migration, so every inventory it owns
+ * names `accepted_mutations`; the migration then does
+ * `ALTER TABLE accepted_mutations RENAME TO app_changes`, and every
+ * post-cutover consumer — the audit identity's grants, the fold, the browser
+ * stream — sees only the new name. It is one relation under two names on
+ * either side of the horizon, so anything comparing a pre-cutover inventory
+ * against a post-cutover set projects through this map rather than carrying a
+ * bare exception for the difference.
+ */
+export const FROZEN_HORIZON_TABLE_RENAMES: Readonly<Record<string, string>> = {
+	accepted_mutations: "app_changes",
+};
+
 export const FROZEN_PROJECT_ORPHAN_APP_ID_TABLES = [
 	"nova_case_runtime.cases",
 	"public.accepted_mutations",
