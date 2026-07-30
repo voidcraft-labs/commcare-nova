@@ -76,8 +76,13 @@ Project-move columns. `fold-baseline` carries exactly `[]`, null move columns,
 and one matching immutable `app_change_fold_baselines` row whose snapshot,
 digest, Project, sequence, root, and entity freshness are proved in the same
 transaction. `project-move` carries `[]` or the nonempty media-remap batch and
-requires distinct nonblank source and destination Project ids. Runtime has
-`SELECT, INSERT` on both tables and never updates or deletes either.
+requires distinct nonblank source and destination Project ids. Runtime never
+updates or deletes either table. Its grants differ: `app_changes` is append-only
+runtime DML (`SELECT, INSERT`), while `app_change_fold_baselines` is a control
+table the runtime may only read. That is load-bearing — `createApp` reaches its
+genesis baseline through the `SECURITY DEFINER` routine
+`nova_insert_app_change_genesis_fold_baseline`, and a direct runtime insert
+fails with `42501`.
 
 App creation writes the complete canonical starter, exact lookup/media
 projections, a Project-bearing sequence-one baseline, and one attributed
@@ -95,10 +100,13 @@ System repair/migration writers use a named `system:<task>` actor; user-driven
 synthetic writes retain the actual user id. `UNIQUE (app_id, batch_id)` is the
 idempotency latch (the guarded commit reads it under the app row lock; a
 concurrent same-batch retry that races past the read is caught by the constraint
-and converges on the deduped result). A blueprint-shape migration either
-converts every replayable app change or advances the fold horizon with an exact
-`blueprint-migration` change plus Project-bearing `fold-baseline`; no runtime
-reader accepts an alternate stored dialect.
+and converges on the deduped result). A blueprint-shape migration converts every replayable app change; no runtime
+reader accepts an alternate stored dialect. Advancing the fold horizon is not a
+route a future migration can simply take: the admit routine
+`nova_admit_app_change_fold_baseline_insert` accepts exactly two identities —
+the frozen `fold-baseline:canonical-identity-foundation` marker and the
+sequence-one `genesis:<app_id>` — so writing a new baseline needs new DDL, by
+design.
 
 **Realtime pokes ride LISTEN/NOTIFY.** `writeCommittedBatch` calls
 `pg_notify('nova_app_stream', {appId, seq})` INSIDE the commit transaction
@@ -613,8 +621,11 @@ proof. Under the cleanup login it compares the ordered
 `form_attachments` column/type/nullability inventory to the checked-in final
 contract, then executes zero-row `SELECT`/`UPDATE`/`DELETE` statements and
 intentionally rolls the transaction back. `scripts/cleanup-form-attachments.ts
---probe-schema` runs only that proof; Cloud Build invokes it while the scheduler
-remains paused and verifies the scheduler's preexisting state was not changed.
+--probe-schema` runs only that proof, bundled into the image as
+`capture-cleanup.cjs`. Cloud Build verifies the scheduler's preexisting state
+was not changed by the Job update. It does NOT require the scheduler to be
+paused: pausing is the maintenance-cutover prestate, and on an ordinary deploy
+the scheduler is ENABLED while the probe runs.
 
 GCS lifecycle remains the traffic-independent
 backstop for ordinary staged/browser-abandoned source bytes, but cannot

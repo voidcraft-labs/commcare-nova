@@ -796,8 +796,10 @@ transfer the database ownership it needs to authorize its own `REVOKE`,
 `GRANT`, and ownership changes.
 
 Cloud Build separately runs the same image's
-`cleanup-form-attachments.cjs --probe-schema` under the cleanup identity while
-its scheduler remains paused. That probe asserts the exact final ordered
+`capture-cleanup.cjs --probe-schema` under the cleanup identity — the bundle
+`scripts/cleanup-form-attachments.ts` is built into. The scheduler is ENABLED
+while that probe runs on an ordinary deploy; the paused state belongs to the
+maintenance cutover, not to this step. That probe asserts the exact final ordered
 column/type/nullability contract and zero-row read/update/delete authority in
 an intentional rollback; the build also proves updating the Job did not change
 the scheduler's recorded enabled/paused state.
