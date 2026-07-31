@@ -88,8 +88,13 @@ describe("runCaseStoreMigrations", () => {
 		await sql`DROP TABLE kysely_migration`.execute(db);
 		await sql`DROP TABLE IF EXISTS kysely_migration_lock`.execute(db);
 
+		/* Still fails closed, just earlier: the canonical-identity migration now
+		 * runs its repair first, and the repair's boundary check refuses a
+		 * database whose canonical state is already applied but whose ledger no
+		 * longer records it. Either refusal is the point — a re-run must never
+		 * replay a destructive migration over a schema that already has it. */
 		await expect(runCaseStoreMigrations(db)).rejects.toThrow(
-			/unexpected=public\.accepted_mutations/,
+			/canonical identity repair/i,
 		);
 	});
 

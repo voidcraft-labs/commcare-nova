@@ -256,11 +256,14 @@ describe("searchButtonDisplayConditionTypeCheck", () => {
 		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
 			(e) => e.code === "CASE_SEARCH_BUTTON_DISPLAY_CONDITION_TYPE_ERROR",
 		);
-		expect(
-			hits.some((e) =>
-				e.message.toLowerCase().includes("unknown search input"),
-			),
-		).toBe(true);
+		expect(hits).toHaveLength(1);
+		/* The checker's message is concatenated into this finding, so this is the
+		 * text a person reads. It must name what is wrong and must not hand back
+		 * the stored uuid. */
+		expect(hits[0]?.message).toMatch(/Search field/i);
+		expect(hits[0]?.message).not.toMatch(
+			/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/,
+		);
 	});
 
 	it("does not fire on a well-typed global display condition", () => {

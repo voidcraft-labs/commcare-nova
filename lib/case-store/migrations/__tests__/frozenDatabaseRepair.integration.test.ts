@@ -10,7 +10,7 @@ import { canonicalIdentityDigest } from "../20260728000000_canonical_identity_fo
 const MIGRATION_NAME = "20260728000000_canonical_identity_foundation";
 const TERMINAL_MESSAGE =
 	"Canonical identity repair is no longer applicable: the canonical identity migration is already applied.";
-const DRIFT_MESSAGE = "Canonical identity repair prestate is mixed or drifted.";
+const DRIFT_MESSAGE = "part-way through the canonical identity repair";
 
 const database = setupPerTestDatabase({
 	databaseNamePrefix: "frozen_repair_terminal_",

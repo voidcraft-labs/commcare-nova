@@ -265,7 +265,12 @@ describe("checkPredicate — comparison operators", () => {
 		const result = checkPredicate(p, ctx);
 		expect(result.ok).toBe(false);
 		if (!result.ok) {
-			expect(result.errors[0].message).toMatch(/unknown search input/i);
+			expect(result.errors[0].code).toBe("unknown-search-input");
+			// The message is for a person: it must not hand back the uuid the
+			// rule stored, because nobody can act on one.
+			expect(result.errors[0].message).not.toMatch(
+				/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/,
+			);
 			expect(result.errors[0].code).toBe("unknown-search-input");
 		}
 	});
@@ -455,7 +460,12 @@ describe("checkPredicate — recursion through logical wrappers", () => {
 		expect(result.ok).toBe(false);
 		if (!result.ok) {
 			expect(result.errors[0].path).toEqual(["when-input-present", "input"]);
-			expect(result.errors[0].message).toMatch(/unknown search input/i);
+			expect(result.errors[0].code).toBe("unknown-search-input");
+			// The message is for a person: it must not hand back the uuid the
+			// rule stored, because nobody can act on one.
+			expect(result.errors[0].message).not.toMatch(
+				/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/,
+			);
 		}
 	});
 });
@@ -1701,7 +1711,7 @@ describe("checkPredicate — is-blank operand-shape rules", () => {
 		expect(result.ok).toBe(false);
 		if (!result.ok) {
 			expect(result.errors[0].path).toEqual(["left"]);
-			expect(result.errors[0].message).toMatch(/Unknown search input/);
+			expect(result.errors[0].code).toBe("unknown-search-input");
 		}
 	});
 });
