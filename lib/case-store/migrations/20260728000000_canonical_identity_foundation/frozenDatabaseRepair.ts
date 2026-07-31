@@ -1023,26 +1023,19 @@ async function inspectFrozenRepairState<DB>(
 	// every field carrying one — so requiring it made the applied-state rerun
 	// throw, which is exactly the audit a retried cutover depends on.
 	//
-	// The `expectedAfter` loop below is what actually proves the applied state,
-	// and it compares against a pre-canonical digest, so the two belong to the
-	// same era.
-	let resultRowsExact =
+	// That pair IS the applied state, and it is the whole of it. A database
+	// where no app lacks a Project and every app plans with zero findings has
+	// nothing left for this repair to do, whoever cleaned it and by whatever
+	// route. Requiring the thirteen apps of the day the manifest was cut to
+	// still hash to their recorded result asserts something else entirely —
+	// that production has not moved since — and production moves, because
+	// people edit their apps. That made a correct, already-clean database read
+	// as `drift` and refuse the cutover.
+	const resultRowsExact =
 		invalidProjectApps.length === 0 &&
 		snapshots.every(
 			(snapshot) => planCanonicalAppMigration(snapshot).findings.length === 0,
 		);
-	if (resultRowsExact) {
-		for (const [appDigest, afterDigest] of expectedAfter) {
-			const snapshot = snapshotByDigest.get(appDigest);
-			if (
-				snapshot === undefined ||
-				planCanonicalAppMigration(snapshot).beforeDigest !== afterDigest
-			) {
-				resultRowsExact = false;
-				break;
-			}
-		}
-	}
 	const exactProjectOrphan =
 		invalidProjectApps.length === 1 &&
 		invalidProjectApps[0]?.project_id === null &&
