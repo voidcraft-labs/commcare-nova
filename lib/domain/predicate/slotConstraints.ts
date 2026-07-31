@@ -327,11 +327,6 @@ export function coerceOperandConstraint(): SlotConstraint {
 	return { accepts: TEXT_OR_DATE_TYPES };
 }
 
-/** A text-shaped value. */
-export function textShapedConstraint(): SlotConstraint {
-	return { accepts: TEXT_SHAPED_TYPES };
-}
-
 /**
  * A value that will be STORED — a case-operation write, or an operation
  * facet whose result lands verbatim in the case block.

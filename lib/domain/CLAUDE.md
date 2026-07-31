@@ -88,6 +88,25 @@ A case list is laid out either as a row of columns or as a **tile**: `caseListCo
 
 XPath-bearing slots store the typed AST from `xpath/` — **references are identity, text is a projection** (`printXPath`); field and custom-worker-property renames never rewrite stored expressions, and human-authored text remains friendly (`#form/first_name`) rather than exposing UUIDs. The Predicate / ValueExpression AST (`predicate/`) is the boolean + typed-value family behind filters, calculated columns, and search, and carries the parallel UUID-backed custom-worker arm. Connect is a per-form opt-in (`form.connect`) gated by the app-level `connectType` (`learn` | `deliver` | null). Every stored Connect sub-config has a required nonblank id, matches the app's Connect mode, and participates in app-wide id uniqueness across Learn and Deliver sub-kinds. Local editor/tool drafts are separate types; they receive their final id before entering the document, and emitters only assert the already-complete invariant. The media primitives (`MediaAssetId`, `Media`, MIME partitions, size caps, the export ceiling, GCS key derivations) live in `multimedia.ts`; the verdicts, manifest, and wire emission live in `lib/media`.
 
+Every reference-capable label, hint, help text, validation message,
+select-option label, and case-property display default stores a `ProseTemplate`
+(`prose.ts`), never a string: an array of typed parts — `text`, `field-ref`,
+`case-ref`, `user-property-ref`, and external `user-ref`. The same rule as XPath
+applies for the same reason — a reference holds identity, so a rename rewrites
+nothing. A literal `#` is text; only a part is a reference, which is why typing
+`#form/name` into a label leaves it literal. Adjacent text parts are
+noncanonical and reject, so one authored value has exactly one representation.
+
+Read a template through the right projector. `projectProseTemplate(template,
+doc)` is the human one: it takes the owning document and returns
+`{ ok, text, unresolved }`, rendering `[reference needs repair]` rather than
+leaking a stored UUID. `printProseTemplate` is its strict twin for wire and
+runtime callers and throws on the same input rather than emitting a guess.
+`proseTemplateText` returns only the literal typed characters and is NOT a
+projection — it exists for search and comparison, where matching what someone
+typed is the point. Interpolating a template into a string produces
+`[object Object]`; every consumer walks the parts.
+
 Lookup table, column, and row identity is domain vocabulary even though lookup
 persistence lives elsewhere. `lookupIds.ts` is the import-light leaf containing
 the three distinct UUIDv7 brands and their runtime schemas. Never collapse them

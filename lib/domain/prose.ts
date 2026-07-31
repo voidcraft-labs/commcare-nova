@@ -313,14 +313,3 @@ export function mapCasePropertiesInProse(
 	}
 	return changed;
 }
-
-export function renameCasePropertyInProse(
-	template: ProseTemplate,
-	caseType: string,
-	oldName: string,
-	newName: string,
-): number {
-	return mapCasePropertiesInProse(template, (candidateType, property) =>
-		candidateType === caseType && property === oldName ? newName : undefined,
-	);
-}

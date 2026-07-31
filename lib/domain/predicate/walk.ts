@@ -221,20 +221,6 @@ export function predicateReferencesSearchInput(
 	return found;
 }
 
-/** Expression-rooted counterpart to `predicateReferencesSearchInput`. */
-export function expressionReferencesSearchInput(
-	expression: ValueExpression,
-	searchInputUuid: SearchInputRef["searchInputUuid"],
-): boolean {
-	let found = false;
-	walkExpressionTerms(expression, (term) => {
-		if (term.kind === "input" && term.searchInputUuid === searchInputUuid) {
-			found = true;
-		}
-	});
-	return found;
-}
-
 /**
  * Structurally replace every Search-input dependency with its
  * "unanswered" reading: `when-input-present` envelopes collapse to

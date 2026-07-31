@@ -484,7 +484,7 @@ function walk(
 			// can resolve to absent at runtime) and literal-shaped
 			// `left` is rejected as a category error. A literal is the
 			// value itself; "is the literal 5 absent" / "is the literal
-			// 5 blank" is ill-formed, not a runtime question. The two
+			// 5 blank" is ill-formed, not a runtime question.
 			checkAbsenceOperator(p, ctx, errors, path);
 			return;
 		case "between":
@@ -920,8 +920,8 @@ function checkMultiSelectContains(
  * Literal-shaped `left` is rejected as a category error: a literal
  * is the value itself (`literal("x")` IS the string `"x"`;
  * `literal(null)` IS null), not a runtime read whose presence is in
- * question. "Is the literal 5 absent?" is ill-formed, regardless of
- * regardless of its literal value.
+ * question. "Is the literal 5 absent?" is ill-formed regardless of its
+ * literal value.
  * Pinning the rejection at the type-checker layer (rather than the
  * schema layer) keeps the schema structurally simple — every Term
  * variant is admitted at parse — and concentrates the semantic-class
