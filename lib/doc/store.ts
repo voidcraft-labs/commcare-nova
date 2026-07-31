@@ -69,7 +69,10 @@ import { applyMutations } from "@/lib/doc/mutations";
 import { buildReferenceIndex } from "@/lib/doc/referenceIndex";
 import type { BlueprintDoc, MutationResult } from "@/lib/doc/types";
 import { recordFromEntries } from "@/lib/domain";
-import type { PersistableDoc } from "@/lib/domain/blueprint";
+import {
+	APP_GENESIS_FALLBACK_NAME,
+	type PersistableDoc,
+} from "@/lib/domain/blueprint";
 
 export { rebuildFieldParent };
 
@@ -234,7 +237,7 @@ export type BlueprintDocState = BlueprintDoc & {
  */
 const EMPTY_DOC: BlueprintDoc = {
 	appId: "",
-	appName: "",
+	appName: APP_GENESIS_FALLBACK_NAME,
 	connectType: null,
 	caseTypes: null,
 	modules: recordFromEntries([]),

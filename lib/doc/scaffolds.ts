@@ -345,12 +345,9 @@ export function surveyModuleMutations(
 
 // ── Canonical app genesis ────────────────────────────────────────────
 
-/**
- * The real persisted name used when an app creator supplies no non-blank name.
- * This is authored through the same `setAppName` mutation as every later rename;
- * it is not the `apps.name` read-projection fallback in `lib/db/apps.ts`.
- */
-export const APP_GENESIS_FALLBACK_NAME = "Untitled";
+import { APP_GENESIS_FALLBACK_NAME } from "@/lib/domain/blueprint";
+
+export { APP_GENESIS_FALLBACK_NAME };
 
 /**
  * The one shape every persisted app is born with: a real non-blank name plus

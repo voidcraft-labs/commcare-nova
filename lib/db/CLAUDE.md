@@ -42,8 +42,8 @@ exactly the doc it did before they existed.
 arrays round-trip via the stored `ordinal`), `diffBlueprints` (the minimal
 row-set a commit changed — diffed per entity by content, NOT by mutation
 targets, because reducer side effects like a rename's prose cascade touch
-entities the batch never named). `apps.app_name` stores the TRUE (possibly
-empty) name; list projections apply the `UNTITLED_APP_NAME` display fallback.
+entities the batch never named). `apps.app_name` stores the blueprint name,
+which the schema keeps non-blank, so projections read it directly.
 
 **Persisted Blueprint JSON enters JavaScript as exact text.** `pg`'s default
 JSONB decoder is never allowed to parse `apps.case_types`,

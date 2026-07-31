@@ -71,6 +71,16 @@ export type CaseType = z.infer<typeof caseTypeSchema>;
 export const CONNECT_TYPES = ["learn", "deliver"] as const;
 export type ConnectType = (typeof CONNECT_TYPES)[number];
 
+/**
+ * The name an app carries when its creator supplied no non-blank one.
+ *
+ * A real authored name, written through the same `setAppName` mutation as every
+ * later rename — never a display fallback applied at read time. The validator's
+ * `EMPTY_APP_NAME` soundness rule is what makes a blank name impossible to
+ * commit, so every reader can print `appName` without a blank-name branch.
+ */
+export const APP_GENESIS_FALLBACK_NAME = "Untitled";
+
 const blueprintDocObjectSchema = z
 	.object({
 		appId: z.string(),

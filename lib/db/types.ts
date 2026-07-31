@@ -178,9 +178,8 @@ export interface AppRunLock {
  * The assembled app record: the `apps` row's scalars plus the blueprint
  * reassembled from `blueprint_entities` (see `lib/db/blueprintRows.ts`).
  *
- * `app_name` is the TRUE blueprint name (may be empty — `EMPTY_APP_NAME` is a
- * real validator state); list surfaces apply the `UNTITLED_APP_NAME` display
- * fallback at projection time.
+ * `app_name` is the blueprint name, which the schema keeps non-blank, so every
+ * surface projects it directly.
  *
  * `status` is run-liveness only (never feeds the validity gate):
  * `generating` = a build run in flight (liveness off `updated_at` inside

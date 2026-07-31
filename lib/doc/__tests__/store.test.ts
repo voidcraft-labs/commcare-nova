@@ -3,6 +3,7 @@ import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { BlueprintDoc } from "@/lib/doc/types";
 import { blueprintDocSchema } from "@/lib/domain";
+import { APP_GENESIS_FALLBACK_NAME } from "@/lib/domain/blueprint";
 import { proseText } from "@/lib/domain/prose";
 
 // ── Fixtures ────────────────────────────────────────────────────────────
@@ -141,10 +142,12 @@ describe("the command queue is current when the write is announced", () => {
 });
 
 describe("createBlueprintDocStore", () => {
-	it("starts with an empty doc", () => {
+	it("starts with an empty doc that still carries a name", () => {
 		const store = createBlueprintDocStore();
 		const doc = store.getState();
-		expect(doc.appName).toBe("");
+		// The pre-load scaffold is a real doc, and the validator refuses a blank
+		// app name, so it is seeded with the same name genesis would give it.
+		expect(doc.appName).toBe(APP_GENESIS_FALLBACK_NAME);
 		expect(doc.moduleOrder).toEqual([]);
 	});
 

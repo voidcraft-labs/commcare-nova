@@ -319,10 +319,9 @@ export function registerUploadAppToHq(
 					const hqJson = expandDoc(prepared.doc, { assets: manifest });
 					/* App name defaulting: `?.trim() || app.app_name` maps
 					 * both omitted and whitespace-only inputs to the
-					 * blueprint's denormalized name — which is non-empty
-					 * by `denormalize`'s invariant (falls back to
-					 * `UNTITLED_APP_NAME`). Mirrors the chat-surface
-					 * behavior in `app/api/commcare/upload/route.ts`. */
+					 * blueprint's denormalized name, which the schema keeps
+					 * non-blank. Mirrors the chat-surface behavior in
+					 * `app/api/commcare/upload/route.ts`. */
 					const appName = args.app_name?.trim() || app.app_name;
 					const result = await importApp(
 						credResult.creds,

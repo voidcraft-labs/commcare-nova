@@ -68,7 +68,6 @@ const {
 	commitGuardedBatch: commitGuardedBatchOpaque,
 	commitGuardedBatchInTransaction: commitGuardedBatchInTransactionOpaque,
 	loadApp,
-	UNTITLED_APP_NAME,
 } = await import("../apps");
 const commitGuardedBatch = (
 	args: Omit<Parameters<typeof commitGuardedBatchOpaque>[0], "mutations"> & {
@@ -178,7 +177,7 @@ async function seedApp(
 				owner: opts.owner ?? OWNER,
 				project_id: opts.projectId,
 				app_name: p.appName,
-				app_name_lower: (p.appName || UNTITLED_APP_NAME).toLowerCase(),
+				app_name_lower: p.appName.toLowerCase(),
 				connect_type: p.connectType ?? null,
 				case_types: p.caseTypes === null ? null : JSON.stringify(p.caseTypes),
 				logo: p.logo ?? null,

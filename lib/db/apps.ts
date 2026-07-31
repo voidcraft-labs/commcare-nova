@@ -77,10 +77,11 @@ import {
 import { buildReferenceIndex } from "../doc/referenceIndex";
 import { canonicalAppGenesis } from "../doc/scaffolds";
 import type { Mutation } from "../doc/types";
-import type {
-	BlueprintDoc,
-	PersistableDoc,
-	PersistedBlueprint,
+import {
+	APP_GENESIS_FALLBACK_NAME,
+	type BlueprintDoc,
+	type PersistableDoc,
+	type PersistedBlueprint,
 } from "../domain/blueprint";
 import {
 	asWalkableDoc,
@@ -266,13 +267,6 @@ export interface SearchAppsResult {
 	nextCursor?: string;
 }
 
-/**
- * Display name for an app whose `appName` has never been set. Rows store the
- * TRUE (possibly empty) name; list projections apply this fallback so every
- * surfaced summary carries a non-empty display name.
- */
-export const UNTITLED_APP_NAME = "Untitled";
-
 type AppRow = Selectable<AppsTable>;
 type AppRowWithoutCaseTypes = Omit<AppRow, "case_types">;
 type PersistedBlueprintAppRow = Omit<AppRow, "case_types"> & {
@@ -454,9 +448,9 @@ async function loadStrictAppSnapshotFromRowInTransaction(
 	};
 }
 
-/** Extract denormalized list-display fields from a persistable doc. The name
- *  columns store the TRUE name; `app_name_lower` carries the display-fallback
- *  lowering so name sorts order exactly what the list shows. */
+/** Extract denormalized list-display fields from a persistable doc. An app name
+ *  is non-blank by construction, so `app_name_lower` is a plain lowering of the
+ *  same name the list shows. */
 function denormalize(doc: PersistableDoc) {
 	const formCount = doc.moduleOrder.reduce(
 		(sum, modUuid) => sum + (doc.formOrder[modUuid]?.length ?? 0),
@@ -464,7 +458,7 @@ function denormalize(doc: PersistableDoc) {
 	);
 	return {
 		app_name: doc.appName,
-		app_name_lower: (doc.appName || UNTITLED_APP_NAME).toLowerCase(),
+		app_name_lower: doc.appName.toLowerCase(),
 		connect_type: doc.connectType ?? null,
 		case_types: doc.caseTypes === null ? null : JSON.stringify(doc.caseTypes),
 		logo: doc.logo ?? null,
@@ -846,7 +840,7 @@ export async function createApp(
 			: null;
 	const emptyDoc: BlueprintDoc = {
 		appId,
-		appName: "",
+		appName: APP_GENESIS_FALLBACK_NAME,
 		connectType: null,
 		caseTypes: null,
 		modules: {},
@@ -3236,7 +3230,7 @@ function projectAppSummary(
 	}
 	return {
 		id: row.id,
-		app_name: row.app_name || UNTITLED_APP_NAME,
+		app_name: row.app_name,
 		connect_type: row.connect_type,
 		module_count: row.module_count,
 		form_count: row.form_count,
@@ -3468,7 +3462,7 @@ export async function listDeletedApps(
 		if (!deletedAt) continue;
 		apps.push({
 			id: row.id,
-			app_name: row.app_name || UNTITLED_APP_NAME,
+			app_name: row.app_name,
 			connect_type: row.connect_type,
 			module_count: row.module_count,
 			form_count: row.form_count,

@@ -34,7 +34,6 @@ import { afterEach, beforeEach } from "vitest";
 import { up as installAuthMemberSerialization } from "@/lib/auth/migrations/20260722070000_auth_member_serialization";
 import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
-import { UNTITLED_APP_NAME } from "@/lib/db/apps";
 import { decomposeBlueprint } from "@/lib/db/blueprintRows";
 import { __setAppDbForTests, type AppDatabase } from "@/lib/db/pg";
 import type { AppReservation, AppRunLock } from "@/lib/db/types";
@@ -42,6 +41,7 @@ import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { applyMutations } from "@/lib/doc/mutations";
 import { canonicalAppGenesis } from "@/lib/doc/scaffolds";
 import type { BlueprintDoc } from "@/lib/domain";
+import { APP_GENESIS_FALLBACK_NAME } from "@/lib/domain/blueprint";
 
 /** The reservation/run-lock column groups a test controls, in the same
  *  optional-object shape `runLeaseState` reads — mapped onto the flat
@@ -146,7 +146,7 @@ export function canonicalTestBlueprint(
 ): BlueprintDoc {
 	const empty: BlueprintDoc = {
 		appId,
-		appName: "",
+		appName: APP_GENESIS_FALLBACK_NAME,
 		connectType: null,
 		caseTypes: null,
 		modules: {},
@@ -236,7 +236,7 @@ export function setupAppStateTestDb(prefix = "app_state_"): AppStateTestDb {
 						owner,
 						project_id: projectId,
 						app_name: appName,
-						app_name_lower: (appName || UNTITLED_APP_NAME).toLowerCase(),
+						app_name_lower: appName.toLowerCase(),
 						connect_type: opts.connect_type ?? persistable?.connectType ?? null,
 						case_types:
 							persistable?.caseTypes == null
