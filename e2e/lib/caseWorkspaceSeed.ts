@@ -76,6 +76,11 @@ export const CASE_WORKSPACE_SEED = {
 			phoneNumber: asUuid("3e8b5d29-7c14-4a60-9f37-1b5e8a2c6d40"),
 		},
 		selectFieldUuid: asUuid("2f9c4b78-1d63-4e25-a840-7c3b6e1f5d90"),
+		/* Every field the `record_visit` form authors, in render order. A test
+		 * asserting how many rows the canvas draws reads this rather than a
+		 * literal, so adding a field here can never leave a stale count behind
+		 * in a spec that never mentions the field. */
+		formFieldIds: ["visit_note", "referred_to", "visit_started", "next_dose"],
 	},
 	caseCount: 8,
 } as const;

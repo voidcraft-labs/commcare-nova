@@ -236,13 +236,23 @@ function projectSourceFile(relative: string): SourceFile {
 	const source =
 		compilerProgram.getSourceFile(relative) ??
 		compilerProgram.getSourceFile(path.join(process.cwd(), relative));
-	if (source === undefined) {
-		throw new Error(`Mutation source tripwire could not parse ${relative}.`);
+	if (source !== undefined) {
+		expect(compilerProgram.getSyntacticDiagnostics(relative), relative).toEqual(
+			[],
+		);
+		return source;
 	}
-	expect(compilerProgram.getSyntacticDiagnostics(relative), relative).toEqual(
-		[],
+	/* A route under a dot-directory — `app/.well-known/...` — is outside every
+	 * tsconfig wildcard, because TypeScript's globs never descend into a path
+	 * segment beginning with a dot. It reaches the program only through
+	 * `.next/types`, which exists after a build and not on a clean checkout. The
+	 * walk that found this file on disk is the authority on what production
+	 * source is; parse it directly rather than letting the guard's coverage
+	 * depend on whether someone happened to build first. */
+	return syntheticSourceFile(
+		relative,
+		readFileSync(path.join(process.cwd(), relative), "utf8"),
 	);
-	return source;
 }
 
 function syntheticSourceFile(relative: string, sourceText: string): SourceFile {

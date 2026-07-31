@@ -68,7 +68,11 @@ import {
 	planCanonicalAppMigration,
 } from "@/lib/case-store/migrations/20260728000000_canonical_identity_foundation/frozenTransform";
 
-type DbTx<DB> = Transaction<DB>;
+/* Every helper here runs inside a transaction the CALLER owns. Kysely's
+ * `Migrator` hands `up` a transaction-backed handle typed as `Kysely`, so
+ * naming the parameter `Transaction` described how the standalone script
+ * happened to obtain one rather than what these functions require. */
+type DbTx<DB> = Kysely<DB> | Transaction<DB>;
 const frozenVerifiedRepairSnapshot: unique symbol = Symbol(
 	"frozenVerifiedRepairSnapshot",
 );
@@ -435,21 +439,26 @@ async function assertStoredRepairSnapshotsExact<DB>(
 	}
 }
 
-async function assertRepairQuiescence<DB>(
+/**
+ * Capture the lease/stream state for the repair proof.
+ *
+ * It does NOT require those counters to be zero. Live leases, unterminated
+ * stream chunks, and presence rows are operational leftovers, not integrity
+ * facts — the occurrence plan already disposes of the chunk, presence, and
+ * thread-stream tables as `delete-operational`. Demanding they be zero first
+ * proves only that nobody was mid-request, and the only way to arrange that is
+ * to take the service down.
+ *
+ * What actually protects this transaction is the `SHARE ROW EXCLUSIVE` lock
+ * over every occurrence table plus `SELECT ... FOR UPDATE` over `apps`. A
+ * concurrent writer blocks on that lock or fails against it; a request already
+ * in flight against the old shape may error. That is the accepted cost, and it
+ * is cheaper than a maintenance window plus the scaffolding to orchestrate one.
+ */
+async function captureRepairLeaseState<DB>(
 	tx: DbTx<DB>,
 ): Promise<FrozenCutoverLeaseState> {
-	const row = await captureFrozenCutoverLeaseState(tx);
-	if (
-		row.appLeaseBlockers !== "0" ||
-		row.activeThreadHolders !== "0" ||
-		row.unterminatedChunks !== "0" ||
-		row.presenceSessions !== "0"
-	) {
-		throw new Error(
-			"Canonical identity repair requires complete app-lease and stream quiescence.",
-		);
-	}
-	return row;
+	return await captureFrozenCutoverLeaseState(tx);
 }
 
 function frozenThreadAttachmentAt(
@@ -890,7 +899,7 @@ function digestByApp(
 }
 
 interface FrozenRepairStateInspection {
-	readonly state: "pristine" | "applied" | "drift";
+	readonly state: "absent" | "pristine" | "applied" | "drift";
 	readonly candidateSnapshots: readonly LegacyAppSnapshot[];
 	readonly invalidProjectApps: readonly {
 		readonly id: string;
@@ -1033,14 +1042,35 @@ async function inspectFrozenRepairState<DB>(
 		canonicalIdentityDigest(invalidProjectApps[0]?.id) ===
 			FROZEN_PROJECT_ORPHAN_APP_ID_DIGEST;
 	const threadState = await inspectFrozenThreadAttachmentRepairState(tx);
+	/* `absent` is a database this repair has no subject in: no app is missing a
+	 * Project and none of the manifest's apps are here at all. A fresh developer
+	 * or CI database is the ordinary case. Without it, running the repair as part
+	 * of the migration would read an empty database as `drift` and refuse — the
+	 * repair would only ever be runnable against the one production snapshot it
+	 * was cut from, which is the opposite of shipping it in the migration. */
+	/* Presence of a SUBJECT, not of data. A developer database has plenty of
+	 * apps and none of this repair's apps; keying `absent` on the snapshot count
+	 * would have called that drift and refused every database but production. */
+	const anyAffectedAppPresent = [...expectedAfter.keys()].some((appDigest) =>
+		snapshotByDigest.has(appDigest),
+	);
+	/* Distinguish "those threads are not in this database" from "they are here
+	 * and wrong" — the thread inspection reports both as drift, and only the
+	 * first is absence. */
+	const anyAffectedThreadPresent =
+		(await readFrozenThreadRepairRows(tx, false)).length > 0;
 	const state: FrozenRepairStateInspection["state"] =
-		exactProjectOrphan && sourceRowsExact && threadState === "pristine"
-			? "pristine"
-			: invalidProjectApps.length === 0 &&
-					resultRowsExact &&
-					threadState === "applied"
-				? "applied"
-				: "drift";
+		invalidProjectApps.length === 0 &&
+		!anyAffectedAppPresent &&
+		!anyAffectedThreadPresent
+			? "absent"
+			: exactProjectOrphan && sourceRowsExact && threadState === "pristine"
+				? "pristine"
+				: invalidProjectApps.length === 0 &&
+						resultRowsExact &&
+						threadState === "applied"
+					? "applied"
+					: "drift";
 	return {
 		state,
 		candidateSnapshots:
@@ -1074,7 +1104,7 @@ function frozenRawRowsForApp(
 async function createFrozenRepairCutoverPlan<DB>(input: {
 	readonly tx: DbTx<DB>;
 	readonly apply: boolean;
-	readonly state: FrozenRepairStateInspection["state"];
+	readonly state: Exclude<FrozenRepairStateInspection["state"], "absent">;
 	readonly snapshots: readonly LegacyAppSnapshot[];
 	readonly candidateSnapshots: readonly LegacyAppSnapshot[];
 	readonly rawSource: FrozenStorageSnapshot;
@@ -1259,10 +1289,25 @@ export interface CanonicalIdentityFoundationRepairProof {
 	readonly occurrenceResultDigest: string;
 }
 
+/** The proof for a database this repair has no subject in: it changed nothing,
+ *  so every count is zero and no digest is claimed. */
+const EMPTY_CANONICAL_IDENTITY_REPAIR_PROOF: CanonicalIdentityFoundationRepairProof =
+	{
+		affectedApps: 0,
+		deletedApps: 0,
+		deletedRows: 0,
+		removedThreadAttachments: 0,
+		updatedEntityRows: 0,
+		updatedCatalogs: 0,
+		resultDigest: "",
+		occurrenceSourceDigest: "",
+		occurrenceResultDigest: "",
+	};
+
 export interface FrozenCanonicalIdentityRepairReport
 	extends CanonicalIdentityFoundationRepairProof {
-	readonly mode: "dry-run" | "applied" | "already-applied";
-	readonly sourceState: "pristine" | "applied";
+	readonly mode: "dry-run" | "applied" | "already-applied" | "not-applicable";
+	readonly sourceState: "pristine" | "applied" | "absent";
 	readonly version: typeof CANONICAL_IDENTITY_REPAIR_VERSION;
 	readonly cutoverPlan: FrozenCutoverPlan;
 }
@@ -1309,7 +1354,7 @@ export async function applyCanonicalIdentityFoundationRepairInTransaction<DB>(
 	before: readonly FrozenVerifiedRepairSnapshot[],
 	options: CanonicalIdentityRepairOptions = {},
 ): Promise<CanonicalIdentityFoundationRepairProof> {
-	await assertRepairQuiescence(tx);
+	await captureRepairLeaseState(tx);
 	const storedSource =
 		await loadCanonicalIdentityRepairSnapshotsInTransaction(tx);
 	await assertStoredRepairSnapshotsExact(tx, before);
@@ -1549,6 +1594,160 @@ export async function applyCanonicalIdentityFoundationRepairInTransaction<DB>(
  * Own the complete frozen transaction boundary. Operator scripts supply only
  * the database handle and the explicit apply/dry-run decision.
  */
+/**
+ * The repair body, against a caller-owned transaction.
+ *
+ * The migration runs this before its own work inside Kysely's migration
+ * transaction — one deploy does the repair and the cutover together, so there
+ * is no operator step needing write authority the deploy identity already has,
+ * and no window in which the repair has landed but the migration has not.
+ */
+export async function runFrozenCanonicalIdentityRepairInTransaction<DB>(
+	tx: DbTx<DB>,
+	options: { readonly apply: boolean },
+): Promise<FrozenCanonicalIdentityRepairReport> {
+	{
+		requirePreCanonicalRepairBoundary(
+			await inspectFrozenCanonicalRepairBoundary(tx),
+		);
+		const casesSchema = await resolveFrozenCasesSchema(tx);
+		const existingOccurrenceTables = (
+			await sql<{ table_name: string }>`
+						SELECT class.relname AS table_name
+						FROM pg_catalog.pg_class AS class
+						JOIN pg_catalog.pg_namespace AS namespace
+						  ON namespace.oid = class.relnamespace
+						WHERE namespace.nspname = 'public'
+						  AND class.relkind IN ('r', 'p')
+						  AND class.relname = ANY(
+							${sql.val([
+								...FROZEN_OCCURRENCE_TABLES,
+								...FROZEN_PROJECT_ORPHAN_AUTH_TABLES,
+							])}
+						  )
+						ORDER BY convert_to(class.relname, 'UTF8')
+					`.execute(tx)
+		).rows.map((row) => row.table_name);
+		/* Auth relations are filtered by the same catalog read the
+		 * occurrence tables use. This migration runs against databases that
+		 * carry the case store without the auth schema, and `LOCK TABLE` on
+		 * a relation that does not exist aborts the transaction. Locking
+		 * what is present is the requirement; naming what is absent is
+		 * not. */
+		const presentTables = new Set(existingOccurrenceTables);
+		const lockTables = [
+			...new Set([
+				...FROZEN_OCCURRENCE_TABLES.filter((table) =>
+					presentTables.has(table),
+				).map((table) => `public.${table}`),
+				...FROZEN_PROJECT_ORPHAN_APP_ID_TABLES.map((table) =>
+					table === "nova_case_runtime.cases" ? `${casesSchema}.cases` : table,
+				),
+				...FROZEN_PROJECT_ORPHAN_AUTH_TABLES.filter((table) =>
+					presentTables.has(table),
+				).map((table) => `public.${table}`),
+				"public.kysely_migration",
+			]),
+		].sort((left, right) =>
+			Buffer.compare(Buffer.from(left, "utf8"), Buffer.from(right, "utf8")),
+		);
+		await sql`
+					LOCK TABLE ${sql.join(lockTables.map(qualifiedFrozenRepairTable))}
+					IN SHARE ROW EXCLUSIVE MODE
+				`.execute(tx);
+		await sql`
+					SELECT id
+					FROM apps
+					ORDER BY convert_to(id, 'UTF8')
+					FOR UPDATE
+				`.execute(tx);
+		requirePreCanonicalRepairBoundary(
+			await inspectFrozenCanonicalRepairBoundary(tx),
+		);
+		const leaseState = await captureRepairLeaseState(tx);
+		const before = await loadCanonicalIdentityRepairSnapshotsInTransaction(tx);
+		const inspection = await inspectFrozenRepairState(tx, before);
+		if (inspection.state === "drift") {
+			throw new Error(
+				"Canonical identity repair prestate is mixed or drifted.",
+			);
+		}
+		if (inspection.state === "absent") {
+			/* Nothing here to repair. Report it and leave the transaction
+			 * untouched so the migration that called us proceeds. */
+			const report: FrozenCanonicalIdentityRepairReport = {
+				mode: "not-applicable",
+				sourceState: "absent",
+				version: CANONICAL_IDENTITY_REPAIR_VERSION,
+				...EMPTY_CANONICAL_IDENTITY_REPAIR_PROOF,
+				cutoverPlan: await createFrozenRepairCutoverPlan({
+					tx,
+					apply: options.apply,
+					state: "pristine",
+					snapshots: before,
+					candidateSnapshots: inspection.candidateSnapshots,
+					rawSource: await captureFrozenStorageSnapshot(tx),
+					lockRelations: lockTables,
+					leaseState,
+					casesSchema,
+				}),
+			};
+			if (!options.apply) throw new FrozenRepairDryRunRollback(report);
+			return report;
+		}
+		const rawSource = await captureFrozenStorageSnapshot(tx);
+		const cutoverPlan = await createFrozenRepairCutoverPlan({
+			tx,
+			apply: options.apply,
+			state: inspection.state,
+			snapshots: before,
+			candidateSnapshots: inspection.candidateSnapshots,
+			rawSource,
+			lockRelations: lockTables,
+			leaseState,
+			casesSchema,
+		});
+		if (inspection.state === "applied") {
+			await assertStoredRepairSnapshotsExact(tx, before);
+			await assertCompleteFrozenRepairSnapshots(tx, before);
+			const occurrence = canonicalIdentityDigest(
+				dispatchFrozenStorageOccurrences(rawSource),
+			);
+			return {
+				mode: "already-applied",
+				sourceState: "applied",
+				version: CANONICAL_IDENTITY_REPAIR_VERSION,
+				affectedApps: CANONICAL_IDENTITY_AFFECTED_APPS.length,
+				deletedApps: 0,
+				deletedRows: 0,
+				removedThreadAttachments: 0,
+				updatedEntityRows: 0,
+				updatedCatalogs: 0,
+				resultDigest: CANONICAL_IDENTITY_REPAIR_RESULT_DIGEST,
+				occurrenceSourceDigest: occurrence,
+				occurrenceResultDigest: occurrence,
+				cutoverPlan,
+			};
+		}
+		const proof = await applyCanonicalIdentityFoundationRepairInTransaction(
+			tx,
+			before,
+		);
+		if (proof.resultDigest !== CANONICAL_IDENTITY_REPAIR_RESULT_DIGEST) {
+			throw new Error("Canonical identity repair manifest result drifted.");
+		}
+		const report: FrozenCanonicalIdentityRepairReport = {
+			mode: options.apply ? "applied" : "dry-run",
+			sourceState: "pristine",
+			version: CANONICAL_IDENTITY_REPAIR_VERSION,
+			...proof,
+			cutoverPlan,
+		};
+		if (!options.apply) throw new FrozenRepairDryRunRollback(report);
+		return report;
+	}
+}
+
 export async function runFrozenCanonicalIdentityRepair<DB>(
 	db: Kysely<DB>,
 	options: { readonly apply: boolean },
@@ -1563,112 +1762,7 @@ export async function runFrozenCanonicalIdentityRepair<DB>(
 				await sql`
 					SET LOCAL idle_in_transaction_session_timeout = '990s'
 				`.execute(tx);
-				requirePreCanonicalRepairBoundary(
-					await inspectFrozenCanonicalRepairBoundary(tx),
-				);
-				const casesSchema = await resolveFrozenCasesSchema(tx);
-				const existingOccurrenceTables = (
-					await sql<{ table_name: string }>`
-						SELECT class.relname AS table_name
-						FROM pg_catalog.pg_class AS class
-						JOIN pg_catalog.pg_namespace AS namespace
-						  ON namespace.oid = class.relnamespace
-						WHERE namespace.nspname = 'public'
-						  AND class.relkind IN ('r', 'p')
-						  AND class.relname = ANY(
-							${sql.val([...FROZEN_OCCURRENCE_TABLES])}
-						  )
-						ORDER BY convert_to(class.relname, 'UTF8')
-					`.execute(tx)
-				).rows.map((row) => row.table_name);
-				const lockTables = [
-					...new Set([
-						...existingOccurrenceTables.map((table) => `public.${table}`),
-						...FROZEN_PROJECT_ORPHAN_APP_ID_TABLES.map((table) =>
-							table === "nova_case_runtime.cases"
-								? `${casesSchema}.cases`
-								: table,
-						),
-						...FROZEN_PROJECT_ORPHAN_AUTH_TABLES.map(
-							(table) => `public.${table}`,
-						),
-						"public.kysely_migration",
-					]),
-				].sort((left, right) =>
-					Buffer.compare(Buffer.from(left, "utf8"), Buffer.from(right, "utf8")),
-				);
-				await sql`
-					LOCK TABLE ${sql.join(lockTables.map(qualifiedFrozenRepairTable))}
-					IN SHARE ROW EXCLUSIVE MODE
-				`.execute(tx);
-				await sql`
-					SELECT id
-					FROM apps
-					ORDER BY convert_to(id, 'UTF8')
-					FOR UPDATE
-				`.execute(tx);
-				requirePreCanonicalRepairBoundary(
-					await inspectFrozenCanonicalRepairBoundary(tx),
-				);
-				const leaseState = await assertRepairQuiescence(tx);
-				const before =
-					await loadCanonicalIdentityRepairSnapshotsInTransaction(tx);
-				const inspection = await inspectFrozenRepairState(tx, before);
-				if (inspection.state === "drift") {
-					throw new Error(
-						"Canonical identity repair prestate is mixed or drifted.",
-					);
-				}
-				const rawSource = await captureFrozenStorageSnapshot(tx);
-				const cutoverPlan = await createFrozenRepairCutoverPlan({
-					tx,
-					apply: options.apply,
-					state: inspection.state,
-					snapshots: before,
-					candidateSnapshots: inspection.candidateSnapshots,
-					rawSource,
-					lockRelations: lockTables,
-					leaseState,
-					casesSchema,
-				});
-				if (inspection.state === "applied") {
-					await assertStoredRepairSnapshotsExact(tx, before);
-					await assertCompleteFrozenRepairSnapshots(tx, before);
-					const occurrence = canonicalIdentityDigest(
-						dispatchFrozenStorageOccurrences(rawSource),
-					);
-					return {
-						mode: "already-applied",
-						sourceState: "applied",
-						version: CANONICAL_IDENTITY_REPAIR_VERSION,
-						affectedApps: CANONICAL_IDENTITY_AFFECTED_APPS.length,
-						deletedApps: 0,
-						deletedRows: 0,
-						removedThreadAttachments: 0,
-						updatedEntityRows: 0,
-						updatedCatalogs: 0,
-						resultDigest: CANONICAL_IDENTITY_REPAIR_RESULT_DIGEST,
-						occurrenceSourceDigest: occurrence,
-						occurrenceResultDigest: occurrence,
-						cutoverPlan,
-					};
-				}
-				const proof = await applyCanonicalIdentityFoundationRepairInTransaction(
-					tx,
-					before,
-				);
-				if (proof.resultDigest !== CANONICAL_IDENTITY_REPAIR_RESULT_DIGEST) {
-					throw new Error("Canonical identity repair manifest result drifted.");
-				}
-				const report: FrozenCanonicalIdentityRepairReport = {
-					mode: options.apply ? "applied" : "dry-run",
-					sourceState: "pristine",
-					version: CANONICAL_IDENTITY_REPAIR_VERSION,
-					...proof,
-					cutoverPlan,
-				};
-				if (!options.apply) throw new FrozenRepairDryRunRollback(report);
-				return report;
+				return await runFrozenCanonicalIdentityRepairInTransaction(tx, options);
 			});
 	} catch (error) {
 		if (error instanceof FrozenRepairDryRunRollback) return error.report;

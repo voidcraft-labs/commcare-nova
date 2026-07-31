@@ -1305,8 +1305,11 @@ test.describe("authenticated builder", () => {
 		await expect(canvas).toBeVisible({ timeout: 20_000 });
 		expect(await canvas.evaluate((el) => el.clientHeight)).toBeGreaterThan(0);
 
-		// One row per authored field.
-		await expect(canvas.locator("[data-field-uuid]")).toHaveCount(3);
+		// One row per authored field, counted from the seed rather than a
+		// literal — the seed is what decides how many rows there should be.
+		await expect(canvas.locator("[data-field-uuid]")).toHaveCount(
+			CASE_WORKSPACE_SEED.tile.formFieldIds.length,
+		);
 		await expect(canvas.getByText("Visit note")).toBeVisible();
 	});
 
@@ -1358,7 +1361,9 @@ test.describe("authenticated builder", () => {
 			});
 
 		const edit = await rowGeometry();
-		expect(edit).toHaveLength(3);
+		// Counted from the seed: this test is about edit and live landing every
+		// row at identical geometry, not about how many rows the form has.
+		expect(edit).toHaveLength(CASE_WORKSPACE_SEED.tile.formFieldIds.length);
 
 		await page.getByRole("button", { name: "Preview", exact: true }).click();
 		const dateTrigger = page.locator('button[data-slot="date-picker"]');

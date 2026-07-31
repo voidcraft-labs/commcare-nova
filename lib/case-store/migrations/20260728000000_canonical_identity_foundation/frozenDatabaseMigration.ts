@@ -5003,22 +5003,15 @@ export async function runFrozenCanonicalIdentityMigration(
 		`the frozen occurrence scan has block-current rows at ${sourceBlockers[0]?.id ?? "unknown"}`,
 	);
 
-	requireInvariant(
-		leaseState.appLeaseBlockers === "0",
-		"one or more app lease/reservation rows are present or corrupt",
-	);
-	requireInvariant(
-		leaseState.activeThreadHolders === "0",
-		"one or more thread stream holders remain live",
-	);
-	requireInvariant(
-		leaseState.unterminatedChunks === "0",
-		"one or more unterminated stream chunks remain",
-	);
-	requireInvariant(
-		leaseState.presenceSessions === "0",
-		"one or more presence sessions remain live",
-	);
+	/* Lease, thread-holder, stream-chunk, and presence counts are recorded in
+	 * the report but are deliberately NOT invariants. They describe who happened
+	 * to be mid-request, not whether the data is transformable, and the only way
+	 * to drive them to zero is to take the service down first. The complete
+	 * table lock this transaction already holds is the real protection: a
+	 * concurrent writer blocks on it or fails against it. An in-flight request
+	 * against the old shape may error, which is cheaper than the machinery a
+	 * maintenance window would need. `block-current` rows above remain a hard
+	 * stop, because those are data this migration genuinely cannot transform. */
 
 	requireInvariant(
 		currentRows.apps.length <= MAX_APP_COUNT,

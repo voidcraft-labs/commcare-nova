@@ -884,7 +884,12 @@ describe("diffDocsToMutations — diff(prev, next) replayed on prev ≡ next", (
 			{ numRuns: 1000, seed: 20260628 },
 		);
 		expect(iterations).toBeGreaterThanOrEqual(1000);
-	});
+		/* A thousand diff-and-replay rounds over documents this size costs more
+		 * than the 5s default on a CI runner. The seed is fixed, so the run is
+		 * deterministic and the only variable is machine speed — the honest fix
+		 * is a timeout that matches the work, not fewer rounds, which would
+		 * quietly weaken the property this file exists to prove. */
+	}, 60_000);
 
 	it("returns [] when prev deep-equals next", () => {
 		const doc = richDoc();
