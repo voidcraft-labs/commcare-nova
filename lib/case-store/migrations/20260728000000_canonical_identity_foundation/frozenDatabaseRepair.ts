@@ -624,15 +624,21 @@ async function inspectFrozenThreadAttachmentRepairState<DB>(
 	tx: DbTx<DB>,
 ): Promise<FrozenThreadAttachmentRepairState> {
 	const rows = await readFrozenThreadRepairRows(tx, false);
-	if (rows.length !== FROZEN_THREAD_ATTACHMENT_REPAIRS.length) return "drift";
 	const byKey = new Map(
 		rows.map((row) => [`${row.app_id}\u0000${row.thread_id}`, row] as const),
 	);
+	/* A thread this repair targets may simply be gone — its app deleted, and the
+	 * dangling attachment references with it. There is nothing left to strip, so
+	 * an absent target is satisfied, not drift. Only the threads still present
+	 * have to sit at one consistent end of the repair. */
+	let present = 0;
 	let source = 0;
 	let result = 0;
 	for (const repair of FROZEN_THREAD_ATTACHMENT_REPAIRS) {
 		const row = byKey.get(`${repair.appId}\u0000${repair.threadId}`);
-		if (row === undefined || row.project_id !== repair.appProjectId) {
+		if (row === undefined) continue;
+		present++;
+		if (row.project_id !== repair.appProjectId) {
 			return "drift";
 		}
 		if (
@@ -649,8 +655,9 @@ async function inspectFrozenThreadAttachmentRepairState<DB>(
 			return "drift";
 		}
 	}
-	if (source === FROZEN_THREAD_ATTACHMENT_REPAIRS.length) return "pristine";
-	if (result === FROZEN_THREAD_ATTACHMENT_REPAIRS.length) return "applied";
+	if (present === 0) return "applied";
+	if (source === present) return "pristine";
+	if (result === present) return "applied";
 	return "drift";
 }
 
@@ -658,11 +665,6 @@ async function applyFrozenThreadAttachmentRepairs<DB>(
 	tx: DbTx<DB>,
 ): Promise<number> {
 	const rows = await readFrozenThreadRepairRows(tx, true);
-	if (rows.length !== FROZEN_THREAD_ATTACHMENT_REPAIRS.length) {
-		throw new Error(
-			"Frozen thread attachment repair did not find every exact source row.",
-		);
-	}
 	const byKey = new Map(
 		rows.map((row) => [`${row.app_id}\u0000${row.thread_id}`, row] as const),
 	);
