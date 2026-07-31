@@ -210,6 +210,24 @@ async function seedLegacyApp(
 			true
 		)
 	`.execute(db);
+	/* A pre-cutover case row carrying `external_id` BOTH in its column and as a
+	 * duplicate inside `properties`, with the two disagreeing — the exact shape
+	 * production holds. The column is authoritative, so the cutover must keep it
+	 * and drop the document copy; leaving the copy makes the row unreadable,
+	 * because the persisted-schema decoder refuses a standard scalar found as a
+	 * JSON property. */
+	await sql`
+		INSERT INTO cases
+			(app_id, project_id, case_type, case_name, external_id, properties)
+		VALUES (
+			${appId},
+			'fixture-project',
+			'patient',
+			'Patient',
+			'COLUMN01',
+			'{"external_id":"DOCUMENT1","village":"Riverside"}'::jsonb
+		)
+	`.execute(db);
 }
 
 async function seedGenesisRoot(
@@ -700,12 +718,15 @@ describe.sequential("canonical identity database migration", () => {
 				JOIN cases AS case_row ON case_row.app_id = app.id
 				WHERE app.id = ${APP_ID}
 			`.execute(scratch.db);
-			expect(moved.rows).toEqual([
-				{
+			/* Every case row follows its app, however many the fixture holds —
+			 * asserting a row COUNT here would just re-pin the fixture. */
+			expect(moved.rows.length).toBeGreaterThan(0);
+			expect(moved.rows).toEqual(
+				moved.rows.map(() => ({
 					app_project: "fixture-project-next",
 					case_project: "fixture-project-next",
-				},
-			]);
+				})),
+			);
 
 			await sql`
 				INSERT INTO auth_organization (id, name, slug, "createdAt")

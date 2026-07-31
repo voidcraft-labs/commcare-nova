@@ -35,6 +35,7 @@ import {
 	type FrozenStorageSnapshot,
 	frozenExactTextSequenceDigest,
 	frozenThreadAttachmentInventory,
+	PRE_CUTOVER_STANDARD_PROPERTIES,
 	parseFrozenExactJson,
 	resolveFrozenCasesSchema,
 } from "./frozenOccurrenceDispatcher";
@@ -311,6 +312,9 @@ interface FrozenMigrationReport {
 	readonly apps: number;
 	readonly entities: number;
 	readonly archivedMutationEvents: number;
+	/** Case rows whose document carried a standard scalar this cutover moved
+	 *  to its column. Reported so the count is evidence, not a silent edit. */
+	readonly strippedStandardCaseProperties: number;
 	readonly rewriteBytes: number;
 	readonly beforeDigest: string;
 	readonly afterDigest: string;
@@ -3426,6 +3430,31 @@ function assertFrozenProjectTenancyCatalog(
 	);
 }
 
+/**
+ * Drop the standard scalars from `cases.properties`.
+ *
+ * `case_name` and `external_id` live in dedicated columns after this cutover
+ * and the persisted-schema decoder throws if either appears as a JSON
+ * property, so a duplicate left in the document makes the row unreadable. The
+ * column is authoritative — it is what the case-store already selects — so the
+ * document copy is dropped and the column kept, never the reverse.
+ *
+ * Returns how many rows carried one, for the migration report.
+ */
+async function stripFrozenStandardCaseProperties(
+	db: Kysely<unknown>,
+	casesSchema: "nova_case_runtime" | "public",
+): Promise<number> {
+	const stripped = await sql<{ app_id: string; case_id: string }>`
+		UPDATE ${sql.id(casesSchema, "cases")}
+		SET properties =
+			properties - ${sql.val([...PRE_CUTOVER_STANDARD_PROPERTIES])}::text[]
+		WHERE properties ?| ${sql.val([...PRE_CUTOVER_STANDARD_PROPERTIES])}::text[]
+		RETURNING app_id, case_id
+	`.execute(db);
+	return stripped.rows.length;
+}
+
 async function installFrozenProjectTenancyDdl(
 	db: Kysely<unknown>,
 	casesSchema: "nova_case_runtime" | "public",
@@ -4969,6 +4998,7 @@ export async function runFrozenCanonicalIdentityMigration(
 			apps: 0,
 			entities: 0,
 			archivedMutationEvents: 0,
+			strippedStandardCaseProperties: 0,
 			rewriteBytes: 0,
 			beforeDigest: canonicalIdentityDigest("already-applied"),
 			afterDigest: canonicalIdentityDigest("already-applied"),
@@ -4995,8 +5025,15 @@ export async function runFrozenCanonicalIdentityMigration(
 	await assertFrozenProjectTenancyRows(tx, casesSchema);
 	const occurrenceSource = rawCutoverSource;
 	const sourceProjections = dispatchFrozenStorageOccurrences(occurrenceSource);
+	/* `cases.standard-properties` is transformed rather than refused: the
+	 * migration strips those keys from the document below, keeping the
+	 * authoritative column. Every other `block-current` carrier is data this
+	 * migration genuinely cannot transform and still stops it. */
 	const sourceBlockers = sourceProjections.filter(
-		(entry) => entry.disposition === "block-current" && entry.rowCount > 0,
+		(entry) =>
+			entry.disposition === "block-current" &&
+			entry.rowCount > 0 &&
+			entry.id !== "cases.standard-properties",
 	);
 	requireInvariant(
 		sourceBlockers.length === 0,
@@ -5636,6 +5673,10 @@ export async function runFrozenCanonicalIdentityMigration(
 
 	await convertSqlIdentityColumns(tx);
 	assertSqlIdentitySchema(await sqlColumnTypes(tx), "uuid");
+	/* Before the tenancy DDL, so the rows are already readable under the final
+	 * schema when the assertions below walk them. */
+	const strippedStandardCaseProperties =
+		await stripFrozenStandardCaseProperties(tx, casesSchema);
 	await installFrozenProjectTenancyDdl(tx, casesSchema);
 	await assertFrozenProjectTenancyRows(tx, casesSchema);
 	await assertFrozenAppChangeProjectRows(tx);
@@ -5848,6 +5889,7 @@ export async function runFrozenCanonicalIdentityMigration(
 		apps: plans.length,
 		entities: entityPayload.length,
 		archivedMutationEvents: archivedBefore.size,
+		strippedStandardCaseProperties,
 		rewriteBytes,
 		beforeDigest: occurrencePlan.sourceDigest,
 		afterDigest: occurrencePlan.resultDigest,

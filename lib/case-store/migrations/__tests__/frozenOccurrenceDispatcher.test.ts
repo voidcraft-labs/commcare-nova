@@ -230,7 +230,7 @@ describe("frozen canonical-identity occurrence dispatcher", () => {
 		).toThrow(/events\.current-nonmutation has block-current rows/);
 	});
 
-	it("blocks alternate standard-property bytes in live case rows and parked values", () => {
+	it("counts alternate standard-property bytes in live case rows and parked values", () => {
 		const bad = snapshot({
 			cases: [{ properties: { name: "Patient" } }],
 			parked_case_values: [{ property: "date-opened" }],
@@ -242,8 +242,45 @@ describe("frozen canonical-identity occurrence dispatcher", () => {
 		expect(byId.get("parked_case_values.standard-properties")?.rowCount).toBe(
 			1,
 		);
-		expect(() => compareFrozenStorageOccurrences(bad, snapshot())).toThrow(
-			/cases\.standard-properties has block-current rows/,
+	});
+
+	it("clears standard properties out of live case documents", () => {
+		/* A pre-cutover row may carry one; the migration strips it and keeps the
+		 * authoritative column. So a source count is expected and the guarantee
+		 * is that the result is empty. */
+		const app = { id: "a1", project_id: "p1" };
+		const before = snapshot({
+			apps: [app],
+			cases: [
+				{ app_id: "a1", project_id: "p1", properties: { name: "Patient" } },
+			],
+		});
+		// Same app either side: only the case document changes.
+		const after = snapshot({
+			apps: [app],
+			cases: [{ app_id: "a1", project_id: "p1", properties: {} }],
+		});
+		expect(() => compareFrozenStorageOccurrences(before, after)).not.toThrow();
+	});
+
+	it("refuses a standard property the migration failed to strip", () => {
+		const stubborn = snapshot({
+			apps: [{ id: "a1", project_id: "p1" }],
+			cases: [
+				{ app_id: "a1", project_id: "p1", properties: { name: "Patient" } },
+			],
+		});
+		expect(() => compareFrozenStorageOccurrences(stubborn, stubborn)).toThrow(
+			/still holds 1 standard case property in the document/,
+		);
+	});
+
+	it("still refuses a parked standard property, which nothing strips", () => {
+		const parked = snapshot({
+			parked_case_values: [{ property: "date-opened" }],
+		});
+		expect(() => compareFrozenStorageOccurrences(parked, snapshot())).toThrow(
+			/parked_case_values\.standard-properties has block-current rows/,
 		);
 	});
 

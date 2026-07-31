@@ -19,7 +19,10 @@ import { classifyFrozenCasesRelation } from "./frozenRelationLifecycle";
 import { canonicalIdentityDigest } from "./frozenTransform";
 
 type JsonRecord = Record<string, unknown>;
-const PRE_CUTOVER_STANDARD_PROPERTIES = new Set([
+/** The standard scalars a pre-cutover row may carry inside `properties`. One
+ *  definition: the scan counts rows by it and the migration strips by it, so
+ *  the two can never disagree about what "standard" means. */
+export const PRE_CUTOVER_STANDARD_PROPERTIES = new Set([
 	"name",
 	"date-opened",
 	"external-id",
@@ -1128,12 +1131,23 @@ export function compareFrozenStorageOccurrences(
 			entry.id === "app_changes.new-horizon-and-suffix" &&
 			entry.rowCount === 0 &&
 			next.rowCount > 0;
+		/* This carrier is CLEARED rather than refused: a pre-cutover row may
+		 * hold a standard scalar inside `properties`, and the migration strips
+		 * it, keeping the authoritative column. So it may start non-zero, and
+		 * the guarantee is that it ends at zero — a strictly stronger claim than
+		 * "there were none to begin with", and one this audit can prove. */
+		const isClearedStandardProperties =
+			entry.id === "cases.standard-properties";
 		if (
 			entry.disposition === "block-current" &&
-			(entry.rowCount !== 0 || next.rowCount !== 0)
+			(isClearedStandardProperties
+				? next.rowCount !== 0
+				: entry.rowCount !== 0 || next.rowCount !== 0)
 		) {
 			throw new Error(
-				`Canonical identity occurrence ${entry.id} has block-current rows (${entry.rowCount} source, ${next.rowCount} result).`,
+				isClearedStandardProperties
+					? `Canonical identity occurrence ${entry.id} still holds ${next.rowCount} standard case ${next.rowCount === 1 ? "property" : "properties"} in the document after the migration stripped them.`
+					: `Canonical identity occurrence ${entry.id} has block-current rows (${entry.rowCount} source, ${next.rowCount} result).`,
 			);
 		}
 		if (
