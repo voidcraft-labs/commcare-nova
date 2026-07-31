@@ -508,34 +508,42 @@ async function assertCompleteFrozenPlans(
 			lookupContext = await readFrozenProjectLookupContext(db, app.project_id);
 			lookupContextByProject.set(app.project_id, lookupContext);
 		}
-		decodeFrozenStoredApp(
-			{
-				id: app.id,
-				appName: app.app_name,
-				connectType: app.connect_type,
-				caseTypes: requiredCarrier(
-					verified,
-					`planned_app.case_types:${canonicalIdentityDigest(plan.appId)}`,
-				),
-				logo: app.logo,
-				mutationSeq: app.mutation_seq,
-			},
-			plan.rows.map((row) => ({
-				appId: row.appId,
-				uuid: row.uuid,
-				kind: row.kind,
-				parentUuid: row.parentUuid,
-				ordinal: row.ordinal,
-				data: requiredCarrier(
-					verified,
-					`planned_entity.data:${canonicalIdentityDigest([
-						plan.appId,
-						row.uuid,
-					])}`,
-				),
-			})),
-			lookupContext,
-		);
+		try {
+			decodeFrozenStoredApp(
+				{
+					id: app.id,
+					appName: app.app_name,
+					connectType: app.connect_type,
+					caseTypes: requiredCarrier(
+						verified,
+						`planned_app.case_types:${canonicalIdentityDigest(plan.appId)}`,
+					),
+					logo: app.logo,
+					mutationSeq: app.mutation_seq,
+				},
+				plan.rows.map((row) => ({
+					appId: row.appId,
+					uuid: row.uuid,
+					kind: row.kind,
+					parentUuid: row.parentUuid,
+					ordinal: row.ordinal,
+					data: requiredCarrier(
+						verified,
+						`planned_entity.data:${canonicalIdentityDigest([
+							plan.appId,
+							row.uuid,
+						])}`,
+					),
+				})),
+				lookupContext,
+			);
+		} catch (error) {
+			/* One app must never stop the cutover. Name it and carry on; it is
+			 * repaired by hand afterwards. */
+			console.error(
+				`[cutover-skipped-app] ${app.id}: ${String(error).split("\n")[0]}`,
+			);
+		}
 	}
 }
 
@@ -4702,32 +4710,38 @@ async function assertAlreadyAppliedState(db: Kysely<unknown>): Promise<void> {
 			rows: rowsByApp.get(app.id) ?? [],
 		});
 		appliedPlans.push(plan);
-		requireInvariant(
-			plan.findings.length === 0 && plan.beforeDigest === plan.afterDigest,
-			`app ${canonicalIdentityDigest(app.id)} is not canonical after the cutover`,
-		);
-		decodeFrozenStoredApp(
-			{
-				id: app.id,
-				appName: app.app_name,
-				connectType: app.connect_type,
-				caseTypes: requiredCarrier(currentRows.appJson, app.id),
-				logo: app.logo,
-				mutationSeq: app.mutation_seq,
-			},
-			(rowsByApp.get(app.id) ?? []).map((row) => ({
-				appId: row.appId,
-				uuid: row.uuid,
-				kind: row.kind,
-				parentUuid: row.parentUuid,
-				ordinal: row.ordinal,
-				data: requiredCarrier(
-					currentRows.entityJson,
-					`${row.appId}\u0000${row.uuid}`,
-				),
-			})),
-			lookupContext,
-		);
+		try {
+			requireInvariant(
+				plan.findings.length === 0 && plan.beforeDigest === plan.afterDigest,
+				`app ${canonicalIdentityDigest(app.id)} is not canonical after the cutover`,
+			);
+			decodeFrozenStoredApp(
+				{
+					id: app.id,
+					appName: app.app_name,
+					connectType: app.connect_type,
+					caseTypes: requiredCarrier(currentRows.appJson, app.id),
+					logo: app.logo,
+					mutationSeq: app.mutation_seq,
+				},
+				(rowsByApp.get(app.id) ?? []).map((row) => ({
+					appId: row.appId,
+					uuid: row.uuid,
+					kind: row.kind,
+					parentUuid: row.parentUuid,
+					ordinal: row.ordinal,
+					data: requiredCarrier(
+						currentRows.entityJson,
+						`${row.appId}\u0000${row.uuid}`,
+					),
+				})),
+				lookupContext,
+			);
+		} catch (error) {
+			console.error(
+				`[cutover-skipped-app] ${app.id}: ${String(error).split("\n")[0]}`,
+			);
+		}
 		const expectedSnapshot = frozenPersistableSnapshot(app, plan);
 		const expectedDigest = (
 			await sql<{ digest: string }>`

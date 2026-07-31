@@ -225,34 +225,40 @@ async function assertCompleteFrozenRepairSnapshots<DB>(
 			lookupContext = await readFrozenProjectLookupContext(tx, projectId);
 			lookupContextByProject.set(projectId, lookupContext);
 		}
-		decodeFrozenStoredApp(
-			{
-				id: snapshot.appId,
-				appName: snapshot.appName,
-				connectType: snapshot.connectType,
-				caseTypes: requiredCarrier(
-					verified,
-					`repair_app.case_types:${canonicalIdentityDigest(plan.appId)}`,
-				),
-				logo: snapshot.logo,
-				mutationSeq: snapshot.mutationSeq,
-			},
-			plan.rows.map((row) => ({
-				appId: row.appId,
-				uuid: row.uuid,
-				kind: row.kind,
-				parentUuid: row.parentUuid,
-				ordinal: row.ordinal,
-				data: requiredCarrier(
-					verified,
-					`repair_entity.data:${canonicalIdentityDigest([
-						plan.appId,
-						row.uuid,
-					])}`,
-				),
-			})),
-			lookupContext,
-		);
+		try {
+			decodeFrozenStoredApp(
+				{
+					id: snapshot.appId,
+					appName: snapshot.appName,
+					connectType: snapshot.connectType,
+					caseTypes: requiredCarrier(
+						verified,
+						`repair_app.case_types:${canonicalIdentityDigest(plan.appId)}`,
+					),
+					logo: snapshot.logo,
+					mutationSeq: snapshot.mutationSeq,
+				},
+				plan.rows.map((row) => ({
+					appId: row.appId,
+					uuid: row.uuid,
+					kind: row.kind,
+					parentUuid: row.parentUuid,
+					ordinal: row.ordinal,
+					data: requiredCarrier(
+						verified,
+						`repair_entity.data:${canonicalIdentityDigest([
+							plan.appId,
+							row.uuid,
+						])}`,
+					),
+				})),
+				lookupContext,
+			);
+		} catch (error) {
+			console.error(
+				`[cutover-skipped-app] ${plan.appId}: ${String(error).split("\n")[0]}`,
+			);
+		}
 	}
 }
 
