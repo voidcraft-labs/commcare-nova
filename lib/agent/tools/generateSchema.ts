@@ -113,7 +113,9 @@ export const generateSchemaTool = {
 				ct.relationship === undefined &&
 				ct.properties.every(
 					(p) =>
-						p.label === p.name &&
+						p.label.parts.length === 1 &&
+						p.label.parts[0]?.kind === "text" &&
+						p.label.parts[0].text === p.name &&
 						p.hint === undefined &&
 						p.required === undefined &&
 						p.validation === undefined &&
@@ -148,7 +150,9 @@ export const generateSchemaTool = {
 				const record = cleanCaseTypeRecord(raw) as CaseType;
 				const bareExisting = existingByName.has(record.name);
 				if (bareExisting) enriched.push(record.name);
-				mutations.push({ kind: "declareCaseType", caseType: record.name });
+				if (!bareExisting) {
+					mutations.push({ kind: "declareCaseType", caseType: record.name });
+				}
 				if (record.parent_type != null || record.relationship != null) {
 					mutations.push({
 						kind: "setCaseTypeMeta",
@@ -192,7 +196,7 @@ export const generateSchemaTool = {
 			};
 			return {
 				kind: "mutate" as const,
-				mutations,
+				mutations: commit.mutations,
 				newDoc: commit.newDoc,
 				result: {
 					message: `Recorded the data model: ${typeNames.length} case type${typeNames.length === 1 ? "" : "s"} (${typeNames.join(", ")}) with ${propertyCount} properties.${enriched.length > 0 ? ` ${enriched.map((n) => `"${n}"`).join(", ")} existed as a bare declaration and now carries the recorded model.` : ""} createModule now references these by name; fields writing a recorded property inherit its label, options, and validation.`,

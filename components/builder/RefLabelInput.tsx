@@ -10,8 +10,8 @@
  *   - Escape → cancel (revert to original value)
  *   - Emerald checkmark animation on save
  *
- * The underlying document model stores commcareRef nodes. Serialization
- * to/from the canonical string format (#type/path) happens on save/load.
+ * The underlying document model stores canonical ProseTemplate parts.
+ * Display hashtags are projections only and are never parsed back to identity.
  */
 
 "use client";
@@ -30,24 +30,33 @@ import {
 } from "react";
 import { SavedCheck } from "@/components/builder/EditableTitle";
 import { SaveShortcutHint } from "@/components/builder/SaveShortcutHint";
-import { namespaceOf } from "@/lib/references/config";
-import { ReferenceProvider } from "@/lib/references/provider";
+import {
+	canonicalProseTemplate,
+	type ProseTemplate,
+	proseTemplateIsEmpty,
+} from "@/lib/domain";
+import { displayId } from "@/lib/references/config";
+import type { ReferenceProvider } from "@/lib/references/provider";
 import {
 	useCurrentFormUuid,
 	useLiveFormUuidGetter,
 	useReferenceProvider,
 } from "@/lib/references/ReferenceContext";
-import { parseLabelSegments } from "@/lib/references/renderLabel";
 import { CommcareRef } from "@/lib/tiptap/commcareRefNode";
+import {
+	proseTemplateToTiptapContent,
+	tiptapContentToProseTemplate,
+} from "@/lib/tiptap/proseTemplateCodec";
 import { createRefSuggestion } from "@/lib/tiptap/refSuggestion";
 
 interface RefLabelInputProps {
 	label: string;
-	value: string;
-	onSave: (value: string) => void;
+	value: ProseTemplate;
+	onSave: (value: ProseTemplate) => void;
 	/** Called on every content change (not just commit). Lets the canvas show chips in real-time. */
-	onChange?: (value: string) => void;
+	onChange?: (value: ProseTemplate) => void;
 	onEmpty?: () => void;
+	dataFieldId?: string;
 	multiline?: boolean;
 	autoFocus?: boolean;
 	selectAll?: boolean;
@@ -58,79 +67,33 @@ interface RefLabelInputProps {
 // ── Serialization ───────────────────────────────────────────────────────
 
 /**
- * Parse a label string into TipTap JSON content.
- * Bare `#type/path` hashtags become commcareRef nodes; everything else
- * becomes text nodes. Delegates to parseLabelSegments for the regex
- * splitting (single source of truth for the hashtag pattern).
+ * Project canonical prose parts into TipTap JSON. References are already
+ * typed atoms; hashtag-looking text stays an ordinary text node.
  */
 function parseValueToContent(
-	value: string,
+	value: ProseTemplate,
 	provider: ReferenceProvider | null,
 	formUuid: string | undefined,
 ): JSONContent {
-	if (!value) {
-		return { type: "doc", content: [{ type: "paragraph" }] };
-	}
-
-	const segments = parseLabelSegments(value);
-	const inlineContent: JSONContent[] = [];
-
-	for (const seg of segments) {
-		if (seg.kind === "text") {
-			inlineContent.push({ type: "text", text: seg.text });
-			continue;
-		}
-		const parsed = ReferenceProvider.parse(seg.value);
-		if (!parsed) {
-			inlineContent.push({ type: "text", text: seg.value });
-			continue;
-		}
-		const resolved = provider?.resolve(seg.value, formUuid);
-		inlineContent.push({
-			type: "commcareRef",
-			attrs: {
-				/* `refType` carries the namespace — a case-type name for case refs,
-				 * derived through `namespaceOf` (never the coarse "case"). */
-				refType: namespaceOf(parsed),
-				path: parsed.path,
-				label: resolved?.label ?? parsed.path,
-			},
-		});
-	}
-
-	return {
-		type: "doc",
-		content: [
-			{
-				type: "paragraph",
-				content: inlineContent.length > 0 ? inlineContent : undefined,
-			},
-		],
-	};
+	return proseTemplateToTiptapContent(value, (part) => {
+		const resolved = provider?.resolvePart(part, formUuid);
+		// What the CHIP shows, which is `displayId` — not `Reference.label`, the
+		// autocomplete string. The atom's `label` is the text Backspace converts
+		// the chip back into, so the two have to be the same thing or that gesture
+		// replaces a reference with words the author never saw.
+		return resolved == null ? "" : displayId(resolved);
+	}) as JSONContent;
 }
 
 /**
- * Serialize TipTap document content to a label string.
- * commcareRef nodes become bare `#type/path` hashtags (canonical internal
- * format), text nodes become their text content.
+ * Serialize TipTap document content directly to canonical prose parts.
  */
-function serializeContent(doc: JSONContent): string {
-	let result = "";
-	const paragraphs = doc.content ?? [];
-	for (let pi = 0; pi < paragraphs.length; pi++) {
-		const paragraph = paragraphs[pi];
-		for (const node of paragraph.content ?? []) {
-			if (node.type === "text") {
-				result += node.text ?? "";
-			} else if (node.type === "commcareRef") {
-				result += `#${node.attrs?.refType}/${node.attrs?.path}`;
-			}
-		}
-		if (pi < paragraphs.length - 1) {
-			result += "\n";
-		}
-	}
-	return result;
+function serializeContent(doc: JSONContent): ProseTemplate {
+	return tiptapContentToProseTemplate(doc);
+}
+
+function sameTemplate(left: ProseTemplate, right: ProseTemplate): boolean {
+	return JSON.stringify(left) === JSON.stringify(right);
 }
 
 // ── Component ───────────────────────────────────────────────────────────
@@ -141,6 +104,7 @@ export function RefLabelInput({
 	onSave,
 	onChange,
 	onEmpty,
+	dataFieldId,
 	multiline,
 	autoFocus,
 	selectAll,
@@ -267,7 +231,7 @@ export function RefLabelInput({
 	useEffect(() => {
 		if (!editor || focused) return;
 		const currentSerialized = serializeContent(editor.getJSON());
-		if (currentSerialized !== value) {
+		if (!sameTemplate(currentSerialized, value)) {
 			const content = parseValueToContent(value, provider, currentFormUuid);
 			editor.commands.setContent(content);
 		}
@@ -297,12 +261,15 @@ export function RefLabelInput({
 		setFocused(false);
 		editor.commands.blur();
 
-		const serialized = serializeContent(editor.getJSON()).trim();
-		if (!serialized && onEmpty) {
+		const serialized = canonicalProseTemplate(
+			serializeContent(editor.getJSON()).parts,
+			{ trim: true },
+		);
+		if (proseTemplateIsEmpty(serialized) && onEmpty) {
 			onEmpty();
 			return;
 		}
-		if (serialized !== savedValueRef.current) {
+		if (!sameTemplate(serialized, savedValueRef.current)) {
 			onSave(serialized);
 			setSaved(true);
 			savedTimerRef.current = setTimeout(() => setSaved(false), 1500);
@@ -330,7 +297,7 @@ export function RefLabelInput({
 		/* Push the reverted value back to the parent so the canvas stays in sync. */
 		onChangeRef.current?.(savedValueRef.current);
 
-		if (!savedValueRef.current.trim() && onEmpty) {
+		if (proseTemplateIsEmpty(savedValueRef.current) && onEmpty) {
 			onEmpty();
 		}
 	}, [editor, provider, onEmpty, currentFormUuid]);
@@ -391,7 +358,7 @@ export function RefLabelInput({
 	const baseCls =
 		"w-full text-sm rounded px-2 py-1 border outline-none transition-colors";
 	const focusedCls = `${baseCls} bg-nova-surface text-nova-text border-nova-violet/60`;
-	const isEmpty = !value && !focused;
+	const isEmpty = proseTemplateIsEmpty(value) && !focused;
 	const unfocusedCls = `${baseCls} bg-transparent border-transparent cursor-text ${isEmpty ? "text-nova-text-muted italic" : "font-medium"} hover:border-nova-border/40`;
 	const wrapperCls = focused ? focusedCls : unfocusedCls;
 
@@ -410,7 +377,7 @@ export function RefLabelInput({
 				{focused && multiline && <SaveShortcutHint />}
 				{labelRight}
 			</span>
-			<div className={wrapperCls}>
+			<div className={wrapperCls} data-field-id={dataFieldId}>
 				<EditorContent editor={editor} />
 			</div>
 		</div>

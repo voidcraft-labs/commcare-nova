@@ -1,5 +1,7 @@
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { proseText } from "@/lib/domain/prose";
 // lib/commcare/suite/case-search/__tests__/caseSearch.integration.test.ts
 //
 // End-to-end integration test for the case-search authoring →
@@ -55,7 +57,10 @@ import AdmZip from "adm-zip";
 import { decodeXML } from "entities";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import { makeCaseSearchFixture } from "@/lib/agent/tools/case-search-config/__tests__/fixtures";
+import {
+	MOD_A,
+	makeCaseSearchFixture,
+} from "@/lib/agent/tools/case-search-config/__tests__/fixtures";
 import { setCaseSearchAdvancedTool } from "@/lib/agent/tools/case-search-config/setCaseSearchAdvanced";
 import { setCaseSearchDisplayTool } from "@/lib/agent/tools/case-search-config/setCaseSearchDisplay";
 import { compileCcz } from "@/lib/commcare/compiler";
@@ -63,9 +68,9 @@ import { expandDoc } from "@/lib/commcare/expander";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import {
 	advancedSearchInputDef,
-	asUuid,
 	type BlueprintDoc,
 	caseSearchConfigSchema,
+	isOwnerOnlyCaseSearchConfig,
 	plainColumn,
 	simpleSearchInputDef,
 } from "@/lib/domain";
@@ -120,11 +125,11 @@ import { compileForPlatform } from "../compileForPlatform";
 //     simple + one advanced) — AND-composed into one
 //     `<data key="_xpath_query">` element on `<query>`.
 
-const MOD_UUID = asUuid("11111111-1111-1111-1111-111111111111");
-const COL_NAME_UUID = asUuid("22222222-2222-2222-2222-aaaaaaaa0001");
-const COL_REGION_UUID = asUuid("22222222-2222-2222-2222-aaaaaaaa0002");
-const SI_NAME_UUID = asUuid("33333333-3333-3333-3333-bbbbbbbb0001");
-const SI_STATUS_UUID = asUuid("33333333-3333-3333-3333-bbbbbbbb0002");
+const MOD_UUID = testUuid("11111111-1111-1111-1111-111111111111");
+const COL_NAME_UUID = testUuid("22222222-2222-2222-2222-aaaaaaaa0001");
+const COL_REGION_UUID = testUuid("22222222-2222-2222-2222-aaaaaaaa0002");
+const SI_NAME_UUID = testUuid("33333333-3333-3333-3333-bbbbbbbb0001");
+const SI_STATUS_UUID = testUuid("33333333-3333-3333-3333-bbbbbbbb0002");
 
 /**
  * Build the realistic search-enabled blueprint. Returns a fully-
@@ -191,20 +196,19 @@ function buildSearchBlueprint(): BlueprintDoc {
 							f({
 								kind: "text",
 								id: "case_name",
-								label: "Name",
-								case_property_on: "patient",
+								label: proseText("Name"),
+								caseWrite: { caseType: "patient", property: "case_name" },
 							}),
 							f({
 								kind: "text",
 								id: "region",
-								label: "Region",
-								case_property_on: "patient",
+								label: proseText("Region"),
+								caseWrite: { caseType: "patient", property: "region" },
 							}),
 							f({
 								kind: "text",
 								id: "status",
-								label: "Status",
-								case_property_on: "patient",
+								label: proseText("Status"),
 							}),
 						],
 					},
@@ -215,9 +219,9 @@ function buildSearchBlueprint(): BlueprintDoc {
 			{
 				name: "patient",
 				properties: [
-					{ name: "case_name", label: "Name", data_type: "text" },
-					{ name: "region", label: "Region", data_type: "text" },
-					{ name: "status", label: "Status", data_type: "text" },
+					{ name: "case_name", label: proseText("Name"), data_type: "text" },
+					{ name: "region", label: proseText("Region"), data_type: "text" },
+					{ name: "status", label: proseText("Status"), data_type: "text" },
 				],
 			},
 		],
@@ -255,7 +259,12 @@ vi.mock("@/lib/db/apps", () => ({
 }));
 
 vi.mock("@/lib/db/applyBlueprintChange", () => ({
-	applyBlueprintChange: vi.fn(() => Promise.resolve({ seq: 0 })),
+	applyBlueprintChange: vi.fn(async (args) => {
+		const { commitApplyBlueprintChangeTestBatch } = await import(
+			"@/lib/db/__tests__/applyBlueprintChangeTestWriter"
+		);
+		return commitApplyBlueprintChangeTestBatch(args);
+	}),
 }));
 
 beforeEach(() => {
@@ -322,7 +331,10 @@ describe("case-search integration — validator surface", () => {
 					...doc.modules[MOD_UUID],
 					caseSearchConfig: {
 						...doc.modules[MOD_UUID].caseSearchConfig,
-						searchButtonDisplayCondition: eq(input("ghost"), literal("x")),
+						searchButtonDisplayCondition: eq(
+							input(testUuid("ghost")),
+							literal("x"),
+						),
 					},
 				},
 			},
@@ -387,7 +399,7 @@ describe("case-search integration — SA tool round-trip", () => {
 		// Step 1 — set the display cluster.
 		const r1 = await setCaseSearchDisplayTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				searchScreenTitle: "Find a patient",
 				searchScreenSubtitle: null,
 				searchButtonLabel: "Search",
@@ -409,7 +421,7 @@ describe("case-search integration — SA tool round-trip", () => {
 		const excluded = term(literal("owner-x"));
 		const r2 = await setCaseSearchAdvancedTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				excludedOwnerIds: excluded,
 			},
 			ctx,
@@ -424,6 +436,9 @@ describe("case-search integration — SA tool round-trip", () => {
 		// Final state — both clusters present.
 		const moduleUuid = r2.newDoc.moduleOrder[0];
 		const config = r2.newDoc.modules[moduleUuid]?.caseSearchConfig;
+		if (config === undefined || isOwnerOnlyCaseSearchConfig(config)) {
+			throw new Error("expected ordinary Search configuration");
+		}
 		expect(config?.searchScreenTitle).toBe("Find a patient");
 		expect(config?.searchButtonLabel).toBe("Search");
 		expect(config?.searchButtonDisplayCondition).toEqual(matchAll());
@@ -433,7 +448,7 @@ describe("case-search integration — SA tool round-trip", () => {
 		expect(caseSearchConfigSchema.safeParse(config).success).toBe(true);
 	});
 
-	it("returns an Elm-style error for an out-of-range moduleIndex", async () => {
+	it("returns an Elm-style error for an unknown module UUID", async () => {
 		// One representative not-found arm proves the shared
 		// `moduleNotFoundResult` wiring routes through the integration
 		// path. Per-tool coverage of this arm lives in each tool's own
@@ -441,7 +456,7 @@ describe("case-search integration — SA tool round-trip", () => {
 		const { doc, ctx } = makeCaseSearchFixture();
 		const result = await setCaseSearchDisplayTool.execute(
 			{
-				moduleIndex: 99,
+				moduleUuid: testUuid("99999999-9999-4999-8999-999999999999"),
 				searchScreenTitle: null,
 				searchScreenSubtitle: null,
 				searchButtonLabel: null,
@@ -453,8 +468,10 @@ describe("case-search integration — SA tool round-trip", () => {
 		if (!("error" in result.result)) {
 			throw new Error("expected error result");
 		}
-		expect(result.result.error).toContain("module index 99");
-		expect(result.result.error).toContain("Found no module");
+		expect(result.result.error).toContain(
+			"99999999-9999-4999-8999-999999999999",
+		);
+		expect(result.result.error).toContain("No module with UUID");
 	});
 });
 
@@ -998,6 +1015,12 @@ describe("case-search integration — expandDoc HQ JSON projection", () => {
 		if (module?.caseListConfig === undefined) {
 			throw new Error("search fixture must carry a case-list config");
 		}
+		const statusSearchUuid = module.caseListConfig.searchInputs.find(
+			(input) => input.name === "status_search",
+		)?.uuid;
+		if (statusSearchUuid === undefined) {
+			throw new Error("search fixture must carry status_search");
+		}
 		const doc: BlueprintDoc = {
 			...base,
 			modules: {
@@ -1007,8 +1030,8 @@ describe("case-search integration — expandDoc HQ JSON projection", () => {
 					caseListConfig: {
 						...module.caseListConfig,
 						filter: whenInput(
-							input("status_search"),
-							eq(prop("patient", "region"), input("status_search")),
+							input(statusSearchUuid),
+							eq(prop("patient", "region"), input(statusSearchUuid)),
 						),
 					},
 				},

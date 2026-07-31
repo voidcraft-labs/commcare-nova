@@ -16,12 +16,13 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { asUuid } from "@/lib/doc/types";
+import { testUuid } from "@/__tests__/helpers/uuid";
+
 import { parentLocation } from "@/lib/routing/hooks";
 
-const MOD = asUuid("mod-1");
-const FORM = asUuid("form-1");
-const Q = asUuid("q-1");
+const MOD = testUuid("mod-1");
+const FORM = testUuid("form-1");
+const Q = testUuid("q-1");
 
 describe("parentLocation", () => {
 	it("home → undefined (root has no parent)", () => {

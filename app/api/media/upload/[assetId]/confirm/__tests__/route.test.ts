@@ -9,6 +9,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import { requireSession } from "@/lib/auth-utils";
 import { userInProject } from "@/lib/db/appAccess";
 import {
@@ -21,7 +22,6 @@ import {
 	purgeExpiredMediaUploadAliases,
 	resolveReadyUploadAliasForActor,
 } from "@/lib/db/mediaAssets";
-import { asAssetId } from "@/lib/domain/multimedia";
 import {
 	cleanupReleasedAssetStorage,
 	cleanupUnpublishedAssetObject,
@@ -35,6 +35,10 @@ import {
 import { POST } from "../route";
 
 const HASH = "b".repeat(64);
+const ASSET_ID = testMediaAssetId("asset-1");
+const CANONICAL_ASSET_ID = testMediaAssetId("asset-canonical");
+const WINNER_ASSET_ID = testMediaAssetId("asset-winner");
+const PENDING_OBJECT_KEY = `pending/project-1/${ASSET_ID}.png`;
 
 const {
 	requireSessionMock,
@@ -118,7 +122,7 @@ function pendingAsset(
 	overrides: Partial<MediaAssetRecord> = {},
 ): MediaAssetRecord {
 	return {
-		id: "asset-1",
+		id: ASSET_ID,
 		owner: "user-1",
 		project_id: "project-1",
 		contentHash: HASH,
@@ -126,7 +130,7 @@ function pendingAsset(
 		kind: "image",
 		extension: ".png",
 		sizeBytes: 10,
-		gcsObjectKey: "pending/project-1/asset-1.png",
+		gcsObjectKey: PENDING_OBJECT_KEY,
 		originalFilename: "logo.png",
 		displayName: "logo.png",
 		status: "pending",
@@ -136,7 +140,7 @@ function pendingAsset(
 
 function callConfirm() {
 	return POST({} as Parameters<typeof POST>[0], {
-		params: Promise.resolve({ assetId: "asset-1" }),
+		params: Promise.resolve({ assetId: ASSET_ID }),
 	});
 }
 
@@ -226,7 +230,7 @@ describe("POST /api/media/upload/[assetId]/confirm", () => {
 		});
 		expect(publishPendingAssetForActor).toHaveBeenCalledWith(
 			{
-				assetId: "asset-1",
+				assetId: ASSET_ID,
 				actorUserId: "user-1",
 				expectedProjectId: "project-1",
 				gcsObjectKey: `projects/project-1/${HASH}.png`,
@@ -242,8 +246,8 @@ describe("POST /api/media/upload/[assetId]/confirm", () => {
 		);
 		expect(cleanupReleasedAssetStorage).toHaveBeenCalledWith(
 			expect.objectContaining({
-				id: "asset-1",
-				gcsObjectKey: "pending/project-1/asset-1.png",
+				id: ASSET_ID,
+				gcsObjectKey: PENDING_OBJECT_KEY,
 			}),
 		);
 		expect(body.asset.gcsObjectKey).toBe(`projects/project-1/${HASH}.png`);
@@ -275,7 +279,7 @@ describe("POST /api/media/upload/[assetId]/confirm", () => {
 
 		expect(res.status).toBe(200);
 		expect(body.asset).toEqual({
-			id: "asset-1",
+			id: ASSET_ID,
 			status: "ready",
 			gcsObjectKey: `projects/project-1/${HASH}.png`,
 		});
@@ -288,7 +292,7 @@ describe("POST /api/media/upload/[assetId]/confirm", () => {
 
 	it("replays a lost successful response by the original attempt id", async () => {
 		const canonical = pendingAsset({
-			id: asAssetId("asset-canonical"),
+			id: CANONICAL_ASSET_ID,
 			status: "ready",
 			gcsObjectKey: `projects/project-1/${HASH}.png`,
 		});
@@ -302,12 +306,12 @@ describe("POST /api/media/upload/[assetId]/confirm", () => {
 
 		expect(res.status).toBe(200);
 		expect(body.asset).toEqual({
-			id: "asset-canonical",
+			id: CANONICAL_ASSET_ID,
 			status: "ready",
 			gcsObjectKey: `projects/project-1/${HASH}.png`,
 		});
 		expect(resolveReadyUploadAliasForActor).toHaveBeenCalledWith({
-			attemptAssetId: "asset-1",
+			attemptAssetId: ASSET_ID,
 			actorUserId: "user-1",
 		});
 		expect(userInProject).not.toHaveBeenCalled();
@@ -316,7 +320,7 @@ describe("POST /api/media/upload/[assetId]/confirm", () => {
 
 	it("returns the canonical sibling when winner cleanup removes the pending bytes and row", async () => {
 		const sibling = pendingAsset({
-			id: asAssetId("asset-canonical"),
+			id: CANONICAL_ASSET_ID,
 			status: "ready",
 			gcsObjectKey: `projects/project-1/${HASH}.png`,
 		});
@@ -337,12 +341,12 @@ describe("POST /api/media/upload/[assetId]/confirm", () => {
 
 		expect(res.status).toBe(200);
 		expect(body.asset).toEqual({
-			id: "asset-canonical",
+			id: CANONICAL_ASSET_ID,
 			status: "ready",
 			gcsObjectKey: `projects/project-1/${HASH}.png`,
 		});
 		expect(resolveReadyUploadAliasForActor).toHaveBeenCalledWith({
-			attemptAssetId: "asset-1",
+			attemptAssetId: ASSET_ID,
 			actorUserId: "user-1",
 		});
 		expect(findReadyAssetByProjectAndHash).not.toHaveBeenCalled();
@@ -366,7 +370,7 @@ describe("POST /api/media/upload/[assetId]/confirm", () => {
 
 		expect(res.status).toBe(400);
 		expect(deletePendingAssetForActor).toHaveBeenCalledWith({
-			assetId: "asset-1",
+			assetId: ASSET_ID,
 			actorUserId: "user-1",
 			expectedProjectId: "project-1",
 		});
@@ -399,7 +403,7 @@ describe("POST /api/media/upload/[assetId]/confirm", () => {
 
 	it("collapses a confirm race under the final-key lock and cleans only the losing pending object", async () => {
 		const sibling = pendingAsset({
-			id: asAssetId("asset-winner"),
+			id: WINNER_ASSET_ID,
 			status: "ready",
 			gcsObjectKey: `projects/project-1/${HASH}.png`,
 		});
@@ -414,11 +418,11 @@ describe("POST /api/media/upload/[assetId]/confirm", () => {
 		const body = (await res.json()) as { asset: { id: string } };
 
 		expect(res.status).toBe(200);
-		expect(body.asset.id).toBe("asset-winner");
+		expect(body.asset.id).toBe(WINNER_ASSET_ID);
 		expect(canonicalizePendingAssetForActor).toHaveBeenCalledWith(
 			{
-				attemptAssetId: "asset-1",
-				canonicalAssetId: "asset-winner",
+				attemptAssetId: ASSET_ID,
+				canonicalAssetId: WINNER_ASSET_ID,
 				actorUserId: "user-1",
 				expectedProjectId: "project-1",
 				expectedContentHash: HASH,
@@ -431,15 +435,15 @@ describe("POST /api/media/upload/[assetId]/confirm", () => {
 		expect(purgeExpiredMediaUploadAliases).toHaveBeenCalledOnce();
 		expect(cleanupReleasedAssetStorage).toHaveBeenCalledWith(
 			expect.objectContaining({
-				id: "asset-1",
-				gcsObjectKey: "pending/project-1/asset-1.png",
+				id: ASSET_ID,
+				gcsObjectKey: PENDING_OBJECT_KEY,
 			}),
 		);
 	});
 
 	it("returns the canonical sibling when another confirm of the same pending ID already released its row", async () => {
 		const sibling = pendingAsset({
-			id: asAssetId("asset-canonical"),
+			id: CANONICAL_ASSET_ID,
 			status: "ready",
 			gcsObjectKey: `projects/project-1/${HASH}.png`,
 		});
@@ -456,7 +460,7 @@ describe("POST /api/media/upload/[assetId]/confirm", () => {
 
 		expect(res.status).toBe(200);
 		expect(body.asset).toEqual({
-			id: "asset-canonical",
+			id: CANONICAL_ASSET_ID,
 			status: "ready",
 			gcsObjectKey: `projects/project-1/${HASH}.png`,
 		});
@@ -470,7 +474,7 @@ describe("POST /api/media/upload/[assetId]/confirm", () => {
 
 	it("does not return a canonical sibling when durable canonicalization rejects authority", async () => {
 		const sibling = pendingAsset({
-			id: asAssetId("asset-canonical"),
+			id: CANONICAL_ASSET_ID,
 			status: "ready",
 			gcsObjectKey: `projects/project-1/${HASH}.png`,
 		});
@@ -501,14 +505,14 @@ describe("POST /api/media/upload/[assetId]/confirm", () => {
 
 		expect(res.status).toBe(200);
 		expect(body.asset).toEqual({
-			id: "asset-1",
+			id: ASSET_ID,
 			status: "ready",
 			gcsObjectKey: `projects/project-1/${HASH}.png`,
 		});
 		expect(uploadAssetBytes).not.toHaveBeenCalled();
 		expect(publishPendingAssetForActor).toHaveBeenCalledWith(
 			{
-				assetId: "asset-1",
+				assetId: ASSET_ID,
 				actorUserId: "user-1",
 				expectedProjectId: "project-1",
 				gcsObjectKey: `projects/project-1/${HASH}.png`,

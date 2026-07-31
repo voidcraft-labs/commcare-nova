@@ -59,17 +59,13 @@
  * ## Memoization
  *
  * The effective admission set is memoized per `BlueprintDoc` reference inside
- * `effectiveCaseTypes`; this module memoizes its canonical compatibility
- * projection on the same identity. The doc store replaces the doc reference on
- * every mutation, so neither cache can become stale.
+ * `effectiveCaseTypes`. The doc store replaces the doc reference on every
+ * mutation, so the cache cannot become stale.
  */
 
 import {
-	authorableCaseProperties,
 	type BlueprintDoc,
-	type CaseProperty,
 	type CaseType,
-	LEGACY_STANDARD_CASE_PROPERTY_ALIASES,
 	type Module,
 	SEARCH_INPUT_RUNTIME_VALUE_TYPES,
 	userPropertiesOf,
@@ -103,51 +99,18 @@ const VALIDATION_CONTEXT_CACHE = new WeakMap<BlueprintDoc, ValidationContext>();
 
 /**
  * The `ValidationContext` for the doc. The admission set itself is
- * memoized per doc reference inside `effectiveCaseTypes`; the canonical alias
- * projection is memoized here on the same document identity.
+ * memoized per doc reference inside `effectiveCaseTypes`; this wrapper is
+ * memoized on the same document identity.
  */
 export function validationContextFor(doc: BlueprintDoc): ValidationContext {
 	const cached = VALIDATION_CONTEXT_CACHE.get(doc);
 	if (cached !== undefined) return cached;
 
 	const context = {
-		augmentedCaseTypes: effectiveCaseTypes(doc).map((caseType) => ({
-			...caseType,
-			properties: canonicalPropertiesForValidation(caseType.properties),
-		})),
+		augmentedCaseTypes: effectiveCaseTypes(doc),
 	};
 	VALIDATION_CONTEXT_CACHE.set(doc, context);
 	return context;
-}
-
-/**
- * Collapse CCHQ compatibility spellings onto Nova's canonical property
- * metadata before validation reads the catalog. The wire emitter maps, for
- * example, `name` to `case_name`; allowing a stale declared `name.data_type`
- * to win here would therefore validate one value while emitting another.
- *
- * Compatibility aliases are added back as lookup-only mirrors of the
- * canonical records. That keeps old blueprints and stored predicate ASTs
- * readable without letting their stale alias metadata become a second source
- * of truth. Authoring surfaces consume `authorableCaseProperties` directly and
- * never see these mirrors.
- */
-function canonicalPropertiesForValidation(
-	properties: readonly CaseProperty[],
-): CaseProperty[] {
-	const canonical = [...authorableCaseProperties(properties)];
-	const canonicalByName = new Map(
-		canonical.map((property) => [property.name, property]),
-	);
-
-	for (const [alias, canonicalName] of Object.entries(
-		LEGACY_STANDARD_CASE_PROPERTY_ALIASES,
-	)) {
-		const property = canonicalByName.get(canonicalName);
-		if (property !== undefined) canonical.push({ ...property, name: alias });
-	}
-
-	return canonical;
 }
 
 /**
@@ -162,12 +125,13 @@ function canonicalPropertiesForValidation(
  * (`searchInputModeMatchesPropertyType`, `columnReferences`).
  *
  * `knownInputs` is derived from each input's widget type through
- * `SEARCH_INPUT_RUNTIME_VALUE_TYPES`. This models what `input(name)` reads at
- * runtime, independent of authoring arm or target property: date widgets bind
- * dates; text/select/barcode widgets bind text; date-range widgets bind the
- * encoded `__range__<from>__<to>` text scalar. A simple date input targeting a
- * datetime property still reads as date, and an advanced date input is not
- * silently widened to text merely because it has no target property.
+ * `SEARCH_INPUT_RUNTIME_VALUE_TYPES`. This models what a UUID-linked input reads
+ * at runtime under its current wire name, independent of authoring arm or
+ * target property: date widgets bind dates; text/select/barcode widgets bind
+ * text; date-range widgets bind the encoded `__range__<from>__<to>` text
+ * scalar. A simple date input targeting a datetime property still reads as
+ * date, and an advanced date input is not silently widened to text merely
+ * because it has no target property.
  *
  * `currentCaseType` is set to the module's case type so the
  * relational quantifiers (`exists` / `missing`) and the destination-
@@ -188,6 +152,7 @@ export function moduleTypeContext(
 	const { augmentedCaseTypes } = validationContextFor(doc);
 
 	const knownInputs: SearchInputDecl[] = inputs.map((input) => ({
+		uuid: input.uuid,
 		name: input.name,
 		data_type: SEARCH_INPUT_RUNTIME_VALUE_TYPES[input.type],
 	}));

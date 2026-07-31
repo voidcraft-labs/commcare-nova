@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, withUserSequences } from "@/lib/__tests__/docHelpers";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import { asUuid, type BlueprintDoc } from "@/lib/domain";
+import type { BlueprintDoc } from "@/lib/domain";
 import { eq, literal, sessionUserProperty } from "@/lib/domain/predicate";
 import type { ValidationError, ValidationErrorCode } from "../errors";
-import { errorIdentity } from "../gate";
 import { errorWithinScope, runValidation } from "../runner";
 
 const USER_FINDING_CODES = [
@@ -22,12 +22,12 @@ const USER_FINDING_CODE_SET: ReadonlySet<ValidationErrorCode> = new Set(
 );
 
 function userDoc(): BlueprintDoc {
-	const propertyUuid = asUuid("property-region");
-	const unknownPropertyUuid = asUuid("property-missing");
-	const roleOneUuid = asUuid("role-one");
-	const roleTwoUuid = asUuid("role-two");
-	const personaOneUuid = asUuid("persona-one");
-	const personaTwoUuid = asUuid("persona-two");
+	const propertyUuid = testUuid("property-region");
+	const unknownPropertyUuid = testUuid("property-missing");
+	const roleOneUuid = testUuid("role-one");
+	const roleTwoUuid = testUuid("role-two");
+	const personaOneUuid = testUuid("persona-one");
+	const personaTwoUuid = testUuid("persona-two");
 	return withUserSequences({
 		...buildDoc(),
 		userProperties: {
@@ -37,13 +37,13 @@ function userDoc(): BlueprintDoc {
 				label: "Region",
 				choices: ["north", "north"],
 			},
-			[asUuid("property-duplicate")]: {
-				uuid: asUuid("property-duplicate"),
+			[testUuid("property-duplicate")]: {
+				uuid: testUuid("property-duplicate"),
 				slug: "region",
 				label: "Duplicate region",
 			},
-			[asUuid("property-invalid")]: {
-				uuid: asUuid("property-invalid"),
+			[testUuid("property-invalid")]: {
+				uuid: testUuid("property-invalid"),
 				slug: "has spaces",
 				label: "Invalid",
 			},
@@ -67,7 +67,7 @@ function userDoc(): BlueprintDoc {
 			[personaOneUuid]: {
 				uuid: personaOneUuid,
 				name: "Amina",
-				userTypeUuid: asUuid("role-missing"),
+				userTypeUuid: testUuid("role-missing"),
 				values: { [unknownPropertyUuid]: "orphaned" },
 			},
 			[personaTwoUuid]: {
@@ -83,7 +83,7 @@ describe("user finding identity and scoping", () => {
 	it.each(["2fa_region", "-area"])(
 		"rejects the XML-unsafe worker-property slug %s",
 		(slug) => {
-			const propertyUuid = asUuid(`property-${slug}`);
+			const propertyUuid = testUuid(`property-${slug}`);
 			const doc: BlueprintDoc = withUserSequences({
 				...buildDoc(),
 				userProperties: {
@@ -95,11 +95,14 @@ describe("user finding identity and scoping", () => {
 				},
 			});
 
-			expect(
-				runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)
-					.filter((finding) => finding.code === "USER_PROPERTY_SLUG_INVALID")
-					.map(errorIdentity),
-			).toEqual([`USER_PROPERTY_SLUG_INVALID|userProperty=${propertyUuid}`]);
+			const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+				(finding) => finding.code === "USER_PROPERTY_SLUG_INVALID",
+			);
+			expect(findings).toHaveLength(1);
+			expect(findings[0]).toMatchObject({
+				code: "USER_PROPERTY_SLUG_INVALID",
+				details: { userPropertyUuid: propertyUuid, slug },
+			});
 		},
 	);
 
@@ -116,14 +119,6 @@ describe("user finding identity and scoping", () => {
 			grouped.set(finding.code, group);
 		}
 
-		for (const [code, group] of grouped) {
-			const identities = group.map(errorIdentity);
-			expect(
-				new Set(identities).size,
-				`${code} findings must retain their stable entity discriminators`,
-			).toBe(identities.length);
-		}
-
 		expect(grouped.get("USER_DATA_UNKNOWN_PROPERTY")).toHaveLength(3);
 		expect(grouped.get("USER_DATA_INVALID_CHOICE")).toHaveLength(2);
 	});
@@ -134,7 +129,7 @@ describe("user finding identity and scoping", () => {
 			USER_FINDING_CODE_SET.has(finding.code),
 		);
 		const unrelatedScope = {
-			formUuids: new Set([asUuid("unrelated-form")]),
+			formUuids: new Set([testUuid("unrelated-form")]),
 		};
 
 		expect(
@@ -155,30 +150,30 @@ describe("user finding identity and scoping", () => {
 	it("reports every member of each duplicate group independent of record order", () => {
 		const properties = [
 			{
-				uuid: asUuid("property-a"),
+				uuid: testUuid("property-a"),
 				slug: "Region",
 				label: "Region A",
 			},
 			{
-				uuid: asUuid("property-b"),
+				uuid: testUuid("property-b"),
 				slug: "region",
 				label: "Region B",
 			},
 			{
-				uuid: asUuid("property-c"),
+				uuid: testUuid("property-c"),
 				slug: "REGION",
 				label: "Region C",
 			},
 		] as const;
 		const roles = [
-			{ uuid: asUuid("role-a"), name: "Nurse" },
-			{ uuid: asUuid("role-b"), name: " nurse " },
-			{ uuid: asUuid("role-c"), name: "NURSE" },
+			{ uuid: testUuid("role-a"), name: "Nurse" },
+			{ uuid: testUuid("role-b"), name: " nurse " },
+			{ uuid: testUuid("role-c"), name: "NURSE" },
 		] as const;
 		const personas = [
-			{ uuid: asUuid("persona-a"), name: "Amina" },
-			{ uuid: asUuid("persona-b"), name: " amina " },
-			{ uuid: asUuid("persona-c"), name: "AMINA" },
+			{ uuid: testUuid("persona-a"), name: "Amina" },
+			{ uuid: testUuid("persona-b"), name: " amina " },
+			{ uuid: testUuid("persona-c"), name: "AMINA" },
 		] as const;
 		// `reverse` flips the RECORDS' key order while every sequence stays put:
 		// the sequence decides what the author sees, so the findings must not
@@ -207,36 +202,38 @@ describe("user finding identity and scoping", () => {
 			),
 			personaOrder: personas.map((persona) => persona.uuid),
 		});
-		const identities = (doc: BlueprintDoc) =>
-			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)
-				.filter((finding) =>
-					[
-						"USER_PROPERTY_SLUG_DUPLICATE",
-						"USER_TYPE_NAME_DUPLICATE",
-						"PERSONA_NAME_DUPLICATE",
-					].includes(finding.code),
-				)
-				.map(errorIdentity);
+		const duplicateFindings = (doc: BlueprintDoc) =>
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((finding) =>
+				[
+					"USER_PROPERTY_SLUG_DUPLICATE",
+					"USER_TYPE_NAME_DUPLICATE",
+					"PERSONA_NAME_DUPLICATE",
+				].includes(finding.code),
+			);
 
 		// Every member of the group is reported, in the sequence the author
 		// sees them in.
 		const expected = [
-			...properties.map(
-				(property) =>
-					`USER_PROPERTY_SLUG_DUPLICATE|userProperty=${property.uuid}`,
-			),
-			...roles.map((role) => `USER_TYPE_NAME_DUPLICATE|userType=${role.uuid}`),
-			...personas.map(
-				(persona) => `PERSONA_NAME_DUPLICATE|persona=${persona.uuid}`,
-			),
+			...properties.map((property) => ({
+				code: "USER_PROPERTY_SLUG_DUPLICATE",
+				details: { userPropertyUuid: property.uuid },
+			})),
+			...roles.map((role) => ({
+				code: "USER_TYPE_NAME_DUPLICATE",
+				details: { userTypeUuid: role.uuid },
+			})),
+			...personas.map((persona) => ({
+				code: "PERSONA_NAME_DUPLICATE",
+				details: { personaUuid: persona.uuid },
+			})),
 		];
-		expect(identities(make(false))).toEqual(expected);
-		expect(identities(make(true))).toEqual(expected);
+		expect(duplicateFindings(make(false))).toMatchObject(expected);
+		expect(duplicateFindings(make(true))).toMatchObject(expected);
 	});
 
 	it("requires references to resolve through own record membership", () => {
-		const roleUuid = asUuid("role");
-		const personaUuid = asUuid("persona");
+		const roleUuid = testUuid("role");
+		const personaUuid = testUuid("persona");
 		const doc: BlueprintDoc = withUserSequences({
 			...buildDoc(),
 			userTypes: {
@@ -250,28 +247,34 @@ describe("user finding identity and scoping", () => {
 				[personaUuid]: {
 					uuid: personaUuid,
 					name: "Asha",
-					userTypeUuid: asUuid("constructor"),
+					userTypeUuid: testUuid("constructor"),
 				},
 			},
 		});
 
 		const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(
-			findings
-				.filter((finding) => finding.code === "PERSONA_USER_TYPE_UNKNOWN")
-				.map(errorIdentity),
-		).toEqual([`PERSONA_USER_TYPE_UNKNOWN|persona=${personaUuid}`]);
+			findings.filter(
+				(finding) => finding.code === "PERSONA_USER_TYPE_UNKNOWN",
+			),
+		).toMatchObject([{ details: { personaUuid } }]);
 		expect(
-			findings
-				.filter((finding) => finding.code === "USER_DATA_UNKNOWN_PROPERTY")
-				.map(errorIdentity),
-		).toEqual([
-			`USER_DATA_UNKNOWN_PROPERTY|ownerKind=userType|owner=${roleUuid}|userProperty=constructor`,
+			findings.filter(
+				(finding) => finding.code === "USER_DATA_UNKNOWN_PROPERTY",
+			),
+		).toMatchObject([
+			{
+				details: {
+					ownerKind: "userType",
+					ownerUuid: roleUuid,
+					propertyUuid: "constructor",
+				},
+			},
 		]);
 	});
 
 	it("gives duplicate accepted values a stable property finding", () => {
-		const propertyUuid = asUuid("property-choices");
+		const propertyUuid = testUuid("property-choices");
 		const doc: BlueprintDoc = withUserSequences({
 			...buildDoc(),
 			userProperties: {
@@ -287,14 +290,14 @@ describe("user finding identity and scoping", () => {
 		const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
 			(finding) => finding.code === "USER_PROPERTY_CHOICES_DUPLICATE",
 		);
-		expect(findings.map(errorIdentity)).toEqual([
-			`USER_PROPERTY_CHOICES_DUPLICATE|userProperty=${propertyUuid}`,
+		expect(findings).toMatchObject([
+			{ details: { userPropertyUuid: propertyUuid, slug: "region" } },
 		]);
 	});
 
 	it("does not read an inherited prototype member as a persona choice value", () => {
-		const propertyUuid = asUuid("constructor");
-		const personaUuid = asUuid("persona");
+		const propertyUuid = testUuid("constructor");
+		const personaUuid = testUuid("persona");
 		const doc: BlueprintDoc = withUserSequences({
 			...buildDoc(),
 			userProperties: Object.fromEntries([
@@ -338,16 +341,16 @@ describe("user finding identity and scoping", () => {
 		const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
 			(finding) => finding.code === "BLUEPRINT_ENTITY_UUID_DUPLICATE",
 		);
-		expect(findings.map(errorIdentity).sort()).toEqual(
-			[
-				`BLUEPRINT_ENTITY_UUID_DUPLICATE|entity=${moduleUuid}|entityKind=module`,
-				`BLUEPRINT_ENTITY_UUID_DUPLICATE|entity=${moduleUuid}|entityKind=userProperty`,
-			].sort(),
-		);
+		expect(
+			findings.map((finding) => finding.details?.entityKind).sort(),
+		).toEqual(["module", "userProperty"]);
+		expect(
+			findings.every((finding) => finding.details?.entityUuid === moduleUuid),
+		).toBe(true);
 	});
 
 	it("rejects a dangling custom worker-property identity", () => {
-		const propertyUuid = asUuid("missing-worker-property");
+		const propertyUuid = testUuid("missing-worker-property");
 		const doc = buildDoc({
 			modules: [
 				{
@@ -363,8 +366,8 @@ describe("user finding identity and scoping", () => {
 		const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
 			(finding) => finding.code === "USER_PROPERTY_REFERENCE_UNKNOWN",
 		);
-		expect(findings.map(errorIdentity)).toEqual([
-			`USER_PROPERTY_REFERENCE_UNKNOWN|userProperty=${propertyUuid}`,
+		expect(findings).toMatchObject([
+			{ details: { userPropertyUuid: propertyUuid } },
 		]);
 	});
 });

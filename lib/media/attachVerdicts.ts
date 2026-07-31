@@ -47,7 +47,12 @@
 import { loadAssetsByIds, type MediaAssetRecord } from "@/lib/db/mediaAssets";
 import type { BlueprintDoc } from "@/lib/domain";
 import { collectAssetRefs } from "@/lib/domain/mediaRefs";
-import type { AssetKind, MediaKind } from "@/lib/domain/multimedia";
+import type {
+	AssetKind,
+	MediaAssetId,
+	MediaKind,
+} from "@/lib/domain/multimedia";
+import { partitionAssetRefs } from "./builtinIconAssets";
 import { attachOverBudgetMessage, exportBudgetExcess } from "./exportBudget";
 
 /**
@@ -57,7 +62,7 @@ import { attachOverBudgetMessage, exportBudgetExcess } from "./exportBudget";
  * the rejection message points at.
  */
 export interface MediaAttachExpectation {
-	readonly assetId: string;
+	readonly assetId: MediaAssetId;
 	readonly kind: MediaKind;
 	readonly slot: string;
 }
@@ -165,7 +170,8 @@ export async function mediaAttachVerdict(args: {
 			...expectations.map((e) => e.assetId),
 		]),
 	];
-	const rows = await loadAssetsByIds(ids, projectId);
+	const { realIds } = partitionAssetRefs(ids);
+	const rows = await loadAssetsByIds(realIds, projectId);
 	const rowsById = new Map<string, MediaAssetRecord>(
 		rows.map((row) => [row.id as string, row]),
 	);

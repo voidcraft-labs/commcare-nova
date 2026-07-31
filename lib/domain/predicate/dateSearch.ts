@@ -15,7 +15,6 @@
 // two runtimes from independently inventing date-search behavior.
 
 import {
-	canonicalCasePropertyName,
 	isStandardCaseListProperty,
 	STANDARD_CASE_LIST_PROPERTY_DATA_TYPES,
 } from "../standardCaseProperties";
@@ -210,10 +209,8 @@ function resolveTargetType(
 	// Standard properties are implicit runtime scalars and deliberately absent
 	// from the materializable case schema passed to Preview SQL. Resolve them
 	// from the canonical domain catalog before consulting declared properties.
-	const canonicalProperty = canonicalCasePropertyName(property);
-	if (isStandardCaseListProperty(canonicalProperty)) {
-		const standardType =
-			STANDARD_CASE_LIST_PROPERTY_DATA_TYPES[canonicalProperty];
+	if (isStandardCaseListProperty(property)) {
+		const standardType = STANDARD_CASE_LIST_PROPERTY_DATA_TYPES[property];
 		if (standardType === "datetime") return standardType;
 	}
 

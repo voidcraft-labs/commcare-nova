@@ -14,6 +14,7 @@
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	createReconciler,
 	type MutationFrame,
@@ -24,12 +25,18 @@ import {
 } from "@/lib/collab/reconciler";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import {
+	type AdmittedMutationBatch,
+	admitMutationBatch,
+} from "@/lib/doc/mutationAdmission";
+import {
 	type BlueprintDocStoreApi,
 	createBlueprintDocStore,
 	isDocDataKey,
 } from "@/lib/doc/store";
-import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
-import { asUuid } from "@/lib/doc/types";
+import type { BlueprintDoc, Mutation, Uuid } from "@/lib/doc/types";
+import { proseTemplateText } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
+
 import {
 	type BuilderSessionStoreApi,
 	createBuilderSessionStore,
@@ -37,10 +44,19 @@ import {
 
 // ── Fixtures ─────────────────────────────────────────────────────────────
 
-const MOD = asUuid("mod-1");
-const FORM = asUuid("form-1");
-const F_A = asUuid("field-a");
-const F_B = asUuid("field-b");
+const MOD = testUuid("mod-1");
+const FORM = testUuid("form-1");
+const F_A = testUuid("field-a");
+const F_B = testUuid("field-b");
+const CANONICALITY_OUTCOME: PutOutcome = {
+	ok: false,
+	kind: "canonicality",
+	details: {
+		mutationIndex: 0,
+		pointer: "/0",
+		reason: "schema-parse",
+	},
+};
 
 /** A doc with one module, one form, two text fields — enough surface for
  *  scalar (`setAppName`) and structural (field label / reorder) merges. */
@@ -61,15 +77,13 @@ function makeDoc(appName = "App"): BlueprintDoc {
 				uuid: F_A,
 				id: "a",
 				kind: "text",
-				label: "A",
-				formUuid: FORM,
+				label: proseText("A"),
 			},
 			[F_B]: {
 				uuid: F_B,
 				id: "b",
 				kind: "text",
-				label: "B",
-				formUuid: FORM,
+				label: proseText("B"),
 			},
 		},
 		moduleOrder: [MOD],
@@ -79,6 +93,50 @@ function makeDoc(appName = "App"): BlueprintDoc {
 	} as unknown as BlueprintDoc;
 }
 
+function makeRenameDoc(appName = "App"): BlueprintDoc {
+	const doc = makeDoc(appName);
+	doc.caseTypes = [
+		{
+			name: "patient",
+			properties: [{ name: "a", label: proseText("A") }],
+		},
+	];
+	const field = doc.fields[F_A];
+	if (field === undefined || field.kind !== "text") {
+		throw new Error("rename fixture field must be text");
+	}
+	doc.fields[F_A] = {
+		...field,
+		caseWrite: { caseType: "patient", property: "a" },
+	};
+	return doc;
+}
+
+function fieldCaseWrite(
+	doc: BlueprintDoc,
+	uuid: Uuid,
+): { readonly caseType: string; readonly property: string } | undefined {
+	const field = doc.fields[uuid];
+	return field !== undefined && "caseWrite" in field
+		? field.caseWrite
+		: undefined;
+}
+
+function renameProperty(from: string, to: string): Mutation {
+	return {
+		kind: "renameCaseProperties",
+		renames: [{ caseType: "patient", from, to }],
+	};
+}
+
+function fieldLabel(doc: BlueprintDoc, uuid: Uuid): string | undefined {
+	const field = doc.fields[uuid];
+	if (!field || !("label" in field) || field.label === undefined) {
+		return undefined;
+	}
+	return proseTemplateText(field.label);
+}
+
 /** A frame carrying an autosave-kind (no runId) batch from `actorId`. */
 function autosaveFrame(
 	seq: number,
@@ -86,7 +144,13 @@ function autosaveFrame(
 	actorId: string,
 	mutations: Mutation[],
 ): MutationFrame {
-	return { seq, batchId, actorId, kind: "autosave", mutations };
+	return {
+		seq,
+		batchId,
+		actorId,
+		kind: "autosave",
+		mutations: admitMutationBatch(mutations),
+	};
 }
 
 /** A frame carrying a chat-kind (with runId) batch from `actorId`. */
@@ -97,7 +161,14 @@ function chatFrame(
 	runId: string,
 	mutations: Mutation[],
 ): MutationFrame {
-	return { seq, batchId, actorId, kind: "chat", runId, mutations };
+	return {
+		seq,
+		batchId,
+		actorId,
+		kind: "chat",
+		runId,
+		mutations: admitMutationBatch(mutations),
+	};
 }
 
 // ── Fake deps harness ──────────────────────────────────────────────────────
@@ -107,7 +178,7 @@ interface Harness {
 	docStore: BlueprintDocStoreApi;
 	sessionApi: BuilderSessionStoreApi;
 	/** Every PUT the reconciler dispatched, in order. */
-	puts: Array<{ batchId: string; mutations: Mutation[] }>;
+	puts: Array<{ batchId: string; mutations: AdmittedMutationBatch }>;
 	/** Resolve the Nth pending PUT with a 200 at `seq` (or a failure). */
 	resolvePut: (index: number, outcome: PutOutcome) => Promise<void>;
 	/** Fire the pending retry callback (the reconciler scheduled one). Returns
@@ -167,9 +238,9 @@ function makeHarness(init: {
 		role: "editor",
 		canEdit: true,
 	});
-	// The reconciler is seeded with the HYDRATED store doc (order keys backfilled),
-	// exactly as the provider does (`baseDoc: docStore.getState()`), so the
-	// reconciler's confirmedDoc and the store's displayed doc agree on order keys.
+	// The reconciler is seeded with the hydrated store doc, exactly as the
+	// provider does (`baseDoc: docStore.getState()`), so confirmed and displayed
+	// documents share the same membership-array sequences.
 	const seededInit = { ...init, baseDoc: docStore.getState() };
 
 	const puts: Harness["puts"] = [];
@@ -321,7 +392,10 @@ function harness(init: {
 
 /** Apply a batch to a doc off-store (for building expected values). Returns a
  *  clean `PersistableDoc` (store-only action keys + derived fields stripped). */
-function fold(doc: BlueprintDoc, batches: Mutation[][]): BlueprintDoc {
+function fold(
+	doc: BlueprintDoc,
+	batches: readonly (readonly Mutation[])[],
+): BlueprintDoc {
 	// Reuse the reducer's own fold semantics via a throwaway store so we never
 	// mutate `doc`.
 	const tmp = createBlueprintDocStore();
@@ -411,6 +485,290 @@ describe("reconciler", () => {
 			expect(h.reconciler.dispatchHumanBatch()).toBeUndefined();
 			expect(h.puts).toHaveLength(0);
 		});
+
+		it("preserves original admitted boundaries around an exclusive rename", async () => {
+			const h = harness({
+				appId: "app-1",
+				baseSeq: 0,
+				baseDoc: makeRenameDoc("Base"),
+				userId: "u1",
+			});
+			h.docStore
+				.getState()
+				.applyMany([{ kind: "setAppName", name: "Before rename" }]);
+			h.docStore.getState().applyMany([renameProperty("a", "b")]);
+			h.docStore
+				.getState()
+				.applyMany([{ kind: "setConnectType", connectType: "learn" }]);
+
+			const first = h.reconciler.dispatchHumanBatch();
+			const pending = h.reconciler.getSnapshot().sentPending;
+			expect(pending).toHaveLength(3);
+			expect(pending.map((batch) => batch.mutations)).toEqual([
+				[{ kind: "setAppName", name: "Before rename" }],
+				[renameProperty("a", "b")],
+				[{ kind: "setConnectType", connectType: "learn" }],
+			]);
+			expect(h.puts).toHaveLength(1);
+			expect(h.puts[0]?.batchId).toBe(first);
+
+			await h.resolvePut(0, { ok: true, seq: 1 });
+			expect(h.puts).toHaveLength(2);
+			expect(h.puts[1]?.mutations).toEqual([renameProperty("a", "b")]);
+			await h.resolvePut(1, { ok: true, seq: 2 });
+			expect(h.puts).toHaveLength(3);
+			expect(h.puts[2]?.mutations).toEqual([
+				{ kind: "setConnectType", connectType: "learn" },
+			]);
+			await h.resolvePut(2, { ok: true, seq: 3 });
+		});
+
+		it("keeps rename and inverse as distinct segments when undone before save", async () => {
+			const h = harness({
+				appId: "app-1",
+				baseSeq: 0,
+				baseDoc: makeRenameDoc("Base"),
+				userId: "u1",
+			});
+			h.docStore.getState().applyMany([renameProperty("a", "b")]);
+			h.docStore.getState().undo();
+
+			h.reconciler.dispatchHumanBatch();
+			expect(
+				h.reconciler.getSnapshot().sentPending.map((batch) => batch.mutations),
+			).toEqual([[renameProperty("a", "b")], [renameProperty("b", "a")]]);
+			expect(h.puts).toHaveLength(1);
+			await h.resolvePut(0, { ok: true, seq: 1 });
+			expect(h.puts[1]?.mutations).toEqual([renameProperty("b", "a")]);
+			await h.resolvePut(1, { ok: true, seq: 2 });
+		});
+
+		it("keeps a peer-invalidated queued rename whole for authoritative rejection", () => {
+			const h = harness({
+				appId: "app-1",
+				baseSeq: 0,
+				baseDoc: makeRenameDoc("Base"),
+				userId: "u1",
+			});
+			h.docStore.getState().applyMany([renameProperty("a", "b")]);
+
+			h.reconciler.onFrame(
+				autosaveFrame(1, "peer-rename", "u2", [renameProperty("a", "c")]),
+			);
+			// Replaying a→b over the peer's a→c base is inadmissible. The local
+			// display and exact queued command remain intact; no partial fold.
+			expect(fieldCaseWrite(h.docStore.getState(), F_A)).toEqual({
+				caseType: "patient",
+				property: "b",
+			});
+			expect(h.docStore.getState().peekCommandBatches()).toEqual([
+				[renameProperty("a", "b")],
+			]);
+
+			h.reconciler.dispatchHumanBatch();
+			expect(h.puts[0]?.mutations).toEqual([renameProperty("a", "b")]);
+		});
+
+		it("binds an exact watch to the rename between a predecessor and successor and resolves only its PUT 200", async () => {
+			const h = harness({
+				appId: "app-1",
+				baseSeq: 0,
+				baseDoc: makeRenameDoc("Base"),
+				userId: "u1",
+			});
+			h.docStore
+				.getState()
+				.applyMany([{ kind: "setAppName", name: "Predecessor" }]);
+			const watch = h.reconciler.watchNextHumanBatch([
+				renameProperty("a", "b"),
+			]);
+			h.docStore.getState().applyMany([renameProperty("a", "b")]);
+			h.docStore
+				.getState()
+				.applyMany([{ kind: "setConnectType", connectType: "learn" }]);
+			const saveSignals: SaveSignal[] = [];
+			h.reconciler.dispatchHumanBatch((signal) => saveSignals.push(signal));
+			let watchSettled = false;
+			void watch.promise.then(() => {
+				watchSettled = true;
+			});
+
+			expect(h.puts[0]?.mutations).toEqual([
+				{ kind: "setAppName", name: "Predecessor" },
+			]);
+			await h.resolvePut(0, { ok: true, seq: 1 });
+			expect(watchSettled).toBe(false);
+			expect(h.puts[1]?.mutations).toEqual([renameProperty("a", "b")]);
+
+			await h.resolvePut(1, { ok: true, seq: 2 });
+			await expect(watch.promise).resolves.toEqual({
+				kind: "saved",
+				batchId: h.puts[1]?.batchId,
+				seq: 2,
+			});
+			expect(saveSignals).toEqual([
+				{ kind: "saving" },
+				{ kind: "saved" },
+				{ kind: "saving" },
+				{ kind: "saved" },
+				{ kind: "saving" },
+			]);
+		});
+
+		it("resolves watches for a rejected rename and its complete causal successor suffix as conflict", async () => {
+			const base = makeRenameDoc("Base");
+			const h = harness({
+				appId: "app-1",
+				baseSeq: 0,
+				baseDoc: base,
+				userId: "u1",
+			});
+			const renameWatch = h.reconciler.watchNextHumanBatch([
+				renameProperty("a", "b"),
+			]);
+			h.docStore.getState().applyMany([renameProperty("a", "b")]);
+			const successor = [{ kind: "setAppName" as const, name: "Successor" }];
+			const successorWatch = h.reconciler.watchNextHumanBatch(successor);
+			h.docStore.getState().applyMany(successor);
+			h.reconciler.dispatchHumanBatch();
+			h.reloadQueue.push({ blueprint: base, seq: 1 });
+
+			await h.resolvePut(0, { ok: false, kind: "commitRejected" });
+
+			await expect(renameWatch.promise).resolves.toEqual({
+				kind: "conflict",
+			});
+			await expect(successorWatch.promise).resolves.toEqual({
+				kind: "conflict",
+			});
+		});
+
+		it("keeps an exact watch pending across a network retry and resolves the retried batch id", async () => {
+			const h = harness({
+				appId: "app-1",
+				baseSeq: 0,
+				baseDoc: makeRenameDoc("Base"),
+				userId: "u1",
+			});
+			const watch = h.reconciler.watchNextHumanBatch([
+				renameProperty("a", "b"),
+			]);
+			h.docStore.getState().applyMany([renameProperty("a", "b")]);
+			h.reconciler.dispatchHumanBatch();
+			let settled = false;
+			void watch.promise.then(() => {
+				settled = true;
+			});
+
+			await h.resolvePut(0, {
+				ok: false,
+				kind: "network",
+				detail: "offline",
+			});
+			expect(settled).toBe(false);
+			await h.runScheduledRetry();
+			expect(h.puts[1]).toEqual(h.puts[0]);
+
+			await h.resolvePut(1, { ok: true, seq: 1 });
+			await expect(watch.promise).resolves.toEqual({
+				kind: "saved",
+				batchId: h.puts[0]?.batchId,
+				seq: 1,
+			});
+		});
+
+		it("cancels an unbound exact watch explicitly and a bound watch on dispose", async () => {
+			const h = harness({
+				appId: "app-1",
+				baseSeq: 0,
+				baseDoc: makeRenameDoc("Base"),
+				userId: "u1",
+			});
+			const unbound = h.reconciler.watchNextHumanBatch([
+				renameProperty("a", "b"),
+			]);
+			unbound.cancel();
+			await expect(unbound.promise).resolves.toEqual({ kind: "cancelled" });
+
+			const bound = h.reconciler.watchNextHumanBatch([
+				renameProperty("a", "b"),
+			]);
+			h.docStore.getState().applyMany([renameProperty("a", "b")]);
+			h.reconciler.dispatchHumanBatch();
+			h.reconciler.dispose();
+			await expect(bound.promise).resolves.toEqual({ kind: "cancelled" });
+		});
+
+		it("drops a rejected rename and its complete causal successor suffix", async () => {
+			const base = makeRenameDoc("Base");
+			const h = harness({
+				appId: "app-1",
+				baseSeq: 0,
+				baseDoc: base,
+				userId: "u1",
+			});
+			h.docStore.getState().applyMany([renameProperty("a", "b")]);
+			h.docStore
+				.getState()
+				.applyMany([{ kind: "setAppName", name: "Depends on rename" }]);
+			h.reconciler.dispatchHumanBatch();
+			// This later command is still in the store queue when the rename 409s.
+			h.docStore
+				.getState()
+				.applyMany([{ kind: "setConnectType", connectType: "learn" }]);
+			expect(h.reconciler.getSnapshot().sentPending).toHaveLength(2);
+			expect(h.docStore.getState().peekCommandBatches()).toHaveLength(1);
+			h.reloadQueue.push({ blueprint: base, seq: 1 });
+
+			await h.resolvePut(0, { ok: false, kind: "commitRejected" });
+
+			expect(h.puts).toHaveLength(1);
+			expect(h.reconciler.getSnapshot().sentPending).toHaveLength(0);
+			expect(h.docStore.getState().peekCommandBatches()).toEqual([]);
+			expect(h.docStore.getState().canUndo).toBe(false);
+			expect(h.docStore.getState().appName).toBe("Base");
+			expect(h.docStore.getState().connectType).toBeNull();
+			expect(fieldCaseWrite(h.docStore.getState(), F_A)).toEqual({
+				caseType: "patient",
+				property: "a",
+			});
+		});
+
+		it("drops an ordinary rejected edit and every dependent local successor", async () => {
+			const base = makeDoc("Base");
+			const h = harness({
+				appId: "app-1",
+				baseSeq: 0,
+				baseDoc: base,
+				userId: "u1",
+			});
+			h.docStore
+				.getState()
+				.applyMany([{ kind: "setAppName", name: "Rejected" }]);
+			h.docStore
+				.getState()
+				.applyMany([{ kind: "setConnectType", connectType: "learn" }]);
+			h.reconciler.dispatchHumanBatch();
+			h.docStore.getState().applyMany([
+				{
+					kind: "updateField",
+					uuid: F_A,
+					targetKind: "text",
+					patch: { label: proseText("Queued successor") },
+				},
+			]);
+			h.reloadQueue.push({ blueprint: base, seq: 1 });
+
+			await h.resolvePut(0, { ok: false, kind: "commitRejected" });
+
+			expect(h.puts).toHaveLength(1);
+			expect(h.reconciler.getSnapshot().sentPending).toHaveLength(0);
+			expect(h.docStore.getState().peekCommandBatches()).toEqual([]);
+			expect(h.docStore.getState().canUndo).toBe(false);
+			expect(h.docStore.getState().appName).toBe("Base");
+			expect(h.docStore.getState().connectType).toBeNull();
+			expect(fieldLabel(h.docStore.getState(), F_A)).toBe("A");
+		});
 	});
 
 	// ── Stale / gap frames ──────────────────────────────────────────────
@@ -473,7 +831,7 @@ describe("reconciler", () => {
 					kind: "updateField",
 					uuid: F_A,
 					targetKind: "text",
-					patch: { label: "A2" },
+					patch: { label: proseText("A2") },
 				},
 			]);
 			const batchId = h.reconciler.dispatchHumanBatch();
@@ -486,22 +844,20 @@ describe("reconciler", () => {
 						kind: "updateField",
 						uuid: F_B,
 						targetKind: "text",
-						patch: { label: "B2" },
+						patch: { label: proseText("B2") },
 					},
 				]),
 			);
 			const snap = h.reconciler.getSnapshot();
 			// confirmed advanced with the peer's change.
 			expect(snap.baseSeq).toBe(4);
-			expect((snap.confirmedDoc.fields[F_B] as { label: string }).label).toBe(
-				"B2",
-			);
+			expect(fieldLabel(snap.confirmedDoc, F_B)).toBe("B2");
 			// The human edit to A is still pending (not yet echoed).
 			expect(snap.sentPending).toHaveLength(1);
 			// Displayed shows BOTH — the merge.
 			const displayed = h.docStore.getState();
-			expect((displayed.fields[F_A] as { label: string }).label).toBe("A2");
-			expect((displayed.fields[F_B] as { label: string }).label).toBe("B2");
+			expect(fieldLabel(displayed, F_A)).toBe("A2");
+			expect(fieldLabel(displayed, F_B)).toBe("B2");
 			expect(batchId).toBeDefined();
 		});
 
@@ -519,7 +875,7 @@ describe("reconciler", () => {
 					kind: "updateField",
 					uuid: F_A,
 					targetKind: "text",
-					patch: { label: "A-local" },
+					patch: { label: proseText("A-local") },
 				},
 			]);
 			expect(h.docStore.getState().canUndo ? 1 : 0).toBeGreaterThan(0);
@@ -531,15 +887,15 @@ describe("reconciler", () => {
 						kind: "updateField",
 						uuid: F_B,
 						targetKind: "text",
-						patch: { label: "B-peer" },
+						patch: { label: proseText("B-peer") },
 					},
 				]),
 			);
 			// Undo the local A edit. The restored state must still carry B-peer.
 			h.docStore.getState().undo();
 			const afterUndo = h.docStore.getState();
-			expect((afterUndo.fields[F_A] as { label: string }).label).toBe("A");
-			expect((afterUndo.fields[F_B] as { label: string }).label).toBe("B-peer");
+			expect(fieldLabel(afterUndo, F_A)).toBe("A");
+			expect(fieldLabel(afterUndo, F_B)).toBe("B-peer");
 		});
 	});
 
@@ -581,7 +937,7 @@ describe("reconciler", () => {
 			h.reconciler.registerChatBatch({
 				batchId: "chat-batch",
 				runId: "run-1",
-				mutations: [{ kind: "setAppName", name: "SAEdit" }],
+				mutations: admitMutationBatch([{ kind: "setAppName", name: "SAEdit" }]),
 				seq: 1,
 			});
 			// Apply it to the store like the dispatcher does.
@@ -618,7 +974,7 @@ describe("reconciler", () => {
 					kind: "updateField",
 					uuid: F_A,
 					targetKind: "text",
-					patch: { label: "A-local" },
+					patch: { label: proseText("A-local") },
 				},
 			]);
 			// The MCP frame must take the REMOTE branch: its mutations were never
@@ -629,31 +985,29 @@ describe("reconciler", () => {
 				actorId: "u1",
 				runId: "run-1",
 				kind: "mcp",
-				mutations: [
+				mutations: admitMutationBatch([
 					{
 						kind: "updateField",
 						uuid: F_B,
 						targetKind: "text",
-						patch: { label: "B-mcp" },
+						patch: { label: proseText("B-mcp") },
 					},
-				],
+				]),
 			});
-			expect(
-				(h.docStore.getState().fields[F_B] as { label: string }).label,
-			).toBe("B-mcp");
+			expect(fieldLabel(h.docStore.getState(), F_B)).toBe("B-mcp");
 			// Undo the local A edit — the restored state must still carry the MCP
 			// change (an echo-classification would have skipped the rebase, and
 			// this undo would silently revert the committed MCP edit).
 			h.docStore.getState().undo();
 			const afterUndo = h.docStore.getState();
-			expect((afterUndo.fields[F_A] as { label: string }).label).toBe("A");
-			expect((afterUndo.fields[F_B] as { label: string }).label).toBe("B-mcp");
+			expect(fieldLabel(afterUndo, F_A)).toBe("A");
+			expect(fieldLabel(afterUndo, F_B)).toBe("B-mcp");
 		});
 	});
 
 	// ── Chat-batch registration ordering ────────────────────────────────
 	describe("registerChatBatch echo-vs-register ordering", () => {
-		const NEW_MOD = asUuid("mod-new");
+		const NEW_MOD = testUuid("mod-new");
 		const addModuleBatch: Mutation[] = [
 			{
 				kind: "addModule",
@@ -678,7 +1032,7 @@ describe("reconciler", () => {
 			const reg = h.reconciler.registerChatBatch({
 				batchId: "chat-1",
 				runId: "run-1",
-				mutations: addModuleBatch,
+				mutations: admitMutationBatch(addModuleBatch),
 				seq: 1,
 			});
 			expect(reg.alreadyConfirmed).toBe(false);
@@ -735,7 +1089,7 @@ describe("reconciler", () => {
 			const reg = h.reconciler.registerChatBatch({
 				batchId: "chat-1",
 				runId: "run-1",
-				mutations: addModuleBatch,
+				mutations: admitMutationBatch(addModuleBatch),
 				seq: 1,
 			});
 			expect(reg.alreadyConfirmed).toBe(true);
@@ -1008,7 +1362,7 @@ describe("reconciler", () => {
 					kind: "updateField",
 					uuid: F_A,
 					targetKind: "text",
-					patch: { label: "A6" },
+					patch: { label: proseText("A6") },
 				},
 			]);
 			h.reconciler.dispatchHumanBatch();
@@ -1019,7 +1373,7 @@ describe("reconciler", () => {
 					kind: "updateField",
 					uuid: F_B,
 					targetKind: "text",
-					patch: { label: "B8" },
+					patch: { label: proseText("B8") },
 				},
 			]);
 			h.reconciler.dispatchHumanBatch();
@@ -1033,7 +1387,7 @@ describe("reconciler", () => {
 						kind: "updateField",
 						uuid: F_A,
 						targetKind: "text",
-						patch: { label: "A6" },
+						patch: { label: proseText("A6") },
 					},
 				],
 			]);
@@ -1049,8 +1403,8 @@ describe("reconciler", () => {
 			expect(snap.sentPending[0].ackedSeq).toBe(8);
 			// Displayed carries the reloaded A6 AND the still-pending B8.
 			const displayed = h.docStore.getState();
-			expect((displayed.fields[F_A] as { label: string }).label).toBe("A6");
-			expect((displayed.fields[F_B] as { label: string }).label).toBe("B8");
+			expect(fieldLabel(displayed, F_A)).toBe("A6");
+			expect(fieldLabel(displayed, F_B)).toBe("B8");
 		});
 
 		it("defers a reload until no PUT is in flight", async () => {
@@ -1320,11 +1674,7 @@ describe("reconciler", () => {
 			h.docStore.getState().applyMany([{ kind: "setAppName", name: "Bad" }]);
 			const observed: string[] = [];
 			h.reconciler.dispatchHumanBatch((s) => observed.push(s.kind));
-			await h.resolvePut(0, {
-				ok: false,
-				kind: "permanent",
-				detail: "HTTP 400",
-			});
+			await h.resolvePut(0, CANONICALITY_OUTCOME);
 
 			const snap = h.reconciler.getSnapshot();
 			// TERMINAL: frozen (no more PUTs), retry stopped, surfaced + reported.
@@ -1358,7 +1708,7 @@ describe("reconciler", () => {
 					kind: "updateField",
 					uuid: F_A,
 					targetKind: "text",
-					patch: { label: "A1" },
+					patch: { label: proseText("A1") },
 				},
 			]);
 			h.reconciler.dispatchHumanBatch();
@@ -1367,7 +1717,7 @@ describe("reconciler", () => {
 					kind: "updateField",
 					uuid: F_A,
 					targetKind: "text",
-					patch: { label: "A2" },
+					patch: { label: proseText("A2") },
 				},
 			]);
 			h.reconciler.dispatchHumanBatch();
@@ -1375,11 +1725,7 @@ describe("reconciler", () => {
 
 			// B1's PUT is permanently rejected → terminal freeze. B2 is NOT silently
 			// applied-or-lost; the whole stack is frozen for the user to reload.
-			await h.resolvePut(0, {
-				ok: false,
-				kind: "permanent",
-				detail: "HTTP 400",
-			});
+			await h.resolvePut(0, CANONICALITY_OUTCOME);
 			const snap = h.reconciler.getSnapshot();
 			expect(snap.revoked).toBe(true);
 			expect(h.reconciler.canPut()).toBe(false);
@@ -1748,7 +2094,7 @@ describe("reconciler", () => {
 					kind: "updateField",
 					uuid: F_A,
 					targetKind: "text",
-					patch: { label: "Mine" },
+					patch: { label: proseText("Mine") },
 				},
 			]);
 			h.reconciler.dispatchHumanBatch();
@@ -1762,7 +2108,7 @@ describe("reconciler", () => {
 						kind: "updateField",
 						uuid: F_A,
 						targetKind: "text",
-						patch: { label: "Peer" },
+						patch: { label: proseText("Peer") },
 					},
 				],
 			]);
@@ -1779,7 +2125,7 @@ describe("reconciler", () => {
 			await h.resolvePut(idx, { ok: true, seq: 2 });
 
 			const displayed = h.docStore.getState();
-			expect((displayed.fields[F_A] as { label: string }).label).toBe("Peer");
+			expect(fieldLabel(displayed, F_A)).toBe("Peer");
 			// The batch is gone — nothing left to re-PUT the stale "Mine".
 			expect(h.reconciler.getSnapshot().sentPending).toHaveLength(0);
 		});
@@ -1907,7 +2253,7 @@ describe("reconciler", () => {
 			h.reconciler.registerChatBatch({
 				batchId: "b",
 				runId: "r",
-				mutations: [{ kind: "setAppName", name: "Y" }],
+				mutations: admitMutationBatch([{ kind: "setAppName", name: "Y" }]),
 				seq: 1,
 			});
 			expect(h.reconciler.getSnapshot().sentPending).toHaveLength(0);
@@ -1950,7 +2296,7 @@ describe("reconciler", () => {
 			h.reconciler.registerChatBatch({
 				batchId: "chat-1",
 				runId: "run-1",
-				mutations: [{ kind: "setAppName", name: "Mid" }],
+				mutations: admitMutationBatch([{ kind: "setAppName", name: "Mid" }]),
 				seq: 2,
 			});
 			// The SA's own write, exactly as `streamDispatcher` applies it: the run's
@@ -1975,7 +2321,7 @@ describe("reconciler", () => {
 			// The agent bracket is still open (it closes at stream close) — and
 			// nothing of the SA's own is left owing.
 			h.docStore.getState().endAgentWrite();
-			expect(h.docStore.getState().peekCommands()).toEqual([]);
+			expect(h.docStore.getState().peekCommandBatches()).toEqual([]);
 		});
 
 		// The author can edit the canvas while a run streams — `useAutoSave` lets
@@ -1995,7 +2341,7 @@ describe("reconciler", () => {
 			h.reconciler.registerChatBatch({
 				batchId: "chat-1",
 				runId: "run-1",
-				mutations: [{ kind: "setAppName", name: "Mid" }],
+				mutations: admitMutationBatch([{ kind: "setAppName", name: "Mid" }]),
 				seq: 2,
 			});
 			h.docStore.getState().beginRemoteApply();
@@ -2004,8 +2350,8 @@ describe("reconciler", () => {
 
 			// The author renames the app while that run is still streaming.
 			h.docStore.getState().applyMany([{ kind: "setAppName", name: "Mine" }]);
-			expect(h.docStore.getState().peekCommands()).toEqual([
-				{ kind: "setAppName", name: "Mine" },
+			expect(h.docStore.getState().peekCommandBatches()).toEqual([
+				[{ kind: "setAppName", name: "Mine" }],
 			]);
 
 			h.reconciler.onDataDone({
@@ -2016,8 +2362,8 @@ describe("reconciler", () => {
 			// snapshot instead of discarding it...
 			expect(h.docStore.getState().appName).toBe("Mine");
 			// ...and it is still owed, so the next auto-save sends it.
-			expect(h.docStore.getState().peekCommands()).toEqual([
-				{ kind: "setAppName", name: "Mine" },
+			expect(h.docStore.getState().peekCommandBatches()).toEqual([
+				[{ kind: "setAppName", name: "Mine" }],
 			]);
 			h.docStore.getState().endAgentWrite();
 		});
@@ -2080,7 +2426,7 @@ describe("reconciler", () => {
 			});
 			h.docStore.getState().applyMany([{ kind: "setAppName", name: "Bad" }]);
 			h.reconciler.dispatchHumanBatch();
-			await h.resolvePut(0, { ok: false, kind: "permanent" });
+			await h.resolvePut(0, CANONICALITY_OUTCOME);
 			// The member keeps editing behind the freeze; there IS an unsaved delta.
 			h.docStore
 				.getState()
@@ -2092,7 +2438,12 @@ describe("reconciler", () => {
 			// The 400 freeze rides the same no-more-PUTs flag as a revocation, but
 			// the terminal signal must stay `permanent` ("reload to continue") — a
 			// `reauth` here would send the user chasing phantom permission loss.
-			expect(signals).toEqual([{ kind: "permanent" }]);
+			expect(signals).toEqual([
+				expect.objectContaining({
+					kind: "permanent",
+					message: expect.stringContaining("not canonical"),
+				}),
+			]);
 		});
 
 		it("a revoked dispatch with NO unsaved delta stays a clean no-op (no `reauth`)", () => {
@@ -2158,7 +2509,7 @@ describe("reconciler", () => {
 					kind: "updateField",
 					uuid: F_A,
 					targetKind: "text",
-					patch: { label: "LA" },
+					patch: { label: proseText("LA") },
 				},
 			]);
 			h.reconciler.dispatchHumanBatch();
@@ -2170,7 +2521,7 @@ describe("reconciler", () => {
 						kind: "updateField",
 						uuid: F_B,
 						targetKind: "text",
-						patch: { label: "PB" },
+						patch: { label: proseText("PB") },
 					},
 				]),
 			);
@@ -2186,15 +2537,15 @@ describe("reconciler", () => {
 						kind: "updateField",
 						uuid: F_A,
 						targetKind: "text",
-						patch: { label: "LA" },
+						patch: { label: proseText("LA") },
 					},
 				]),
 			);
 			assertInvariant(h);
 			// End state: both edits present, no pending.
 			const displayed = h.docStore.getState();
-			expect((displayed.fields[F_A] as { label: string }).label).toBe("LA");
-			expect((displayed.fields[F_B] as { label: string }).label).toBe("PB");
+			expect(fieldLabel(displayed, F_A)).toBe("LA");
+			expect(fieldLabel(displayed, F_B)).toBe("PB");
 			expect(h.reconciler.getSnapshot().sentPending).toHaveLength(0);
 		});
 
@@ -2211,7 +2562,7 @@ describe("reconciler", () => {
 					kind: "updateField",
 					uuid: F_A,
 					targetKind: "text",
-					patch: { label: "LA" },
+					patch: { label: proseText("LA") },
 				},
 			]);
 			const batchId = h.reconciler.dispatchHumanBatch();
@@ -2223,7 +2574,7 @@ describe("reconciler", () => {
 						kind: "updateField",
 						uuid: F_A,
 						targetKind: "text",
-						patch: { label: "LA" },
+						patch: { label: proseText("LA") },
 					},
 				]),
 			);
@@ -2235,14 +2586,14 @@ describe("reconciler", () => {
 						kind: "updateField",
 						uuid: F_B,
 						targetKind: "text",
-						patch: { label: "PB" },
+						patch: { label: proseText("PB") },
 					},
 				]),
 			);
 			assertInvariant(h);
 			const displayed = h.docStore.getState();
-			expect((displayed.fields[F_A] as { label: string }).label).toBe("LA");
-			expect((displayed.fields[F_B] as { label: string }).label).toBe("PB");
+			expect(fieldLabel(displayed, F_A)).toBe("LA");
+			expect(fieldLabel(displayed, F_B)).toBe("PB");
 		});
 	});
 });

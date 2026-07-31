@@ -24,7 +24,8 @@
 //      emitter.
 
 import { describe, expect, it } from "vitest";
-import { asUuid } from "@/lib/domain";
+import { testUuid } from "@/__tests__/helpers/uuid";
+
 import {
 	ancestorPath,
 	and,
@@ -58,9 +59,32 @@ import {
 	switchExpr,
 	term,
 	today,
-	unwrapList,
 } from "@/lib/domain/predicate/builders";
-import { emitOnDeviceExpression } from "../onDeviceEmitter";
+import { emitOnDeviceExpression as emitOnDeviceExpressionRaw } from "../onDeviceEmitter";
+
+const TEST_SEARCH_INPUTS = ["dob_text", "dt_text", "name_query"].map(
+	(name) => ({
+		uuid: testUuid(name),
+		name,
+		data_type: "text" as const,
+	}),
+);
+
+function emitOnDeviceExpression(
+	...args: Parameters<typeof emitOnDeviceExpressionRaw>
+): string {
+	const [expression, root, relationContext, anchor, termContext] = args;
+	return emitOnDeviceExpressionRaw(
+		expression,
+		root,
+		{
+			...relationContext,
+			knownInputs: relationContext?.knownInputs ?? TEST_SEARCH_INPUTS,
+		},
+		anchor,
+		termContext,
+	);
+}
 
 // ============================================================
 // SHELL 1 — per-operator emissions
@@ -78,7 +102,7 @@ describe("emitOnDeviceExpression — discriminator-only constants", () => {
 
 describe("emitOnDeviceExpression — coercion functions", () => {
 	it("emits date(<value>) for date-coerce", () => {
-		const expr = dateCoerce(term(input("dob_text")));
+		const expr = dateCoerce(term(input(testUuid("dob_text"))));
 		expect(emitOnDeviceExpression(expr)).toBe(
 			`date(instance('search-input:results')/input/field[@name='dob_text'])`,
 		);
@@ -104,7 +128,7 @@ describe("emitOnDeviceExpression — coercion functions", () => {
 		// session as an unknown function. `date()`'s String arm
 		// (`FunctionUtils::toDate` → `DateUtils::parseDateTime`)
 		// preserves time-of-day, so it IS the datetime coercion here.
-		const expr = datetimeCoerce(term(input("dt_text")));
+		const expr = datetimeCoerce(term(input(testUuid("dt_text"))));
 		expect(emitOnDeviceExpression(expr)).toBe(
 			`date(instance('search-input:results')/input/field[@name='dt_text'])`,
 		);
@@ -339,15 +363,6 @@ describe("emitOnDeviceExpression — date-add", () => {
 	});
 });
 
-describe("emitOnDeviceExpression — unwrap-list", () => {
-	it("rejects the CSQL-only function instead of emitting an unknown Core call", () => {
-		const expr = unwrapList(term(prop("p", "tags")));
-		expect(() => emitOnDeviceExpression(expr)).toThrow(
-			/unwrap-list.*server-side/i,
-		);
-	});
-});
-
 describe("emitOnDeviceExpression — scalar relation cardinality", () => {
 	it("rejects a subcase property read that can return several values", () => {
 		const expression = term(
@@ -542,7 +557,7 @@ describe("emitOnDeviceExpression — term arm structural lifter", () => {
 	});
 
 	it("emits a search-input ref via the term arm", () => {
-		expect(emitOnDeviceExpression(term(input("name_query")))).toBe(
+		expect(emitOnDeviceExpression(term(input(testUuid("name_query"))))).toBe(
 			`instance('search-input:results')/input/field[@name='name_query']`,
 		);
 	});
@@ -554,7 +569,7 @@ describe("emitOnDeviceExpression — term arm structural lifter", () => {
 	});
 
 	it("resolves a custom session-user property identity to its current slug", () => {
-		const propertyUuid = asUuid("worker-property-region");
+		const propertyUuid = testUuid("worker-property-region");
 		expect(
 			emitOnDeviceExpression(
 				term(sessionUserProperty(propertyUuid)),
@@ -569,7 +584,7 @@ describe("emitOnDeviceExpression — term arm structural lifter", () => {
 	});
 
 	it("refuses a custom worker identity without a current slug binding", () => {
-		const propertyUuid = asUuid("missing-worker-property");
+		const propertyUuid = testUuid("missing-worker-property");
 		expect(() =>
 			emitOnDeviceExpression(term(sessionUserProperty(propertyUuid))),
 		).toThrow(

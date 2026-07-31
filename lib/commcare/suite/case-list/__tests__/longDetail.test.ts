@@ -25,9 +25,9 @@
 //   3. Visibility + multi-kind integration.
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import {
-	asUuid,
 	type BlueprintDoc,
 	type CaseListConfig,
 	type CaseType,
@@ -42,15 +42,16 @@ import {
 	plainColumn,
 } from "@/lib/domain";
 import { prop, term } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { emitLongDetail } from "../longDetail";
 
 // ============================================================
 // Test helpers
 // ============================================================
 
-const MODULE_UUID = asUuid("00000000-0000-4000-8000-000000000001");
+const MODULE_UUID = testUuid("00000000-0000-4000-8000-000000000001");
 const COL = (n: number): import("@/lib/domain").Uuid =>
-	asUuid(`00000000-0000-4000-8000-bbbb${String(n).padStart(8, "0")}`);
+	testUuid(`00000000-0000-4000-8000-bbbb${String(n).padStart(8, "0")}`);
 
 function makeModule(args: {
 	readonly caseType?: string;
@@ -97,7 +98,7 @@ function buildDoc(args: {
 		name: ct.name,
 		properties: ct.properties.map((p) => ({
 			name: p.name,
-			label: p.name,
+			label: proseText(p.name),
 			...(p.data_type !== undefined && { data_type: p.data_type }),
 		})),
 	}));

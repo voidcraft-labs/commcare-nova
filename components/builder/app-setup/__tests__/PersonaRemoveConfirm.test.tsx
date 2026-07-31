@@ -3,7 +3,8 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createRef } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { asUuid, type Persona } from "@/lib/domain";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import type { Persona } from "@/lib/domain";
 
 const { removePersona, countCasesOwnedByAction } = vi.hoisted(() => ({
 	removePersona: vi.fn(),
@@ -28,7 +29,7 @@ vi.mock("@/lib/preview/engine/caseDataBinding", () => ({
 import { PersonaRemoveConfirm } from "../PersonaRemoveConfirm";
 
 const PERSONA: Persona = {
-	uuid: asUuid("persona-a"),
+	uuid: testUuid("persona-a"),
 	name: "Asha",
 };
 

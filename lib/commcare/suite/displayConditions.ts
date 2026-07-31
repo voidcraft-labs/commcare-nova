@@ -31,7 +31,7 @@ export function emitModuleDisplayCondition(
 		{
 			...(lookupNaming === undefined
 				? {}
-				: { lookup: { naming: lookupNaming } }),
+				: { lookup: { naming: lookupNaming, instanceScope: "suite" } }),
 			...(userPropertySlugs === undefined ? {} : { userPropertySlugs }),
 		},
 	);
@@ -63,7 +63,7 @@ export function emitFormDisplayConditionForSuite(
 			emitSelfProperty: (property) =>
 				`${SELECTED_CASE}/${emitCasePropertyWirePath(property.property)}`,
 			...(lookupNaming !== undefined && {
-				lookup: { naming: lookupNaming },
+				lookup: { naming: lookupNaming, instanceScope: "suite" },
 			}),
 			...(userPropertySlugs !== undefined && { userPropertySlugs }),
 		},
@@ -94,7 +94,7 @@ export function emitFormDisplayConditionForHq(
 			emitSelfProperty: (property) =>
 				`#case/${emitCasePropertyWirePath(property.property)}`,
 			...(lookupNaming !== undefined && {
-				lookup: { naming: lookupNaming },
+				lookup: { naming: lookupNaming, instanceScope: "suite" },
 			}),
 			...(userPropertySlugs !== undefined && { userPropertySlugs }),
 		},

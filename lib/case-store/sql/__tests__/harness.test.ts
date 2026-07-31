@@ -132,7 +132,14 @@ describe("case-store harness — schema", () => {
 			]),
 		);
 		expect(columnsByTable.get("case_type_schemas")).toEqual(
-			new Set(["app_id", "case_type", "schema", "synced_seq"]),
+			new Set([
+				"app_id",
+				"case_type",
+				"schema",
+				"synced_seq",
+				"index_pending_seq",
+				"index_synced_seq",
+			]),
 		);
 		expect(columnsByTable.get("case_indices")).toEqual(
 			new Set([
@@ -164,6 +171,22 @@ describe("case-store harness — schema", () => {
 // -- Round-trip + isolation ----------------------------------------
 
 describe("case-store harness — INSERT/SELECT round-trip", () => {
+	test("checks the composite app/Project foreign key before the test can assert success", async ({
+		db,
+	}) => {
+		await expect(
+			db
+				.insertInto("cases")
+				.values(
+					makeCaseRow({
+						app_id: "missing-app",
+						project_id: "missing-project",
+					}),
+				)
+				.execute(),
+		).rejects.toMatchObject({ code: "23503" });
+	});
+
 	test("inserts a case via Kysely and reads it back", async ({ db }) => {
 		// Pin the case_id locally so the SELECT-side WHERE clause has
 		// a concrete `string` to compare against. `makeCaseRow`'s

@@ -27,9 +27,16 @@ serializes per user); `seq` tiebreaks events inside a single-millisecond
 SSE burst. The full event rides the `event` jsonb column; the envelope
 fields (`run_id`, `ts`, `seq`, `source`, `kind`) are projected into their
 own columns so reads filter and order without parsing the payload.
-`readEvents` re-validates each payload through `eventSchema.safeParse`
-(`decodeEventsLenient`), dropping and counting any forward-version /
-drifted row rather than failing the whole read.
+`readEvents` strictly validates the complete ordered page through
+`eventSchema.array().parse`. One malformed row fails the whole read; returning
+the valid rows around it would invent a partial history that never existed.
+Pre-cutover mutation payloads use the explicit opaque `archived-mutation` arm.
+
+Conversation-event attachment UUIDs are immutable audit receipts, not live
+media references. Readers display the snapshotted metadata only; event ids are
+never dereferenced, remapped during Project moves, copied, reverse-indexed, or
+used to block deletion. The live carrier set is authored Blueprint slots plus
+strict `threads.messages[*].metadata.attachments[*]`.
 
 ## Usage in events — per-step decomposition only
 

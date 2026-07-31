@@ -6,7 +6,9 @@
  * the same pass, and the loud invariant when a carrier-bearing form
  * evaluates without a lookup snapshot.
  */
+
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import type {
 	Field,
 	FieldKind,
@@ -15,10 +17,12 @@ import type {
 	LookupColumnId,
 	LookupOptionsSource,
 	LookupTableId,
+	ProseTemplate,
 	Uuid,
+	XPathExpression,
 } from "@/lib/domain";
-import { asUuid } from "@/lib/domain";
 import { eq, formField, tableColumn, term } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import type {
 	LookupFixtureRow,
 	LookupTableDefinition,
@@ -72,17 +76,16 @@ function lookupData(): PreviewLookupData {
 interface DField {
 	id: string;
 	kind: FieldKind;
-	label?: string;
-	calculate?: string;
+	label?: ProseTemplate;
+	calculate?: XPathExpression;
 	optionsSource?: LookupOptionsSource;
-	options?: Array<{ value: string; label: string }>;
 }
 
 function dTree(
 	fields: DField[],
 	formType: FormType = "survey",
 ): FormEngineInput {
-	const formUuid = asUuid("test-form-uuid");
+	const formUuid = testUuid("test-form-uuid");
 	const form: Form = {
 		uuid: formUuid,
 		id: "test-form",
@@ -92,7 +95,7 @@ function dTree(
 	const fieldMap: Record<string, Field> = {};
 	const order: Uuid[] = [];
 	for (const n of fields) {
-		const uuid = asUuid(`form.${n.id}`);
+		const uuid = testUuid(`form.${n.id}`);
 		order.push(uuid);
 		fieldMap[uuid as string] = { uuid, ...n } as Field;
 	}
@@ -101,10 +104,11 @@ function dTree(
 		formUuid,
 		fields: fieldMap,
 		fieldOrder: { [formUuid as string]: order },
+		caseTypes: [],
 	};
 }
 
-const REGION_FIELD_UUID = asUuid("form.region");
+const REGION_FIELD_UUID = testUuid("form.region");
 
 function clinicSelect(
 	kind: "single_select" | "multi_select",
@@ -113,9 +117,9 @@ function clinicSelect(
 	return {
 		id: "clinic",
 		kind,
-		label: "Clinic",
+		label: proseText("Clinic"),
 		optionsSource: {
-			kind: "lookup-table",
+			kind: "lookup",
 			tableId: TABLE,
 			valueColumnId: COL_CODE,
 			labelColumnId: COL_NAME,
@@ -126,11 +130,6 @@ function clinicSelect(
 				),
 			}),
 		},
-		// The inline rolling-receiver fallback options the schema requires.
-		options: [
-			{ value: "a1", label: "Arua" },
-			{ value: "b2", label: "Bario" },
-		],
 	};
 }
 
@@ -165,7 +164,7 @@ describe("lookup-backed choices in the engine", () => {
 	it("recomputes filtered choices when the referenced answer changes", () => {
 		const engine = new FormEngine(
 			dTree([
-				{ id: "region", kind: "text", label: "Region" },
+				{ id: "region", kind: "text", label: proseText("Region") },
 				clinicSelect("single_select", true),
 			]),
 			undefined,
@@ -203,9 +202,15 @@ describe("lookup-backed choices in the engine", () => {
 	it("unselects a single-select value the rebuilt choices no longer offer", () => {
 		const engine = new FormEngine(
 			dTree([
-				{ id: "region", kind: "text", label: "Region" },
+				{ id: "region", kind: "text", label: proseText("Region") },
 				clinicSelect("single_select", true),
-				{ id: "echo", kind: "hidden", calculate: "#form/clinic" },
+				{
+					id: "echo",
+					kind: "hidden",
+					calculate: {
+						parts: [{ kind: "field-ref", uuid: testUuid("form.clinic") }],
+					},
+				},
 			]),
 			undefined,
 			undefined,
@@ -225,7 +230,7 @@ describe("lookup-backed choices in the engine", () => {
 	it("keeps surviving multi-select tokens and drops removed ones", () => {
 		const engine = new FormEngine(
 			dTree([
-				{ id: "region", kind: "text", label: "Region" },
+				{ id: "region", kind: "text", label: proseText("Region") },
 				clinicSelect("multi_select", true),
 			]),
 			undefined,
@@ -247,7 +252,7 @@ describe("lookup-backed choices in the engine", () => {
 	it("keeps the selected value when the rebuilt choices still offer it", () => {
 		const engine = new FormEngine(
 			dTree([
-				{ id: "region", kind: "text", label: "Region" },
+				{ id: "region", kind: "text", label: proseText("Region") },
 				clinicSelect("single_select", true),
 			]),
 			undefined,
@@ -294,7 +299,7 @@ describe("lookup-backed choices in the engine", () => {
 	it("coverage holds for a covered snapshot and fails without one", () => {
 		const covered = new FormEngine(
 			dTree([
-				{ id: "region", kind: "text", label: "Region" },
+				{ id: "region", kind: "text", label: proseText("Region") },
 				clinicSelect("single_select", true),
 			]),
 			undefined,
@@ -308,14 +313,14 @@ describe("lookup-backed choices in the engine", () => {
 		);
 		expect(uncaptured.lookupDataCoversForm()).toBe(false);
 		const carrierFree = new FormEngine(
-			dTree([{ id: "name", kind: "text", label: "Name" }]),
+			dTree([{ id: "name", kind: "text", label: proseText("Name") }]),
 		);
 		expect(carrierFree.lookupDataCoversForm()).toBe(true);
 	});
 
 	it("a carrier-free form needs no snapshot", () => {
 		const engine = new FormEngine(
-			dTree([{ id: "name", kind: "text", label: "Name" }]),
+			dTree([{ id: "name", kind: "text", label: proseText("Name") }]),
 		);
 		expect(engine.getState("/data/name").visible).toBe(true);
 		expect(engine.usesLookupData()).toBe(false);

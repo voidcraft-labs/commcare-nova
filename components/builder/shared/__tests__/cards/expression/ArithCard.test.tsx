@@ -12,13 +12,14 @@ import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { CaseType } from "@/lib/domain";
 import { arith, literal, term } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { ExpressionCardEditor } from "../../../ExpressionCardEditor";
 
 const PATIENT: CaseType = {
 	name: "patient",
 	properties: [
-		{ name: "age", label: "Age", data_type: "int" },
-		{ name: "name", label: "Name", data_type: "text" },
+		{ name: "age", label: proseText("Age"), data_type: "int" },
+		{ name: "case_name", label: proseText("Case name"), data_type: "text" },
 	],
 };
 

@@ -10,13 +10,14 @@ import type { FieldKindMetadata } from "../kinds";
 import {
 	inputFieldBaseSchema,
 	mediaSchema,
+	proseTemplateSchema,
 	xpathExpressionSchema,
 } from "./base";
 
 export const timeFieldSchema = inputFieldBaseSchema.extend({
 	kind: z.literal("time"),
 	validate: xpathExpressionSchema.optional(),
-	validate_msg: z.string().optional(),
+	validate_msg: proseTemplateSchema.optional(),
 	validate_msg_media: mediaSchema.optional(),
 	default_value: xpathExpressionSchema.optional(),
 });

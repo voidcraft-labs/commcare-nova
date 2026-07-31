@@ -10,8 +10,9 @@
  * slot makes the exported module fail at runtime rather than merely changing
  * how it matches.
  *
- * The slot inventory lives in `moduleWireSlots.ts` and mirrors the actual
- * emitters rather than the presence of an authored definition.
+ * The slot inventory lives in `moduleWireSlots.ts`. It validates every saved
+ * calculated definition, including a dormant one, before a later reveal can
+ * send it through an on-device emitter.
  *
  * An advanced input's direct predicate operators lower through server-side
  * CSQL, so a direct fuzzy/phonetic/fuzzy-date match remains valid. CSQL is a
@@ -52,7 +53,6 @@ export function matchModeOnDeviceCompatibility(
 	_doc: BlueprintDoc,
 ): ValidationError[] {
 	return collectModuleWireSlotFindings(mod, moduleUuid, {
-		calculatedColumns: "runtime",
 		judgePredicate(predicate, slot) {
 			const offender = firstCsqlOnlyMatch(predicate);
 			return offender === undefined ? undefined : buildError(slot, offender);

@@ -1,6 +1,7 @@
 import type { Draft } from "immer";
 import { spliceAfter } from "@/lib/doc/mutations/sequence";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
+import { caseOperationSchema } from "@/lib/domain";
 import { cascadeDeleteForm } from "./helpers";
 
 /**
@@ -20,9 +21,9 @@ import { cascadeDeleteForm } from "./helpers";
  * Reorder one case operation within the form's sequence.
  *
  * `caseOperations` is the sequence, so this is `spliceAfter` over objects
- * rather than uuids. Total for the same reason every reducer is: an `after`
- * naming an operation a peer removed appends instead of throwing, because
- * historical replay must not be able to fail.
+ * rather than uuids. The commit guard rejects a missing anchor; the reducer
+ * remains total by leaving the sequence unchanged if unguarded input somehow
+ * names one, never by changing that request into append.
  */
 function spliceOperation<T extends { uuid: string }>(
 	operations: readonly T[],
@@ -34,7 +35,25 @@ function spliceOperation<T extends { uuid: string }>(
 	const rest = operations.filter((op) => op.uuid !== uuid);
 	if (after === null) return [moving, ...rest];
 	const at = rest.findIndex((op) => op.uuid === after);
-	if (at < 0) return [...rest, moving];
+	if (at < 0) return [...operations];
+	return [...rest.slice(0, at + 1), moving, ...rest.slice(at + 1)];
+}
+
+/** Move one logical member after another without converting a missing anchor
+ * into append. Live admission rejects that input; replay stays total by
+ * leaving the sequence unchanged. */
+function spliceNamedAfter<T>(
+	items: readonly T[],
+	key: string,
+	after: string | null,
+	keyOf: (item: T) => string,
+): T[] {
+	const moving = items.find((item) => keyOf(item) === key);
+	if (moving === undefined) return [...items];
+	const rest = items.filter((item) => keyOf(item) !== key);
+	if (after === null) return [moving, ...rest];
+	const at = rest.findIndex((item) => keyOf(item) === after);
+	if (at < 0) return [...items];
 	return [...rest.slice(0, at + 1), moving, ...rest.slice(at + 1)];
 }
 
@@ -137,22 +156,32 @@ export function applyFormMutation(
 					else target[key] = value;
 				}
 			};
-
-			/* The established fallback and current granular extension deliberately
-			 * have different consumers. A current reducer applies ONLY the granular
-			 * intent when present so peer edits to other slots compose. An event from
-			 * an immediate-parent tab has no extension, so it takes the exact
-			 * full-operation fallback path that tab authored. */
+			/* Existing-operation edits have one final identity-keyed payload.
+			 * Scalar, member, and member-order edits each touch only their named
+			 * merge unit; no whole-operation fallback accompanies them. */
 			const semantic = mut.caseOperationPatch;
 			if (semantic !== undefined) {
 				switch (semantic.operation) {
 					case "update": {
-						const current = operation(semantic.uuid);
-						if (current === undefined) return;
-						applyPatch(
-							current as unknown as Record<string, unknown>,
-							semantic.patch as Record<string, unknown>,
+						const index = operations.findIndex(
+							(candidate) => candidate.uuid === semantic.uuid,
 						);
+						const current = operations[index];
+						if (current === undefined) return;
+						const prospective = {
+							...current,
+							action: semantic.targetAction,
+						} as Record<string, unknown>;
+						applyPatch(prospective, semantic.patch as Record<string, unknown>);
+						const parsed = caseOperationSchema.safeParse(prospective);
+						if (!parsed.success) {
+							console.warn(
+								`updateForm: skipped an invalid ${semantic.targetAction} case-operation patch for ${semantic.uuid}.`,
+								{ patch: semantic.patch, issues: parsed.error.issues },
+							);
+							return;
+						}
+						operations[index] = parsed.data;
 						form.caseOperations = operations;
 						return;
 					}
@@ -165,10 +194,15 @@ export function applyFormMutation(
 						) {
 							return;
 						}
-						const index = Math.max(
-							0,
-							Math.min(semantic.index ?? writes.length, writes.length),
-						);
+						const index =
+							semantic.after === undefined
+								? writes.length
+								: semantic.after === null
+									? 0
+									: writes.findIndex(
+											(write) => write.property === semantic.after,
+										) + 1;
+						if (index === 0 && semantic.after !== null) return;
 						// CLONE, never alias. A mutation is a durable event that is
 						// applied more than once — the saga derives a prospective doc
 						// and the guarded commit re-applies the same batch onto the
@@ -205,6 +239,19 @@ export function applyFormMutation(
 						form.caseOperations = operations;
 						return;
 					}
+					case "move-write": {
+						const current = operation(semantic.uuid);
+						if (current === undefined) return;
+						const writes = current.writes ?? [];
+						current.writes = spliceNamedAfter(
+							writes,
+							semantic.property,
+							semantic.after,
+							(write) => write.property,
+						);
+						form.caseOperations = operations;
+						return;
+					}
 					case "add-link": {
 						const current = operation(semantic.uuid);
 						if (current === undefined) return;
@@ -216,10 +263,15 @@ export function applyFormMutation(
 						) {
 							return;
 						}
-						const index = Math.max(
-							0,
-							Math.min(semantic.index ?? links.length, links.length),
-						);
+						const index =
+							semantic.after === undefined
+								? links.length
+								: semantic.after === null
+									? 0
+									: links.findIndex(
+											(link) => link.identifier === semantic.after,
+										) + 1;
+						if (index === 0 && semantic.after !== null) return;
 						// Cloned for the same reason `add-write` clones: the payload
 						// must not become part of a frozen produced state that a later
 						// apply of this same batch then tries to edit in place.
@@ -259,6 +311,19 @@ export function applyFormMutation(
 						form.caseOperations = operations;
 						return;
 					}
+					case "move-link": {
+						const current = operation(semantic.uuid);
+						if (current === undefined) return;
+						const links = current.links ?? [];
+						current.links = spliceNamedAfter(
+							links,
+							semantic.identifier,
+							semantic.after,
+							(link) => link.identifier,
+						);
+						form.caseOperations = operations;
+						return;
+					}
 					case "move": {
 						const current = operation(semantic.uuid);
 						if (current === undefined) return;
@@ -295,15 +360,6 @@ export function applyFormMutation(
 						form.caseOperations = operations;
 					}
 					return;
-				case "update": {
-					const index = operations.findIndex(
-						(operation) => operation.uuid === change.uuid,
-					);
-					if (index === -1) return;
-					operations[index] = structuredClone(change.value);
-					form.caseOperations = operations;
-					return;
-				}
 				case "remove": {
 					const index = operations.findIndex(
 						(operation) => operation.uuid === change.uuid,
@@ -313,32 +369,22 @@ export function applyFormMutation(
 					else form.caseOperations = operations;
 					return;
 				}
-				case "move": {
-					const current = operations.find(
-						(candidate) => candidate.uuid === change.uuid,
-					);
-					if (current === undefined) return;
-					form.caseOperations = spliceOperation(
-						operations,
-						change.uuid,
-						change.after,
-					);
-					return;
-				}
 			}
 			return;
 		}
 		case "setFormMedia": {
 			// Set or clear the form's menu media (tile `icon` + `audioLabel`).
-			// Mirrors `setModuleMedia` one level down: explicit `AssetId | null`
+			// Mirrors `setModuleMedia` one level down: explicit `MediaAssetId | null`
 			// slots so a clear survives JSON over the SSE wire (a generic
 			// `updateForm` patch would encode it as `{ key: undefined }`, which
-			// `JSON.stringify` drops). Each `null` maps to `undefined` so the
-			// cleared slot drops off the form.
+			// `JSON.stringify` drops). A `null` clear deletes the optional
+			// property; canonical documents never retain own `undefined` values.
 			const form = draft.forms[mut.uuid];
 			if (!form) return;
-			form.icon = mut.icon ?? undefined;
-			form.audioLabel = mut.audioLabel ?? undefined;
+			if (mut.icon === null) delete form.icon;
+			else form.icon = mut.icon;
+			if (mut.audioLabel === null) delete form.audioLabel;
+			else form.audioLabel = mut.audioLabel;
 			return;
 		}
 	}

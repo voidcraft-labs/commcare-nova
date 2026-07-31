@@ -1,72 +1,92 @@
 import { describe, expect, it } from "vitest";
-import { asUuid } from "@/lib/domain";
-import { eq, literal, prop, term } from "@/lib/domain/predicate";
-import { stampColumnUuid, stampSearchInputUuid } from "../shared";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { literal, prop, term } from "@/lib/domain/predicate";
+import {
+	columnInputSchema,
+	searchInputDefInputSchema,
+	stampColumnUuid,
+	stampSearchInputUuid,
+} from "../shared";
 
-const UUID = asUuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+const UUID = testUuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
 
-describe("case-list tool canonical property vocabulary", () => {
-	it.each([
-		["name", "case_name"],
-		["external-id", "external_id"],
-		["date-opened", "date_opened"],
-		["status", "status"],
-		["current_status", "current_status"],
-	])("normalizes column field %s to %s", (field, expected) => {
+describe("case-list tools use the exact case-property vocabulary", () => {
+	it("preserves an accepted column field exactly", () => {
 		const column = stampColumnUuid(
-			{ kind: "plain", field, header: "Value" },
+			{ kind: "plain", field: "external_id", header: "Value" },
 			UUID,
 		);
 		if (column.kind !== "plain") throw new Error("expected plain column");
-		expect(column.field).toBe(expected);
+		expect(column.field).toBe("external_id");
 	});
 
-	it("normalizes calculated-column property references without mutating input", () => {
-		const expression = term(prop("patient", "external-id"));
+	it("preserves accepted expression references exactly", () => {
+		const expression = term(prop("patient", "client-code"));
 		const column = stampColumnUuid(
-			{ kind: "calculated", header: "External ID", expression },
+			{ kind: "calculated", header: "Client code", expression },
 			UUID,
 		);
 		if (column.kind !== "calculated") {
 			throw new Error("expected calculated column");
 		}
-		expect(column.expression).toEqual(term(prop("patient", "external_id")));
-		expect(expression).toEqual(term(prop("patient", "external-id")));
+		expect(column.expression).toBe(expression);
 	});
 
-	it("normalizes simple targets and property references in defaults", () => {
+	it.each(["name", "external-id", "date-opened"])(
+		"rejects %s at the column tool schema",
+		(field) => {
+			expect(
+				columnInputSchema.safeParse({
+					kind: "plain",
+					field,
+					header: "Value",
+				}).success,
+			).toBe(false);
+		},
+	);
+
+	it.each(["name", "external-id", "date-opened"])(
+		"rejects %s in simple targets and nested expression refs",
+		(property) => {
+			expect(
+				searchInputDefInputSchema.safeParse({
+					kind: "simple",
+					name: "query",
+					label: "Query",
+					type: "text",
+					property,
+				}).success,
+			).toBe(false);
+			expect(
+				searchInputDefInputSchema.safeParse({
+					kind: "simple",
+					name: "query",
+					label: "Query",
+					type: "text",
+					property: "case_name",
+					default: {
+						kind: "term",
+						term: { kind: "prop", caseType: "patient", property },
+					},
+				}).success,
+			).toBe(false);
+		},
+	);
+
+	it("stamps an accepted search input without rewriting it", () => {
 		const input = stampSearchInputUuid(
 			{
 				kind: "simple",
-				name: "case_name_query",
-				label: "Name",
+				name: "client_code",
+				label: "Client code",
 				type: "text",
-				property: "name",
-				default: term(prop("patient", "date-opened")),
+				property: "client-code",
+				default: term(literal("")),
 			},
 			UUID,
 		);
-		if (input.kind !== "simple") throw new Error("expected simple input");
-		expect(input.property).toBe("case_name");
-		expect(input.default).toEqual(term(prop("patient", "date_opened")));
-	});
-
-	it("normalizes advanced predicates but keeps current_status distinct", () => {
-		const input = stampSearchInputUuid(
-			{
-				kind: "advanced",
-				name: "name_query",
-				label: "Name",
-				type: "text",
-				predicate: eq(prop("patient", "name"), literal("Ada")),
-				default: term(prop("patient", "current_status")),
-			},
-			UUID,
-		);
-		if (input.kind !== "advanced") throw new Error("expected advanced input");
-		expect(input.predicate).toEqual(
-			eq(prop("patient", "case_name"), literal("Ada")),
-		);
-		expect(input.default).toEqual(term(prop("patient", "current_status")));
+		if (input.kind !== "simple")
+			throw new Error("expected simple Search input");
+		expect(input.property).toBe("client-code");
 	});
 });

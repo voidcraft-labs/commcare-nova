@@ -1,4 +1,6 @@
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { proseText } from "@/lib/domain/prose";
 /**
  * Tests for the `searchInputPredicateTypeCheck` rule. One invariant
  * per `it(...)` block; the rule's domain is the advanced-arm
@@ -9,7 +11,6 @@ import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import {
 	advancedSearchInputDef,
-	asUuid,
 	plainColumn,
 	simpleSearchInputDef,
 } from "@/lib/domain";
@@ -27,12 +28,12 @@ describe("searchInputPredicateTypeCheck", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
-						listColumnOrder: [asUuid("col-name")],
-						detailColumnOrder: [asUuid("col-name")],
+						columns: [plainColumn(testUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [testUuid("col-name")],
+						detailColumnOrder: [testUuid("col-name")],
 						searchInputs: [
 							advancedSearchInputDef(
-								asUuid("si-adv"),
+								testUuid("si-adv"),
 								"adv_search",
 								"Advanced",
 								"text",
@@ -48,8 +49,8 @@ describe("searchInputPredicateTypeCheck", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},
@@ -59,7 +60,9 @@ describe("searchInputPredicateTypeCheck", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "case_name", label: "Name", data_type: "text" }],
+					properties: [
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+					],
 				},
 			],
 		});
@@ -81,12 +84,12 @@ describe("searchInputPredicateTypeCheck", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
-						listColumnOrder: [asUuid("col-name")],
-						detailColumnOrder: [asUuid("col-name")],
+						columns: [plainColumn(testUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [testUuid("col-name")],
+						detailColumnOrder: [testUuid("col-name")],
 						searchInputs: [
 							advancedSearchInputDef(
-								asUuid("si-adv"),
+								testUuid("si-adv"),
 								"adv_search",
 								"Advanced",
 								"text",
@@ -102,8 +105,8 @@ describe("searchInputPredicateTypeCheck", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},
@@ -113,7 +116,9 @@ describe("searchInputPredicateTypeCheck", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "case_name", label: "Name", data_type: "text" }],
+					properties: [
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+					],
 				},
 			],
 		});
@@ -131,6 +136,7 @@ describe("searchInputPredicateTypeCheck", () => {
 		// because `moduleTypeContext` populates `knownInputs` from
 		// the full `searchInputs` list. Pin the cross-input case
 		// so the rule's `knownInputs` wiring stays load-bearing.
+		const nameSearchUuid = testUuid("si-name");
 		const doc = buildDoc({
 			appName: "Test",
 			modules: [
@@ -138,23 +144,23 @@ describe("searchInputPredicateTypeCheck", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
-						listColumnOrder: [asUuid("col-name")],
-						detailColumnOrder: [asUuid("col-name")],
+						columns: [plainColumn(testUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [testUuid("col-name")],
+						detailColumnOrder: [testUuid("col-name")],
 						searchInputs: [
 							simpleSearchInputDef(
-								asUuid("si-name"),
+								nameSearchUuid,
 								"name_search",
 								"Name",
 								"text",
 								"case_name",
 							),
 							advancedSearchInputDef(
-								asUuid("si-adv"),
+								testUuid("si-adv"),
 								"adv_search",
 								"Advanced",
 								"text",
-								eq(prop("patient", "case_name"), input("name_search")),
+								eq(prop("patient", "case_name"), input(nameSearchUuid)),
 							),
 						],
 					},
@@ -166,8 +172,8 @@ describe("searchInputPredicateTypeCheck", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},
@@ -177,7 +183,9 @@ describe("searchInputPredicateTypeCheck", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "case_name", label: "Name", data_type: "text" }],
+					properties: [
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+					],
 				},
 			],
 		});
@@ -199,12 +207,12 @@ describe("searchInputPredicateTypeCheck", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
-						listColumnOrder: [asUuid("col-name")],
-						detailColumnOrder: [asUuid("col-name")],
+						columns: [plainColumn(testUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [testUuid("col-name")],
+						detailColumnOrder: [testUuid("col-name")],
 						searchInputs: [
 							simpleSearchInputDef(
-								asUuid("si-name"),
+								testUuid("si-name"),
 								"name_search",
 								"Name",
 								"text",
@@ -220,8 +228,8 @@ describe("searchInputPredicateTypeCheck", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},
@@ -231,7 +239,9 @@ describe("searchInputPredicateTypeCheck", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "case_name", label: "Name", data_type: "text" }],
+					properties: [
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+					],
 				},
 			],
 		});
@@ -250,9 +260,9 @@ describe("searchInputPredicateTypeCheck", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
-						listColumnOrder: [asUuid("col-name")],
-						detailColumnOrder: [asUuid("col-name")],
+						columns: [plainColumn(testUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [testUuid("col-name")],
+						detailColumnOrder: [testUuid("col-name")],
 						searchInputs: [],
 					},
 					forms: [
@@ -263,8 +273,8 @@ describe("searchInputPredicateTypeCheck", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},
@@ -274,7 +284,9 @@ describe("searchInputPredicateTypeCheck", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "case_name", label: "Name", data_type: "text" }],
+					properties: [
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+					],
 				},
 			],
 		});

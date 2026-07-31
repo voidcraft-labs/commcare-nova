@@ -55,8 +55,8 @@ import {
 	vellumShorthandInContext,
 } from "@/lib/commcare/hashtags/formContext";
 import {
-	LOOKUP_FIXTURE_ID_PREFIX,
 	type LookupWireNaming,
+	lookupFixtureSrc,
 } from "@/lib/commcare/lookup/naming";
 import type { AssetManifest } from "@/lib/commcare/multimedia/assetWirePath";
 import { itextMediaValues } from "@/lib/commcare/multimedia/itextMedia";
@@ -65,7 +65,6 @@ import {
 	emitCaseListFilter,
 	instanceSourceFor,
 } from "@/lib/commcare/predicate";
-import { BARE_HASHTAG_PATTERN } from "@/lib/commcare/proseHashtags";
 import {
 	UPLOAD_APPEARANCE_BY_CAPTURE_KIND,
 	UPLOAD_MEDIATYPE_BY_CAPTURE_KIND,
@@ -86,7 +85,8 @@ import {
 	type FieldKind,
 	isCaptureFieldKind,
 	type Media,
-	type SelectOption,
+	type ProseTemplate,
+	printProseTemplate,
 	type Uuid,
 	userPropertySlugsByUuid,
 } from "@/lib/domain";
@@ -94,107 +94,60 @@ import type { LookupOptionsSource } from "@/lib/domain/lookupCarriers";
 import { isMatchAll, simplifyForEmission } from "@/lib/domain/predicate";
 
 /**
- * Bare-hashtag matcher for label / hint prose. The pattern is shared with the
- * deep validator (`BARE_HASHTAG_PATTERN`) so emission and validation can't
- * drift on what counts as a prose hashtag; this module owns its own global
- * instance (the pattern is exported without `/g` to avoid shared `lastIndex`
- * state). Lowering is resolution-gated: a match becomes an `<output>` only when
- * `expand` actually resolves it, so an innocent prose token (`#N/A`) or an
- * unreachable namespace folds back into literal text rather than shipping a
- * broken reference.
- */
-const BARE_HASHTAG_RE = new RegExp(BARE_HASHTAG_PATTERN, "g");
-
-/**
- * Build the ordered itext-value node list for one label / hint string, letting
+ * Build the ordered itext-value node list for one typed prose template, letting
  * `dom-serializer` (at final assembly) own ALL escaping.
  *
- * A label is natural-language PROSE that may embed Nova hashtag references
- * (`#case/name`, `#form/x`, `#user/y`). It is NOT markup. The earlier
- * approach parsed the whole label as XML to find the markup Nova itself had
- * just stitched in — and that whole-label parse is exactly what read an
- * author run like `(<2kg` as a bogus tag (leaking an invalid bare `<` that
- * CommCare HQ hard-rejects) and `<country><number>` as nested elements
- * (silent itext corruption). Issues #3 and #15.
+ * A label is natural-language prose whose references are explicit typed atoms,
+ * not hashtag-looking substrings and not markup.
  *
  * Instead we CONSTRUCT a DOM directly and never parse the label as markup:
  *
- *   - Prose runs (everything between hashtag matches) become a `Text` node
+ *   - Prose runs become a `Text` node
  *     whose data is `decodeXML(run)`. Decoding normalizes any pre-escaped
  *     entity the author may have typed (the historical `&lt;` workaround → `<`)
  *     so the serializer re-escapes it exactly once — `&lt;`, never the
  *     double-escaped `&amp;lt;` that would show a literal `&lt;` on device.
- *   - Each hashtag match becomes a constructed self-closing `<output>`
+ *   - Each typed reference atom becomes a constructed self-closing `<output>`
  *     element: `value` holds the expanded instance XPath, and the parallel
  *     `vellum:value` holds the original shorthand — but only when expansion
  *     changed the string (a non-expanding ref needs no round-trip shadow).
- *     This is the ONLY source of `<output>` elements: hashtags in prose are
- *     an SA-authoring concept Nova lowers to `<output>` here.
+ *     This is the only source of `<output>` elements in prose.
  *
- * Author-written `<output ...>` markup is deliberately NOT recognized — it
- * is not a supported authoring input (the SA and field editor emit
- * hashtags, never raw markup). A label that literally contains `<output>`
- * text is just prose, so it serializes as escaped literal text like any
- * other `<`.
+ * Author-written `<output ...>` markup or hashtag-looking literal text is
+ * deliberately not recognized. Both serialize as ordinary escaped text.
  *
  * Returns a fresh node array on every call: the dual `<value>` + `<value
  * form="markdown">` itext duplicate needs INDEPENDENT node instances under the
  * two `<value>` parents (a domhandler node has a single parent pointer, so
  * sharing instances would re-parent and corrupt the first `<value>`), and
  * calling this builder once per `<value>` is how the caller gets them.
- *
- * The `BARE_HASHTAG_RE` regex (not the Lezer XPath parser) locates hashtag
- * spans because labels are prose: surrounding markdown like `**` (bold) around
- * a `#` ref parses as XPath operators under the grammar and would swallow the
- * `#`, so the structural XPath parser is the wrong tool for prose scanning here.
  */
 function buildLabelNodes(
-	label: string,
+	template: ProseTemplate,
+	doc: BlueprintDoc,
 	expand: (expr: string) => string,
 	shorthand: (expr: string) => string | undefined,
 ): ChildNode[] {
 	const nodes: ChildNode[] = [];
-	// `BARE_HASHTAG_RE` is a module-level /g regex; reset `lastIndex` so a
-	// prior call's state never leaks into this walk.
-	BARE_HASHTAG_RE.lastIndex = 0;
-	let cursor = 0;
-	let match: RegExpExecArray | null = BARE_HASHTAG_RE.exec(label);
-	while (match !== null) {
-		const original = match[0];
+	for (const part of template.parts) {
+		if (part.kind === "text") {
+			nodes.push(text(decodeXML(part.text)));
+			continue;
+		}
+		const original = printProseTemplate({ parts: [part] }, doc);
 		const expanded = expand(original);
-		// Lower to `<output>` ONLY when the ref actually RESOLVED (expansion
-		// changed the string) — i.e. a `#form/` / `#user/` / reachable-case-type
-		// ref. The broad regex also matches innocent prose tokens (`#N/A`,
-		// `#priority/high`, a child-case-type write target absent from
-		// `caseTypeDepths`); for those `expand` returns the ref verbatim, and a
-		// verbatim `<output value="#N/A">` is broken XPath on the device. Leaving
-		// the cursor unmoved folds the unresolved token back into the surrounding
-		// prose run as literal escaped text — its pre-broadening behavior.
-		// (Flagging an unreachable per-type prose ref at authoring time is a
-		// separate validator job, not this emitter's.)
 		if (expanded !== original) {
-			// Prose before this hashtag → a Text node (decoded so the serializer
-			// escapes exactly once).
-			if (match.index > cursor) {
-				nodes.push(text(decodeXML(label.slice(cursor, match.index))));
-			}
-			// `value` is the expanded XPath; `vellum:value` shadows the ref in the
-			// EDITOR's vocabulary (`#patient/x` → `#case/x`) so HQ's form designer
-			// round-trips it (`Vellum/src/richText.js::extractXPathInfo` prefers
-			// `vellum:value`). A ref with no editor spelling gets no shadow — the
-			// expanded XPath alone round-trips as a plain expression.
 			const outputAttribs: Record<string, string> = { value: expanded };
 			const editorRef = shorthand(original);
 			if (editorRef !== undefined) outputAttribs["vellum:value"] = editorRef;
 			nodes.push(el("output", outputAttribs));
-			cursor = match.index + original.length;
+		} else {
+			// A valid non-expanding external/case reference remains literal text.
+			// UUID-backed identities were resolved by `printProseTemplate` above;
+			// a dangling one throws there, so wire emission cannot serialize a
+			// UUID or repair marker into the form.
+			nodes.push(text(decodeXML(original)));
 		}
-		match = BARE_HASHTAG_RE.exec(label);
-	}
-	// Trailing prose after the last hashtag (or the whole string when there
-	// were no hashtags at all).
-	if (cursor < label.length) {
-		nodes.push(text(decodeXML(label.slice(cursor))));
 	}
 	return nodes;
 }
@@ -222,7 +175,7 @@ class InstanceTracker {
 	/**
 	 * `caseTypeNames` is the form's reachable case-type namespaces (the keys of
 	 * `FormHashtagContext.caseTypeDepths`). A `#<case_type>/<prop>` ref expands
-	 * to a casedb walk exactly like `#case/`, so the scanners must force the
+	 * to the casedb walk whose private HQ spelling is `#case/`, so the scanners must force the
 	 * `casedb` `<instance>` for it too — otherwise a form whose ONLY case
 	 * reference is a per-type ref would emit a casedb lookup with no instance
 	 * declaration, an invalid form JavaRosa rejects at install.
@@ -234,7 +187,7 @@ class InstanceTracker {
 		if (id === "casedb") this.ids.add("commcaresession");
 	}
 
-	/** Declare a lookup-fixture instance (`item-list:<tag>`). Idempotent. */
+	/** Declare a lookup XForm instance (`<tag>` → item-list fixture). */
 	requireFixture(id: string, src: string): void {
 		this.fixtures.set(id, src);
 	}
@@ -242,7 +195,6 @@ class InstanceTracker {
 	/** Scan a pre-expansion XPath expression for instance references. */
 	scanXPath(expr: string): void {
 		if (
-			expr.includes("#case/") ||
 			expr.includes("#user/") ||
 			expr.includes("instance('casedb')") ||
 			this.referencesCaseType(expr)
@@ -254,11 +206,17 @@ class InstanceTracker {
 		}
 	}
 
-	/** Scan label / hint prose for a `#case/`, `#user/`, or per-case-type
-	 *  hashtag reference (all resolve to a casedb walk). */
-	scanLabel(label: string): void {
-		if (/#(case|user)\//.test(label) || this.referencesCaseType(label)) {
-			this.require("casedb");
+	/** Scan typed prose references for the secondary instances they read. */
+	scanTemplate(template: ProseTemplate): void {
+		for (const part of template.parts) {
+			if (
+				part.kind === "case-ref" ||
+				part.kind === "user-ref" ||
+				part.kind === "user-property-ref"
+			) {
+				this.require("casedb");
+				return;
+			}
 		}
 	}
 
@@ -435,9 +393,8 @@ export interface BuildXFormOptions {
 	/**
 	 * The owning module's case type — the form's own loaded case. Drives the
 	 * reachable-case-type depth map so `#<case_type>/<prop>` refs resolve to the
-	 * right parent-index walk. `undefined` for survey-only / case-less modules:
-	 * the depth map is then empty and only `#form/` (and the transitional
-	 * `#case/` / `#user/`) refs resolve.
+	 * right parent-index walk. `undefined` for survey-only/case-less modules:
+	 * the depth map is then empty and only `#form/` and `#user/` resolve.
 	 */
 	moduleCaseType?: string;
 	/**
@@ -508,7 +465,7 @@ export function buildXForm(
 	// every helper (binds, defaults, itext prose, connect exprs, repeat counts).
 	// It carries `caseTypeDepths`, so a `#<case_type>/<prop>` ref resolves to the
 	// right parent-index walk. On case-create (registration) forms,
-	// `#case/case_id` / `#<own_type>/case_id` rewrite to `/data/case/@case_id`
+	// `#<own_type>/case_id` rewrites to `/data/case/@case_id`
 	// (populated by the case-create scaffolding's setvalue chain); the
 	// case-loading lookup shape is reserved for forms that load an existing case.
 	const formCtx: FormHashtagContext = {
@@ -563,7 +520,7 @@ export function buildXForm(
 	// dangling reference.
 	const addItext = (
 		id: string,
-		label: string | undefined,
+		label: ProseTemplate | undefined,
 		media?: Media,
 		force = false,
 	): void => {
@@ -574,17 +531,22 @@ export function buildXForm(
 		// declaration can never drift from the set of prose that actually gets
 		// lowered: a `#<case_type>/<prop>` in a `validate_msg` or option label
 		// forces the `casedb` `<instance>` exactly as one in a `label` does.
-		if (label) instances.scanLabel(label);
+		if (label) instances.scanTemplate(label);
 		const mediaValues = itextMediaValues(media, opts.assets, "buildXForm");
-		if (!force && !label && mediaValues.length === 0) return;
-		const labelText = label ?? "";
+		if (
+			!force &&
+			(label === undefined || label.parts.length === 0) &&
+			mediaValues.length === 0
+		)
+			return;
+		const labelTemplate = label ?? { parts: [] };
 		itextEntries.push(
 			el("text", { id }, [
-				el("value", {}, buildLabelNodes(labelText, expand, shorthand)),
+				el("value", {}, buildLabelNodes(labelTemplate, doc, expand, shorthand)),
 				el(
 					"value",
 					{ form: "markdown" },
-					buildLabelNodes(labelText, expand, shorthand),
+					buildLabelNodes(labelTemplate, doc, expand, shorthand),
 				),
 				...mediaValues,
 			]),
@@ -727,21 +689,22 @@ export function buildXForm(
 }
 
 /**
- * Read a field's `options` array regardless of which kind declares it.
- * Same rationale as `readFieldString` (lib/commcare/fieldProps.ts):
- * `options` appears only on select variants, so the accessor returns
- * `undefined` for kinds that don't carry it.
+ * Read the inline arm of a select field's final options-source union.
+ * Lookup-backed selects emit an itemset and therefore have no inline choices.
  */
 function readOptions(
 	field: Field,
-): Array<{ value: string; label: string; media?: Media }> | undefined {
-	const value = (field as unknown as Record<string, unknown>).options;
-	if (!Array.isArray(value)) return undefined;
-	// Return options in DISPLAY (`sort-by-(order, uuid)`) order. Sorting HERE,
-	// at the one accessor, keeps the per-option index keys consistent between
-	// the itext-registration pass and the `<item>`-emission pass — sorting only
-	// one would dangle a `<label ref>`. `order` never reaches the wire.
-	return [...(value as SelectOption[])];
+): Array<{ value: string; label: ProseTemplate; media?: Media }> | undefined {
+	if (
+		(field.kind !== "single_select" && field.kind !== "multi_select") ||
+		field.optionsSource.kind !== "inline"
+	) {
+		return undefined;
+	}
+	// The inline array is the authored display sequence. This one accessor feeds
+	// both itext registration and `<item>` emission, so their positional keys
+	// cannot diverge.
+	return [...field.optionsSource.options];
 }
 
 /**
@@ -769,15 +732,15 @@ function readFieldMedia(field: Field, key: string): Media | undefined {
  *   - text absent + manifest present + at least one media slot set → emit.
  *
  * Keeps the check cheap (no manifest lookup), so a missing-from-manifest
- * `AssetId` still throws from `requireAssetRef` at the actual registration
+ * `MediaAssetId` still throws from `requireAssetRef` at the actual registration
  * site, not silently here.
  */
 function hasItextContent(
-	text: string | undefined,
+	text: ProseTemplate | undefined,
 	media: Media | undefined,
 	assets: AssetManifest | undefined,
 ): boolean {
-	if (text) return true;
+	if (text && text.parts.length > 0) return true;
 	if (!media || !assets) return false;
 	return !!(media.image || media.audio || media.video);
 }
@@ -840,7 +803,7 @@ function buildFieldParts(
 	insideRepeat: boolean,
 	addItext: (
 		id: string,
-		label: string | undefined,
+		label: ProseTemplate | undefined,
 		media?: Media,
 		force?: boolean,
 	) => void,
@@ -855,7 +818,7 @@ function buildFieldParts(
 	const field = doc.fields[fieldUuid];
 	const lookupSource =
 		(field.kind === "single_select" || field.kind === "multi_select") &&
-		field.optionsSource !== undefined
+		field.optionsSource.kind === "lookup"
 			? field.optionsSource
 			: undefined;
 	if (lookupSource !== undefined && lookupSelects === undefined) {
@@ -871,13 +834,14 @@ function buildFieldParts(
 
 	const relevant = readFieldString(field, "relevant", doc);
 	const validate = readFieldString(field, "validate", doc);
-	const validateMsg = readFieldString(field, "validate_msg", doc);
 	const calculate = readFieldString(field, "calculate", doc);
 	const defaultValue = readFieldString(field, "default_value", doc);
 	const required = readFieldString(field, "required", doc);
-	const label = readFieldString(field, "label", doc);
-	const hint = readFieldString(field, "hint", doc);
-	const help = readFieldString(field, "help", doc);
+	const carrier = field as unknown as Record<string, unknown>;
+	const label = carrier.label as ProseTemplate | undefined;
+	const hint = carrier.hint as ProseTemplate | undefined;
+	const help = carrier.help as ProseTemplate | undefined;
+	const validateMsg = carrier.validate_msg as ProseTemplate | undefined;
 
 	// Per-message media slots. Each registers `<value form="...">` siblings
 	// on its itext entry (via `addItext`), and `hint`/`help` body refs emit
@@ -896,8 +860,8 @@ function buildFieldParts(
 	const hasHint = hasItextContent(hint, hintMedia, assets);
 	const hasHelp = hasItextContent(help, helpMedia, assets);
 
-	// Secondary-instance requirements: any XPath that mentions `#case/`,
-	// `#user/`, or a raw `instance('casedb')` / `instance('commcaresession')`
+	// Secondary-instance requirements: any XPath that mentions `#user/`, a
+	// typed readable case namespace, or a raw casedb/session `instance()`
 	// reference forces us to declare the matching `<instance>` later. Prose
 	// surfaces (label / hint / help / validate_msg / option labels) are scanned
 	// inside `addItext`, the single place they're lowered, so the two can't drift.
@@ -1047,9 +1011,7 @@ function buildFieldParts(
 	// layer; an index key makes the id unique by construction. The `<item>`
 	// emission below uses the identical scheme so no `<label ref>` dangles.
 	// A lookup-backed select emits one <itemset> instead of inline <item>s,
-	// so its authored inline fallback registers no option itext (an entry
-	// with no referencing <item> would be dead weight; the fallback stays
-	// authored-only until an older receiver renders it).
+	// so it has no option itext entries.
 	const options = lookupSource !== undefined ? undefined : readOptions(field);
 	if (options && options.length > 0) {
 		options.forEach((opt, index) => {
@@ -1162,8 +1124,8 @@ function buildLookupItemset(
 ): Element {
 	const table = lookupSelects.naming.tableFor(source.tableId);
 	instances.requireFixture(
-		table.instanceId,
-		instanceSourceFor(table.instanceId),
+		table.xformInstanceId,
+		lookupFixtureSrc(table.fixtureId),
 	);
 	let filterText = "";
 	if (source.filter !== undefined) {
@@ -1179,6 +1141,7 @@ function buildLookupItemset(
 					userPropertySlugs: lookupSelects.userPropertySlugs,
 					lookup: {
 						naming: lookupSelects.naming,
+						instanceScope: "xform",
 						rowScope: {
 							tableId: source.tableId,
 							caseAnchor: { kind: "unaddressable" },
@@ -1189,11 +1152,15 @@ function buildLookupItemset(
 			for (const id of collectPredicateInstances(
 				filter,
 				lookupSelects.naming,
+				"xform",
 			)) {
 				if (id === "casedb" || id === "commcaresession") {
 					instances.require(id);
-				} else if (id.startsWith(LOOKUP_FIXTURE_ID_PREFIX)) {
-					instances.requireFixture(id, instanceSourceFor(id));
+				} else {
+					instances.requireFixture(
+						id,
+						instanceSourceFor(id, lookupSelects.naming),
+					);
 				}
 			}
 		}
@@ -1201,7 +1168,7 @@ function buildLookupItemset(
 	return el(
 		"itemset",
 		{
-			nodeset: `instance('${table.instanceId}')/${table.listElementName}/${table.rowElementName}${filterText}`,
+			nodeset: `instance('${table.xformInstanceId}')/${table.listElementName}/${table.rowElementName}${filterText}`,
 		},
 		[
 			el("label", { ref: table.wireNameFor(source.labelColumnId) }),
@@ -1243,8 +1210,8 @@ function buildLeafControl(
 	if (field.kind === "single_select" || field.kind === "multi_select") {
 		const tag = field.kind === "single_select" ? "select1" : "select";
 		// A lookup-backed select carries exactly one <itemset> and zero inline
-		// <item>s (JavaRosa rejects a select mixing both); its inline fallback
-		// options stay authored-only. Otherwise each `<item>`'s `<label ref>`
+		// <item>s (JavaRosa rejects a select mixing both). Otherwise each
+		// `<item>`'s `<label ref>`
 		// references the same per-INDEX itext id registered by the caller
 		// (`-opt${index}-label`), so duplicate option values never collide. The
 		// `<value>` emits `opt.value` verbatim — the serializer escapes it;
@@ -1310,7 +1277,7 @@ function buildContainer(
 	fieldUuid: Uuid,
 	nodePath: FormPath,
 	itextKey: string,
-	label: string | undefined,
+	label: ProseTemplate | undefined,
 	labelMedia: Media | undefined,
 	relevant: string | undefined,
 	insideRepeat: boolean,
@@ -1322,7 +1289,7 @@ function buildContainer(
 	bodyElements: Element[],
 	addItext: (
 		id: string,
-		label: string | undefined,
+		label: ProseTemplate | undefined,
 		media?: Media,
 		force?: boolean,
 	) => void,

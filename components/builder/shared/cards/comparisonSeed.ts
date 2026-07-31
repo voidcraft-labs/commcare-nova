@@ -2,9 +2,10 @@
 // component imports, so structural cards can seed a friendly first condition
 // without creating a component-registry cycle.
 
-import { canonicalCasePropertyName, isOrdered } from "@/lib/domain";
+import { isOrdered } from "@/lib/domain";
 import {
 	type ComparisonKind,
+	compatibleTypesFor,
 	eq,
 	gt,
 	gte,
@@ -15,13 +16,15 @@ import {
 	type Predicate,
 	prop,
 	sessionContext,
+	tableColumn,
 } from "@/lib/domain/predicate";
 import {
 	caseDataInScope,
 	globalPlaceholderTruth,
 	type PredicateEditContext,
+	tableRowInScope,
 } from "../editorSchemas";
-import { seedLiteralForProperty } from "./reseed";
+import { reseedLiteralForConstraint, seedLiteralForProperty } from "./reseed";
 
 type ComparisonArm<K extends ComparisonKind> = Extract<
 	Predicate,
@@ -55,6 +58,29 @@ export function comparisonDefault<K extends ComparisonKind>(
 		left: Parameters<typeof eq>[0],
 		right: Parameters<typeof eq>[1],
 	) => ComparisonArm<K>;
+	if (tableRowInScope(ctx)) {
+		const column = ctx.tableScope?.columns.find((candidate) =>
+			ORDERED_KINDS.has(kind)
+				? isOrdered({ data_type: candidate.dataType })
+				: true,
+		);
+		if (ctx.tableScope !== undefined && column !== undefined) {
+			return builder(
+				tableColumn(ctx.tableScope.tableId, column.id),
+				reseedLiteralForConstraint(
+					literal(""),
+					compatibleTypesFor(column.dataType),
+				),
+			);
+		}
+		/* The menu withholds this gesture when no active column exists. A direct
+		 * caller reaching the factory anyway is a programming error; returning
+		 * a session placeholder would commit a different rule than the
+		 * table-row gesture promised. */
+		throw new Error(
+			"A table-row comparison requires one admitted active-table column",
+		);
+	}
 	if (!caseDataInScope(ctx)) {
 		return builder(sessionContext("username"), literal(""));
 	}
@@ -62,7 +88,7 @@ export function comparisonDefault<K extends ComparisonKind>(
 	const property = ct?.properties.find((candidate) =>
 		ORDERED_KINDS.has(kind) ? isOrdered(candidate) : true,
 	);
-	const propName = canonicalCasePropertyName(property?.name ?? "");
+	const propName = property?.name ?? "";
 	return builder(
 		prop(ctx.currentCaseType, propName),
 		seedLiteralForProperty(property),
@@ -91,7 +117,9 @@ export function wrapSiblingDefault(
 	combinator: "and" | "or",
 	ctx: PredicateEditContext,
 ): Predicate {
-	if (!caseDataInScope(ctx)) return globalPlaceholder(combinator === "and");
+	if (!caseDataInScope(ctx) && !tableRowInScope(ctx)) {
+		return globalPlaceholder(combinator === "and");
+	}
 	return comparisonDefault("eq", ctx);
 }
 
@@ -105,7 +133,7 @@ export function wrapSiblingDefault(
 export function firstComparisonDefault(
 	ctx: PredicateEditContext,
 ): ComparisonArm<"eq"> | ComparisonArm<"neq"> {
-	return caseDataInScope(ctx)
+	return caseDataInScope(ctx) || tableRowInScope(ctx)
 		? comparisonDefault("eq", ctx)
 		: globalPlaceholder(globalPlaceholderTruth(ctx));
 }

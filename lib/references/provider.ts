@@ -14,14 +14,21 @@
 import type { XPathLintContext } from "@/lib/codemirror/xpath-lint";
 import { type FieldPath, fpath } from "@/lib/doc/fieldPath";
 import {
+	BUILT_IN_USER_PROPERTIES,
 	caseRefAcceptMap,
 	type FieldKind,
 	fieldKinds,
 	fieldRegistry,
 	HASHTAG_SEGMENT_SOURCE,
+	type ProseProjectionResult,
+	type ProseReferencePart,
+	type ProseTemplate,
+	projectProseTemplate,
+	type Uuid,
+	type XPathPrintableDoc,
 } from "@/lib/domain";
 import { classifyNamespace } from "./config";
-import type { Reference } from "./types";
+import type { Reference, ReferenceType } from "./types";
 
 /**
  * The pure (no-lookup) parse of a `#namespace/path` string. The namespace is
@@ -48,16 +55,39 @@ export const VALUE_PRODUCING_TYPES: ReadonlySet<FieldKind> = new Set(
 );
 
 /** User properties with human-readable labels — single source of truth. */
-export const USER_PROPERTIES: ReadonlyArray<{ name: string; label: string }> = [
-	{ name: "username", label: "Username" },
-	{ name: "first_name", label: "First Name" },
-	{ name: "last_name", label: "Last Name" },
-	{ name: "phone_number", label: "Phone Number" },
-];
+export const USER_PROPERTIES = BUILT_IN_USER_PROPERTIES.map((property) => ({
+	name: property.slug,
+	label: property.label,
+}));
 
-/** Mutable custom worker identities are offered only by XPath, whose AST stores
- * UUIDs. Prose keeps raw strings and must remain built-ins-only. */
 export type ReferenceSurface = "prose" | "xpath";
+
+/**
+ * A typed reference that cannot be projected through the owning form.
+ * `repairText` is deliberately identity-free: the UUID remains available only
+ * in the stored part and never becomes authored display text.
+ */
+export interface UnresolvedReferenceProjection {
+	readonly kind: "unresolved-reference";
+	readonly referenceKind: ProseReferencePart["kind"];
+	readonly type: ReferenceType;
+	readonly repairText: string;
+}
+
+export type ReferencePartProjection =
+	| { readonly ok: true; readonly reference: Reference }
+	| {
+			readonly ok: false;
+			readonly unresolved: UnresolvedReferenceProjection;
+	  };
+
+export type ReferenceTemplateProjection =
+	| { readonly ok: true; readonly text: string }
+	| {
+			readonly ok: false;
+			readonly text: string;
+			readonly unresolved: readonly UnresolvedReferenceProjection[];
+	  };
 
 /** A namespace is exactly one hashtag segment — same vocabulary as the
  *  shared matcher source, anchored to the whole token. */
@@ -75,7 +105,8 @@ export { fpath };
  *  validator). */
 interface FormCacheEntry {
 	ctx: XPathLintContext;
-	byPath: Map<string, { label: string; kind: FieldKind }>;
+	byPath: Map<string, { uuid: Uuid; label: string; kind: FieldKind }>;
+	byUuid: Map<Uuid, { path: FieldPath; label: string; kind: FieldKind }>;
 	accept: Map<string, Set<string>>;
 }
 
@@ -116,13 +147,13 @@ export class ReferenceProvider {
 		namespace: string,
 		query: string,
 		formUuid?: string,
-		surface: ReferenceSurface = "prose",
+		_surface: ReferenceSurface = "prose",
 	): Reference[] {
 		const lowerQuery = query.toLowerCase();
 
 		if (namespace === "user") {
 			const custom =
-				surface === "xpath" && formUuid !== undefined
+				formUuid !== undefined
 					? (this.getContextForForm(formUuid)?.userProperties ?? [])
 					: [];
 			const customSlugs = new Set(custom.map((property) => property.slug));
@@ -137,6 +168,10 @@ export class ReferenceProvider {
 					path: property.slug,
 					label: `${property.label} (${property.slug})`,
 					raw: `#user/${property.slug}`,
+					part: {
+						kind: "user-property-ref",
+						userPropertyUuid: property.uuid,
+					},
 				}));
 			const builtInResults: Reference[] = USER_PROPERTIES.filter(
 				(p) =>
@@ -148,6 +183,7 @@ export class ReferenceProvider {
 				path: p.name,
 				label: p.label,
 				raw: `#user/${p.name}`,
+				part: { kind: "user-ref", property: p.name },
 			}));
 			return [...customResults, ...builtInResults];
 		}
@@ -168,6 +204,7 @@ export class ReferenceProvider {
 						path: path as FieldPath,
 						label: meta.label,
 						raw: `#form/${path}`,
+						part: { kind: "field-ref", uuid: meta.uuid },
 						icon: fieldRegistry[meta.kind].icon,
 					});
 				}
@@ -190,6 +227,7 @@ export class ReferenceProvider {
 					path: name,
 					label: typeEntry?.properties.get(name)?.label ?? name,
 					raw: `#${namespace}/${name}`,
+					part: { kind: "case-ref", caseType: namespace, property: name },
 				});
 			}
 		}
@@ -208,13 +246,13 @@ export class ReferenceProvider {
 	resolve(
 		raw: string,
 		formUuid?: string,
-		surface: ReferenceSurface = "prose",
+		_surface: ReferenceSurface = "prose",
 	): Reference | null {
 		const parsed = ReferenceProvider.parse(raw);
 		if (!parsed) return null;
 
 		if (parsed.type === "user") {
-			if (surface === "xpath" && formUuid !== undefined) {
+			if (formUuid !== undefined) {
 				// Custom worker properties are mutable identities. Resolve them
 				// from the live context rather than the cached form index so a
 				// rename updates chips immediately without rewriting the XPath
@@ -228,12 +266,22 @@ export class ReferenceProvider {
 						path: custom.slug,
 						label: `${custom.label} (${custom.slug})`,
 						raw,
+						part: {
+							kind: "user-property-ref",
+							userPropertyUuid: custom.uuid,
+						},
 					};
 				}
 			}
 			const prop = USER_PROPERTIES.find((p) => p.name === parsed.path);
 			if (!prop) return null;
-			return { type: "user", path: parsed.path, label: prop.label, raw };
+			return {
+				type: "user",
+				path: parsed.path,
+				label: prop.label,
+				raw,
+				part: { kind: "user-ref", property: prop.name },
+			};
 		}
 
 		if (!formUuid) return null;
@@ -248,6 +296,7 @@ export class ReferenceProvider {
 				path: parsed.path as FieldPath,
 				raw,
 				label: found.label ?? parsed.path,
+				part: { kind: "field-ref", uuid: found.uuid },
 				icon: fieldRegistry[found.kind].icon,
 			};
 		}
@@ -265,7 +314,107 @@ export class ReferenceProvider {
 			path: parsed.path,
 			label: meta?.label ?? parsed.path,
 			raw,
+			part: {
+				kind: "case-ref",
+				caseType: parsed.caseType,
+				property: parsed.path,
+			},
 		};
+	}
+
+	/** Resolve an already-typed prose part without parsing a display path. */
+	resolvePart(part: ProseReferencePart, formUuid?: string): Reference | null {
+		if (part.kind === "user-ref") {
+			const property = USER_PROPERTIES.find((p) => p.name === part.property);
+			return {
+				type: "user",
+				path: part.property,
+				label: property?.label ?? part.property,
+				raw: `#user/${part.property}`,
+				part,
+			};
+		}
+		if (!formUuid) return null;
+		const cache = this.ensureCache(formUuid);
+		if (!cache) return null;
+		if (part.kind === "user-property-ref") {
+			const property = cache.ctx.userProperties?.find(
+				(candidate) => candidate.uuid === part.userPropertyUuid,
+			);
+			return property
+				? {
+						type: "user",
+						path: property.slug,
+						label: `${property.label} (${property.slug})`,
+						raw: `#user/${property.slug}`,
+						part,
+					}
+				: null;
+		}
+		if (part.kind === "field-ref") {
+			const field = cache.byUuid.get(part.uuid);
+			return field
+				? {
+						type: "form",
+						path: field.path,
+						label: field.label,
+						raw: `#form/${field.path}`,
+						part,
+						icon: fieldRegistry[field.kind].icon,
+					}
+				: null;
+		}
+		const allowed = cache.accept.get(part.caseType);
+		if (!allowed?.has(part.property)) return null;
+		return {
+			type: "case",
+			caseType: part.caseType,
+			path: part.property,
+			label:
+				cache.ctx.reachableCaseTypes
+					?.get(part.caseType)
+					?.properties.get(part.property)?.label ?? part.property,
+			raw: `#${part.caseType}/${part.property}`,
+			part,
+		};
+	}
+
+	/**
+	 * Resolve a stored part to its current friendly reference, or return the
+	 * structured repair state a human surface must render. Callers must not
+	 * reconstruct a display path from the stored identity.
+	 */
+	projectPart(
+		part: ProseReferencePart,
+		formUuid?: string,
+	): ReferencePartProjection {
+		const reference = this.resolvePart(part, formUuid);
+		return reference === null
+			? { ok: false, unresolved: unresolvedReferenceProjection(part) }
+			: { ok: true, reference };
+	}
+
+	/** Current identity-safe plain-text projection used by compact/search surfaces. */
+	projectTemplate(
+		template: ProseTemplate,
+		formUuid?: string,
+	): ReferenceTemplateProjection {
+		let result = "";
+		const unresolved: UnresolvedReferenceProjection[] = [];
+		for (const part of template.parts) {
+			if (part.kind === "text") result += part.text;
+			else {
+				const projected = this.projectPart(part, formUuid);
+				if (projected.ok) result += projected.reference.raw;
+				else {
+					unresolved.push(projected.unresolved);
+					result += projected.unresolved.repairText;
+				}
+			}
+		}
+		return unresolved.length === 0
+			? { ok: true, text: result }
+			: { ok: false, text: result, unresolved };
 	}
 
 	/**
@@ -294,6 +443,9 @@ export class ReferenceProvider {
 		if (slashIdx < 0) return null;
 		const ns = raw.slice(1, slashIdx);
 		if (!NAMESPACE_RE.test(ns)) return null;
+		// `case` is CommCare-private projection vocabulary, never an authored
+		// Nova namespace. Canonical case refs name their actual case type.
+		if (ns === "case") return null;
 		const path = raw.slice(slashIdx + 1);
 		if (!path) return null;
 		const family = classifyNamespace(ns);
@@ -315,16 +467,67 @@ export class ReferenceProvider {
 		if (cached) return cached;
 		const ctx = this.getContextForForm(formUuid);
 		if (!ctx) return undefined;
-		const byPath = new Map<string, { label: string; kind: FieldKind }>();
+		const byPath = new Map<
+			string,
+			{ uuid: Uuid; label: string; kind: FieldKind }
+		>();
+		const byUuid = new Map<
+			Uuid,
+			{ path: FieldPath; label: string; kind: FieldKind }
+		>();
 		for (const e of ctx.formEntries) {
-			byPath.set(e.path, { label: e.label, kind: e.kind });
+			byPath.set(e.path, { uuid: e.uuid, label: e.label, kind: e.kind });
+			byUuid.set(e.uuid, {
+				path: e.path as FieldPath,
+				label: e.label,
+				kind: e.kind,
+			});
 		}
 		const accept = ctx.reachableCaseTypes
 			? caseRefAcceptMap(ctx.reachableCaseTypes, ctx.formType)
 			: new Map<string, Set<string>>();
-		const entry: FormCacheEntry = { ctx, byPath, accept };
+		const entry: FormCacheEntry = { ctx, byPath, byUuid, accept };
 		this.caches.set(formUuid, entry);
 		return entry;
+	}
+}
+
+export function unresolvedReferenceProjection(
+	part: ProseReferencePart,
+): UnresolvedReferenceProjection {
+	switch (part.kind) {
+		case "field-ref":
+			return {
+				kind: "unresolved-reference",
+				referenceKind: part.kind,
+				type: "form",
+				repairText: "#form/[reference needs repair]",
+			};
+		case "case-ref":
+			return {
+				kind: "unresolved-reference",
+				referenceKind: part.kind,
+				type: "case",
+				repairText: `#${part.caseType}/[reference needs repair]`,
+			};
+		case "user-property-ref":
+			return {
+				kind: "unresolved-reference",
+				referenceKind: part.kind,
+				type: "user",
+				repairText: "#user/[reference needs repair]",
+			};
+		case "user-ref":
+			return {
+				kind: "unresolved-reference",
+				referenceKind: part.kind,
+				type: "user",
+				repairText: "#user/[reference needs repair]",
+			};
+		default: {
+			const _exhaustive: never = part;
+			return _exhaustive;
+		}
 	}
 }
 
@@ -337,15 +540,21 @@ export class ReferenceProvider {
  *  (FieldPicker icon lookup, autocomplete chip rendering) can index
  *  `fieldRegistry` without a widening cast. */
 export interface FieldEntryField {
+	readonly uuid: Uuid;
 	readonly id: string;
 	readonly kind: FieldKind;
-	readonly label?: string;
+	readonly label?: ProseTemplate;
 }
 
-/** Minimal doc projection consumed by `collectFieldEntries`. */
+/** Owning-document projection consumed by `collectFieldEntries`. Labels may
+ * contain UUID-backed references, so fields/order alone cannot distinguish a
+ * valid current path from a dangling identity. */
 export interface FieldEntrySource {
 	readonly fields: Readonly<Record<string, FieldEntryField>>;
-	readonly fieldOrder: Readonly<Record<string, readonly string[]>>;
+	readonly fieldOrder: Readonly<Record<string, readonly Uuid[]>>;
+	readonly forms: XPathPrintableDoc["forms"];
+	readonly fieldParent?: XPathPrintableDoc["fieldParent"];
+	readonly userProperties?: XPathPrintableDoc["userProperties"];
 }
 
 /**
@@ -361,12 +570,20 @@ export interface FieldEntrySource {
  */
 export function collectFieldEntries(
 	src: FieldEntrySource,
-	parentUuid: string,
+	parentUuid: Uuid,
 	parent?: FieldPath,
-): Array<{ path: FieldPath; label: string; kind: FieldKind }> {
+): Array<{
+	uuid: Uuid;
+	path: FieldPath;
+	label: string;
+	labelProjection: ProseProjectionResult;
+	kind: FieldKind;
+}> {
 	const entries: Array<{
+		uuid: Uuid;
 		path: FieldPath;
 		label: string;
+		labelProjection: ProseProjectionResult;
 		kind: FieldKind;
 	}> = [];
 	const childUuids = src.fieldOrder[parentUuid] ?? [];
@@ -374,9 +591,14 @@ export function collectFieldEntries(
 		const field = src.fields[uuid];
 		if (!field) continue;
 		const path = fpath(field.id, parent);
+		const labelProjection = field.label
+			? projectProseTemplate(field.label, src)
+			: ({ ok: true, text: path } as const);
 		entries.push({
+			uuid: field.uuid,
 			path,
-			label: field.label ?? path,
+			label: labelProjection.text.trim() || path,
+			labelProjection,
 			kind: field.kind,
 		});
 		if (field.kind === "group" || field.kind === "repeat") {

@@ -8,7 +8,7 @@
  *
  * Three exit branches:
  *
- *   1. Module index out of range → `{ error }`, no mutations.
+ *   1. Module UUID address does not resolve → `{ error }`, no mutations.
  *   2. The supplied order doesn't permute the existing uuids — length
  *      mismatch, duplicates, unknown uuids, or missing uuids →
  *      `{ error }`, no mutations.
@@ -18,26 +18,22 @@
 
 import { z } from "zod";
 import { asUuid, type BlueprintDoc, type Uuid } from "@/lib/domain";
-import {
-	reorderSearchInputsMutation,
-	resolveModuleUuid,
-} from "../../blueprintHelpers";
+import { reorderSearchInputsMutation } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import {
 	guardedMutate,
 	type MutatingToolResult,
 	toToolErrorResult,
 } from "../common";
+import {
+	moduleAddressSchema,
+	resolveModuleAddress,
+} from "../shared/entityAddresses";
 import type { ToolCallSummary } from "../shared/toolCallSummary";
-import { moduleNotFoundResult, uuidInputSchema } from "./shared";
+import { uuidInputSchema } from "./shared";
 
-export const reorderSearchInputsInputSchema = z
-	.object({
-		moduleIndex: z
-			.number()
-			.describe(
-				"0-based module index whose case list search inputs to reorder",
-			),
+export const reorderSearchInputsInputSchema = moduleAddressSchema
+	.extend({
 		searchInputUuids: z
 			.array(uuidInputSchema)
 			.describe(
@@ -69,23 +65,19 @@ export const reorderSearchInputsTool = {
 		ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<ReorderSearchInputsResult>> {
-		const { moduleIndex, searchInputUuids: rawSearchInputUuids } = input;
+		const { searchInputUuids: rawSearchInputUuids } = input;
 		const searchInputUuids = rawSearchInputUuids.map(asUuid);
 		try {
-			const moduleUuid = resolveModuleUuid(doc, moduleIndex);
-			if (!moduleUuid)
-				return moduleNotFoundResult<ReorderSearchInputsSuccess>(
-					doc,
-					moduleIndex,
-					"reorder search inputs",
-				);
-			const mod = doc.modules[moduleUuid];
-			if (!mod)
-				return moduleNotFoundResult<ReorderSearchInputsSuccess>(
-					doc,
-					moduleIndex,
-					"reorder search inputs",
-				);
+			const address = resolveModuleAddress(doc, input);
+			if (!address.ok) {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					newDoc: doc,
+					result: { error: address.error },
+				};
+			}
+			const { moduleUuid, module: mod } = address;
 
 			const result = reorderSearchInputsMutation(mod, searchInputUuids);
 			if ("error" in result) {
@@ -101,7 +93,7 @@ export const reorderSearchInputsTool = {
 				ctx,
 				doc,
 				result.mutations,
-				`module:${moduleIndex}:caseList:searchInput:reorder`,
+				`module:${moduleUuid}:caseList:searchInput:reorder`,
 			);
 			if (!commit.ok) {
 				return {
@@ -115,7 +107,7 @@ export const reorderSearchInputsTool = {
 
 			return {
 				kind: "mutate" as const,
-				mutations: result.mutations,
+				mutations: commit.mutations,
 				newDoc,
 				result: {
 					message: `Reordered ${searchInputUuids.length} search input${searchInputUuids.length === 1 ? "" : "s"} on module "${mod.name}".`,

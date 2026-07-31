@@ -20,6 +20,7 @@
 // property name and an empty `match` value. Pure — no React, no DOM.
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	type CaseProperty,
 	type CasePropertyDataType,
@@ -40,7 +41,6 @@ import {
 	input,
 	isBlank,
 	isIn,
-	isNull,
 	literal,
 	match,
 	matchAll,
@@ -59,6 +59,7 @@ import {
 	whenInput,
 	within,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import {
 	STRUCTURE_ENTRIES,
 	subjectOf,
@@ -68,20 +69,23 @@ import {
 import {
 	type PredicateEditContext,
 	predicateCardSchemaList,
-	predicateCardSchemas,
 } from "../editorSchemas";
 
 // ── Fixtures ───────────────────────────────────────────────────────────
 
 /** One property per data type — a subject of any type is constructible. */
 function propOf(dt: CasePropertyDataType): CaseProperty {
-	const base: CaseProperty = { name: `p_${dt}`, label: dt, data_type: dt };
+	const base: CaseProperty = {
+		name: `p_${dt}`,
+		label: proseText(dt),
+		data_type: dt,
+	};
 	if (dt === "single_select" || dt === "multi_select") {
 		return {
 			...base,
 			options: [
-				{ value: "a", label: "A" },
-				{ value: "b", label: "B" },
+				{ value: "a", label: proseText("A") },
+				{ value: "b", label: proseText("B") },
 			],
 		};
 	}
@@ -102,7 +106,9 @@ const CT: CaseType = {
 };
 const CASE_TYPES = [PARENT, CT];
 // One known input so `when-input-present` is admitted + resolves.
-const KNOWN_INPUTS = [{ name: "q", data_type: "text" as const }];
+const KNOWN_INPUTS = [
+	{ uuid: testUuid("q"), name: "q", data_type: "text" as const },
+];
 
 const EDIT_CTX: PredicateEditContext = {
 	caseTypes: CASE_TYPES,
@@ -159,7 +165,6 @@ const CURRENTS: Predicate[] = [
 	match(P("date"), term(literal("x")), "fuzzy-date"),
 	isIn(P("int"), literal(1), literal(2)),
 	isIn(P("text"), literal("a"), literal("b")),
-	isNull(P("text")),
 	isBlank(P("text")),
 	multiSelectAny(P("multi_select"), literal("a")),
 	within(P("geopoint"), literal("12 34"), 5, "miles"),
@@ -167,7 +172,7 @@ const CURRENTS: Predicate[] = [
 	or(eq(P("text"), literal("x")), eq(P("int"), literal(5))),
 	not(eq(P("text"), literal("x"))),
 	exists(ancestorPath(relationStep("parent"))),
-	whenInput(input("q"), matchAll()),
+	whenInput(input(testUuid("q")), matchAll()),
 	matchAll(),
 	matchNone(),
 ];
@@ -232,19 +237,25 @@ describe("valid by construction — every admitted verb build type-checks", () =
 		const origin: CaseType = {
 			name: "child",
 			parent_type: "parent",
-			properties: [{ name: "rank", label: "Rank", data_type: "int" }],
+			properties: [
+				{ name: "rank", label: proseText("Rank"), data_type: "int" },
+			],
 		};
 		const destination: CaseType = {
 			name: "parent",
 			properties: [
-				{ name: "name", label: "Name", data_type: "text" },
+				{
+					name: "display_name",
+					label: proseText("Name"),
+					data_type: "text",
+				},
 				{
 					name: "tags",
-					label: "Tags",
+					label: proseText("Tags"),
 					data_type: "multi_select",
-					options: [{ value: "a", label: "A" }],
+					options: [{ value: "a", label: proseText("A") }],
 				},
-				{ name: "place", label: "Place", data_type: "geopoint" },
+				{ name: "place", label: proseText("Place"), data_type: "geopoint" },
 			],
 		};
 		const editCtx: PredicateEditContext = {
@@ -265,7 +276,7 @@ describe("valid by construction — every admitted verb build type-checks", () =
 			expectedKind: Predicate["kind"];
 		}> = [
 			{
-				current: eq(prop("child", "name", via), literal("A")),
+				current: eq(prop("child", "display_name", via), literal("A")),
 				entryId: "match:starts-with",
 				expectedKind: "match",
 			},
@@ -298,21 +309,6 @@ describe("valid by construction — every admitted verb build type-checks", () =
 			expect(predicateSchema.safeParse(next).success).toBe(true);
 			expect(checkPredicate(next, typeCtx).ok).toBe(true);
 		}
-	});
-
-	it("keeps strict absence recovery-only instead of authoring an unexportable edit", () => {
-		const entry = VERB_ENTRIES.find((candidate) => candidate.id === "is-null");
-		if (entry === undefined) throw new Error("Missing strict absence verb");
-		const current = isNull(P("text"));
-		const ordinary = eq(P("text"), literal("saved"));
-
-		expect(
-			verbEntryAdmitted(entry, current, subjectTypeOf(current), EDIT_CTX),
-		).toBe(true);
-		expect(
-			verbEntryAdmitted(entry, ordinary, subjectTypeOf(ordinary), EDIT_CTX),
-		).toBe(false);
-		expect(predicateCardSchemas["is-null"].authoring).toBe("roundTripOnly");
 	});
 
 	it("does not admit an absence check for a direct literal subject", () => {
@@ -357,9 +353,7 @@ describe("valid by construction — every registry default seeds a valid AST", (
 			};
 			for (const schema of predicateCardSchemaList) {
 				// Only the kinds the editor would actually offer here.
-				if (schema.authoring !== "authorable" || !schema.applicable(editCtx)) {
-					continue;
-				}
+				if (!schema.applicable(editCtx)) continue;
 				const seed = schema.defaultValue(editCtx);
 				expect(
 					predicateSchema.safeParse(seed).success,

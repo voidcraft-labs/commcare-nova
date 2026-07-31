@@ -123,7 +123,6 @@ export function mapPredicateAst(
 			if (upper !== undefined) next.upper = upper;
 			return next;
 		}
-		case "is-null":
 		case "is-blank": {
 			const left = mapExpr(predicate.left);
 			if (left === predicate.left) return predicate;
@@ -176,7 +175,6 @@ export function mapPredicateAst(
 						"multi-select-contains",
 						"match",
 						"within-distance",
-						"is-null",
 						"is-blank",
 						"when-input-present",
 						"exists",
@@ -224,8 +222,7 @@ export function mapExpressionAst(
 		}
 		case "date-coerce":
 		case "datetime-coerce":
-		case "double":
-		case "unwrap-list": {
+		case "double": {
 			const value = mapExpr(expression.value);
 			if (value === expression.value) return expression;
 			return { kind: expression.kind, value };
@@ -319,7 +316,6 @@ export function mapExpressionAst(
 						"if",
 						"switch",
 						"count",
-						"unwrap-list",
 						"format-date",
 						"table-lookup",
 						"id-of",

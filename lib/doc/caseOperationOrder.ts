@@ -2,6 +2,7 @@ import type { BlueprintDoc, CaseOperation, Uuid } from "@/lib/domain";
 import {
 	AUTHORED_CASE_ID_VERSION,
 	CASE_LOADING_FORM_TYPES,
+	deriveCaseWriteInventory,
 	orderedCaseOperations,
 } from "@/lib/domain";
 import {
@@ -600,16 +601,11 @@ function analyzeCaseOperationTargetOrder(
  * Whether the ordinary FormActions emitted after advanced operations have a
  * type-sensitive reference to the form's loaded session case.
  *
- * Case-loading forms do so when they contain a primary property writer, or
- * when they create a child case whose parent index points back at the primary
- * case. `case_name` is not an ordinary update property on a follow-up/close
- * form. Preloads run before submission, and an otherwise write-free close
- * action only needs an id, so neither is a final type consumer.
- *
- * This intentionally speaks only Nova's field annotations. Reserved/media
- * mappings are independently invalid and filtered at the wire boundary; on a
- * valid document every mapping counted here becomes one of the two ordinary
- * effects above.
+ * Case-loading forms do so when the canonical inventory contains a primary
+ * writer (including `case_name`) or a direct-child create bucket whose parent
+ * index points back at the primary case. Preloads run before submission, and
+ * an otherwise write-free close action only needs an id, so neither is a final
+ * type consumer.
  */
 export function ordinaryFormActionsRequireSessionType(
 	doc: BlueprintDoc,
@@ -620,27 +616,13 @@ export function ordinaryFormActionsRequireSessionType(
 	if (form === undefined || !CASE_LOADING_FORM_TYPES.has(form.type)) {
 		return false;
 	}
-	const visit = (parentUuid: Uuid): boolean => {
-		for (const fieldUuid of orderedFieldUuids(doc, parentUuid)) {
-			const field = doc.fields[fieldUuid];
-			if (field === undefined) continue;
-			const casePropertyOn = (
-				field as typeof field & { readonly case_property_on?: unknown }
-			).case_property_on;
-			if (
-				typeof casePropertyOn === "string" &&
-				casePropertyOn.length > 0 &&
-				(casePropertyOn !== moduleCaseType || field.id !== "case_name")
-			) {
-				return true;
-			}
-			if (doc.fieldOrder[fieldUuid] !== undefined && visit(fieldUuid)) {
-				return true;
-			}
-		}
-		return false;
-	};
-	return visit(formUuid);
+	const inventory = deriveCaseWriteInventory(
+		doc,
+		formUuid,
+		{ caseType: moduleCaseType },
+		form.type,
+	);
+	return inventory.buckets.some((bucket) => bucket.writers.length > 0);
 }
 
 export function sameCaseOperationTargetIdentity(

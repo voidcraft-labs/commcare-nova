@@ -18,11 +18,14 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	type BlueprintDoc,
+	type CaseSearchConfig,
 	caseSearchConfigSchema,
-	emptyCaseListConfig,
+	isOrdinaryCaseSearchConfig,
 	type Module,
+	type OrdinaryCaseSearchConfig,
 } from "@/lib/domain";
 import { eq, literal, matchAll, prop, term } from "@/lib/domain/predicate";
 import { setCaseSearchDisplayTool } from "../setCaseSearchDisplay";
@@ -32,12 +35,28 @@ import {
 	makeCaseSearchMcpFixture,
 } from "./fixtures";
 
+const MISSING_MODULE = testUuid("missing-case-search-module");
+
+function ordinary(
+	config: CaseSearchConfig | undefined,
+): OrdinaryCaseSearchConfig {
+	if (!isOrdinaryCaseSearchConfig(config)) {
+		throw new Error("expected ordinary Search config");
+	}
+	return config;
+}
+
 vi.mock("@/lib/db/apps", () => ({
 	completeApp: vi.fn(() => Promise.resolve()),
 }));
 
 vi.mock("@/lib/db/applyBlueprintChange", () => ({
-	applyBlueprintChange: vi.fn(() => Promise.resolve({ seq: 0 })),
+	applyBlueprintChange: vi.fn(async (args) => {
+		const { commitApplyBlueprintChangeTestBatch } = await import(
+			"@/lib/db/__tests__/applyBlueprintChangeTestWriter"
+		);
+		return commitApplyBlueprintChangeTestBatch(args);
+	}),
 }));
 
 beforeEach(() => {
@@ -54,12 +73,12 @@ describe("setCaseSearchDisplay", () => {
 		const { doc, ctx } = makeCaseSearchFixture();
 		const result = await setCaseSearchDisplayTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				searchScreenTitle: null,
 				searchScreenSubtitle: null,
 				searchButtonLabel: null,
 				searchButtonDisplayCondition: eq(
-					prop("patient", "external-id"),
+					prop("patient", "external_id"),
 					literal("abc"),
 				),
 			},
@@ -80,7 +99,7 @@ describe("setCaseSearchDisplay", () => {
 
 		const result = await setCaseSearchDisplayTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				searchScreenTitle: "Find a patient",
 				searchScreenSubtitle: "Type to filter",
 				searchButtonLabel: "Search",
@@ -92,10 +111,11 @@ describe("setCaseSearchDisplay", () => {
 
 		expect(result.kind).toBe("mutate");
 		const config = result.newDoc.modules[MOD_A]?.caseSearchConfig;
-		expect(config?.searchScreenTitle).toBe("Find a patient");
-		expect(config?.searchScreenSubtitle).toBe("Type to filter");
-		expect(config?.searchButtonLabel).toBe("Search");
-		expect(config?.searchButtonDisplayCondition).toEqual(buttonCondition);
+		const search = ordinary(config);
+		expect(search.searchScreenTitle).toBe("Find a patient");
+		expect(search.searchScreenSubtitle).toBe("Type to filter");
+		expect(search.searchButtonLabel).toBe("Search");
+		expect(search.searchButtonDisplayCondition).toEqual(buttonCondition);
 		// Schema-strict round-trip — `caseSearchConfigSchema` is `.strict()`,
 		// so the persisted config's key set must be exactly the schema's
 		// declared slots. Catches the shape drift the observable-shape
@@ -111,7 +131,7 @@ describe("setCaseSearchDisplay", () => {
 		const { doc, ctx } = makeCaseSearchFixture();
 		const result = await setCaseSearchDisplayTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				searchScreenTitle: "Search patients",
 				searchScreenSubtitle: null,
 				searchButtonLabel: "Go",
@@ -154,7 +174,7 @@ describe("setCaseSearchDisplay", () => {
 
 		const result = await setCaseSearchDisplayTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				searchScreenTitle: null,
 				searchScreenSubtitle: null,
 				searchButtonLabel: null,
@@ -165,14 +185,7 @@ describe("setCaseSearchDisplay", () => {
 		);
 
 		const config = result.newDoc.modules[MOD_A]?.caseSearchConfig;
-		expect(config?.searchScreenTitle).toBeUndefined();
-		expect(config?.searchScreenSubtitle).toBeUndefined();
-		expect(config?.searchButtonLabel).toBeUndefined();
-		expect(config?.searchButtonDisplayCondition).toBeUndefined();
-		// None of the cleared keys remain on the object.
-		if (!config) throw new Error("expected config");
-		expect("searchScreenTitle" in config).toBe(false);
-		expect("searchButtonDisplayCondition" in config).toBe(false);
+		expect(config).toBeUndefined();
 		if ("error" in result.result) {
 			throw new Error(`unexpected error: ${result.result.error}`);
 		}
@@ -200,7 +213,7 @@ describe("setCaseSearchDisplay", () => {
 
 		const result = await setCaseSearchDisplayTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				searchScreenTitle: "Find patients",
 				searchScreenSubtitle: null,
 				searchButtonLabel: null,
@@ -211,20 +224,28 @@ describe("setCaseSearchDisplay", () => {
 		);
 
 		const config = result.newDoc.modules[MOD_A]?.caseSearchConfig;
-		expect(config?.excludedOwnerIds).toEqual(seededOwners);
+		const search = ordinary(config);
+		expect(search.excludedOwnerIds).toEqual(seededOwners);
 		// Display update landed.
-		expect(config?.searchScreenTitle).toBe("Find patients");
+		expect(search.searchScreenTitle).toBe("Find patients");
 	});
 
 	it("turns an owner-only config into explicit Search when action copy is set", async () => {
 		const { doc: baseDoc, ctx } = makeCaseSearchFixture();
 		const owner = term({ kind: "literal", value: "owner-a" });
+		const mod = baseDoc.modules[MOD_A];
+		if (mod?.caseListConfig === undefined) {
+			throw new Error("fixture must carry a case-list config");
+		}
 		const ownerOnlyDoc: BlueprintDoc = {
 			...baseDoc,
 			modules: {
 				[MOD_A]: {
-					...baseDoc.modules[MOD_A],
-					caseListConfig: emptyCaseListConfig(),
+					...mod,
+					caseListConfig: {
+						...mod.caseListConfig,
+						searchInputs: [],
+					},
 					caseSearchConfig: {
 						searchActionEnabled: false,
 						excludedOwnerIds: owner,
@@ -234,7 +255,7 @@ describe("setCaseSearchDisplay", () => {
 		};
 		const result = await setCaseSearchDisplayTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				searchScreenTitle: null,
 				searchScreenSubtitle: null,
 				searchButtonLabel: "Refresh cases",
@@ -249,11 +270,11 @@ describe("setCaseSearchDisplay", () => {
 		});
 	});
 
-	it("returns an Elm-style error on out-of-range moduleIndex", async () => {
+	it("returns an Elm-style error for an unknown module UUID", async () => {
 		const { doc, ctx } = makeCaseSearchFixture();
 		const result = await setCaseSearchDisplayTool.execute(
 			{
-				moduleIndex: 99,
+				moduleUuid: MISSING_MODULE,
 				searchScreenTitle: null,
 				searchScreenSubtitle: null,
 				searchButtonLabel: null,
@@ -267,11 +288,8 @@ describe("setCaseSearchDisplay", () => {
 		if (!("error" in result.result)) {
 			throw new Error("expected error result");
 		}
-		expect(result.result.error).toContain(
-			"Tried to set the case-search display cluster",
-		);
-		expect(result.result.error).toContain("module index 99");
-		expect(result.result.error).toContain("Found no module");
+		expect(result.result.error).toContain(MISSING_MODULE);
+		expect(result.result.error).toContain("No module with UUID");
 	});
 
 	it("initializes the caseSearchConfig with an empty rebuild when the module has none", async () => {
@@ -290,7 +308,7 @@ describe("setCaseSearchDisplay", () => {
 
 		const result = await setCaseSearchDisplayTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				searchScreenTitle: "Find a patient",
 				searchScreenSubtitle: null,
 				searchButtonLabel: null,
@@ -301,8 +319,7 @@ describe("setCaseSearchDisplay", () => {
 		);
 
 		const config = result.newDoc.modules[MOD_A]?.caseSearchConfig;
-		expect(config).toBeDefined();
-		expect(config?.searchScreenTitle).toBe("Find a patient");
+		expect(ordinary(config).searchScreenTitle).toBe("Find a patient");
 		// Schema-strict round-trip — every cluster key is optional, so
 		// a config carrying only one display slot still validates.
 		expect(caseSearchConfigSchema.safeParse(config).success).toBe(true);
@@ -315,7 +332,7 @@ describe("setCaseSearchDisplay", () => {
 		const { doc, ctx: chatCtx } = makeCaseSearchFixture();
 		const { ctx: mcpCtx } = makeCaseSearchMcpFixture();
 		const input = {
-			moduleIndex: 0,
+			moduleUuid: MOD_A,
 			searchScreenTitle: "Find a patient",
 			searchScreenSubtitle: null,
 			searchButtonLabel: "Go",
@@ -334,7 +351,7 @@ describe("setCaseSearchDisplay", () => {
 		// the regression class: an SA handing a slot name the cluster
 		// doesn't carry hits the boundary, not a silent strip.
 		const parseResult = setCaseSearchDisplayTool.inputSchema.safeParse({
-			moduleIndex: 0,
+			moduleUuid: MOD_A,
 			searchScreenTitle: null,
 			searchScreenSubtitle: null,
 			searchButtonLabel: null,

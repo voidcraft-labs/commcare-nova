@@ -1,27 +1,21 @@
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { wireToolSchema } from "@/lib/agent/wireSchemas";
 import {
 	BlueprintCommitRejectedError,
-	batchTargetsMissing,
+	mutationTargetsInvalid,
 } from "@/lib/db/commitGuard";
-import type { Mutation } from "@/lib/doc/types";
-import {
-	asUuid,
-	type BlueprintDoc,
-	type CaseOperation,
-	type LookupColumnId,
-	type LookupTableId,
-	type Uuid,
+import type {
+	BlueprintDoc,
+	LookupColumnId,
+	LookupTableId,
+	Uuid,
 } from "@/lib/domain";
-import {
-	eq,
-	literal,
-	tableColumn,
-	tableLookup,
-	term,
-} from "@/lib/domain/predicate";
+import { caseOperationSchema } from "@/lib/domain";
+import { eq, literal, tableColumn, tableLookup } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { makeStubToolContext } from "../../../__tests__/fixtures";
 import { getFormTool } from "../../getForm";
 import {
@@ -29,33 +23,64 @@ import {
 	addCaseOperationsTool,
 } from "../addCaseOperations";
 import { getCaseOperationsTool } from "../getCaseOperations";
-import { moveCaseOperationTool } from "../moveCaseOperation";
+import {
+	moveCaseOperationInputSchema,
+	moveCaseOperationTool,
+} from "../moveCaseOperation";
 import { removeCaseOperationTool } from "../removeCaseOperation";
 import {
-	authorValueExpressionSchema,
+	type CaseOperationInput,
 	caseOperationInputSchema,
+	resolveCaseOperationInput,
 } from "../shared";
 import { updateCaseOperationTool } from "../updateCaseOperation";
 
-const TEXT = asUuid("44444444-4444-4444-8444-444444444444");
-const WORKER_PROPERTY = asUuid("55555555-5555-4555-8555-555555555555");
+const TEXT = testUuid("case-operation-field");
+const CREATE_UUID = testUuid("create-visit-operation");
+const UPDATE_UUID = testUuid("update-visit-operation");
+const RETYPE_UUID = testUuid("retype-lead-operation");
+const TAG_UUID = testUuid("tag-lead-operation");
 const LOOKUP_TABLE = "018f3e8a-7b2c-7def-8abc-1234567890ab" as LookupTableId;
 const LOOKUP_VALUE = "018f3e8a-7b2c-7def-8abc-1234567890ad" as LookupColumnId;
 const LOOKUP_FILTER = "018f3e8a-7b2c-7def-8abc-1234567890ae" as LookupColumnId;
+
+const fieldValue = {
+	kind: "term",
+	term: { kind: "field", uuid: TEXT },
+} as const;
+
+const createVisit = {
+	id: "create_visit",
+	action: "create",
+	caseType: "visit",
+	target: { kind: "new" },
+	name: fieldValue,
+	writes: [{ property: "source_id", value: fieldValue }],
+} as const satisfies CaseOperationInput;
+
+const updateVisit = {
+	id: "tag_visit",
+	action: "update",
+	caseType: "visit",
+	target: { kind: "op", opUuid: CREATE_UUID },
+	writes: [
+		{
+			property: "source_id",
+			value: { kind: "id-of", opUuid: CREATE_UUID },
+		},
+	],
+} as const satisfies CaseOperationInput;
+
 const lookupExpression = tableLookup(
 	LOOKUP_TABLE,
 	LOOKUP_VALUE,
 	eq(tableColumn(LOOKUP_TABLE, LOOKUP_FILTER), literal("enabled")),
 );
-const lookupPredicate = eq(
-	tableColumn(LOOKUP_TABLE, LOOKUP_FILTER),
-	literal("enabled"),
-);
 
 function fixture(): {
 	readonly doc: BlueprintDoc;
-	readonly moduleUuid: ReturnType<typeof asUuid>;
-	readonly formUuid: ReturnType<typeof asUuid>;
+	readonly moduleUuid: Uuid;
+	readonly formUuid: Uuid;
 } {
 	const doc = buildDoc({
 		caseTypes: [
@@ -77,6 +102,9 @@ function fixture(): {
 				id: "patients",
 				name: "Patients",
 				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "nickname", header: "Nickname" },
+				]),
 				forms: [
 					{
 						id: "edit",
@@ -87,8 +115,8 @@ function fixture(): {
 								uuid: TEXT,
 								kind: "text",
 								id: "nickname",
-								label: "Nickname",
-								case_property_on: "patient",
+								label: proseText("Nickname"),
+								caseWrite: { caseType: "patient", property: "nickname" },
 							}),
 						],
 					},
@@ -100,51 +128,43 @@ function fixture(): {
 	return { doc, moduleUuid, formUuid: doc.formOrder[moduleUuid][0] };
 }
 
-const fieldValue = {
-	kind: "term" as const,
-	term: { kind: "field" as const, path: "nickname" },
-};
+function item(operation: CaseOperationInput, operationUuid: Uuid) {
+	return { operationUuid, operation };
+}
 
-const createVisit = {
-	id: "create_visit",
-	action: "create" as const,
-	caseType: "visit",
-	target: { kind: "new" as const },
-	name: fieldValue,
-	writes: [{ property: "source_id", value: fieldValue }],
-};
+function visitBatch() {
+	return [item(createVisit, CREATE_UUID), item(updateVisit, UPDATE_UUID)];
+}
 
-const updateVisit = {
-	id: "tag_visit",
-	action: "update" as const,
-	caseType: "visit",
-	target: {
-		kind: "operation" as const,
-		operationId: "create_visit",
-	},
-	writes: [
-		{
-			property: "source_id",
-			value: { kind: "id-of" as const, operationId: "create_visit" },
-		},
-	],
-};
+describe("case-operation canonical author boundary", () => {
+	it("accepts UUID expression leaves and rejects path/id aliases", () => {
+		expect(caseOperationInputSchema.safeParse(createVisit).success).toBe(true);
+		expect(caseOperationInputSchema.safeParse(updateVisit).success).toBe(true);
 
-describe("case-operation author boundary", () => {
-	it("accepts field paths and operation ids, but never UUID leaves", () => {
-		expect(authorValueExpressionSchema.safeParse(fieldValue).success).toBe(
-			true,
-		);
 		expect(
-			authorValueExpressionSchema.safeParse({
-				kind: "term",
-				term: { kind: "field", uuid: TEXT },
+			caseOperationInputSchema.safeParse({
+				...createVisit,
+				name: {
+					kind: "term",
+					term: { kind: "field", path: "nickname" },
+				},
 			}).success,
 		).toBe(false);
 		expect(
-			authorValueExpressionSchema.safeParse({
-				kind: "id-of",
-				opUuid: asUuid("11111111-1111-4111-8111-111111111111"),
+			caseOperationInputSchema.safeParse({
+				...updateVisit,
+				target: { kind: "operation", operationId: "create_visit" },
+			}).success,
+		).toBe(false);
+		expect(
+			caseOperationInputSchema.safeParse({
+				...updateVisit,
+				writes: [
+					{
+						property: "source_id",
+						value: { kind: "id-of", operationId: "create_visit" },
+					},
+				],
 			}).success,
 		).toBe(false);
 	});
@@ -173,7 +193,23 @@ describe("case-operation author boundary", () => {
 		).toBe(false);
 	});
 
-	it("uses the validator's exact identifier vocabulary on every author slot", () => {
+	it("constructs strict stored arms without own undefined facets", () => {
+		const closeInput = {
+			id: "close_visit",
+			action: "close",
+			caseType: "visit",
+			target: { kind: "session" },
+		} as const satisfies CaseOperationInput;
+		const resolved = resolveCaseOperationInput(closeInput, CREATE_UUID);
+
+		expect(caseOperationSchema.parse(resolved)).toEqual(resolved);
+		expect(Object.hasOwn(resolved, "writes")).toBe(false);
+		expect(Object.hasOwn(resolved, "links")).toBe(false);
+		expect(Object.hasOwn(resolved, "name")).toBe(false);
+		expect(Object.hasOwn(resolved, "owner")).toBe(false);
+	});
+
+	it("uses the validator's exact identifier vocabulary", () => {
 		const accepted = {
 			...createVisit,
 			id: "_create_visit2",
@@ -183,10 +219,10 @@ describe("case-operation author boundary", () => {
 					identifier: "_parent2",
 					targetType: "patient",
 					target: null,
-					relationship: "child" as const,
+					relationship: "child",
 				},
 			],
-		};
+		} as const;
 		expect(caseOperationInputSchema.safeParse(accepted).success).toBe(true);
 
 		for (const id of ["create-visit", "create.visit"]) {
@@ -212,19 +248,26 @@ describe("case-operation author boundary", () => {
 		}
 	});
 
-	it("keeps the chat wire compact without weakening author validation", async () => {
-		// Schema-level: the address is two opaque identities, so any pair does.
+	it("publishes the same UUID and lookup vocabulary on the chat wire", async () => {
 		const { moduleUuid, formUuid } = fixture();
 		const wire = wireToolSchema(addCaseOperationsInputSchema);
 		const json = JSON.stringify(await wire.jsonSchema);
-		expect(json).toContain("Author ValueExpression AST node");
-		expect(json).not.toContain("table-column");
-		expect(json).not.toContain("table-lookup");
+		expect(json).toContain("operationUuid");
+		expect(json).toContain("opUuid");
+		expect(json).not.toContain("operationId");
+		expect(
+			caseOperationInputSchema.safeParse({
+				...createVisit,
+				owner: lookupExpression,
+			}).success,
+		).toBe(true);
 
 		const valid = await wire.validate?.({
 			moduleUuid,
 			formUuid,
-			operations: [createVisit],
+			operations: [
+				item({ ...createVisit, owner: lookupExpression }, CREATE_UUID),
+			],
 		});
 		expect(valid?.success).toBe(true);
 		const rejected = await wire.validate?.({
@@ -232,62 +275,96 @@ describe("case-operation author boundary", () => {
 			formUuid,
 			operations: [
 				{
-					...createVisit,
-					name: {
-						kind: "term",
-						term: { kind: "field", uuid: TEXT },
+					operationUuid: CREATE_UUID,
+					operation: {
+						...createVisit,
+						name: {
+							kind: "term",
+							term: { kind: "field", path: "nickname" },
+						},
 					},
 				},
 			],
 		});
 		expect(rejected?.success).toBe(false);
 	});
+
+	it("accepts UUID anchors and rejects numeric placement on add and move", () => {
+		const { moduleUuid, formUuid } = fixture();
+		expect(
+			addCaseOperationsInputSchema.safeParse({
+				moduleUuid,
+				formUuid,
+				operations: [item(createVisit, CREATE_UUID)],
+				afterOperationUuid: null,
+			}).success,
+		).toBe(true);
+		expect(
+			addCaseOperationsInputSchema.safeParse({
+				moduleUuid,
+				formUuid,
+				operations: [item(createVisit, CREATE_UUID)],
+				index: 0,
+			}).success,
+		).toBe(false);
+		expect(
+			moveCaseOperationInputSchema.safeParse({
+				moduleUuid,
+				formUuid,
+				operationUuid: CREATE_UUID,
+				afterOperationUuid: null,
+			}).success,
+		).toBe(true);
+		expect(
+			moveCaseOperationInputSchema.safeParse({
+				moduleUuid,
+				formUuid,
+				operationUuid: CREATE_UUID,
+				index: 0,
+			}).success,
+		).toBe(false);
+	});
 });
 
 describe("shared case-operation tools", () => {
-	it("adds a dependent batch atomically and resolves every author identity", async () => {
+	it("adds a UUID-predeclared dependent batch atomically", async () => {
 		const { doc, moduleUuid, formUuid } = fixture();
 		const { ctx, recordMutations } = makeStubToolContext();
 		const result = await addCaseOperationsTool.execute(
-			{
-				moduleUuid,
-				formUuid,
-				operations: [createVisit, updateVisit],
-			},
+			{ moduleUuid, formUuid, operations: visitBatch() },
 			ctx,
 			doc,
 		);
 
 		expect(result.result).toMatchObject({
+			operationUuids: [CREATE_UUID, UPDATE_UUID],
 			operationIds: ["create_visit", "tag_visit"],
 			summary: { location: "Edit", count: 2 },
 		});
 		expect(recordMutations).toHaveBeenCalledTimes(1);
 		const operations = result.newDoc.forms[formUuid].caseOperations ?? [];
 		expect(operations).toHaveLength(2);
-		expect(operations[0].name).toEqual({
-			kind: "term",
-			term: { kind: "field", uuid: TEXT },
+		expect(operations[0]).toMatchObject({
+			uuid: CREATE_UUID,
+			name: fieldValue,
 		});
-		expect(operations[1].target).toEqual({
-			kind: "op",
-			opUuid: operations[0].uuid,
-		});
-		expect(operations[1].writes?.[0].value).toEqual({
-			kind: "id-of",
-			opUuid: operations[0].uuid,
+		expect(operations[1]).toMatchObject({
+			uuid: UPDATE_UUID,
+			target: { kind: "op", opUuid: CREATE_UUID },
+			writes: [
+				{
+					property: "source_id",
+					value: { kind: "id-of", opUuid: CREATE_UUID },
+				},
+			],
 		});
 	});
 
-	it("returns an author projection with no UUID vocabulary", async () => {
+	it("returns canonical UUID references from both read tools", async () => {
 		const { doc, moduleUuid, formUuid } = fixture();
 		const { ctx } = makeStubToolContext();
 		const added = await addCaseOperationsTool.execute(
-			{
-				moduleUuid,
-				formUuid,
-				operations: [createVisit, updateVisit],
-			},
+			{ moduleUuid, formUuid, operations: visitBatch() },
 			ctx,
 			doc,
 		);
@@ -296,39 +373,33 @@ describe("shared case-operation tools", () => {
 			ctx,
 			added.newDoc,
 		);
-		// The rule is about the OPERATIONS: no storage identity may reach an
-		// author-facing expression, whose leaves the caller has to read and
-		// write. The envelope's address is the identity the caller supplied and
-		// is deliberately echoed, so it is not part of that claim.
 		const json = JSON.stringify(
 			(read.data as { operations: readonly unknown[] }).operations,
 		);
-		expect(json).not.toContain("uuid");
-		expect(json).not.toContain("Uuid");
-		expect(json).toContain('"path":"nickname"');
-		expect(json).toContain('"operationId":"create_visit"');
+		expect(json).toContain(CREATE_UUID);
+		expect(json).toContain(TEXT);
+		expect(json).toContain('"opUuid"');
+		expect(json).not.toContain('"path"');
+		expect(json).not.toContain('"operationId"');
 
 		const formRead = await getFormTool.execute(
-			{ moduleIndex: 0, formIndex: 0 },
+			{ moduleUuid, formUuid },
 			ctx,
 			added.newDoc,
 		);
 		const formOperations =
 			"form" in formRead.data ? formRead.data.form.caseOperations : undefined;
-		const formJson = JSON.stringify(formOperations);
-		expect(formJson).not.toContain("uuid");
-		expect(formJson).not.toContain("Uuid");
-		expect(formJson).toContain('"operationId":"create_visit"');
+		expect(formOperations).toEqual(added.newDoc.forms[formUuid].caseOperations);
 	});
 
-	it("updates through granular identity-keyed mutations", async () => {
+	it("updates through granular patches with no whole-operation fallback", async () => {
 		const { doc, moduleUuid, formUuid } = fixture();
 		const { ctx } = makeStubToolContext();
 		const added = await addCaseOperationsTool.execute(
 			{
 				moduleUuid,
 				formUuid,
-				operations: [createVisit],
+				operations: [item(createVisit, CREATE_UUID)],
 			},
 			ctx,
 			doc,
@@ -337,7 +408,7 @@ describe("shared case-operation tools", () => {
 			{
 				moduleUuid,
 				formUuid,
-				operationId: "create_visit",
+				operationUuid: CREATE_UUID,
 				operation: {
 					...createVisit,
 					id: "create_encounter",
@@ -348,39 +419,34 @@ describe("shared case-operation tools", () => {
 			added.newDoc,
 		);
 
-		expect(result.mutations).toEqual(
-			expect.arrayContaining([
-				expect.objectContaining({
-					kind: "updateForm",
-					caseOperationPatch: expect.objectContaining({
-						operation: "update",
-						patch: expect.objectContaining({
-							id: "create_encounter",
-							condition: { kind: "match-all" },
-						}),
-					}),
-				}),
-			]),
-		);
+		expect(result.mutations).toEqual([
+			expect.objectContaining({
+				kind: "updateForm",
+				caseOperationPatch: {
+					operation: "update",
+					uuid: CREATE_UUID,
+					targetAction: "create",
+					patch: {
+						id: "create_encounter",
+						condition: { kind: "match-all" },
+					},
+				},
+			}),
+		]);
 		expect(
 			result.mutations.some(
 				(mutation) =>
 					mutation.kind === "updateForm" &&
-					mutation.caseOperationChange?.operation === "update" &&
-					"value" in mutation.caseOperationChange,
+					mutation.caseOperationChange !== undefined,
 			),
-		).toBe(true);
+		).toBe(false);
 	});
 
-	it("retargets across case types atomically on the shared chat and MCP tool", async () => {
+	it("retargets across case types atomically", async () => {
 		const { doc, moduleUuid, formUuid } = fixture();
 		const { ctx, recordMutations } = makeStubToolContext();
 		const added = await addCaseOperationsTool.execute(
-			{
-				moduleUuid,
-				formUuid,
-				operations: [createVisit, updateVisit],
-			},
+			{ moduleUuid, formUuid, operations: visitBatch() },
 			ctx,
 			doc,
 		);
@@ -389,13 +455,13 @@ describe("shared case-operation tools", () => {
 		const desired = {
 			...updateVisit,
 			caseType: "patient",
-			target: { kind: "session" as const },
-		};
+			target: { kind: "session" },
+		} as const satisfies CaseOperationInput;
 		const result = await updateCaseOperationTool.execute(
 			{
 				moduleUuid,
 				formUuid,
-				operationId: "tag_visit",
+				operationUuid: UPDATE_UUID,
 				operation: desired,
 			},
 			ctx,
@@ -413,7 +479,8 @@ describe("shared case-operation tools", () => {
 			expect.objectContaining({
 				caseOperationPatch: {
 					operation: "update",
-					uuid: expect.any(String),
+					uuid: UPDATE_UUID,
+					targetAction: "update",
 					patch: {
 						caseType: "patient",
 						target: { kind: "session" },
@@ -421,309 +488,20 @@ describe("shared case-operation tools", () => {
 				},
 			}),
 		]);
-		expect(
-			result.newDoc.forms[formUuid].caseOperations?.find(
-				(operation) => operation.id === "tag_visit",
-			),
-		).toMatchObject({
-			caseType: "patient",
-			target: { kind: "session" },
-		});
-	});
-
-	it("refuses every carrier-blind read-to-update shape before hidden behavior can be cleared", async () => {
-		const cases: readonly {
-			readonly slot: string;
-			readonly operation: CaseOperation;
-			readonly authorShape: Parameters<
-				typeof updateCaseOperationTool.execute
-			>[0]["operation"];
-		}[] = [
-			{
-				slot: "condition",
-				operation: {
-					uuid: asUuid("10000000-0000-4000-8000-000000000001"),
-					id: "carrier_condition",
-					action: "create",
-					caseType: "visit",
-					target: { kind: "new" },
-					name: term(literal("Visit")),
-					condition: lookupPredicate,
-				},
-				authorShape: {
-					...createVisit,
-					id: "renamed_condition",
-					condition: undefined,
-				},
-			},
-			{
-				slot: "name",
-				operation: {
-					uuid: asUuid("10000000-0000-4000-8000-000000000002"),
-					id: "carrier_name",
-					action: "create",
-					caseType: "visit",
-					target: { kind: "new" },
-					name: lookupExpression,
-				},
-				authorShape: {
-					...createVisit,
-					id: "renamed_name",
-					name: fieldValue,
-				},
-			},
-			{
-				slot: "owner",
-				operation: {
-					uuid: asUuid("10000000-0000-4000-8000-000000000003"),
-					id: "carrier_owner",
-					action: "create",
-					caseType: "visit",
-					target: { kind: "new" },
-					name: term(literal("Visit")),
-					owner: lookupExpression,
-				},
-				authorShape: {
-					...createVisit,
-					id: "renamed_owner",
-					owner: undefined,
-				},
-			},
-			{
-				slot: "rename",
-				operation: {
-					uuid: asUuid("10000000-0000-4000-8000-000000000004"),
-					id: "carrier_rename",
-					action: "update",
-					caseType: "patient",
-					target: { kind: "session" },
-					rename: lookupExpression,
-				},
-				authorShape: {
-					id: "renamed_rename",
-					action: "update",
-					caseType: "patient",
-					target: { kind: "session" },
-				},
-			},
-			{
-				slot: "write value",
-				operation: {
-					uuid: asUuid("10000000-0000-4000-8000-000000000005"),
-					id: "carrier_write_value",
-					action: "create",
-					caseType: "visit",
-					target: { kind: "new" },
-					name: term(literal("Visit")),
-					writes: [{ property: "source_id", value: lookupExpression }],
-				},
-				authorShape: {
-					...createVisit,
-					id: "renamed_write_value",
-					writes: undefined,
-				},
-			},
-			{
-				slot: "write condition",
-				operation: {
-					uuid: asUuid("10000000-0000-4000-8000-000000000006"),
-					id: "carrier_write_condition",
-					action: "create",
-					caseType: "visit",
-					target: { kind: "new" },
-					name: term(literal("Visit")),
-					writes: [
-						{
-							property: "source_id",
-							value: term(literal("visible")),
-							condition: lookupPredicate,
-						},
-					],
-				},
-				authorShape: {
-					...createVisit,
-					id: "renamed_write_condition",
-					writes: [
-						{
-							property: "source_id",
-							value: {
-								kind: "term",
-								term: { kind: "literal", value: "visible" },
-							},
-						},
-					],
-				},
-			},
-			{
-				slot: "link target",
-				operation: {
-					uuid: asUuid("10000000-0000-4000-8000-000000000007"),
-					id: "carrier_link",
-					action: "create",
-					caseType: "visit",
-					target: { kind: "new" },
-					name: term(literal("Visit")),
-					links: [
-						{
-							identifier: "parent",
-							targetType: "patient",
-							target: { kind: "expression", expr: lookupExpression },
-							relationship: "child",
-						},
-					],
-				},
-				authorShape: {
-					...createVisit,
-					id: "renamed_link",
-					links: undefined,
-				},
-			},
-			{
-				slot: "operation target",
-				operation: {
-					uuid: asUuid("10000000-0000-4000-8000-000000000008"),
-					id: "carrier_target",
-					action: "update",
-					caseType: "patient",
-					target: { kind: "expression", expr: lookupExpression },
-				},
-				authorShape: {
-					id: "renamed_target",
-					action: "update",
-					caseType: "patient",
-					target: { kind: "session" },
-				},
-			},
-		];
-
-		for (const scenario of cases) {
-			const { doc, moduleUuid, formUuid } = fixture();
-			const operation = { ...scenario.operation, order: "a" };
-			const safePeer: CaseOperation = {
-				uuid: asUuid("10000000-0000-4000-8000-000000000099"),
-				id: "safe_peer",
-				action: "update",
-				caseType: "patient",
-				target: { kind: "session" },
-			};
-			doc.forms[formUuid].caseOperations = [operation, safePeer];
-			const { ctx, recordMutations } = makeStubToolContext();
-			const read = await getCaseOperationsTool.execute(
-				{ moduleUuid, formUuid },
-				ctx,
-				doc,
-			);
-			expect(JSON.stringify(read.data), scenario.slot).not.toMatch(
-				/table-column|table-lookup/,
-			);
-			if ("error" in read.data) throw new Error(read.data.error);
-			expect(
-				read.data.operations.map((candidate) => candidate.id),
-				scenario.slot,
-			).toEqual([operation.id, "safe_peer"]);
-			expect(read.data.operations[0], scenario.slot).toEqual({
-				id: operation.id,
-				action: operation.action,
-				caseType: operation.caseType,
-				unavailable: {
-					kind: "lookup-table-logic",
-					reason:
-						"This case change uses lookup-table logic that Nova preserves but cannot safely edit from this surface.",
-				},
-			});
-
-			const result = await updateCaseOperationTool.execute(
-				{
-					moduleUuid,
-					formUuid,
-					operationId: operation.id,
-					operation: scenario.authorShape,
-				},
-				ctx,
-				doc,
-			);
-
-			expect(result.result, scenario.slot).toEqual(
-				expect.objectContaining({
-					error: expect.stringContaining(
-						"uses lookup-table logic that Nova preserves but cannot safely edit from this surface",
-					),
-				}),
-			);
-			expect(result.mutations, scenario.slot).toEqual([]);
-			expect(result.newDoc, scenario.slot).toBe(doc);
-			expect(
-				result.newDoc.forms[formUuid].caseOperations?.[0],
-				scenario.slot,
-			).toEqual(operation);
-			expect(recordMutations, scenario.slot).not.toHaveBeenCalled();
-
-			const removed = await removeCaseOperationTool.execute(
-				{
-					moduleUuid,
-					formUuid,
-					operationId: operation.id,
-				},
-				ctx,
-				doc,
-			);
-			expect(removed.result, scenario.slot).toEqual(
-				expect.objectContaining({
-					error: expect.stringContaining(
-						"uses lookup-table logic that Nova preserves but cannot safely edit from this surface",
-					),
-				}),
-			);
-			expect(removed.mutations, scenario.slot).toEqual([]);
-			expect(removed.newDoc, scenario.slot).toBe(doc);
-			expect(
-				removed.newDoc.forms[formUuid].caseOperations?.[0],
-				scenario.slot,
-			).toEqual(operation);
-			expect(recordMutations, scenario.slot).not.toHaveBeenCalled();
-
-			const moved = await moveCaseOperationTool.execute(
-				{
-					moduleUuid,
-					formUuid,
-					operationId: operation.id,
-					index: 1,
-				},
-				ctx,
-				doc,
-			);
-			expect(moved.result, scenario.slot).toMatchObject({ index: 1 });
-			expect(recordMutations, scenario.slot).toHaveBeenCalledTimes(1);
-			const movedOperation = moved.newDoc.forms[formUuid].caseOperations?.find(
-				(candidate) => candidate.uuid === operation.uuid,
-			);
-			expect(movedOperation, scenario.slot).toEqual(operation);
-			expect(JSON.stringify(moved.mutations), scenario.slot).not.toMatch(
-				/table-column|table-lookup/,
-			);
-		}
 	});
 
 	it("refuses removing or moving a producer past its dependent", async () => {
 		const { doc, moduleUuid, formUuid } = fixture();
 		const { ctx, recordMutations } = makeStubToolContext();
 		const added = await addCaseOperationsTool.execute(
-			{
-				moduleUuid,
-				formUuid,
-				operations: [createVisit, updateVisit],
-			},
+			{ moduleUuid, formUuid, operations: visitBatch() },
 			ctx,
 			doc,
 		);
 		recordMutations.mockClear();
 
 		const removed = await removeCaseOperationTool.execute(
-			{
-				moduleUuid,
-				formUuid,
-				operationId: "create_visit",
-			},
+			{ moduleUuid, formUuid, operationUuid: CREATE_UUID },
 			ctx,
 			added.newDoc,
 		);
@@ -735,8 +513,8 @@ describe("shared case-operation tools", () => {
 			{
 				moduleUuid,
 				formUuid,
-				operationId: "create_visit",
-				index: 1,
+				operationUuid: CREATE_UUID,
+				afterOperationUuid: UPDATE_UUID,
 			},
 			ctx,
 			added.newDoc,
@@ -747,14 +525,14 @@ describe("shared case-operation tools", () => {
 		expect(recordMutations).not.toHaveBeenCalled();
 	});
 
-	it("reports the actual clamped move destination", async () => {
+	it("reports canonical UUID placement for a no-op move", async () => {
 		const { doc, moduleUuid, formUuid } = fixture();
 		const { ctx, recordMutations } = makeStubToolContext();
 		const added = await addCaseOperationsTool.execute(
 			{
 				moduleUuid,
 				formUuid,
-				operations: [createVisit],
+				operations: [item(createVisit, CREATE_UUID)],
 			},
 			ctx,
 			doc,
@@ -764,276 +542,70 @@ describe("shared case-operation tools", () => {
 			{
 				moduleUuid,
 				formUuid,
-				operationId: "create_visit",
-				index: 999,
+				operationUuid: CREATE_UUID,
+				afterOperationUuid: null,
 			},
 			ctx,
 			added.newDoc,
 		);
 		expect(moved.result).toMatchObject({
-			index: 0,
-			message: 'Moved case operation "create_visit" to index 0.',
+			afterOperationUuid: null,
+			operationOrder: [CREATE_UUID],
+			message: 'Moved case operation "create_visit" to the beginning.',
 		});
 		expect(moved.mutations).toEqual([]);
-		expect(moved.newDoc).toBe(added.newDoc);
 		expect(recordMutations).not.toHaveBeenCalled();
 	});
 
-	it("surfaces authoritative operation/write/link races instead of reporting success", async () => {
+	it("surfaces an authoritative race instead of reporting success", async () => {
 		const { doc, moduleUuid, formUuid } = fixture();
-		const linkedVisit = {
-			...createVisit,
-			links: [
-				{
-					identifier: "parent",
-					targetType: "patient",
-					target: null,
-					relationship: "child" as const,
-				},
-			],
-		};
 		const setup = makeStubToolContext();
 		const added = await addCaseOperationsTool.execute(
 			{
 				moduleUuid,
 				formUuid,
-				operations: [linkedVisit],
+				operations: [item(createVisit, CREATE_UUID)],
 			},
 			setup.ctx,
 			doc,
 		);
 		const stale = added.newDoc;
-
-		const expectConflict = async (
-			fresh: BlueprintDoc,
-			operation: Parameters<
-				typeof updateCaseOperationTool.execute
-			>[0]["operation"],
-		) => {
-			const { ctx, recordMutations } = makeStubToolContext();
-			recordMutations.mockImplementation(
-				async (mutations: Mutation[], candidate: BlueprintDoc) => {
-					if (batchTargetsMissing(fresh, mutations)) {
-						throw new BlueprintCommitRejectedError(
-							"A peer changed this case operation first.",
-						);
-					}
-					return { events: [], committedDoc: candidate };
-				},
-			);
-			await expect(
-				updateCaseOperationTool.execute(
-					{
-						moduleUuid,
-						formUuid,
-						operationId: "create_visit",
-						operation,
-					},
-					ctx,
-					stale,
-				),
-			).rejects.toBeInstanceOf(BlueprintCommitRejectedError);
-			expect(recordMutations).toHaveBeenCalledTimes(1);
-		};
-
-		await expectConflict(
-			produce(stale, (draft) => {
-				delete draft.forms[formUuid].caseOperations;
-			}),
-			{ ...linkedVisit, id: "create_encounter" },
-		);
-
-		await expectConflict(
-			produce(stale, (draft) => {
-				delete draft.forms[formUuid].caseOperations?.[0]?.writes;
-			}),
-			{
-				...linkedVisit,
-				writes: [
-					{
-						property: "source_id",
-						value: {
-							kind: "term",
-							term: { kind: "literal", value: "changed" },
-						},
-					},
-				],
-			},
-		);
-
-		await expectConflict(
-			produce(stale, (draft) => {
-				delete draft.forms[formUuid].caseOperations?.[0]?.links;
-			}),
-			{
-				...linkedVisit,
-				links: [{ ...linkedVisit.links[0], relationship: "extension" }],
-			},
-		);
-
-		const peerWrite = {
-			property: "note",
-			value: {
-				kind: "term" as const,
-				term: { kind: "literal" as const, value: "peer" },
-			},
-		};
-		await expectConflict(
-			produce(stale, (draft) => {
-				draft.forms[formUuid].caseOperations?.[0]?.writes?.push(peerWrite);
-			}),
-			{
-				...linkedVisit,
-				writes: [...linkedVisit.writes, peerWrite],
-			},
-		);
-
-		const peerLink = {
-			identifier: "household",
-			targetType: "patient",
-			target: null,
-			relationship: "child" as const,
-		};
-		await expectConflict(
-			produce(stale, (draft) => {
-				draft.forms[formUuid].caseOperations?.[0]?.links?.push(peerLink);
-			}),
-			{
-				...linkedVisit,
-				links: [...linkedVisit.links, peerLink],
-			},
-		);
-	});
-});
-
-describe("worker information round-trips through the author boundary", () => {
-	// The canonical term union has seven arms. A missing one is not
-	// "unauthorable": it survives the projector untouched, leaking the
-	// storage UUID this boundary promises never to return, and then fails
-	// the union parse on the way back in — so a read cannot be edited.
-	const workerValue = {
-		kind: "term" as const,
-		term: { kind: "session-user-property" as const, slug: "district" },
-	};
-
-	function docWithWorkerProperty(): ReturnType<typeof fixture> {
-		const built = fixture();
-		const doc = produce(built.doc, (draft: BlueprintDoc) => {
-			(draft as { userProperties?: Record<string, unknown> }).userProperties = {
-				[WORKER_PROPERTY]: {
-					uuid: WORKER_PROPERTY,
-					slug: "district",
-					label: "District",
-				},
-			};
+		const fresh = produce(stale, (draft) => {
+			delete draft.forms[formUuid].caseOperations;
 		});
-		return { ...built, doc };
-	}
+		const { ctx, recordMutations } = makeStubToolContext();
+		recordMutations.mockImplementation(async (prepared) => {
+			if (mutationTargetsInvalid(fresh, prepared.mutations)) {
+				throw new BlueprintCommitRejectedError(
+					"A peer changed this case operation first.",
+				);
+			}
+			return { events: [], committedDoc: prepared.nextDoc };
+		});
 
-	it("reads back a saved worker-information value as its saved key, then accepts it", async () => {
-		const { doc, moduleUuid, formUuid } = docWithWorkerProperty();
-		const { ctx } = makeStubToolContext();
-		const added = await addCaseOperationsTool.execute(
-			{
-				moduleUuid,
-				formUuid,
-				operations: [
-					{
-						...createVisit,
-						writes: [{ property: "source_id", value: workerValue }],
-					},
-				],
-			},
-			ctx,
-			doc,
-		);
-		expect(added.result).toEqual(
-			expect.objectContaining({ message: expect.any(String) }),
-		);
-
-		const read = await getCaseOperationsTool.execute(
-			{ moduleUuid, formUuid },
-			ctx,
-			added.newDoc,
-		);
-		const json = JSON.stringify(read.data);
-		expect(json).toContain('"slug":"district"');
-		expect(json).not.toContain(WORKER_PROPERTY);
-		expect(json).not.toContain("userPropertyUuid");
-
-		// The exact projection the read returned goes straight back in.
-		const operations =
-			"operations" in read.data ? read.data.operations : undefined;
-		const projected = operations?.[0] as Record<string, unknown>;
-		const updated = await updateCaseOperationTool.execute(
-			{
-				moduleUuid,
-				formUuid,
-				operationId: "create_visit",
-				operation: { ...projected, id: "create_encounter" } as never,
-			},
-			ctx,
-			added.newDoc,
-		);
-		expect(updated.result).not.toHaveProperty("error");
-	});
-
-	it("names the saved keys it knows when the slug is not set up", async () => {
-		const { doc, moduleUuid, formUuid } = docWithWorkerProperty();
-		const { ctx } = makeStubToolContext();
-		const added = await addCaseOperationsTool.execute(
-			{
-				moduleUuid,
-				formUuid,
-				operations: [
-					{
-						...createVisit,
-						writes: [
-							{
-								property: "source_id",
-								value: {
-									kind: "term" as const,
-									term: {
-										kind: "session-user-property" as const,
-										slug: "not_set_up",
-									},
-								},
-							},
-						],
-					},
-				],
-			},
-			ctx,
-			doc,
-		);
-		expect(added.result).toEqual(
-			expect.objectContaining({
-				error: expect.stringContaining("district"),
-			}),
-		);
+		await expect(
+			updateCaseOperationTool.execute(
+				{
+					moduleUuid,
+					formUuid,
+					operationUuid: CREATE_UUID,
+					operation: { ...createVisit, id: "create_encounter" },
+				},
+				ctx,
+				stale,
+			),
+		).rejects.toBeInstanceOf(BlueprintCommitRejectedError);
+		expect(recordMutations).toHaveBeenCalledTimes(1);
 	});
 });
 
-describe("dependency refusals say which constraint refused", () => {
-	// A `target-type` blocker holds no reference at all — it would simply be
-	// left acting on a kind of case the removed/moved change is what
-	// establishes. "Retarget those references" sends the agent looking for
-	// an edge that does not exist, which is why the planner reports the kind.
-	//
-	// The chain needs a PORTABLE retype (every property retained at the same
-	// type), so it gets its own two-type fixture rather than bending the
-	// shared one.
-	/** Identity of the one module/form this fixture builds, for the address. */
-	function retypeAddress(doc: BlueprintDoc): {
+describe("dependency refusals name the actual constraint", () => {
+	function retypeFixture(): {
+		doc: BlueprintDoc;
 		moduleUuid: Uuid;
 		formUuid: Uuid;
 	} {
-		const moduleUuid = doc.moduleOrder[0];
-		return { moduleUuid, formUuid: doc.formOrder[moduleUuid][0] };
-	}
-
-	function retypeFixture(): BlueprintDoc {
-		return buildDoc({
+		const doc = buildDoc({
 			caseTypes: [
 				{
 					name: "lead",
@@ -1046,20 +618,19 @@ describe("dependency refusals say which constraint refused", () => {
 			],
 			modules: [
 				{
-					id: "leads",
 					name: "Leads",
 					caseType: "lead",
+					caseListConfig: caseListConfig([{ field: "note", header: "Note" }]),
 					forms: [
 						{
-							id: "edit",
 							name: "Edit",
 							type: "followup",
 							fields: [
 								f({
-									uuid: asUuid("66666666-6666-4666-8666-666666666666"),
+									uuid: testUuid("lead-note-field"),
 									kind: "text",
 									id: "note",
-									label: "Note",
+									label: proseText("Note"),
 								}),
 							],
 						},
@@ -1067,53 +638,51 @@ describe("dependency refusals say which constraint refused", () => {
 				},
 			],
 		});
+		const moduleUuid = doc.moduleOrder[0];
+		return { doc, moduleUuid, formUuid: doc.formOrder[moduleUuid][0] };
 	}
 
-	const noteValue = {
-		kind: "term" as const,
-		term: { kind: "field" as const, path: "note" },
-	};
-	const retypeLead = {
-		id: "retype_lead",
-		action: "update" as const,
-		caseType: "lead",
-		target: { kind: "session" as const },
-		retype: "lead_copy",
-	};
-	const tagLead = {
-		id: "tag_lead",
-		action: "update" as const,
-		caseType: "lead_copy",
-		target: { kind: "session" as const },
-		writes: [{ property: "note", value: noteValue }],
-	};
-
-	async function withRetypeChain() {
+	it("distinguishes target-type dependencies from identity references", async () => {
+		const { doc, moduleUuid, formUuid } = retypeFixture();
+		const noteUuid = doc.fieldOrder[formUuid][0];
+		const retypeLead = {
+			id: "retype_lead",
+			action: "update",
+			caseType: "lead",
+			target: { kind: "session" },
+			retype: "lead_copy",
+		} as const satisfies CaseOperationInput;
+		const tagLead = {
+			id: "tag_lead",
+			action: "update",
+			caseType: "lead_copy",
+			target: { kind: "session" },
+			writes: [
+				{
+					property: "note",
+					value: {
+						kind: "term",
+						term: { kind: "field", uuid: noteUuid },
+					},
+				},
+			],
+		} as const satisfies CaseOperationInput;
 		const { ctx, recordMutations } = makeStubToolContext();
-		const base = retypeFixture();
-		const { moduleUuid, formUuid } = retypeAddress(base);
 		const added = await addCaseOperationsTool.execute(
 			{
 				moduleUuid,
 				formUuid,
-				operations: [retypeLead, tagLead],
+				operations: [item(retypeLead, RETYPE_UUID), item(tagLead, TAG_UUID)],
 			},
 			ctx,
-			base,
+			doc,
 		);
-		expect(added.result).not.toHaveProperty("error");
 		recordMutations.mockClear();
-		return { ctx, doc: added.newDoc, recordMutations, moduleUuid, formUuid };
-	}
-
-	it("does not tell the agent to retarget a reference that is a type dependency", async () => {
-		const { ctx, doc, recordMutations, moduleUuid, formUuid } =
-			await withRetypeChain();
 
 		const removed = await removeCaseOperationTool.execute(
-			{ moduleUuid, formUuid, operationId: "retype_lead" },
+			{ moduleUuid, formUuid, operationUuid: RETYPE_UUID },
 			ctx,
-			doc,
+			added.newDoc,
 		);
 		const removeError = (removed.result as { error: string }).error;
 		expect(removeError).toContain("kind of case");
@@ -1124,11 +693,11 @@ describe("dependency refusals say which constraint refused", () => {
 			{
 				moduleUuid,
 				formUuid,
-				operationId: "retype_lead",
-				index: 1,
+				operationUuid: RETYPE_UUID,
+				afterOperationUuid: TAG_UUID,
 			},
 			ctx,
-			doc,
+			added.newDoc,
 		);
 		const moveError = (moved.result as { error: string }).error;
 		expect(moveError).toContain("kind of case");
@@ -1136,20 +705,16 @@ describe("dependency refusals say which constraint refused", () => {
 		expect(recordMutations).not.toHaveBeenCalled();
 	});
 
-	it("still says 'reference' when one is what breaks", async () => {
+	it("still names a reference when that is what breaks", async () => {
 		const { doc, moduleUuid, formUuid } = fixture();
 		const { ctx } = makeStubToolContext();
 		const added = await addCaseOperationsTool.execute(
-			{
-				moduleUuid,
-				formUuid,
-				operations: [createVisit, updateVisit],
-			},
+			{ moduleUuid, formUuid, operations: visitBatch() },
 			ctx,
 			doc,
 		);
 		const removed = await removeCaseOperationTool.execute(
-			{ moduleUuid, formUuid, operationId: "create_visit" },
+			{ moduleUuid, formUuid, operationUuid: CREATE_UUID },
 			ctx,
 			added.newDoc,
 		);

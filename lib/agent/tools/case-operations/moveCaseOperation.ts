@@ -1,10 +1,16 @@
-import { z } from "zod";
+import type { z } from "zod";
 import { BlueprintCommitRejectedError } from "@/lib/db/commitGuard";
 import {
 	type CaseOperationMutationPlan,
-	moveCaseOperationMutation,
+	moveCaseOperationAfterMutation,
 } from "@/lib/doc/caseOperationMutations";
-import { type BlueprintDoc, orderedCaseOperations } from "@/lib/domain";
+import {
+	asUuid,
+	type BlueprintDoc,
+	orderedCaseOperations,
+	type Uuid,
+	uuidSchema,
+} from "@/lib/domain";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import {
 	guardedMutate,
@@ -15,13 +21,17 @@ import type { MutationSuccess } from "../shared/toolCallSummary";
 import {
 	dependentOperationNames,
 	operationAddressSchema,
-	operationById,
+	operationByUuid,
 	resolveOperationAddress,
 } from "./shared";
 
 export const moveCaseOperationInputSchema = operationAddressSchema.extend({
-	operationId: z.string().min(1),
-	index: z.number().int().nonnegative().describe("0-based destination index"),
+	operationUuid: uuidSchema,
+	afterOperationUuid: uuidSchema
+		.nullable()
+		.describe(
+			"UUID of the operation this one should follow, or null to make it first.",
+		),
 });
 
 export type MoveCaseOperationInput = z.infer<
@@ -29,7 +39,8 @@ export type MoveCaseOperationInput = z.infer<
 >;
 
 export interface MoveCaseOperationSuccess extends MutationSuccess {
-	readonly index: number;
+	readonly afterOperationUuid: Uuid | null;
+	readonly operationOrder: readonly Uuid[];
 }
 
 export type MoveCaseOperationResult =
@@ -67,7 +78,7 @@ function moveRefusal(
 
 export const moveCaseOperationTool = {
 	description:
-		"Move one case operation to a 0-based execution index. Refuses dependency-breaking or non-portable wire order and names the involved operations.",
+		"Move one case operation after another operation identified by UUID, or to the beginning. Refuses dependency-breaking or non-portable wire order and names the involved operations.",
 	inputSchema: moveCaseOperationInputSchema,
 	async execute(
 		input: MoveCaseOperationInput,
@@ -84,29 +95,55 @@ export const moveCaseOperationTool = {
 					result: { error: address.error },
 				};
 			}
-			const operation = operationById(doc, address.formUuid, input.operationId);
+			const operation = operationByUuid(
+				doc,
+				address.formUuid,
+				asUuid(input.operationUuid),
+			);
 			if (operation === undefined) {
 				return {
 					kind: "mutate",
 					mutations: [],
 					newDoc: doc,
 					result: {
-						error: `Case operation "${input.operationId}" not found in form "${doc.forms[address.formUuid]?.name ?? input.formUuid}".`,
+						error: `Case operation UUID "${input.operationUuid}" not found in form "${doc.forms[address.formUuid]?.name ?? input.formUuid}".`,
 					},
 				};
 			}
-			const actualIndex = Math.max(
-				0,
-				Math.min(
-					input.index,
-					orderedCaseOperations(doc.forms[address.formUuid] ?? {}).length - 1,
-				),
-			);
-			const plan = moveCaseOperationMutation(
+			const afterOperationUuid =
+				input.afterOperationUuid === null
+					? null
+					: asUuid(input.afterOperationUuid);
+			if (afterOperationUuid === operation.uuid) {
+				return {
+					kind: "mutate",
+					mutations: [],
+					newDoc: doc,
+					result: {
+						error: `Case operation "${operation.id}" cannot follow itself.`,
+					},
+				};
+			}
+			if (
+				afterOperationUuid !== null &&
+				!orderedCaseOperations(doc.forms[address.formUuid] ?? {}).some(
+					(candidate) => candidate.uuid === afterOperationUuid,
+				)
+			) {
+				return {
+					kind: "mutate",
+					mutations: [],
+					newDoc: doc,
+					result: {
+						error: `Case operation UUID "${afterOperationUuid}" not found in form "${doc.forms[address.formUuid]?.name ?? input.formUuid}".`,
+					},
+				};
+			}
+			const plan = moveCaseOperationAfterMutation(
 				doc,
 				address.formUuid,
 				operation.uuid,
-				actualIndex,
+				afterOperationUuid,
 			);
 			if (!plan.ok) {
 				return {
@@ -115,7 +152,7 @@ export const moveCaseOperationTool = {
 					newDoc: doc,
 					result: {
 						error: moveRefusal(
-							input.operationId,
+							operation.id,
 							plan,
 							dependentOperationNames(
 								doc,
@@ -141,24 +178,33 @@ export const moveCaseOperationTool = {
 					result: { error: commit.error },
 				};
 			}
-			const committedIndex = orderedCaseOperations(
+			const committedOrder = orderedCaseOperations(
 				commit.newDoc.forms[address.formUuid] ?? {},
-			).findIndex((candidate) => candidate.uuid === operation.uuid);
+			).map((candidate) => candidate.uuid);
+			const committedIndex = committedOrder.indexOf(operation.uuid);
 			if (committedIndex < 0) {
 				throw new BlueprintCommitRejectedError(
-					`Case operation "${input.operationId}" changed while it was moving. Reload the form and try again.`,
+					`Case operation "${operation.id}" changed while it was moving. Reload the form and try again.`,
 				);
 			}
+			const committedAfter =
+				committedIndex > 0
+					? (committedOrder[committedIndex - 1] ?? null)
+					: null;
 			return {
 				kind: "mutate",
-				mutations,
+				mutations: commit.mutations,
 				newDoc: commit.newDoc,
 				result: {
-					message: `Moved case operation "${input.operationId}" to index ${committedIndex}.`,
-					index: committedIndex,
+					message:
+						committedAfter === null
+							? `Moved case operation "${operation.id}" to the beginning.`
+							: `Moved case operation "${operation.id}" after operation UUID "${committedAfter}".`,
+					afterOperationUuid: committedAfter,
+					operationOrder: committedOrder,
 					summary: {
 						location: doc.forms[address.formUuid]?.name ?? input.formUuid,
-						subject: input.operationId,
+						subject: operation.id,
 					},
 				},
 			};

@@ -49,13 +49,14 @@ import { createStore, type StoreApi } from "zustand/vanilla";
 import type { BlueprintDocStore } from "@/lib/doc/provider";
 import type { BlueprintDocState } from "@/lib/doc/store";
 import {
-	type CaseType,
 	type Field,
 	type Form,
 	isCaptureFieldKind,
+	materializableCaseTypes,
 	type Uuid,
 } from "@/lib/domain";
 import { compilerBugMessage } from "@/lib/domain/predicate/errors";
+import type { ProseTemplate } from "@/lib/domain/prose";
 import type { SubmissionMutation } from "./caseDataBindingTypes";
 import type { FieldTreeNode } from "./fieldTree";
 import { buildFieldTree } from "./fieldTree";
@@ -153,10 +154,7 @@ export const DEFAULT_RUNTIME_STATE: RuntimeState = Object.freeze({
  * throughout.
  */
 function buildEngineInput(
-	state: Pick<
-		BlueprintDocState,
-		"forms" | "fields" | "fieldOrder" | "userProperties"
-	>,
+	state: BlueprintDocState,
 	formUuid: Uuid,
 ): FormEngineInput | undefined {
 	const form = state.forms[formUuid];
@@ -166,6 +164,7 @@ function buildEngineInput(
 		formUuid,
 		fields: state.fields as unknown as Record<string, Field>,
 		fieldOrder: state.fieldOrder as unknown as Record<string, Uuid[]>,
+		caseTypes: materializableCaseTypes(state),
 		userProperties: state.userProperties,
 	};
 }
@@ -238,11 +237,11 @@ function buildPathMaps(
 
 /** Recursively collect all field UUIDs belonging to a form. */
 function collectFormUuids(
-	rootUuid: string,
-	fieldOrder: Record<string, string[]>,
-): string[] {
-	const result: string[] = [];
-	function walk(parentId: string) {
+	rootUuid: Uuid,
+	fieldOrder: Readonly<Record<string, readonly Uuid[]>>,
+): Uuid[] {
+	const result: Uuid[] = [];
+	function walk(parentId: Uuid) {
 		const children = fieldOrder[parentId];
 		if (!children) return;
 		for (const uuid of children) {
@@ -290,8 +289,8 @@ function classifyChange(
 		required?: unknown;
 		validate?: unknown;
 		default_value?: unknown;
-		label?: string;
-		hint?: string;
+		label?: ProseTemplate;
+		hint?: ProseTemplate;
 	};
 	const prev = previous as Field & {
 		calculate?: unknown;
@@ -299,8 +298,8 @@ function classifyChange(
 		required?: unknown;
 		validate?: unknown;
 		default_value?: unknown;
-		label?: string;
-		hint?: string;
+		label?: ProseTemplate;
+		hint?: ProseTemplate;
 	};
 
 	if (
@@ -312,16 +311,17 @@ function classifyChange(
 		return "expression";
 	}
 
-	// Lookup-backed options source (select kinds only). Reference compare,
-	// same rationale as the AST slots above: a commit installs a fresh
-	// object, so identity diff ≡ "this slot was written". Static inline
-	// `options` edits stay "none" — the renderer reads them off the doc.
-	// Checked BEFORE default_value: a single commit writing both slots
-	// must reach the options_source dispatch (which also reapplies the
-	// default) or the choices list would keep the previous source.
-	const curSelect = cur as Field & { optionsSource?: unknown };
-	const prevSelect = prev as Field & { optionsSource?: unknown };
-	if (curSelect.optionsSource !== prevSelect.optionsSource) {
+	// Every select owns exactly one required options source. Reference compare,
+	// same rationale as the AST slots above: a commit installs a fresh object,
+	// so identity diff ≡ "this source was written". Checked BEFORE
+	// default_value: a single commit writing both slots must reach the
+	// options_source dispatch (which also reapplies the default) or the choices
+	// list would keep the previous source.
+	if (
+		(current.kind === "single_select" || current.kind === "multi_select") &&
+		(previous.kind === "single_select" || previous.kind === "multi_select") &&
+		current.optionsSource !== previous.optionsSource
+	) {
 		return "options_source";
 	}
 
@@ -330,11 +330,15 @@ function classifyChange(
 	const labelChanged = cur.label !== prev.label;
 	const hintChanged = cur.hint !== prev.hint;
 	if (labelChanged || hintChanged) {
-		const hasRefs =
-			(cur.label?.includes("#") ?? false) ||
-			(prev.label?.includes("#") ?? false) ||
-			(cur.hint?.includes("#") ?? false) ||
-			(prev.hint?.includes("#") ?? false);
+		/* A reference is a typed part, not a `#` in the text. Scanning for the
+		 * character both threw — a `ProseTemplate` has no `.includes` — and
+		 * asked the wrong question: a label reading "Ward #3" carries no
+		 * reference, while one carrying a `field-ref` part may contain no `#`
+		 * at all. */
+		const hasRefs = [cur.label, prev.label, cur.hint, prev.hint].some(
+			(template) =>
+				template?.parts.some((part) => part.kind !== "text") ?? false,
+		);
 		if (hasRefs) return "label_refs";
 	}
 
@@ -658,10 +662,7 @@ export class EngineController {
 		this.syncAllToStore();
 
 		/* Set up subscriptions */
-		const uuids = collectFormUuids(
-			formUuid as string,
-			s.fieldOrder as unknown as Record<string, string[]>,
-		);
+		const uuids = collectFormUuids(formUuid, s.fieldOrder);
 		this.setupAuthoredPathTopologySubscription(formUuid);
 		this.setupPerFieldSubscriptions(uuids);
 		this.setupStructuralSubscription(formUuid);
@@ -898,7 +899,6 @@ export class EngineController {
 	 */
 	computeSubmissionMutation(args: {
 		caseId?: string;
-		caseTypes: ReadonlyArray<CaseType>;
 		viewerTimeZone?: string;
 	}): SubmissionMutation {
 		if (!this.engine) {
@@ -1090,7 +1090,7 @@ export class EngineController {
 	 * - "id_rename" → no-op here; the batch-topology subscription ran first
 	 * - "default_value" → re-evaluate default + cascade
 	 */
-	private setupPerFieldSubscriptions(uuids: string[]): void {
+	private setupPerFieldSubscriptions(uuids: Uuid[]): void {
 		if (!this.docStore) return;
 		const store = this.docStore;
 
@@ -1098,7 +1098,7 @@ export class EngineController {
 			this.trackedUuids.add(uuid);
 
 			const unsub = store.subscribe(
-				(s) => s.fields[uuid as Uuid],
+				(s) => s.fields[uuid],
 				(current, previous) => {
 					if (!current || !previous || !this.engine) return;
 					const changeType = classifyChange(
@@ -1164,11 +1164,7 @@ export class EngineController {
 		const store = this.docStore;
 
 		const unsub = store.subscribe(
-			(s) =>
-				collectFormUuids(
-					formUuid as string,
-					s.fieldOrder as unknown as Record<string, string[]>,
-				),
+			(s) => collectFormUuids(formUuid, s.fieldOrder),
 			(currentUuids, previousUuids) => {
 				const currentSet = new Set(currentUuids);
 				const previousSet = new Set(previousUuids);
@@ -1254,7 +1250,7 @@ export class EngineController {
 	 * tree (it was also removed in the same batch), it's cleaned up like a
 	 * removal rather than left in a stale half-state.
 	 */
-	private onKindChanged(uuid: string): void {
+	private onKindChanged(uuid: Uuid): void {
 		if (!this.engine) return;
 		const input = this.currentEngineInput();
 		if (!input) return;
@@ -1270,10 +1266,9 @@ export class EngineController {
 		const oldPath = this.uuidToPath.get(uuid);
 		const oldDescendantPaths = isContainerConversion
 			? new Map(
-					collectFormUuids(
-						uuid,
-						input.fieldOrder as unknown as Record<string, string[]>,
-					).map((d) => [d, this.uuidToPath.get(d)] as const),
+					collectFormUuids(uuid, input.fieldOrder).map(
+						(d) => [d, this.uuidToPath.get(d)] as const,
+					),
 				)
 			: undefined;
 
@@ -1359,7 +1354,7 @@ export class EngineController {
 	/** A field's expression changed. Rebuild DAG (sub-ms), then
 	 *  re-evaluate that field — every live instance — plus its
 	 *  downstream dependents. */
-	private onExpressionChanged(uuid: string): void {
+	private onExpressionChanged(uuid: Uuid): void {
 		if (!this.engine) return;
 		const input = this.currentEngineInput();
 		if (!input) return;
@@ -1379,7 +1374,7 @@ export class EngineController {
 	/** A field's label/hint with hashtag references changed. Rebuild the
 	 *  DAG (it carries the printDoc the output resolution reads the new
 	 *  label text through), then re-resolve at every live instance. */
-	private onLabelRefsChanged(uuid: string): void {
+	private onLabelRefsChanged(uuid: Uuid): void {
 		if (!this.engine) return;
 		const input = this.currentEngineInput();
 		if (input) this.engine.rebuildDag(input);
@@ -1392,7 +1387,7 @@ export class EngineController {
 
 	/** A field's default_value expression changed. Re-evaluate the
 	 *  default (every live instance) and cascade through dependents. */
-	private onDefaultValueChanged(uuid: string, field: Field): void {
+	private onDefaultValueChanged(uuid: Uuid, field: Field): void {
 		if (!this.engine) return;
 		const input = this.currentEngineInput();
 		if (input) this.engine.rebuildDag(input);
@@ -1412,7 +1407,7 @@ export class EngineController {
 
 	/** Fields were added to the form. Initialize their states
 	 *  incrementally without rebuilding existing fields. */
-	private onFieldsAdded(uuids: string[]): void {
+	private onFieldsAdded(uuids: Uuid[]): void {
 		if (!this.engine) return;
 		const input = this.currentEngineInput();
 		if (!input) return;
@@ -1448,7 +1443,7 @@ export class EngineController {
 
 	/** Fields were removed from the form. Clean up their states
 	 *  without rebuilding existing fields. */
-	private onFieldsRemoved(uuids: string[]): void {
+	private onFieldsRemoved(uuids: Uuid[]): void {
 		if (!this.engine) return;
 
 		/* Remove states from the engine and runtime store — every live

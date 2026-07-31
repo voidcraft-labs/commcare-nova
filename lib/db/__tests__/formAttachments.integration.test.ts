@@ -8,8 +8,10 @@
 
 import { sql } from "kysely";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f, withUserSequences } from "@/lib/__tests__/docHelpers";
-import { asUuid } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
+
 import { resolveAuthorizedAppSnapshot } from "../appAccess";
 import {
 	beginFormAttachmentPreparation,
@@ -33,11 +35,11 @@ const ACTOR = "capture-shared-editor";
 
 describe("form submission authorization snapshot", () => {
 	it("returns one committed app snapshot only after fresh edit authorization", async () => {
-		const doc = buildDoc({ appName: "Authorized submission snapshot" });
-		const appId = await h.seedAppWithBlueprint(doc, {
+		const appId = await h.seedApp({
 			id: "capture-authorized-snapshot-app",
 			owner: "capture-authorized-snapshot-owner",
-			projectId: PROJECT,
+			project_id: PROJECT,
+			app_name: "Authorized submission snapshot",
 		});
 		await h.seedProjectMember(ACTOR, PROJECT, "editor");
 
@@ -64,7 +66,7 @@ describe("form submission authorization snapshot", () => {
 			project_id: PROJECT,
 		});
 		const entryKey = crypto.randomUUID();
-		const formUuid = crypto.randomUUID();
+		const formUuid = testUuid(crypto.randomUUID());
 		await h
 			.db()
 			.insertInto("form_submission_intents")
@@ -113,10 +115,10 @@ describe("form submission authorization snapshot", () => {
 	});
 
 	it("replays before hydrating form, capture, and persona topology that was deleted after acceptance", async () => {
-		const formUuid = asUuid("10000000-0000-4000-8000-000000000001");
-		const fieldUuid = asUuid("10000000-0000-4000-8000-000000000002");
-		const userTypeUuid = asUuid("10000000-0000-4000-8000-000000000003");
-		const personaUuid = asUuid("10000000-0000-4000-8000-000000000004");
+		const formUuid = testUuid("10000000-0000-4000-8000-000000000001");
+		const fieldUuid = testUuid("10000000-0000-4000-8000-000000000002");
+		const userTypeUuid = testUuid("10000000-0000-4000-8000-000000000003");
+		const personaUuid = testUuid("10000000-0000-4000-8000-000000000004");
 		const base = buildDoc({
 			appName: "Deleted accepted topology",
 			modules: [
@@ -132,7 +134,7 @@ describe("form submission authorization snapshot", () => {
 									uuid: fieldUuid,
 									id: "photo",
 									kind: "image",
-									label: "Photo",
+									label: proseText("Photo"),
 								}),
 							],
 						},
@@ -214,7 +216,7 @@ describe("form submission authorization snapshot", () => {
 	});
 
 	it("authorizes attachment initiation before exposing Project or topology drift", async () => {
-		const fieldUuid = crypto.randomUUID();
+		const fieldUuid = testUuid(crypto.randomUUID());
 		const doc = buildDoc({
 			modules: [
 				{
@@ -228,7 +230,7 @@ describe("form submission authorization snapshot", () => {
 									uuid: fieldUuid,
 									id: "photo",
 									kind: "image",
-									label: "Photo",
+									label: proseText("Photo"),
 								}),
 							],
 						},
@@ -286,7 +288,7 @@ describe("form attachment URL-app authority", () => {
 				project_id: PROJECT,
 				created_by: ACTOR,
 				entry_key: crypto.randomUUID(),
-				field_uuid: crypto.randomUUID(),
+				field_uuid: testUuid(crypto.randomUUID()),
 				instance_path: "/data/photo",
 				original_filename: "photo.png",
 				extension: ".png",
@@ -342,7 +344,7 @@ describe("form attachment URL-app authority", () => {
 
 describe("form attachment authored-path retarget", () => {
 	it("accepts the row's stored old path when only the destination matches the current capture template", async () => {
-		const fieldUuid = crypto.randomUUID();
+		const fieldUuid = testUuid(crypto.randomUUID());
 		const doc = buildDoc({
 			modules: [
 				{
@@ -356,7 +358,7 @@ describe("form attachment authored-path retarget", () => {
 									uuid: fieldUuid,
 									id: "evidence",
 									kind: "image",
-									label: "Evidence",
+									label: proseText("Evidence"),
 								}),
 							],
 						},
@@ -436,7 +438,7 @@ describe("form attachment initiation compensation", () => {
 			project_id: PROJECT,
 			created_by: ACTOR,
 			entry_key: entryKey,
-			field_uuid: crypto.randomUUID(),
+			field_uuid: testUuid(crypto.randomUUID()),
 			instance_path: "/data/photo",
 			original_filename: "photo.png",
 			extension: ".png",
@@ -535,7 +537,7 @@ describe("form attachment preparation concurrency", () => {
 		await h.seedProjectMember(ACTOR, PROJECT, "editor");
 		const entryKey = crypto.randomUUID();
 		const attachmentId = crypto.randomUUID();
-		const fieldUuid = crypto.randomUUID();
+		const fieldUuid = testUuid(crypto.randomUUID());
 		await h
 			.db()
 			.insertInto("form_attachments")
@@ -585,7 +587,7 @@ describe("form attachment preparation concurrency", () => {
 				projectId: PROJECT,
 				actorUserId: ACTOR,
 				entryKey,
-				formUuid: crypto.randomUUID(),
+				formUuid: testUuid(crypto.randomUUID()),
 				requestDigest: "request-after-revocation",
 				attachments: [
 					{
@@ -618,7 +620,7 @@ describe("form attachment preparation concurrency", () => {
 		await h.seedProjectMember(ACTOR, PROJECT, "editor");
 		const entryKey = crypto.randomUUID();
 		const attachmentId = crypto.randomUUID();
-		const fieldUuid = crypto.randomUUID();
+		const fieldUuid = testUuid(crypto.randomUUID());
 		await h
 			.db()
 			.insertInto("form_attachments")
@@ -651,7 +653,7 @@ describe("form attachment preparation concurrency", () => {
 				projectId: PROJECT,
 				actorUserId: ACTOR,
 				entryKey,
-				formUuid: crypto.randomUUID(),
+				formUuid: testUuid(crypto.randomUUID()),
 				requestDigest: "request-a",
 				attachments: [
 					{
@@ -728,13 +730,13 @@ describe("form attachment preparation concurrency", () => {
 		});
 		const entryKey = crypto.randomUUID();
 		const attachmentId = crypto.randomUUID();
-		const fieldUuid = crypto.randomUUID();
+		const fieldUuid = testUuid(crypto.randomUUID());
 		const intent = {
 			appId,
 			projectId: PROJECT,
 			actorUserId: ACTOR,
 			entryKey,
-			formUuid: crypto.randomUUID(),
+			formUuid: testUuid(crypto.randomUUID()),
 			requestDigest: "request-retry",
 			attachments: [
 				{
@@ -829,7 +831,7 @@ describe("form attachment preparation concurrency", () => {
 				project_id: PROJECT,
 				created_by: ACTOR,
 				entry_key: crypto.randomUUID(),
-				field_uuid: crypto.randomUUID(),
+				field_uuid: testUuid(crypto.randomUUID()),
 				instance_path: "/data/photo",
 				original_filename: "photo.png",
 				extension: ".png",
@@ -943,7 +945,7 @@ describe("form attachment expiry", () => {
 			app_id: appId,
 			project_id: PROJECT,
 			created_by: ACTOR,
-			field_uuid: crypto.randomUUID(),
+			field_uuid: testUuid(crypto.randomUUID()),
 			instance_path: "/data/photo",
 			original_filename: "photo.png",
 			extension: ".png",
@@ -1021,7 +1023,7 @@ describe("form attachment expiry", () => {
 					project_id: PROJECT,
 					created_by: ACTOR,
 					entry_key: crypto.randomUUID(),
-					field_uuid: crypto.randomUUID(),
+					field_uuid: testUuid(crypto.randomUUID()),
 					instance_path: "/data/photo",
 					original_filename: "photo.png",
 					extension: ".png",

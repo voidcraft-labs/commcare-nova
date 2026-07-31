@@ -57,10 +57,8 @@ export type CaseQueryConstraintSource =
 	| "worker-search"
 	| "authored-rules";
 
-/** What the client can truthfully say about a settled query result. `unknown`
- * exists only for the short rolling-deploy window where a new client receives
- * the older Server Action response shape without constraint metadata. */
-export type CaseQueryConstraintContext = CaseQueryConstraintSource | "unknown";
+/** What the client can truthfully say about a settled query result. */
+export type CaseQueryConstraintContext = CaseQueryConstraintSource;
 
 /**
  * Result of loading case rows for a case type, optionally as a bounded window.
@@ -78,15 +76,13 @@ export type LoadCasesResult =
 			kind: "rows";
 			rows: ReadonlyArray<CaseRowWithCalculated>;
 			/** Full population matching the authored + worker query. Present for
-			 * bounded running-list reads; optional during rolling deploys and for
-			 * legacy unpaged callers. */
+			 * bounded running-list reads; absent for current unpaged helper callers. */
 			totalCount?: number;
 			/** Effective bounded window returned by the server. The server may
 			 * clamp an offset past the final page after concurrent deletion. */
 			pageOffset?: number;
 			pageSize?: number;
-			/** Optional only for rolling-deploy compatibility with an older action. */
-			constraintSource?: CaseQueryConstraintSource;
+			constraintSource: CaseQueryConstraintSource;
 	  }
 	| {
 			kind: "empty";
@@ -95,8 +91,7 @@ export type LoadCasesResult =
 			 * clearing Search cannot reveal a case; a positive value proves that
 			 * Search itself narrowed the authored population to zero. */
 			authoredMatchingCount?: number;
-			/** Optional only for rolling-deploy compatibility with an older action. */
-			constraintSource?: CaseQueryConstraintSource;
+			constraintSource: CaseQueryConstraintSource;
 	  }
 	/** A safe, deterministic Search-value rejection. Unlike `error`, retrying
 	 * unchanged input cannot help, so consumers show the cause beside Search
@@ -324,7 +319,8 @@ export type PopulateSampleCasesResult =
  *
  * Per-arm shape:
  * - `registration` — `primary` is the new case the form creates;
- *   `children` are additional cases bucketed by `case_property_on`.
+ *   `children` are additional cases bucketed by explicit `caseWrite`
+ *   destination and repeat identity.
  *   Children carry NO `parentCaseId`; the case-store's submission
  *   envelope threads the primary's generated id at write time.
  * - `followup` — `caseId` is the bound case the form updates;
@@ -339,14 +335,10 @@ export type PopulateSampleCasesResult =
  * in ONE Postgres transaction — primary write, every child, and the
  * close transition together or not at all.
  *
- * `caseName` is a separate slot from `properties` because the
- * case-store routes the case display name to the top-level
- * `cases.case_name` column; the JSONB document carries only the
- * user-defined property bag (see `lib/case-store/store.ts` —
- * `CaseInsert.case_name` and `CaseUpdate.case_name` are top-level
- * fields, not extracted from `properties`). The walker plucks the
- * field whose `id === "case_name"` into the slot and never
- * includes it in `properties`.
+ * `caseName` and `externalId` are separate from `properties` because the
+ * case-store routes them to dedicated row columns. The JSONB document carries
+ * only user-defined properties. The walker keys off the explicit
+ * `caseWrite.property`, not the editable form-field id.
  */
 /** One collected answer for the operation program — plain JSON for the
  *  Server Action wire (a Map would flip the call to multipart and trip
@@ -416,21 +408,28 @@ export type SubmissionMutation = SubmissionProtocol &
 				primary: {
 					caseType: string;
 					caseName?: string;
+					externalId?: string;
 					properties: JsonObject;
 				};
 				children: ReadonlyArray<{
 					caseType: string;
 					caseName?: string;
+					externalId?: string;
 					properties: JsonObject;
 				}>;
 		  }
 		| {
 				kind: "followup";
 				caseId: string;
-				patch: { caseName?: string; properties: JsonObject };
+				patch: {
+					caseName?: string;
+					externalId?: string;
+					properties: JsonObject;
+				};
 				children: ReadonlyArray<{
 					caseType: string;
 					caseName?: string;
+					externalId?: string;
 					properties: JsonObject;
 					parentCaseId: string;
 				}>;
@@ -438,10 +437,15 @@ export type SubmissionMutation = SubmissionProtocol &
 		| {
 				kind: "close";
 				caseId: string;
-				patch: { caseName?: string; properties: JsonObject };
+				patch: {
+					caseName?: string;
+					externalId?: string;
+					properties: JsonObject;
+				};
 				children: ReadonlyArray<{
 					caseType: string;
 					caseName?: string;
+					externalId?: string;
 					properties: JsonObject;
 					parentCaseId: string;
 				}>;

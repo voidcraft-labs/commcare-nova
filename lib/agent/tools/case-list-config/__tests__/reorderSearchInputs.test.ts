@@ -11,8 +11,13 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
-import { asUuid, type BlueprintDoc, simpleSearchInputDef } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	plainColumn,
+	simpleSearchInputDef,
+} from "@/lib/domain";
 import { reorderSearchInputsTool } from "../reorderSearchInputs";
 import { MOD_A, makeCaseListFixture } from "./fixtures";
 
@@ -21,16 +26,21 @@ vi.mock("@/lib/db/apps", () => ({
 }));
 
 vi.mock("@/lib/db/applyBlueprintChange", () => ({
-	applyBlueprintChange: vi.fn(() => Promise.resolve({ seq: 0 })),
+	applyBlueprintChange: vi.fn(async (args) => {
+		const { commitApplyBlueprintChangeTestBatch } = await import(
+			"@/lib/db/__tests__/applyBlueprintChangeTestWriter"
+		);
+		return commitApplyBlueprintChangeTestBatch(args);
+	}),
 }));
 
 beforeEach(() => {
 	vi.clearAllMocks();
 });
 
-const A = asUuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
-const B = asUuid("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
-const C = asUuid("cccccccc-cccc-cccc-cccc-cccccccccccc");
+const A = testUuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+const B = testUuid("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
+const C = testUuid("cccccccc-cccc-cccc-cccc-cccccccccccc");
 
 function fixtureWithThreeInputs(): BlueprintDoc {
 	const { doc } = makeCaseListFixture();
@@ -40,11 +50,17 @@ function fixtureWithThreeInputs(): BlueprintDoc {
 			[MOD_A]: {
 				...doc.modules[MOD_A],
 				caseListConfig: resolveCaseListConfig({
-					columns: [],
+					columns: [
+						plainColumn(
+							testUuid("reorder-search-input-results-column"),
+							"case_name",
+							"Name",
+						),
+					],
 					searchInputs: [
-						simpleSearchInputDef(A, "alpha", "Alpha", "text", "alpha"),
-						simpleSearchInputDef(B, "beta", "Beta", "text", "beta"),
-						simpleSearchInputDef(C, "charlie", "Charlie", "text", "charlie"),
+						simpleSearchInputDef(A, "alpha", "Alpha", "text", "case_name"),
+						simpleSearchInputDef(B, "beta", "Beta", "text", "phone"),
+						simpleSearchInputDef(C, "charlie", "Charlie", "text", "region"),
 					],
 				}),
 			},
@@ -57,7 +73,7 @@ describe("reorderSearchInputs", () => {
 		const { ctx } = makeCaseListFixture();
 		const doc = fixtureWithThreeInputs();
 		const result = await reorderSearchInputsTool.execute(
-			{ moduleIndex: 0, searchInputUuids: [C, A, B] },
+			{ moduleUuid: MOD_A, searchInputUuids: [C, A, B] },
 			ctx,
 			doc,
 		);
@@ -74,7 +90,7 @@ describe("reorderSearchInputs", () => {
 		const { ctx } = makeCaseListFixture();
 		const doc = fixtureWithThreeInputs();
 		const result = await reorderSearchInputsTool.execute(
-			{ moduleIndex: 0, searchInputUuids: [C, A, B] },
+			{ moduleUuid: MOD_A, searchInputUuids: [C, A, B] },
 			ctx,
 			doc,
 		);
@@ -88,7 +104,7 @@ describe("reorderSearchInputs", () => {
 		const { ctx } = makeCaseListFixture();
 		const doc = fixtureWithThreeInputs();
 		const result = await reorderSearchInputsTool.execute(
-			{ moduleIndex: 0, searchInputUuids: [A, B] },
+			{ moduleUuid: MOD_A, searchInputUuids: [A, B] },
 			ctx,
 			doc,
 		);
@@ -105,7 +121,7 @@ describe("reorderSearchInputs", () => {
 		const { ctx } = makeCaseListFixture();
 		const doc = fixtureWithThreeInputs();
 		const result = await reorderSearchInputsTool.execute(
-			{ moduleIndex: 0, searchInputUuids: [A, A, B] },
+			{ moduleUuid: MOD_A, searchInputUuids: [A, A, B] },
 			ctx,
 			doc,
 		);
@@ -121,9 +137,9 @@ describe("reorderSearchInputs", () => {
 	it("returns an Elm-style error on unknown uuid in the request", async () => {
 		const { ctx } = makeCaseListFixture();
 		const doc = fixtureWithThreeInputs();
-		const unknown = asUuid("dddddddd-dddd-dddd-dddd-dddddddddddd");
+		const unknown = testUuid("dddddddd-dddd-dddd-dddd-dddddddddddd");
 		const result = await reorderSearchInputsTool.execute(
-			{ moduleIndex: 0, searchInputUuids: [A, B, unknown] },
+			{ moduleUuid: MOD_A, searchInputUuids: [A, B, unknown] },
 			ctx,
 			doc,
 		);
@@ -136,11 +152,11 @@ describe("reorderSearchInputs", () => {
 		expect(result.result.error).toContain(String(unknown));
 	});
 
-	it("returns an Elm-style error on out-of-range moduleIndex", async () => {
+	it("returns the canonical UUID-address error for an unknown module", async () => {
 		const { ctx } = makeCaseListFixture();
 		const doc = fixtureWithThreeInputs();
 		const result = await reorderSearchInputsTool.execute(
-			{ moduleIndex: 99, searchInputUuids: [A, B, C] },
+			{ moduleUuid: testUuid("unknown-module"), searchInputUuids: [A, B, C] },
 			ctx,
 			doc,
 		);
@@ -149,7 +165,6 @@ describe("reorderSearchInputs", () => {
 		if (!("error" in result.result)) {
 			throw new Error("expected error result");
 		}
-		expect(result.result.error).toContain("Tried to reorder");
-		expect(result.result.error).toContain("module index 99");
+		expect(result.result.error).toContain("No module with UUID");
 	});
 });

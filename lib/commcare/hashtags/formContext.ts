@@ -1,19 +1,17 @@
 /**
  * Form-context-aware hashtag expansion.
  *
- * The context-free expander at `lib/commcare/hashtags.ts::expandHashtags`
- * resolves the flat namespaces (`#form/`, `#user/`) and the transitional
- * literal `#case/<X>`. It CANNOT resolve a per-case-type namespace
- * (`#<case_type>/<prop>`) — that needs to know which case the form loads and
- * how far up the parent-index chain the named type sits. This module supplies
- * that form context.
+ * The flat resolver in `lib/commcare/hashtags.ts` handles `#form/` and
+ * `#user/`. A per-case-type namespace (`#<case_type>/<prop>`) needs to know
+ * which case the form loads and how far up the parent-index chain the named
+ * type sits, so this module supplies that form context. Literal authored
+ * `#case/...` is not a Nova reference and is rejected here; this module alone
+ * may project a canonical typed ref to HQ's private `#case/...` editor or
+ * metadata vocabulary.
  *
  * Resolution by namespace:
  *
  *   - `#form/` / `#user/` — flat prefixes, identical in every form context.
- *   - `#case/<X>` — the loaded case, walking any leading `parent` segments
- *     through the case index (`expandCaseHashtag`). Kept as a transitional
- *     safety net for un-migrated references.
  *   - `#<case_type>/<prop>` — looks the namespace up in `caseTypeDepths` (the
  *     form's reachable case types, own = hop depth 0, parent = 1, …) and reuses
  *     the SAME `…/index/parent × depth …/<prop>` walk via `expandCaseToWire`.
@@ -27,12 +25,12 @@
  * in `casedb` at form-init (the entry declares `case_id_new_<casetype>_0`, and
  * the case lands in `casedb` only after submission). The one own-case reference
  * with a defined meaning is `case_id` (own type, hop depth 0), populated at
- * `/data/case/@case_id` by the setvalue chain `xform/caseBlocks.ts::addCaseBlocks`
- * emits — so `#case/case_id` and `#<own_type>/case_id` both rewrite there. Every
- * other own/ancestor case reference on a registration form expands to the
- * case-loading shape just as the context-free expander would, so the
- * binding-resolution oracle catches the missing `case_id` datum at compile time;
- * the deep validator rejects it first at authoring time.
+ * `/data/case/@case_id` by the setvalue chain
+ * `xform/caseBlocks.ts::addCaseBlocks` emits, so
+ * `#<own_type>/case_id` rewrites there. Every other own/ancestor case reference
+ * on a registration form expands to the case-loading shape, so the
+ * binding-resolution oracle catches the missing `case_id` datum at compile
+ * time; the deep validator rejects it first at authoring time.
  *
  * The module's second export, {@link vellumShorthandInContext}, is the
  * companion projection for the `vellum:*` SHADOW attributes: same form
@@ -43,7 +41,6 @@ import {
 	expandCaseToWire,
 	resolveFlatHashtag,
 	rewriteHashtags,
-	splitCaseSegments,
 	VELLUM_CASE_GENERATION_PREFIXES,
 } from "@/lib/commcare/hashtags";
 import { type CaseType, reachableCaseTypes } from "@/lib/domain";
@@ -80,22 +77,19 @@ export function expandHashtagsInContext(
 		const flat = resolveFlatHashtag(typeName, segments);
 		if (flat !== undefined) return flat;
 
-		// Resolve the namespace to a parent-index hop count + the property path
-		// read off the target case. The transitional literal `#case/` counts
-		// leading `parent` index segments; a per-type namespace looks its depth up
-		// in the form context.
-		let hops: number;
-		let propPath: string;
 		if (typeName === "case") {
-			({ hops, propPath } = splitCaseSegments(segments));
-		} else {
-			const depth = ctx.caseTypeDepths.get(typeName);
-			// Unreachable namespace — not a case this form can load. Leave it
-			// verbatim; the deep validator rejects it by quoting the authored text.
-			if (depth === undefined) return undefined;
-			hops = depth;
-			propPath = segments.join("/");
+			throw new Error(
+				'Authored "#case/..." is not a Nova reference; use an explicit case-type namespace',
+			);
 		}
+
+		// Resolve the namespace to a parent-index hop count + the property path
+		// read off the target case.
+		const hops = ctx.caseTypeDepths.get(typeName);
+		// Unreachable namespace — not a case this form can load. Leave it
+		// verbatim; the deep validator rejects it by quoting the authored text.
+		if (hops === undefined) return undefined;
+		const propPath = segments.join("/");
 
 		// Registration narrowing — the form's own new case isn't in casedb yet, so
 		// only its allocated `case_id` (the loaded case, hop depth 0) resolves, to
@@ -157,9 +151,9 @@ export function caseTypeDepthMap(
  *
  *   - `#user/` — gated on `domain_has_usercase_access(app.domain)`, a target-
  *     domain privilege Nova cannot know at emission time (off by default).
- *   - `#case/parent/` / `#case/grandparent/` (depth ≥ 1 refs, whether spelled
- *     per-type or as transitional `parent` chains) — HQ derives the parent
- *     generations from the app's own STRUCTURE, not from any catalog:
+ *   - `#case/parent/` / `#case/grandparent/` (the private editor projection of
+ *     typed refs at depth ≥ 1) — HQ derives the parent generations from the
+ *     app's own STRUCTURE, not from any catalog:
  *     `case_properties.py::get_case_relationships` collects case-subcase
  *     relationships "appearing in all relevant forms", so a catalog parent
  *     link with no in-app subcase form gives the editor no parent generation.
@@ -203,18 +197,14 @@ export function vellumShorthandInContext(
 		};
 		if (typeName === "user" || !caseVocabulary) return fail();
 
-		let hops: number;
-		let propSegments: string[];
 		if (typeName === "case") {
-			const { hops: caseHops, propPath } = splitCaseSegments(segments);
-			hops = caseHops;
-			propSegments = propPath === "" ? [] : propPath.split("/");
-		} else {
-			const depth = ctx.caseTypeDepths.get(typeName);
-			if (depth === undefined) return fail();
-			hops = depth;
-			propSegments = segments;
+			throw new Error(
+				'Authored "#case/..." is not a Nova reference; only this projection may generate that HQ editor spelling',
+			);
 		}
+		const hops = ctx.caseTypeDepths.get(typeName);
+		if (hops === undefined) return fail();
+		const propSegments = segments;
 
 		// Only the guaranteed generation: the form's own loaded case (depth 0).
 		if (hops !== 0 || propSegments.length !== 1) return fail();

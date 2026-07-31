@@ -28,6 +28,7 @@ const noExpr = (): never => {
 		"expression boundary must not run for a config with no XPath",
 	);
 };
+const derivedId = (kind: string) => `derived_${kind}`;
 
 describe("Connect draft round-trip", () => {
 	it("preserves ids + core content for a config with no XPath", () => {
@@ -41,7 +42,12 @@ describe("Connect draft round-trip", () => {
 			assessment: { id: "intro_quiz" },
 		};
 
-		const round = draftToConfig(configToDraft(config, noExpr), "learn", noExpr);
+		const round = draftToConfig(
+			configToDraft(config, noExpr),
+			"learn",
+			noExpr,
+			derivedId,
+		);
 
 		expect(round).toEqual(config);
 	});
@@ -55,7 +61,7 @@ describe("Connect draft round-trip", () => {
 		const draft = configToDraft(config, () => "#form/score");
 		expect(draft.userScoreText).toBe("#form/score");
 
-		const round = draftToConfig(draft, "learn", () => score);
+		const round = draftToConfig(draft, "learn", () => score, derivedId);
 		expect(round.assessment).toEqual({ id: "quiz", user_score: score });
 	});
 
@@ -78,18 +84,34 @@ describe("Connect draft round-trip", () => {
 		expect(draft.entityIdText).toBe("#form/client_id");
 		expect(draft.entityNameText).toBe("#form/client_name");
 
-		const round = draftToConfig(draft, "deliver", (t) =>
-			t === "#form/client_id" ? entityId : entityName,
+		const round = draftToConfig(
+			draft,
+			"deliver",
+			(t) => (t === "#form/client_id" ? entityId : entityName),
+			derivedId,
 		);
 		expect(round).toEqual(config);
 	});
 
-	it("leaves a blank id and blank XPath out (autofill / wire default)", () => {
-		// A freshly turned-on sub-config carries no id and no entity XPath —
-		// the commit autofills the id and the wire layer defaults the rest.
+	it("assigns a blank draft id before constructing the final config", () => {
 		const draft = { ...EMPTY_DRAFT, deliverOn: true, deliverName: "New Visit" };
-		const round = draftToConfig(draft, "deliver", noExpr);
-		expect(round.deliver_unit).toEqual({ name: "New Visit" });
+		const round = draftToConfig(draft, "deliver", noExpr, derivedId);
+		expect(round.deliver_unit).toEqual({
+			id: "derived_deliver_unit",
+			name: "New Visit",
+		});
+	});
+
+	it("does not sanitize an explicit invalid id behind the validity guard", () => {
+		const draft = {
+			...EMPTY_DRAFT,
+			deliverOn: true,
+			deliverId: " visit ",
+			deliverName: "New Visit",
+		};
+		expect(
+			draftToConfig(draft, "deliver", noExpr, derivedId).deliver_unit?.id,
+		).toBe(" visit ");
 	});
 
 	it("seeds an absent XPath slot's buffer with the actual default, then drops it on commit", () => {
@@ -106,7 +128,9 @@ describe("Connect draft round-trip", () => {
 		const assessment = configToDraft({ assessment: { id: "q" } }, noExpr);
 		expect(assessment.userScoreText).toBe(DEFAULT_ASSESSMENT_USER_SCORE);
 
-		expect(draftToConfig(draft, "deliver", noExpr).deliver_unit).toEqual({
+		expect(
+			draftToConfig(draft, "deliver", noExpr, derivedId).deliver_unit,
+		).toEqual({
 			id: "v",
 			name: "Visit",
 		});
@@ -120,7 +144,7 @@ describe("Connect draft round-trip", () => {
 			assessmentId: "q",
 			userScoreText: "#form/quiz_total",
 		};
-		const round = draftToConfig(draft, "learn", () => override);
+		const round = draftToConfig(draft, "learn", () => override, derivedId);
 		expect(round.assessment).toEqual({ id: "q", user_score: override });
 	});
 });

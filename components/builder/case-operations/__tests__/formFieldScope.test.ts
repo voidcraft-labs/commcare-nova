@@ -12,11 +12,13 @@
 // prevent.
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { formFieldEntriesFor } from "@/lib/doc/formFieldEntries";
 import type { FormFieldEntry } from "@/lib/doc/hooks/useFormFieldEntries";
-import { asUuid, type BlueprintDoc } from "@/lib/doc/types";
+import type { BlueprintDoc } from "@/lib/doc/types";
 import type { CaseOperation } from "@/lib/domain";
 import { formField, literal, term } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import {
 	identityKeyFieldDecls,
 	operationFormFieldDecls,
@@ -25,13 +27,13 @@ import {
 	repeatFieldDecls,
 } from "../formFieldScope";
 
-const ROOT_TEXT = asUuid("11111111-1111-4111-8111-111111111111");
-const ROOT_HIDDEN = asUuid("22222222-2222-4222-8222-222222222222");
-const ROOT_MULTI = asUuid("33333333-3333-4333-8333-333333333333");
-const BEDS = asUuid("44444444-4444-4444-8444-444444444444");
-const BED_COUNT = asUuid("55555555-5555-4555-8555-555555555555");
-const WARDS = asUuid("66666666-6666-4666-8666-666666666666");
-const WARD_NAME = asUuid("77777777-7777-4777-8777-777777777777");
+const ROOT_TEXT = testUuid("11111111-1111-4111-8111-111111111111");
+const ROOT_HIDDEN = testUuid("22222222-2222-4222-8222-222222222222");
+const ROOT_MULTI = testUuid("33333333-3333-4333-8333-333333333333");
+const BEDS = testUuid("44444444-4444-4444-8444-444444444444");
+const BED_COUNT = testUuid("55555555-5555-4555-8555-555555555555");
+const WARDS = testUuid("66666666-6666-4666-8666-666666666666");
+const WARD_NAME = testUuid("77777777-7777-4777-8777-777777777777");
 
 const ENTRIES: readonly FormFieldEntry[] = [
 	{
@@ -147,7 +149,7 @@ describe("which answers can key an authored create", () => {
 
 describe("changing multiplicity", () => {
 	const operation: CaseOperation = {
-		uuid: asUuid("88888888-8888-4888-8888-888888888888"),
+		uuid: testUuid("88888888-8888-4888-8888-888888888888"),
 		id: "create_bed",
 		action: "create",
 		caseType: "bed",
@@ -183,37 +185,37 @@ describe("repeat choices", () => {
 });
 
 describe("canonical picker order", () => {
-	const FORM = asUuid("88888888-8888-4888-8888-888888888880");
-	const ROOT_A = asUuid("88888888-8888-4888-8888-888888888881");
-	const ROOT_B = asUuid("88888888-8888-4888-8888-888888888882");
-	const REPEAT = asUuid("88888888-8888-4888-8888-888888888883");
-	const CHILD_A = asUuid("88888888-8888-4888-8888-888888888884");
-	const CHILD_B = asUuid("88888888-8888-4888-8888-888888888885");
+	const FORM = testUuid("88888888-8888-4888-8888-888888888880");
+	const ROOT_A = testUuid("88888888-8888-4888-8888-888888888881");
+	const ROOT_B = testUuid("88888888-8888-4888-8888-888888888882");
+	const REPEAT = testUuid("88888888-8888-4888-8888-888888888883");
+	const CHILD_A = testUuid("88888888-8888-4888-8888-888888888884");
+	const CHILD_B = testUuid("88888888-8888-4888-8888-888888888885");
 
 	const fields: BlueprintDoc["fields"] = {
 		[ROOT_A]: {
 			uuid: ROOT_A,
 			id: "root_a",
-			label: "Root A",
+			label: proseText("Root A"),
 			kind: "text",
 		},
 		[ROOT_B]: {
 			uuid: ROOT_B,
 			id: "root_b",
-			label: "Root B",
+			label: proseText("Root B"),
 			kind: "text",
 		},
 		[REPEAT]: {
 			uuid: REPEAT,
 			id: "visits",
-			label: "Visits",
+			label: proseText("Visits"),
 			kind: "repeat",
 			repeat_mode: "user_controlled",
 		},
 		[CHILD_A]: {
 			uuid: CHILD_A,
 			id: "child_a",
-			label: "Child A",
+			label: proseText("Child A"),
 			kind: "text",
 		},
 		[CHILD_B]: {
@@ -229,7 +231,10 @@ describe("canonical picker order", () => {
 	};
 
 	it("orders answer, repeat, and identity-key choices at every hierarchy level", () => {
-		const entries = formFieldEntriesFor(fields, fieldOrder, FORM);
+		const entries = formFieldEntriesFor(
+			{ fields, fieldOrder, forms: { [FORM]: {} } },
+			FORM,
+		);
 
 		expect(uuids(entries)).toEqual([ROOT_A, ROOT_B, REPEAT, CHILD_B, CHILD_A]);
 		expect(uuids(operationFormFieldDecls(entries, undefined))).toEqual([

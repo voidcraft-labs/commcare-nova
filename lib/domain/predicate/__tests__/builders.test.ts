@@ -23,7 +23,8 @@
 // back to `Predicate`, the field accesses below would stop compiling.
 
 import { describe, expect, it } from "vitest";
-import { asUuid } from "@/lib/domain";
+import { testUuid } from "@/__tests__/helpers/uuid";
+
 import {
 	ancestorPath,
 	and,
@@ -48,7 +49,6 @@ import {
 	input,
 	isBlank,
 	isIn,
-	isNull,
 	literal,
 	lt,
 	lte,
@@ -76,7 +76,6 @@ import {
 	timeLiteral,
 	today,
 	toValueExpression,
-	unwrapList,
 	whenInput,
 	within,
 } from "../builders";
@@ -108,7 +107,7 @@ describe("predicate builders", () => {
 	it("constructs a within-distance predicate", () => {
 		const p = within(
 			prop("clinic", "location"),
-			input("user_location"),
+			input(testUuid("user_location")),
 			50,
 			"miles",
 		);
@@ -119,8 +118,8 @@ describe("predicate builders", () => {
 
 	it("constructs when-input-present wrapping an eq", () => {
 		const p = whenInput(
-			input("phone_number"),
-			eq(prop("patient", "phone"), input("phone_number")),
+			input(testUuid("phone_number")),
+			eq(prop("patient", "phone"), input(testUuid("phone_number"))),
 		);
 		expect(p.kind).toBe("when-input-present");
 		// The body slot is named `clause` (not `then`) — see the JSDoc
@@ -132,7 +131,7 @@ describe("predicate builders", () => {
 	it("constructs or(not(...), match(...))", () => {
 		const p = or(
 			not(eq(prop("patient", "status"), literal("closed"))),
-			match(prop("patient", "name"), "alice", "fuzzy"),
+			match(prop("patient", "case_name"), "alice", "fuzzy"),
 		);
 		expect(p.kind).toBe("or");
 		expect(p.clauses[0].kind).toBe("not");
@@ -162,7 +161,7 @@ describe("predicate builders", () => {
 	});
 
 	it("constructs a custom session-user property by stable identity", () => {
-		const propertyUuid = asUuid("worker-property-region");
+		const propertyUuid = testUuid("worker-property-region");
 		const t = sessionUserProperty(propertyUuid);
 		expect(t).toEqual({
 			kind: "session-user-property",
@@ -205,7 +204,7 @@ describe("predicate builders", () => {
 	// silent narrowing of the enum on either side (builder or schema)
 	// trips the table.
 	it.each(MATCH_MODES)("constructs a match predicate with mode: %s", (mode) => {
-		const p = match(prop("patient", "name"), "alice", mode);
+		const p = match(prop("patient", "case_name"), "alice", mode);
 		expect(p.kind).toBe("match");
 		// Builder auto-wraps the bare string into a term-arm
 		// ValueExpression so the persisted shape matches the widened
@@ -276,7 +275,7 @@ describe("predicate builders", () => {
 	// the full builder → parse → check chain, not just at the type-check
 	// layer.
 	it("round-trips a null literal through predicateSchema", () => {
-		const p = eq(prop("patient", "name"), literal(null));
+		const p = eq(prop("patient", "case_name"), literal(null));
 		expect(predicateSchema.parse(p)).toEqual(p);
 	});
 
@@ -523,7 +522,7 @@ describe("relationPath builders", () => {
 	});
 });
 
-// Sentinel-predicate, is-null, range, and relational-quantifier
+// Sentinel-predicate, blank, range, and relational-quantifier
 // builders. Each pins one discriminator (the value the builder layer
 // adds over a hand-written object literal: `kind` is set correctly
 // and the surrounding shape parses through the schema). The
@@ -543,44 +542,9 @@ describe("sentinel + range + relational predicate builders", () => {
 		expect(predicateSchema.parse(p)).toEqual(p);
 	});
 
-	it("isNull() constructs an is-null with a property reference", () => {
-		// `left` is a `ValueExpression`. The builder auto-wraps Term
-		// inputs as the structural `term` arm, so `p.left.kind ===
-		// "term"` and the original Term sits at `p.left.term.kind`.
-		// The round-trip parse against `predicateSchema` confirms the
-		// lifted shape.
-		const p = isNull(prop("patient", "status"));
-		expect(p.kind).toBe("is-null");
-		expect(p.left.kind).toBe("term");
-		if (p.left.kind === "term") {
-			expect(p.left.term.kind).toBe("prop");
-		}
-		expect(predicateSchema.parse(p)).toEqual(p);
-	});
-
-	it("isNull() accepts any term shape (input / session-user / session-context / literal)", () => {
-		// Pin the parameter type — `Term`, not `PropertyRef`. A future
-		// regression that narrowed the builder's parameter to
-		// `PropertyRef` would not compile against these inputs. Both
-		// session arms (open-namespace and closed-enum) flow through the
-		// same `Term` discriminator, so each is covered explicitly.
-		const a = isNull(input("phone"));
-		const b = isNull(sessionUser("region"));
-		const c = isNull(sessionContext("userid"));
-		const d = isNull(literal("x"));
-		expect(predicateSchema.parse(a)).toEqual(a);
-		expect(predicateSchema.parse(b)).toEqual(b);
-		expect(predicateSchema.parse(c)).toEqual(c);
-		expect(predicateSchema.parse(d)).toEqual(d);
-	});
-
 	it("isBlank() constructs an is-blank with a property reference", () => {
-		// Parallel to `isNull` — same `left: ValueExpression` slot,
-		// same per-Term-variant acceptance via auto-wrap, different
-		// wire-emission rule (portable absent-OR-empty rather than
-		// strict-absent). The builder pins the discriminator and the
-		// round-trip parse through `predicateSchema` locks the builder
-		// against schema drift on the new arm.
+		// The builder auto-wraps Term inputs as the structural `term`
+		// arm and pins the portable absent-or-empty discriminator.
 		const p = isBlank(prop("patient", "status"));
 		expect(p.kind).toBe("is-blank");
 		expect(p.left.kind).toBe("term");
@@ -591,12 +555,11 @@ describe("sentinel + range + relational predicate builders", () => {
 	});
 
 	it("isBlank() accepts any term shape (input / session-user / session-context / literal)", () => {
-		// Mirrors `isNull`'s acceptance test — the parameter type is
-		// `Term`, so every Term variant must compile through the
+		// The parameter type is `Term`, so every Term variant must compile through the
 		// builder. The closed-enum `session-context` arm and the
 		// open-namespace `session-user` arm both flow through the same
 		// discriminated-union path; each is exercised explicitly.
-		const a = isBlank(input("phone"));
+		const a = isBlank(input(testUuid("phone")));
 		const b = isBlank(sessionUser("region"));
 		const c = isBlank(sessionContext("userid"));
 		const d = isBlank(literal("x"));
@@ -1087,7 +1050,7 @@ describe("toValueExpression — Term → ValueExpression auto-wrap", () => {
 	});
 
 	it("wraps a search-input reference as a term-arm ValueExpression", () => {
-		const wrapped = toValueExpression(input("phone"));
+		const wrapped = toValueExpression(input(testUuid("phone")));
 		expect(wrapped.kind).toBe("term");
 		if (wrapped.kind === "term") {
 			expect(wrapped.term.kind).toBe("input");
@@ -1130,7 +1093,7 @@ describe("toValueExpression — Term → ValueExpression auto-wrap", () => {
 	});
 });
 
-describe("predicate-operand auto-wrap (eq / isIn / within / isNull / isBlank / between)", () => {
+describe("predicate-operand auto-wrap (eq / isIn / within / isBlank / between)", () => {
 	// These tests pin that every widened predicate operand accepts
 	// both Term and ValueExpression inputs. The Term path goes through
 	// the auto-wrap; the ValueExpression path flows through unchanged.
@@ -1138,7 +1101,7 @@ describe("predicate-operand auto-wrap (eq / isIn / within / isNull / isBlank / b
 	// is well-typed at the AST.
 
 	it("eq accepts Term operands and auto-wraps them", () => {
-		const p = eq(prop("patient", "name"), literal("Alice"));
+		const p = eq(prop("patient", "case_name"), literal("Alice"));
 		expect(p.left.kind).toBe("term");
 		expect(p.right.kind).toBe("term");
 		expect(predicateSchema.parse(p)).toEqual(p);
@@ -1172,7 +1135,7 @@ describe("predicate-operand auto-wrap (eq / isIn / within / isNull / isBlank / b
 		// `input(...)` reference, lifting it into the `term` arm.
 		const p = within(
 			prop("clinic", "location"),
-			input("user_location"),
+			input(testUuid("user_location")),
 			50,
 			"miles",
 		);
@@ -1191,13 +1154,10 @@ describe("predicate-operand auto-wrap (eq / isIn / within / isNull / isBlank / b
 		expect(predicateSchema.parse(p)).toEqual(p);
 	});
 
-	it("isNull / isBlank accept ValueExpression operands", () => {
-		const a = isNull(prop("patient", "status"));
-		const b = isBlank(input("phone"));
-		expect(a.left.kind).toBe("term");
-		expect(b.left.kind).toBe("term");
-		expect(predicateSchema.parse(a)).toEqual(a);
-		expect(predicateSchema.parse(b)).toEqual(b);
+	it("isBlank accepts ValueExpression operands", () => {
+		const value = isBlank(input(testUuid("phone")));
+		expect(value.left.kind).toBe("term");
+		expect(predicateSchema.parse(value)).toEqual(value);
 	});
 });
 
@@ -1260,7 +1220,10 @@ describe("valueExpression builders — arithmetic + text arms", () => {
 	);
 
 	it("concat / coalesce construct variadic-with-required-first lists", () => {
-		const c = concat(term(literal("hello, ")), term(prop("patient", "name")));
+		const c = concat(
+			term(literal("hello, ")),
+			term(prop("patient", "case_name")),
+		);
 		const co = coalesce(
 			term(prop("patient", "nickname")),
 			term(literal("guest")),
@@ -1277,9 +1240,9 @@ describe("valueExpression builders — arithmetic + text arms", () => {
 describe("valueExpression builders — conditional + aggregation arms", () => {
 	it("ifExpr() constructs an if expression carrying a Predicate cond", () => {
 		const v = ifExpr(
-			isBlank(prop("patient", "name")),
+			isBlank(prop("patient", "case_name")),
 			term(literal("(empty)")),
-			term(prop("patient", "name")),
+			term(prop("patient", "case_name")),
 		);
 		expect(v.kind).toBe("if");
 		expect(v.cond.kind).toBe("is-blank");
@@ -1312,13 +1275,7 @@ describe("valueExpression builders — conditional + aggregation arms", () => {
 	});
 });
 
-describe("valueExpression builders — unwrap-list + format-date", () => {
-	it("unwrapList() constructs a CSQL-style unwrap-list value", () => {
-		const v = unwrapList(term(prop("patient", "tags_json")));
-		expect(v.kind).toBe("unwrap-list");
-		expect(valueExpressionSchema.parse(v)).toEqual(v);
-	});
-
+describe("valueExpression builders — format-date", () => {
 	it("formatDate() constructs a format-date with a preset pattern", () => {
 		const v = formatDate(today(), "iso");
 		expect(v.kind).toBe("format-date");

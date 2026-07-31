@@ -57,7 +57,6 @@ function walkServerPredicate(
 			walkServerOperand(predicate.right, "value", visitor);
 			return;
 		case "in":
-		case "is-null":
 		case "is-blank":
 			walkServerOperand(predicate.left, "comparison-operand", visitor);
 			return;
@@ -142,7 +141,6 @@ function walkServerOperand(
 		case "date-coerce":
 		case "datetime-coerce":
 		case "double":
-		case "unwrap-list":
 			walkServerOperand(expression.value, "value", visitor);
 			return;
 		case "date-add":

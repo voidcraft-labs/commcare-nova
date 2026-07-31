@@ -5,8 +5,8 @@
  * at the app, module, form, and field levels, then runs deep XPath
  * validation. Returns structured `ValidationError[]` keyed by uuid.
  *
- * Every run receives an explicit lookup-definition context. The production
- * S05a's immutable production extractor registry covers every dormant carrier;
+ * Every run receives an explicit lookup-definition context. The immutable
+ * production extractor registry covers every authored carrier;
  * the argument remains required so no carrier can inherit a silent
  * skip/default at an old call site.
  *
@@ -50,7 +50,7 @@ import type { XPathError } from "./xpathValidator";
 /** Optional context for a validation run. */
 export interface RunValidationOptions {
 	/**
-	 * Resolved media-asset manifest — every `AssetId` the doc
+	 * Resolved media-asset manifest — every `MediaAssetId` the doc
 	 * references that the loader was willing to return, mapped to its
 	 * loaded media-asset row. Built by the caller from
 	 * `collectAssetRefs(doc)` + `loadAssetsByIds(owner, ...)`. When
@@ -69,11 +69,11 @@ export interface RunValidationOptions {
 	readonly scope?: ValidationScope;
 	/**
 	 * Explicit extractor seam for synthetic pure tests. Production callers omit
-	 * it and use the immutable S05a production registry.
+	 * it and use the immutable production registry.
 	 */
 	readonly lookupReferenceExtractors?: LookupReferenceExtractorRegistry;
 	/**
-	 * Activation flags for future dormant-vocabulary gates.
+	 * Activation flags for explicitly caller-owned vocabulary gates.
 	 * Omitted = inactive — every gate emits.
 	 */
 }
@@ -428,17 +428,6 @@ function humanizeXPathError(error: XPathError, where: string): string {
 			// the dominant authoring mistake: `#form/consent` for a field that
 			// lives at `#form/consent_grp/consent`.
 			const hint = suggestionHint(error.suggestions);
-			// A reference held as plain text doesn't follow its field through
-			// renames — the visible-field-yet-unknown-path bounce. When no
-			// nesting suggestion explains it, the performable repair is to
-			// re-commit the referencing expression (which re-links the
-			// reference to the field) before retrying the bounced change.
-			if (error.storedRef === "raw-text") {
-				return `${where} has a reference that doesn't exist in this form: ${error.message}. That expression holds the reference as plain text, so it doesn't follow its field through renames. ${
-					hint ??
-					"If the field it names exists in the form right now, re-commit that expression first — open it on the named field and save it again unchanged, which links the reference to the field — then retry this change. If it doesn't, fix the reference to name an existing field."
-				}`;
-			}
 			if (hint) {
 				return `${where} has a reference that doesn't exist in this form: ${error.message}. ${hint}`;
 			}
@@ -446,7 +435,7 @@ function humanizeXPathError(error: XPathError, where: string): string {
 		}
 
 		case "INVALID_CASE_REF":
-			return `${where} references a case property that doesn't exist on this case type: ${error.message}. Check for a typo, or make sure a field saves to that property via \`case_property_on\`.`;
+			return `${where} references a case property that doesn't exist on this case type: ${error.message}. Check for a typo, or make sure a field's case destination saves to that property.`;
 
 		case "TYPE_ERROR":
 			return `${where} has a type mismatch: ${error.message}. This will likely produce unexpected results at runtime.`;

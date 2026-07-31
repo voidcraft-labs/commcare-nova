@@ -57,11 +57,22 @@ export function validateChatMessages(raw: unknown): ChatMessagesValidation {
 
 	let totalAttachments = 0;
 	for (const message of raw) {
-		// Only assistant + plain user messages reach here without metadata; an
-		// absent (or null) `metadata` is a valid attachment-free message, so skip
-		// it rather than fail the schema's object check on `undefined`.
+		if (
+			typeof message !== "object" ||
+			message === null ||
+			Array.isArray(message)
+		) {
+			return {
+				ok: false,
+				error:
+					"One of these messages is malformed — the chat history must contain message objects.",
+			};
+		}
+		// Assistant + plain user messages reach here without metadata. Only a
+		// genuinely absent field is attachment-free; null or another malformed
+		// container must fail before a run is claimed.
 		const metadata = (message as { metadata?: unknown }).metadata;
-		if (metadata === undefined || metadata === null) continue;
+		if (metadata === undefined) continue;
 
 		const parsed = messageMetadataSchema.safeParse(metadata);
 		if (!parsed.success) {

@@ -372,7 +372,7 @@ describe("live tail", () => {
 	});
 
 	it("rehydrates a private holder marker only for its actor and preserves the cursor for peers", async () => {
-		const appId = await createApp(USER, PROJECT, "run-private");
+		const { appId } = await createApp(USER, PROJECT, "run-private");
 		const app = await appDb
 			.selectFrom("apps")
 			.select("run_holder_nonce")
@@ -390,6 +390,7 @@ describe("live tail", () => {
 			holderNonce,
 			threadType: "build",
 			messages: [{ id: "m1", role: "user", parts: [] }],
+			expectedProjectId: PROJECT,
 		});
 		const inner: UIMessageStreamWriter = {
 			write() {},
@@ -475,6 +476,7 @@ describe("live tail", () => {
 			holderNonce: SUCCESSOR_NONCE,
 			threadType: "build",
 			messages: [{ id: "m1", role: "user", parts: [] }],
+			expectedProjectId: PROJECT,
 		});
 		const staleOwner = await collectUntil("s-private", {});
 		expect(staleOwner.frames[0]).toEqual({
@@ -502,7 +504,7 @@ describe("dead-run fallback", () => {
 
 	it("keeps tailing while the app is held live", async () => {
 		// A real `generating` app row with a fresh `updated_at` → lease live.
-		const appId = await createApp(USER, PROJECT, "run-live");
+		const { appId } = await createApp(USER, PROJECT, "run-live");
 		await seedRow("s7", 0, [delta(0)], { appId });
 
 		const { frames } = await collectUntil("s7", {
@@ -551,7 +553,7 @@ describe("auth posture", () => {
 	});
 
 	it("closes on a CONFIRMED mid-stream membership loss, not on a transient throw", async () => {
-		const appId = await createApp(USER, PROJECT, "run-revoke");
+		const { appId } = await createApp(USER, PROJECT, "run-revoke");
 		await seedRow("s9", 0, [delta(0)], { appId });
 
 		// Transient scope throws (pool blip) must NOT close the stream.
@@ -600,7 +602,7 @@ describe("thread resolution", () => {
 	 * instance's id), resolved through the thread row's `active_stream_id`
 	 * to the live POST's chunk log. */
 	it("resolves a thread id to its live stream and replays it", async () => {
-		const appId = await createApp(USER, PROJECT, "run-t1");
+		const { appId } = await createApp(USER, PROJECT, "run-t1");
 		await upsertThreadTurn({
 			appId,
 			threadId: "thread-live",
@@ -609,6 +611,7 @@ describe("thread resolution", () => {
 			holderNonce: await holderNonceFor(appId),
 			threadType: "build",
 			messages: [{ id: "m1", role: "user", parts: [] }],
+			expectedProjectId: PROJECT,
 		});
 		await seedRow("s14", 0, [delta(0), delta(1), { type: "finish" }], {
 			appId,
@@ -621,7 +624,7 @@ describe("thread resolution", () => {
 	});
 
 	it("answers a bare finish for a thread with nothing in flight", async () => {
-		const appId = await createApp(USER, PROJECT, "run-t2");
+		const { appId } = await createApp(USER, PROJECT, "run-t2");
 		await upsertThreadTurn({
 			appId,
 			threadId: "thread-idle",
@@ -630,6 +633,7 @@ describe("thread resolution", () => {
 			holderNonce: await holderNonceFor(appId),
 			threadType: "build",
 			messages: [{ id: "m1", role: "user", parts: [] }],
+			expectedProjectId: PROJECT,
 		});
 		/* Finalize cleared the marker — nothing to resume. The reply must be a
 		 * 200 that terminates on its first chunk: the transport ERRORS on any
@@ -649,7 +653,7 @@ describe("thread resolution", () => {
 	});
 
 	it("404s a thread scope denial identically to a missing id", async () => {
-		const appId = await createApp(USER, PROJECT, "run-t3");
+		const { appId } = await createApp(USER, PROJECT, "run-t3");
 		await upsertThreadTurn({
 			appId,
 			threadId: "thread-foreign",
@@ -658,6 +662,7 @@ describe("thread resolution", () => {
 			holderNonce: await holderNonceFor(appId),
 			threadType: "build",
 			messages: [{ id: "m1", role: "user", parts: [] }],
+			expectedProjectId: PROJECT,
 		});
 		resolveAppScopeMock.mockRejectedValue(new MockAppAccessError("not-member"));
 		requireSessionMock.mockResolvedValue(sessionFor(USER));

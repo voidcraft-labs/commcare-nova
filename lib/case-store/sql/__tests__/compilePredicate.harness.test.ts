@@ -32,6 +32,7 @@
 // file's tests answer the second question.
 
 import { describe } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import type { CaseType } from "@/lib/domain";
 import {
 	dateRangeSearchPredicate,
@@ -50,7 +51,6 @@ import {
 	input,
 	isBlank,
 	isIn,
-	isNull,
 	literal,
 	lt,
 	match,
@@ -69,6 +69,7 @@ import {
 	whenInput,
 	within,
 } from "@/lib/domain/predicate/builders";
+import { proseText } from "@/lib/domain/prose";
 import {
 	compilePredicate,
 	type PredicateCompileContext,
@@ -98,13 +99,13 @@ const PATIENT_SCHEMA: CaseType = {
 	name: "patient",
 	parent_type: "household",
 	properties: [
-		{ name: "nickname", label: "Nickname", data_type: "text" },
-		{ name: "age", label: "Age", data_type: "int" },
-		{ name: "bmi", label: "BMI", data_type: "decimal" },
-		{ name: "dob", label: "DOB", data_type: "date" },
-		{ name: "last_seen", label: "Last seen", data_type: "datetime" },
-		{ name: "tags", label: "Tags", data_type: "multi_select" },
-		{ name: "loc", label: "Location", data_type: "geopoint" },
+		{ name: "nickname", label: proseText("Nickname"), data_type: "text" },
+		{ name: "age", label: proseText("Age"), data_type: "int" },
+		{ name: "bmi", label: proseText("BMI"), data_type: "decimal" },
+		{ name: "dob", label: proseText("DOB"), data_type: "date" },
+		{ name: "last_seen", label: proseText("Last seen"), data_type: "datetime" },
+		{ name: "tags", label: proseText("Tags"), data_type: "multi_select" },
+		{ name: "loc", label: proseText("Location"), data_type: "geopoint" },
 	],
 };
 
@@ -112,14 +113,16 @@ const HOUSEHOLD_SCHEMA: CaseType = {
 	name: "household",
 	parent_type: "village",
 	properties: [
-		{ name: "size", label: "Size", data_type: "int" },
-		{ name: "region", label: "Region", data_type: "text" },
+		{ name: "size", label: proseText("Size"), data_type: "int" },
+		{ name: "region", label: proseText("Region"), data_type: "text" },
 	],
 };
 
 const VILLAGE_SCHEMA: CaseType = {
 	name: "village",
-	properties: [{ name: "nickname", label: "Village name", data_type: "text" }],
+	properties: [
+		{ name: "nickname", label: proseText("Village name"), data_type: "text" },
+	],
 };
 
 const SCHEMAS = new Map<string, CaseType>([
@@ -523,63 +526,13 @@ describe("compilePredicate — round-trip — comparison operators", () => {
 });
 
 // ---------------------------------------------------------------
-// Postgres-strict null semantics — four distinct cases
+// Postgres blank semantics
 // ---------------------------------------------------------------
 //
-// The AST distinguishes absent / empty / null at the data-model
-// layer; this compiler emits the strict SQL, and round-trip tests
-// pin all four cases:
-//
-//   1. is-null(prop) matches absent only.
-//   2. is-blank(prop) matches absent OR empty-string.
-//   3. compare(prop, "") matches strictly empty-string only.
-//   4. compare(prop, null) matches strictly null (no rows in
-//      practice — `<col> = NULL` is always unknown in SQL).
+// The AST's portable blank operator matches absent or empty string; direct
+// comparisons remain exact.
 
 describe("compilePredicate — round-trip — Postgres-strict null semantics", () => {
-	test("is-null matches absent JSONB key only — not empty, not null", async ({
-		db,
-	}) => {
-		// Three rows: name absent, name empty string, name JSON null.
-		// The is-null predicate matches only the absent row.
-		await db
-			.insertInto("cases")
-			.values([
-				makeCaseRow({
-					case_id: "30000000-0000-0000-0000-000000000001",
-					case_type: "patient",
-					app_id: APP_ID,
-					project_id: OWNER_ID,
-					// `name` key absent — no `name` in the JSONB
-					// document.
-					properties: JSON.stringify({ age: 30 }),
-				}),
-				makeCaseRow({
-					case_id: "30000000-0000-0000-0000-000000000002",
-					case_type: "patient",
-					app_id: APP_ID,
-					project_id: OWNER_ID,
-					// `name` present with empty string.
-					properties: JSON.stringify({ nickname: "" }),
-				}),
-				makeCaseRow({
-					case_id: "30000000-0000-0000-0000-000000000003",
-					case_type: "patient",
-					app_id: APP_ID,
-					project_id: OWNER_ID,
-					// `name` present with JSON null.
-					properties: JSON.stringify({ nickname: null }),
-				}),
-			])
-			.execute();
-		const pred = isNull(prop("patient", "nickname"));
-		const rows = await executeAgainstPredicate(
-			db,
-			compilePredicate(pred, makeCtx(db)),
-		);
-		expect(rows).toEqual([{ case_id: "30000000-0000-0000-0000-000000000001" }]);
-	});
-
 	test("is-blank matches absent OR empty-string — not JSON null", async ({
 		db,
 	}) => {
@@ -1326,7 +1279,7 @@ describe("compilePredicate — round-trip — match", () => {
 		// level fuzzy clause; "Zelda" shares neither prefix nor token.
 		const pred = match(
 			prop("patient", "nickname"),
-			term(input("name_search")),
+			term(input(testUuid("name_search"))),
 			"fuzzy",
 		);
 		const rows = await executeAgainstPredicate(
@@ -1334,7 +1287,9 @@ describe("compilePredicate — round-trip — match", () => {
 			compilePredicate(
 				pred,
 				makeCtx(db, {
-					bindings: { searchInputs: new Map([["name_search", "Alise"]]) },
+					bindings: {
+						searchInputs: new Map([[testUuid("name_search"), "Alise"]]),
+					},
 				}),
 			),
 		);
@@ -2187,7 +2142,7 @@ describe("compilePredicate — round-trip — when-input-present", () => {
 			])
 			.execute();
 		const pred = whenInput(
-			input("name_filter"),
+			input(testUuid("name_filter")),
 			eq(prop("patient", "nickname"), literal("Alice")),
 		);
 		const rows = await executeAgainstPredicate(
@@ -2195,7 +2150,9 @@ describe("compilePredicate — round-trip — when-input-present", () => {
 			compilePredicate(
 				pred,
 				makeCtx(db, {
-					bindings: { searchInputs: new Map([["name_filter", "Alice"]]) },
+					bindings: {
+						searchInputs: new Map([[testUuid("name_filter"), "Alice"]]),
+					},
 				}),
 			),
 		);
@@ -2224,7 +2181,7 @@ describe("compilePredicate — round-trip — when-input-present", () => {
 			])
 			.execute();
 		const pred = whenInput(
-			input("name_filter"),
+			input(testUuid("name_filter")),
 			eq(prop("patient", "nickname"), literal("Alice")),
 		);
 		const rows = await executeAgainstPredicate(

@@ -48,9 +48,39 @@ const naming = lookupWireNaming([
 ]);
 
 /** Value-slot lowering with a live naming supplied. */
-const withNaming = { lookup: { naming } } as const;
+const withNaming = { lookup: { naming, instanceScope: "suite" } } as const;
+const withXformNaming = {
+	lookup: { naming, instanceScope: "xform" },
+} as const;
 
 describe("emitOnDeviceExpression — table-lookup lowering", () => {
+	it("uses the exact XForm-local id while suite expressions use the fixture id", () => {
+		// Oracle:
+		// corehq/apps/app_manager/tests/data/form_with_fixtures.xml uses
+		// `<instance src="jr://fixture/item-list:country" id="country"/>`;
+		// RemoteRequestSuiteTest.test_prompt_itemset uses
+		// `instance('item-list:states')` in suite XPath.
+		const expression = tableLookup(REGIONS, NAME, matchAll());
+		expect(
+			emitOnDeviceExpression(
+				expression,
+				"casedb",
+				{},
+				ROOT_ON_DEVICE_CASE_ANCHOR,
+				withXformNaming,
+			),
+		).toBe("instance('regions')/regions_list/regions[1]/name");
+		expect(
+			emitOnDeviceExpression(
+				expression,
+				"casedb",
+				{},
+				ROOT_ON_DEVICE_CASE_ANCHOR,
+				withNaming,
+			),
+		).toBe("instance('item-list:regions')/regions_list/regions[1]/name");
+	});
+
 	it("lowers a match-all where to the bare first-match positional path", () => {
 		expect(
 			emitOnDeviceExpression(
@@ -196,12 +226,12 @@ describe("emitOnDeviceExpression — case-operation self-property anchoring", ()
 					scope === "root" && property.caseType === "patient"
 						? `instance('${root}')/${root}/case[@case_id=instance('commcaresession')/session/data/case_id]/${property.property}`
 						: undefined,
-				lookup: { naming },
+				lookup: { naming, instanceScope: "xform" },
 			},
 		);
 
 		expect(lowered).toBe(
-			`instance('item-list:regions')/regions_list/regions[value = ${anchored}/village][1]/name`,
+			`instance('regions')/regions_list/regions[value = ${anchored}/village][1]/name`,
 		);
 		expect(lowered).not.toContain("current()/village");
 	});
@@ -275,7 +305,7 @@ describe("relation anchors inside a fixture-row where", () => {
 			"casedb",
 			{ currentCaseType: "patient" },
 			ROOT_ON_DEVICE_CASE_ANCHOR,
-			{ ...withNaming, rootCaseId: sessionCaseId },
+			{ ...withXformNaming, rootCaseId: sessionCaseId },
 		);
 		/* On a form surface current() is the bind node; the presence test
 		 * anchors on the session-selected case instead. */
@@ -295,10 +325,10 @@ describe("relation anchors inside a fixture-row where", () => {
 			"casedb",
 			{ currentCaseType: "patient" },
 			ROOT_ON_DEVICE_CASE_ANCHOR,
-			{ ...withNaming, rootCaseId: sessionCaseId },
+			{ ...withXformNaming, rootCaseId: sessionCaseId },
 		);
 		expect(lowered).toBe(
-			`instance('item-list:regions')/regions_list/regions[value = instance('casedb')/casedb/case[@case_id=${sessionCaseId}]/village][1]/name`,
+			`instance('regions')/regions_list/regions[value = instance('casedb')/casedb/case[@case_id=${sessionCaseId}]/village][1]/name`,
 		);
 	});
 });

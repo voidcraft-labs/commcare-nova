@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { sequenceMovesTo, spliceAfter } from "@/lib/doc/mutations/sequence";
+import {
+	sequenceMovesTo,
+	spliceAfter,
+	spliceEntryAfter,
+} from "@/lib/doc/mutations/sequence";
 
 /** Apply the derived moves and check they actually reach the target. */
 function reaches(before: string[], after: string[]): boolean {
@@ -39,5 +43,16 @@ describe("sequenceMovesTo", () => {
 		}
 		for (const p of perms) expect(reaches(ids, p)).toBe(true);
 		for (const p of perms) expect(reaches(p, ids)).toBe(true);
+	});
+});
+
+describe("missing logical neighbors", () => {
+	it("never converts a missing UUID anchor into append", () => {
+		expect(spliceAfter(["a", "b"], "a", "gone")).toEqual(["a", "b"]);
+	});
+
+	it("never converts a missing entry anchor into append", () => {
+		const entries = [{ uuid: "a" }, { uuid: "b" }];
+		expect(spliceEntryAfter(entries, entries[0], "gone")).toEqual(entries);
 	});
 });

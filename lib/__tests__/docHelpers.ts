@@ -12,6 +12,7 @@
  * whatever keys that variant supports.
  */
 
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { parseXPathExpression } from "@/lib/commcare/xpath";
 import {
 	resolvableUserPropertySlug,
@@ -19,8 +20,8 @@ import {
 } from "@/lib/doc/expressionText";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import {
-	asUuid,
 	type BlueprintDoc,
+	type CaseProperty,
 	type CaseType,
 	type ConnectType,
 	type Field,
@@ -30,7 +31,9 @@ import {
 	type FormLink,
 	fieldPathResolver,
 	type Module,
+	type ProseTemplate,
 	plainColumn,
+	proseText,
 	rewriteSlotValues,
 	type UserCollections,
 	type Uuid,
@@ -39,10 +42,10 @@ import {
 
 /**
  * Parse expression text to its stored AST with NO form resolution —
- * form-namespace refs stay raw leaves (case/user refs classify fine;
- * they need no doc). For fixtures whose form refs must resolve to
- * identity leaves, use `xpIn` or author the slot as a string in a
- * `buildDoc` spec (converted against the complete doc).
+ * unresolved form-namespace tokens stay inert text (case/user refs classify
+ * without a doc). For fixtures whose form refs must resolve to identity
+ * leaves, use `xpIn` or author the slot as a string in a `buildDoc` spec
+ * (converted against the complete doc).
  */
 export function xp(text: string): XPathExpression {
 	return parseXPathExpression(
@@ -70,7 +73,7 @@ export function xpIn(
 let counter = 0;
 function nextUuid(prefix: string): Uuid {
 	counter++;
-	return asUuid(`${prefix}-${counter.toString().padStart(4, "0")}`);
+	return testUuid(`${prefix}-${counter.toString().padStart(4, "0")}`);
 }
 
 /**
@@ -95,7 +98,7 @@ export type FieldSpec = {
 	kind: FieldKind;
 	id: string;
 	uuid?: string;
-	label?: string;
+	label?: string | ProseTemplate;
 	children?: FieldSpec[];
 	[key: string]: unknown;
 };
@@ -242,9 +245,29 @@ export interface DocSpec {
 	appId?: string;
 	appName?: string;
 	connectType?: ConnectType | null;
-	caseTypes?: CaseType[] | null;
+	caseTypes?: FixtureCaseType[] | null;
 	modules?: ModuleSpec[];
 }
+
+type FixtureProse = string | ProseTemplate;
+type FixtureCaseProperty = Omit<
+	CaseProperty,
+	"label" | "hint" | "required" | "validation" | "validation_msg" | "options"
+> & {
+	label: FixtureProse;
+	hint?: FixtureProse;
+	required?: string | CaseProperty["required"];
+	validation?: string | CaseProperty["validation"];
+	validation_msg?: FixtureProse;
+	options?: Array<
+		Omit<NonNullable<CaseProperty["options"]>[number], "label"> & {
+			label: FixtureProse;
+		}
+	>;
+};
+type FixtureCaseType = Omit<CaseType, "properties"> & {
+	properties: FixtureCaseProperty[];
+};
 
 /**
  * Build a fully normalized `BlueprintDoc` from a concise nested spec.
@@ -266,7 +289,7 @@ export function buildDoc(spec: DocSpec = {}): BlueprintDoc {
 	const fieldOrder: BlueprintDoc["fieldOrder"] = {};
 
 	for (const modSpec of spec.modules ?? []) {
-		const moduleUuid = asUuid(modSpec.uuid ?? nextUuid("mod"));
+		const moduleUuid = testUuid(modSpec.uuid ?? nextUuid("mod"));
 		moduleOrder.push(moduleUuid);
 		formOrder[moduleUuid] = [];
 
@@ -291,7 +314,7 @@ export function buildDoc(spec: DocSpec = {}): BlueprintDoc {
 		};
 
 		for (const formSpec of modSpec.forms ?? []) {
-			const formUuid = asUuid(formSpec.uuid ?? nextUuid("frm"));
+			const formUuid = testUuid(formSpec.uuid ?? nextUuid("frm"));
 			formOrder[moduleUuid].push(formUuid);
 			fieldOrder[formUuid] = [];
 
@@ -324,7 +347,7 @@ export function buildDoc(spec: DocSpec = {}): BlueprintDoc {
 		appId: spec.appId ?? "test-app",
 		appName: spec.appName ?? "Test",
 		connectType: spec.connectType ?? null,
-		caseTypes: spec.caseTypes ?? null,
+		caseTypes: normalizeFixtureCaseTypes(spec.caseTypes),
 		modules,
 		forms,
 		fields,
@@ -337,12 +360,60 @@ export function buildDoc(spec: DocSpec = {}): BlueprintDoc {
 	resolveDocExpressions(doc);
 	for (const [formUuid, form] of Object.entries(doc.forms)) {
 		if (form.closeCondition && form.closeCondition.field.length > 0) {
-			form.closeCondition.field = asUuid(
+			form.closeCondition.field = testUuid(
 				resolveCloseFieldRef(doc, formUuid, form.closeCondition.field),
 			);
 		}
 	}
 	return doc;
+}
+
+function normalizeFixtureCaseTypes(
+	caseTypes: FixtureCaseType[] | null | undefined,
+): CaseType[] | null {
+	if (caseTypes == null) return null;
+	return caseTypes.map((caseType) => ({
+		...caseType,
+		properties: caseType.properties.map((property) => {
+			const {
+				label,
+				hint,
+				required,
+				validation,
+				validation_msg,
+				options,
+				...rest
+			} = property;
+			return {
+				...rest,
+				label: fixtureProse(label),
+				...(hint !== undefined && { hint: fixtureProse(hint) }),
+				...(required !== undefined && {
+					required: typeof required === "string" ? xp(required) : required,
+				}),
+				...(validation !== undefined && {
+					validation:
+						typeof validation === "string" ? xp(validation) : validation,
+				}),
+				...(validation_msg !== undefined && {
+					validation_msg: fixtureProse(validation_msg),
+				}),
+				...(options !== undefined && {
+					options: options.map((option) => {
+						const { label: optionLabel, ...optionRest } = option;
+						return {
+							...optionRest,
+							label: fixtureProse(optionLabel),
+						};
+					}),
+				}),
+			};
+		}),
+	}));
+}
+
+function fixtureProse(value: FixtureProse): ProseTemplate {
+	return typeof value === "string" ? proseText(value) : value;
 }
 
 /**
@@ -424,7 +495,7 @@ function installFields(
 ): void {
 	for (const spec of specs) {
 		const { children, uuid: rawUuid, kind, id, label, ...rest } = spec;
-		const uuid = asUuid(rawUuid ?? nextUuid("fld"));
+		const uuid = testUuid(rawUuid ?? nextUuid("fld"));
 		fieldOrder[parentUuid].push(uuid);
 
 		const base: Record<string, unknown> = {
@@ -437,9 +508,32 @@ function installFields(
 		// so callers that don't care about labels get a sensible fixture.
 		// Hidden has no `label` — omit it when the caller does too.
 		if (label !== undefined) {
-			base.label = label;
+			base.label = fixtureProse(label);
 		} else if (kind !== "hidden") {
-			base.label = id;
+			base.label = proseText(id);
+		}
+		for (const proseSlot of ["hint", "help", "validate_msg"] as const) {
+			if (typeof base[proseSlot] === "string") {
+				base[proseSlot] = proseText(base[proseSlot]);
+			}
+		}
+		if (
+			(kind === "single_select" || kind === "multi_select") &&
+			Array.isArray(base.options)
+		) {
+			base.optionsSource = {
+				kind: "inline",
+				options: normalizeFixtureOptions(base.options, uuid),
+			};
+			delete base.options;
+		} else if (
+			(kind === "single_select" || kind === "multi_select") &&
+			isInlineOptionsSource(base.optionsSource)
+		) {
+			base.optionsSource = {
+				...base.optionsSource,
+				options: normalizeFixtureOptions(base.optionsSource.options, uuid),
+			};
 		}
 		// `repeat` is a discriminated union on `repeat_mode`; default to
 		// `user_controlled` so fixtures that don't care about the mode
@@ -457,4 +551,36 @@ function installFields(
 			if (children?.length) installFields(children, uuid, fields, fieldOrder);
 		}
 	}
+}
+
+function isInlineOptionsSource(
+	value: unknown,
+): value is { kind: "inline"; options: unknown[] } {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		(value as { kind?: unknown }).kind === "inline" &&
+		Array.isArray((value as { options?: unknown }).options)
+	);
+}
+
+function normalizeFixtureOptions(
+	options: unknown[],
+	fieldUuid: Uuid,
+): Array<Record<string, unknown>> {
+	return options.map((rawOption, index) => {
+		const option =
+			typeof rawOption === "object" && rawOption !== null
+				? (rawOption as Record<string, unknown>)
+				: {};
+		const rawLabel = option.label;
+		return {
+			...option,
+			uuid:
+				typeof option.uuid === "string"
+					? testUuid(option.uuid)
+					: testUuid(`${fieldUuid}-option-${index}`),
+			...(typeof rawLabel === "string" && { label: proseText(rawLabel) }),
+		};
+	});
 }

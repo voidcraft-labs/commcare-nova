@@ -13,7 +13,8 @@
 import { CompletionContext } from "@codemirror/autocomplete";
 import { EditorState } from "@codemirror/state";
 import { describe, expect, it } from "vitest";
-import { asUuid, type ReachableCaseTypeIndex } from "@/lib/domain";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import type { ReachableCaseTypeIndex } from "@/lib/domain";
 import { hashtagSource } from "../xpath-autocomplete";
 import { xpath } from "../xpath-language";
 import type { XPathLintContext } from "../xpath-lint";
@@ -110,7 +111,7 @@ describe("hashtagSource — worker information", () => {
 			...makeLintContext("followup"),
 			userProperties: [
 				{
-					uuid: asUuid("property-1"),
+					uuid: testUuid("property-1"),
 					slug: "supervisor_area",
 					label: "Supervisor area",
 				},
@@ -134,7 +135,7 @@ describe("hashtagSource — worker information", () => {
 			...makeLintContext("followup"),
 			userProperties: [
 				{
-					uuid: asUuid("property-1"),
+					uuid: testUuid("property-1"),
 					slug: "username",
 					label: "Program username",
 				},

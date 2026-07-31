@@ -23,7 +23,8 @@ export const chatHolderNonceSchema = z.string().uuid();
  * the persisted blueprint server-side off the same authorization read that
  * gates the request, so a per-turn whole-doc upload never crosses the wire.
  * A brand-new build sends no `appId`, carries the Project captured by its RSC
- * render as `expectedProjectId`, and the route seeds the SA from an empty doc.
+ * render as `expectedProjectId`, and the route seeds the SA from the exact
+ * canonical sequence-1 blueprint returned by app genesis.
  *
  * `messages` is the FULL conversation history of the thread — hydrated from
  * the `threads` row on page load, extended client-side as the session runs.

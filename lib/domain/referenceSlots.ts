@@ -4,8 +4,8 @@
 // blueprint slot that can carry a reference to another part of the
 // app. A "reference" here is anything that names an entity, a case
 // property, or a case type — an XPath expression with hashtag refs, a
-// prose string with embedded hashtag refs, a predicate/value-expression
-// AST whose typed leaves name case properties, a field-id pointer, an
+// prose template whose typed atoms name references, a predicate/value-expression
+// AST whose typed leaves name case properties, an entity pointer, an
 // entity uuid, or a bare case-type/case-property name.
 //
 // The registry is shared vocabulary: the validator's per-surface
@@ -30,9 +30,8 @@
 //
 //   - Derived case wiring (`case_preload`, form actions, child-case
 //     buckets): never stored on the doc — `lib/commcare`'s
-//     `deriveCaseConfig` re-derives it from field ids +
-//     `case_property_on` on demand, so a field rename is followed by
-//     construction and there is no stored slot to register or rewrite.
+//     `deriveCaseConfig` re-derives it from each field's stable uuid,
+//     current path, and explicit `caseWrite` destination on demand.
 //   - Blueprint-root slots (`appId` / `appName` / `connectType` /
 //     `logo` / the order arrays / the `caseTypes` catalog): the
 //     registry's owning entities are field / form / module. The
@@ -41,7 +40,7 @@
 //     runtime), and its `parent_type` case-type link is consumed
 //     through `caseTypes.ts`'s reachability helpers, not through a
 //     per-entity rewrite walk.
-//   - Media asset slots: they reference stored media by `AssetId`, and
+//   - Media asset slots: they reference stored media by `MediaAssetId`, and
 //     `mediaRefs.ts::walkAssetRefs` is the single walk that owns them.
 //     They are classified `media` in the non-reference maps so the
 //     audit stays total without duplicating that registry.
@@ -59,9 +58,10 @@ import type { ColumnKind, SearchInputDef } from "./modules";
  *     structurally; source text is a PROJECTION (`printXPath`), so
  *     consumers that speak text read the printed form and consumers
  *     that follow references walk the leaves — never a re-parse.
- *   - `prose` — markdown/plain text that may embed bare hashtag refs;
- *     only the hashtag substrings are reference-bearing, never the
- *     surrounding text.
+ *   - `prose` — a `ProseTemplate` whose reference atoms carry stable
+ *     identity. Hashtag-looking text is ordinary authored text; friendly
+ *     `#form/...` and `#<case_type>/...` spellings are projections of the
+ *     typed atoms, never reparsed storage.
  *   - `predicate-ast` — a structured AST from `lib/domain/predicate`
  *     (`Predicate`, `ValueExpression`, or `RelationPath`); references
  *     live on typed leaves (`PropertyRef`, relation steps' case-type
@@ -132,9 +132,19 @@ export interface FormReferenceSlot {
 type SearchInputArmKind = SearchInputDef["kind"];
 
 /**
+ * The search-input union's second axis. `searchInputDefSchema` is four arms over
+ * TWO independent dimensions — `kind` (simple | advanced) and widget shape
+ * (scalar | date-range) — because a range default and a scalar range mode both
+ * have to be unrepresentable. Applicability has to name both: `default` lives on
+ * the two SCALAR arms regardless of kind, so no set of `kind` values alone can
+ * describe it.
+ */
+type SearchInputWidget = "scalar" | "date-range";
+
+/**
  * One reference-carrying slot on a `Module`. `columnKinds` /
- * `searchInputKinds` narrow applicability within the case-list
- * column union and the search-input union — same role `repeatModes`
+ * `searchInputKinds` / `searchInputWidgets` narrow applicability within the
+ * case-list column union and the search-input union — same role `repeatModes`
  * plays on field slots; absent means every arm declares the path.
  */
 export interface ModuleReferenceSlot {
@@ -144,6 +154,7 @@ export interface ModuleReferenceSlot {
 	readonly kind: ReferenceSurfaceKind;
 	readonly columnKinds?: readonly ColumnKind[];
 	readonly searchInputKinds?: readonly SearchInputArmKind[];
+	readonly searchInputWidgets?: readonly SearchInputWidget[];
 }
 
 export type ReferenceSlot =
@@ -158,7 +169,7 @@ export type ReferenceSlot =
 // each group exact against the per-kind schemas.
 
 /** Kinds extending `inputFieldBaseSchema` — full input wiring
- *  (hint / help / required / relevant / case_property_on). */
+ *  (hint / help / required / relevant / caseWrite). */
 const INPUT_KINDS = [
 	"text",
 	"int",
@@ -344,7 +355,7 @@ export const FIELD_REFERENCE_SLOTS = [
 	{
 		entity: "field",
 		slot: "option_label",
-		path: "options[].label",
+		path: "optionsSource.options[].label",
 		kind: "prose",
 		appliesTo: SELECT_KINDS,
 	},
@@ -357,13 +368,19 @@ export const FIELD_REFERENCE_SLOTS = [
 	},
 	{
 		entity: "field",
-		slot: "case_property_on",
-		path: "case_property_on",
+		slot: "case_write_case_type",
+		path: "caseWrite.caseType",
 		kind: "case-type-ref",
-		// The field's declaration site doubles as a reference: the value
-		// names the case type whose property this field writes (and, via
-		// "field id = case property name", which property catalog the
-		// field's id lands in).
+		// One half of the field's explicit case-storage destination.
+		// The sibling `caseWrite.property` is registered independently as
+		// the name-backed property identity on that case type.
+		appliesTo: [...INPUT_KINDS, "hidden"],
+	},
+	{
+		entity: "field",
+		slot: "case_write_property",
+		path: "caseWrite.property",
+		kind: "case-property-ref",
 		appliesTo: [...INPUT_KINDS, "hidden"],
 	},
 ] as const satisfies readonly FieldReferenceSlot[];
@@ -382,9 +399,8 @@ export const FORM_REFERENCE_SLOTS = [
 		entity: "form",
 		slot: "close_condition_field",
 		path: "closeCondition.field",
-		// The checked field's stable uuid (a legacy doc may carry an
-		// unresolvable id verbatim — a dangling pointer, adjudicated by
-		// the validator from the same slot).
+		// The checked field's stable uuid. Admission and validation reject a
+		// missing target; consumers never reinterpret this identity as an id.
 		kind: "entity-uuid",
 		formTypes: ["close"],
 	},
@@ -621,6 +637,9 @@ export const MODULE_REFERENCE_SLOTS = [
 		path: "caseListConfig.searchInputs[].default",
 		kind: "predicate-ast",
 		searchInputKinds: ["simple", "advanced"],
+		// Scalar widgets only. A date-range input owns its range mode and never
+		// carries a scalar default, so the two date-range arms declare no key.
+		searchInputWidgets: ["scalar"],
 	},
 	{
 		entity: "module",
@@ -718,7 +737,7 @@ export function fieldReferenceSlotsFor(
 //
 // One traversal interprets the registry's path grammar — `.` for
 // object steps, a `[]` suffix for array fan-out (e.g.
-// `options[].label`, `formLinks[].datums[].xpath`,
+// `optionsSource.options[].label`, `formLinks[].datums[].xpath`,
 // `data_source.ids_query`) — so the schema-resolving audit test, the
 // write-side rewriter, and the read accessor
 // (`expressionSource.ts`) interpret one vocabulary. Total over any
@@ -900,7 +919,7 @@ export type NonReferenceReason =
 	/** Literal data value compared against case/form data at runtime
 	 *  (option values, mapping values, close-condition answers). */
 	| "data-literal"
-	/** Media `AssetId` slot — owned by the `mediaRefs.ts` walk. */
+	/** Media `MediaAssetId` slot — owned by the `mediaRefs.ts` walk. */
 	| "media"
 	/** CommCare wire-vocabulary token (a session-datum name the target
 	 *  form's entry expects), not a blueprint-entity reference. */
@@ -917,9 +936,9 @@ export const NON_REFERENCE_FIELD_PATHS: Readonly<
 	hint_media: "media",
 	help_media: "media",
 	validate_msg_media: "media",
-	"options[].uuid": "identity",
-	"options[].value": "data-literal",
-	"options[].media": "media",
+	"optionsSource.options[].uuid": "identity",
+	"optionsSource.options[].value": "data-literal",
+	"optionsSource.options[].media": "media",
 };
 
 export const NON_REFERENCE_FORM_PATHS: Readonly<
@@ -1006,7 +1025,6 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	"caseListConfig.searchInputs[].label": "display-text",
 	"caseListConfig.searchInputs[].type": "config",
 	"caseListConfig.searchInputs[].mode.kind": "discriminator",
-	"caseListConfig.searchInputs[].mode.quantifier": "config",
 	"caseSearchConfig.searchActionEnabled": "config",
 	"caseSearchConfig.searchScreenTitle": "display-text",
 	"caseSearchConfig.searchScreenSubtitle": "display-text",

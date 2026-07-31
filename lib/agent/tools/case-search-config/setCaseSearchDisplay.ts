@@ -6,27 +6,26 @@
  * Every slot is required-and-nullable on the SA boundary: `null` clears,
  * non-null sets. The tool computes a whole editor projection so the advanced
  * cluster round-trips byte-identically, then `updateModuleMutations` splits
- * it into fresh-state per-slot writes; its whole-config payload is only the
- * rolling-deploy fallback.
+ * it into final fresh-state per-slot writes.
  *
- * Two exit branches: module-index-out-of-range returns `{ error }`
+ * Two exit branches: an invalid module UUID returns `{ error }`
  * with no mutations; success returns `{ message, displaySlotsSet }`
  * with the persisted mutation tagged `module:M:caseSearch:display`.
  */
 
-import { z } from "zod";
+import type { z } from "zod";
 import type { BlueprintDoc, CaseSearchConfig } from "@/lib/domain";
-import {
-	resolveModuleUuid,
-	updateModuleMutations,
-} from "../../blueprintHelpers";
+import { updateModuleMutations } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import {
 	guardedMutate,
 	type MutatingToolResult,
 	toToolErrorResult,
 } from "../common";
-import { moduleNotFoundResult } from "../shared/moduleNotFoundResult";
+import {
+	moduleAddressSchema,
+	resolveModuleAddress,
+} from "../shared/entityAddresses";
 import type { ToolCallSummary } from "../shared/toolCallSummary";
 import {
 	applyClusterPatch,
@@ -40,14 +39,7 @@ import {
 	snapshotCaseSearchConfig,
 } from "./shared";
 
-export const setCaseSearchDisplayInputSchema = z
-	.object({
-		moduleIndex: z
-			.number()
-			.describe(
-				"0-based module index whose case-search display cluster to set",
-			),
-	})
+export const setCaseSearchDisplayInputSchema = moduleAddressSchema
 	.extend(setCaseSearchDisplayBodySchema.shape)
 	.strict();
 
@@ -80,22 +72,17 @@ export const setCaseSearchDisplayTool = {
 		ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<SetCaseSearchDisplayResult>> {
-		const { moduleIndex } = input;
 		try {
-			const moduleUuid = resolveModuleUuid(doc, moduleIndex);
-			if (!moduleUuid)
-				return moduleNotFoundResult<SetCaseSearchDisplaySuccess>(
-					doc,
-					moduleIndex,
-					"set the case-search display cluster",
-				);
-			const mod = doc.modules[moduleUuid];
-			if (!mod)
-				return moduleNotFoundResult<SetCaseSearchDisplaySuccess>(
-					doc,
-					moduleIndex,
-					"set the case-search display cluster",
-				);
+			const address = resolveModuleAddress(doc, input);
+			if (!address.ok) {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					newDoc: doc,
+					result: { error: address.error },
+				};
+			}
+			const { moduleUuid, module: mod } = address;
 
 			// Preserve the advanced cluster, layer the display patch on
 			// top. Both halves key off the same slot tuples; partition
@@ -125,7 +112,7 @@ export const setCaseSearchDisplayTool = {
 				ctx,
 				doc,
 				mutations,
-				`module:${moduleIndex}:caseSearch:display`,
+				`module:${moduleUuid}:caseSearch:display`,
 			);
 			if (!commit.ok) {
 				return {
@@ -143,13 +130,13 @@ export const setCaseSearchDisplayTool = {
 
 			return {
 				kind: "mutate" as const,
-				mutations,
+				mutations: commit.mutations,
 				newDoc,
 				result: {
 					message:
 						displaySlotsSet.length === 0
-							? `Cleared every case-search display slot on module "${mod.name}" (index ${moduleIndex}).`
-							: `Set case-search display on module "${mod.name}" (index ${moduleIndex}): ${displaySlotsSet.join(", ")}.`,
+							? `Cleared every case-search display slot on module "${mod.name}" (${moduleUuid}).`
+							: `Set case-search display on module "${mod.name}" (${moduleUuid}): ${displaySlotsSet.join(", ")}.`,
 					displaySlotsSet,
 					summary: { location: mod.name },
 				},

@@ -1,3 +1,4 @@
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import { emptyCaseListConfig } from "@/lib/domain";
 // lib/domain/__tests__/modules.test.ts
@@ -18,8 +19,8 @@ import { emptyCaseListConfig } from "@/lib/domain";
 //   3. The `interval` kind preserves `display: "always"` AND
 //      `display: "flag"` arms.
 //   4. `Column.sort` round-trips with direction + priority.
-//   5. Visibility flags and independent Results / Details order keys
-//      round-trip (and absent slots stay absent).
+//   5. Visibility flags and independent Results / Details sequences
+//      round-trip.
 //   6. The `SearchInputDef` discriminated union round-trips both
 //      arms; the simple arm requires `property`; the advanced arm
 //      requires `predicate`.
@@ -50,13 +51,14 @@ import {
 	searchInputDefSchema,
 	simpleSearchInputDef,
 } from "../modules";
+import { asMediaAssetId } from "../multimedia";
 import { eq, literal, sessionUser, term } from "../predicate";
-import { asUuid, type Uuid } from "../uuid";
+import type { Uuid } from "../uuid";
 
 // Sample uuids — sequential nibbles so test failure diffs are easy
 // to read at a glance (each column / input gets a distinct uuid).
 const u = (n: number): Uuid =>
-	asUuid(`00000000-0000-7000-8000-${n.toString(16).padStart(12, "0")}`);
+	testUuid(`00000000-0000-7000-8000-${n.toString(16).padStart(12, "0")}`);
 
 describe("moduleSchema — caseListConfig presence", () => {
 	it("parses a module without caseListConfig (survey-only module)", () => {
@@ -125,7 +127,7 @@ describe("caseListConfigSchema — three-slot shape", () => {
 		// `caseListConfigSchema` is `.strict()` and declares exactly
 		// three slots — `columns`, `filter?`, `searchInputs`. Any other
 		// top-level key fails to parse rather than stripping silently,
-		// so a stale generator emitting a legacy field (e.g.
+		// so a stale generator emitting an unknown field (e.g.
 		// `detailColumns`) or a typo cannot reach the typed surface.
 		const parsed = caseListConfigSchema.safeParse({
 			columns: [],
@@ -133,7 +135,7 @@ describe("caseListConfigSchema — three-slot shape", () => {
 			__unknown_a: "alpha",
 			__unknown_b: { nested: 42 },
 			__unknown_c: ["mixed", "shapes", 99],
-			// One legacy slot named inline as a regression backstop —
+			// One obsolete slot named inline as a regression backstop —
 			// confirms a real-world array-shaped key doesn't smuggle
 			// past the strict gate.
 			detailColumns: [{ kind: "plain", field: "phone", header: "Phone" }],
@@ -142,13 +144,13 @@ describe("caseListConfigSchema — three-slot shape", () => {
 	});
 });
 
-describe("columnSchema — six discriminated arms", () => {
+describe("columnSchema — seven discriminated arms", () => {
 	it("parses every column kind with its required slots + a uuid", () => {
 		const arms: readonly Column[] = [
 			{
 				uuid: u(1),
 				kind: "plain",
-				field: "name",
+				field: "case_name",
 				header: "Name",
 			},
 			{
@@ -176,6 +178,13 @@ describe("columnSchema — six discriminated arms", () => {
 			},
 			{
 				uuid: u(5),
+				kind: "image-map",
+				field: "status",
+				header: "Status",
+				mapping: [{ value: "open", assetId: asMediaAssetId(u(20)) }],
+			},
+			{
+				uuid: u(6),
 				kind: "interval",
 				field: "last_visit",
 				header: "Last visit",
@@ -185,7 +194,7 @@ describe("columnSchema — six discriminated arms", () => {
 				text: "Overdue",
 			},
 			{
-				uuid: u(6),
+				uuid: u(7),
 				kind: "calculated",
 				header: "Days since last visit",
 				expression: { kind: "today" },
@@ -304,6 +313,81 @@ describe("columnSchema — six discriminated arms", () => {
 		expect(parsed.success).toBe(false);
 	});
 
+	it.each(["", " ", "two words"])(
+		"rejects a blank or whitespace-bearing mapping value: %j",
+		(value) => {
+			expect(
+				columnSchema.safeParse({
+					uuid: u(1),
+					kind: "id-mapping",
+					field: "region_code",
+					header: "Region",
+					mapping: [{ value, label: "North" }],
+				}).success,
+			).toBe(false);
+		},
+	);
+
+	it("rejects duplicate mapping values", () => {
+		expect(
+			columnSchema.safeParse({
+				uuid: u(1),
+				kind: "id-mapping",
+				field: "region_code",
+				header: "Region",
+				mapping: [
+					{ value: "north", label: "North" },
+					{ value: "north", label: "Northern" },
+				],
+			}).success,
+		).toBe(false);
+	});
+
+	it.each(["id-mapping", "image-map"] as const)(
+		"accepts an empty %s table as a complete no-mapped-output display",
+		(kind) => {
+			expect(
+				columnSchema.safeParse({
+					uuid: u(1),
+					kind,
+					field: "status",
+					header: "Status",
+					mapping: [],
+				}).success,
+			).toBe(true);
+		},
+	);
+
+	it.each(["", " ", "two words"])(
+		"rejects a blank or whitespace-bearing image-map value: %j",
+		(value) => {
+			expect(
+				columnSchema.safeParse({
+					uuid: u(1),
+					kind: "image-map",
+					field: "status",
+					header: "Status",
+					mapping: [{ value, assetId: asMediaAssetId(u(20)) }],
+				}).success,
+			).toBe(false);
+		},
+	);
+
+	it("rejects duplicate image-map values", () => {
+		expect(
+			columnSchema.safeParse({
+				uuid: u(1),
+				kind: "image-map",
+				field: "status",
+				header: "Status",
+				mapping: [
+					{ value: "open", assetId: asMediaAssetId(u(20)) },
+					{ value: "open", assetId: asMediaAssetId(u(21)) },
+				],
+			}).success,
+		).toBe(false);
+	});
+
 	it("rejects a date column with an empty pattern", () => {
 		// Schema constraint: both column and ValueExpression patterns reject
 		// empty input before any runtime compiler sees it.
@@ -369,7 +453,7 @@ describe("columnSchema — six discriminated arms", () => {
 
 describe("Column.sort — column-level sort directive", () => {
 	it("round-trips a column with sort direction + priority", () => {
-		const input = plainColumn(u(1), "name", "Name", {
+		const input = plainColumn(u(1), "case_name", "Name", {
 			sort: { direction: "asc", priority: 0 },
 		});
 		const parsed = columnSchema.safeParse(input);
@@ -430,10 +514,9 @@ describe("Column.sort — column-level sort directive", () => {
 
 	it("admits two columns at the same priority — tie-break is a layer concern, not a schema one", () => {
 		// The tie-break rule (display order in `caseListConfig.columns`)
-		// binds at the saga / preview / wire layers. The schema does
-		// not enforce uniqueness — transient editor states (undo,
-		// partial save) might transiently collide and the schema must
-		// not reject them.
+		// binds at the whole-document validator / preview / wire layers.
+		// The member-level structural schema does not duplicate that contextual
+		// uniqueness rule.
 		const config = resolveCaseListConfig({
 			columns: [
 				plainColumn(u(1), "a", "A", {
@@ -452,7 +535,7 @@ describe("Column.sort — column-level sort directive", () => {
 
 describe("Column.visibleInList / visibleInDetail — visibility flags", () => {
 	it("round-trips visibleInList: true / false", () => {
-		const visibleTrue = plainColumn(u(1), "name", "Name", {
+		const visibleTrue = plainColumn(u(1), "case_name", "Name", {
 			visibleInList: true,
 		});
 		const visibleFalse = plainColumn(u(2), "phone", "Phone", {
@@ -467,7 +550,7 @@ describe("Column.visibleInList / visibleInDetail — visibility flags", () => {
 	});
 
 	it("round-trips visibleInDetail: true / false", () => {
-		const visibleTrue = plainColumn(u(1), "name", "Name", {
+		const visibleTrue = plainColumn(u(1), "case_name", "Name", {
 			visibleInDetail: true,
 		});
 		const visibleFalse = plainColumn(u(2), "phone", "Phone", {
@@ -487,7 +570,7 @@ describe("Column.visibleInList / visibleInDetail — visibility flags", () => {
 		// preserves the slot's absence — the wire emitter applies the
 		// "absent ≡ visible" default, but the schema doesn't bake the
 		// default into the persisted shape.
-		const input = plainColumn(u(1), "name", "Name");
+		const input = plainColumn(u(1), "case_name", "Name");
 		const parsed = columnSchema.safeParse(input);
 		expect(parsed.success).toBe(true);
 		if (parsed.success) {
@@ -511,7 +594,7 @@ describe("Column.visibleInList / visibleInDetail — visibility flags", () => {
 
 describe("Column builders — helper construction", () => {
 	it("plainColumn → schema round-trip", () => {
-		const built = plainColumn(u(1), "name", "Name");
+		const built = plainColumn(u(1), "case_name", "Name");
 		const parsed = columnSchema.safeParse(built);
 		expect(parsed.success).toBe(true);
 		if (parsed.success) expect(parsed.data).toEqual(built);
@@ -585,24 +668,20 @@ describe("Column builders — helper construction", () => {
 		// the slot round-trip equal to a freshly-built one. Without
 		// this, the editor would persist `sort: undefined` shapes that
 		// fail `expect(parsed).toEqual(input)`.
-		const built = plainColumn(u(1), "name", "Name", {
+		const built = plainColumn(u(1), "case_name", "Name", {
 			sort: undefined,
 			visibleInList: undefined,
 			visibleInDetail: undefined,
-			listOrder: undefined,
-			detailOrder: undefined,
 		});
 		const data = built as Record<string, unknown>;
 		expect(data.sort).toBeUndefined();
 		expect(Object.hasOwn(data, "sort")).toBe(false);
 		expect(Object.hasOwn(data, "visibleInList")).toBe(false);
 		expect(Object.hasOwn(data, "visibleInDetail")).toBe(false);
-		expect(Object.hasOwn(data, "listOrder")).toBe(false);
-		expect(Object.hasOwn(data, "detailOrder")).toBe(false);
 	});
 });
 
-describe("searchInputDefSchema — discriminated union", () => {
+describe("searchInputDefSchema — exact four-arm union", () => {
 	it("round-trips a simple input with property + mode + via", () => {
 		const input: SimpleSearchInputDef = {
 			uuid: u(1),
@@ -610,7 +689,7 @@ describe("searchInputDefSchema — discriminated union", () => {
 			name: "patient_name",
 			label: "Patient name",
 			type: "text",
-			property: "name",
+			property: "full_name",
 			mode: { kind: "fuzzy" },
 		};
 		const parsed = searchInputDefSchema.safeParse(input);
@@ -641,6 +720,19 @@ describe("searchInputDefSchema — discriminated union", () => {
 			type: "text",
 		});
 		expect(parsed.success).toBe(false);
+	});
+
+	it.each(["", " "])("rejects a blank simple property: %j", (property) => {
+		expect(
+			searchInputDefSchema.safeParse({
+				uuid: u(1),
+				kind: "simple",
+				name: "patient_name",
+				label: "Patient name",
+				type: "text",
+				property,
+			}).success,
+		).toBe(false);
 	});
 
 	it("rejects an advanced input missing predicate", () => {
@@ -692,7 +784,7 @@ describe("searchInputDefSchema — discriminated union", () => {
 		expect(parsed.success).toBe(false);
 	});
 
-	it("preserves multi-select-contains quantifier on the simple arm", () => {
+	it("rejects the removed select widget and multi-select mode", () => {
 		const parsed = searchInputDefSchema.safeParse({
 			uuid: u(1),
 			kind: "simple",
@@ -702,20 +794,31 @@ describe("searchInputDefSchema — discriminated union", () => {
 			property: "tags",
 			mode: { kind: "multi-select-contains", quantifier: "any" },
 		});
-		expect(parsed.success).toBe(true);
+		expect(parsed.success).toBe(false);
 	});
 
-	it("rejects multi-select-contains without a quantifier", () => {
-		const parsed = searchInputDefSchema.safeParse({
+	it("rejects a scalar default on either date-range arm", () => {
+		const simple = searchInputDefSchema.safeParse({
 			uuid: u(1),
 			kind: "simple",
-			name: "tags",
-			label: "Tags",
-			type: "select",
-			property: "tags",
-			mode: { kind: "multi-select-contains" },
+			name: "window",
+			label: "Window",
+			type: "date-range",
+			property: "visit_date",
+			mode: { kind: "range" },
+			default: { kind: "today" },
 		});
-		expect(parsed.success).toBe(false);
+		const advanced = searchInputDefSchema.safeParse({
+			uuid: u(2),
+			kind: "advanced",
+			name: "window",
+			label: "Window",
+			type: "date-range",
+			predicate: { kind: "match-all" },
+			default: { kind: "today" },
+		});
+		expect(simple.success).toBe(false);
+		expect(advanced.success).toBe(false);
 	});
 });
 
@@ -726,7 +829,7 @@ describe("SearchInputDef builders — helper construction", () => {
 			"patient_name",
 			"Patient name",
 			"text",
-			"name",
+			"full_name",
 			{ mode: { kind: "fuzzy" } },
 		);
 		const parsed = searchInputDefSchema.safeParse(built);
@@ -757,7 +860,7 @@ describe("SearchInputDef builders — helper construction", () => {
 			"patient_name",
 			"Patient name",
 			"text",
-			"name",
+			"full_name",
 			{ via: { kind: "self" } },
 		);
 		const data = built as Record<string, unknown>;
@@ -770,7 +873,7 @@ describe("SearchInputDef builders — helper construction", () => {
 			"village",
 			"Village",
 			"text",
-			"name",
+			"full_name",
 			{
 				via: {
 					kind: "ancestor",
@@ -789,7 +892,7 @@ describe("caseListConfigSchema — populated round-trip", () => {
 	it("round-trips a full config with mixed column kinds + sort + visibility + searchInputs", () => {
 		const config = resolveCaseListConfig({
 			columns: [
-				plainColumn(u(1), "name", "Name", {
+				plainColumn(u(1), "case_name", "Name", {
 					sort: { direction: "asc", priority: 0 },
 					visibleInList: true,
 					visibleInDetail: true,
@@ -821,7 +924,7 @@ describe("caseListConfigSchema — populated round-trip", () => {
 					"patient_name",
 					"Patient name",
 					"text",
-					"name",
+					"full_name",
 					{ mode: { kind: "fuzzy" } },
 				),
 				advancedSearchInputDef(u(11), "complex", "Complex", "text", {
@@ -832,6 +935,23 @@ describe("caseListConfigSchema — populated round-trip", () => {
 		const parsed = caseListConfigSchema.safeParse(config);
 		expect(parsed.success).toBe(true);
 		if (parsed.success) expect(parsed.data).toEqual(config);
+	});
+
+	it.each([
+		{ listColumnOrder: [u(1), u(1)], detailColumnOrder: [u(1), u(2)] },
+		{ listColumnOrder: [u(1)], detailColumnOrder: [u(1), u(2)] },
+		{ listColumnOrder: [u(1), u(3)], detailColumnOrder: [u(1), u(2)] },
+	])("rejects a non-permutation column order", (orders) => {
+		expect(
+			caseListConfigSchema.safeParse({
+				columns: [
+					plainColumn(u(1), "name", "Name"),
+					plainColumn(u(2), "status", "Status"),
+				],
+				searchInputs: [],
+				...orders,
+			}).success,
+		).toBe(false);
 	});
 });
 
@@ -873,11 +993,20 @@ describe("caseSearchConfigSchema — display labels + advanced cluster", () => {
 		if (parsed.success) expect(parsed.data).toEqual(config);
 	});
 
-	it("round-trips the false-only owner-rule provenance marker", () => {
-		const config: CaseSearchConfig = { searchActionEnabled: false };
+	it("round-trips the exact owner-only provenance arm", () => {
+		const config: CaseSearchConfig = {
+			searchActionEnabled: false,
+			excludedOwnerIds: term(literal("owner-a")),
+		};
 		expect(caseSearchConfigSchema.parse(config)).toEqual(config);
 		expect(() =>
 			caseSearchConfigSchema.parse({ searchActionEnabled: true }),
+		).toThrow();
+		expect(() =>
+			caseSearchConfigSchema.parse({
+				...config,
+				searchButtonLabel: "Find",
+			}),
 		).toThrow();
 	});
 
@@ -964,7 +1093,7 @@ describe("effectiveCaseSearchConfig", () => {
 		).toBeUndefined();
 	});
 
-	it("gives legacy search inputs the friendly default search config", () => {
+	it("gives search inputs the friendly default search config", () => {
 		expect(
 			effectiveCaseSearchConfig({
 				caseListConfig: resolveCaseListConfig({
@@ -999,20 +1128,21 @@ describe("effectiveCaseSearchConfig", () => {
 		).toBeUndefined();
 	});
 
-	it("does not resurrect Search from an owner-only rolling-deploy fallback", () => {
+	it("preserves an authored Never condition instead of inferring owner-only provenance", () => {
+		const authored = {
+			excludedOwnerIds: term(literal("owner-a")),
+			searchButtonDisplayCondition: { kind: "match-none" as const },
+		};
 		expect(
 			effectiveCaseSearchConfig({
 				caseListConfig: emptyCaseListConfig(),
-				caseSearchConfig: {
-					excludedOwnerIds: term(literal("owner-a")),
-					searchButtonDisplayCondition: { kind: "match-none" },
-				},
+				caseSearchConfig: authored,
 			}),
-		).toBeUndefined();
+		).toBe(authored);
 	});
 
-	it("lets inputs override and strip stale no-action provenance", () => {
-		expect(
+	it("rejects owner-only provenance paired with Search inputs", () => {
+		expect(() =>
 			effectiveCaseSearchConfig({
 				caseListConfig: resolveCaseListConfig({
 					columns: [],
@@ -1025,7 +1155,7 @@ describe("effectiveCaseSearchConfig", () => {
 					excludedOwnerIds: term(literal("owner-a")),
 				},
 			}),
-		).toEqual({ excludedOwnerIds: term(literal("owner-a")) });
+		).toThrow("Owner-only");
 	});
 
 	it("preserves an authored Never condition when inputs make Search explicit", () => {
@@ -1050,7 +1180,7 @@ describe("effectiveCaseSearchConfig", () => {
 });
 
 describe("caseSearchConfigHasAuthoredSettings", () => {
-	it("treats legacy own keys with undefined values as empty", () => {
+	it("treats own keys with undefined values as empty", () => {
 		expect(
 			caseSearchConfigHasAuthoredSettings({
 				searchScreenTitle: undefined,
@@ -1059,10 +1189,13 @@ describe("caseSearchConfigHasAuthoredSettings", () => {
 		).toBe(false);
 	});
 
-	it("does not treat internal no-action provenance as an authored setting", () => {
+	it("treats the exact owner-only arm as meaningful state", () => {
 		expect(
-			caseSearchConfigHasAuthoredSettings({ searchActionEnabled: false }),
-		).toBe(false);
+			caseSearchConfigHasAuthoredSettings({
+				searchActionEnabled: false,
+				excludedOwnerIds: term(literal("owner-a")),
+			}),
+		).toBe(true);
 	});
 
 	it("recognizes display and advanced overrides", () => {

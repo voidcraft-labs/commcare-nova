@@ -9,10 +9,10 @@
  * store imports from both `mutations/` and `fieldParent`.
  */
 
-import { backfillOptionUuids } from "@/lib/doc/optionIdentity";
-import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
+import { asUuid, type BlueprintDoc, type Uuid } from "@/lib/doc/types";
 import {
-	hasOwnRecordKey,
+	blueprintDocSchema,
+	blueprintTopologyIssues,
 	type PersistableDoc,
 	recordFromEntries,
 } from "@/lib/domain";
@@ -29,28 +29,27 @@ import { normalizeBlueprintOwnRecords } from "./ownRecords";
  * uuids (for nested fields under group/repeat). Both are recorded in the
  * same `fieldOrder` map, keyed by parent uuid.
  *
- * Orphan guard: any field in `doc.fields` that doesn't appear in any
- * fieldOrder entry gets `null`. In a well-formed doc this never fires,
- * but it's cheap insurance against bugs that would otherwise leave
- * parent lookup undefined.
+ * Closed topology guarantees every field occurs exactly once under a form or
+ * container. Rebuilding refuses an invalid document rather than manufacturing
+ * an orphan sentinel that could survive into UI or persistence.
  */
 export function rebuildFieldParent(doc: BlueprintDoc): void {
-	const fieldParent = recordFromEntries<Uuid | null>([]) as Record<
-		Uuid,
-		Uuid | null
-	>;
+	const topologyIssues = blueprintTopologyIssues(doc);
+	if (topologyIssues.length > 0) {
+		throw new Error(
+			`[rebuildFieldParent] invalid blueprint topology: ${topologyIssues
+				.map((issue) => issue.message)
+				.join(" ")}`,
+		);
+	}
+	const fieldParent = recordFromEntries<Uuid>([]) as Record<Uuid, Uuid>;
 
 	// Every field uuid that appears as a child of some parent gets that
 	// parent recorded.
 	for (const [parentUuid, fieldUuids] of Object.entries(doc.fieldOrder)) {
 		for (const fieldUuid of fieldUuids) {
-			fieldParent[fieldUuid as Uuid] = parentUuid as Uuid;
+			fieldParent[fieldUuid] = asUuid(parentUuid);
 		}
-	}
-
-	// Orphan guard: fields in doc.fields not referenced by any fieldOrder entry.
-	for (const uuid of Object.keys(doc.fields)) {
-		if (!hasOwnRecordKey(fieldParent, uuid)) fieldParent[uuid as Uuid] = null;
 	}
 	doc.fieldParent = fieldParent;
 }
@@ -67,28 +66,28 @@ export function rebuildFieldParent(doc: BlueprintDoc): void {
  * consumed by clients that rebuild their own indexes.
  */
 export function toPersistableDoc(doc: BlueprintDoc): PersistableDoc {
-	const { fieldParent: _fp, refIndex: _ri, ...persistable } = doc;
-	return persistable;
+	const source = doc as unknown as Record<string, unknown>;
+	return Object.fromEntries(
+		Object.keys(blueprintDocSchema.shape).flatMap((key) =>
+			Object.hasOwn(source, key) && source[key] !== undefined
+				? [[key, source[key]] as const]
+				: [],
+		),
+	) as PersistableDoc;
 }
 
 /**
  * The single stored-blueprint → in-memory hydration chokepoint.
  *
- * Turn a persisted `PersistableDoc` (the on-disk shape: no derived
- * `fieldParent`, and — on a LEGACY app — no `order` keys or select-option
- * `uuid`s) into a working `BlueprintDoc`. EVERY boundary that reads a stored
- * blueprint into a doc it will display, diff, mutate, or emit routes through
- * here, so the hydration steps run identically everywhere. That structurally
- * kills the asymmetric-hydration class: a boundary that backfilled and one
- * that didn't produced docs that disagreed on an entity's `order` / option
- * `uuid`, so a client's edit against a backfilled key replayed onto an
- * un-backfilled server doc as a silent `findIndex` no-op.
+ * Turn a final-schema `PersistableDoc` (the on-disk shape without derived
+ * `fieldParent`) into a working `BlueprintDoc`. EVERY boundary that reads a
+ * stored blueprint into a doc it will display, diff, mutate, or emit routes
+ * through here, so record normalization and derived indexes are identical
+ * everywhere.
  *
  * Deep-clones its input so hydration never mutates the caller's stored
- * snapshot. Backfill runs BEFORE the parent rebuild (and before any reference
- * index a caller adds after): it is deterministic + position-seeded, so a
- * client and the server hydrating the SAME legacy doc produce byte-identical
- * keys/uuids, and it is idempotent on an already-keyed doc.
+ * snapshot. Persisted authoring identities are already canonical; hydration
+ * never invents, normalizes, or repairs identity.
  *
  * The reference index is deliberately NOT built here — it stays per-boundary:
  * the guarded-commit fresh doc omits it (the verdict's candidate apply seeds
@@ -99,9 +98,8 @@ export function hydratePersistedBlueprint(
 	persisted: PersistableDoc,
 ): BlueprintDoc {
 	const doc = structuredClone(persisted) as unknown as BlueprintDoc;
-	doc.fieldParent = recordFromEntries([]) as Record<Uuid, Uuid | null>;
+	doc.fieldParent = recordFromEntries([]) as Record<Uuid, Uuid>;
 	normalizeBlueprintOwnRecords(doc);
-	backfillOptionUuids(doc);
 	rebuildFieldParent(doc);
 	return doc;
 }

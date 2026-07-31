@@ -1,4 +1,6 @@
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { proseText } from "@/lib/domain/prose";
 // The gate half of the shared column-kind ↔ property-type predicate:
 // a RESOLVED mismatch is a finding; unknown passes (honest-unknown-
 // permissive — the same verdict the workspace + pickers derive, so
@@ -6,7 +8,7 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 
 import { describe, expect, it } from "vitest";
 import { buildDoc, type FieldSpec, f } from "@/lib/__tests__/docHelpers";
-import { asUuid, type Column, dateColumn, phoneColumn } from "@/lib/domain";
+import { type Column, dateColumn, phoneColumn } from "@/lib/domain";
 import { runValidation } from "../../../runner";
 
 const CODE = "CASE_LIST_COLUMN_KIND_PROPERTY_TYPE_MISMATCH";
@@ -35,13 +37,13 @@ function moduleWith(args: { columns: Column[]; fields: FieldSpec[] }) {
 describe("columnKindPropertyType", () => {
 	it("fires on a date column whose property RESOLVES to a non-date type", () => {
 		const doc = moduleWith({
-			columns: [dateColumn(asUuid("col-1"), "nickname", "Nick", "%Y-%m-%d")],
+			columns: [dateColumn(testUuid("col-1"), "nickname", "Nick", "%Y-%m-%d")],
 			fields: [
 				f({
 					kind: "text",
 					id: "nickname",
-					label: "Nickname",
-					case_property_on: "patient",
+					label: proseText("Nickname"),
+					caseWrite: { caseType: "patient", property: "nickname" },
 				}),
 			],
 		});
@@ -53,13 +55,13 @@ describe("columnKindPropertyType", () => {
 
 	it("passes a date column on a writer-derived date property", () => {
 		const doc = moduleWith({
-			columns: [dateColumn(asUuid("col-1"), "dob", "DOB", "%Y-%m-%d")],
+			columns: [dateColumn(testUuid("col-1"), "dob", "DOB", "%Y-%m-%d")],
 			fields: [
 				f({
 					kind: "date",
 					id: "dob",
-					label: "DOB",
-					case_property_on: "patient",
+					label: proseText("DOB"),
+					caseWrite: { caseType: "patient", property: "dob" },
 				}),
 			],
 		});
@@ -72,12 +74,14 @@ describe("columnKindPropertyType", () => {
 
 	it("passes a date column on a hidden today() writer — inference resolves date", () => {
 		const doc = moduleWith({
-			columns: [dateColumn(asUuid("col-1"), "visit_date", "Visit", "%Y-%m-%d")],
+			columns: [
+				dateColumn(testUuid("col-1"), "visit_date", "Visit", "%Y-%m-%d"),
+			],
 			fields: [
 				f({
 					kind: "hidden",
 					id: "visit_date",
-					case_property_on: "patient",
+					caseWrite: { caseType: "patient", property: "visit_date" },
 					default_value: "today()",
 				}),
 			],
@@ -91,12 +95,14 @@ describe("columnKindPropertyType", () => {
 
 	it("passes on an UNKNOWN type — missing metadata never manufactures a finding", () => {
 		const doc = moduleWith({
-			columns: [dateColumn(asUuid("col-1"), "mystery", "Mystery", "%Y-%m-%d")],
+			columns: [
+				dateColumn(testUuid("col-1"), "mystery", "Mystery", "%Y-%m-%d"),
+			],
 			fields: [
 				f({
 					kind: "hidden",
 					id: "mystery",
-					case_property_on: "patient",
+					caseWrite: { caseType: "patient", property: "mystery" },
 					default_value: "concat('a', 'b')",
 				}),
 			],
@@ -110,13 +116,13 @@ describe("columnKindPropertyType", () => {
 
 	it("fires on a phone column over a standard datetime property", () => {
 		const doc = moduleWith({
-			columns: [phoneColumn(asUuid("col-1"), "date_opened", "Opened")],
+			columns: [phoneColumn(testUuid("col-1"), "date_opened", "Opened")],
 			fields: [
 				f({
 					kind: "text",
 					id: "case_name",
-					label: "Name",
-					case_property_on: "patient",
+					label: proseText("Name"),
+					caseWrite: { caseType: "patient", property: "case_name" },
 				}),
 			],
 		});

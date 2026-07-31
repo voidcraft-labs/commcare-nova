@@ -25,12 +25,14 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { xp } from "@/lib/__tests__/docHelpers";
 import { AppAccessError, resolveAppAccess } from "@/lib/db/appAccess";
 import { loadApp } from "@/lib/db/apps";
 import type { AppDoc } from "@/lib/db/types";
 import type { BlueprintDoc } from "@/lib/domain";
-import { asUuid } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
+
 import { registerGetApp } from "../tools/getApp";
 import type { ToolContext } from "../types";
 import { makeFakeServer } from "./fakeServer";
@@ -65,9 +67,9 @@ function mockBlueprint(
 ): Omit<BlueprintDoc, "fieldParent"> {
 	/* The branded `Uuid` type requires the narrowing cast rather than a
 	 * raw string literal — `asUuid` is the project-standard helper. */
-	const modUuid = asUuid("11111111-1111-1111-1111-111111111111");
-	const formUuid = asUuid("22222222-2222-2222-2222-222222222222");
-	const fieldUuid = asUuid("33333333-3333-3333-3333-333333333333");
+	const modUuid = testUuid("11111111-1111-1111-1111-111111111111");
+	const formUuid = testUuid("22222222-2222-2222-2222-222222222222");
+	const fieldUuid = testUuid("33333333-3333-3333-3333-333333333333");
 	return {
 		appId: "a1",
 		appName: "Vaccine Tracker",
@@ -94,7 +96,7 @@ function mockBlueprint(
 				uuid: fieldUuid,
 				id: "patient_name",
 				kind: "text",
-				label: "Patient Name",
+				label: proseText("Patient Name"),
 				/* `required` on an input field is an XPath string, not a
 				 * boolean — "true()" is the canonical always-required
 				 * form used throughout the blueprint. */
@@ -119,7 +121,7 @@ function mockAppDoc(
 ): AppDoc {
 	return {
 		owner: "u1",
-		project_id: null,
+		project_id: "project-1",
 		app_name: blueprint.appName,
 		blueprint: blueprint as unknown as BlueprintDoc,
 		mutation_seq: 0,
@@ -186,6 +188,16 @@ describe("registerGetApp — happy path", () => {
 		expect(text).toContain("Register Patient");
 		/* Field id should appear in the per-field bullet line. */
 		expect(text).toContain("patient_name");
+		/* Display order remains the line order, never a reusable address: the
+		 * summary is what the model reads before it decides what to address, so
+		 * it carries the uuid rather than a position a peer's reorder moves.
+		 * Read the identities off the fixture — hard-coding them here would
+		 * assert the fixture, not the renderer. */
+		const moduleUuid = blueprint.moduleOrder[0];
+		const formUuid = blueprint.formOrder[moduleUuid ?? ""]?.[0];
+		expect(text).not.toMatch(/\bModule \d+\b|\bForm \d+\b/);
+		expect(text).toContain(`Module "Patients" [uuid ${moduleUuid}]`);
+		expect(text).toContain(`Form "Register Patient" [uuid ${formUuid}]`);
 	});
 });
 

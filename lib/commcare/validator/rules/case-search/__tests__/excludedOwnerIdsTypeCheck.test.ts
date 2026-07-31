@@ -1,4 +1,6 @@
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { proseText } from "@/lib/domain/prose";
 /**
  * Contract tests for the assigned-case exclusion expression.
  *
@@ -10,19 +12,13 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import {
-	asUuid,
-	plainColumn,
-	type SearchInputDef,
-	simpleSearchInputDef,
-} from "@/lib/domain";
+import { plainColumn } from "@/lib/domain";
 import {
 	concat,
 	count,
 	eq,
 	exists,
 	ifExpr,
-	input,
 	literal,
 	prop,
 	sessionContext,
@@ -36,10 +32,7 @@ const CASE_DATA_CODE =
 	"CASE_SEARCH_EXCLUDED_OWNER_IDS_CASE_DATA_UNAVAILABLE" as const;
 const TYPE_CODE = "CASE_SEARCH_EXCLUDED_OWNER_IDS_TYPE_ERROR" as const;
 
-function docWithExpression(
-	expression: ValueExpression | undefined,
-	searchInputs: readonly SearchInputDef[] = [],
-) {
+function docWithExpression(expression: ValueExpression | undefined) {
 	return buildDoc({
 		appName: "Test",
 		modules: [
@@ -47,10 +40,10 @@ function docWithExpression(
 				name: "Patients",
 				caseType: "patient",
 				caseListConfig: {
-					columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
-					listColumnOrder: [asUuid("col-name")],
-					detailColumnOrder: [asUuid("col-name")],
-					searchInputs: [...searchInputs],
+					columns: [plainColumn(testUuid("col-name"), "case_name", "Name")],
+					listColumnOrder: [testUuid("col-name")],
+					detailColumnOrder: [testUuid("col-name")],
+					searchInputs: [],
 				},
 				...(expression === undefined
 					? {}
@@ -68,8 +61,8 @@ function docWithExpression(
 							f({
 								kind: "text",
 								id: "case_name",
-								label: "Name",
-								case_property_on: "patient",
+								label: proseText("Name"),
+								caseWrite: { caseType: "patient", property: "case_name" },
 							}),
 						],
 					},
@@ -80,20 +73,17 @@ function docWithExpression(
 			{
 				name: "patient",
 				properties: [
-					{ name: "case_name", label: "Name", data_type: "text" },
-					{ name: "age", label: "Age", data_type: "int" },
+					{ name: "case_name", label: proseText("Name"), data_type: "text" },
+					{ name: "age", label: proseText("Age"), data_type: "int" },
 				],
 			},
 		],
 	});
 }
 
-function codesFor(
-	expression: ValueExpression,
-	searchInputs?: SearchInputDef[],
-) {
+function codesFor(expression: ValueExpression) {
 	return runValidation(
-		docWithExpression(expression, searchInputs),
+		docWithExpression(expression),
 		LOOKUP_CONTEXT_UNAVAILABLE,
 	).map((finding) => finding.code);
 }
@@ -147,22 +137,17 @@ describe("excludedOwnerIdsTypeCheck", () => {
 		expect(codesFor(expression)).toContain(CASE_DATA_CODE);
 	});
 
-	it("retains literals, current-user/session values, Search answers, and pure calculations", () => {
-		const searchInput = simpleSearchInputDef(
-			asUuid("owner-input"),
-			"owner_ids",
-			"Owner IDs",
-			"text",
-			"case_name",
-		);
+	it("retains literals, current-user/session values, and pure calculations", () => {
 		const allowed = [
 			term(literal("owner-a owner-b")),
 			term(sessionContext("userid")),
 			term(sessionUser("assigned_owner_ids")),
-			term(input("owner_ids")),
 			ifExpr(
 				eq(term(sessionContext("userid")), literal("worker-a")),
-				concat(term(input("owner_ids")), term(literal(" owner-a"))),
+				concat(
+					term(sessionUser("assigned_owner_ids")),
+					term(literal(" owner-a")),
+				),
 				term(literal("")),
 			),
 		];
@@ -173,7 +158,7 @@ describe("excludedOwnerIdsTypeCheck", () => {
 			// identity on Preview, remote Search, and the guarded ordinary list.
 			expect(
 				runValidation(
-					docWithExpression(expression, [searchInput]),
+					docWithExpression(expression),
 					LOOKUP_CONTEXT_UNAVAILABLE,
 				),
 			).toEqual([]);

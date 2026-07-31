@@ -47,9 +47,11 @@ import { CaseOperationsCanvas } from "@/components/builder/case-operations/CaseO
 import { DisplayConditionCanvas } from "@/components/builder/conditions/DisplayConditionCanvas";
 import type { DisplayConditionTarget } from "@/components/builder/conditions/useDisplayConditionCarrier";
 import { DataReviewScreen } from "@/components/builder/data-review/DataReviewScreen";
+import { ProjectDataWorkspace } from "@/components/builder/project-data/ProjectDataWorkspace";
 import { Button } from "@/components/shadcn/button";
 import { useAppStructure } from "@/lib/doc/hooks/useAppStructure";
 import type { Uuid } from "@/lib/doc/types";
+import type { LookupTableId } from "@/lib/domain/lookupIds";
 import { type PreviewScreen, screenKey } from "@/lib/preview/engine/types";
 import { useSelectedPreviewIdentityState } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
@@ -87,6 +89,9 @@ function locationToScreen(
 	if (loc.kind === "home") return { type: "home" };
 	if (loc.kind === "app-setup") {
 		return { type: "appSetup", section: loc.section };
+	}
+	if (loc.kind === "project-data") {
+		return { type: "projectData", tableId: loc.tableId };
 	}
 
 	const moduleIndex = moduleOrder.indexOf(loc.moduleUuid);
@@ -292,6 +297,14 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 	if (loc.kind === "app-setup") {
 		appSetupRef.current = { section: loc.section };
 	}
+	/** The Project data workspace's identity — uuid-free for a stronger
+	 *  reason: a lookup table id is Project state, not a blueprint entity.
+	 *  Same visited-ref shape, so the boundary survives navigating away and
+	 *  back with the open table intact. */
+	const projectDataRef = useRef<{ tableId?: LookupTableId }>(undefined);
+	if (loc.kind === "project-data") {
+		projectDataRef.current = { tableId: loc.tableId };
+	}
 	/** The case-operations screen's identity: the form, plus which change
 	 *  is selected. Held in a ref for the same reason the two above are —
 	 *  the boundary must survive navigating away and back — and carrying
@@ -323,6 +336,11 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 	switch (zustandScreen.type) {
 		case "home":
 			homeVisitedRef.current = true;
+			break;
+		case "projectData":
+			/* No preview-pipeline identity to synthesize — Project data has no
+			 * running-app counterpart, and Preview navigates away from it rather
+			 * than rendering one (see `usePreviewModeTransition`). */
 			break;
 		case "module":
 			moduleScreenRef.current = zustandScreen;
@@ -458,6 +476,18 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 						name="ModuleScreen"
 					>
 						<ModuleScreen screen={moduleScreenRef.current} />
+					</Activity>
+				)}
+				{projectDataRef.current && (
+					<Activity
+						mode={
+							screen.type === "projectData" && mode === "edit"
+								? "visible"
+								: "hidden"
+						}
+						name="ProjectDataWorkspace"
+					>
+						<ProjectDataWorkspace tableId={projectDataRef.current.tableId} />
 					</Activity>
 				)}
 				{/*

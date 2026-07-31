@@ -20,9 +20,9 @@ vi.mock("@/lib/db/appAccess", () => ({
 }));
 vi.mock("@/lib/db/apps", () => ({ createApp: mocks.createApp }));
 
-import { createBlankApp } from "../actions";
+import { createStarterApp } from "../actions";
 
-describe("createBlankApp Project binding", () => {
+describe("createStarterApp Project binding", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mocks.getSession.mockResolvedValue({ user: { id: "user-1" } });
@@ -31,12 +31,12 @@ describe("createBlankApp Project binding", () => {
 			role: "editor",
 			actorUserId: "user-1",
 		});
-		mocks.createApp.mockResolvedValue("app-1");
+		mocks.createApp.mockResolvedValue({ appId: "app-1" });
 	});
 
 	it("creates in the server-rendered Project even after another tab changes the active Project", async () => {
 		await expect(
-			createBlankApp("project-seeded-by-build-new"),
+			createStarterApp("project-seeded-by-build-new"),
 		).resolves.toEqual({ success: true, appId: "app-1" });
 
 		expect(mocks.resolveProjectAccess).toHaveBeenCalledWith(
@@ -48,7 +48,7 @@ describe("createBlankApp Project binding", () => {
 			"user-1",
 			"project-seeded-by-build-new",
 			expect.any(String),
-			expect.objectContaining({ status: "complete" }),
+			{ status: "complete" },
 		);
 	});
 
@@ -58,7 +58,7 @@ describe("createBlankApp Project binding", () => {
 		);
 
 		await expect(
-			createBlankApp("project-seeded-by-build-new"),
+			createStarterApp("project-seeded-by-build-new"),
 		).resolves.toEqual({
 			success: false,
 			error: "You don't have permission to create apps in this Project.",
@@ -72,7 +72,7 @@ describe("createBlankApp Project binding", () => {
 		);
 
 		await expect(
-			createBlankApp("project-seeded-by-build-new"),
+			createStarterApp("project-seeded-by-build-new"),
 		).resolves.toEqual({
 			success: false,
 			error: "You don't have permission to create apps in this Project.",

@@ -2,11 +2,13 @@
 
 import type { Kysely } from "kysely";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { CaptureSubmissionRejectedError } from "@/lib/case-store";
 import { PostgresCaseStore } from "@/lib/case-store/postgres/store";
 import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
 import type { Database as CaseDatabase } from "@/lib/case-store/sql/database";
 import { caseTypeToJsonSchema } from "@/lib/domain/predicate/jsonSchema";
+import { proseText } from "@/lib/domain/prose";
 import { authorizeCaseMutationInTransaction } from "../caseMutationAuthorization";
 import { setupAppStateTestDb } from "./appStateTestDb";
 
@@ -48,7 +50,9 @@ async function seedAuthorizedApp(): Promise<string> {
 			schema: JSON.stringify(
 				caseTypeToJsonSchema({
 					name: CASE_TYPE,
-					properties: [{ name: "name", label: "Name", data_type: "text" }],
+					properties: [
+						{ name: "name", label: proseText("Name"), data_type: "text" },
+					],
 				}),
 			),
 		})
@@ -74,7 +78,7 @@ describe("case mutation authorization", () => {
 		const appId = await seedAuthorizedApp();
 		const receipt = {
 			entryKey: crypto.randomUUID(),
-			formUuid: crypto.randomUUID(),
+			formUuid: testUuid(crypto.randomUUID()),
 			expectedAppMutationSeq: 0,
 			requestDigest: "authorized-text-registration",
 		};
@@ -163,13 +167,7 @@ describe("case mutation authorization", () => {
 		const appId = await seedAuthorizedApp();
 		const caseId = await insertPatient(appId);
 		await h.seedProjectMember(USER, OTHER_PROJECT, "editor");
-		await h.withTransaction((tx) =>
-			tx
-				.updateTable("apps")
-				.set({ project_id: OTHER_PROJECT })
-				.where("id", "=", appId)
-				.execute(),
-		);
+		await h.moveAppToProject(appId, OTHER_PROJECT, USER);
 
 		await expect(store().close({ appId, caseId })).rejects.toMatchObject({
 			name: "AppAccessError",
@@ -180,7 +178,7 @@ describe("case mutation authorization", () => {
 			.select(["status", "project_id"])
 			.where("case_id", "=", caseId)
 			.executeTakeFirstOrThrow();
-		expect(row).toEqual({ status: "open", project_id: PROJECT });
+		expect(row).toEqual({ status: "open", project_id: OTHER_PROJECT });
 	});
 
 	it("rejects every write after the actor loses edit capability", async () => {

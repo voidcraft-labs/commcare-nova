@@ -9,20 +9,24 @@ import { deepEqual } from "@/lib/doc/deepEqual";
 import type { Mutation, Uuid } from "@/lib/doc/types";
 import type { Column } from "@/lib/domain";
 
-/**
- * Origin/main's strict nested `columnSchema` predates the tile cell, so a
- * fallback snapshot must stay parseable by an old PUT handler; the cell travels
- * as an optional top-level extension on known mutation kinds instead.
- *
- * A column's place is not among the slots a snapshot carries: it lives in the
- * config's two ordering arrays, not on the column.
- */
-export function legacyCompatibleColumnSnapshot(column: Column): Column {
-	const { tile: _tile, ...legacyColumn } = column;
-	return legacyColumn as Column;
+type ColumnContent = NonNullable<
+	Extract<Mutation, { kind: "updateColumn" }>["column"]
+>;
+
+/** The content owned by `updateColumn`; independent facets stay separate. */
+export function columnContentSnapshot(column: Column): ColumnContent {
+	const {
+		uuid: _uuid,
+		sort: _sort,
+		tile: _tile,
+		visibleInList: _visibleInList,
+		visibleInDetail: _visibleInDetail,
+		...content
+	} = column;
+	return content;
 }
 
-/** Plan one backward-compatible add, preserving independent orders for new reducers. */
+/** Plan one add, preserving independent Results and Details placements. */
 export function columnAddMutation(
 	moduleUuid: Uuid,
 	column: Column,
@@ -34,10 +38,9 @@ export function columnAddMutation(
 	return {
 		kind: "addColumn",
 		moduleUuid,
-		column: legacyCompatibleColumnSnapshot(column),
+		column,
 		afterInList: placement.afterInList,
 		afterInDetail: placement.afterInDetail,
-		...(column.tile !== undefined && { tileCell: column.tile }),
 	};
 }
 
@@ -60,7 +63,6 @@ export function columnTileMutations(
 			kind: "updateColumn",
 			moduleUuid,
 			uuid: next.uuid,
-			column: legacyCompatibleColumnSnapshot(next),
 			tilePatch: next.tile ?? null,
 		},
 	];
@@ -86,11 +88,6 @@ export function columnVisibilityMutations(
 			kind: "updateColumn",
 			moduleUuid,
 			uuid: next.uuid,
-			// Backward-compatible fallback: pre-deploy reducers know updateColumn
-			// but ignore `visibilityPatch`, so they apply this desired old-shape
-			// snapshot. Surface-order keys stay top-level on their own move events;
-			// origin/main's strict nested column schema would reject them here.
-			column: legacyCompatibleColumnSnapshot(next),
 			visibilityPatch: {
 				surface: "list",
 				visible: next.visibleInList !== false,
@@ -105,7 +102,6 @@ export function columnVisibilityMutations(
 			kind: "updateColumn",
 			moduleUuid,
 			uuid: next.uuid,
-			column: legacyCompatibleColumnSnapshot(next),
 			visibilityPatch: {
 				surface: "detail",
 				visible: next.visibleInDetail !== false,
@@ -127,7 +123,6 @@ export function columnSortMutations(
 			kind: "updateColumn",
 			moduleUuid,
 			uuid: next.uuid,
-			column: legacyCompatibleColumnSnapshot(next),
 			sortPatch: next.sort ?? null,
 		},
 	];
@@ -151,9 +146,7 @@ export function columnSnapshotMutations(
 			kind: "updateColumn",
 			moduleUuid,
 			uuid: current.uuid,
-			column: legacyCompatibleColumnSnapshot(next),
-			preserveVisibility: true,
-			preserveSort: true,
+			column: columnContentSnapshot(next),
 		});
 	}
 	mutations.push(...columnVisibilityMutations(current, next, moduleUuid));

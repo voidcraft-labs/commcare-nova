@@ -1,5 +1,6 @@
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
 import {
 	hydratePersistedBlueprint,
@@ -16,7 +17,6 @@ import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { Mutation } from "@/lib/doc/types";
 import { mutationSchema } from "@/lib/doc/types";
 import {
-	asUuid,
 	type BlueprintDoc,
 	entityTargetKey,
 	type Field,
@@ -25,6 +25,7 @@ import {
 	printXPath,
 	xpathPrintContext,
 } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 
 function emptyDoc(): BlueprintDoc {
 	return {
@@ -43,12 +44,12 @@ function emptyDoc(): BlueprintDoc {
 }
 
 function module_(uuid: string): Module {
-	return { uuid: asUuid(uuid), id: "module", name: `Module ${uuid}` };
+	return { uuid: testUuid(uuid), id: "module", name: `Module ${uuid}` };
 }
 
 function form_(uuid: string): Form {
 	return {
-		uuid: asUuid(uuid),
+		uuid: testUuid(uuid),
 		id: "form",
 		name: `Form ${uuid}`,
 		type: "survey",
@@ -57,10 +58,10 @@ function form_(uuid: string): Form {
 
 function textField(uuid: string, id = uuid): Field {
 	return {
-		uuid: asUuid(uuid),
+		uuid: testUuid(uuid),
 		kind: "text",
 		id,
-		label: id,
+		label: proseText(id),
 	};
 }
 
@@ -78,6 +79,15 @@ function expectNullPrototype(record: object | undefined): void {
 	expect(record).toBeDefined();
 	expect(Object.getPrototypeOf(record as object)).toBeNull();
 }
+
+const MODULE_UUID = testUuid("prototype-module");
+const FORM_UUID = testUuid("prototype-form");
+const GROUP_UUID = testUuid("prototype-group");
+const STATUS_UUID = testUuid("prototype-status");
+const WATCHER_UUID = testUuid("prototype-watcher");
+const USER_PROPERTY_UUID = testUuid("prototype-user-property");
+const USER_TYPE_UUID = testUuid("prototype-user-type");
+const PERSONA_UUID = testUuid("prototype-persona");
 
 describe("prototype-safe normalized blueprint records", () => {
 	it("starts a fresh document store with normalized records", () => {
@@ -105,14 +115,14 @@ describe("prototype-safe normalized blueprint records", () => {
 			{
 				kind: "addUserType",
 				userType: {
-					uuid: asUuid("direct-role"),
+					uuid: testUuid("direct-role"),
 					name: "Direct role",
 					values,
 				},
 			},
 		]);
 
-		const stored = next.userTypes?.[asUuid("direct-role")]?.values;
+		const stored = next.userTypes?.[testUuid("direct-role")]?.values;
 		expectNullPrototype(stored);
 		expect(Object.hasOwn(stored ?? {}, "__proto__")).toBe(true);
 		expect(Object.hasOwn(stored ?? {}, "constructor")).toBe(true);
@@ -128,87 +138,35 @@ describe("prototype-safe normalized blueprint records", () => {
 		expect(next.fieldParent).toEqual({});
 	});
 
-	it.each([
-		{
-			label: "module",
-			moduleUuid: "__proto__",
-			formUuid: "ordinary-form",
-			fieldUuid: "ordinary-field",
-		},
-		{
-			label: "form",
-			moduleUuid: "ordinary-module",
-			formUuid: "constructor",
-			fieldUuid: "ordinary-field",
-		},
-		{
-			label: "field __proto__",
-			moduleUuid: "ordinary-module",
-			formUuid: "ordinary-form",
-			fieldUuid: "__proto__",
-		},
-		{
-			label: "field constructor",
-			moduleUuid: "ordinary-module",
-			formUuid: "ordinary-form",
-			fieldUuid: "constructor",
-		},
-	])(
-		"applies mutationSchema-admitted $label identities as own members",
-		({ moduleUuid, formUuid, fieldUuid }) => {
-			const mutations = parsed([
-				{ kind: "addModule", module: module_(moduleUuid) },
-				{
-					kind: "addForm",
-					moduleUuid,
-					form: form_(formUuid),
-				},
-				{
-					kind: "addField",
-					parentUuid: formUuid,
-					field: textField(fieldUuid),
-				},
-			]);
-
-			const next = fold(emptyDoc(), mutations);
-
-			expect(Object.hasOwn(next.modules, moduleUuid)).toBe(true);
-			expect(Object.hasOwn(next.formOrder, moduleUuid)).toBe(true);
-			expect(Object.hasOwn(next.forms, formUuid)).toBe(true);
-			expect(Object.hasOwn(next.fieldOrder, formUuid)).toBe(true);
-			expect(Object.hasOwn(next.fields, fieldUuid)).toBe(true);
-			expect(Object.hasOwn(next.fieldParent, fieldUuid)).toBe(true);
-			expect(next.fieldParent[asUuid(fieldUuid)]).toBe(formUuid);
-			for (const record of [
-				next.modules,
-				next.forms,
-				next.fields,
-				next.formOrder,
-				next.fieldOrder,
-				next.fieldParent,
-			]) {
-				expectNullPrototype(record);
-			}
+	it.each(["__proto__", "constructor", "toString"])(
+		"rejects the inherited-name identity %s before it can become a record key",
+		(uuid) => {
+			expect(() =>
+				mutationSchema.parse({
+					kind: "addModule",
+					module: { uuid, id: "module", name: "Module" },
+				}),
+			).toThrow(/canonical lowercase RFC UUID/);
 		},
 	);
 
 	it("hydrates JSON records with own membership and derived parents intact", () => {
 		const mutations = parsed([
-			{ kind: "addModule", module: module_("ordinary-module") },
+			{ kind: "addModule", module: module_("prototype-module") },
 			{
 				kind: "addForm",
-				moduleUuid: "ordinary-module",
-				form: form_("constructor"),
+				moduleUuid: MODULE_UUID,
+				form: form_("prototype-form"),
 			},
 			{
 				kind: "addField",
-				parentUuid: "constructor",
-				field: textField("__proto__", "status"),
+				parentUuid: FORM_UUID,
+				field: textField("prototype-status", "status"),
 			},
 			{
 				kind: "addUserProperty",
 				property: {
-					uuid: "__proto__",
+					uuid: USER_PROPERTY_UUID,
 					slug: "region",
 					label: "Region",
 				},
@@ -216,18 +174,18 @@ describe("prototype-safe normalized blueprint records", () => {
 			{
 				kind: "addUserType",
 				userType: {
-					uuid: "constructor",
+					uuid: USER_TYPE_UUID,
 					name: "Worker",
-					values: Object.fromEntries([["__proto__", "north"]]),
+					values: Object.fromEntries([[USER_PROPERTY_UUID, "north"]]),
 				},
 			},
 			{
 				kind: "addPersona",
 				persona: {
-					uuid: "toString",
+					uuid: PERSONA_UUID,
 					name: "Asha",
-					userTypeUuid: "constructor",
-					values: Object.fromEntries([["__proto__", "south"]]),
+					userTypeUuid: USER_TYPE_UUID,
+					values: Object.fromEntries([[USER_PROPERTY_UUID, "south"]]),
 				},
 			},
 		]);
@@ -238,20 +196,20 @@ describe("prototype-safe normalized blueprint records", () => {
 
 		const hydrated = hydratePersistedBlueprint(persisted);
 
-		expect(Object.hasOwn(hydrated.forms, "constructor")).toBe(true);
-		expect(Object.hasOwn(hydrated.fields, "__proto__")).toBe(true);
-		expect(Object.hasOwn(hydrated.fieldParent, "__proto__")).toBe(true);
-		expect(hydrated.fieldParent[asUuid("__proto__")]).toBe("constructor");
+		expect(Object.hasOwn(hydrated.forms, FORM_UUID)).toBe(true);
+		expect(Object.hasOwn(hydrated.fields, STATUS_UUID)).toBe(true);
+		expect(Object.hasOwn(hydrated.fieldParent, STATUS_UUID)).toBe(true);
+		expect(hydrated.fieldParent[STATUS_UUID]).toBe(FORM_UUID);
 		expect(
 			Object.hasOwn(
-				hydrated.userTypes?.[asUuid("constructor")]?.values ?? {},
-				"__proto__",
+				hydrated.userTypes?.[USER_TYPE_UUID]?.values ?? {},
+				USER_PROPERTY_UUID,
 			),
 		).toBe(true);
 		expect(
 			Object.hasOwn(
-				hydrated.personas?.[asUuid("toString")]?.values ?? {},
-				"__proto__",
+				hydrated.personas?.[PERSONA_UUID]?.values ?? {},
+				USER_PROPERTY_UUID,
 			),
 		).toBe(true);
 		for (const record of [
@@ -264,8 +222,8 @@ describe("prototype-safe normalized blueprint records", () => {
 			hydrated.userProperties,
 			hydrated.userTypes,
 			hydrated.personas,
-			hydrated.userTypes?.[asUuid("constructor")]?.values,
-			hydrated.personas?.[asUuid("toString")]?.values,
+			hydrated.userTypes?.[USER_TYPE_UUID]?.values,
+			hydrated.personas?.[PERSONA_UUID]?.values,
 		]) {
 			expectNullPrototype(record);
 		}
@@ -275,11 +233,11 @@ describe("prototype-safe normalized blueprint records", () => {
 		const applied = fold(
 			emptyDoc(),
 			parsed([
-				{ kind: "addModule", module: module_("__proto__") },
+				{ kind: "addModule", module: module_("prototype-module") },
 				{
 					kind: "addUserProperty",
 					property: {
-						uuid: "constructor",
+						uuid: USER_PROPERTY_UUID,
 						slug: "region",
 						label: "Region",
 					},
@@ -287,9 +245,9 @@ describe("prototype-safe normalized blueprint records", () => {
 				{
 					kind: "addUserType",
 					userType: {
-						uuid: "worker",
+						uuid: USER_TYPE_UUID,
 						name: "Worker",
-						values: Object.fromEntries([["constructor", "north"]]),
+						values: Object.fromEntries([[USER_PROPERTY_UUID, "north"]]),
 					},
 				},
 			]),
@@ -307,17 +265,17 @@ describe("prototype-safe normalized blueprint records", () => {
 		);
 		expect(
 			Object.getPrototypeOf(
-				transport.userTypes?.[asUuid("worker")]?.values ?? {},
+				transport.userTypes?.[USER_TYPE_UUID]?.values ?? {},
 			),
 		).toBe(Object.prototype);
-		expect(Object.hasOwn(transport.modules, "__proto__")).toBe(true);
-		expect(Object.hasOwn(transport.userProperties ?? {}, "constructor")).toBe(
-			true,
-		);
+		expect(Object.hasOwn(transport.modules, MODULE_UUID)).toBe(true);
+		expect(
+			Object.hasOwn(transport.userProperties ?? {}, USER_PROPERTY_UUID),
+		).toBe(true);
 		expect(
 			Object.hasOwn(
-				transport.userTypes?.[asUuid("worker")]?.values ?? {},
-				"constructor",
+				transport.userTypes?.[USER_TYPE_UUID]?.values ?? {},
+				USER_PROPERTY_UUID,
 			),
 		).toBe(true);
 		expectNullPrototype(normalized.modules);
@@ -326,26 +284,26 @@ describe("prototype-safe normalized blueprint records", () => {
 		expectNullPrototype(hydrated.modules);
 		expectNullPrototype(hydrated.userProperties);
 		expectNullPrototype(hydrated.userTypes);
-		expectNullPrototype(hydrated.userTypes?.[asUuid("worker")]?.values);
+		expectNullPrototype(hydrated.userTypes?.[USER_TYPE_UUID]?.values);
 	});
 
-	it("diffs and replays special-key structural additions", () => {
+	it("diffs and replays strict-identity structural additions", () => {
 		const mutations = parsed([
-			{ kind: "addModule", module: module_("ordinary-module") },
+			{ kind: "addModule", module: module_("prototype-module") },
 			{
 				kind: "addForm",
-				moduleUuid: "ordinary-module",
-				form: form_("ordinary-form"),
+				moduleUuid: MODULE_UUID,
+				form: form_("prototype-form"),
 			},
 			{
 				kind: "addField",
-				parentUuid: "ordinary-form",
-				field: textField("__proto__", "prototype"),
+				parentUuid: FORM_UUID,
+				field: textField("prototype-status", "prototype"),
 			},
 			{
 				kind: "addField",
-				parentUuid: "ordinary-form",
-				field: textField("constructor", "constructor"),
+				parentUuid: FORM_UUID,
+				field: textField("prototype-watcher", "constructor"),
 			},
 		]);
 		const before = emptyDoc();
@@ -354,34 +312,34 @@ describe("prototype-safe normalized blueprint records", () => {
 		const replayed = fold(before, diffDocsToMutations(before, desired));
 
 		expect(toPersistableDoc(replayed)).toEqual(toPersistableDoc(desired));
-		expect(Object.hasOwn(replayed.fields, "__proto__")).toBe(true);
-		expect(Object.hasOwn(replayed.fields, "constructor")).toBe(true);
+		expect(Object.hasOwn(replayed.fields, STATUS_UUID)).toBe(true);
+		expect(Object.hasOwn(replayed.fields, WATCHER_UUID)).toBe(true);
 	});
 
 	it("prints the current field id and derived parent path after rename and move", () => {
 		const initial = fold(
 			emptyDoc(),
 			parsed([
-				{ kind: "addModule", module: module_("ordinary-module") },
+				{ kind: "addModule", module: module_("prototype-module") },
 				{
 					kind: "addForm",
-					moduleUuid: "ordinary-module",
-					form: form_("ordinary-form"),
+					moduleUuid: MODULE_UUID,
+					form: form_("prototype-form"),
 				},
 				{
 					kind: "addField",
-					parentUuid: "ordinary-form",
+					parentUuid: FORM_UUID,
 					field: {
-						uuid: "constructor",
+						uuid: GROUP_UUID,
 						kind: "group",
 						id: "group",
-						label: "Group",
+						label: proseText("Group"),
 					},
 				},
 				{
 					kind: "addField",
-					parentUuid: "ordinary-form",
-					field: textField("__proto__", "status"),
+					parentUuid: FORM_UUID,
+					field: textField("prototype-status", "status"),
 				},
 			]),
 		);
@@ -389,14 +347,15 @@ describe("prototype-safe normalized blueprint records", () => {
 			initial,
 			parsed([
 				{
-					kind: "renameField",
-					uuid: "__proto__",
-					newId: "current_status",
+					kind: "updateField",
+					uuid: STATUS_UUID,
+					targetKind: "text",
+					patch: { id: "current_status" },
 				},
 				{
 					kind: "moveField",
-					uuid: "__proto__",
-					toParentUuid: "constructor",
+					uuid: STATUS_UUID,
+					toParentUuid: GROUP_UUID,
 					after: null,
 				},
 			]),
@@ -405,7 +364,7 @@ describe("prototype-safe normalized blueprint records", () => {
 
 		expect(
 			printXPath(
-				{ parts: [{ kind: "field-ref", uuid: asUuid("__proto__") }] },
+				{ parts: [{ kind: "field-ref", uuid: STATUS_UUID }] },
 				xpathPrintContext(printable),
 			),
 		).toBe("#form/group/current_status");
@@ -418,34 +377,34 @@ describe("prototype-safe normalized blueprint records", () => {
 				{
 					kind: "addModule",
 					module: {
-						...module_("ordinary-module"),
+						...module_("prototype-module"),
 						caseType: "patient",
 					},
 				},
 				{
 					kind: "addForm",
-					moduleUuid: "ordinary-module",
-					form: form_("ordinary-form"),
+					moduleUuid: MODULE_UUID,
+					form: form_("prototype-form"),
 				},
 				{
 					kind: "addField",
-					parentUuid: "ordinary-form",
+					parentUuid: FORM_UUID,
 					field: {
-						...textField("constructor", "status"),
-						case_property_on: "patient",
+						...textField("prototype-status", "status"),
+						caseWrite: { caseType: "patient", property: "status" },
 					},
 				},
 				{
 					kind: "addField",
-					parentUuid: "ordinary-form",
+					parentUuid: FORM_UUID,
 					field: {
-						...textField("__proto__", "watcher"),
-						label: "See #form/status and #case/status",
+						...textField("prototype-watcher", "watcher"),
+						label: proseText("See #form/status and #patient/status"),
 						relevant: {
 							parts: [
 								{
 									kind: "field-ref",
-									uuid: "constructor",
+									uuid: STATUS_UUID,
 								},
 							],
 						},
@@ -454,23 +413,17 @@ describe("prototype-safe normalized blueprint records", () => {
 			]),
 		);
 
-		expect(declarersOf(next, "patient", "status")).toEqual(["constructor"]);
-		expect(
-			referencingCarrierUuids(next, entityTargetKey("constructor")),
-		).toEqual(["__proto__"]);
+		expect(declarersOf(next, "patient", "status")).toEqual([STATUS_UUID]);
+		expect(referencingCarrierUuids(next, entityTargetKey(STATUS_UUID))).toEqual(
+			[WATCHER_UUID],
+		);
 		const rebuilt = buildReferenceIndex(next);
 		expect(next.refIndex).toEqual(rebuilt);
 
 		for (const index of [next.refIndex, rebuilt]) {
 			expect(index).toBeDefined();
 			if (index === undefined) throw new Error("reference index missing");
-			for (const record of [
-				index.in,
-				index.out,
-				index.decl,
-				index.local,
-				index.ctx,
-			]) {
+			for (const record of [index.in, index.out, index.decl, index.ctx]) {
 				expectNullPrototype(record);
 			}
 			for (const byCarrier of Object.values(index.in)) {
@@ -485,7 +438,7 @@ describe("prototype-safe normalized blueprint records", () => {
 					expectNullPrototype(slots);
 				}
 			}
-			for (const bucket of [index.decl, index.local, index.ctx]) {
+			for (const bucket of [index.decl, index.ctx]) {
 				for (const members of Object.values(bucket)) {
 					expectNullPrototype(members);
 				}

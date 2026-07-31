@@ -37,7 +37,13 @@ import {
 	TabsTrigger,
 } from "@/components/shadcn/tabs";
 import { useReconcilerContext } from "@/lib/collab/context";
-import { type AssetKind, isDocumentKind } from "@/lib/domain/multimedia";
+import type { BuiltinIconRef } from "@/lib/domain/builtinIcons";
+import {
+	type AssetKind,
+	type DocumentKind,
+	isDocumentKind,
+	type MediaAssetId,
+} from "@/lib/domain/multimedia";
 import { ChatMarkdown } from "@/lib/markdown";
 import { useAccessPhase, useProjectScopeEpoch } from "@/lib/session/hooks";
 import { ASSET_KIND_META } from "./assetKindMeta";
@@ -58,8 +64,8 @@ import {
  * message's attachment ref (`AttachmentRef`) reduce to this, so one dialog
  * serves the composer and the transcript.
  */
-export interface AssetPreviewTarget {
-	id: string;
+interface UploadedAssetPreviewTarget {
+	id: MediaAssetId;
 	kind: AssetKind;
 	filename: string;
 	/** A document's extracted title + summary, shown in the preview header so
@@ -68,6 +74,28 @@ export interface AssetPreviewTarget {
 	 *  Absent for media kinds and documents not yet extracted. */
 	title?: string;
 	summary?: string;
+}
+
+interface BuiltinIconPreviewTarget {
+	id: BuiltinIconRef;
+	kind: "image";
+	filename: string;
+	title?: never;
+	summary?: never;
+}
+
+export type AssetPreviewTarget =
+	| UploadedAssetPreviewTarget
+	| BuiltinIconPreviewTarget;
+
+type DocumentPreviewTarget = UploadedAssetPreviewTarget & {
+	kind: DocumentKind;
+};
+
+function isDocumentPreviewTarget(
+	target: AssetPreviewTarget,
+): target is DocumentPreviewTarget {
+	return isDocumentKind(target.kind);
 }
 
 export interface AssetPreviewDialogProps {
@@ -106,7 +134,7 @@ export function AssetPreviewDialog({
 function PreviewBody({ target }: { target: AssetPreviewTarget }) {
 	const reconciler = useReconcilerContext();
 	const name = target.filename;
-	const isDocument = isDocumentKind(target.kind);
+	const documentTarget = isDocumentPreviewTarget(target) ? target : null;
 
 	// Fill the header from the snapshot when it has the title/summary (composer +
 	// library snapshots are reconciled, so they do — instant, no fetch). A message
@@ -117,14 +145,15 @@ function PreviewBody({ target }: { target: AssetPreviewTarget }) {
 		summary?: string;
 	} | null>(null);
 	useEffect(() => {
-		if (!isDocument || target.title || target.summary) return;
+		if (!documentTarget || documentTarget.title || documentTarget.summary)
+			return;
 		let cancelled = false;
 		const controller = new AbortController();
 		const unsubscribe = reconciler?.subscribeProjectScopeReset(() => {
 			cancelled = true;
 			controller.abort();
 		});
-		fetchAssetExtractMeta(target.id, controller.signal).then((meta) => {
+		fetchAssetExtractMeta(documentTarget.id, controller.signal).then((meta) => {
 			if (!cancelled && meta) setFetched(meta);
 		});
 		return () => {
@@ -132,7 +161,7 @@ function PreviewBody({ target }: { target: AssetPreviewTarget }) {
 			controller.abort();
 			unsubscribe?.();
 		};
-	}, [isDocument, reconciler, target.id, target.title, target.summary]);
+	}, [documentTarget, reconciler]);
 	const title = target.title ?? fetched?.title;
 	const summary = target.summary ?? fetched?.summary;
 
@@ -183,7 +212,7 @@ function PreviewBody({ target }: { target: AssetPreviewTarget }) {
 				</div>
 			)}
 
-			{isDocument ? (
+			{documentTarget ? (
 				<Tabs
 					defaultValue="extract"
 					className="min-h-0 flex-1 gap-0 overflow-hidden p-5 pt-3"
@@ -204,10 +233,10 @@ function PreviewBody({ target }: { target: AssetPreviewTarget }) {
 						</TabsTrigger>
 					</TabsList>
 					<TabsContent value="extract" className="min-h-0 overflow-auto">
-						<ExtractView assetId={target.id} />
+						<ExtractView assetId={documentTarget.id} />
 					</TabsContent>
 					<TabsContent value="document" className="min-h-0 overflow-auto">
-						<DocumentView target={target} />
+						<DocumentView target={documentTarget} />
 					</TabsContent>
 				</Tabs>
 			) : (
@@ -349,7 +378,7 @@ type ExtractState =
 	| { state: "error"; message: string };
 
 /** The "What Nova reads" panel — fetches the stored extract for the document. */
-function ExtractView({ assetId }: { assetId: string }) {
+function ExtractView({ assetId }: { assetId: MediaAssetId }) {
 	const reconciler = useReconcilerContext();
 	const [extract, setExtract] = useState<ExtractState>({ state: "loading" });
 	const [attempt, setAttempt] = useState(0);

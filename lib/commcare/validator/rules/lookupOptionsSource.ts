@@ -193,7 +193,7 @@ function selectFilterFindings(args: {
 	if (field.kind !== "single_select" && field.kind !== "multi_select")
 		return [];
 	const source = field.optionsSource;
-	if (source?.filter === undefined) return [];
+	if (source.kind !== "lookup" || source.filter === undefined) return [];
 
 	const errors: ValidationError[] = [];
 	const seenPolicy = new Set<string>();
@@ -221,15 +221,15 @@ function selectFilterFindings(args: {
 	walkTermsWithPaths(source.filter, (term, path: PredicateAstPath): void => {
 		const at = formatPath([...path]);
 		if (term.kind === "input") {
-			pushOnce(`search-input:${term.name}`, () =>
+			pushOnce(`search-input:${term.searchInputUuid}`, () =>
 				policyFinding({
 					code: "LOOKUP_SELECT_FILTER_TERM_NOT_ALLOWED",
 					...args,
-					message: `Lookup choices for field "${field.id}" in "${args.formName}" read Search answer "${term.name}"${at ? ` at ${at}` : ""}, but a form question's choices are built outside the case-search screen. Use a lookup column, fixed value, current-user/session value, or eligible earlier form answer.`,
+					message: `Lookup choices for field "${field.id}" in "${args.formName}" read Search answer "${term.searchInputUuid}"${at ? ` at ${at}` : ""}, but a form question's choices are built outside the case-search screen. Use a lookup column, fixed value, current-user/session value, or eligible earlier form answer.`,
 					details: {
 						reason: "search-input",
-						target: `input:${term.name}`,
-						inputName: term.name,
+						target: `input:${term.searchInputUuid}`,
+						inputUuid: term.searchInputUuid,
 						path: at,
 						tableId: source.tableId,
 					},

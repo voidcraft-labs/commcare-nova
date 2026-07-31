@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { asUuid } from "@/lib/doc/types";
+import { testUuid } from "@/__tests__/helpers/uuid";
+
 import { isNoOpFieldDrop } from "../dropNoOp";
 
-const A = asUuid("a-uuid");
-const B = asUuid("b-uuid");
-const C = asUuid("c-uuid");
+const A = testUuid("a-uuid");
+const B = testUuid("b-uuid");
+const C = testUuid("c-uuid");
 
 describe("isNoOpFieldDrop", () => {
 	// Display order [A, B, C] (matches the array in the un-reordered case).
@@ -30,33 +31,24 @@ describe("isNoOpFieldDrop", () => {
 	});
 
 	it("returns false when either field is absent from the sequence", () => {
-		expect(isNoOpFieldDrop(display, asUuid("gone"), B, "top")).toBe(false);
-		expect(isNoOpFieldDrop(display, A, asUuid("gone"), "top")).toBe(false);
+		expect(isNoOpFieldDrop(display, testUuid("gone"), B, "top")).toBe(false);
+		expect(isNoOpFieldDrop(display, A, testUuid("gone"), "top")).toBe(false);
 	});
 
 	/**
-	 * The round-4 regression guard: adjacency is DISPLAY order, so after a
-	 * same-parent reorder (the membership array untouched, only `order`
-	 * changed) the predicate must answer against the display sequence, NOT the
-	 * stale array. Each case pairs the display-order answer with the raw-array
-	 * answer to show they DIVERGE for the same gesture — feeding the array (the
-	 * old bug) would flip the result.
+	 * Adjacency is determined by the supplied membership sequence. Each case
+	 * proves the same gesture changes meaning when the sequence changes.
 	 */
-	const arrayOrder = [A, B, C]; // stale `fieldOrder` membership after reorder
-	const displayOrder = [C, B, A]; // sort-by-(order, uuid) after the reorder
+	const firstOrder = [A, B, C];
+	const reordered = [C, B, A];
 
-	it("no-ops a gesture adjacent in display order but not in the array", () => {
-		// Drag A to just-after B. Display [C, B, A]: A already follows B → no-op.
-		// Reading the raw array [A, B, C] would say "move" — wrong.
-		expect(isNoOpFieldDrop(displayOrder, A, B, "bottom")).toBe(true);
-		expect(isNoOpFieldDrop(arrayOrder, A, B, "bottom")).toBe(false);
+	it("no-ops a gesture adjacent in the current sequence", () => {
+		expect(isNoOpFieldDrop(reordered, A, B, "bottom")).toBe(true);
+		expect(isNoOpFieldDrop(firstOrder, A, B, "bottom")).toBe(false);
 	});
 
-	it("does NOT suppress a legitimate move that only looks array-adjacent", () => {
-		// Drag C to just-after B. Display [C, B, A]: C leads, so this is a real
-		// move. The raw array [A, B, C] has C already after B and would SUPPRESS
-		// the move — the exact defect the display-order read fixes.
-		expect(isNoOpFieldDrop(displayOrder, C, B, "bottom")).toBe(false);
-		expect(isNoOpFieldDrop(arrayOrder, C, B, "bottom")).toBe(true);
+	it("does not suppress a move that is non-adjacent in the current sequence", () => {
+		expect(isNoOpFieldDrop(reordered, C, B, "bottom")).toBe(false);
+		expect(isNoOpFieldDrop(firstOrder, C, B, "bottom")).toBe(true);
 	});
 });

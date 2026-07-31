@@ -1,16 +1,33 @@
 // @vitest-environment happy-dom
 
-import { fireEvent, render, screen } from "@testing-library/react";
-import { useState } from "react";
+import { fireEvent, render as rtlRender, screen } from "@testing-library/react";
+import { type ReactElement, type ReactNode, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { asUuid } from "@/lib/doc/types";
+import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
+import { BlueprintDocProvider } from "@/lib/doc/provider";
 import {
 	type CaseType,
 	type Column,
+	columnSchema,
 	idMappingColumn,
 	imageMapColumn,
+	type MediaAssetId,
 } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import { ColumnEditor } from "../../../ColumnEditor";
+
+// The surfaces here spell authored prose against the document; every production
+// mount sits inside the builder's provider. Wrapping at `render` reproduces it
+// and carries through each `rerender`.
+function DocumentProvider({ children }: { readonly children: ReactNode }) {
+	return (
+		<BlueprintDocProvider appId="test-app">{children}</BlueprintDocProvider>
+	);
+}
+
+function render(ui: ReactElement) {
+	return rtlRender(ui, { wrapper: DocumentProvider });
+}
 
 vi.mock("@/components/builder/media/MediaSlot", () => ({
 	SingleAssetSlot: ({
@@ -20,21 +37,28 @@ vi.mock("@/components/builder/media/MediaSlot", () => ({
 	}: {
 		slotKey: string;
 		ariaLabel: string;
-		onChange: (next: string) => void;
+		onChange: (next: MediaAssetId) => void;
 	}) => (
 		<fieldset aria-label={ariaLabel} data-slot-key={slotKey}>
-			<button type="button" onClick={() => onChange("asset-selected")}>
+			<button
+				type="button"
+				onClick={() => onChange(testMediaAssetId("asset-selected"))}
+			>
 				Choose image
 			</button>
 		</fieldset>
 	),
 }));
 
-const TEST_UUID = asUuid("00000000-0000-0000-0000-000000000001");
+const TEST_UUID = testUuid("00000000-0000-0000-0000-000000000001");
+const ASSET_OPEN = testMediaAssetId("asset-open");
+const ASSET_CLOSED = testMediaAssetId("asset-closed");
 
 const PATIENT: CaseType = {
 	name: "patient",
-	properties: [{ name: "status", label: "Status", data_type: "text" }],
+	properties: [
+		{ name: "status", label: proseText("Status"), data_type: "text" },
+	],
 };
 
 function ControlledColumnEditor({ initial }: { initial: Column }) {
@@ -50,6 +74,67 @@ function ControlledColumnEditor({ initial }: { initial: Column }) {
 }
 
 describe("mapping row UI identity", () => {
+	it("keeps a new image mapping local until both value and image are complete", () => {
+		const onChange = vi.fn();
+		render(
+			<ColumnEditor
+				value={imageMapColumn(TEST_UUID, "status", "Status", [])}
+				onChange={onChange}
+				caseTypes={[PATIENT]}
+				currentCaseType="patient"
+			/>,
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "Add value" }));
+		expect(onChange).not.toHaveBeenCalled();
+		expect(screen.queryByRole("button", { name: "Choose image" })).toBeNull();
+
+		fireEvent.change(screen.getByLabelText("Value 1 saved value"), {
+			target: { value: "open" },
+		});
+		expect(onChange).not.toHaveBeenCalled();
+		fireEvent.click(screen.getByRole("button", { name: "Choose image" }));
+
+		const next = onChange.mock.lastCall?.[0] as Column | undefined;
+		expect(next?.kind).toBe("image-map");
+		if (next?.kind !== "image-map") throw new Error("expected image-map");
+		expect(next.mapping).toEqual([
+			{
+				value: "open",
+				assetId: testMediaAssetId("asset-selected"),
+			},
+		]);
+		expect(() => columnSchema.parse(next)).not.toThrow();
+	});
+
+	it.each([
+		["whitespace", "not open"],
+		["a duplicate", "open"],
+	] as const)(
+		"does not expose an image picker for %s in a pending mapping value",
+		(_label, candidate) => {
+			const onChange = vi.fn();
+			render(
+				<ColumnEditor
+					value={imageMapColumn(TEST_UUID, "status", "Status", [
+						{ value: "open", assetId: ASSET_OPEN },
+					])}
+					onChange={onChange}
+					caseTypes={[PATIENT]}
+					currentCaseType="patient"
+				/>,
+			);
+
+			fireEvent.click(screen.getByRole("button", { name: "Add value" }));
+			fireEvent.change(screen.getByLabelText("Value 2 saved value"), {
+				target: { value: candidate },
+			});
+
+			expect(screen.queryByRole("group", { name: "Value 2 image" })).toBeNull();
+			expect(onChange).not.toHaveBeenCalled();
+		},
+	);
+
 	it.each([
 		[
 			"text labels",
@@ -60,7 +145,7 @@ describe("mapping row UI identity", () => {
 		[
 			"images",
 			imageMapColumn(TEST_UUID, "status", "Status", [
-				{ value: "open", assetId: "asset-open" },
+				{ value: "open", assetId: ASSET_OPEN },
 			]),
 		],
 	] as const)(
@@ -86,7 +171,7 @@ describe("mapping row UI identity", () => {
 		render(
 			<ControlledColumnEditor
 				initial={imageMapColumn(TEST_UUID, "status", "Status", [
-					{ value: "open", assetId: "" },
+					{ value: "open", assetId: ASSET_OPEN },
 				])}
 			/>,
 		);
@@ -104,8 +189,8 @@ describe("mapping row UI identity", () => {
 		render(
 			<ControlledColumnEditor
 				initial={imageMapColumn(TEST_UUID, "status", "Status", [
-					{ value: "open", assetId: "asset-open" },
-					{ value: "closed", assetId: "asset-closed" },
+					{ value: "open", assetId: ASSET_OPEN },
+					{ value: "closed", assetId: ASSET_CLOSED },
 				])}
 			/>,
 		);

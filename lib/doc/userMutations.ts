@@ -22,6 +22,7 @@
 
 import type { Mutation } from "@/lib/doc/types";
 import {
+	asUuid,
 	type BlueprintDoc,
 	hasOwnRecordKey,
 	ownRecordValue,
@@ -57,7 +58,7 @@ type UserEntityPatch<T> = {
  */
 function appendAfter(order: readonly Uuid[] | undefined): Uuid | null {
 	const sequence = order ?? [];
-	return sequence.length === 0 ? null : (sequence[sequence.length - 1] as Uuid);
+	return sequence.at(-1) ?? null;
 }
 
 /** Mint the `addUserProperty` for a new piece of worker information. */
@@ -105,12 +106,6 @@ export function addPersonaMutations(
 	];
 }
 
-function fallbackValues(
-	values: UserDataValues | undefined,
-): UserDataValues | null {
-	return values !== undefined && Object.keys(values).length > 0 ? values : null;
-}
-
 function userDataValueMutations(
 	kind: "updateUserType" | "updatePersona",
 	uuid: Uuid,
@@ -118,7 +113,6 @@ function userDataValueMutations(
 	after: UserDataValues | undefined,
 ): Mutation[] {
 	const mutations: Mutation[] = [];
-	let cursor = before;
 	const keys = [
 		...new Set([...Object.keys(before ?? {}), ...Object.keys(after ?? {})]),
 	].sort();
@@ -128,15 +122,12 @@ function userDataValueMutations(
 		const beforeValue = ownRecordValue(before, propertyUuid);
 		const afterValue = ownRecordValue(after, propertyUuid);
 		if (beforeHas === afterHas && beforeValue === afterValue) continue;
-		cursor = afterHas
-			? recordWithValue(cursor, propertyUuid, afterValue as string)
-			: recordWithoutKey(cursor, propertyUuid);
 		mutations.push({
 			kind,
 			uuid,
-			patch: { values: fallbackValues(cursor) },
+			patch: {},
 			valuePatch: {
-				userPropertyUuid: propertyUuid as Uuid,
+				userPropertyUuid: asUuid(propertyUuid),
 				value: afterHas ? (afterValue as string) : null,
 			},
 		});

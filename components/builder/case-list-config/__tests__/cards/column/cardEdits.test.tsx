@@ -20,9 +20,11 @@
 // preset switching is covered by `CustomDatePatternInput.test.tsx`
 // at the primitive level.
 
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render as rtlRender, screen } from "@testing-library/react";
+import type { ReactElement, ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { asUuid } from "@/lib/doc/types";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { BlueprintDocProvider } from "@/lib/doc/provider";
 import {
 	type CaseType,
 	type Column,
@@ -33,34 +35,57 @@ import {
 	intervalColumn,
 	phoneColumn,
 	plainColumn,
+	tileCell,
 } from "@/lib/domain";
 import { literal, term } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { ColumnEditor } from "../../../ColumnEditor";
+
+// The surfaces here spell authored prose against the document; every production
+// mount sits inside the builder's provider. Wrapping at `render` reproduces it
+// and carries through each `rerender`.
+function DocumentProvider({ children }: { readonly children: ReactNode }) {
+	return (
+		<BlueprintDocProvider appId="test-app">{children}</BlueprintDocProvider>
+	);
+}
+
+function render(ui: ReactElement) {
+	return rtlRender(ui, { wrapper: DocumentProvider });
+}
 
 const PATIENT: CaseType = {
 	name: "patient",
 	properties: [
-		{ name: "name", label: "Name", data_type: "text" },
-		{ name: "phone", label: "Phone", data_type: "text" },
-		{ name: "dob", label: "Date of birth", data_type: "date" },
-		{ name: "last_visit", label: "Last visit", data_type: "datetime" },
+		{ name: "case_name", label: proseText("Name"), data_type: "text" },
+		{ name: "phone", label: proseText("Phone"), data_type: "text" },
+		{ name: "dob", label: proseText("Date of birth"), data_type: "date" },
+		{
+			name: "last_visit",
+			label: proseText("Last visit"),
+			data_type: "datetime",
+		},
 	],
 };
 
-const TEST_UUID = asUuid("00000000-0000-0000-0000-000000000001");
+const TEST_UUID = testUuid("00000000-0000-0000-0000-000000000001");
 
 const SURFACE_SLOTS = {
 	sort: { direction: "asc" as const, priority: 0 },
 	visibleInList: true,
 	visibleInDetail: true,
+	tile: tileCell(2, 3, 4, 2, {
+		horizontalAlign: "center",
+		showBorder: true,
+	}),
 };
 
 const ORDERED_COLUMN_KINDS: readonly Column[] = [
-	plainColumn(TEST_UUID, "name", "Name", SURFACE_SLOTS),
+	plainColumn(TEST_UUID, "case_name", "Name", SURFACE_SLOTS),
 	phoneColumn(TEST_UUID, "phone", "Phone", SURFACE_SLOTS),
-	dateColumn(TEST_UUID, "dob", "Birthday", "short", SURFACE_SLOTS),
-	idMappingColumn(TEST_UUID, "name", "Name", [], SURFACE_SLOTS),
-	imageMapColumn(TEST_UUID, "name", "Name", [], SURFACE_SLOTS),
+	dateColumn(TEST_UUID, "dob", "Birthday", "%m/%d/%Y", SURFACE_SLOTS),
+	idMappingColumn(TEST_UUID, "case_name", "Name", [], SURFACE_SLOTS),
+	imageMapColumn(TEST_UUID, "case_name", "Name", [], SURFACE_SLOTS),
 	intervalColumn(
 		TEST_UUID,
 		"dob",
@@ -99,7 +124,7 @@ function emitFromEdit(
 
 describe("display-item edits preserve the slots they do not touch", () => {
 	it.each(ORDERED_COLUMN_KINDS.map((column) => [column.kind, column] as const))(
-		"%s label edits retain sort and visibility",
+		"%s label edits retain sort, visibility, and tile presentation",
 		(_kind, value) => {
 			const next = emitFromEdit(value, () => {
 				const input = screen.getByLabelText(
@@ -113,6 +138,7 @@ describe("display-item edits preserve the slots they do not touch", () => {
 			expect(next.sort).toEqual(SURFACE_SLOTS.sort);
 			expect(next.visibleInList).toBe(true);
 			expect(next.visibleInDetail).toBe(true);
+			expect(next.tile).toEqual(SURFACE_SLOTS.tile);
 		},
 	);
 });
@@ -152,7 +178,7 @@ describe("DateColumnCard — pattern edits", () => {
 		const onChange = vi.fn();
 		render(
 			<ColumnEditor
-				value={dateColumn(TEST_UUID, "dob", "Birthday", "short")}
+				value={dateColumn(TEST_UUID, "dob", "Birthday", "%m/%d/%Y")}
 				onChange={onChange}
 				caseTypes={[PATIENT]}
 				currentCaseType="patient"

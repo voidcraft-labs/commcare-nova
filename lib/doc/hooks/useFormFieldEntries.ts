@@ -17,19 +17,30 @@
 
 import { useMemo } from "react";
 import type { Uuid } from "@/lib/domain";
-import { type FormFieldEntry, formFieldEntriesFor } from "../formFieldEntries";
+import {
+	type FormFieldEntryWithAncestors,
+	formFieldEntriesFor,
+} from "../formFieldEntries";
 import { useBlueprintDocShallow } from "./useBlueprintDoc";
 
-export type { FormFieldEntry } from "../formFieldEntries";
+export type {
+	FormFieldEntry,
+	FormFieldEntryWithAncestors,
+} from "../formFieldEntries";
 
-/** Every field in the form, in canvas order, innermost-repeat-tagged. */
-export function useFormFieldEntries(formUuid: Uuid): readonly FormFieldEntry[] {
-	const { fields, fieldOrder } = useBlueprintDocShallow((state) => ({
+/** Every field in the form, in canvas order, with complete repeat ancestry. */
+export function useFormFieldEntries(
+	formUuid: Uuid,
+): readonly FormFieldEntryWithAncestors[] {
+	const source = useBlueprintDocShallow((state) => ({
 		fields: state.fields,
 		fieldOrder: state.fieldOrder,
+		forms: state.forms,
+		fieldParent: state.fieldParent,
+		userProperties: state.userProperties,
 	}));
 	return useMemo(
-		() => formFieldEntriesFor(fields, fieldOrder, formUuid),
-		[fields, fieldOrder, formUuid],
+		() => formFieldEntriesFor(source, formUuid),
+		[source, formUuid],
 	);
 }

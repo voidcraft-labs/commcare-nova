@@ -4,8 +4,8 @@
 //
 //   1. Dead-path check — every registry entry's path resolves into the
 //      real Zod schemas for every kind/mode/arm it claims, with the
-//      shape its surface kind promises (string for xpath/prose/name
-//      refs, the actual predicate/value-expression/relation-path
+//      shape its surface kind promises (canonical objects for XPath/prose,
+//      strings for name refs, the actual predicate/value-expression/relation-path
 //      schema object for AST slots) — and does NOT resolve anywhere it
 //      doesn't claim, so applicability is exact in both directions.
 //   2. Schema-key audit — every key the field/form/module schemas
@@ -205,6 +205,11 @@ function collectLeaves(
 		record(out, path, s);
 		return;
 	}
+	// A `z.never()` slot is an action arm's explicit prohibition (a `close`
+	// operation may carry no `links`, no `name`, no `rename`, no `retype`). It
+	// can hold no value at all, so there is nothing to classify — descending
+	// would demand a reason for a key that is unrepresentable by construction.
+	if (s instanceof z.ZodNever) return;
 	if (s instanceof z.ZodObject) {
 		for (const [key, child] of Object.entries(s.shape)) {
 			collectLeaves(
@@ -350,7 +355,12 @@ describe("field slots — paths resolve exactly where claimed", () => {
 			for (const schema of schemasClaimedByFieldSlot(slot)) {
 				const resolved = resolvePath(schema, slot.path);
 				expect(resolved.length).toBeGreaterThan(0);
-				if (slot.kind === "prose" || slot.kind === "case-type-ref") {
+				if (slot.kind === "prose") {
+					for (const r of resolved) {
+						expect(r).toBeInstanceOf(z.ZodObject);
+					}
+				}
+				if (slot.kind === "case-type-ref") {
 					for (const r of resolved) {
 						expect(r).toBeInstanceOf(z.ZodString);
 					}
@@ -450,12 +460,21 @@ describe("module slots — paths resolve with the promised shape", () => {
 		for (const [slotId, key] of expectations) {
 			const slot = moduleSlots.find((s) => s.slot === slotId);
 			expect(slot?.searchInputKinds).toBeDefined();
-			for (const arm of searchInputDefSchema.options as z.ZodObject[]) {
+			for (const arm of searchInputDefSchema.options as readonly z.ZodObject[]) {
 				const armKind = (arm.shape.kind as z.ZodLiteral)
 					.value as SearchInputDef["kind"];
-				expect(key in arm.shape).toBe(
-					slot?.searchInputKinds?.includes(armKind) ?? false,
-				);
+				// The union's second axis: an arm whose `type` is the
+				// `date-range` literal is the range widget; the scalar arms
+				// enumerate `SCALAR_SEARCH_INPUT_TYPES`.
+				const armWidget =
+					arm.shape.type instanceof z.ZodLiteral &&
+					arm.shape.type.value === "date-range"
+						? "date-range"
+						: "scalar";
+				const applies =
+					(slot?.searchInputKinds?.includes(armKind) ?? false) &&
+					(slot?.searchInputWidgets?.includes(armWidget) ?? true);
+				expect(key in arm.shape).toBe(applies);
 			}
 		}
 	});
@@ -557,7 +576,8 @@ describe("fieldReferenceSlotsFor", () => {
 			"relevant",
 			"calculate",
 			"default_value",
-			"case_property_on",
+			"case_write_case_type",
+			"case_write_property",
 		]);
 	});
 
@@ -617,7 +637,7 @@ describe("string-typed non-reference keys (reviewed: none carries an expression)
 				allFieldRegistryPaths,
 				NON_REFERENCE_FIELD_PATH_SET,
 			),
-		).toEqual(["id", "options[].uuid", "options[].value", "uuid"]);
+		).toEqual(["id", "uuid"]);
 	});
 
 	it("form list is pinned", () => {
@@ -643,7 +663,6 @@ describe("string-typed non-reference keys (reviewed: none carries an expression)
 			"connect.task.id",
 			"connect.task.name",
 			"formLinks[].datums[].name",
-			"icon",
 			"id",
 			"name",
 			"purpose",
@@ -669,7 +688,6 @@ describe("string-typed non-reference keys (reviewed: none carries an expression)
 			"caseListConfig.columns[].text",
 			"caseListConfig.columns[].uuid",
 			"caseListConfig.detailColumnOrder[]",
-			"caseListConfig.icon",
 			"caseListConfig.listColumnOrder[]",
 			"caseListConfig.searchInputs[].label",
 			"caseListConfig.searchInputs[].name",
@@ -677,7 +695,6 @@ describe("string-typed non-reference keys (reviewed: none carries an expression)
 			"caseSearchConfig.searchButtonLabel",
 			"caseSearchConfig.searchScreenSubtitle",
 			"caseSearchConfig.searchScreenTitle",
-			"icon",
 			"id",
 			"name",
 			"purpose",
@@ -694,14 +711,23 @@ describe("rewriteSlotStrings", () => {
 	it("rewrites nested object paths and array fan-out paths in place", () => {
 		const entity = {
 			data_source: { ids_query: "query" },
-			options: [{ label: "a" }, { label: "b" }, { label: "" }],
+			optionsSource: {
+				kind: "inline",
+				options: [{ label: "a" }, { label: "b" }, { label: "" }],
+			},
 			links: [{ datums: [{ xpath: "x" }, { xpath: "y" }] }],
 		};
 		expect(rewriteSlotStrings(entity, "data_source.ids_query", upper)).toBe(1);
 		expect(entity.data_source.ids_query).toBe("QUERY");
 		// Empty strings are skipped — two of three options rewrite.
-		expect(rewriteSlotStrings(entity, "options[].label", upper)).toBe(2);
-		expect(entity.options.map((o) => o.label)).toEqual(["A", "B", ""]);
+		expect(
+			rewriteSlotStrings(entity, "optionsSource.options[].label", upper),
+		).toBe(2);
+		expect(entity.optionsSource.options.map((o) => o.label)).toEqual([
+			"A",
+			"B",
+			"",
+		]);
 		expect(rewriteSlotStrings(entity, "links[].datums[].xpath", upper)).toBe(2);
 	});
 

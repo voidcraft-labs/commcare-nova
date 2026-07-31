@@ -77,9 +77,8 @@ function useFormRows(): FormRow[] {
 	const { modules, forms } = useDocEntityMaps();
 	return useMemo(() => {
 		const out: FormRow[] = [];
-		// DISPLAY order (`sort-by-(order, uuid)`) — the manager renders one row
-		// per form, so it must match the app's rendered module/form sequence,
-		// not `moduleOrder` / `formOrder` array position.
+		// Membership arrays are the rendered module/form sequence, so the manager
+		// walks them directly.
 		const sortedModules = [...moduleOrder];
 		for (const moduleUuid of sortedModules) {
 			const sortedForms = [...(formOrder[moduleUuid] ?? [])];
@@ -177,6 +176,18 @@ function dirtyKey(
 					];
 	}
 	return JSON.stringify(norm);
+}
+
+/** UI admission for the exact target floor. An empty app or a target with
+ * every form switched off is never offered to the app-wide planner. */
+export function hasDraftConnectParticipant(
+	forms: readonly { readonly formUuid: string }[],
+	modeDrafts: Record<string, BlockDraft>,
+	mode: ConnectType,
+): boolean {
+	return forms.some((form) =>
+		draftParticipates(modeDrafts[form.formUuid] ?? EMPTY_DRAFT, mode),
+	);
 }
 
 export function ConnectManagerDialog({
@@ -285,10 +296,11 @@ function ManagerBody({ onClose }: { onClose: () => void }) {
 			idHelpers[f.formUuid].validateId,
 		),
 	);
-	const participatingCount = forms.filter((f) =>
-		draftParticipates(draftOf(f.formUuid), selectedMode),
-	).length;
-	const hasParticipant = forms.length === 0 || participatingCount >= 1;
+	const hasParticipant = hasDraftConnectParticipant(
+		forms,
+		modeDrafts,
+		selectedMode,
+	);
 	// Same-mode apply needs real edits; a switch / enable is itself the change.
 	const canApply =
 		sectionsComplete &&
@@ -352,8 +364,11 @@ function ManagerBody({ onClose }: { onClose: () => void }) {
 			blocks[f.formUuid] =
 				untouched && stored
 					? stored
-					: draftToConfig(draftOf(f.formUuid), selectedMode, (text) =>
-							parseXPathForForm(doc, asUuid(f.formUuid), text),
+					: draftToConfig(
+							draftOf(f.formUuid),
+							selectedMode,
+							(text) => parseXPathForForm(doc, asUuid(f.formUuid), text),
+							idHelpers[f.formUuid].derivedId,
 						);
 		}
 		const outcome = switchMode(selectedMode, blocks, { announce: false });
@@ -426,7 +441,7 @@ function ManagerBody({ onClose }: { onClose: () => void }) {
 			<div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
 				<p className="text-xs leading-relaxed text-nova-text-secondary">
 					{forms.length === 0
-						? "This app has no forms yet. You can turn Connect on now and choose which forms take part once you add them."
+						? "Add at least one form before turning Connect on — an enabled Connect app always has a complete, nonempty participant set."
 						: isCurrentMode
 							? "Turn forms on or off and edit their Connect details. Changes apply together when you save."
 							: enabled

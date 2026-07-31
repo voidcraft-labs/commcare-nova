@@ -72,6 +72,7 @@ import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useEffectiveCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useCaseWorkspaceBoundaryVerdicts } from "@/lib/doc/hooks/useCaseWorkspaceVerdicts";
 import { useModule } from "@/lib/doc/hooks/useEntity";
+import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import { useUserProperties } from "@/lib/doc/hooks/useUserCollections";
 import { searchInputUpdateMutation } from "@/lib/doc/searchInputMutations";
 import type { Mutation, Uuid } from "@/lib/doc/types";
@@ -85,7 +86,7 @@ import {
 	effectiveCaseSearchConfig,
 	emptyCaseListConfig,
 	isOwnerOnlyCaseSearchConfig,
-	normalizeOwnerOnlyCaseSearchConfig,
+	type OrdinaryCaseSearchConfig,
 	type SearchInputDef,
 	type TileCell,
 } from "@/lib/domain";
@@ -210,8 +211,7 @@ function canvasOriginForSelection(
 			);
 			if (row !== null) return row;
 			const surface =
-				selection.reveal?.surface ??
-				(activeTab === "list" || activeTab === "detail" ? activeTab : null);
+				activeTab === "list" || activeTab === "detail" ? activeTab : null;
 			return surface === null
 				? null
 				: canvas.querySelector<HTMLElement>(`[data-case-add="${surface}"]`);
@@ -298,7 +298,7 @@ const SEARCH_ACTION_SETTING_LABELS: Readonly<
 function authoredSearchScreenSettings(
 	config: CaseSearchConfig | undefined,
 ): readonly string[] {
-	if (config === undefined) return [];
+	if (config === undefined || isOwnerOnlyCaseSearchConfig(config)) return [];
 	return (Object.keys(SEARCH_SCREEN_SETTING_LABELS) as SearchScreenSettingKey[])
 		.filter((key) => config[key] !== undefined)
 		.map((key) => SEARCH_SCREEN_SETTING_LABELS[key]);
@@ -307,7 +307,7 @@ function authoredSearchScreenSettings(
 function authoredSearchActionSettings(
 	config: CaseSearchConfig | undefined,
 ): readonly string[] {
-	if (config === undefined) return [];
+	if (config === undefined || isOwnerOnlyCaseSearchConfig(config)) return [];
 	return (Object.keys(SEARCH_ACTION_SETTING_LABELS) as SearchActionSettingKey[])
 		.filter((key) => config[key] !== undefined)
 		.map((key) => SEARCH_ACTION_SETTING_LABELS[key]);
@@ -356,13 +356,22 @@ function caseListTarget(
 	}
 }
 
+function requireRetainedModuleUuid(moduleUuid: Uuid | undefined): Uuid {
+	if (moduleUuid === undefined) {
+		throw new Error(
+			"Case-list workspace action requires a retained module identity",
+		);
+	}
+	return moduleUuid;
+}
+
 function useController(
 	target: { moduleUuid: Uuid; tab: CaseListWorkspaceTab } | null,
 ) {
 	/* Retain the last case-list module + tab so navigating away and back keeps
 	 * the selection (this controller never unmounts). Sticky `tab` also keeps the
 	 * tab-change deselect below from firing on a mere navigation away. */
-	const stickyModuleRef = useRef<Uuid>(target?.moduleUuid ?? ("" as Uuid));
+	const stickyModuleRef = useRef<Uuid | undefined>(target?.moduleUuid);
 	if (target) stickyModuleRef.current = target.moduleUuid;
 	const moduleUuid = stickyModuleRef.current;
 	const stickyTabRef = useRef<CaseListWorkspaceTab>(target?.tab ?? "list");
@@ -374,6 +383,7 @@ function useController(
 	 * commit gate validates against (see the hook doc). */
 	const caseTypes = useEffectiveCaseTypes();
 	const userProperties = useUserProperties();
+	const projectProse = useProseProjection();
 	const navigate = useNavigate();
 	const { moveColumnOnSurface, moveSearchInputToIndex, commitMany, inline } =
 		useBlueprintMutations();
@@ -581,7 +591,11 @@ function useController(
 			);
 			return;
 		}
-		if (searchConfig?.searchButtonDisplayCondition === undefined) {
+		if (
+			searchConfig === undefined ||
+			isOwnerOnlyCaseSearchConfig(searchConfig) ||
+			searchConfig.searchButtonDisplayCondition === undefined
+		) {
 			setSearchButtonConditionFocusRequest(undefined);
 			leaveSearchCondition({ type: "search-panel" });
 		}
@@ -692,12 +706,19 @@ function useController(
 	} = useMemo(
 		() =>
 			caseType !== undefined
-				? caseListConfigVerdicts(config, caseTypes, caseType, {
+				? caseListConfigVerdicts(config, caseTypes, caseType, projectProse, {
 						caseSearchEnabled: effectiveSearchConfig !== undefined,
 						boundary: boundaryVerdicts,
 					})
 				: EMPTY_VERDICTS,
-		[boundaryVerdicts, config, caseTypes, caseType, effectiveSearchConfig],
+		[
+			boundaryVerdicts,
+			config,
+			caseTypes,
+			caseType,
+			effectiveSearchConfig,
+			projectProse,
+		],
 	);
 
 	// ── Mutators ──
@@ -706,9 +727,17 @@ function useController(
 		(next: CaseSearchConfig) => {
 			// Reaching Search settings is explicit action authoring. Clear the
 			// owner-only provenance bit while preserving every real setting.
-			const { searchActionEnabled: _previousIntent, ...enabled } = next;
+			const enabled: OrdinaryCaseSearchConfig = isOwnerOnlyCaseSearchConfig(
+				next,
+			)
+				? { excludedOwnerIds: next.excludedOwnerIds }
+				: next;
 			commitMany(
-				caseSearchConfigPatchMutations(moduleUuid, searchConfig, enabled),
+				caseSearchConfigPatchMutations(
+					requireRetainedModuleUuid(moduleUuid),
+					searchConfig,
+					enabled,
+				),
 			);
 		},
 		[commitMany, moduleUuid, searchConfig],
@@ -720,43 +749,56 @@ function useController(
 					searchConfig === undefined ||
 					isOwnerOnlyCaseSearchConfig(searchConfig)
 				) {
-					const base =
-						searchConfig === undefined
-							? ({ searchActionEnabled: false } as const)
-							: normalizeOwnerOnlyCaseSearchConfig(searchConfig);
 					commitMany([
-						setOwnerOnlyCaseSearchMutation(moduleUuid, {
-							...base,
-							excludedOwnerIds: next,
-						}),
+						setOwnerOnlyCaseSearchMutation(
+							requireRetainedModuleUuid(moduleUuid),
+							{
+								searchActionEnabled: false,
+								excludedOwnerIds: next,
+							},
+						),
 					]);
 					return;
 				}
 				commitMany(
-					caseSearchConfigPatchMutations(moduleUuid, searchConfig, {
-						...searchConfig,
-						excludedOwnerIds: next,
-					}),
+					caseSearchConfigPatchMutations(
+						requireRetainedModuleUuid(moduleUuid),
+						searchConfig,
+						{
+							...searchConfig,
+							excludedOwnerIds: next,
+						},
+					),
 				);
 				return;
 			}
 			if (searchConfig === undefined) return;
 			if (isOwnerOnlyCaseSearchConfig(searchConfig)) {
 				commitMany(
-					clearCaseSearchConfigSettingsMutations(moduleUuid, searchConfig),
+					clearCaseSearchConfigSettingsMutations(
+						requireRetainedModuleUuid(moduleUuid),
+						searchConfig,
+					),
 				);
 				return;
 			}
 			const { excludedOwnerIds: _previous, ...rest } = searchConfig;
 			commitMany(
-				caseSearchConfigPatchMutations(moduleUuid, searchConfig, rest),
+				caseSearchConfigPatchMutations(
+					requireRetainedModuleUuid(moduleUuid),
+					searchConfig,
+					rest,
+				),
 			);
 		},
 		[commitMany, moduleUuid, searchConfig],
 	);
 	const configureSearchAction = useCallback(() => {
 		const outcome = commitMany([
-			enableCaseSearchMutation(moduleUuid, searchConfig),
+			enableCaseSearchMutation(
+				requireRetainedModuleUuid(moduleUuid),
+				searchConfig,
+			),
 		]);
 		if (outcome.ok) setSel({ type: "search-panel" });
 	}, [commitMany, moduleUuid, searchConfig]);
@@ -808,86 +850,19 @@ function useController(
 		return place === null ? null : ({ ...column, tile: place } as Column);
 	};
 
-	const routeColumnToRepair = (
-		surface: CaseDisplaySurface,
-		column: Column,
-		messages: readonly string[] = [],
-	) => {
-		setWorkspaceAnnouncement(
-			`${columnDisplayLabel(column)} needs more setup before it can be added to ${surfaceDisplayName(surface)}`,
-		);
-		setSel({
-			type: "column",
-			uuid: column.uuid,
-			reveal: { surface, messages },
-		});
-	};
-
 	const replaceColumn = (uuid: string, next: Column) => {
-		// Carry identity and all display-order keys forward — see
-		// `withPreservedIdentity`.
+		// Carry identity and tile placement forward; display sequence lives in
+		// the two config arrays.
 		const current = config.columns.find((column) => column.uuid === uuid);
 		if (current === undefined) return;
 		const replacement = withPreservedIdentity(current, next);
-		const repair =
-			sel?.type === "column" && sel.uuid === uuid ? sel.reveal : undefined;
-		if (repair === undefined) {
-			commitMany(columnSnapshotMutations(moduleUuid, current, replacement));
-			return;
-		}
-
-		/* The author arrived here by asking to add saved information. Try the
-		 * repair and reveal as ONE gated edit; when it is ready, the requested
-		 * field appears without another confirmation click or a half-valid
-		 * intermediate state. If more repair remains, preserve the safe hidden
-		 * edit and keep the inspector open with the fresh gate guidance. */
-		const repairedColumns = config.columns.map((column) =>
-			column.uuid === uuid ? replacement : column,
+		commitMany(
+			columnSnapshotMutations(
+				requireRetainedModuleUuid(moduleUuid),
+				current,
+				replacement,
+			),
 		);
-		const revealed = showColumnOnDisplay(
-			repairedColumns,
-			replacement.uuid,
-			repair.surface,
-		).find((column) => column.uuid === replacement.uuid);
-		if (revealed === undefined) return;
-		const revealTarget =
-			repair.surface === "list" ? placedForResults(revealed) : revealed;
-		if (revealTarget === null) {
-			setWorkspaceAnnouncement(TILE_FULL_REASON);
-			setSel({
-				type: "column",
-				uuid: replacement.uuid,
-				reveal: { surface: repair.surface, messages: [TILE_FULL_REASON] },
-			});
-			return;
-		}
-		const revealOutcome = inline.commitMany(
-			columnSnapshotMutations(moduleUuid, current, revealTarget),
-		);
-		if (revealOutcome.ok) {
-			setWorkspaceAnnouncement(
-				`${columnDisplayLabel(replacement)} added to ${surfaceDisplayName(repair.surface)}`,
-			);
-			setSel({ type: "column", uuid: replacement.uuid });
-			return;
-		}
-
-		const repairOutcome = inline.commitMany(
-			columnSnapshotMutations(moduleUuid, current, replacement),
-		);
-		setSel({
-			type: "column",
-			uuid: replacement.uuid,
-			reveal: {
-				surface: repair.surface,
-				messages:
-					revealOutcome.messages.length > 0
-						? revealOutcome.messages
-						: repairOutcome.ok
-							? repair.messages
-							: repairOutcome.messages,
-			},
-		});
 	};
 	const addSeededColumn = (surface: CaseDisplaySurface, seedColumn: Column) => {
 		const seed = surface === "list" ? placedForResults(seedColumn) : seedColumn;
@@ -895,7 +870,12 @@ function useController(
 			setWorkspaceAnnouncement(TILE_FULL_REASON);
 			return;
 		}
-		const mutation = seededColumnAddMutation(moduleUuid, config, surface, seed);
+		const mutation = seededColumnAddMutation(
+			requireRetainedModuleUuid(moduleUuid),
+			config,
+			surface,
+			seed,
+		);
 		const outcome = commitMany([mutation]);
 		if (outcome.ok) {
 			setWorkspaceAnnouncement(
@@ -912,6 +892,7 @@ function useController(
 			surface,
 			seedColumnForProperty(
 				property,
+				projectProse,
 				surface === "list"
 					? { visibleInDetail: false }
 					: { visibleInList: false },
@@ -932,11 +913,17 @@ function useController(
 		surface: CaseDisplaySurface,
 		uuid: Column["uuid"],
 		toIndex: number,
-	) => moveColumnOnSurface(moduleUuid, uuid, surface, toIndex);
+	) =>
+		moveColumnOnSurface(
+			requireRetainedModuleUuid(moduleUuid),
+			uuid,
+			surface,
+			toIndex,
+		);
 	const updateColumns = (next: readonly Column[]) => {
 		commitMany(
 			columnSnapshotBatchMutations(
-				moduleUuid,
+				requireRetainedModuleUuid(moduleUuid),
 				config.columns,
 				pruneStoppedSortOrphans(config.columns, next),
 			),
@@ -956,7 +943,11 @@ function useController(
 		).find((candidate) => candidate.uuid === column.uuid);
 		if (hidden === undefined) return;
 		const outcome = commitMany(
-			columnSnapshotMutations(moduleUuid, column, hidden),
+			columnSnapshotMutations(
+				requireRetainedModuleUuid(moduleUuid),
+				column,
+				hidden,
+			),
 		);
 		if (!outcome.ok) return;
 		pendingCanvasFocusRef.current = surface;
@@ -971,7 +962,11 @@ function useController(
 			...(column.visibleInDetail !== false ? ["Details"] : []),
 		];
 		const outcome = commitMany([
-			{ kind: "removeColumn", moduleUuid, uuid: column.uuid },
+			{
+				kind: "removeColumn",
+				moduleUuid: requireRetainedModuleUuid(moduleUuid),
+				uuid: column.uuid,
+			},
 		]);
 		if (!outcome.ok) return;
 		pendingCanvasFocusRef.current = surface;
@@ -981,12 +976,6 @@ function useController(
 		deselect();
 	};
 	const showColumn = (surface: CaseDisplaySurface, column: Column) => {
-		/* A definition already known to need attention never touches the gate.
-		 * Open its source/formatting controls while it remains off-screen. */
-		if (brokenColumns.has(column.uuid)) {
-			routeColumnToRepair(surface, column);
-			return;
-		}
 		const shown = showColumnOnDisplay(
 			config.columns,
 			column.uuid,
@@ -994,22 +983,26 @@ function useController(
 		).find((candidate) => candidate.uuid === column.uuid);
 		if (shown === undefined) return;
 		const target = surface === "list" ? placedForResults(shown) : shown;
-		/* A full tile is stated where the gesture happened. Dispatching would
-		 * bounce off the gate into a repair panel that cannot repair it — the
-		 * only fix is elsewhere on the grid. */
+		/* A full tile is stated where the gesture happened; the only fix is
+		 * elsewhere on the grid. */
 		if (target === null) {
 			setWorkspaceAnnouncement(TILE_FULL_REASON);
-			routeColumnToRepair(surface, column, [TILE_FULL_REASON]);
 			return;
 		}
-		/* Fully hidden legacy definitions are deliberately absent from normal
-		 * config warnings. Ask the SAME gate silently before revealing one: a
-		 * refusal becomes a repair route, never a toast plus a dead click. */
+		/* The saved definition is already fully valid. The same gate still
+		 * adjudicates the visibility/placement batch, so a malformed external
+		 * snapshot can never be revealed. */
 		const outcome = inline.commitMany(
-			columnSnapshotMutations(moduleUuid, column, target),
+			columnSnapshotMutations(
+				requireRetainedModuleUuid(moduleUuid),
+				column,
+				target,
+			),
 		);
 		if (!outcome.ok) {
-			routeColumnToRepair(surface, column, outcome.messages);
+			setWorkspaceAnnouncement(
+				`${columnDisplayLabel(column)} could not be added to ${surfaceDisplayName(surface)}`,
+			);
 			return;
 		}
 		setWorkspaceAnnouncement(
@@ -1019,12 +1012,12 @@ function useController(
 	};
 
 	const replaceInput = (uuid: string, next: SearchInputDef) => {
-		// Carry the existing identity + display order forward.
+		// Carry the existing identity; array position already owns display order.
 		const current = config.searchInputs.find((input) => input.uuid === uuid);
 		if (current === undefined) return;
 		commitMany([
 			searchInputUpdateMutation(
-				moduleUuid,
+				requireRetainedModuleUuid(moduleUuid),
 				current,
 				withPreservedIdentity(current, next),
 			),
@@ -1049,12 +1042,16 @@ function useController(
 				)
 			: searchConfig;
 		const mutations: Mutation[] = [
-			{ kind: "removeSearchInput", moduleUuid, uuid },
+			{
+				kind: "removeSearchInput",
+				moduleUuid: requireRetainedModuleUuid(moduleUuid),
+				uuid,
+			},
 		];
 		if (removesVisibleSearchScreen && searchConfig !== undefined) {
 			mutations.push(
 				cleanupCaseSearchAfterFinalInputMutation({
-					uuid: moduleUuid,
+					uuid: requireRetainedModuleUuid(moduleUuid),
 					config: searchConfig,
 					hasCasesAvailableCondition,
 				}),
@@ -1075,7 +1072,7 @@ function useController(
 		setWorkspaceAnnouncement(
 			removesVisibleSearchScreen
 				? nextSearchConfig !== undefined &&
-					nextSearchConfig.searchActionEnabled !== false
+					!isOwnerOnlyCaseSearchConfig(nextSearchConfig)
 					? "Search screen removed. Cases available, the Search action, and the Results layout are unchanged."
 					: nextSearchConfig?.excludedOwnerIds !== undefined
 						? "Search screen removed. Assigned cases and the Results layout are unchanged."
@@ -1136,7 +1133,7 @@ function useController(
 				return;
 			}
 			deselect();
-			navigate.openCaseList(moduleUuid);
+			navigate.openCaseList(requireRetainedModuleUuid(moduleUuid));
 		},
 		[deselect, inputRemovalReview, moduleUuid, navigate, openSearchCondition],
 	);
@@ -1165,7 +1162,7 @@ function useController(
 				uuid: inputRemovalReview.inputUuid,
 			});
 		} else {
-			navigate.openSearchConfig(moduleUuid);
+			navigate.openSearchConfig(requireRetainedModuleUuid(moduleUuid));
 		}
 	}, [
 		config,
@@ -1180,10 +1177,15 @@ function useController(
 		// The canvas owns the meaningful choice. This layer carries it into a
 		// working input with a unique internal name, a matching widget, and the
 		// established per-type match default.
-		const seed = seedSearchInputForProperty(config, property);
+		const seed = seedSearchInputForProperty(config, property, projectProse);
+		const retainedModuleUuid = requireRetainedModuleUuid(moduleUuid);
 		const outcome = commitMany([
-			enableCaseSearchMutation(moduleUuid, searchConfig),
-			{ kind: "addSearchInput", moduleUuid, searchInput: seed },
+			enableCaseSearchMutation(retainedModuleUuid, searchConfig),
+			{
+				kind: "addSearchInput",
+				moduleUuid: retainedModuleUuid,
+				searchInput: seed,
+			},
 		]);
 		// Never select an identity the gate refused to create. The gate can still
 		// reject a concurrent structural edit even though the seed was valid when
@@ -1191,13 +1193,17 @@ function useController(
 		if (outcome.ok) setSel({ type: "input", uuid: seed.uuid });
 	};
 	const moveInput = (uuid: SearchInputDef["uuid"], toIndex: number) =>
-		moveSearchInputToIndex(moduleUuid, uuid, toIndex);
+		moveSearchInputToIndex(
+			requireRetainedModuleUuid(moduleUuid),
+			uuid,
+			toIndex,
+		);
 	const clearFilter = useCallback(
 		(nextFilter: Predicate | undefined) => {
 			const mutations: Mutation[] = [
 				{
 					kind: "setCaseListMeta",
-					uuid: moduleUuid,
+					uuid: requireRetainedModuleUuid(moduleUuid),
 					patch: { filter: nextFilter ?? null },
 				},
 			];
@@ -1212,7 +1218,7 @@ function useController(
 			commitMany([
 				{
 					kind: "setCaseListMeta",
-					uuid: moduleUuid,
+					uuid: requireRetainedModuleUuid(moduleUuid),
 					patch: { filter: nextFilter ?? null },
 				},
 			]),
@@ -1226,7 +1232,7 @@ function useController(
 	// it off touches only the layout slot, so every cell survives and the
 	// drawing comes back intact.
 	const tileDisabledReason = useMemo(() => {
-		if (config.tile !== undefined) return undefined;
+		if (config.tile !== undefined || moduleUuid === undefined) return undefined;
 		const plan = planTileLayoutEnable({ moduleUuid, config });
 		return plan.ok ? undefined : plan.reason;
 	}, [config, moduleUuid]);
@@ -1236,7 +1242,7 @@ function useController(
 			if (next === "tile") {
 				if (config.tile !== undefined) return;
 				const plan = planTileLayoutEnable({
-					moduleUuid,
+					moduleUuid: requireRetainedModuleUuid(moduleUuid),
 					config,
 				});
 				if (!plan.ok) {
@@ -1252,7 +1258,11 @@ function useController(
 			}
 			const persisted = config.tile?.persistOnForms === true;
 			if (config.tile === undefined) return;
-			if (commitMany([...planTileLayoutDisable(moduleUuid)]).ok) {
+			if (
+				commitMany([
+					...planTileLayoutDisable(requireRetainedModuleUuid(moduleUuid)),
+				]).ok
+			) {
 				// Every cell survives, but the tile's own setting cannot: with no
 				// tile there is nothing to keep on screen. Say so rather than
 				// letting it disappear quietly.
@@ -1272,7 +1282,13 @@ function useController(
 				(candidate) => candidate.uuid === uuid,
 			);
 			if (column === undefined) return;
-			commitMany([...tileCellMutations(moduleUuid, column, cell)]);
+			commitMany([
+				...tileCellMutations(
+					requireRetainedModuleUuid(moduleUuid),
+					column,
+					cell,
+				),
+			]);
 		},
 		[commitMany, config.columns, moduleUuid],
 	);
@@ -1284,7 +1300,13 @@ function useController(
 			);
 			if (column === undefined) return;
 			if (
-				commitMany([...tileCellMutations(moduleUuid, column, undefined)]).ok
+				commitMany([
+					...tileCellMutations(
+						requireRetainedModuleUuid(moduleUuid),
+						column,
+						undefined,
+					),
+				]).ok
 			) {
 				setWorkspaceAnnouncement(
 					`${columnDisplayLabel(column)} no longer has a saved tile place`,
@@ -1297,7 +1319,7 @@ function useController(
 	const putColumnOnTile = useCallback(
 		(uuid: Column["uuid"]) => {
 			const plan = planTilePlaceField({
-				moduleUuid,
+				moduleUuid: requireRetainedModuleUuid(moduleUuid),
 				config,
 				uuid,
 			});
@@ -1325,7 +1347,7 @@ function useController(
 			);
 			if (preset === undefined) return;
 			const plan = planTilePreset({
-				moduleUuid,
+				moduleUuid: requireRetainedModuleUuid(moduleUuid),
 				config,
 				preset,
 			});
@@ -1342,7 +1364,13 @@ function useController(
 
 	const setTilePersistOnForms = useCallback(
 		(persist: boolean) => {
-			commitMany([...planTilePersistOnForms(moduleUuid, persist, config.tile)]);
+			commitMany([
+				...planTilePersistOnForms(
+					requireRetainedModuleUuid(moduleUuid),
+					persist,
+					config.tile,
+				),
+			]);
 		},
 		[commitMany, config.tile, moduleUuid],
 	);
@@ -1435,7 +1463,11 @@ function useController(
 						/>
 					);
 				}
-			} else if (searchConfig?.searchButtonDisplayCondition !== undefined) {
+			} else if (
+				searchConfig !== undefined &&
+				!isOwnerOnlyCaseSearchConfig(searchConfig) &&
+				searchConfig.searchButtonDisplayCondition !== undefined
+			) {
 				searchConditionSurface = (
 					<SearchConditionCanvas
 						context={{ kind: "search-button" }}
@@ -1522,7 +1554,6 @@ function useController(
 		moveColumn,
 		updateColumns,
 		showColumn,
-		routeColumnToRepair,
 		updateFilter,
 		clearFilter,
 		updateExcludedOwnerIds,
@@ -1740,16 +1771,17 @@ export function CaseListWorkspaceCanvas() {
 		};
 	}, [moduleUuid, visibleTab]);
 
-	// Guard the deletion-in-flight window: a peer cleared the case type on the
-	// module this URL points at (dropping caseListConfig with it), before
-	// LocationRecoveryEffect degrades the URL. `ws.caseType` is `caseType ?? ""`,
-	// so `=== ""` means "no case type" — render nothing rather than stand the
-	// whole workspace up against EMPTY_CONFIG with live mutation controls and no
-	// case type behind them. Deliberately NOT gated on `active` (which also goes
-	// false on navigate-away): the sticky module keeps rendering while
-	// Activity-hidden so its scroll survives. (`ws` is non-null for the builder's
-	// whole life.)
-	if (ws === null || ws.caseType === "") return null;
+	// Guard both the never-visited state and the deletion-in-flight window: a
+	// peer may clear the case type on the retained module before
+	// LocationRecoveryEffect degrades the URL. Render nothing rather than stand
+	// EMPTY_CONFIG up with live mutation controls and no real module identity.
+	// Deliberately NOT gated on `active` (which also goes false on navigate-away):
+	// after the first visit the sticky module keeps rendering while
+	// Activity-hidden so its scroll survives.
+	if (ws === null || ws.moduleUuid === undefined || ws.caseType === "") {
+		return null;
+	}
+	const workspaceModuleUuid = ws.moduleUuid;
 	const {
 		tab,
 		errorAreas,
@@ -1788,7 +1820,6 @@ export function CaseListWorkspaceCanvas() {
 		moveColumn,
 		updateColumns,
 		showColumn,
-		routeColumnToRepair,
 		updateFilter,
 		clearFilter,
 		updateExcludedOwnerIds,
@@ -1808,7 +1839,7 @@ export function CaseListWorkspaceCanvas() {
 			<WorkspaceTabs
 				moduleSettings={
 					isBareCaseList ? (
-						<ModuleSettingsButton moduleUuid={ws.moduleUuid} />
+						<ModuleSettingsButton moduleUuid={workspaceModuleUuid} />
 					) : null
 				}
 				compactHeight={compactHeight}
@@ -1824,9 +1855,9 @@ export function CaseListWorkspaceCanvas() {
 					 * author's visible position.
 					 */
 					captureScroll(tab);
-					if (next === "search") navigate.openSearchConfig(ws.moduleUuid);
-					else if (next === "list") navigate.openCaseList(ws.moduleUuid);
-					else navigate.openDetailConfig(ws.moduleUuid);
+					if (next === "search") navigate.openSearchConfig(workspaceModuleUuid);
+					else if (next === "list") navigate.openCaseList(workspaceModuleUuid);
+					else navigate.openDetailConfig(workspaceModuleUuid);
 				}}
 			/>
 
@@ -1891,7 +1922,6 @@ export function CaseListWorkspaceCanvas() {
 							}
 							onColumnsChange={updateColumns}
 							onShowColumn={(column) => showColumn("list", column)}
-							onRepairColumn={(column) => routeColumnToRepair("list", column)}
 							filterBroken={filterBroken}
 							excludedOwnerIdsBroken={excludedOwnerIdsBroken}
 							onFilterChange={updateFilter}
@@ -1934,7 +1964,6 @@ export function CaseListWorkspaceCanvas() {
 								moveColumn("detail", uuid, toIndex)
 							}
 							onShowColumn={(column) => showColumn("detail", column)}
-							onRepairColumn={(column) => routeColumnToRepair("detail", column)}
 						/>
 					</div>
 				</Activity>
@@ -2000,12 +2029,11 @@ function resolveInspector(args: ResolveInspectorArgs): {
 			if (column === undefined) return null;
 			const projection = projectCaseWorkspaceColumns(config);
 			const surface =
-				sel.reveal?.surface ??
-				(args.activeTab === "list"
+				args.activeTab === "list"
 					? "list"
 					: args.activeTab === "detail"
 						? "detail"
-						: null);
+						: null;
 			const title =
 				column.kind === "calculated"
 					? column.header || "Calculated value"
@@ -2031,7 +2059,6 @@ function resolveInspector(args: ResolveInspectorArgs): {
 							caseTypes={args.caseTypes}
 							userProperties={args.userProperties}
 							currentCaseType={args.caseType}
-							repairMessages={sel.reveal?.messages}
 							tileOn={args.tileOn}
 							tileIssues={args.tileIssues.get(column.uuid) ?? NO_TILE_ISSUES}
 							onChange={(next) => args.replaceColumn(column.uuid, next)}
@@ -2047,8 +2074,7 @@ function resolveInspector(args: ResolveInspectorArgs): {
 			};
 		}
 		case "input": {
-			// DISPLAY position + DISPLAY-ordered siblings (`sort-by-(order, uuid)`),
-			// not array position.
+			// Array position is the display sequence.
 			const sortedInputs = [...config.searchInputs];
 			const index = sortedInputs.findIndex((s) => s.uuid === sel.uuid);
 			const input = sortedInputs[index];
@@ -2121,11 +2147,11 @@ function resolveInspector(args: ResolveInspectorArgs): {
 			return {
 				kicker: hasVisibleSearchScreen ? "Search screen" : "More settings",
 				title: hasVisibleSearchScreen
-					? (args.searchConfig?.searchScreenTitle ?? DEFAULT_CASE_SEARCH_TITLE)
+					? (effectiveSearch?.searchScreenTitle ?? DEFAULT_CASE_SEARCH_TITLE)
 					: "Search action",
 				body: (
 					<SearchPanelInspectorBody
-						value={args.searchConfig}
+						value={effectiveSearch}
 						onChange={args.onSearchConfigChange}
 						caseTypes={args.caseTypes}
 						currentCaseType={args.caseType}
@@ -2154,7 +2180,6 @@ function ColumnInspectorBody({
 	caseTypes,
 	userProperties,
 	currentCaseType,
-	repairMessages,
 	tileOn,
 	tileIssues,
 	onChange,
@@ -2174,9 +2199,6 @@ function ColumnInspectorBody({
 	readonly caseTypes: ReturnType<typeof useEffectiveCaseTypes>;
 	readonly userProperties: ReturnType<typeof useUserProperties>;
 	readonly currentCaseType: string;
-	/** Defined (including an empty array) while this off-screen definition is
-	 * being repaired in response to an Add information request. */
-	readonly repairMessages: readonly string[] | undefined;
 	readonly tileOn: boolean;
 	readonly tileIssues: readonly string[];
 	readonly onChange: (next: Column) => void;
@@ -2195,8 +2217,6 @@ function ColumnInspectorBody({
 	const keepLastResult = surface === "list" && visibleCount <= 1;
 	const deleteWouldRemoveLastResult =
 		column.visibleInList !== false && listVisibleCount <= 1;
-	const repairing = repairMessages !== undefined;
-	const uniqueRepairMessages = [...new Set(repairMessages ?? [])];
 	const displayedOn = [
 		...(column.visibleInList !== false ? ["Results"] : []),
 		...(column.visibleInDetail !== false ? ["Details"] : []),
@@ -2212,24 +2232,6 @@ function ColumnInspectorBody({
 	}`;
 	return (
 		<>
-			{repairing && (
-				<div className="rounded-xl border border-nova-violet/25 bg-nova-violet/[0.06] px-3 py-3 leading-relaxed">
-					<p className="text-[14px] font-medium text-nova-text">
-						Finish setting up this information
-					</p>
-					<p className="mt-1 text-[13px] text-nova-text-secondary">
-						Choose what it shows and how it appears below. It will be added to{" "}
-						{screenName} when it’s ready.
-					</p>
-					{uniqueRepairMessages.length > 0 && (
-						<ul className="mt-2 list-disc space-y-1 pl-4 text-[13px] text-nova-text-muted">
-							{uniqueRepairMessages.map((message) => (
-								<li key={message}>{message}</li>
-							))}
-						</ul>
-					)}
-				</div>
-			)}
 			<ColumnEditor
 				key={column.uuid}
 				value={column}
@@ -2238,10 +2240,6 @@ function ColumnInspectorBody({
 				userProperties={userProperties}
 				currentCaseType={currentCaseType}
 			/>
-			{/* Not gated on `repairing`: a refused reveal is often a PLACEMENT
-			 * refusal, and these are the controls that repair it. Hiding them
-			 * exactly when the panel exists to fix a place is the one state
-			 * where the author has no way forward. */}
 			<TileCellInspector
 				column={column}
 				config={config}
@@ -2257,32 +2255,30 @@ function ColumnInspectorBody({
 				}}
 				onPutOnTile={onPutOnTile}
 			/>
-			{!repairing && (
-				<div className="border-t border-nova-border pt-3">
-					<Button
-						ref={hideRef}
-						type="button"
-						onClick={onHide}
-						disabled={keepLastResult}
-						aria-disabled={keepLastResult}
-						variant="outline"
-						size="xl"
-						className={`w-full bg-transparent px-3 text-[14px] dark:bg-transparent ${
-							keepLastResult
-								? "border-white/[0.04] text-nova-text-muted"
-								: "border-white/[0.06] text-nova-text-secondary not-disabled:hover:border-nova-violet/30 not-disabled:hover:bg-nova-violet/[0.06] not-disabled:hover:text-nova-text"
-						}`}
-					>
-						<Icon icon={tablerEyeOff} width="15" height="15" />
-						Hide from {screenName}
-					</Button>
-					<p className="mt-2 text-[12px] leading-relaxed text-nova-text-muted">
-						{keepLastResult
-							? "People need at least one piece of information to choose a case. Add another before hiding this one."
-							: `You can add it back from Add information in ${screenName}`}
-					</p>
-				</div>
-			)}
+			<div className="border-t border-nova-border pt-3">
+				<Button
+					ref={hideRef}
+					type="button"
+					onClick={onHide}
+					disabled={keepLastResult}
+					aria-disabled={keepLastResult}
+					variant="outline"
+					size="xl"
+					className={`w-full bg-transparent px-3 text-[14px] dark:bg-transparent ${
+						keepLastResult
+							? "border-white/[0.04] text-nova-text-muted"
+							: "border-white/[0.06] text-nova-text-secondary not-disabled:hover:border-nova-violet/30 not-disabled:hover:bg-nova-violet/[0.06] not-disabled:hover:text-nova-text"
+					}`}
+				>
+					<Icon icon={tablerEyeOff} width="15" height="15" />
+					Hide from {screenName}
+				</Button>
+				<p className="mt-2 text-[12px] leading-relaxed text-nova-text-muted">
+					{keepLastResult
+						? "People need at least one piece of information to choose a case. Add another before hiding this one."
+						: `You can add it back from Add information in ${screenName}`}
+				</p>
+			</div>
 			<RemoveRow
 				label="Delete information"
 				onClick={() => setConfirmingDelete(true)}

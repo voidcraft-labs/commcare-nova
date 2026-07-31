@@ -1,13 +1,17 @@
 "use client";
 import { AnimatePresence, motion } from "motion/react";
-import { useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { RejectionInline } from "@/components/builder/RejectionNotice";
 import { FieldPicker } from "@/components/ui/FieldPicker";
-import { resolveCloseFieldRef } from "@/lib/doc/expressionText";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useForm } from "@/lib/doc/hooks/useEntity";
+import { useFieldEntrySource } from "@/lib/doc/hooks/useFieldEntrySource";
 import { useFieldsAndOrder } from "@/lib/doc/hooks/useFieldsAndOrder";
-import { asUuid } from "@/lib/doc/types";
+import {
+	type CommitOutcome,
+	projectProseTemplate,
+	type Uuid,
+} from "@/lib/domain";
 import { InlineField } from "./InlineField";
 import { SelectMenu, type SelectMenuOption } from "./SelectMenu";
 import type { FormSettingsSectionProps } from "./types";
@@ -31,6 +35,17 @@ const OPERATOR_OPTIONS: ReadonlyArray<SelectMenuOption<CloseOperator>> = [
 	{ value: "selected", label: "has selected" },
 ];
 
+interface CloseConditionDraft {
+	readonly field: Uuid | null;
+	readonly answer: string;
+	readonly operator: CloseOperator;
+}
+
+interface FormCloseConditionDraft {
+	readonly formUuid: Uuid;
+	readonly value: CloseConditionDraft;
+}
+
 /**
  * Close-behavior dropdown rendered only for close forms. The top-level
  * mode switch toggles between "Always" (the default — the form closes
@@ -50,13 +65,13 @@ export function CloseConditionSection({ formUuid }: FormSettingsSectionProps) {
 	const { updateForm: updateFormAction, inline } = useBlueprintMutations();
 	const triggerId = useId();
 
-	/* Subscribe to the doc's normalized field + order maps. `useFieldsAndOrder`
-	 * runs shallow equality over the returned `{fields, fieldOrder}` pair so
-	 * re-renders only fire when one of the two maps changes identity — Immer
-	 * structural sharing keeps them stable through unrelated edits.
-	 * FieldPicker + close-field resolution both consume the same slice so
-	 * the doc walks once per render. */
-	const { fields, fieldOrder } = useFieldsAndOrder();
+	/* FieldPicker and close-field resolution share one shallow-stable owning-doc
+	 * slice. It carries the field tree plus the form/worker-information context
+	 * needed to project identity-backed labels through their current names. */
+	const fieldEntrySource = useFieldEntrySource();
+	/* The picker projector deliberately accepts only the narrow field shape it
+	 * needs. Keep the domain-typed field map for kind-specific option reads. */
+	const { fields } = useFieldsAndOrder();
 	/** A refusal from the picker or the operator/value menus — controls
 	 *  with no inline channel of their own — rendered beneath the
 	 *  condition card. The free-text answer `InlineField` presents its
@@ -64,40 +79,68 @@ export function CloseConditionSection({ formUuid }: FormSettingsSectionProps) {
 	const [conditionRejection, setConditionRejection] = useState<string | null>(
 		null,
 	);
-	/* The stored ref is the checked field's stable uuid (a legacy
-	 * dangler keeps its id text — `fields[ref]` then misses and the
-	 * editor shows the text verbatim). */
-	const closeFieldRef = form?.closeCondition?.field;
+	/* Switching from Always opens a local, incomplete draft. It does not emit a
+	 * mutation until both required values exist, so the persisted document
+	 * never carries an empty/fabricated UUID or an incomplete close condition. */
+	const [draftState, setDraftState] = useState<FormCloseConditionDraft | null>(
+		null,
+	);
+	const draft =
+		draftState?.formUuid === formUuid ? draftState.value : undefined;
+	const savedCondition = form?.closeCondition;
+	const condition: CloseConditionDraft | undefined =
+		savedCondition === undefined
+			? draft
+			: {
+					field: savedCondition.field,
+					answer: savedCondition.answer,
+					operator: savedCondition.operator ?? "=",
+				};
+
+	/* A peer-authored or successful local condition supersedes any incomplete
+	 * local draft for this form. */
+	useEffect(() => {
+		if (savedCondition !== undefined && draftState?.formUuid === formUuid) {
+			setDraftState(null);
+		}
+	}, [draftState?.formUuid, formUuid, savedCondition]);
+
+	const closeFieldRef = condition?.field;
 	const closeField = closeFieldRef ? fields[closeFieldRef] : undefined;
-	const closeFieldId = closeField?.id ?? closeFieldRef;
 
 	/* Resolve the referenced field to check if it has selectable options. */
 	const selectedFieldOptions = useMemo(() => {
 		if (!closeField) return undefined;
-		// `options` only exists on select kinds; narrow via `in`. In DISPLAY
-		// order (`sort-by-(order, uuid)`, matching the field's rendered choices),
-		// not `options` array position.
-		return "options" in closeField &&
-			closeField.options &&
-			closeField.options.length > 0
-			? [...closeField.options]
+		// `options` only exists on select kinds; narrow via `in`. Array position
+		// is the same sequence the field renders.
+		return "optionsSource" in closeField &&
+			closeField.optionsSource.kind === "inline" &&
+			closeField.optionsSource.options.length > 0
+			? closeField.optionsSource.options.map((option) => ({
+					...option,
+					label: projectProseTemplate(option.label, fieldEntrySource).text,
+				}))
 			: undefined;
-	}, [closeField]);
+	}, [closeField, fieldEntrySource]);
 
 	if (form?.type !== "close") return null;
 
-	const currentMode: CloseMode = form.closeCondition ? "conditional" : "always";
-	const operator: CloseOperator = form.closeCondition?.operator ?? "=";
+	const currentMode: CloseMode = condition ? "conditional" : "always";
+	const operator: CloseOperator = condition?.operator ?? "=";
 
 	const handleSelect = (mode: CloseMode) => {
 		// The mode flip replaces (or removes) the whole condition — any
 		// refusal that pointed at the old condition no longer applies.
 		setConditionRejection(null);
 		if (mode === "always") {
-			updateFormAction(asUuid(formUuid), { closeCondition: undefined });
+			setDraftState(null);
+			if (savedCondition !== undefined) {
+				updateFormAction(formUuid, { closeCondition: null });
+			}
 		} else {
-			updateFormAction(asUuid(formUuid), {
-				closeCondition: { field: asUuid(""), answer: "" },
+			setDraftState({
+				formUuid,
+				value: { field: null, answer: "", operator: "=" },
 			});
 		}
 	};
@@ -107,44 +150,50 @@ export function CloseConditionSection({ formUuid }: FormSettingsSectionProps) {
 	 * the section-level notice beneath the condition card. */
 	const updateConditionWithNotice = (
 		patch: Partial<{
-			field: string;
+			field: Uuid;
 			answer: string;
 			operator: CloseOperator;
 		}>,
 	) => {
 		const outcome = updateCondition(patch);
-		setConditionRejection(outcome.ok ? null : (outcome.messages[0] ?? null));
+		setConditionRejection(
+			outcome === undefined || outcome.ok
+				? null
+				: (outcome.messages[0] ?? null),
+		);
 	};
 
 	const updateCondition = (
 		patch: Partial<{
-			field: string;
+			field: Uuid;
 			answer: string;
 			operator: CloseOperator;
 		}>,
-	) => {
-		const current = form.closeCondition ?? { field: asUuid(""), answer: "" };
-		// The picker speaks field ids; the stored ref is the field's stable
-		// uuid. Resolution happens here at the commit boundary — an id
-		// nothing answers to stays verbatim and the gate adjudicates.
-		const { field: pickedId, ...rest } = patch;
-		const resolved: Partial<typeof current> = {
-			...rest,
-			...(pickedId !== undefined && {
-				field: asUuid(
-					resolveCloseFieldRef({ fields, fieldOrder }, formUuid, pickedId),
-				),
-			}),
+	): CommitOutcome | undefined => {
+		const current =
+			condition ?? ({ field: null, answer: "", operator: "=" } as const);
+		const next: CloseConditionDraft = {
+			...current,
+			...patch,
 		};
-		// Forward the gated outcome so the inline editors keep a refused
-		// draft on screen with the finding (e.g. a value field naming a
-		// nonexistent close field).
-		return inline.updateForm(asUuid(formUuid), {
-			closeCondition: { ...current, ...resolved },
+		if (savedCondition === undefined) {
+			setDraftState({ formUuid, value: next });
+			if (next.field === null || next.answer.length === 0) return undefined;
+		}
+		if (next.field === null) return undefined;
+
+		const outcome = inline.updateForm(formUuid, {
+			closeCondition: {
+				field: next.field,
+				answer: next.answer,
+				...(next.operator !== "=" && { operator: next.operator }),
+			},
 		});
+		if (outcome.ok) setDraftState(null);
+		return outcome;
 	};
 
-	const answer = form.closeCondition?.answer ?? "";
+	const answer = condition?.answer ?? "";
 
 	return (
 		<div>
@@ -163,7 +212,7 @@ export function CloseConditionSection({ formUuid }: FormSettingsSectionProps) {
 
 			{/* Conditional close fields — field ID, operator, value */}
 			<AnimatePresence>
-				{form.closeCondition && (
+				{condition && (
 					<motion.div
 						initial={{ opacity: 0, height: 0 }}
 						animate={{ opacity: 1, height: "auto" }}
@@ -175,10 +224,10 @@ export function CloseConditionSection({ formUuid }: FormSettingsSectionProps) {
 							{/* Field picker — autocomplete of form fields. Reads the
 							 *  doc's normalized fields + order maps directly. */}
 							<FieldPicker
-								source={{ fields, fieldOrder }}
+								source={fieldEntrySource}
 								parentUuid={formUuid}
-								value={closeFieldId ?? ""}
-								onChange={(v) => updateConditionWithNotice({ field: v })}
+								value={condition.field}
+								onChange={(uuid) => updateConditionWithNotice({ field: uuid })}
 								label="Field"
 								placeholder="Search fields..."
 								required
@@ -246,7 +295,7 @@ export function CloseConditionSection({ formUuid }: FormSettingsSectionProps) {
 							) : (
 								<InlineField
 									label="Value"
-									value={form.closeCondition.answer}
+									value={condition.answer}
 									onChange={(v) => updateCondition({ answer: v })}
 									mono
 									required

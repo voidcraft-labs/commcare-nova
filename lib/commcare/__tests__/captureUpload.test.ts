@@ -28,6 +28,7 @@ import {
 	UPLOAD_MEDIATYPES,
 } from "@/lib/commcare/xform/captureUpload";
 import { captureFieldKinds } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 
 function firstFormXml(doc: ReturnType<typeof buildDoc>): string {
 	const first = Object.values(expandDoc(doc)._attachments)[0];
@@ -47,11 +48,15 @@ const doc = buildDoc({
 					name: "F",
 					type: "survey",
 					fields: [
-						f({ kind: "image", id: "photo", label: "Photo" }),
-						f({ kind: "audio", id: "clip_audio", label: "Audio" }),
-						f({ kind: "video", id: "clip_video", label: "Video" }),
-						f({ kind: "signature", id: "sign", label: "Signature" }),
-						f({ kind: "file", id: "consent_doc", label: "Consent form" }),
+						f({ kind: "image", id: "photo", label: proseText("Photo") }),
+						f({ kind: "audio", id: "clip_audio", label: proseText("Audio") }),
+						f({ kind: "video", id: "clip_video", label: proseText("Video") }),
+						f({ kind: "signature", id: "sign", label: proseText("Signature") }),
+						f({
+							kind: "file",
+							id: "consent_doc",
+							label: proseText("Consent form"),
+						}),
 					],
 				},
 			],

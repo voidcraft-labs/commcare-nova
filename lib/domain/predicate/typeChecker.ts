@@ -20,7 +20,7 @@
 // and literals resolve to their data type) runs uniformly across every operator
 // that carries term operands — comparisons, the trigger-input slot of
 // `when-input-present`, and the term operands of `in` /
-// `within-distance` / `match` / `multi-select-contains` / `is-null` /
+// `within-distance` / `match` / `multi-select-contains` /
 // `is-blank` / `between`. Operand-type compatibility (the "comparable
 // types" check between resolved operand types) runs for the comparison
 // operators (`eq` / `neq` / `gt` / `gte` / `lt` / `lte`), `in`'s and
@@ -35,7 +35,7 @@
 // `multi-select-contains` requires the `property` slot to resolve
 // to `multi_select` specifically (a Nova authoring policy stricter
 // than CCHQ's wire-layer dispatch — see `checkMultiSelectContains`
-// for the rationale); `is-null` / `is-blank` accept any non-literal
+// for the rationale); `is-blank` accepts any non-literal
 // Term in `left` and reject literal-shaped `left` as a category
 // error (a literal is the value itself, not a runtime read whose
 // presence is in question — see `checkAbsenceOperator`); `between`
@@ -77,19 +77,20 @@ import { MATCH_MODES } from "./types";
 /**
  * Declared search input in scope at the type-check site. The case-search
  * UI declares inputs at the screen level; predicates referencing
- * `input(name)` resolve against this list. The optional `data_type`
+ * `input(searchInputUuid)` resolve against this list. The optional `data_type`
  * widens or narrows the comparison-rule check at this input's use site
  * — when omitted, the input defaults to `text`, which is CommCare's
  * default for properties without an explicit type.
  *
- * Distinct from the AST `SearchInputRef` (the `input("name")` term
+ * Distinct from the AST `SearchInputRef` (the `input(uuid)` term
  * built by the predicate). `SearchInputRef` is on the predicate side
  * and discriminates with `kind: "input"` to participate in the
  * `Term` discriminated union; `SearchInputDecl` is on the context
- * side and is looked up by `name` only, so it carries no
+ * side and is looked up by immutable UUID, so it carries no
  * discriminator.
  */
 export type SearchInputDecl = {
+	uuid: Uuid;
 	name: string;
 	data_type?: CasePropertyDataType;
 };
@@ -137,8 +138,8 @@ export type TypeContext = {
 	formFields?: ReadonlyMap<Uuid, CasePropertyDataType | undefined>;
 	/** Create-operation ids admitted only after their producer is in scope. */
 	operationIds?: ReadonlySet<Uuid>;
-	/** Submission-local owner sentinels admitted only by case-operation slots. */
-	caseOperationValues?: boolean;
+	/** Submission-local owner sentinels admitted only by owner-value slots. */
+	ownerValues?: boolean;
 	/** Current saved names for identity-backed custom worker information. */
 	userPropertySlugs?: ReadonlyMap<Uuid, string>;
 	/** Rows-free lookup definition types available to table-lookup nodes. */
@@ -267,33 +268,9 @@ export type CheckResult = { ok: true } | { ok: false; errors: CheckError[] };
 export const ANY_TYPE = "_any" as const;
 
 /**
- * Sentinel for the sequence type produced by `unwrap-list`. Marks a
- * value resolved from CSQL's `unwrap-list(...)` value function — a
- * JSON-encoded array surfaced as a sequence of values. v1 has no
- * AST consumer for the sequence type — `in.values` and
- * `multi-select-contains.values` stay literal-only because every
- * wire target demands a static value list — but the type checker
- * needs a defined verdict for the `unwrap-list` arm so callers can
- * compose ASTs that include it (the consuming wire pattern is
- * `selected-any(prop, unwrap-list(...))` in the CSQL emitter, which
- * the representability checker routes through).
- *
- * Like `ANY_TYPE`, the sentinel is internal-only. The
- * compatibility table treats sequences as incompatible with every
- * scalar type, including itself — there's no v1 operator that
- * combines two sequences semantically. A future operator that
- * accepts a sequence (e.g. `multi-select-contains` widening to
- * accept a `ValueExpression` candidate list at the wire boundary)
- * will route through a dedicated check rather than relying on the
- * scalar compatibility table.
- */
-export const SEQUENCE_TYPE = "_sequence" as const;
-
-/**
  * Resolved type for any value-bearing surface — a
  * `CasePropertyDataType` for declared properties, `ANY_TYPE` for
- * null-literal compatibility, `SEQUENCE_TYPE` for `unwrap-list`-
- * produced sequences.
+ * null-literal compatibility.
  *
  * Every value-bearing surface (`resolveTermType`, `checkExpression`,
  * `literalType`) routes through this alphabet so the compatibility
@@ -302,10 +279,7 @@ export const SEQUENCE_TYPE = "_sequence" as const;
  * resolved type in user-facing strings route through `describe(...)`
  * so the internal sentinels render as friendly names.
  */
-export type ResolvedType =
-	| CasePropertyDataType
-	| typeof ANY_TYPE
-	| typeof SEQUENCE_TYPE;
+export type ResolvedType = CasePropertyDataType | typeof ANY_TYPE;
 
 /**
  * Data types whose values support a total order — `gt`/`gte`/`lt`/`lte`
@@ -504,20 +478,13 @@ function walk(
 			// recurses into `matchAll`); a throw here would crash any
 			// composed predicate that includes a sentinel.
 			return;
-		case "is-null":
 		case "is-blank":
-			// `is-null` (strict-absent) and `is-blank` (absent-or-empty)
-			// share one rule shape at this layer: every non-literal Term
+			// Every non-literal Term
 			// variant is accepted (any property / input / session ref
 			// can resolve to absent at runtime) and literal-shaped
 			// `left` is rejected as a category error. A literal is the
 			// value itself; "is the literal 5 absent" / "is the literal
-			// 5 blank" is ill-formed, not a runtime question. The two
-			// operators diverge only at per-dialect emission (Postgres
-			// / in-memory distinguishes the strict semantic; CCHQ wire
-			// collapses the two states), which is irrelevant to type-
-			// checking — the operand-shape question is identical at
-			// this layer.
+			// 5 blank" is ill-formed, not a runtime question.
 			checkAbsenceOperator(p, ctx, errors, path);
 			return;
 		case "between":
@@ -564,7 +531,6 @@ function walk(
 						"exists",
 						"missing",
 						"when-input-present",
-						"is-null",
 						"is-blank",
 					],
 				}),
@@ -646,14 +612,11 @@ function checkComparison(
 
 /**
  * Render a `ResolvedType` for inclusion in detailed checker diagnostics.
- * Hides the internal sentinels — `_any` (null) and `_sequence` (the
- * `unwrap-list`-produced sequence) appear under their friendly names
- * (`"null"` / `"sequence"`) since the internal underscored names
- * don't appear anywhere in the author's source.
+ * Hides the internal `_any` sentinel behind the author-facing name
+ * `"null"`.
  */
 export function describe(t: ResolvedType): string {
 	if (t === ANY_TYPE) return "null";
-	if (t === SEQUENCE_TYPE) return "sequence";
 	return t;
 }
 
@@ -851,7 +814,7 @@ function checkMatch(
 		errors.push({
 			path: [...path, "value"],
 			code: "match-value-empty",
-			message: `match value cannot be the empty string — every match mode collapses an empty value to a non-match (see matchSchema JSDoc). Use is-null(prop) for strict-absent or is-blank(prop) for absent-or-empty.`,
+			message: `match value cannot be the empty string — every match mode collapses an empty value to a non-match (see matchSchema JSDoc). Use is-blank(prop) for absent-or-empty.`,
 		});
 	}
 	// Type-check the whole value expression and verify its
@@ -948,18 +911,17 @@ function checkMultiSelectContains(
 }
 
 /**
- * Operand-shape check shared by `is-null` (strict-absent) and
- * `is-blank` (absent-or-empty). Both operators ask "does `left`
- * resolve to absent (`is-null`) / absent-or-empty (`is-blank`)?",
- * which only has authoring semantics for terms whose value is read
+ * Operand-shape check for `is-blank` (absent-or-empty). The operator
+ * asks whether `left` resolves to absent or empty, which only has
+ * authoring semantics for terms whose value is read
  * at runtime — property refs, search-input refs, session-user refs,
  * session-context refs.
  *
  * Literal-shaped `left` is rejected as a category error: a literal
  * is the value itself (`literal("x")` IS the string `"x"`;
  * `literal(null)` IS null), not a runtime read whose presence is in
- * question. "Is the literal 5 absent?" is ill-formed, regardless of
- * whether the operator is the strict or the portable variant.
+ * question. "Is the literal 5 absent?" is ill-formed regardless of its
+ * literal value.
  * Pinning the rejection at the type-checker layer (rather than the
  * schema layer) keeps the schema structurally simple — every Term
  * variant is admitted at parse — and concentrates the semantic-class
@@ -973,16 +935,12 @@ function checkMultiSelectContains(
  * highlights the offending operand directly, matching the comparison
  * operators' per-side error attachment.
  *
- * The two operators are distinguished only at per-dialect wire
- * emission (`is-null` is unrepresentable on every CCHQ target;
  * `is-blank` emits `prop = ''` on every CCHQ dialect, with the
  * server-side `case_property_query()` short-circuit collapsing empty-
- * value queries to absent-or-empty semantics in CSQL); the type-
- * checker treats them identically because the operand-shape question
- * is the same.
+ * value queries to absent-or-empty semantics in CSQL.
  */
 function checkAbsenceOperator(
-	p: Extract<Predicate, { kind: "is-null" | "is-blank" }>,
+	p: Extract<Predicate, { kind: "is-blank" }>,
 	ctx: TypeContext,
 	errors: CheckError[],
 	path: CheckPath,
@@ -1002,19 +960,6 @@ function checkAbsenceOperator(
 			path: [...path, "left"],
 			code: "runtime-value",
 			message: `Operator '${p.kind}' cannot be applied to a literal — a literal is the value itself, not a runtime read whose presence is in question. Use a property / input / session reference in 'left'.`,
-		});
-		return;
-	}
-	if (
-		p.kind === "is-null" &&
-		p.left.kind === "term" &&
-		p.left.term.kind === "table-column"
-	) {
-		errors.push({
-			path: [...path, "left"],
-			code: "runtime-value",
-			message:
-				"Operator 'is-null' cannot distinguish an absent lookup-table cell from the fixture boundary. Use 'is-blank' for absent-or-empty lookup values.",
 		});
 		return;
 	}
@@ -1704,12 +1649,13 @@ export function resolveTermType(
 			return property.data_type ?? "text";
 		}
 		case "input": {
-			const decl = ctx.knownInputs.find((i) => i.name === term.name);
+			const decl = ctx.knownInputs.find((i) => i.uuid === term.searchInputUuid);
 			if (!decl) {
 				errors.push({
 					path,
 					code: "unknown-search-input",
-					message: `Unknown search input '${term.name}'.`,
+					message:
+						"This rule reads a Search field that is no longer on this case list. Pick a field that still exists, or remove the rule.",
 				});
 				return undefined;
 			}
@@ -1790,7 +1736,7 @@ export function resolveTermType(
 					message:
 						scope === undefined
 							? "A lookup column is available only inside its table's filter."
-							: `Lookup column '${term.columnId}' belongs to table '${term.tableId}', not the active table '${scope.tableId}'.`,
+							: "This rule reads a column from a different data table than the one it filters. A row rule can only read its own table's columns.",
 				});
 				return undefined;
 			}
@@ -1799,7 +1745,8 @@ export function resolveTermType(
 				errors.push({
 					path,
 					code: "unknown-lookup-column",
-					message: `Lookup column '${term.columnId}' is not available on table '${term.tableId}'.`,
+					message:
+						"This rule reads a column its data table does not have. The column may have been removed, or the rule may point at the wrong table.",
 				});
 				return undefined;
 			}
@@ -1866,7 +1813,7 @@ export function resolveTermType(
 //   - `coalesce` → the agreed type across `values`. Empty-string and
 //     null inputs coerce to null at evaluation, so the type checker
 //     uses `typesCompatible` to find the agreed type — first non-null
-//     non-sequence value's type wins, with subsequent values widened
+//     value's type wins, with subsequent values widened
 //     against it.
 //   - `if` → cond is type-checked recursively as a Predicate (must be
 //     well-typed; the rule's verdict is not a typed value because
@@ -1881,9 +1828,6 @@ export function resolveTermType(
 //     `checkRelationPath`; the optional `where` clause is type-
 //     checked recursively in the destination scope via
 //     `checkInDestinationScope`.
-//   - `unwrap-list` → `_sequence` (the `SEQUENCE_TYPE` sentinel). The
-//     operand must be text-typed (the wire layer expects a JSON-
-//     encoded array string).
 //   - `format-date` → `text`. The `date` operand must resolve to
 //     `date` or `datetime`.
 //
@@ -1951,11 +1895,11 @@ export function checkExpression(
 
 		case "acting-user":
 		case "unowned":
-			if (ctx.caseOperationValues !== true) {
+			if (ctx.ownerValues !== true) {
 				errors.push({
 					path,
 					code: "operation-context-value",
-					message: `The '${expr.kind}' value is available only inside a case operation.`,
+					message: `The '${expr.kind}' value is available only in a case-owner expression.`,
 				});
 				return undefined;
 			}
@@ -1976,7 +1920,8 @@ export function checkExpression(
 				errors.push({
 					path: [...lookupPath, "tableId"],
 					code: "unknown-lookup-table",
-					message: `Lookup table '${expr.tableId}' is not available in this expression context.`,
+					message:
+						"This expression reads a Project data table that is not available here. It may have been deleted, or it may belong to another Project.",
 				});
 				return undefined;
 			}
@@ -1985,7 +1930,8 @@ export function checkExpression(
 				errors.push({
 					path: [...lookupPath, "resultColumnId"],
 					code: "unknown-lookup-column",
-					message: `Lookup result column '${expr.resultColumnId}' is not available on table '${expr.tableId}'.`,
+					message:
+						"The column this lookup returns is not on the table it reads. The column may have been removed, or the lookup may point at the wrong table.",
 				});
 			}
 			walk(
@@ -2327,30 +2273,6 @@ export function checkExpression(
 			return "int";
 		}
 
-		case "unwrap-list": {
-			// Operand must be text-shaped — the wire form expects a
-			// JSON-encoded array string. Result is the sequence
-			// sentinel; v1 has no AST consumer for it (see
-			// `SEQUENCE_TYPE`'s JSDoc) but the type checker stages the
-			// verdict for the wire emitter to consume.
-			const inner = checkExpression(expr.value, ctx, errors, [
-				...path,
-				"value",
-			]);
-			if (
-				inner !== undefined &&
-				inner !== ANY_TYPE &&
-				!TEXT_SHAPED_TYPES.has(inner)
-			) {
-				errors.push({
-					path: [...path, "value"],
-					code: "text-value",
-					message: `unwrap-list requires a text-shaped operand; got '${describe(inner)}'.`,
-				});
-			}
-			return SEQUENCE_TYPE;
-		}
-
 		case "format-date": {
 			// Operand must be date or datetime. Result is text. The
 			// `pattern` slot is schema-validated (preset enum or non-
@@ -2394,7 +2316,6 @@ export function checkExpression(
 						"if",
 						"switch",
 						"count",
-						"unwrap-list",
 						"format-date",
 					],
 				}),
@@ -2466,13 +2387,13 @@ export function checkValueExpression(
  * Every other widening is rejected: notably decimal -> int can contain a
  * fraction, while text and multi-select are string versus string-array in the
  * case store even though XPath compares both through text-shaped syntax.
- * Null and sequence are internal expression sentinels, never storage values.
+ * Null is an internal expression sentinel, never a storage value.
  */
 export function isValueStorageAssignable(
 	valueType: ResolvedType,
 	destinationType: CasePropertyDataType,
 ): boolean {
-	if (valueType === ANY_TYPE || valueType === SEQUENCE_TYPE) return false;
+	if (valueType === ANY_TYPE) return false;
 	if (valueType === destinationType) return true;
 	if (valueType === "int" && destinationType === "decimal") return true;
 	return (
@@ -2524,16 +2445,6 @@ export function checkValueAssignmentExpression(
 		const localErrors: CheckError[] = [];
 		const outputType = checkExpression(output, ctx, localErrors, path);
 		if (outputType === undefined || outputType === ANY_TYPE) return;
-
-		if (outputType === SEQUENCE_TYPE && destinations.length === 0) {
-			errors.push({
-				path,
-				code: "expected-value",
-				message:
-					"A sequence expression cannot be used as a persisted operation value.",
-			});
-			return;
-		}
 
 		for (const destination of destinations) {
 			if (isValueStorageAssignable(outputType, destination)) continue;
@@ -2656,7 +2567,6 @@ function assignmentRepresentationErrors(
 		case "date-coerce":
 		case "datetime-coerce":
 		case "double":
-		case "unwrap-list":
 			descend(expression.value, ["value"], "scalar-coercion");
 			return;
 		case "format-date":
@@ -2812,7 +2722,6 @@ function assignmentNullLiteralPath(
 		case "date-coerce":
 		case "datetime-coerce":
 		case "double":
-		case "unwrap-list":
 			return assignmentNullLiteralPath(expression.value, [...path, "value"]);
 		case "arith":
 			return (
@@ -2881,7 +2790,7 @@ export function isDateOrDatetime(t: ResolvedType): boolean {
 
 /**
  * Text-shaped types — the operand-type set for `date-coerce` /
- * `datetime-coerce` / `unwrap-list` / `double` (text branch). Same
+ * `datetime-coerce` / `double` (text branch). Same
  * set the match-mode allow-list uses; sharing keeps the "what
  * counts as a text-shaped read" decision in one place.
  */
@@ -2999,13 +2908,10 @@ export function literalType(lit: Literal): ResolvedType {
  * Decide whether two resolved types may participate in a comparison.
  * Five classes of widening are in play:
  *   1. Null-as-universal — the `_any` sentinel (the resolved type for
- *      a `null` literal) is compatible with every declared type
- *      *except* `_sequence`. Authors writing
+ *      a `null` literal) is compatible with every declared type. Authors writing
  *      `eq(prop, literal(null))` are filtering for "this property is
  *      unset," which is a valid predicate at every scalar wire target;
- *      rejecting it would force a spurious workaround. Sequences sit
- *      outside the null-as-universal rule because no v1 operator
- *      compares a sequence against any scalar.
+ *      rejecting it would force a spurious workaround.
  *   2. Numeric promotion — `int` and `decimal` compare freely. Authors
  *      writing `eq(prop("patient", "age"), literal(42))` against a
  *      decimal-typed `age` would otherwise see a spurious mismatch.
@@ -3014,17 +2920,7 @@ export function literalType(lit: Literal): ResolvedType {
  *      enum constraint via `jsonSchema.ts`, not at predicate-check
  *      time), so a literal text comparison against an option's value
  *      is the natural pattern.
- *   4. Sequence isolation — `_sequence` (the `unwrap-list` sentinel)
- *      is incompatible with every other type, including itself.
- *      Sequences don't participate in v1's scalar compatibility
- *      table; the only authoring pattern that consumes a sequence is
- *      the future `selected-any(prop, unwrap-list(...))` CSQL
- *      emission, which routes through a dedicated check rather than
- *      this table. Locking incompatibility universally here means
- *      any v1 author who composes a sequence into a comparison
- *      slot gets a clear "sequence not comparable" error rather than
- *      a silent widening.
- *   5. Same-type — every other pair must match exactly. Date kinds
+ *   4. Same-type — every other pair must match exactly. Date kinds
  *      (`date`, `datetime`, `time`) intentionally don't widen across
  *      each other; the wire targets handle them with distinct
  *      functions, and conflating them produces ambiguous results.
@@ -3035,13 +2931,6 @@ export function literalType(lit: Literal): ResolvedType {
  * "canonicalize then compare" detour.
  */
 export function typesCompatible(a: ResolvedType, b: ResolvedType): boolean {
-	// Sequences sit outside the scalar compatibility table — sequence-
-	// vs-anything (including sequence-vs-sequence) is structurally
-	// rejected because no v1 operator composes two sequences. Sequence-
-	// consuming patterns (the CSQL emitter's `selected-any(prop,
-	// unwrap-list(...))` form) route through a dedicated check, not
-	// this table.
-	if (a === SEQUENCE_TYPE || b === SEQUENCE_TYPE) return false;
 	if (a === ANY_TYPE || b === ANY_TYPE) return true;
 	if (a === b) return true;
 	// int / decimal are mutually comparable.
@@ -3075,14 +2964,13 @@ export function typesCompatible(a: ResolvedType, b: ResolvedType): boolean {
 
 /**
  * The closed `ResolvedType` alphabet — every case-property data type plus
- * the two internal sentinels. Drives `compatibleTypesFor` (which filters
+ * the null sentinel. Drives `compatibleTypesFor` (which filters
  * it through `typesCompatible`). Pinned with `satisfies` so a new data
  * type in `casePropertyDataTypes` forces this list to grow with it.
  */
 export const ALL_RESOLVED_TYPES: readonly ResolvedType[] = [
 	...casePropertyDataTypes,
 	ANY_TYPE,
-	SEQUENCE_TYPE,
 ] satisfies ResolvedType[];
 
 /**
@@ -3167,7 +3055,6 @@ export type ValueExpressionResultClass =
 	| "datetime"
 	| "date-or-datetime"
 	| "int"
-	| "sequence"
 	| "depends";
 
 export function valueExpressionKindResultClass(
@@ -3202,8 +3089,6 @@ export function valueExpressionKindResultClass(
 			return "datetime";
 		case "count":
 			return "int";
-		case "unwrap-list":
-			return "sequence";
 		case "term":
 		case "if":
 		case "switch":
@@ -3232,7 +3117,6 @@ export function valueExpressionKindResultClass(
 						"date-coerce",
 						"datetime-coerce",
 						"count",
-						"unwrap-list",
 						"if",
 						"switch",
 						"coalesce",

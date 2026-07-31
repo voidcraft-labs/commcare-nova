@@ -1,28 +1,34 @@
 /**
- * Parses and resolves dynamic hashtag references in label/hint display text.
- *
- * Labels use bare hashtag refs (#form/x, #case/x, #user/x) as the canonical
- * internal format.
+ * Projects and resolves the typed references in canonical label/hint prose.
  *
  * `resolveLabel()` is the unified entry point for the form engine — evaluates
  * bare hashtag refs and returns the resolved text.
  */
-import { HASHTAG_REF_PATTERN } from "@/lib/references/config";
+import {
+	type ProseTemplate,
+	printProseTemplate,
+	projectProseTemplate,
+	resolveProseTemplate,
+	type XPathPrintableDoc,
+} from "@/lib/domain";
 
 /**
- * Extract bare hashtag references (#form/x, #case/x, #user/x) from label text.
- * Used by the TriggerDag to register label dependencies.
+ * Project typed prose atoms to friendly reference expressions. Used by the
+ * TriggerDag to register label dependencies.
  */
-export function parseBareHashtags(text: string): string[] {
-	if (!text) return [];
-	const refs: string[] = [];
-	const re = new RegExp(HASHTAG_REF_PATTERN, "g");
-	let match: RegExpExecArray | null = re.exec(text);
-	while (match !== null) {
-		refs.push(match[0]);
-		match = re.exec(text);
-	}
-	return refs;
+export function proseReferenceExpressions(
+	template: ProseTemplate | undefined,
+	doc: XPathPrintableDoc,
+	mode: "strict" | "inspection" = "strict",
+): string[] {
+	if (!template) return [];
+	return template.parts
+		.filter((part) => part.kind !== "text")
+		.map((part) =>
+			mode === "strict"
+				? printProseTemplate({ parts: [part] }, doc)
+				: projectProseTemplate({ parts: [part] }, doc).text,
+		);
 }
 
 /**
@@ -32,29 +38,11 @@ export function parseBareHashtags(text: string): string[] {
  * propagation. The `g` flag is created fresh each call because `lastIndex`
  * is stateful — sharing a module-level regex would be a correctness bug.
  */
-export function transformBareHashtags(
-	text: string,
-	fn: (hashtag: string) => string,
-): string {
-	if (!text) return text;
-	return text.replace(new RegExp(HASHTAG_REF_PATTERN, "g"), (match) =>
-		fn(match),
-	);
-}
-
-/**
- * Resolve all dynamic hashtag references in label/hint text. Single entry
- * point for the form engine's 'output' expression handler. Returns undefined
- * if the text contains no resolvable references (so callers can distinguish
- * "no refs" from "refs resolved to empty").
- */
 export function resolveLabel(
-	text: string | undefined,
+	template: ProseTemplate | undefined,
+	doc: XPathPrintableDoc,
 	evaluator: (expr: string) => string,
 ): string | undefined {
-	if (!text) return undefined;
-	const resolved = transformBareHashtags(text, evaluator);
-	/* Return undefined when nothing was resolved — matches the engine's convention
-     where resolvedLabel is only set when the label contains dynamic refs. */
-	return resolved !== text ? resolved : undefined;
+	if (!template) return undefined;
+	return resolveProseTemplate(template, doc, evaluator);
 }

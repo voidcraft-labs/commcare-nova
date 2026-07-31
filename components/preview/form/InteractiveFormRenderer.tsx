@@ -41,6 +41,7 @@ import { MediaDisplay } from "@/components/builder/media/MediaDisplay";
 import { type FieldPath, fpath } from "@/lib/doc/fieldPath";
 import { useField } from "@/lib/doc/hooks/useEntity";
 import { useOrderedFields } from "@/lib/doc/hooks/useOrderedFields";
+import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import { asUuid, type Uuid } from "@/lib/domain";
 import { useEngineController } from "@/lib/preview/hooks/useEngineController";
 import { useEngineStateAt } from "@/lib/preview/hooks/useEngineState";
@@ -98,7 +99,7 @@ export const InteractiveFormRenderer = memo(function InteractiveFormRenderer({
 	instanceScopeKey = "",
 	accessibleContext = "",
 }: InteractiveFormRendererProps) {
-	const fieldUuids = useOrderedFields(parentEntityId as Uuid);
+	const fieldUuids = useOrderedFields(asUuid(parentEntityId));
 
 	// `flow-root` creates a new block formatting context so the last child's
 	// `mb-6` stays contained inside this renderer's box instead of collapsing
@@ -166,6 +167,7 @@ const InteractiveField = memo(function InteractiveField({
 	const enginePath = field ? `${prefix}/${field.id}` : undefined;
 	const state = useEngineStateAt(uuid, enginePath);
 	const controller = useEngineController();
+	const projectProse = useProseProjection();
 	// Capture questions stage bytes against the app; every other kind
 	// ignores it.
 	const appId = useAppId();
@@ -375,6 +377,7 @@ const InteractiveField = memo(function InteractiveField({
 				<FieldHelp
 					id={helpId}
 					help={"help" in field ? field.help : undefined}
+					resolvedHelp={state.resolvedHelp}
 					helpMedia={"help_media" in field ? field.help_media : undefined}
 					interactive
 				/>
@@ -396,7 +399,10 @@ const InteractiveField = memo(function InteractiveField({
 					]
 						.filter((id): id is string => id !== undefined)
 						.join(" ")}
-					questionLabel={state.resolvedLabel ?? field.label ?? undefined}
+					questionLabel={
+						state.resolvedLabel ??
+						(field.label ? projectProse(field.label) : undefined)
+					}
 					onChange={(value) => controller.setValueAt(path, value)}
 					onBlur={() => controller.touchAt(path)}
 					onChangeAt={(targetPath, value) =>

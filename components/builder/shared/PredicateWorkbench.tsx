@@ -20,6 +20,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { useBuilderLookupCatalog } from "@/components/builder/lookup/BuilderLookupCatalogProvider";
 import { Button } from "@/components/shadcn/button";
 import {
 	DropdownMenu,
@@ -58,12 +59,17 @@ import {
 } from "./editorContext";
 import {
 	type CaseDataScope,
+	type EvaluationTarget,
 	type PredicateEditContext,
 	predicateCardSchemas,
 	predicateUnavailableReason,
 } from "./editorSchemas";
 import type { OperationValueScope } from "./expressionEditorSchemas";
 import type { EditorFormFieldDecl } from "./formFieldPresentation";
+import type {
+	EditorLookupTableDecl,
+	EditorLookupTableScope,
+} from "./lookupTablePresentation";
 import {
 	appendKindIndex,
 	appendKindSlot,
@@ -350,12 +356,14 @@ export interface PredicateWorkbenchProps {
 	/** Form answers this rule may read — already narrowed by the owning
 	 *  surface to the ones its slot admits. */
 	readonly formFields?: readonly EditorFormFieldDecl[];
+	readonly lookupTables?: readonly EditorLookupTableDecl[];
+	readonly tableScope?: EditorLookupTableScope;
 	/** Present only inside a case operation, where the submission's own
 	 *  vocabulary is available. */
 	readonly operationScope?: OperationValueScope;
 	/** Runtime that evaluates this rule. Search-backed rules consult the
 	 *  boundary verdict before offering a guaranteed-invalid value source. */
-	readonly evaluationTarget?: "on-device" | "case-search";
+	readonly evaluationTarget?: EvaluationTarget;
 	/** When the rule evaluates relative to a case row. `"global"` slots
 	 *  (the search-button display condition) resolve once, before any
 	 *  case is selected — verbs, seeds, and value sources drop every
@@ -389,6 +397,8 @@ export function PredicateWorkbench({
 	knownInputs = [],
 	userProperties,
 	formFields,
+	lookupTables,
+	tableScope,
 	operationScope,
 	evaluationTarget = "on-device",
 	caseDataScope = "per-case",
@@ -396,6 +406,10 @@ export function PredicateWorkbench({
 	allowsNeverMatch = true,
 	focusRequest,
 }: PredicateWorkbenchProps) {
+	const lookupCatalog = useBuilderLookupCatalog();
+	const effectiveLookupTables =
+		lookupTables ??
+		(lookupCatalog.kind === "ready" ? lookupCatalog.tables : []);
 	const [requestedPath, setRequestedPath] = useState<EditorPath>(
 		() => focusRequest?.path ?? [],
 	);
@@ -429,6 +443,8 @@ export function PredicateWorkbench({
 				currentCaseType,
 				userProperties,
 				formFields,
+				lookupTables: effectiveLookupTables,
+				tableScope,
 				operationScope,
 			}),
 		[
@@ -437,6 +453,8 @@ export function PredicateWorkbench({
 			knownInputs,
 			userProperties,
 			formFields,
+			effectiveLookupTables,
+			tableScope,
 			operationScope,
 		],
 	);
@@ -460,6 +478,8 @@ export function PredicateWorkbench({
 			currentCaseType: focusedCaseType,
 			knownInputs,
 			formFields,
+			lookupTables: effectiveLookupTables,
+			tableScope,
 			operationScope,
 			caseDataScope,
 			allowsNeverMatch,
@@ -471,6 +491,8 @@ export function PredicateWorkbench({
 			focusedCaseType,
 			knownInputs,
 			formFields,
+			effectiveLookupTables,
+			tableScope,
 			operationScope,
 			caseDataScope,
 			allowsNeverMatch,
@@ -484,7 +506,7 @@ export function PredicateWorkbench({
 				family: "expression",
 				value: next,
 			});
-			const verdict = caseSearchPredicateEditVerdict(value, candidate);
+			const verdict = caseSearchPredicateEditVerdict(candidate);
 			return verdict.ok
 				? ({ admitted: true } as const)
 				: ({ admitted: false, reason: verdict.reason } as const);
@@ -631,15 +653,15 @@ export function PredicateWorkbench({
 			knownInputs={knownInputs}
 			userProperties={userProperties}
 			formFields={formFields}
+			lookupTables={effectiveLookupTables}
+			tableScope={tableScope}
 			operationScope={operationScope}
 			caseDataScope={caseDataScope}
 			allowsNeverMatch={allowsNeverMatch}
 			evaluationTarget={evaluationTarget}
 			validityIndex={validityIndex}
 			admitExpressionChange={
-				evaluationTarget === "case-search"
-					? admitCaseSearchExpression
-					: undefined
+				evaluationTarget !== "on-device" ? admitCaseSearchExpression : undefined
 			}
 		>
 			<RuleFocusProvider activePath={activePath} open={enterRule}>
@@ -984,9 +1006,12 @@ function FocusedStructureBody({
 							Search answer
 						</p>
 						<SearchInputMenu
-							value={value.input.name || undefined}
-							onChange={(name) =>
-								onChange({ ...value, input: { kind: "input", name } })
+							value={value.input.searchInputUuid}
+							onChange={(searchInputUuid) =>
+								onChange({
+									...value,
+									input: { kind: "input", searchInputUuid },
+								})
 							}
 							invalid={false}
 						/>
@@ -1629,8 +1654,8 @@ function workbenchBreadcrumb(
 		case "not":
 			return "Exclude cases when";
 		case "when-input-present":
-			return value.input.name
-				? `When ${searchInputDisplayLabel(value.input.name, knownInputs)} is answered`
+			return value.input.searchInputUuid
+				? `When ${searchInputDisplayLabel(value.input.searchInputUuid, knownInputs)} is answered`
 				: "After a search answer";
 		case "exists":
 			return "Related case";
@@ -1655,8 +1680,8 @@ function structuralActionContext(
 			case "not":
 				return "condition that excludes cases";
 			case "when-input-present":
-				return value.input.name
-					? `condition after ${searchInputDisplayLabel(value.input.name, knownInputs)} is answered`
+				return value.input.searchInputUuid
+					? `condition after ${searchInputDisplayLabel(value.input.searchInputUuid, knownInputs)} is answered`
 					: "condition after a search answer";
 			case "exists":
 				return "related case condition";
@@ -1682,8 +1707,8 @@ function structureLabel(
 		case "not":
 			return "Exclude cases when";
 		case "when-input-present":
-			return value.input.name
-				? `When ${searchInputDisplayLabel(value.input.name, knownInputs)} is answered`
+			return value.input.searchInputUuid
+				? `When ${searchInputDisplayLabel(value.input.searchInputUuid, knownInputs)} is answered`
 				: "When a search field is answered";
 		case "exists":
 			return "Has a related case";

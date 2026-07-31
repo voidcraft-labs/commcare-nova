@@ -56,6 +56,7 @@ import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { useReconcilerContext } from "@/lib/collab/context";
 import { useProjectToast } from "@/lib/collab/useProjectToast";
 import {
+	type BuiltinIconRef,
 	builtinIconPublicPath,
 	builtinIconRef,
 	builtinIconsForSlot,
@@ -94,6 +95,16 @@ type Tab = "upload" | "library" | "icons";
 /** Library browse filter: one allowed kind, or "all" of them. */
 type LibraryFilter = AssetKind | "all";
 
+/** A picker result keeps uploaded rows and closed built-in refs distinct.
+ * Built-ins never impersonate a database-backed `WireMediaAsset`. */
+export type MediaPickerSelection =
+	| { readonly kind: "uploaded"; readonly asset: MediaAssetView }
+	| {
+			readonly kind: "builtin-icon";
+			readonly ref: BuiltinIconRef;
+			readonly entry: IconCatalogEntry;
+	  };
+
 export interface MediaPickerDialogProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
@@ -119,7 +130,7 @@ export interface MediaPickerDialogProps {
 	 * opens on the Library tab. The carrier media slots and the chat composer pass
 	 * it.
 	 */
-	onPick?: (asset: MediaAssetView) => void;
+	onPick?: (selection: MediaPickerSelection) => void;
 	/**
 	 * When provided, a validated file picked on the Upload tab is handed
 	 * OFF instead of uploaded inline: the dialog closes immediately and
@@ -261,7 +272,7 @@ function PickerBody({
 	canWrite: boolean;
 	kinds: readonly AssetKind[];
 	appId?: string;
-	onPick: (asset: MediaAssetView) => void;
+	onPick: (selection: MediaPickerSelection) => void;
 	onUploadStart?: (file: File, kind: AssetKind) => void;
 	onAssetsLoaded?: (assets: MediaAssetView[]) => void;
 	attachedAssetIds?: readonly string[];
@@ -373,7 +384,7 @@ function PickerBody({
 	const commit = (asset: MediaAssetView) => {
 		if (!ownsWritableScope()) return;
 		addUploaded(asset);
-		onPick(asset);
+		onPick({ kind: "uploaded", asset });
 	};
 
 	// Preview a library asset WITHOUT picking it — so a user can check a
@@ -401,9 +412,16 @@ function PickerBody({
 	// short-circuits it); the file manager (no carrier) PREVIEWS the bitmap.
 	const pickIcon = (entry: IconCatalogEntry) => {
 		if (!ownsScope()) return;
-		const asset = builtinIconAssetView(entry);
-		if (manage || !ownsWritableScope()) openPreview(asset);
-		else onPick(asset);
+		const ref = builtinIconRef(entry.slug);
+		if (manage || !ownsWritableScope()) {
+			setPreviewTarget({
+				id: ref,
+				kind: "image",
+				filename: `${entry.slug}.png`,
+			});
+		} else {
+			onPick({ kind: "builtin-icon", ref, entry });
+		}
 	};
 
 	// In the manager an inline upload has nowhere to pick to: land the asset in the
@@ -1167,28 +1185,6 @@ function LibraryState({
 			) : null}
 		</div>
 	);
-}
-
-/**
- * A `MediaAssetView` standing in for a built-in icon, built from its catalog
- * entry. Its id is the reserved `nova-icon:<slug>` ref the slot stores; the
- * other fields back the preview header + the scoped media resource (which routes a built-in id
- * to its static bytes). There is no `media_assets` row — built-ins never reach the
- * library list or the budget fetch.
- */
-function builtinIconAssetView(entry: IconCatalogEntry): MediaAssetView {
-	return {
-		id: builtinIconRef(entry.slug),
-		contentHash: entry.contentHash,
-		mimeType: "image/png",
-		kind: "image",
-		extension: ".png",
-		sizeBytes: entry.sizeBytes,
-		originalFilename: `${entry.slug}.png`,
-		displayName: entry.label,
-		status: "ready",
-		createdAt: "",
-	};
 }
 
 /**

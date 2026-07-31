@@ -42,16 +42,15 @@
 import { z } from "zod";
 import type { BlueprintDoc, Field, Uuid } from "@/lib/domain";
 import { fieldKindDeclaresKey } from "@/lib/domain";
-import {
-	FIELD_REF_HINT,
-	resolveFieldTarget,
-	setFieldMediaMutations,
-} from "../../blueprintHelpers";
+import { setFieldMediaMutations } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { type MutatingToolResult, toToolErrorResult } from "../common";
+import {
+	fieldAddressSchema,
+	resolveFieldAddress,
+} from "../shared/entityAddresses";
 import type { MutationSuccess } from "../shared/toolCallSummary";
 import {
-	brandMediaBundle,
 	bundleExpectations,
 	commitMediaBatch,
 	FIELD_MEDIA_SLOTS,
@@ -62,15 +61,8 @@ import {
 	type ResolvedMediaBatchItem,
 } from "./shared";
 
-const fieldMediaAttachmentSchema = z
-	.object({
-		moduleIndex: z.number().describe("0-based module index"),
-		formIndex: z.number().describe("0-based form index"),
-		fieldId: z
-			.string()
-			.describe(
-				`Field whose message slot to attach media to — ${FIELD_REF_HINT}`,
-			),
+const fieldMediaAttachmentSchema = fieldAddressSchema
+	.extend({
 		slot: z
 			.enum(FIELD_MEDIA_SLOTS)
 			.describe(
@@ -122,8 +114,8 @@ export const attachFieldMediaTool = {
 			const resolved: (ResolvedMediaBatchItem & { fieldUuid: Uuid })[] = [];
 			const failures: string[] = [];
 			for (const [i, attachment] of attachments.entries()) {
-				const { moduleIndex, formIndex, fieldId, slot, media } = attachment;
-				const found = resolveFieldTarget(doc, moduleIndex, formIndex, fieldId);
+				const { slot, media } = attachment;
+				const found = resolveFieldAddress(doc, attachment);
 				if (!found.ok) {
 					failures.push(
 						`attachments[${i}]: ${found.error}. Run getForm or searchBlueprint to find the right field.`,
@@ -152,18 +144,17 @@ export const attachFieldMediaTool = {
 				// all-empty bundle becomes a `null` payload so the reducer drops
 				// the slot (rather than storing an empty object). `null` survives
 				// JSON over the SSE wire; `undefined` would not.
-				const branded = brandMediaBundle(media);
-				const setKinds = Object.entries(branded)
+				const setKinds = Object.entries(media)
 					.filter(([, v]) => v !== undefined)
 					.map(([k]) => k);
 				resolved.push({
 					mutations: setFieldMediaMutations(
 						field.uuid,
 						slot,
-						setKinds.length > 0 ? branded : null,
+						setKinds.length > 0 ? media : null,
 					),
 					expectations: bundleExpectations(
-						branded,
+						media,
 						`the ${slot} media on field "${field.id}"`,
 					),
 					fieldUuid: field.uuid,

@@ -1,7 +1,9 @@
 // @vitest-environment happy-dom
 
 import { fireEvent, render, screen } from "@testing-library/react";
+import type { ComponentProps } from "react";
 import { describe, expect, it, type Mock, vi } from "vitest";
+import { BlueprintDocProvider } from "@/lib/doc/provider";
 import type { CaseType } from "@/lib/domain";
 import {
 	dateLiteral,
@@ -9,8 +11,21 @@ import {
 	literal,
 	timeLiteral,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { PredicateEditProvider } from "../editorContext";
-import { LiteralValueInput } from "../primitives/LiteralValueInput";
+import { LiteralValueInput as ProductionLiteralValueInput } from "../primitives/LiteralValueInput";
+
+// The input spells a choice's authored label against the document; every
+// production mount sits inside the builder's provider.
+function LiteralValueInput(
+	props: ComponentProps<typeof ProductionLiteralValueInput>,
+) {
+	return (
+		<BlueprintDocProvider appId="test-app">
+			<ProductionLiteralValueInput {...props} />
+		</BlueprintDocProvider>
+	);
+}
 
 const LONG_OPTION_LABEL =
 	"Return every week until the household follow-up is complete";
@@ -18,19 +33,20 @@ const LONG_OPTION_LABEL =
 const PATIENT: CaseType = {
 	name: "patient",
 	properties: [
-		{ name: "age", label: "Age", data_type: "int" },
-		{ name: "weight", label: "Weight", data_type: "decimal" },
-		{ name: "nickname", label: "Nickname", data_type: "text" },
-		{ name: "visit_date", label: "Visit date", data_type: "date" },
-		{ name: "visit_time", label: "Visit time", data_type: "time" },
+		{ name: "age", label: proseText("Age"), data_type: "int" },
+		{ name: "weight", label: proseText("Weight"), data_type: "decimal" },
+		{ name: "nickname", label: proseText("Nickname"), data_type: "text" },
+		{ name: "location", label: proseText("Location"), data_type: "geopoint" },
+		{ name: "visit_date", label: proseText("Visit date"), data_type: "date" },
+		{ name: "visit_time", label: proseText("Visit time"), data_type: "time" },
 		{
 			name: "follow_up_plan",
-			label: "Follow-up plan",
+			label: proseText("Follow-up plan"),
 			data_type: "single_select",
 			options: [
 				{
 					value: "weekly_until_complete",
-					label: LONG_OPTION_LABEL,
+					label: proseText(LONG_OPTION_LABEL),
 				},
 			],
 		},
@@ -322,5 +338,31 @@ describe("LiteralValueInput choice labels", () => {
 		expect(screen.getAllByText(LONG_OPTION_LABEL)[1]?.className).toContain(
 			"break-words",
 		);
+	});
+});
+
+describe("LiteralValueInput place literals", () => {
+	it("has no current-value exception for a non-null place literal", () => {
+		render(
+			<PredicateEditProvider
+				caseTypes={[PATIENT]}
+				currentCaseType="patient"
+				knownInputs={[]}
+				validityIndex={new Map()}
+			>
+				<LiteralValueInput
+					value={literal("12.3 45.6")}
+					onChange={() => {}}
+					caseTypeName="patient"
+					propertyName="location"
+					ariaLabel="Place value"
+				/>
+			</PredicateEditProvider>,
+		);
+
+		expect(screen.queryByText("12.3 45.6")).toBeNull();
+		expect(
+			screen.getByText("Compare this place with other case information"),
+		).toBeDefined();
 	});
 });

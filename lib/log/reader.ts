@@ -17,70 +17,29 @@
 import { getAppDb } from "@/lib/db/pg";
 import { loadRunSummary } from "@/lib/db/runSummary";
 import type { RunSummaryDoc } from "@/lib/db/types";
-import { log } from "@/lib/logger";
 import { type Event, eventSchema } from "./types";
 
 /**
- * Decode a page of stored event payloads, DROPPING any that fail schema
- * validation rather than letting one bad row abort the whole read.
+ * Decode one complete ordered page of stored event payloads.
  *
- * The event stream is supplemental (the AppDoc snapshot is authoritative),
- * and a forward-version deploy can write a payload type an older reader
- * doesn't know — `eventSchema.parse` would throw on such a row. Without
- * this, a single unrecognized event makes EVERY reader (admin log
- * inspection, diagnostic scripts) fail to load the entire app's stream.
- * Per-row `safeParse` isolates the failure: known events still load, the
- * unknown ones are counted (caller logs), and the run stays inspectable.
- *
- * Input is the raw `event` jsonb values as Postgres returns them (already
- * parsed to plain objects by the pg driver); each is re-validated against
- * `eventSchema` so a drifted row is skipped, not surfaced — there is no
- * recovery a caller could perform, so the only useful action is to skip it
- * and report the count.
+ * Event history is an ordered forensic record. Returning the valid rows around
+ * a malformed event would manufacture a sequence that never existed, so the
+ * page is one strict unit: every row parses through the sole current schema or
+ * the read fails. Pre-cutover mutation bytes have one explicit representation,
+ * `archived-mutation`; no unknown or forward-version event is silently dropped.
  */
-export function decodeEventsLenient(rawEvents: readonly unknown[]): {
-	events: Event[];
-	skipped: number;
-	sample?: string;
-} {
-	const events: Event[] = [];
-	let skipped = 0;
-	let sample: string | undefined;
-	for (const raw of rawEvents) {
-		const parsed = eventSchema.safeParse(raw);
-		if (parsed.success) {
-			events.push(parsed.data);
-			continue;
-		}
-		skipped++;
-		if (sample === undefined) {
-			sample = (parsed.error.issues[0]?.message ?? "unparseable event").slice(
-				0,
-				200,
-			);
-		}
-	}
-	return { events, skipped, sample };
+export function decodeEvents(rawEvents: readonly unknown[]): Event[] {
+	return eventSchema.array().parse(rawEvents);
 }
 
 /**
- * Load every event for a specific generation run, sorted by `ts` then `seq`,
- * alongside a `skipped` count of rows dropped for failing `eventSchema`
- * (schema drift / forward-version payload — see `decodeEventsLenient`).
- *
- * `skipped` is part of the return, not just a server log, ON PURPOSE: a
- * dropped event makes the returned stream PARTIAL, and a consumer that
- * reconstructs from it (applying mutations in order — a missing mutation
- * can land a state that never existed) must be able to tell the stream is
- * incomplete. Forcing callers to read `{ events, skipped }` keeps that
- * partiality impossible to ignore. `skipped` is normally 0; it goes
- * positive only when the reading code's schema is older than what wrote the
- * events (a transient cross-version-read window).
+ * Load and strictly decode every event for a run, sorted by `ts` then `seq`.
+ * One malformed row fails the whole read; no caller receives partial history.
  */
 export async function readEvents(
 	appId: string,
 	runId: string,
-): Promise<{ events: Event[]; skipped: number }> {
+): Promise<Event[]> {
 	const db = await getAppDb();
 	const rows = await db
 		.selectFrom("events")
@@ -90,15 +49,7 @@ export async function readEvents(
 		.orderBy("ts")
 		.orderBy("seq")
 		.execute();
-	const { events, skipped, sample } = decodeEventsLenient(
-		rows.map((row) => row.event),
-	);
-	if (skipped > 0) {
-		log.warn(
-			`[readEvents] dropped ${skipped} unparseable event(s) for app=${appId} run=${runId} (schema drift / forward-version payload). First: ${sample}`,
-		);
-	}
-	return { events, skipped };
+	return decodeEvents(rows.map((row) => row.event));
 }
 
 /**

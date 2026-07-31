@@ -3,6 +3,7 @@ import {
 	type CaseOperation,
 	type CaseOperationLink,
 	type CaseOperationWrite,
+	caseOperationSchema,
 	type Form,
 	orderedCaseOperations,
 	type Uuid,
@@ -14,18 +15,22 @@ import {
 } from "./caseOperationOrder";
 import { mutationCommitVerdict } from "./commitVerdicts";
 import { deepEqual } from "./deepEqual";
-import { caseOperationContainsDormantLookupCarrier } from "./dormantLookupCarriers";
-import { LOOKUP_CONTEXT_UNAVAILABLE } from "./lookupReferences";
+import {
+	LOOKUP_CONTEXT_UNAVAILABLE,
+	type LookupValidationContext,
+} from "./lookupReferences";
+import { sequenceMovesTo, spliceAfter } from "./mutations/sequence";
 import { caseOperationCatalogMutations } from "./scaffolds";
 import type { Mutation } from "./types";
 import { offeredChoiceRefusal } from "./userFacingErrors";
 
 type UpdateFormMutation = Extract<Mutation, { kind: "updateForm" }>;
 type CaseOperationPatch = NonNullable<UpdateFormMutation["caseOperationPatch"]>;
-type OperationPatch = Extract<
-	CaseOperationPatch,
-	{ operation: "update" }
->["patch"];
+type OperationUpdate = Extract<CaseOperationPatch, { operation: "update" }>;
+type StoredCaseOperation = Extract<
+	NonNullable<UpdateFormMutation["caseOperationChange"]>,
+	{ operation: "add" }
+>["value"];
 type WritePatch = Extract<
 	CaseOperationPatch,
 	{ operation: "update-write" }
@@ -46,7 +51,7 @@ const OPERATION_PATCH_KEYS = [
 	"owner",
 	"rename",
 	"retype",
-] as const satisfies readonly (keyof OperationPatch)[];
+] as const satisfies readonly (keyof CaseOperation)[];
 
 function clearable<T>(value: T | undefined): T | null {
 	return value === undefined ? null : structuredClone(value);
@@ -55,31 +60,119 @@ function clearable<T>(value: T | undefined): T | null {
 function operationMutation(
 	formUuid: Uuid,
 	patch: CaseOperationPatch,
-	fallbackValue: CaseOperation,
 ): UpdateFormMutation {
 	return {
 		kind: "updateForm",
 		uuid: formUuid,
 		patch: {},
-		caseOperationChange: {
-			operation: "update",
-			uuid: fallbackValue.uuid,
-			value: structuredClone(fallbackValue),
-		},
 		caseOperationPatch: patch,
 	};
 }
 
+function scalarOperationUpdate(
+	before: CaseOperation,
+	after: StoredCaseOperation,
+): OperationUpdate {
+	switch (after.action) {
+		case "create": {
+			const patch = {
+				...(!deepEqual(before.id, after.id) ? { id: after.id } : {}),
+				...(!deepEqual(before.caseType, after.caseType)
+					? { caseType: after.caseType }
+					: {}),
+				...(!deepEqual(before.target, after.target)
+					? { target: structuredClone(after.target) }
+					: {}),
+				...(!deepEqual(before.condition, after.condition)
+					? { condition: clearable(after.condition) }
+					: {}),
+				...(!deepEqual(before.forEach, after.forEach)
+					? { forEach: clearable(after.forEach) }
+					: {}),
+				...(!deepEqual(before.name, after.name)
+					? { name: structuredClone(after.name) }
+					: {}),
+				...(!deepEqual(before.owner, after.owner)
+					? { owner: clearable(after.owner) }
+					: {}),
+				...(before.rename !== undefined ? { rename: null } : {}),
+				...(before.retype !== undefined ? { retype: null } : {}),
+			};
+			return {
+				operation: "update",
+				uuid: after.uuid,
+				targetAction: "create",
+				patch,
+			};
+		}
+		case "update": {
+			const patch = {
+				...(!deepEqual(before.id, after.id) ? { id: after.id } : {}),
+				...(!deepEqual(before.caseType, after.caseType)
+					? { caseType: after.caseType }
+					: {}),
+				...(!deepEqual(before.target, after.target)
+					? { target: structuredClone(after.target) }
+					: {}),
+				...(!deepEqual(before.condition, after.condition)
+					? { condition: clearable(after.condition) }
+					: {}),
+				...(!deepEqual(before.forEach, after.forEach)
+					? { forEach: clearable(after.forEach) }
+					: {}),
+				...(before.name !== undefined ? { name: null } : {}),
+				...(!deepEqual(before.owner, after.owner)
+					? { owner: clearable(after.owner) }
+					: {}),
+				...(!deepEqual(before.rename, after.rename)
+					? { rename: clearable(after.rename) }
+					: {}),
+				...(!deepEqual(before.retype, after.retype)
+					? { retype: clearable(after.retype) }
+					: {}),
+			};
+			return {
+				operation: "update",
+				uuid: after.uuid,
+				targetAction: "update",
+				patch,
+			};
+		}
+		case "close": {
+			const patch = {
+				...(!deepEqual(before.id, after.id) ? { id: after.id } : {}),
+				...(!deepEqual(before.caseType, after.caseType)
+					? { caseType: after.caseType }
+					: {}),
+				...(!deepEqual(before.target, after.target)
+					? { target: structuredClone(after.target) }
+					: {}),
+				...(!deepEqual(before.condition, after.condition)
+					? { condition: clearable(after.condition) }
+					: {}),
+				...(!deepEqual(before.forEach, after.forEach)
+					? { forEach: clearable(after.forEach) }
+					: {}),
+				...(before.name !== undefined ? { name: null } : {}),
+				...(before.owner !== undefined ? { owner: null } : {}),
+				...(before.rename !== undefined ? { rename: null } : {}),
+				...(before.retype !== undefined ? { retype: null } : {}),
+			};
+			return {
+				operation: "update",
+				uuid: after.uuid,
+				targetAction: "close",
+				patch,
+			};
+		}
+	}
+}
+
 /**
- * An ordinary move has an exact carrier-blind spelling in the established
- * grammar, so use it as the rolling fallback instead of embedding the whole
- * operation in a replacement. This is what lets a lookup-carrier-bearing
- * operation move without putting its dormant AST inside `mutationSchema`.
- *
  * `after` is the whole placement — the operation this one now follows, or
  * `null` for first. An anchor cannot be shifted by a peer's insert, so there is
- * no rank for the authoritative writer to fence: the anchor either still exists
- * and the move lands behind it, or it does not and the move appends.
+ * no rank for the authoritative writer to fence: the anchor must still exist
+ * in the form's operation sequence or live admission rejects the move.
  */
 function moveOperationMutation(
 	formUuid: Uuid,
@@ -90,7 +183,6 @@ function moveOperationMutation(
 		kind: "updateForm",
 		uuid: formUuid,
 		patch: {},
-		caseOperationChange: { operation: "move", uuid, after },
 		caseOperationPatch: { operation: "move", uuid, after },
 	};
 }
@@ -118,20 +210,6 @@ function commonOrder<T>(
 		a: a.filter((key) => inB.has(key)),
 		b: b.filter((key) => inA.has(key)),
 	};
-}
-
-/** Whether two keyed sequences hold their SHARED keys in a different order.
- *  Membership changes are handled by the add/remove paths, so the comparison
- *  is over the shared keys alone — comparing whole lengths instead made a
- *  reorder that ARRIVED WITH an addition invisible, and the tool then
- *  reported success for an order it had silently discarded. */
-function sequenceChanged<T>(
-	before: readonly T[] | undefined,
-	after: readonly T[] | undefined,
-	keyOf: (item: T) => string,
-): boolean {
-	const { a, b } = commonOrder(before, after, keyOf);
-	return a.some((key, index) => key !== b[index]);
 }
 
 /**
@@ -187,57 +265,17 @@ export function caseOperationChangesForUpdate(
 	after: CaseOperation,
 ): Mutation[] {
 	if (before.uuid !== after.uuid) return [];
-
-	// Writes and links pair by their logical key — a write's destination
-	// property, a link's identifier — which is what lets two peers edit
-	// different writes without clobbering each other. A pure REORDER
-	// changes no key and no content, so key-wise pairing sees nothing
-	// and the author's edit would be silently discarded. Sequence is
-	// authored data here (it is the order the wire executes them in), so
-	// a changed sequence falls back to replacing the whole operation,
-	// which is exactly what the full-value change expresses.
-	if (
-		sequenceChanged(before.writes, after.writes, (write) => write.property) ||
-		sequenceChanged(before.links, after.links, (link) => link.identifier)
-	) {
-		// A whole-operation replacement, with NO granular intent beside
-		// it: there is no per-slot spelling for "these writes now run in
-		// this order", and the established full-value change says it
-		// exactly. It carries the reordered content too, so a reorder that
-		// arrives with edits to those same writes loses neither.
-		return [
-			{
-				kind: "updateForm",
-				uuid: formUuid,
-				patch: {},
-				caseOperationChange: {
-					operation: "update",
-					uuid: before.uuid,
-					value: structuredClone(after),
-				},
-			},
-		];
-	}
+	const parsedAfter = caseOperationSchema.safeParse(after);
+	if (!parsedAfter.success) return [];
 
 	const mutations: Mutation[] = [];
 
-	const patch: OperationPatch = {};
-	for (const key of OPERATION_PATCH_KEYS) {
-		if (deepEqual(before[key], after[key])) continue;
-		patch[key] = clearable(after[key]) as never;
-	}
-	if (Object.keys(patch).length > 0) {
-		mutations.push(
-			operationMutation(
-				formUuid,
-				{
-					operation: "update",
-					uuid: before.uuid,
-					patch,
-				},
-				after,
-			),
-		);
+	const scalarUpdate = scalarOperationUpdate(before, parsedAfter.data);
+	if (
+		before.action !== parsedAfter.data.action ||
+		Object.keys(scalarUpdate.patch).length > 0
+	) {
+		mutations.push(operationMutation(formUuid, scalarUpdate));
 	}
 
 	const beforeWrites = new Map(
@@ -249,31 +287,29 @@ export function caseOperationChangesForUpdate(
 	for (const [property] of beforeWrites) {
 		if (afterWrites.has(property)) continue;
 		mutations.push(
-			operationMutation(
-				formUuid,
-				{
-					operation: "remove-write",
-					uuid: before.uuid,
-					property,
-				},
-				after,
-			),
+			operationMutation(formUuid, {
+				operation: "remove-write",
+				uuid: before.uuid,
+				property,
+			}),
 		);
 	}
 	for (const [index, write] of (after.writes ?? []).entries()) {
 		const prior = beforeWrites.get(write.property);
 		if (prior === undefined) {
+			const predecessor =
+				index === 0
+					? null
+					: index === (after.writes?.length ?? 0) - 1
+						? undefined
+						: after.writes?.[index - 1]?.property;
 			mutations.push(
-				operationMutation(
-					formUuid,
-					{
-						operation: "add-write",
-						uuid: before.uuid,
-						value: structuredClone(write),
-						index,
-					},
-					after,
-				),
+				operationMutation(formUuid, {
+					operation: "add-write",
+					uuid: before.uuid,
+					value: structuredClone(write),
+					...(predecessor === undefined ? {} : { after: predecessor }),
+				}),
 			);
 			continue;
 		}
@@ -286,18 +322,45 @@ export function caseOperationChangesForUpdate(
 		}
 		if (Object.keys(writePatch).length > 0) {
 			mutations.push(
-				operationMutation(
-					formUuid,
-					{
-						operation: "update-write",
-						uuid: before.uuid,
-						property: write.property,
-						patch: writePatch,
-					},
-					after,
-				),
+				operationMutation(formUuid, {
+					operation: "update-write",
+					uuid: before.uuid,
+					property: write.property,
+					patch: writePatch,
+				}),
 			);
 		}
+	}
+	const desiredWriteOrder = (after.writes ?? []).map((write) => write.property);
+	let intermediateWriteOrder = (before.writes ?? [])
+		.map((write) => write.property)
+		.filter((property) => afterWrites.has(property));
+	for (const [index, write] of (after.writes ?? []).entries()) {
+		if (beforeWrites.has(write.property)) continue;
+		const predecessor =
+			index === 0
+				? null
+				: index === (after.writes?.length ?? 0) - 1
+					? undefined
+					: after.writes?.[index - 1]?.property;
+		intermediateWriteOrder = spliceAfter(
+			intermediateWriteOrder,
+			write.property,
+			predecessor,
+		);
+	}
+	for (const move of sequenceMovesTo(
+		intermediateWriteOrder,
+		desiredWriteOrder,
+	)) {
+		mutations.push(
+			operationMutation(formUuid, {
+				operation: "move-write",
+				uuid: before.uuid,
+				property: move.uuid,
+				after: move.after,
+			}),
+		);
 	}
 
 	const beforeLinks = new Map(
@@ -309,31 +372,29 @@ export function caseOperationChangesForUpdate(
 	for (const [identifier] of beforeLinks) {
 		if (afterLinks.has(identifier)) continue;
 		mutations.push(
-			operationMutation(
-				formUuid,
-				{
-					operation: "remove-link",
-					uuid: before.uuid,
-					identifier,
-				},
-				after,
-			),
+			operationMutation(formUuid, {
+				operation: "remove-link",
+				uuid: before.uuid,
+				identifier,
+			}),
 		);
 	}
 	for (const [index, link] of (after.links ?? []).entries()) {
 		const prior = beforeLinks.get(link.identifier);
 		if (prior === undefined) {
+			const predecessor =
+				index === 0
+					? null
+					: index === (after.links?.length ?? 0) - 1
+						? undefined
+						: after.links?.[index - 1]?.identifier;
 			mutations.push(
-				operationMutation(
-					formUuid,
-					{
-						operation: "add-link",
-						uuid: before.uuid,
-						value: structuredClone(link),
-						index,
-					},
-					after,
-				),
+				operationMutation(formUuid, {
+					operation: "add-link",
+					uuid: before.uuid,
+					value: structuredClone(link),
+					...(predecessor === undefined ? {} : { after: predecessor }),
+				}),
 			);
 			continue;
 		}
@@ -348,18 +409,42 @@ export function caseOperationChangesForUpdate(
 		}
 		if (Object.keys(linkPatch).length > 0) {
 			mutations.push(
-				operationMutation(
-					formUuid,
-					{
-						operation: "update-link",
-						uuid: before.uuid,
-						identifier: link.identifier,
-						patch: linkPatch,
-					},
-					after,
-				),
+				operationMutation(formUuid, {
+					operation: "update-link",
+					uuid: before.uuid,
+					identifier: link.identifier,
+					patch: linkPatch,
+				}),
 			);
 		}
+	}
+	const desiredLinkOrder = (after.links ?? []).map((link) => link.identifier);
+	let intermediateLinkOrder = (before.links ?? [])
+		.map((link) => link.identifier)
+		.filter((identifier) => afterLinks.has(identifier));
+	for (const [index, link] of (after.links ?? []).entries()) {
+		if (beforeLinks.has(link.identifier)) continue;
+		const predecessor =
+			index === 0
+				? null
+				: index === (after.links?.length ?? 0) - 1
+					? undefined
+					: after.links?.[index - 1]?.identifier;
+		intermediateLinkOrder = spliceAfter(
+			intermediateLinkOrder,
+			link.identifier,
+			predecessor,
+		);
+	}
+	for (const move of sequenceMovesTo(intermediateLinkOrder, desiredLinkOrder)) {
+		mutations.push(
+			operationMutation(formUuid, {
+				operation: "move-link",
+				uuid: before.uuid,
+				identifier: move.uuid,
+				after: move.after,
+			}),
+		);
 	}
 
 	return mutations;
@@ -395,24 +480,6 @@ export type CaseOperationMutationPlan =
 export type CaseOperationEditVerdict =
 	| { readonly ok: true }
 	| { readonly ok: false; readonly reason: string };
-
-export const CASE_OPERATION_DORMANT_LOOKUP_EDIT_REASON =
-	"This case change uses lookup-table logic that Nova preserves but cannot safely edit from this surface.";
-
-/** Whether a canonical operation can be authored by the currently shared
- * builder/SA/MCP vocabulary. Moving is intentionally outside this verdict:
- * an identity-keyed move never needs to project or replace the operation's
- * hidden AST. */
-export function caseOperationAuthoringVerdict(
-	operation: CaseOperation,
-): CaseOperationEditVerdict {
-	return caseOperationContainsDormantLookupCarrier(operation)
-		? {
-				ok: false,
-				reason: CASE_OPERATION_DORMANT_LOOKUP_EDIT_REASON,
-			}
-		: { ok: true };
-}
 
 const CASE_OPERATION_STALE_EDIT_REASON =
 	"This case change changed while you were editing it. Review the latest version and try again.";
@@ -562,10 +629,8 @@ function rebaseCaseOperationEdit(
  * Plan a full-shape edit against the current doc while retaining the
  * render/tool snapshot that defines the caller's actual intent.
  *
- * Lookup-carrier-bearing operations are read-only until that vocabulary is
- * authorable on all three editors. This refusal occurs before construction of
- * a rolling mutation, so a carrier-blind read can never clear hidden behavior
- * and the builder can never enter the permanent-400 autosave state.
+ * Every operation uses the same canonical expression vocabulary. No operation
+ * becomes read-only merely because one expression contains lookup-table logic.
  */
 export function planCaseOperationUpdate(
 	doc: BlueprintDoc,
@@ -586,15 +651,6 @@ export function planCaseOperationUpdate(
 	const normalizedDesired: CaseOperation = { ...desired };
 	if (deepEqual(intentBase, normalizedDesired)) {
 		return { ok: true, mutations: [] };
-	}
-	if (
-		!caseOperationAuthoringVerdict(current).ok ||
-		!caseOperationAuthoringVerdict(intentBase).ok
-	) {
-		return {
-			ok: false,
-			reason: CASE_OPERATION_DORMANT_LOOKUP_EDIT_REASON,
-		};
 	}
 	const rebased = rebaseCaseOperationEdit(
 		intentBase,
@@ -641,8 +697,11 @@ export function caseOperationEditVerdict(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
 	operation: CaseOperation,
+	lookupContext: LookupValidationContext = LOOKUP_CONTEXT_UNAVAILABLE,
 ): CaseOperationEditVerdict {
-	const cacheKey = `${formUuid}\u0000${JSON.stringify(operation)}`;
+	/* The context is part of the answer, so it is part of the key: the same
+	 * operation verdicts differently once the Project's definitions arrive. */
+	const cacheKey = `${formUuid}\u0000${lookupContextCacheKey(lookupContext)}\u0000${JSON.stringify(operation)}`;
 	let perCandidate = EDIT_VERDICT_CACHE.get(doc);
 	if (perCandidate === undefined) {
 		perCandidate = new Map();
@@ -650,15 +709,30 @@ export function caseOperationEditVerdict(
 	}
 	const cached = perCandidate.get(cacheKey);
 	if (cached !== undefined) return cached;
-	const verdict = computeCaseOperationEditVerdict(doc, formUuid, operation);
+	const verdict = computeCaseOperationEditVerdict(
+		doc,
+		formUuid,
+		operation,
+		lookupContext,
+	);
 	perCandidate.set(cacheKey, verdict);
 	return verdict;
+}
+
+/** Distinguishes an unavailable context from each available snapshot, so a
+ *  cached "cannot check the lookup" verdict is never reused after the
+ *  definitions load. */
+function lookupContextCacheKey(context: LookupValidationContext): string {
+	return context.kind === "available"
+		? `${context.projectId}\u0000${context.projectRevision}`
+		: "unavailable";
 }
 
 function computeCaseOperationEditVerdict(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
 	operation: CaseOperation,
+	lookupContext: LookupValidationContext,
 ): CaseOperationEditVerdict {
 	const exists =
 		doc.forms[formUuid]?.caseOperations?.some(
@@ -676,13 +750,13 @@ function computeCaseOperationEditVerdict(
 	const verdict = mutationCommitVerdict(
 		doc,
 		[...plan.mutations],
-		LOOKUP_CONTEXT_UNAVAILABLE,
+		lookupContext,
 	);
 	return verdict.ok
 		? { ok: true }
 		: {
 				ok: false,
-				reason: offeredChoiceRefusal(verdict.introduced),
+				reason: offeredChoiceRefusal(verdict.findings),
 			};
 }
 
@@ -699,6 +773,7 @@ export function caseOperationAddVerdict(
 	formUuid: Uuid,
 	operation: CaseOperation,
 	index?: number,
+	lookupContext: LookupValidationContext = LOOKUP_CONTEXT_UNAVAILABLE,
 ): CaseOperationEditVerdict {
 	const form = doc.forms[formUuid];
 	if (form === undefined) {
@@ -721,13 +796,13 @@ export function caseOperationAddVerdict(
 	const verdict = mutationCommitVerdict(
 		doc,
 		addCaseOperationMutations(doc, formUuid, operation, index),
-		LOOKUP_CONTEXT_UNAVAILABLE,
+		lookupContext,
 	);
 	return verdict.ok
 		? { ok: true }
 		: {
 				ok: false,
-				reason: offeredChoiceRefusal(verdict.introduced),
+				reason: offeredChoiceRefusal(verdict.findings),
 			};
 }
 
@@ -740,12 +815,32 @@ export function addCaseOperationMutations(
 	const form = doc.forms[formUuid];
 	if (form === undefined) return [];
 	const ordered = orderedCaseOperations(form);
-	const value = { ...operation };
-	// An indexed add lands the operation, then moves it into place. Its
-	// neighbours are untouched: every position in an array is reachable by
-	// naming the operation to follow, so nothing has to be shifted to open room.
 	const at = index ?? ordered.length;
 	const previous = at > 0 ? (ordered[at - 1]?.uuid ?? null) : null;
+	return addCaseOperationAfterMutations(
+		doc,
+		formUuid,
+		operation,
+		at >= ordered.length ? undefined : previous,
+	);
+}
+
+/**
+ * Canonical identity placement for a new operation. `after` names the existing
+ * operation the new one follows, `null` means first, and `undefined` appends.
+ * The index-taking helper above is only the builder gesture adapter.
+ */
+export function addCaseOperationAfterMutations(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	operation: CaseOperation,
+	after?: Uuid | null,
+): Mutation[] {
+	const form = doc.forms[formUuid];
+	if (form === undefined) return [];
+	const parsed = caseOperationSchema.safeParse(operation);
+	if (!parsed.success) return [];
+	const value = parsed.data;
 	return [
 		...caseOperationCatalogMutations(doc, value),
 		{
@@ -754,9 +849,9 @@ export function addCaseOperationMutations(
 			patch: {},
 			caseOperationChange: { operation: "add", value },
 		},
-		...(at >= ordered.length
+		...(after === undefined
 			? []
-			: [moveOperationMutation(formUuid, operation.uuid, previous)]),
+			: [moveOperationMutation(formUuid, operation.uuid, after)]),
 	];
 }
 
@@ -903,6 +998,36 @@ export function moveCaseOperationMutation(
 		ok: true,
 		mutations: [moveOperationMutation(formUuid, uuid, after)],
 	};
+}
+
+/**
+ * Canonical identity placement for an existing operation. External authoring
+ * surfaces use this UUID anchor; the builder's rendered-index gesture uses
+ * `moveCaseOperationMutation` as its local adapter.
+ */
+export function moveCaseOperationAfterMutation(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	uuid: Uuid,
+	after: Uuid | null,
+): CaseOperationMutationPlan {
+	const form = doc.forms[formUuid];
+	if (form === undefined) {
+		return { ok: false, reason: "operation-not-found", dependentUuids: [] };
+	}
+	const ordered = orderedCaseOperations(form);
+	if (!ordered.some((candidate) => candidate.uuid === uuid)) {
+		return { ok: false, reason: "operation-not-found", dependentUuids: [] };
+	}
+	const without = ordered.filter((candidate) => candidate.uuid !== uuid);
+	const targetIndex =
+		after === null
+			? 0
+			: without.findIndex((candidate) => candidate.uuid === after) + 1;
+	if (after !== null && targetIndex === 0) {
+		return { ok: false, reason: "operation-not-found", dependentUuids: [] };
+	}
+	return moveCaseOperationMutation(doc, formUuid, uuid, targetIndex);
 }
 
 /**

@@ -10,6 +10,8 @@
  *
  *   /build/[id]                                   → home
  *   /build/[id]/setup/{section}                   → app setup workspace
+ *   /build/[id]/project-data                      → Project data workspace
+ *   /build/[id]/project-data/{tableId}            → one Project data table
  *   /build/[id]/{moduleUuid}                      → module
  *   /build/[id]/{moduleUuid}/results              → case-results authoring
  *   /build/[id]/{moduleUuid}/cases/{caseId}       → case detail
@@ -26,13 +28,25 @@
  * All entity UUIDs are globally unique in the doc store. A single UUID
  * segment identifies the entity type by checking `doc.modules[uuid]`,
  * `doc.forms[uuid]`, `doc.fields[uuid]`. For fields, the parent
- * form is derived from the doc's ordering maps. `setup` is the one
- * reserved first segment, so the parser matches it before any uuid
- * lookup.
+ * form is derived from the doc's ordering maps. `setup` and `project-data`
+ * are the two reserved first segments, so the parser matches each before any
+ * uuid lookup.
  */
 
 import { z } from "zod";
 import { uuidSchema } from "@/lib/domain";
+import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
+
+/** The Project data workspace's own name, wherever it is named as a whole. */
+export const PROJECT_DATA_LABEL = "Project data";
+
+/**
+ * The one sentence every Project data surface states, because a lookup
+ * table is Project-shared: an edit here is not scoped to the app the
+ * author happens to have open.
+ */
+export const PROJECT_DATA_SHARED_NOTICE =
+	"These tables are shared with every app in this project. A change here affects all of them.";
 
 /**
  * The App setup workspace's sections, in the order they appear.
@@ -105,14 +119,25 @@ export const APP_SETUP_LABEL = "App setup";
  */
 export const locationSchema = z.discriminatedUnion("kind", [
 	z.object({ kind: z.literal("home") }).strict(),
-	/* App setup carries no `moduleUuid` — it is the one non-home location
-	 * that names no blueprint entity, which is exactly what keeps it out of
-	 * the structure tree's world. Every module-keyed helper must therefore
-	 * branch on it explicitly rather than reading a uuid that isn't there. */
+	/* App setup carries no `moduleUuid` — it names no blueprint entity, which
+	 * is exactly what keeps it out of the structure tree's world. Every
+	 * module-keyed helper must therefore branch on it explicitly rather than
+	 * reading a uuid that isn't there. */
 	z
 		.object({
 			kind: z.literal("app-setup"),
 			section: z.enum(APP_SETUP_SECTIONS),
+		})
+		.strict(),
+	/* Project data carries no `moduleUuid` either, and for a stronger reason:
+	 * a lookup table belongs to the PROJECT, shared by every app in it. Its
+	 * `tableId` addresses one, which the blueprint has no authority over — the
+	 * doc can neither validate nor invalidate it, so the workspace itself owns
+	 * the "that table is gone" state. */
+	z
+		.object({
+			kind: z.literal("project-data"),
+			tableId: lookupTableIdSchema.optional(),
 		})
 		.strict(),
 	z.object({ kind: z.literal("module"), moduleUuid: uuidSchema }).strict(),

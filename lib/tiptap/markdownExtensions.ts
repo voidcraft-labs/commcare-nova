@@ -15,12 +15,13 @@
  *   reference the runtime can't honor.
  * - `createInlineEditorExtensions` — base + CommcareRef + Mention, for
  *   form-context surfaces (labels, hints) where hashtag references are
- *   real. CommcareRef nodes round-trip through the markdown-it pipeline:
- *   serialize writes bare `#type/path` hashtags; the CommcareRef
- *   extension's own `markdown.parse.setup` hook installs an inline rule
- *   that tokenizes those hashtags back into `<span data-commcare-ref>`
- *   HTML during markdown-to-HTML rendering, so the PM document already
- *   contains commcareRef nodes before any React NodeView is mounted.
+ *   real. CommcareRef nodes round-trip through the markdown-it pipeline as
+ *   `<span data-nova-prose-ref="…">`, carrying the ENCODED typed part rather
+ *   than a hashtag, so identity survives the trip and no text is ever parsed
+ *   back into a reference. The carrier holds no `data-label`, so a chip parsed
+ *   from it has none: the atom's label is a projection of the owning document,
+ *   and this boundary has no document. Anything keyed on that label — the
+ *   Backspace-to-text conversion — must decline rather than substitute.
  *
  * Contrast with RefLabelInput which uses StarterKit with everything
  * disabled except paragraphs — that editor is text-only with chips.
@@ -38,8 +39,17 @@ import {
 } from "@tiptap/extension-table";
 import StarterKit from "@tiptap/starter-kit";
 import { Markdown } from "tiptap-markdown";
+import {
+	canonicalProseTemplate,
+	type ProsePart,
+	type ProseTemplate,
+} from "@/lib/domain";
 import type { ReferenceProvider } from "@/lib/references/provider";
-import { CommcareRef } from "./commcareRefNode";
+import {
+	CommcareRef,
+	decodeProseReferencePart,
+	serializedProseReferencePart,
+} from "./commcareRefNode";
 import { createRefSuggestion } from "./refSuggestion";
 
 /**
@@ -127,4 +137,39 @@ export function getMarkdownContent(editor: {
 	storage: Record<string, any>;
 }): string {
 	return editor.storage.markdown?.getMarkdown?.() ?? "";
+}
+
+/** Markdown carrier used only at the TipTap boundary; references stay typed. */
+export function proseTemplateToMarkdown(template: ProseTemplate): string {
+	return template.parts
+		.map((part) =>
+			part.kind === "text" ? part.text : serializedProseReferencePart(part),
+		)
+		.join("");
+}
+
+const PROSE_REFERENCE_CARRIER_RE =
+	/<span data-nova-prose-ref="([^"]+)"><\/span>/g;
+
+/**
+ * Recover typed atoms emitted by CommcareRef's serializer. Ordinary Markdown,
+ * including hashtag-looking text, remains literal authored text.
+ */
+export function markdownToProseTemplate(markdown: string): ProseTemplate {
+	const parts: ProsePart[] = [];
+	let cursor = 0;
+	for (const match of markdown.matchAll(PROSE_REFERENCE_CARRIER_RE)) {
+		const index = match.index;
+		if (index > cursor) {
+			parts.push({ kind: "text", text: markdown.slice(cursor, index) });
+		}
+		const reference = decodeProseReferencePart(match[1]);
+		if (reference) parts.push(reference);
+		else parts.push({ kind: "text", text: match[0] });
+		cursor = index + match[0].length;
+	}
+	if (cursor < markdown.length) {
+		parts.push({ kind: "text", text: markdown.slice(cursor) });
+	}
+	return canonicalProseTemplate(parts, { trim: true });
 }

@@ -1,9 +1,14 @@
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import { asUuid, type BlueprintDoc } from "@/lib/domain";
+import type {
+	BlueprintDoc,
+	ProseTemplate,
+	XPathExpression,
+} from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import { buildDoc, caseListConfig, f, xp } from "../../__tests__/docHelpers";
-import { errorIdentity, evaluateBoundary } from "../validator/gate";
 import { runValidation } from "../validator/runner";
 
 // ── Helpers ────────────────────────────────────────────────────────
@@ -32,8 +37,8 @@ function minDoc(): BlueprintDoc {
 							f({
 								kind: "text",
 								id: "case_name",
-								label: "Name",
-								case_property_on: "patient",
+								label: proseText("Name"),
+								caseWrite: { caseType: "patient", property: "case_name" },
 							}),
 						],
 					},
@@ -41,7 +46,10 @@ function minDoc(): BlueprintDoc {
 			},
 		],
 		caseTypes: [
-			{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+			{
+				name: "patient",
+				properties: [{ name: "case_name", label: proseText("Name") }],
+			},
 		],
 	});
 }
@@ -121,7 +129,7 @@ describe("app rules", () => {
 						{
 							name: "F1",
 							type: "survey",
-							fields: [f({ kind: "text", id: "q", label: "Q" })],
+							fields: [f({ kind: "text", id: "q", label: proseText("Q") })],
 						},
 					],
 				},
@@ -131,7 +139,7 @@ describe("app rules", () => {
 						{
 							name: "F2",
 							type: "survey",
-							fields: [f({ kind: "text", id: "q", label: "Q" })],
+							fields: [f({ kind: "text", id: "q", label: proseText("Q") })],
 						},
 					],
 				},
@@ -145,7 +153,10 @@ describe("app rules", () => {
 		// commits records ahead of their modules, so this state must be legal.
 		const planned = update(minDoc(), (d) => {
 			d.caseTypes = [
-				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
 				{ name: "visit", parent_type: "patient", properties: [] },
 			];
 		});
@@ -174,14 +185,14 @@ describe("app rules", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 								f({
 									kind: "text",
 									id: "visit_note",
-									label: "Visit note",
-									case_property_on: "visit",
+									label: proseText("Visit note"),
+									caseWrite: { caseType: "visit", property: "visit_note" },
 								}),
 							],
 						},
@@ -189,7 +200,10 @@ describe("app rules", () => {
 				},
 			],
 			caseTypes: [
-				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
 				{ name: "visit", parent_type: "patient", properties: [] },
 			],
 		});
@@ -202,7 +216,7 @@ describe("app rules", () => {
 
 	it("a survey form's case annotations don't demand a module — they are wire-inert", () => {
 		// deriveCaseConfig derives an empty case config for a survey form, so a
-		// case_property_on there never creates a case. The written-type rule
+		// caseWrite there never creates a case. The written-type rule
 		// must not count it — otherwise flipping a form to survey (making its
 		// writes inert) would still demand a module for cases that never exist.
 		const surveyAnnotated = buildDoc({
@@ -218,8 +232,8 @@ describe("app rules", () => {
 								f({
 									kind: "text",
 									id: "visit_note",
-									label: "Visit note",
-									case_property_on: "visit",
+									label: proseText("Visit note"),
+									caseWrite: { caseType: "visit", property: "visit_note" },
 								}),
 							],
 						},
@@ -371,14 +385,14 @@ describe("form rules", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 								f({
 									kind: "int",
 									id: "age",
-									label: "Age",
-									case_property_on: "patient",
+									label: proseText("Age"),
+									caseWrite: { caseType: "patient", property: "status" },
 								}),
 							],
 						},
@@ -386,12 +400,15 @@ describe("form rules", () => {
 				},
 			],
 			caseTypes: [
-				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
 			],
 		});
 		expect(
 			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
-				(e) => e.code === "DUPLICATE_CASE_PROPERTY",
+				(e) => e.code === "CASE_WRITE_DUPLICATE_PROPERTY",
 			),
 		).toBe(false);
 	});
@@ -414,14 +431,14 @@ describe("form rules", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 								f({
 									kind: "text",
 									id: "123bad",
-									label: "Bad",
-									case_property_on: "patient",
+									label: proseText("Bad"),
+									caseWrite: { caseType: "patient", property: "123bad" },
 								}),
 							],
 						},
@@ -429,7 +446,10 @@ describe("form rules", () => {
 				},
 			],
 			caseTypes: [
-				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
 			],
 		});
 		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
@@ -459,14 +479,14 @@ describe("form rules", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 								f({
 									kind: "text",
 									id: longId,
-									label: "Long",
-									case_property_on: "patient",
+									label: proseText("Long"),
+									caseWrite: { caseType: "patient", property: longId },
 								}),
 							],
 						},
@@ -474,7 +494,10 @@ describe("form rules", () => {
 				},
 			],
 			caseTypes: [
-				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
 			],
 		});
 		expect(
@@ -495,8 +518,8 @@ describe("form rules", () => {
 
 	it("duplicate field IDs at the same scope are caught", () => {
 		const doc = surveyDoc([
-			f({ kind: "text", id: "name", label: "A" }),
-			f({ kind: "text", id: "name", label: "B" }),
+			f({ kind: "text", id: "name", label: proseText("A") }),
+			f({ kind: "text", id: "name", label: proseText("B") }),
 		]);
 		expect(
 			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
@@ -507,12 +530,14 @@ describe("form rules", () => {
 
 	it("same field ID in different groups is allowed (different XML paths)", () => {
 		const doc = surveyDoc([
-			f({ kind: "text", id: "name", label: "Top-level name" }),
+			f({ kind: "text", id: "name", label: proseText("Top-level name") }),
 			f({
 				kind: "group",
 				id: "details",
-				label: "Details",
-				children: [f({ kind: "text", id: "name", label: "Nested name" })],
+				label: proseText("Details"),
+				children: [
+					f({ kind: "text", id: "name", label: proseText("Nested name") }),
+				],
 			}),
 		]);
 		expect(
@@ -527,10 +552,10 @@ describe("form rules", () => {
 			f({
 				kind: "group",
 				id: "grp",
-				label: "G",
+				label: proseText("G"),
 				children: [
-					f({ kind: "text", id: "q", label: "A" }),
-					f({ kind: "text", id: "q", label: "B" }),
+					f({ kind: "text", id: "q", label: proseText("A") }),
+					f({ kind: "text", id: "q", label: proseText("B") }),
 				],
 			}),
 		]);
@@ -547,7 +572,7 @@ describe("form rules", () => {
 describe("field rules", () => {
 	it("catches field ID starting with digit", () => {
 		const errors = runValidation(
-			surveyDoc([f({ kind: "text", id: "123_bad", label: "Q" })]),
+			surveyDoc([f({ kind: "text", id: "123_bad", label: proseText("Q") })]),
 			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		expect(errors.some((e) => e.code === "INVALID_FIELD_ID")).toBe(true);
@@ -555,7 +580,7 @@ describe("field rules", () => {
 
 	it("catches field ID with hyphens (not valid XML element name)", () => {
 		const errors = runValidation(
-			surveyDoc([f({ kind: "text", id: "my-field", label: "Q" })]),
+			surveyDoc([f({ kind: "text", id: "my-field", label: proseText("Q") })]),
 			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		expect(errors.some((e) => e.code === "INVALID_FIELD_ID")).toBe(true);
@@ -563,7 +588,9 @@ describe("field rules", () => {
 
 	it("allows field IDs with underscores", () => {
 		const errors = runValidation(
-			surveyDoc([f({ kind: "text", id: "my_question", label: "Q" })]),
+			surveyDoc([
+				f({ kind: "text", id: "my_question", label: proseText("Q") }),
+			]),
 			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		expect(errors.some((e) => e.code === "INVALID_FIELD_ID")).toBe(false);
@@ -571,7 +598,7 @@ describe("field rules", () => {
 
 	it("allows field IDs starting with underscore", () => {
 		const errors = runValidation(
-			surveyDoc([f({ kind: "text", id: "_hidden", label: "Q" })]),
+			surveyDoc([f({ kind: "text", id: "_hidden", label: proseText("Q") })]),
 			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		expect(errors.some((e) => e.code === "INVALID_FIELD_ID")).toBe(false);
@@ -583,7 +610,9 @@ describe("field rules", () => {
 	// corrupt a sibling repeat's cardinality, so the validator rejects it.
 	it("rejects a field ID under the reserved __nova_ prefix", () => {
 		const errors = runValidation(
-			surveyDoc([f({ kind: "text", id: "__nova_count_x", label: "Q" })]),
+			surveyDoc([
+				f({ kind: "text", id: "__nova_count_x", label: proseText("Q") }),
+			]),
 			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		expect(errors.some((e) => e.code === "RESERVED_FIELD_ID_PREFIX")).toBe(
@@ -593,7 +622,7 @@ describe("field rules", () => {
 
 	it("allows a single leading underscore (not the reserved prefix)", () => {
 		const errors = runValidation(
-			surveyDoc([f({ kind: "text", id: "_my_field", label: "Q" })]),
+			surveyDoc([f({ kind: "text", id: "_my_field", label: proseText("Q") })]),
 			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		expect(errors.some((e) => e.code === "RESERVED_FIELD_ID_PREFIX")).toBe(
@@ -614,7 +643,7 @@ describe("field rules", () => {
 					kind: "hidden",
 					id: "risk",
 					calculate: "if(/data/age > 65, 'high', 'low')",
-					validate_msg: "Risk must resolve",
+					validate_msg: proseText("Risk must resolve"),
 				}),
 			]),
 			LOOKUP_CONTEXT_UNAVAILABLE,
@@ -662,7 +691,12 @@ describe("field rules", () => {
 	it("flags calculate on a visible input field", () => {
 		const errors = runValidation(
 			surveyDoc([
-				f({ kind: "text", id: "score", label: "Score", calculate: "1 + 1" }),
+				f({
+					kind: "text",
+					id: "score",
+					label: proseText("Score"),
+					calculate: "1 + 1",
+				}),
 			]),
 			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
@@ -687,7 +721,7 @@ describe("field rules", () => {
 				f({
 					kind: "label",
 					id: "section",
-					label: "Section header",
+					label: proseText("Section header"),
 					validate: ". != ''",
 				}),
 			]),
@@ -704,9 +738,9 @@ describe("field rules", () => {
 				f({
 					kind: "group",
 					id: "demographics",
-					label: "Demographics",
-					validate_msg: "should never appear",
-					children: [f({ kind: "text", id: "name", label: "Name" })],
+					label: proseText("Demographics"),
+					validate_msg: proseText("should never appear"),
+					children: [f({ kind: "text", id: "name", label: proseText("Name") })],
 				}),
 			]),
 			LOOKUP_CONTEXT_UNAVAILABLE,
@@ -722,9 +756,9 @@ describe("field rules", () => {
 				f({
 					kind: "int",
 					id: "age",
-					label: "Age",
+					label: proseText("Age"),
 					validate: ". > 0 and . < 150",
-					validate_msg: "Age must be between 1 and 149",
+					validate_msg: proseText("Age must be between 1 and 149"),
 				}),
 			]),
 			LOOKUP_CONTEXT_UNAVAILABLE,
@@ -748,10 +782,10 @@ describe("field rules", () => {
 				f({
 					kind: "repeat",
 					id: "visits",
-					label: "Visits",
+					label: proseText("Visits"),
 					repeat_mode: "count_bound",
 					repeat_count: "",
-					children: [f({ kind: "text", id: "note", label: "Note" })],
+					children: [f({ kind: "text", id: "note", label: proseText("Note") })],
 				}),
 			]),
 			LOOKUP_CONTEXT_UNAVAILABLE,
@@ -768,10 +802,10 @@ describe("field rules", () => {
 				f({
 					kind: "repeat",
 					id: "open_cases",
-					label: "Open cases",
+					label: proseText("Open cases"),
 					repeat_mode: "query_bound",
 					data_source: { ids_query: "" },
-					children: [f({ kind: "text", id: "note", label: "Note" })],
+					children: [f({ kind: "text", id: "note", label: proseText("Note") })],
 				}),
 			]),
 			LOOKUP_CONTEXT_UNAVAILABLE,
@@ -788,10 +822,10 @@ describe("field rules", () => {
 				f({
 					kind: "repeat",
 					id: "visits",
-					label: "Visits",
+					label: proseText("Visits"),
 					repeat_mode: "count_bound",
 					repeat_count: "5",
-					children: [f({ kind: "text", id: "note", label: "Note" })],
+					children: [f({ kind: "text", id: "note", label: proseText("Note") })],
 				}),
 			]),
 			LOOKUP_CONTEXT_UNAVAILABLE,
@@ -805,13 +839,13 @@ describe("field rules", () => {
 				f({
 					kind: "repeat",
 					id: "open_cases",
-					label: "Open cases",
+					label: proseText("Open cases"),
 					repeat_mode: "query_bound",
 					data_source: {
 						ids_query:
 							"instance('casedb')/casedb/case[@case_type='visit']/@case_id",
 					},
-					children: [f({ kind: "text", id: "note", label: "Note" })],
+					children: [f({ kind: "text", id: "note", label: proseText("Note") })],
 				}),
 			]),
 			LOOKUP_CONTEXT_UNAVAILABLE,
@@ -825,9 +859,9 @@ describe("field rules", () => {
 				f({
 					kind: "repeat",
 					id: "members",
-					label: "Members",
+					label: proseText("Members"),
 					repeat_mode: "user_controlled",
-					children: [f({ kind: "text", id: "name", label: "Name" })],
+					children: [f({ kind: "text", id: "name", label: proseText("Name") })],
 				}),
 			]),
 			LOOKUP_CONTEXT_UNAVAILABLE,
@@ -849,10 +883,10 @@ describe("field rules", () => {
 				f({
 					kind: "repeat",
 					id: "visits",
-					label: "Visits",
+					label: proseText("Visits"),
 					repeat_mode: "count_bound",
 					repeat_count: "   ",
-					children: [f({ kind: "text", id: "note", label: "Note" })],
+					children: [f({ kind: "text", id: "note", label: proseText("Note") })],
 				}),
 			]),
 			LOOKUP_CONTEXT_UNAVAILABLE,
@@ -866,10 +900,10 @@ describe("field rules", () => {
 				f({
 					kind: "repeat",
 					id: "open_cases",
-					label: "Open cases",
+					label: proseText("Open cases"),
 					repeat_mode: "query_bound",
 					data_source: { ids_query: "\n\t" },
-					children: [f({ kind: "text", id: "note", label: "Note" })],
+					children: [f({ kind: "text", id: "note", label: proseText("Note") })],
 				}),
 			]),
 			LOOKUP_CONTEXT_UNAVAILABLE,
@@ -884,7 +918,7 @@ describe("field rules", () => {
 
 describe("post_submit validation", () => {
 	it("accepts valid destinations without errors", () => {
-		for (const dest of ["app_home", "root", "module", "previous"] as const) {
+		for (const dest of ["app_home", "module", "previous"] as const) {
 			const doc = update(minDoc(), (d) => {
 				d.forms[d.formOrder[d.moduleOrder[0]][0]].postSubmit = dest;
 			});
@@ -915,19 +949,21 @@ describe("post_submit validation", () => {
 		expect(err?.message).toContain("previous");
 	});
 
-	it("errors on parent_module since parent modules are not yet supported", () => {
-		const doc = update(minDoc(), (d) => {
-			d.forms[d.formOrder[d.moduleOrder[0]][0]].postSubmit = "parent_module";
-		});
-		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
-		const err = errors.find(
-			(e) => e.code === "POST_SUBMIT_PARENT_MODULE_UNSUPPORTED",
-		);
-		expect(err).toBeDefined();
-		expect(err?.message).toContain("has no parent module");
-		expect(err?.message).toContain('"module"');
-		expect(err?.message).toContain('"previous"');
-	});
+	it.each(["root", "parent_module"])(
+		"rejects the retired %s stored destination",
+		(destination) => {
+			const doc = update(minDoc(), (d) => {
+				const formUuid = d.formOrder[d.moduleOrder[0]][0];
+				(
+					d.forms[formUuid] as unknown as {
+						postSubmit: string;
+					}
+				).postSubmit = destination;
+			});
+			const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
+			expect(errors.some((e) => e.code === "INVALID_POST_SUBMIT")).toBe(true);
+		},
+	);
 
 	it("catches module destination on case_list_only modules", () => {
 		const doc = buildDoc({
@@ -945,13 +981,16 @@ describe("post_submit validation", () => {
 							name: "F",
 							type: "survey",
 							postSubmit: "module",
-							fields: [f({ kind: "text", id: "q", label: "Q" })],
+							fields: [f({ kind: "text", id: "q", label: proseText("Q") })],
 						},
 					],
 				},
 			],
 			caseTypes: [
-				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
 			],
 		});
 		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
@@ -980,7 +1019,7 @@ describe("post_submit validation", () => {
 describe("form_links validation", () => {
 	it("catches empty form_links array", () => {
 		const doc = update(
-			surveyDoc([f({ kind: "text", id: "q", label: "Q" })]),
+			surveyDoc([f({ kind: "text", id: "q", label: proseText("Q") })]),
 			(d) => {
 				d.forms[d.formOrder[d.moduleOrder[0]][0]].formLinks = [];
 			},
@@ -991,14 +1030,14 @@ describe("form_links validation", () => {
 
 	it("catches non-existent target module", () => {
 		const doc = update(
-			surveyDoc([f({ kind: "text", id: "q", label: "Q" })]),
+			surveyDoc([f({ kind: "text", id: "q", label: proseText("Q") })]),
 			(d) => {
 				d.forms[d.formOrder[d.moduleOrder[0]][0]].formLinks = [
 					{
 						target: {
 							type: "form",
-							moduleUuid: asUuid("ghost-module"),
-							formUuid: asUuid("ghost-form"),
+							moduleUuid: testUuid("ghost-module"),
+							formUuid: testUuid("ghost-form"),
 						},
 					},
 				];
@@ -1007,11 +1046,13 @@ describe("form_links validation", () => {
 		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		const err = errors.find((e) => e.code === "FORM_LINK_TARGET_NOT_FOUND");
 		expect(err).toBeDefined();
-		expect(err?.message).toContain("ghost-module");
+		expect(err?.message).toContain(testUuid("ghost-module"));
 	});
 
 	it("catches non-existent target form", () => {
-		const doc = surveyDoc([f({ kind: "text", id: "q", label: "Q" })]);
+		const doc = surveyDoc([
+			f({ kind: "text", id: "q", label: proseText("Q") }),
+		]);
 		const moduleUuid = doc.moduleOrder[0];
 		const doc2 = update(doc, (d) => {
 			d.forms[d.formOrder[moduleUuid][0]].formLinks = [
@@ -1019,7 +1060,7 @@ describe("form_links validation", () => {
 					target: {
 						type: "form",
 						moduleUuid,
-						formUuid: asUuid("nonexistent-form"),
+						formUuid: testUuid("nonexistent-form"),
 					},
 				},
 			];
@@ -1027,11 +1068,13 @@ describe("form_links validation", () => {
 		const errors = runValidation(doc2, LOOKUP_CONTEXT_UNAVAILABLE);
 		const err = errors.find((e) => e.code === "FORM_LINK_TARGET_NOT_FOUND");
 		expect(err).toBeDefined();
-		expect(err?.message).toContain("nonexistent-form");
+		expect(err?.message).toContain(testUuid("nonexistent-form"));
 	});
 
 	it("catches self-referencing link", () => {
-		const doc = surveyDoc([f({ kind: "text", id: "q", label: "Q" })]);
+		const doc = surveyDoc([
+			f({ kind: "text", id: "q", label: proseText("Q") }),
+		]);
 		const moduleUuid = doc.moduleOrder[0];
 		const formUuid = doc.formOrder[moduleUuid][0];
 		const doc2 = update(doc, (d) => {
@@ -1055,12 +1098,12 @@ describe("form_links validation", () => {
 						{
 							name: "F0",
 							type: "survey",
-							fields: [f({ kind: "text", id: "q", label: "Q" })],
+							fields: [f({ kind: "text", id: "q", label: proseText("Q") })],
 						},
 						{
 							name: "F1",
 							type: "survey",
-							fields: [f({ kind: "text", id: "q", label: "Q" })],
+							fields: [f({ kind: "text", id: "q", label: proseText("Q") })],
 						},
 					],
 				},
@@ -1093,12 +1136,12 @@ describe("form_links validation", () => {
 							name: "F0",
 							type: "survey",
 							postSubmit: "module",
-							fields: [f({ kind: "text", id: "q", label: "Q" })],
+							fields: [f({ kind: "text", id: "q", label: proseText("Q") })],
 						},
 						{
 							name: "F1",
 							type: "survey",
-							fields: [f({ kind: "text", id: "q", label: "Q" })],
+							fields: [f({ kind: "text", id: "q", label: proseText("Q") })],
 						},
 					],
 				},
@@ -1130,12 +1173,12 @@ describe("form_links validation", () => {
 						{
 							name: "F0",
 							type: "survey",
-							fields: [f({ kind: "text", id: "q", label: "Q" })],
+							fields: [f({ kind: "text", id: "q", label: proseText("Q") })],
 						},
 						{
 							name: "F1",
 							type: "survey",
-							fields: [f({ kind: "text", id: "q", label: "Q" })],
+							fields: [f({ kind: "text", id: "q", label: proseText("Q") })],
 						},
 					],
 				},
@@ -1170,7 +1213,7 @@ describe("form_links validation", () => {
 						{
 							name: "F0",
 							type: "survey",
-							fields: [f({ kind: "text", id: "q", label: "Q" })],
+							fields: [f({ kind: "text", id: "q", label: proseText("Q") })],
 						},
 					],
 				},
@@ -1197,17 +1240,17 @@ describe("form_links validation", () => {
 						{
 							name: "F0",
 							type: "survey",
-							fields: [f({ kind: "text", id: "q", label: "Q" })],
+							fields: [f({ kind: "text", id: "q", label: proseText("Q") })],
 						},
 						{
 							name: "F1",
 							type: "survey",
-							fields: [f({ kind: "text", id: "q", label: "Q" })],
+							fields: [f({ kind: "text", id: "q", label: proseText("Q") })],
 						},
 						{
 							name: "F2",
 							type: "survey",
-							fields: [f({ kind: "text", id: "q", label: "Q" })],
+							fields: [f({ kind: "text", id: "q", label: proseText("Q") })],
 						},
 					],
 				},
@@ -1240,12 +1283,12 @@ describe("form_links validation", () => {
 						{
 							name: "F0",
 							type: "survey",
-							fields: [f({ kind: "text", id: "q", label: "Q" })],
+							fields: [f({ kind: "text", id: "q", label: proseText("Q") })],
 						},
 						{
 							name: "F1",
 							type: "survey",
-							fields: [f({ kind: "text", id: "q", label: "Q" })],
+							fields: [f({ kind: "text", id: "q", label: proseText("Q") })],
 						},
 					],
 				},
@@ -1272,7 +1315,7 @@ describe("form_links validation", () => {
 						{
 							name: "F0",
 							type: "survey",
-							fields: [f({ kind: "text", id: "q", label: "Q" })],
+							fields: [f({ kind: "text", id: "q", label: proseText("Q") })],
 						},
 					],
 				},
@@ -1282,7 +1325,7 @@ describe("form_links validation", () => {
 						{
 							name: "F0",
 							type: "survey",
-							fields: [f({ kind: "text", id: "q", label: "Q" })],
+							fields: [f({ kind: "text", id: "q", label: proseText("Q") })],
 						},
 					],
 				},
@@ -1332,7 +1375,7 @@ describe("FIXTURE_REFERENCE_NOT_MODELED", () => {
 		);
 		expect(fixture).toBeDefined();
 		expect(fixture?.message).toContain("item-list:countries");
-		expect(fixture?.message).toContain("lookup-table");
+		expect(fixture?.message).toContain("data table lookup");
 	});
 
 	it("rejects instance('commcare:reports') in a calculate", () => {
@@ -1361,7 +1404,7 @@ describe("FIXTURE_REFERENCE_NOT_MODELED", () => {
 				f({
 					kind: "text",
 					id: "q1",
-					label: "Q",
+					label: proseText("Q"),
 					[surface]: "instance('item-list:colors')/list/item/id",
 				} as Parameters<typeof f>[0]),
 			]);
@@ -1399,7 +1442,7 @@ describe("FIXTURE_REFERENCE_NOT_MODELED", () => {
 
 	it("allows fields with no XPath surface containing an instance ref", () => {
 		const errors = runValidation(
-			surveyDoc([f({ kind: "text", id: "q1", label: "Q" })]),
+			surveyDoc([f({ kind: "text", id: "q1", label: proseText("Q") })]),
 			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		expect(errors.some((e) => e.code === "FIXTURE_REFERENCE_NOT_MODELED")).toBe(
@@ -1410,7 +1453,7 @@ describe("FIXTURE_REFERENCE_NOT_MODELED", () => {
 
 describe("PRIMARY_CASE_FIELD_IN_REPEAT", () => {
 	/**
-	 * A primary case field (one whose `case_property_on` equals the
+	 * A primary case field (one whose `caseWrite.caseType` equals the
 	 * module's case type) placed inside a repeat is structurally
 	 * invalid. Vellum + CCHQ enforce the same invariant upstream; Nova
 	 * mirrors at edit time so the error lands in the editor, not at
@@ -1426,8 +1469,8 @@ describe("PRIMARY_CASE_FIELD_IN_REPEAT", () => {
 			f({
 				kind: "text",
 				id: "extra_property",
-				label: "Extra primary property",
-				case_property_on: "parent",
+				label: proseText("Extra primary property"),
+				caseWrite: { caseType: "parent", property: "extra_property" },
 			}),
 		];
 		const repeatField =
@@ -1435,7 +1478,7 @@ describe("PRIMARY_CASE_FIELD_IN_REPEAT", () => {
 				? f({
 						kind: "repeat",
 						id: "items",
-						label: "Items",
+						label: proseText("Items"),
 						repeat_mode,
 						repeat_count: "3",
 						children: repeatChildren,
@@ -1444,7 +1487,7 @@ describe("PRIMARY_CASE_FIELD_IN_REPEAT", () => {
 					? f({
 							kind: "repeat",
 							id: "items",
-							label: "Items",
+							label: proseText("Items"),
 							repeat_mode,
 							data_source: {
 								ids_query:
@@ -1455,7 +1498,7 @@ describe("PRIMARY_CASE_FIELD_IN_REPEAT", () => {
 					: f({
 							kind: "repeat",
 							id: "items",
-							label: "Items",
+							label: proseText("Items"),
 							repeat_mode,
 							children: repeatChildren,
 						});
@@ -1476,8 +1519,8 @@ describe("PRIMARY_CASE_FIELD_IN_REPEAT", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Parent name",
-									case_property_on: "parent",
+									label: proseText("Parent name"),
+									caseWrite: { caseType: "parent", property: "case_name" },
 								}),
 								repeatField,
 							],
@@ -1488,7 +1531,7 @@ describe("PRIMARY_CASE_FIELD_IN_REPEAT", () => {
 			caseTypes: [
 				{
 					name: "parent",
-					properties: [{ name: "case_name", label: "Name" }],
+					properties: [{ name: "case_name", label: proseText("Name") }],
 				},
 			],
 		});
@@ -1530,14 +1573,17 @@ describe("PRIMARY_CASE_FIELD_IN_REPEAT", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Parent name",
-									case_property_on: "parent",
+									label: proseText("Parent name"),
+									caseWrite: { caseType: "parent", property: "case_name" },
 								}),
 								f({
 									kind: "text",
 									id: "extra_property",
-									label: "Extra primary property",
-									case_property_on: "parent",
+									label: proseText("Extra primary property"),
+									caseWrite: {
+										caseType: "parent",
+										property: "extra_property",
+									},
 								}),
 							],
 						},
@@ -1548,8 +1594,8 @@ describe("PRIMARY_CASE_FIELD_IN_REPEAT", () => {
 				{
 					name: "parent",
 					properties: [
-						{ name: "case_name", label: "Name" },
-						{ name: "extra_property", label: "Extra" },
+						{ name: "case_name", label: proseText("Name") },
+						{ name: "extra_property", label: proseText("Extra") },
 					],
 				},
 			],
@@ -1562,7 +1608,7 @@ describe("PRIMARY_CASE_FIELD_IN_REPEAT", () => {
 
 	it("does not fire on a survey form (case mappings are ignored there)", () => {
 		// A survey form carries no case actions — deriveCaseConfig returns {}
-		// for it, so a `case_property_on` annotation never becomes a case
+		// for it, so a `caseWrite` destination never becomes a case
 		// property. Flagging a survey field would be a false positive.
 		const doc = buildDoc({
 			appName: "T",
@@ -1581,16 +1627,19 @@ describe("PRIMARY_CASE_FIELD_IN_REPEAT", () => {
 								f({
 									kind: "repeat",
 									id: "items",
-									label: "Items",
+									label: proseText("Items"),
 									repeat_mode: "user_controlled",
 									children: [
 										f({
 											kind: "text",
 											id: "note",
-											label: "Note",
+											label: proseText("Note"),
 											// Module's own case type, inside a repeat — would fire
 											// the rule on a non-survey form, but survey ignores it.
-											case_property_on: "parent",
+											caseWrite: {
+												caseType: "parent",
+												property: "note",
+											},
 										}),
 									],
 								}),
@@ -1600,7 +1649,10 @@ describe("PRIMARY_CASE_FIELD_IN_REPEAT", () => {
 				},
 			],
 			caseTypes: [
-				{ name: "parent", properties: [{ name: "case_name", label: "Name" }] },
+				{
+					name: "parent",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
 			],
 		});
 		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
@@ -1610,10 +1662,10 @@ describe("PRIMARY_CASE_FIELD_IN_REPEAT", () => {
 	});
 
 	it("does not fire on a cross-case-type field inside a repeat (subcase shape)", () => {
-		// `case_property_on != mod.caseType` is the supported subcase-creation
+		// `caseWrite.caseType != mod.caseType` is the supported subcase-creation
 		// shape (one new child case per iteration) — out of scope for this
 		// rule. The splice algorithm in `xform/caseBlocks.ts::addCaseBlocks`
-		// handles it; `CHILD_CASE_NO_NAME_FIELD` guards the bucket-must-have-a-
+		// handles it; `CASE_CREATE_NAME_MISSING` guards the bucket-must-have-a-
 		// case_name invariant.
 		const doc = buildDoc({
 			appName: "T",
@@ -1632,20 +1684,23 @@ describe("PRIMARY_CASE_FIELD_IN_REPEAT", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Parent name",
-									case_property_on: "parent",
+									label: proseText("Parent name"),
+									caseWrite: { caseType: "parent", property: "case_name" },
 								}),
 								f({
 									kind: "repeat",
 									id: "children",
-									label: "Children",
+									label: proseText("Children"),
 									repeat_mode: "user_controlled",
 									children: [
 										f({
 											kind: "text",
 											id: "child_name",
-											label: "Child name",
-											case_property_on: "child",
+											label: proseText("Child name"),
+											caseWrite: {
+												caseType: "child",
+												property: "case_name",
+											},
 										}),
 									],
 								}),
@@ -1657,11 +1712,11 @@ describe("PRIMARY_CASE_FIELD_IN_REPEAT", () => {
 			caseTypes: [
 				{
 					name: "parent",
-					properties: [{ name: "case_name", label: "Name" }],
+					properties: [{ name: "case_name", label: proseText("Name") }],
 				},
 				{
 					name: "child",
-					properties: [{ name: "child_name", label: "Name" }],
+					properties: [{ name: "child_name", label: proseText("Name") }],
 				},
 			],
 		});
@@ -1672,9 +1727,9 @@ describe("PRIMARY_CASE_FIELD_IN_REPEAT", () => {
 	});
 });
 
-describe("CHILD_CASE_NO_NAME_FIELD", () => {
+describe("CASE_CREATE_NAME_MISSING for child buckets", () => {
 	/**
-	 * Every derived child-case bucket needs a field id'd `case_name` so
+	 * Every derived child-case bucket needs one field writing `case_name` so
 	 * the new case has a display name. The bucket key is
 	 * `(case_type, repeat_ancestor)`, so a primary form authoring two
 	 * repeats targeting the same child case type produces two buckets,
@@ -1701,14 +1756,17 @@ describe("CHILD_CASE_NO_NAME_FIELD", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Parent name",
-									case_property_on: "parent",
+									label: proseText("Parent name"),
+									caseWrite: { caseType: "parent", property: "case_name" },
 								}),
 								f({
 									kind: "text",
 									id: "child_label",
-									label: "Child label",
-									case_property_on: "child",
+									label: proseText("Child label"),
+									caseWrite: {
+										caseType: "child",
+										property: "child_label",
+									},
 								}),
 							],
 						},
@@ -1718,16 +1776,17 @@ describe("CHILD_CASE_NO_NAME_FIELD", () => {
 			caseTypes: [
 				{
 					name: "parent",
-					properties: [{ name: "case_name", label: "Name" }],
+					properties: [{ name: "case_name", label: proseText("Name") }],
 				},
 				{
 					name: "child",
-					properties: [{ name: "child_label", label: "Label" }],
+					parent_type: "parent",
+					properties: [{ name: "child_label", label: proseText("Label") }],
 				},
 			],
 		});
 		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
-		const offender = errors.find((e) => e.code === "CHILD_CASE_NO_NAME_FIELD");
+		const offender = errors.find((e) => e.code === "CASE_CREATE_NAME_MISSING");
 		expect(offender).toBeDefined();
 		expect(offender?.message).toContain("child");
 	});
@@ -1759,20 +1818,23 @@ describe("CHILD_CASE_NO_NAME_FIELD", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Family name",
-									case_property_on: "family",
+									label: proseText("Family name"),
+									caseWrite: { caseType: "family", property: "case_name" },
 								}),
 								f({
 									kind: "repeat",
 									id: "kids",
-									label: "Children",
+									label: proseText("Children"),
 									repeat_mode: "user_controlled",
 									children: [
 										f({
 											kind: "text",
 											id: "kid_age",
-											label: "Age",
-											case_property_on: "child",
+											label: proseText("Age"),
+											caseWrite: {
+												caseType: "child",
+												property: "kid_age",
+											},
 										}),
 									],
 								}),
@@ -1784,16 +1846,17 @@ describe("CHILD_CASE_NO_NAME_FIELD", () => {
 			caseTypes: [
 				{
 					name: "family",
-					properties: [{ name: "case_name", label: "Name" }],
+					properties: [{ name: "case_name", label: proseText("Name") }],
 				},
 				{
 					name: "child",
-					properties: [{ name: "kid_age", label: "Age" }],
+					parent_type: "family",
+					properties: [{ name: "kid_age", label: proseText("Age") }],
 				},
 			],
 		});
 		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
-		const offender = errors.find((e) => e.code === "CHILD_CASE_NO_NAME_FIELD");
+		const offender = errors.find((e) => e.code === "CASE_CREATE_NAME_MISSING");
 		expect(offender).toBeDefined();
 		expect(offender?.message).toContain('"kids"');
 		expect(offender?.message).not.toMatch(/\/data\/kids/);
@@ -1818,19 +1881,22 @@ describe("CHILD_CASE_NO_NAME_FIELD", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Parent name",
-									case_property_on: "parent",
+									label: proseText("Parent name"),
+									caseWrite: { caseType: "parent", property: "case_name" },
 								}),
 								f({
 									kind: "group",
 									id: "child_section",
-									label: "Child",
+									label: proseText("Child"),
 									children: [
 										f({
 											kind: "text",
 											id: "case_name",
-											label: "Child name",
-											case_property_on: "child",
+											label: proseText("Child name"),
+											caseWrite: {
+												caseType: "child",
+												property: "case_name",
+											},
 										}),
 									],
 								}),
@@ -1842,16 +1908,17 @@ describe("CHILD_CASE_NO_NAME_FIELD", () => {
 			caseTypes: [
 				{
 					name: "parent",
-					properties: [{ name: "case_name", label: "Name" }],
+					properties: [{ name: "case_name", label: proseText("Name") }],
 				},
 				{
 					name: "child",
-					properties: [{ name: "case_name", label: "Name" }],
+					parent_type: "parent",
+					properties: [{ name: "case_name", label: proseText("Name") }],
 				},
 			],
 		});
 		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
-		expect(errors.some((e) => e.code === "CHILD_CASE_NO_NAME_FIELD")).toBe(
+		expect(errors.some((e) => e.code === "CASE_CREATE_NAME_MISSING")).toBe(
 			false,
 		);
 	});
@@ -1874,8 +1941,8 @@ describe("CHILD_CASE_NO_NAME_FIELD", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Parent name",
-									case_property_on: "parent",
+									label: proseText("Parent name"),
+									caseWrite: { caseType: "parent", property: "case_name" },
 								}),
 							],
 						},
@@ -1885,12 +1952,12 @@ describe("CHILD_CASE_NO_NAME_FIELD", () => {
 			caseTypes: [
 				{
 					name: "parent",
-					properties: [{ name: "case_name", label: "Name" }],
+					properties: [{ name: "case_name", label: proseText("Name") }],
 				},
 			],
 		});
 		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
-		expect(errors.some((e) => e.code === "CHILD_CASE_NO_NAME_FIELD")).toBe(
+		expect(errors.some((e) => e.code === "CASE_CREATE_NAME_MISSING")).toBe(
 			false,
 		);
 	});
@@ -1923,12 +1990,12 @@ describe("CCHQ-only features stay unauthorable via the strict schema", () => {
 		const base =
 			schemaName === "moduleSchema"
 				? {
-						uuid: asUuid("00000000000000000000000000000001"),
+						uuid: testUuid("00000000000000000000000000000001"),
 						id: "m",
 						name: "M",
 					}
 				: {
-						uuid: asUuid("00000000000000000000000000000002"),
+						uuid: testUuid("00000000000000000000000000000002"),
 						id: "f",
 						name: "F",
 						type: "survey",
@@ -1966,23 +2033,23 @@ describe("CCHQ-only features stay unauthorable via the strict schema", () => {
 	});
 });
 
-// ── Case-hashtag on case-create form ────────────────────────────────
+// ── Case references on case-create forms ───────────────────────────
 
 describe("CASE_HASHTAG_ON_CREATE_FORM", () => {
 	/**
 	 * On a registration form, the case being created doesn't exist in
-	 * `casedb` yet, so `#case/<X>` references can't resolve at form-init.
+	 * `casedb` yet, so its property references can't resolve at form-init.
 	 * The validator rejects them at authoring time so the user gets the
 	 * error in the editor instead of at compile-time after they hit
-	 * "Generate App". `#case/case_id` is the one exception — the
+	 * "Generate App". `#patient/case_id` is the one exception — the
 	 * form-context-aware expander rewrites it to `/data/case/@case_id`
 	 * (populated by the case-management scaffolding's setvalue chain).
 	 */
 
-	/** Reusable registration-form fixture with one stringified XPath surface. */
+	/** Reusable registration-form fixture with one typed XPath surface. */
 	function registrationWithSurface(spec: {
 		kind?: "calculate" | "relevant" | "validate" | "default_value" | "required";
-		expr: string;
+		expr: XPathExpression;
 	}): BlueprintDoc {
 		const surface = spec.kind ?? "calculate";
 		// The case-name source is always a visible text input — a registration
@@ -1994,8 +2061,8 @@ describe("CASE_HASHTAG_ON_CREATE_FORM", () => {
 		const caseNameField: Parameters<typeof f>[0] = {
 			kind: "text",
 			id: "case_name",
-			label: "Name",
-			case_property_on: "patient",
+			label: proseText("Name"),
+			caseWrite: { caseType: "patient", property: "case_name" },
 		};
 		const fields: Parameters<typeof f>[0][] = [caseNameField];
 		if (surface === "calculate") {
@@ -2022,23 +2089,26 @@ describe("CASE_HASHTAG_ON_CREATE_FORM", () => {
 				},
 			],
 			caseTypes: [
-				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
 			],
 		});
 	}
 
-	it("rejects #case/<other> on a registration form's calculate", () => {
+	it("rejects a created-case property on a registration form's calculate", () => {
 		const doc = registrationWithSurface({
 			kind: "calculate",
-			expr: "#case/age + 1",
+			expr: xp("#patient/age + 1"),
 		});
 		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		const offender = errors.find(
 			(e) => e.code === "CASE_HASHTAG_ON_CREATE_FORM",
 		);
 		expect(offender).toBeDefined();
-		expect(offender?.message).toContain("#case/age");
-		expect(offender?.message).toContain("#form/<question_id>");
+		expect(offender?.message).toContain("#patient/age");
+		expect(offender?.message).toContain("Reference the form question instead");
 	});
 
 	for (const surface of [
@@ -2047,10 +2117,10 @@ describe("CASE_HASHTAG_ON_CREATE_FORM", () => {
 		"default_value",
 		"required",
 	] as const) {
-		it(`rejects #case/<other> in field.${surface}`, () => {
+		it(`rejects a created-case property in field.${surface}`, () => {
 			const doc = registrationWithSurface({
 				kind: surface,
-				expr: "#case/total_visits",
+				expr: xp("#patient/total_visits"),
 			});
 			const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 			expect(errors.some((e) => e.code === "CASE_HASHTAG_ON_CREATE_FORM")).toBe(
@@ -2059,10 +2129,10 @@ describe("CASE_HASHTAG_ON_CREATE_FORM", () => {
 		});
 	}
 
-	it("allows #case/case_id on a registration form (rewritten to /data/case/@case_id)", () => {
+	it("allows the created case_id on a registration form (rewritten to /data/case/@case_id)", () => {
 		const doc = registrationWithSurface({
 			kind: "calculate",
-			expr: "#case/case_id",
+			expr: xp("#patient/case_id"),
 		});
 		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(
@@ -2070,21 +2140,19 @@ describe("CASE_HASHTAG_ON_CREATE_FORM", () => {
 		).toEqual([]);
 	});
 
-	it("treats #case/case_id_x as an invalid reference (not a prefix match for case_id)", () => {
-		// The Lezer parser matches on segment boundary — a segment named
-		// `case_id_x` is NOT the same as `case_id`, so it must be flagged.
+	it("treats case_id_x as an invalid property (not a prefix match for case_id)", () => {
 		const doc = registrationWithSurface({
 			kind: "calculate",
-			expr: "#case/case_id_x",
+			expr: xp("#patient/case_id_x"),
 		});
 		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		const offender = errors.find(
 			(e) => e.code === "CASE_HASHTAG_ON_CREATE_FORM",
 		);
-		expect(offender?.message).toContain("#case/case_id_x");
+		expect(offender?.message).toContain("#patient/case_id_x");
 	});
 
-	it("does not flag #case/<X> on a followup form (case is loaded there)", () => {
+	it("does not flag case-property references on a followup form", () => {
 		const doc = buildDoc({
 			appName: "T",
 			modules: [
@@ -2102,8 +2170,8 @@ describe("CASE_HASHTAG_ON_CREATE_FORM", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},
@@ -2116,7 +2184,7 @@ describe("CASE_HASHTAG_ON_CREATE_FORM", () => {
 								f({
 									kind: "hidden",
 									id: "next_age",
-									calculate: "#case/age + 1",
+									calculate: xp("#patient/age + 1"),
 								}),
 							],
 						},
@@ -2124,7 +2192,10 @@ describe("CASE_HASHTAG_ON_CREATE_FORM", () => {
 				},
 			],
 			caseTypes: [
-				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
 			],
 		});
 		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
@@ -2133,28 +2204,51 @@ describe("CASE_HASHTAG_ON_CREATE_FORM", () => {
 		).toEqual([]);
 	});
 
-	it("rejects #case/<other> inside a label's inline hashtag", () => {
-		// Labels lower to `<output value=...>` at emit; the inline
-		// hashtag is XPath-evaluated the same way an expression surface is.
+	it("rejects a typed case-property atom inside a label", () => {
+		// Typed label atoms lower to `<output value=...>` at emit and carry the
+		// same reference identity as an expression surface.
 		const doc = registrationWithSurface({
 			kind: "calculate",
-			expr: "1 + 1",
+			expr: xp("1 + 1"),
 		});
-		// Add a label with a `#case/` reference on the same field.
 		const docWithLabel = update(doc, (d) => {
 			const field = Object.values(d.fields)[0] as Record<string, unknown>;
-			field.label = "Age: #case/age";
+			field.label = {
+				parts: [
+					{ kind: "text", text: "Age: " },
+					{ kind: "case-ref", caseType: "patient", property: "age" },
+				],
+			} satisfies ProseTemplate;
 		});
 		const errors = runValidation(docWithLabel, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(errors.some((e) => e.code === "CASE_HASHTAG_ON_CREATE_FORM")).toBe(
 			true,
 		);
 	});
+
+	it("keeps hashtag-looking label text literal", () => {
+		const doc = registrationWithSurface({
+			kind: "calculate",
+			expr: xp("1 + 1"),
+		});
+		const docWithLabel = update(doc, (d) => {
+			const field = Object.values(d.fields)[0] as Record<string, unknown>;
+			field.label = proseText("Age: #patient/age");
+		});
+		const errors = runValidation(docWithLabel, LOOKUP_CONTEXT_UNAVAILABLE);
+		expect(
+			errors.filter((e) => e.code === "CASE_HASHTAG_ON_CREATE_FORM"),
+		).toEqual([]);
+	});
 });
 
 // ── Prose case-ref validation (deep validator) ──────────────────────
 
 describe("prose case-ref validation", () => {
+	function prose(...parts: ProseTemplate["parts"]): ProseTemplate {
+		return { parts };
+	}
+
 	/**
 	 * Followup-form fixture over a "mother" case type, with one read-only
 	 * field whose chosen prose surface carries the supplied text. A followup
@@ -2163,14 +2257,14 @@ describe("prose case-ref validation", () => {
 	 */
 	function followupWithProse(spec: {
 		surface: "label" | "validate_msg";
-		text: string;
+		value: ProseTemplate;
 	}): BlueprintDoc {
 		const field: Parameters<typeof f>[0] = {
 			kind: "text",
 			id: "note",
-			label: "Note",
+			label: proseText("Note"),
 		};
-		(field as Record<string, unknown>)[spec.surface] = spec.text;
+		(field as Record<string, unknown>)[spec.surface] = spec.value;
 		return buildDoc({
 			appName: "T",
 			modules: [
@@ -2187,8 +2281,8 @@ describe("prose case-ref validation", () => {
 				{
 					name: "mother",
 					properties: [
-						{ name: "case_name", label: "Name" },
-						{ name: "household_code", label: "Household code" },
+						{ name: "case_name", label: proseText("Name") },
+						{ name: "household_code", label: proseText("Household code") },
 					],
 				},
 			],
@@ -2201,7 +2295,10 @@ describe("prose case-ref validation", () => {
 		// A real authoring typo: flag it.
 		const doc = followupWithProse({
 			surface: "label",
-			text: "Code: #mother/typoprop",
+			value: prose(
+				{ kind: "text", text: "Code: " },
+				{ kind: "case-ref", caseType: "mother", property: "typoprop" },
+			),
 		});
 		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		const offender = errors.find(
@@ -2217,7 +2314,10 @@ describe("prose case-ref validation", () => {
 	it("flags a bad property in a validate_msg too", () => {
 		const doc = followupWithProse({
 			surface: "validate_msg",
-			text: "Must match #mother/typoprop",
+			value: prose(
+				{ kind: "text", text: "Must match " },
+				{ kind: "case-ref", caseType: "mother", property: "typoprop" },
+			),
 		});
 		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(
@@ -2232,7 +2332,14 @@ describe("prose case-ref validation", () => {
 	it("accepts a valid per-type ref in a label (#mother/household_code)", () => {
 		const doc = followupWithProse({
 			surface: "label",
-			text: "Code: #mother/household_code",
+			value: prose(
+				{ kind: "text", text: "Code: " },
+				{
+					kind: "case-ref",
+					caseType: "mother",
+					property: "household_code",
+				},
+			),
 		});
 		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(errors.filter((e) => e.code === "INVALID_CASE_REF")).toEqual([]);
@@ -2247,21 +2354,27 @@ describe("prose case-ref validation", () => {
 		"Priority: #priority/high", // not a case type this form knows
 		"Typo: #mothre/code", // misspelled type name — left literal by the emitter
 		"Child: #child/name", // child type, created fresh, never loaded
-		"Hello #case/case_name", // transitional #case/ — the wire still resolves it
+		"Hello #case/case_name", // plain prose text, never a machine reference
 	]) {
 		it(`leaves unresolved prose untouched: "${text}"`, () => {
-			const doc = followupWithProse({ surface: "label", text });
+			const doc = followupWithProse({
+				surface: "label",
+				value: proseText(text),
+			});
 			const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 			expect(errors.filter((e) => e.code === "INVALID_CASE_REF")).toEqual([]);
 		});
 	}
 
 	it("flags ONLY the bad-property token among mixed prose", () => {
-		// `#N/A` is innocent prose, `#case/case_name` resolves on the wire, but
-		// `#mother/typoprop` is a reachable type with a bogus property.
+		// Both text fragments stay literal; the typed mother atom is the only
+		// machine reference and names a bogus property.
 		const doc = followupWithProse({
 			surface: "label",
-			text: "See #N/A and #case/case_name and #mother/typoprop",
+			value: prose(
+				{ kind: "text", text: "See #N/A and #case/case_name and " },
+				{ kind: "case-ref", caseType: "mother", property: "typoprop" },
+			),
 		});
 		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		const caseRefErrors = errors.filter((e) => e.code === "INVALID_CASE_REF");
@@ -2292,15 +2405,17 @@ describe("RESERVED_CASE_TYPE_NAME", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: name,
+									label: proseText("Name"),
+									caseWrite: { caseType: name, property: "case_name" },
 								}),
 							],
 						},
 					],
 				},
 			],
-			caseTypes: [{ name, properties: [{ name: "case_name", label: "Name" }] }],
+			caseTypes: [
+				{ name, properties: [{ name: "case_name", label: proseText("Name") }] },
+			],
 		});
 	}
 
@@ -2372,7 +2487,7 @@ describe("connect rules", () => {
 						{
 							name: "First Form",
 							type: "survey",
-							fields: [f({ kind: "text", id: "q1", label: "Q" })],
+							fields: [f({ kind: "text", id: "q1", label: proseText("Q") })],
 							...(spec.formConnect !== undefined && {
 								connect: spec.formConnect,
 							}),
@@ -2436,13 +2551,13 @@ describe("connect rules", () => {
 						{
 							name: "Paid visit",
 							type: "survey",
-							fields: [f({ kind: "text", id: "q1", label: "Q" })],
+							fields: [f({ kind: "text", id: "q1", label: proseText("Q") })],
 							connect: { deliver_unit: { id: "visit", name: "Visit" } },
 						},
 						{
 							name: "Reference sheet",
 							type: "survey",
-							fields: [f({ kind: "text", id: "q2", label: "Q" })],
+							fields: [f({ kind: "text", id: "q2", label: proseText("Q") })],
 						},
 					],
 				},
@@ -2454,44 +2569,69 @@ describe("connect rules", () => {
 		expect(errors).toEqual([]);
 	});
 
-	it("keeps an EMPTY Connect app clean — the floor binds only once forms exist", () => {
-		/* A Connect build flips `connect_type` first, on the empty app
-		 * (`updateApp`), then creates participating forms with their
-		 * blocks. Firing the floor on the empty app would bounce that
-		 * documented first move. */
+	it("rejects a mode-only Connect app with no participants", () => {
+		/* Connect mode and its complete participant set land through one atomic
+		 * target-state command, so a mode-only intermediate is never valid. */
 		const doc = buildDoc({ appName: "Connect App", connectType: "learn" });
 		expect(
 			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
 				(e) => e.code === "CONNECT_NO_PARTICIPATING_FORMS",
 			),
-		).toBe(false);
-	});
-
-	it("a cross-mode stray block does not count as participation", () => {
-		/* A learn app's form carrying only a deliver_unit contributes
-		 * nothing Connect's learn ingestion reads — the app still has zero
-		 * participation, and the stray block's own malformedness is the
-		 * per-form CONNECT_MISSING_LEARN finding. */
-		const doc = connectDoc({
-			connectType: "learn",
-			formConnect: { deliver_unit: { id: "stray", name: "Stray" } },
-		});
-		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
-		expect(
-			errors.some((e) => e.code === "CONNECT_NO_PARTICIPATING_FORMS"),
 		).toBe(true);
-		expect(errors.some((e) => e.code === "CONNECT_MISSING_LEARN")).toBe(true);
 	});
 
-	it("does not fire the per-form sub-config rules when the whole connect block is absent", () => {
-		/* A blockless form is auxiliary, not malformed — CONNECT_MISSING_*
-		 * adjudicate a block that IS present. */
-		const doc = connectDoc({ connectType: "deliver" });
-		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
-		expect(errors.some((e) => e.code === "CONNECT_MISSING_DELIVER")).toBe(
-			false,
-		);
-		expect(errors.some((e) => e.code === "CONNECT_MISSING_LEARN")).toBe(false);
+	it("rejects a dormant form block while Connect is off", () => {
+		const baseline = buildDoc({
+			appName: "Standard App",
+			connectType: null,
+			modules: [
+				{
+					name: "Main",
+					forms: [
+						{
+							name: "Dormant",
+							type: "survey",
+							fields: [f({ kind: "text", id: "q", label: proseText("Q") })],
+						},
+					],
+				},
+			],
+		});
+		const doc = update(baseline, (draft) => {
+			const moduleUuid = draft.moduleOrder[0];
+			const formUuid = draft.formOrder[moduleUuid]?.[0];
+			if (!formUuid) throw new Error("dormant fixture form missing");
+			draft.forms[formUuid].connect = {
+				learn_module: {
+					id: "dormant",
+					name: "Dormant",
+					description: "Not active",
+					time_estimate: 5,
+				},
+			};
+		});
+		expect(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+				(error) => error.code === "CONNECT_MODE_MISMATCH",
+			),
+		).toHaveLength(1);
+	});
+
+	it("rejects a form block from the other Connect mode", () => {
+		const baseline = connectDoc({ connectType: "learn" });
+		const doc = update(baseline, (draft) => {
+			const moduleUuid = draft.moduleOrder[0];
+			const formUuid = draft.formOrder[moduleUuid]?.[0];
+			if (!formUuid) throw new Error("wrong-mode fixture form missing");
+			draft.forms[formUuid].connect = {
+				deliver_unit: { id: "delivery", name: "Delivery" },
+			};
+		});
+		expect(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+				(error) => error.code === "CONNECT_MODE_MISMATCH",
+			),
+		).toHaveLength(1);
 	});
 
 	it("flags an explicit empty entity_id as CONNECT_EMPTY_XPATH", () => {
@@ -2639,89 +2779,6 @@ describe("connect rules", () => {
 		expect(errors).toEqual([]);
 	});
 
-	it("reports an id-less connect block as CONNECT_ID_MISSING, not a format error", () => {
-		// Every source path leaves the id set (tool autofill, UI seed/restore)
-		// and nothing downstream supplies a default — the emit resolver THROWS
-		// on a missing id. So an id-less block in a stored doc is its own
-		// finding here, the backstop that turns the would-be export 500 into
-		// an actionable message. The format rule still skips it (there is no
-		// id value to judge).
-		const doc = connectDoc({
-			connectType: "learn",
-			formConnect: {
-				learn_module: { name: "Intake", description: "x", time_estimate: 5 },
-			},
-		});
-		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
-		expect(
-			errors.filter((e) => e.code === "CONNECT_ID_INVALID_FORMAT"),
-		).toEqual([]);
-		const missing = errors.filter((e) => e.code === "CONNECT_ID_MISSING");
-		expect(missing).toHaveLength(1);
-		expect(missing[0].message).toContain("learn-module");
-		expect(missing[0].message).toContain("First Form");
-	});
-
-	it("keeps two id-less blocks on one form as distinct CONNECT_ID_MISSING findings", () => {
-		const doc = connectDoc({
-			connectType: "learn",
-			formConnect: {
-				learn_module: { name: "Intake", description: "x", time_estimate: 5 },
-				assessment: { user_score: xp("100") },
-			},
-		});
-		const missing = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(e) => e.code === "CONNECT_ID_MISSING",
-		);
-		expect(missing).toHaveLength(2);
-		// The identity discriminator is the sub-config kind — the gate must
-		// never collapse the two into one finding.
-		expect(new Set(missing.map((e) => errorIdentity(e))).size).toBe(2);
-	});
-
-	it("does not flag an id-less CROSS-MODE stray (it never emits, so its id breaks nothing)", () => {
-		// Mirrors the emit resolver: only mode-matching kinds ship, so a stray
-		// deliver_unit on a learn app needs no id. The learn arm still needs
-		// its block — give it a valid one so the only candidate finding is the
-		// stray's.
-		const doc = connectDoc({
-			connectType: "learn",
-			formConnect: {
-				learn_module: {
-					id: "intake",
-					name: "Intake",
-					description: "x",
-					time_estimate: 5,
-				},
-				deliver_unit: { name: "Stray" },
-			},
-		});
-		expect(
-			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-				(e) => e.code === "CONNECT_ID_MISSING",
-			),
-		).toEqual([]);
-	});
-
-	it("surfaces the id-less block at the export boundary as a finding, never the emitter throw", () => {
-		// The zero-tolerance boundary run is what every export entry point
-		// consults BEFORE expansion — it must report the state the emit
-		// resolver would otherwise throw on, so a stored id-less doc gets an
-		// actionable rejection instead of a 500.
-		const doc = connectDoc({
-			connectType: "learn",
-			formConnect: {
-				learn_module: { name: "Intake", description: "x", time_estimate: 5 },
-			},
-		});
-		const findings = evaluateBoundary(
-			doc,
-			new Map(),
-			LOOKUP_CONTEXT_UNAVAILABLE,
-		);
-		expect(findings.some((e) => e.code === "CONNECT_ID_MISSING")).toBe(true);
-	});
-
 	it("flags bad ids on assessment, deliver_unit, and task too", () => {
 		// All four connect kinds emit their id as an element name, so the
 		// rule covers every kind, not just learn_module.
@@ -2839,7 +2896,7 @@ describe("connect rules", () => {
 	// forms), the surface that gives the user a fixable error.
 
 	it("flags a connect id duplicated across two forms, citing both sites", () => {
-		const doc = buildDoc({
+		const baseline = buildDoc({
 			connectType: "learn",
 			modules: [
 				{
@@ -2867,7 +2924,7 @@ describe("connect rules", () => {
 							type: "survey",
 							connect: {
 								learn_module: {
-									id: "shared_slug",
+									id: "lesson_b",
 									name: "B",
 									description: "x",
 									time_estimate: 5,
@@ -2877,6 +2934,20 @@ describe("connect rules", () => {
 					],
 				},
 			],
+		});
+		const doc = update(baseline, (draft) => {
+			const moduleUuid = draft.moduleOrder[1];
+			const formUuid = draft.formOrder[moduleUuid]?.[0];
+			const connect = formUuid ? draft.forms[formUuid]?.connect : undefined;
+			if (
+				!formUuid ||
+				connect === undefined ||
+				!("learn_module" in connect) ||
+				connect.learn_module === undefined
+			) {
+				throw new Error("duplicate-id fixture form missing");
+			}
+			connect.learn_module.id = "shared_slug";
 		});
 		const dups = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
 			(e) => e.code === "CONNECT_ID_DUPLICATE",

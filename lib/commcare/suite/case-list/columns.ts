@@ -109,10 +109,11 @@ import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
 import {
 	type CaseProperty,
 	type Column,
-	resolveCommCareDatePattern,
+	printProseTemplate,
 	TIME_SINCE_UNIT_DAYS,
 	tileCellFor,
 } from "@/lib/domain";
+import type { MediaAssetId } from "@/lib/domain/multimedia";
 import { emitCasePropertyWirePath } from "../../casePropertyWire";
 import { emitOnDeviceExpression } from "../../expression/onDeviceEmitter";
 import {
@@ -203,7 +204,12 @@ function lookupTermContext(
 	return {
 		...(ctx.lookupNaming === undefined
 			? {}
-			: { lookup: { naming: ctx.lookupNaming } }),
+			: {
+					lookup: {
+						naming: ctx.lookupNaming,
+						instanceScope: "suite",
+					},
+				}),
 		...(ctx.userPropertySlugs === undefined
 			? {}
 			: { userPropertySlugs: ctx.userPropertySlugs }),
@@ -425,6 +431,7 @@ function plainDisplayXpath(field: string): string {
 export function plainSelectDisplayXpath(
 	field: string,
 	property: CaseProperty,
+	doc: CaseListEmitContext["proseDoc"],
 ): string {
 	const options = property.options ?? [];
 	if (options.length === 0) return plainDisplayXpath(field);
@@ -439,7 +446,10 @@ export function plainSelectDisplayXpath(
 		// exactly. Equality keeps the two surfaces identical.
 		return options.reduceRight((elseArm, option) => {
 			const value = quoteLiteral(option.value, "case-list-filter");
-			const label = quoteLiteral(option.label, "case-list-filter");
+			const label = quoteLiteral(
+				printProseTemplate(option.label, doc),
+				"case-list-filter",
+			);
 			return `if(${field} = ${value}, ${label}, ${elseArm})`;
 		}, field);
 	}
@@ -452,7 +462,13 @@ export function plainSelectDisplayXpath(
 		(option) => option.value !== "" && !/\s/.test(option.value),
 	);
 	if (tokenOptions.length === 0) return plainDisplayXpath(field);
-	const knownLabels = idMappingDisplayXpath(field, tokenOptions);
+	const knownLabels = idMappingDisplayXpath(
+		field,
+		tokenOptions.map((option) => ({
+			value: option.value,
+			label: printProseTemplate(option.label, doc),
+		})),
+	);
 	// Double-space the normalized value so every token owns BOTH of its
 	// flanking spaces. Java regex matching is non-overlapping: with
 	// single-space delimiters, removing ` tok ` consumes the shared space
@@ -486,10 +502,7 @@ export function plainSelectDisplayXpath(
  * concat-fallback shape rather than producing broken XPath.
  */
 function dateDisplayXpath(field: string, pattern: string): string {
-	const quotedPattern = quoteLiteral(
-		resolveCommCareDatePattern(pattern),
-		"case-list-filter",
-	);
+	const quotedPattern = quoteLiteral(pattern, "case-list-filter");
 	return `if(${field} = '', '', format-date(date(${field}), ${quotedPattern}))`;
 }
 
@@ -675,7 +688,10 @@ function idMappingDisplayXpath(
  */
 function imageMapDisplayXpath(
 	field: string,
-	mapping: ReadonlyArray<{ readonly value: string; readonly assetId: string }>,
+	mapping: ReadonlyArray<{
+		readonly value: string;
+		readonly assetId: MediaAssetId;
+	}>,
 	assets: AssetManifest,
 ): string {
 	// Fold right so the first entry is the outermost `if`, matching the
@@ -712,7 +728,7 @@ function propertyDisplayXpath(
 			);
 			return property?.data_type === "single_select" ||
 				property?.data_type === "multi_select"
-				? plainSelectDisplayXpath(field, property)
+				? plainSelectDisplayXpath(field, property, ctx.proseDoc)
 				: plainDisplayXpath(field);
 		}
 		case "date":

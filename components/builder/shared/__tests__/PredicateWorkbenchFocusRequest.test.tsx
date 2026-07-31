@@ -1,7 +1,10 @@
 // @vitest-environment happy-dom
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { render as rtlRender, screen, waitFor } from "@testing-library/react";
+import type { ReactElement, ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { BlueprintDocProvider } from "@/lib/doc/provider";
 import type { CaseType } from "@/lib/domain";
 import {
 	and,
@@ -11,14 +14,28 @@ import {
 	prop,
 	whenInput,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { PredicateWorkbench } from "../PredicateWorkbench";
+
+// The surfaces here spell authored prose against the document; every production
+// mount sits inside the builder's provider. Wrapping at `render` reproduces it
+// and carries through each `rerender`.
+function DocumentProvider({ children }: { readonly children: ReactNode }) {
+	return (
+		<BlueprintDocProvider appId="test-app">{children}</BlueprintDocProvider>
+	);
+}
+
+function render(ui: ReactElement) {
+	return rtlRender(ui, { wrapper: DocumentProvider });
+}
 
 const caseTypes: readonly CaseType[] = [
 	{
 		name: "client",
 		properties: [
-			{ name: "case_name", label: "Client name", data_type: "text" },
-			{ name: "region", label: "Region", data_type: "text" },
+			{ name: "case_name", label: proseText("Client name"), data_type: "text" },
+			{ name: "region", label: proseText("Region"), data_type: "text" },
 		],
 	},
 ];
@@ -36,7 +53,7 @@ describe("PredicateWorkbench dependency focus", () => {
 	it("opens and focuses the exact nested expression occurrence", async () => {
 		const value = and(
 			eq(prop("client", "region"), literal("North")),
-			eq(prop("client", "case_name"), input("query")),
+			eq(prop("client", "case_name"), input(testUuid("query"))),
 		);
 
 		render(
@@ -46,7 +63,12 @@ describe("PredicateWorkbench dependency focus", () => {
 				caseTypes={caseTypes}
 				currentCaseType="client"
 				knownInputs={[
-					{ name: "query", label: "Client name", data_type: "text" },
+					{
+						uuid: testUuid("query"),
+						name: "query",
+						label: "Client name",
+						data_type: "text",
+					},
 				]}
 				focusRequest={{ token: 1, path: ["and", 1, "right"] }}
 			/>,
@@ -61,7 +83,7 @@ describe("PredicateWorkbench dependency focus", () => {
 
 	it("recovers a trigger path to its owning rule and replays the same path", async () => {
 		const value = whenInput(
-			input("query"),
+			input(testUuid("query")),
 			eq(prop("client", "region"), literal("North")),
 		);
 		const { rerender } = render(
@@ -71,7 +93,12 @@ describe("PredicateWorkbench dependency focus", () => {
 				caseTypes={caseTypes}
 				currentCaseType="client"
 				knownInputs={[
-					{ name: "query", label: "Client name", data_type: "text" },
+					{
+						uuid: testUuid("query"),
+						name: "query",
+						label: "Client name",
+						data_type: "text",
+					},
 				]}
 				focusRequest={{
 					token: 1,
@@ -91,7 +118,12 @@ describe("PredicateWorkbench dependency focus", () => {
 				caseTypes={caseTypes}
 				currentCaseType="client"
 				knownInputs={[
-					{ name: "query", label: "Client name", data_type: "text" },
+					{
+						uuid: testUuid("query"),
+						name: "query",
+						label: "Client name",
+						data_type: "text",
+					},
 				]}
 				focusRequest={{
 					token: 2,

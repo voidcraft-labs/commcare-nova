@@ -34,7 +34,14 @@ import { FIELD_STYLES } from "@/components/preview/form/fieldStyles";
 import { TextEditable } from "@/components/preview/form/TextEditable";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useField } from "@/lib/doc/hooks/useEntity";
-import type { FieldPatchFor, Uuid } from "@/lib/domain";
+import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
+import {
+	EMPTY_PROSE_TEMPLATE,
+	type FieldPatchFor,
+	type ProseTemplate,
+	proseTemplateIsEmpty,
+	type Uuid,
+} from "@/lib/domain";
 import { useEngineController } from "@/lib/preview/hooks/useEngineController";
 import { useEngineState } from "@/lib/preview/hooks/useEngineState";
 import { LabelContent } from "@/lib/references/LabelContent";
@@ -67,6 +74,7 @@ export const GroupOpenRow = memo(function GroupOpenRow({
 	const q = useField(uuid);
 	const state = useEngineState(uuid);
 	const controller = useEngineController();
+	const projectProse = useProseProjection();
 	const mode = useEditMode();
 	const { updateField } = useBlueprintMutations();
 	/* Inline save for the TextEditable header — null outside edit mode so
@@ -77,12 +85,12 @@ export const GroupOpenRow = memo(function GroupOpenRow({
 	 * `label` slot the header writes to. */
 	const fieldKind = q?.kind;
 	const saveField = useMemo<
-		((field: string, value: string) => void) | null
+		((field: string, value: ProseTemplate) => void) | null
 	>(() => {
 		if (mode !== "edit" || fieldKind === undefined) return null;
 		return (property, value) => {
 			updateField(uuid, fieldKind, {
-				[property]: value === "" ? undefined : value,
+				[property]: value,
 			} as FieldPatchFor<typeof fieldKind>);
 		};
 	}, [mode, uuid, fieldKind, updateField]);
@@ -114,7 +122,7 @@ export const GroupOpenRow = memo(function GroupOpenRow({
 	// with `in` / the kind discriminant before reading `label`.
 	const isRepeatType = q?.kind === "repeat";
 	const labelText =
-		q && "label" in q && typeof q.label === "string" ? q.label.trim() : "";
+		q && "label" in q && q.label ? projectProse(q.label).trim() : "";
 	const previewLabel =
 		labelText || q?.id || (isRepeatType ? "Untitled repeat" : "Untitled group");
 	const renderPreview = useCallback(
@@ -220,11 +228,13 @@ export const GroupOpenRow = memo(function GroupOpenRow({
 								 *  `TextEditable` so a click on the placeholder opens
 								 *  the inline editor with an empty buffer. */}
 								<TextEditable
-									value={"label" in q && q.label ? q.label : ""}
+									value={
+										"label" in q && q.label ? q.label : EMPTY_PROSE_TEMPLATE
+									}
 									onSave={saveField ? (v) => saveField("label", v) : undefined}
 									fieldType="label"
 								>
-									{"label" in q && q.label ? (
+									{"label" in q && q.label && !proseTemplateIsEmpty(q.label) ? (
 										<LabelContent
 											label={q.label}
 											resolvedLabel={state.resolvedLabel}

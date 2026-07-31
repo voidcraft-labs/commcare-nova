@@ -15,11 +15,7 @@ import { findOne } from "domutils";
 import { emitCasePropertyWirePath } from "@/lib/commcare/casePropertyWire";
 import { el } from "@/lib/commcare/elementBuilders";
 import { emitOnDeviceExpression } from "@/lib/commcare/expression";
-import { descendInto } from "@/lib/commcare/formActions";
-import {
-	LOOKUP_FIXTURE_ID_PREFIX,
-	type LookupWireNaming,
-} from "@/lib/commcare/lookup/naming";
+import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import {
 	collectExpressionInstances,
 	collectPredicateInstances,
@@ -32,6 +28,7 @@ import type {
 	OnDeviceExpressionBindings,
 	OnDeviceTermEmissionContext,
 } from "@/lib/commcare/predicate/termEmitter";
+import { descendFormPathIntoField } from "@/lib/commcare/xform/formPath";
 import {
 	caseOperationConditionalGuardUuids,
 	caseOperationExpressionSnapshotTypes,
@@ -44,7 +41,7 @@ import {
 	type CaseOperation,
 	type CaseTarget,
 	MAX_AUTHORED_CASE_KEY_LENGTH,
-	MAX_CASE_OPERATION_TEXT_LENGTH,
+	MAX_CASE_SCALAR_TEXT_LENGTH,
 	orderedCaseOperations,
 	type Uuid,
 	userPropertySlugsByUuid,
@@ -62,7 +59,8 @@ const OPERATIONS_CONTAINER = "__nova_operations";
 const SESSION_CASE_ID = "instance('commcaresession')/session/data/case_id";
 const META_TIME_END = "/data/meta/timeEnd";
 const META_USER_ID = "/data/meta/userID";
-const CASE_OPERATION_BOUNDARY_WHITESPACE_PATTERN = "^\\s+|\\s+$";
+const CASE_SCALAR_BOUNDARY_CODE_UNIT_PATTERN =
+	"^[\\x00-\\x20]+|[\\x00-\\x20]+$";
 
 /**
  * On-device half of the shared authored-key identity contract. Invalid keys
@@ -80,18 +78,23 @@ export function authoredCaseIdCalculation(
 
 /**
  * Normalize fixed-column case text before it reaches either Core or HQ.
- * JavaRosa's `replace` uses Java regex semantics, whose default `\\s` set is
- * the same XML boundary whitespace removed by the shared domain helper.
+ * The emitted explicit `\\x00-\\x20` range matches Java `String.trim`.
  */
-export function caseOperationTextValueCalculation(
+export function caseScalarTextValueCalculation(
 	valueExpression: string,
 ): string {
-	return `replace(${valueExpression}, ${quoteLiteral(CASE_OPERATION_BOUNDARY_WHITESPACE_PATTERN, "case-list-filter")}, '')`;
+	return `replace(${valueExpression}, ${quoteLiteral(CASE_SCALAR_BOUNDARY_CODE_UNIT_PATTERN, "case-list-filter")}, '')`;
 }
 
-/** Runtime validity predicate shared by every emitted name/rename/owner guard. */
-export function caseOperationTextValueGuard(valueExpression: string): string {
-	return `string-length(${valueExpression}) > 0 and string-length(${valueExpression}) <= ${MAX_CASE_OPERATION_TEXT_LENGTH}`;
+/** Runtime validity predicate for one emitted fixed-column case scalar. */
+export function caseScalarTextValueGuard(
+	valueExpression: string,
+	blank: "allow" | "reject",
+): string {
+	const length = `string-length(${valueExpression})`;
+	return blank === "allow"
+		? `${length} <= ${MAX_CASE_SCALAR_TEXT_LENGTH}`
+		: `${length} > 0 and ${length} <= ${MAX_CASE_SCALAR_TEXT_LENGTH}`;
 }
 
 type RequiredInstance = "casedb" | "commcaresession";
@@ -140,7 +143,10 @@ export function buildCaseOperations(
 	const repeats = new Map<Uuid, FormPath>();
 	for (const [uuid, location] of fields) {
 		if (doc.fields[uuid]?.kind === "repeat") {
-			repeats.set(uuid, descendInto(doc.fields[uuid], location.path));
+			repeats.set(
+				uuid,
+				descendFormPathIntoField(doc.fields[uuid], location.path),
+			);
 		}
 	}
 
@@ -199,7 +205,7 @@ export function buildCaseOperations(
 			caseProperty: formCasePropertyResolver(moduleCaseType),
 			userPropertySlugs,
 			...(lookupNaming !== undefined && {
-				lookup: { naming: lookupNaming },
+				lookup: { naming: lookupNaming, instanceScope: "xform" },
 			}),
 		});
 		const emitExpression = (
@@ -244,7 +250,8 @@ export function buildCaseOperations(
 		const create = operation.action === "create";
 		const writes = operation.writes ?? [];
 		const links = operation.links ?? [];
-		const guardedTextPaths: FormPath[] = [];
+		const requiredScalarTextPaths: FormPath[] = [];
+		const optionalScalarTextPaths: FormPath[] = [];
 		const updateChildren: Element[] = [];
 		if (operation.rename !== undefined)
 			updateChildren.push(el("case_name", {}));
@@ -357,23 +364,23 @@ export function buildCaseOperations(
 				}),
 			);
 			const namePath = createPath.child("case_name");
-			guardedTextPaths.push(namePath);
+			requiredScalarTextPaths.push(namePath);
 			if (operation.name !== undefined) {
 				binds.push(
 					el("bind", {
 						nodeset: namePath.toXPath(),
-						calculate: caseOperationTextValueCalculation(
+						calculate: caseScalarTextValueCalculation(
 							emitExpression(operation.name, namePath),
 						),
 					}),
 				);
 			}
 			const ownerPath = createPath.child("owner_id");
-			guardedTextPaths.push(ownerPath);
+			requiredScalarTextPaths.push(ownerPath);
 			binds.push(
 				el("bind", {
 					nodeset: ownerPath.toXPath(),
-					calculate: caseOperationTextValueCalculation(
+					calculate: caseScalarTextValueCalculation(
 						operation.owner === undefined
 							? META_USER_ID
 							: emitExpression(operation.owner, ownerPath),
@@ -386,11 +393,11 @@ export function buildCaseOperations(
 			const updatePath = casePath.child("update");
 			if (operation.rename !== undefined) {
 				const renamePath = updatePath.child("case_name");
-				guardedTextPaths.push(renamePath);
+				requiredScalarTextPaths.push(renamePath);
 				binds.push(
 					el("bind", {
 						nodeset: renamePath.toXPath(),
-						calculate: caseOperationTextValueCalculation(
+						calculate: caseScalarTextValueCalculation(
 							emitExpression(operation.rename, renamePath),
 						),
 					}),
@@ -409,11 +416,11 @@ export function buildCaseOperations(
 			}
 			if (operation.action === "update" && operation.owner !== undefined) {
 				const ownerPath = updatePath.child("owner_id");
-				guardedTextPaths.push(ownerPath);
+				requiredScalarTextPaths.push(ownerPath);
 				binds.push(
 					el("bind", {
 						nodeset: ownerPath.toXPath(),
-						calculate: caseOperationTextValueCalculation(
+						calculate: caseScalarTextValueCalculation(
 							emitExpression(operation.owner, ownerPath),
 						),
 					}),
@@ -427,7 +434,13 @@ export function buildCaseOperations(
 				if (write.condition !== undefined) {
 					attributes.relevant = emitPredicate(write.condition, writePath);
 				}
-				attributes.calculate = emitExpression(write.value, writePath);
+				const emitted = emitExpression(write.value, writePath);
+				if (write.property === "external_id") {
+					optionalScalarTextPaths.push(writePath);
+					attributes.calculate = caseScalarTextValueCalculation(emitted);
+				} else {
+					attributes.calculate = emitted;
+				}
 				binds.push(el("bind", attributes));
 			}
 		}
@@ -597,7 +610,10 @@ export function buildCaseOperations(
 			);
 		}
 
-		if (guardedTextPaths.length > 0) {
+		if (
+			requiredScalarTextPaths.length > 0 ||
+			optionalScalarTextPaths.length > 0
+		) {
 			// Core trims these fixed-column values and caps them at 255 UTF-16
 			// code units, while Nova additionally requires every authored facet to
 			// remain nonblank. The calculate binds above establish one normalized
@@ -641,15 +657,21 @@ export function buildCaseOperations(
 				repeat === undefined
 					? caseIdPath.toXPath()
 					: originalContextPath(guardCaseIdPath, caseIdPath);
-			const validity = guardedTextPaths
-				.map((path) => {
+			const scalarValidity = (
+				paths: readonly FormPath[],
+				blank: "allow" | "reject",
+			): string[] =>
+				paths.map((path) => {
 					const value =
 						repeat === undefined
 							? path.toXPath()
 							: originalContextPath(guardCaseIdPath, path);
-					return `(${caseOperationTextValueGuard(value)})`;
-				})
-				.join(" and ");
+					return `(${caseScalarTextValueGuard(value, blank)})`;
+				});
+			const validity = [
+				...scalarValidity(requiredScalarTextPaths, "reject"),
+				...scalarValidity(optionalScalarTextPaths, "allow"),
+			].join(" and ");
 			binds.push(
 				el("bind", {
 					nodeset: guardCaseIdPath.toXPath(),
@@ -803,7 +825,7 @@ export function collectFieldLocations(
 			const path = parentPath.child(field.id);
 			const fieldRepeat = field.kind === "repeat" ? uuid : repeat;
 			result.set(uuid, { path, repeat: fieldRepeat });
-			walk(uuid, descendInto(field, path), fieldRepeat);
+			walk(uuid, descendFormPathIntoField(field, path), fieldRepeat);
 		}
 	};
 	walk(formUuid, FormPath.root(), undefined);
@@ -1030,8 +1052,12 @@ function accumulateExpressionInstances(
 	fixtureInstances: Map<string, string>,
 	lookupNaming: LookupWireNaming | undefined,
 ): void {
-	for (const instance of collectExpressionInstances(expression, lookupNaming)) {
-		addAccumulatedInstance(instance, instances, fixtureInstances);
+	for (const instance of collectExpressionInstances(
+		expression,
+		lookupNaming,
+		"xform",
+	)) {
+		addAccumulatedInstance(instance, instances, fixtureInstances, lookupNaming);
 	}
 }
 
@@ -1041,8 +1067,12 @@ function accumulatePredicateInstances(
 	fixtureInstances: Map<string, string>,
 	lookupNaming: LookupWireNaming | undefined,
 ): void {
-	for (const instance of collectPredicateInstances(predicate, lookupNaming)) {
-		addAccumulatedInstance(instance, instances, fixtureInstances);
+	for (const instance of collectPredicateInstances(
+		predicate,
+		lookupNaming,
+		"xform",
+	)) {
+		addAccumulatedInstance(instance, instances, fixtureInstances, lookupNaming);
 	}
 }
 
@@ -1050,12 +1080,11 @@ function addAccumulatedInstance(
 	instance: string,
 	instances: Set<RequiredInstance>,
 	fixtureInstances: Map<string, string>,
+	lookupNaming: LookupWireNaming | undefined,
 ): void {
 	if (instance === "casedb" || instance === "commcaresession") {
 		instances.add(instance);
 		return;
 	}
-	if (instance.startsWith(LOOKUP_FIXTURE_ID_PREFIX)) {
-		fixtureInstances.set(instance, instanceSourceFor(instance));
-	}
+	fixtureInstances.set(instance, instanceSourceFor(instance, lookupNaming));
 }

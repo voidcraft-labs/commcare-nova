@@ -38,13 +38,17 @@ import { runAuthAppMigrations } from "@/lib/auth/migrate";
 import { authMigrateOptions } from "@/lib/auth-migrate-options";
 import { NOVA_API_KEY_PREFIX } from "@/lib/auth-public";
 import { AUTH_TABLE_NAMES } from "@/lib/auth-schema-shared";
+import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
 import { log } from "@/lib/logger";
 
 const TEST_SECRET = "x".repeat(32);
 const TEST_USER_ID = "user-integration-test";
 
-const dbHandle = setupPerTestDatabase({ databaseNamePrefix: "auth_apikey_" });
+const dbHandle = setupPerTestDatabase({
+	databaseNamePrefix: "auth_apikey_",
+	establishLocalMigrationAuthority: true,
+});
 
 /**
  * Mirrors the api-key plugin config in `lib/auth.ts` (the production-shape mount
@@ -112,6 +116,7 @@ describe("api-key integration", () => {
 	let authDb: Kysely<AuthDatabase>;
 
 	beforeEach(async () => {
+		await runCaseStoreMigrations(dbHandle.db);
 		const { runMigrations } = await getMigrations(
 			authMigrateOptions(dbHandle.pool),
 		);

@@ -1,13 +1,14 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, withUserSequences } from "@/lib/__tests__/docHelpers";
-import { asUuid, type BlueprintDoc } from "@/lib/domain";
+import type { BlueprintDoc } from "@/lib/domain";
 import { summarizeBlueprint } from "../summarizeBlueprint";
 
 describe("summarizeBlueprint users projection", () => {
 	it("exposes stable property, role, and persona identities for follow-up edits", () => {
-		const propertyUuid = asUuid("property-region");
-		const roleUuid = asUuid("role-chw");
-		const personaUuid = asUuid("persona-asha");
+		const propertyUuid = testUuid("property-region");
+		const roleUuid = testUuid("role-chw");
+		const personaUuid = testUuid("persona-asha");
 		const doc: BlueprintDoc = withUserSequences({
 			...buildDoc(),
 			userProperties: {

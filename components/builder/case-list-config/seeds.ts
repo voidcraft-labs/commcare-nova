@@ -18,15 +18,15 @@
 // click away in the Match picker.
 
 import { columnAddMutation } from "@/lib/doc/caseListColumnMutations";
+import type { ProseProjector } from "@/lib/doc/hooks/useProseProjection";
 import type { Mutation, Uuid } from "@/lib/doc/types";
 import {
-	authorableCaseProperties,
 	type CaseListConfig,
 	type CaseProperty,
 	type CaseType,
 	type Column,
 	calculatedColumn,
-	canonicalCasePropertyName,
+	DATE_FORMAT_PRESET_DEFINITIONS,
 	dateColumn,
 	effectiveDataType,
 	fuzzyMode,
@@ -110,7 +110,7 @@ export function pickSeedProperty(
 	caseType: CaseType | undefined,
 	used: ReadonlySet<string>,
 ): CaseProperty | undefined {
-	const props = authorableCaseProperties(caseType?.properties ?? []);
+	const props = caseType?.properties ?? [];
 	if (props.length === 0) return undefined;
 	const unused = props.filter((p) => !used.has(p.name));
 	const textUnused = unused.filter((p) => effectiveDataType(p) === "text");
@@ -123,10 +123,8 @@ export function pickSeedProperty(
 }
 
 /** The widget a property's data type naturally renders as. Select-typed
- *  properties render as `text`, NOT `select`: the wire prompt carries no
- *  itemset slot, so a `select` search input is rejected by the commit
- *  gate outright (`searchInputSelectWidgetNotSupported`) — and a seed /
- *  reseed must land working. */
+ * properties use text because Search's final widget vocabulary has no choice
+ * list without a fixture-backed option source. */
 export function widgetTypeForProperty(property: CaseProperty): SearchInputType {
 	switch (effectiveDataType(property)) {
 		case "date":
@@ -148,17 +146,16 @@ export function widgetTypeForProperty(property: CaseProperty): SearchInputType {
 export function seedSearchInput(
 	config: CaseListConfig,
 	caseType: CaseType | undefined,
+	project: ProseProjector,
 ): SearchInputDef | undefined {
 	const used = new Set(
 		config.searchInputs.flatMap((s) =>
-			s.kind === "simple" && s.property !== ""
-				? [canonicalCasePropertyName(s.property)]
-				: [],
+			s.kind === "simple" ? [s.property] : [],
 		),
 	);
 	const property = pickSeedProperty(caseType, used);
 	if (property === undefined) return undefined;
-	return seedSearchInputForProperty(config, property);
+	return seedSearchInputForProperty(config, property, project);
 }
 
 /**
@@ -169,29 +166,22 @@ export function seedSearchInput(
 export function seedSearchInputForProperty(
 	config: CaseListConfig,
 	property: CaseProperty,
+	project: ProseProjector,
 ): SimpleSearchInputDef {
-	const canonicalProperty = {
-		...property,
-		name: canonicalCasePropertyName(property.name),
-	};
-	const type = widgetTypeForProperty(canonicalProperty);
-	// Text searches fuzzily by default; date / select widgets
-	// keep the per-type default (exact pick-a-value). Fuzzy is gated on
+	const type = widgetTypeForProperty(property);
+	// Text searches fuzzily by default; date and barcode widgets keep their
+	// per-type default. Fuzzy is gated on
 	// the property's data type too — a number property also renders as
 	// a text widget, but fuzzy is text-only and would seed an invalid row.
 	const fuzzyAdmitted =
-		SEARCH_MODE_PROPERTY_TYPES.fuzzy?.includes(
-			effectiveDataType(canonicalProperty),
-		) ?? true;
+		SEARCH_MODE_PROPERTY_TYPES.fuzzy?.includes(effectiveDataType(property)) ??
+		true;
 	return simpleSearchInputDef(
 		newUuid(),
-		uniqueInputName(
-			xmlNameFromProperty(canonicalProperty.name),
-			config.searchInputs,
-		),
-		propertyDisplayLabel(canonicalProperty),
+		uniqueInputName(xmlNameFromProperty(property.name), config.searchInputs),
+		propertyDisplayLabel(property, project),
 		type,
-		canonicalProperty.name,
+		property.name,
 		type === "text" && fuzzyAdmitted ? { mode: fuzzyMode() } : {},
 	);
 }
@@ -204,18 +194,15 @@ export function seedSearchInputForProperty(
 export function seedColumn(
 	config: CaseListConfig,
 	caseType: CaseType | undefined,
+	project: ProseProjector,
 	slots?: { visibleInList?: boolean; visibleInDetail?: boolean },
 ): Column | undefined {
 	const used = new Set(
-		config.columns.flatMap((c) =>
-			c.kind !== "calculated" && c.field !== ""
-				? [canonicalCasePropertyName(c.field)]
-				: [],
-		),
+		config.columns.flatMap((c) => (c.kind !== "calculated" ? [c.field] : [])),
 	);
 	const property = pickSeedProperty(caseType, used);
 	if (property === undefined) return undefined;
-	return seedColumnForProperty(property, slots);
+	return seedColumnForProperty(property, project, slots);
 }
 
 /** Build a presentable display field for the property the author explicitly
@@ -223,12 +210,19 @@ export function seedColumn(
  * information they meant. */
 export function seedColumnForProperty(
 	property: CaseProperty,
+	project: ProseProjector,
 	slots?: { visibleInList?: boolean; visibleInDetail?: boolean },
 ): Column {
-	const header = propertyDisplayLabel(property);
+	const header = propertyDisplayLabel(property, project);
 	const dataType = effectiveDataType(property);
 	if (dataType === "date" || dataType === "datetime") {
-		return dateColumn(newUuid(), property.name, header, "%Y-%m-%d", slots);
+		return dateColumn(
+			newUuid(),
+			property.name,
+			header,
+			DATE_FORMAT_PRESET_DEFINITIONS.iso.commCarePattern,
+			slots,
+		);
 	}
 	return plainColumn(newUuid(), property.name, header, slots);
 }
@@ -259,13 +253,11 @@ export function unrepresentedColumnProperties(
 ): readonly CaseProperty[] {
 	const represented = new Set(
 		config.columns.flatMap((column) =>
-			column.kind !== "calculated" && column.field !== ""
-				? [canonicalCasePropertyName(column.field)]
-				: [],
+			column.kind !== "calculated" ? [column.field] : [],
 		),
 	);
-	return authorableCaseProperties(caseType?.properties ?? []).filter(
-		(property) => !represented.has(canonicalCasePropertyName(property.name)),
+	return (caseType?.properties ?? []).filter(
+		(property) => !represented.has(property.name),
 	);
 }
 
@@ -278,12 +270,10 @@ export function representedColumnProperties(
 ): readonly CaseProperty[] {
 	const represented = new Set(
 		config.columns.flatMap((column) =>
-			column.kind !== "calculated" && column.field !== ""
-				? [canonicalCasePropertyName(column.field)]
-				: [],
+			column.kind !== "calculated" ? [column.field] : [],
 		),
 	);
-	return authorableCaseProperties(caseType?.properties ?? []).filter(
-		(property) => represented.has(canonicalCasePropertyName(property.name)),
+	return (caseType?.properties ?? []).filter((property) =>
+		represented.has(property.name),
 	);
 }

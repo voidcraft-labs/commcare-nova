@@ -7,9 +7,9 @@
 // comes back intact).
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import type { Mutation } from "@/lib/doc/types";
 import {
-	asUuid,
 	type CaseListConfig,
 	type Column,
 	emptyCaseListConfig,
@@ -26,14 +26,14 @@ import {
 } from "../tile/tileMutationPlan";
 import { TILE_PRESETS } from "../tile/tilePresets";
 
-const MODULE = asUuid("module-1");
+const MODULE = testUuid("module-1");
 
 function column(
 	id: string,
 	header: string,
 	slots: Partial<Column> = {},
 ): Column {
-	return { ...plainColumn(asUuid(id), id, header), ...slots } as Column;
+	return { ...plainColumn(testUuid(id), id, header), ...slots } as Column;
 }
 
 /**
@@ -71,7 +71,7 @@ describe("planTileLayoutEnable", () => {
 		const plan = planTileLayoutEnable({
 			moduleUuid: MODULE,
 			config: config([
-				column("name", "Patient name"),
+				column("case_name", "Patient name"),
 				column("village", "Village"),
 			]),
 		});
@@ -80,8 +80,8 @@ describe("planTileLayoutEnable", () => {
 
 		expect(placements(plan.mutations)).toEqual(
 			new Map([
-				["name", tileCell(0, 0, 12, 1)],
-				["village", tileCell(0, 1, 12, 1)],
+				[testUuid("case_name"), tileCell(0, 0, 12, 1)],
+				[testUuid("village"), tileCell(0, 1, 12, 1)],
 			]),
 		);
 		// The layout switch lands last, so the doc is never momentarily a
@@ -92,8 +92,7 @@ describe("planTileLayoutEnable", () => {
 		expect(layout[0]).toEqual({
 			kind: "setCaseListMeta",
 			uuid: MODULE,
-			patch: {},
-			tilePatch: {},
+			patch: { tile: {} },
 		});
 	});
 
@@ -101,7 +100,7 @@ describe("planTileLayoutEnable", () => {
 		const plan = planTileLayoutEnable({
 			moduleUuid: MODULE,
 			config: config([
-				column("name", "Patient name", {
+				column("case_name", "Patient name", {
 					tile: tileCell(0, 3, 6, 2, { fontSize: "large" }),
 				}),
 				column("village", "Village"),
@@ -110,8 +109,8 @@ describe("planTileLayoutEnable", () => {
 		expect(plan.ok).toBe(true);
 		if (!plan.ok) return;
 		const written = placements(plan.mutations);
-		expect(written.has("name")).toBe(false);
-		expect(written.get("village")).toEqual(tileCell(0, 0, 12, 1));
+		expect(written.has(testUuid("case_name"))).toBe(false);
+		expect(written.get(testUuid("village"))).toEqual(tileCell(0, 0, 12, 1));
 	});
 
 	it("leaves a hidden default-order field unplaced — it draws nothing", () => {
@@ -120,7 +119,7 @@ describe("planTileLayoutEnable", () => {
 		const plan = planTileLayoutEnable({
 			moduleUuid: MODULE,
 			config: config([
-				column("name", "Patient name"),
+				column("case_name", "Patient name"),
 				column("registered", "Registered on", {
 					visibleInList: false,
 					sort: { direction: "asc", priority: 1 },
@@ -129,20 +128,24 @@ describe("planTileLayoutEnable", () => {
 		});
 		expect(plan.ok).toBe(true);
 		if (!plan.ok) return;
-		expect([...placements(plan.mutations).keys()]).toEqual(["name"]);
+		expect([...placements(plan.mutations).keys()]).toEqual([
+			testUuid("case_name"),
+		]);
 	});
 
 	it("leaves a Details-only field alone — the tile does not carry it", () => {
 		const plan = planTileLayoutEnable({
 			moduleUuid: MODULE,
 			config: config([
-				column("name", "Patient name"),
+				column("case_name", "Patient name"),
 				column("notes", "Notes", { visibleInList: false }),
 			]),
 		});
 		expect(plan.ok).toBe(true);
 		if (!plan.ok) return;
-		expect([...placements(plan.mutations).keys()]).toEqual(["name"]);
+		expect([...placements(plan.mutations).keys()]).toEqual([
+			testUuid("case_name"),
+		]);
 	});
 
 	it("refuses an empty Results screen with a reason, not an empty grid", () => {
@@ -174,7 +177,7 @@ describe("planTileLayoutEnable", () => {
 		const plan = planTileLayoutEnable({
 			moduleUuid: MODULE,
 			config: config([
-				column("name", "Patient name", {
+				column("case_name", "Patient name", {
 					tile: tileCell(0, 0, 12, 12),
 				}),
 				column("village", "Village"),
@@ -190,7 +193,7 @@ describe("planTileLayoutEnable", () => {
 describe("planTileLayoutDisable", () => {
 	it("clears the layout and touches nothing else, so every cell survives", () => {
 		expect(planTileLayoutDisable(MODULE)).toEqual([
-			{ kind: "setCaseListMeta", uuid: MODULE, patch: {}, tilePatch: null },
+			{ kind: "setCaseListMeta", uuid: MODULE, patch: { tile: null } },
 		]);
 	});
 });
@@ -201,15 +204,12 @@ describe("planTilePersistOnForms", () => {
 			{
 				kind: "setCaseListMeta",
 				uuid: MODULE,
-				patch: {},
-				tilePatch: { persistOnForms: true },
+				patch: { tile: { persistOnForms: true } },
 			},
 		]);
 		expect(
 			planTilePersistOnForms(MODULE, false, { persistOnForms: true }),
-		).toEqual([
-			{ kind: "setCaseListMeta", uuid: MODULE, patch: {}, tilePatch: {} },
-		]);
+		).toEqual([{ kind: "setCaseListMeta", uuid: MODULE, patch: { tile: {} } }]);
 	});
 
 	it("rebuilds the layout it was given rather than replacing it", () => {
@@ -221,9 +221,11 @@ describe("planTilePersistOnForms", () => {
 		} as unknown as Parameters<typeof planTilePersistOnForms>[2];
 		const [off] = planTilePersistOnForms(MODULE, false, withFutureSlot);
 		const [on] = planTilePersistOnForms(MODULE, true, withFutureSlot);
-		expect(off).toMatchObject({ tilePatch: { futureSlot: "kept" } });
+		expect(off).toMatchObject({ patch: { tile: { futureSlot: "kept" } } });
 		expect(on).toMatchObject({
-			tilePatch: { futureSlot: "kept", persistOnForms: true },
+			patch: {
+				tile: { futureSlot: "kept", persistOnForms: true },
+			},
 		});
 	});
 });
@@ -237,7 +239,7 @@ describe("planTilePreset", () => {
 		const plan = planTilePreset({
 			moduleUuid: MODULE,
 			config: config([
-				column("name", "Patient name", {
+				column("case_name", "Patient name", {
 					tile: tileCell(0, 4, 3, 1, {
 						fontSize: "large",
 						horizontalAlign: "center",
@@ -252,13 +254,13 @@ describe("planTilePreset", () => {
 		expect(placements(plan.mutations)).toEqual(
 			new Map([
 				[
-					"name",
+					testUuid("case_name"),
 					tileCell(0, 0, 6, 1, {
 						fontSize: "large",
 						horizontalAlign: "center",
 					}),
 				],
-				["village", tileCell(6, 0, 6, 1)],
+				[testUuid("village"), tileCell(6, 0, 6, 1)],
 			]),
 		);
 		expect(layoutWrites(plan.mutations)).toHaveLength(0);
@@ -282,10 +284,10 @@ describe("planTilePreset", () => {
 		});
 		expect(plan.ok).toBe(true);
 		if (!plan.ok) return;
-		expect(placements(plan.mutations).get("first")).toEqual(
+		expect(placements(plan.mutations).get(testUuid("first"))).toEqual(
 			tileCell(0, 0, 6, 1),
 		);
-		expect(placements(plan.mutations).get("second")).toEqual(
+		expect(placements(plan.mutations).get(testUuid("second"))).toEqual(
 			tileCell(6, 0, 6, 1),
 		);
 	});
@@ -310,16 +312,16 @@ describe("planTilePlaceField", () => {
 		const plan = planTilePlaceField({
 			moduleUuid: MODULE,
 			config: config([
-				column("name", "Patient name", {
+				column("case_name", "Patient name", {
 					tile: tileCell(0, 0, 12, 1),
 				}),
 				column("village", "Village"),
 			]),
-			uuid: asUuid("village"),
+			uuid: testUuid("village"),
 		});
 		expect(plan.ok).toBe(true);
 		if (!plan.ok) return;
-		expect(placements(plan.mutations).get("village")).toEqual(
+		expect(placements(plan.mutations).get(testUuid("village"))).toEqual(
 			tileCell(0, 1, 12, 1),
 		);
 	});
@@ -328,12 +330,12 @@ describe("planTilePlaceField", () => {
 		const plan = planTilePlaceField({
 			moduleUuid: MODULE,
 			config: config([
-				column("name", "Patient name", {
+				column("case_name", "Patient name", {
 					tile: tileCell(0, 0, 12, 12),
 				}),
 				column("village", "Village"),
 			]),
-			uuid: asUuid("village"),
+			uuid: testUuid("village"),
 		});
 		expect(plan.ok).toBe(false);
 		expect(plan.ok === false && plan.reason).toBe(
@@ -344,7 +346,7 @@ describe("planTilePlaceField", () => {
 
 describe("tileCellMutations", () => {
 	it("writes a placement as its own mergeable slot", () => {
-		const source = column("name", "Patient name");
+		const source = column("case_name", "Patient name");
 		const [mutation] = tileCellMutations(MODULE, source, tileCell(1, 2, 3, 4));
 		expect(mutation).toMatchObject({
 			kind: "updateColumn",
@@ -355,7 +357,7 @@ describe("tileCellMutations", () => {
 	});
 
 	it("clears a placement with an explicit null so the clear survives JSON", () => {
-		const source = column("name", "Patient name", {
+		const source = column("case_name", "Patient name", {
 			tile: tileCell(0, 0, 6, 1),
 		});
 		const [mutation] = tileCellMutations(MODULE, source, undefined);
@@ -363,7 +365,7 @@ describe("tileCellMutations", () => {
 	});
 
 	it("plans nothing when the placement is unchanged", () => {
-		const source = column("name", "Patient name", {
+		const source = column("case_name", "Patient name", {
 			tile: tileCell(0, 0, 6, 1),
 		});
 		expect(tileCellMutations(MODULE, source, tileCell(0, 0, 6, 1))).toEqual([]);

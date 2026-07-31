@@ -47,7 +47,7 @@ import { runValidation } from "@/lib/commcare/validator/runner";
 import { validateXForm } from "@/lib/commcare/validator/xformOracle";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc } from "@/lib/domain";
-import type { AssetId } from "@/lib/domain/multimedia";
+import type { MediaAssetId } from "@/lib/domain/multimedia";
 import {
 	blueprintDocArbitrary,
 	type FuzzMediaAsset,
@@ -95,14 +95,14 @@ function prepareAndGuard(doc: BlueprintDoc): void {
  * upload route, not by the oracles), so empty placeholder bytes are fine.
  */
 function toAssetManifest(
-	fuzzManifest: ReadonlyMap<AssetId, FuzzMediaAsset>,
+	fuzzManifest: ReadonlyMap<MediaAssetId, FuzzMediaAsset>,
 	withBytes: boolean,
 ): AssetManifest {
 	// All assets share one zero-byte buffer — the wire-path dedup in the
 	// bundler keys on `wirePath`, not on the buffer identity, and the
 	// archive bytes themselves aren't an oracle concern in this fuzz.
 	const placeholderBytes = withBytes ? Buffer.alloc(0) : undefined;
-	const m = new Map<AssetId, ResolvedMediaAsset>();
+	const m = new Map<MediaAssetId, ResolvedMediaAsset>();
 	for (const [id, fuzz] of fuzzManifest) {
 		m.set(id, {
 			assetId: fuzz.assetId,
@@ -119,7 +119,7 @@ function toAssetManifest(
 
 /** The set of wire paths the oracle's media-resolution check resolves against. */
 function wirePathSet(
-	fuzzManifest: ReadonlyMap<AssetId, FuzzMediaAsset>,
+	fuzzManifest: ReadonlyMap<MediaAssetId, FuzzMediaAsset>,
 ): Set<string> {
 	return new Set(Array.from(fuzzManifest.values(), (asset) => asset.wirePath));
 }

@@ -118,7 +118,7 @@ function evalNode(
 		return raw.slice(1, -1);
 	}
 
-	// ── Hashtag references (#case/prop, #form/id, #user/prop) ──
+	// ── Hashtag references (#<case-type>/prop, #form/id, #user/prop) ──
 	if (type === T.HashtagRef) {
 		const text = source.slice(node.from, node.to);
 		return ctx.resolveHashtag(text);

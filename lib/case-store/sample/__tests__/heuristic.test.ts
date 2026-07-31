@@ -26,6 +26,7 @@ import addFormats from "ajv-formats";
 import { describe, expect, it } from "vitest";
 import type { CaseType } from "@/lib/domain";
 import { caseTypeToJsonSchema } from "@/lib/domain/predicate/jsonSchema";
+import { proseText } from "@/lib/domain/prose";
 import type { JsonObject } from "../../sql/database";
 import { HeuristicCaseGenerator } from "../heuristic";
 import { createSeededPrng, hashStringToUint32 } from "../prng";
@@ -41,40 +42,40 @@ import { createSeededPrng, hashStringToUint32 } from "../prng";
 const PATIENT_CASE_TYPE: CaseType = {
 	name: "patient",
 	properties: [
-		{ name: "name", label: "Name", data_type: "text" },
-		{ name: "age", label: "Age", data_type: "int" },
-		{ name: "weight", label: "Weight (kg)", data_type: "decimal" },
-		{ name: "dob", label: "DOB", data_type: "date" },
+		{ name: "name", label: proseText("Name"), data_type: "text" },
+		{ name: "age", label: proseText("Age"), data_type: "int" },
+		{ name: "weight", label: proseText("Weight (kg)"), data_type: "decimal" },
+		{ name: "dob", label: proseText("DOB"), data_type: "date" },
 		{
 			name: "registered_on",
-			label: "Registered",
+			label: proseText("Registered"),
 			data_type: "datetime",
 		},
-		{ name: "visit_time", label: "Visit Time", data_type: "time" },
+		{ name: "visit_time", label: proseText("Visit Time"), data_type: "time" },
 		{
 			name: "color",
-			label: "Color",
+			label: proseText("Color"),
 			data_type: "single_select",
 			options: [
-				{ value: "red", label: "Red" },
-				{ value: "blue", label: "Blue" },
-				{ value: "green", label: "Green" },
+				{ value: "red", label: proseText("Red") },
+				{ value: "blue", label: proseText("Blue") },
+				{ value: "green", label: proseText("Green") },
 			],
 		},
 		{
 			name: "tags",
-			label: "Tags",
+			label: proseText("Tags"),
 			data_type: "multi_select",
 			options: [
-				{ value: "urgent", label: "Urgent" },
-				{ value: "followup", label: "Followup" },
-				{ value: "stable", label: "Stable" },
-				{ value: "review", label: "Review" },
+				{ value: "urgent", label: proseText("Urgent") },
+				{ value: "followup", label: proseText("Followup") },
+				{ value: "stable", label: proseText("Stable") },
+				{ value: "review", label: proseText("Review") },
 			],
 		},
 		{
 			name: "home_location",
-			label: "Home Location",
+			label: proseText("Home Location"),
 			data_type: "geopoint",
 		},
 	],
@@ -82,13 +83,15 @@ const PATIENT_CASE_TYPE: CaseType = {
 
 const HOUSEHOLD_CASE_TYPE: CaseType = {
 	name: "household",
-	properties: [{ name: "region", label: "Region", data_type: "text" }],
+	properties: [
+		{ name: "region", label: proseText("Region"), data_type: "text" },
+	],
 };
 
 const PATIENT_WITH_PARENT_CASE_TYPE: CaseType = {
 	name: "patient",
 	parent_type: "household",
-	properties: [{ name: "name", label: "Name", data_type: "text" }],
+	properties: [{ name: "name", label: proseText("Name"), data_type: "text" }],
 };
 
 // ---------------------------------------------------------------
@@ -247,15 +250,70 @@ describe("HeuristicCaseGenerator", () => {
 		}
 	});
 
+	it("keeps explicitly declared scalar properties out of generated JSONB", () => {
+		const caseType: CaseType = {
+			name: "patient",
+			properties: [
+				{ name: "case_id", label: proseText("Case ID"), data_type: "text" },
+				{
+					name: "case_type",
+					label: proseText("Case type"),
+					data_type: "text",
+				},
+				{
+					name: "case_name",
+					label: proseText("Case name"),
+					data_type: "text",
+				},
+				{
+					name: "date_opened",
+					label: proseText("Date opened"),
+					data_type: "datetime",
+				},
+				{
+					name: "last_modified",
+					label: proseText("Last modified"),
+					data_type: "datetime",
+				},
+				{ name: "owner_id", label: proseText("Owner"), data_type: "text" },
+				{
+					name: "external_id",
+					label: proseText("External ID"),
+					data_type: "text",
+				},
+				{ name: "status", label: proseText("Status"), data_type: "text" },
+				{ name: "notes", label: proseText("Notes"), data_type: "text" },
+			],
+		};
+		const rows = generator.generate({
+			appId: "app-1",
+			caseType,
+			count: 2,
+			seed: "explicit-scalars",
+		});
+		const validate = new Ajv2020({ strict: false }).compile(
+			caseTypeToJsonSchema(caseType),
+		);
+
+		for (const row of rows) {
+			expect(row.properties).toEqual({
+				notes: expect.any(String),
+			});
+			expect(row.external_id).toMatch(/^PAT-\d{4,}$/);
+			expect(row.status).toBe("open");
+			expect(validate(row.properties)).toBe(true);
+		}
+	});
+
 	it("does not consume the existing property, name, or parent PRNG stream", () => {
 		const rows = generator.generate({
 			appId: "app-1",
 			caseType: {
 				name: "patient",
 				properties: [
-					{ name: "name", label: "Name", data_type: "text" },
-					{ name: "age", label: "Age", data_type: "int" },
-					{ name: "dob", label: "DOB", data_type: "date" },
+					{ name: "name", label: proseText("Name"), data_type: "text" },
+					{ name: "age", label: proseText("Age"), data_type: "int" },
+					{ name: "dob", label: proseText("DOB"), data_type: "date" },
 				],
 			},
 			count: 2,
@@ -425,7 +483,7 @@ describe("HeuristicCaseGenerator property-name heuristic", () => {
 	it("'age' produces ints uniformly in [15, 80)", () => {
 		const caseType: CaseType = {
 			name: "person",
-			properties: [{ name: "age", label: "Age", data_type: "int" }],
+			properties: [{ name: "age", label: proseText("Age"), data_type: "int" }],
 		};
 		const rows = generator.generate({
 			appId: "app-1",
@@ -445,8 +503,12 @@ describe("HeuristicCaseGenerator property-name heuristic", () => {
 		const caseType: CaseType = {
 			name: "stock",
 			properties: [
-				{ name: "item_count", label: "Count", data_type: "int" },
-				{ name: "total_quantity", label: "Quantity", data_type: "int" },
+				{ name: "item_count", label: proseText("Count"), data_type: "int" },
+				{
+					name: "total_quantity",
+					label: proseText("Quantity"),
+					data_type: "int",
+				},
 			],
 		};
 		const rows = generator.generate({
@@ -469,7 +531,7 @@ describe("HeuristicCaseGenerator property-name heuristic", () => {
 		const caseType: CaseType = {
 			name: "vital",
 			properties: [
-				{ name: "temperature", label: "Temp", data_type: "decimal" },
+				{ name: "temperature", label: proseText("Temp"), data_type: "decimal" },
 			],
 		};
 		const rows = generator.generate({
@@ -488,7 +550,9 @@ describe("HeuristicCaseGenerator property-name heuristic", () => {
 	it("'name' text is a multi-word string", () => {
 		const caseType: CaseType = {
 			name: "person",
-			properties: [{ name: "name", label: "Name", data_type: "text" }],
+			properties: [
+				{ name: "name", label: proseText("Name"), data_type: "text" },
+			],
 		};
 		const rows = generator.generate({
 			appId: "app-1",
@@ -506,7 +570,11 @@ describe("HeuristicCaseGenerator property-name heuristic", () => {
 		const caseType: CaseType = {
 			name: "person",
 			properties: [
-				{ name: "first_name", label: "First Name", data_type: "text" },
+				{
+					name: "first_name",
+					label: proseText("First Name"),
+					data_type: "text",
+				},
 			],
 		};
 		const rows = generator.generate({
@@ -528,11 +596,11 @@ describe("HeuristicCaseGenerator property-name heuristic", () => {
 			properties: [
 				{
 					name: "medication_name",
-					label: "Medication",
+					label: proseText("Medication"),
 					data_type: "text",
 				},
-				{ name: "drug_given", label: "Drug", data_type: "text" },
-				{ name: "treatment", label: "Treatment", data_type: "text" },
+				{ name: "drug_given", label: proseText("Drug"), data_type: "text" },
+				{ name: "treatment", label: proseText("Treatment"), data_type: "text" },
 			],
 		};
 		const rows = generator.generate({
@@ -556,9 +624,17 @@ describe("HeuristicCaseGenerator property-name heuristic", () => {
 		const caseType: CaseType = {
 			name: "prescription",
 			properties: [
-				{ name: "medication_dose", label: "Dose", data_type: "text" },
-				{ name: "drug_status", label: "Status", data_type: "text" },
-				{ name: "treatment_notes", label: "Notes", data_type: "text" },
+				{
+					name: "medication_dose",
+					label: proseText("Dose"),
+					data_type: "text",
+				},
+				{ name: "drug_status", label: proseText("Status"), data_type: "text" },
+				{
+					name: "treatment_notes",
+					label: proseText("Notes"),
+					data_type: "text",
+				},
 			],
 		};
 		const rows = generator.generate({
@@ -589,9 +665,21 @@ describe("HeuristicCaseGenerator property-name heuristic", () => {
 		const caseType: CaseType = {
 			name: "patient",
 			properties: [
-				{ name: "patient_id", label: "Patient ID", data_type: "text" },
-				{ name: "record_number", label: "Record number", data_type: "text" },
-				{ name: "external_code", label: "External code", data_type: "text" },
+				{
+					name: "patient_id",
+					label: proseText("Patient ID"),
+					data_type: "text",
+				},
+				{
+					name: "record_number",
+					label: proseText("Record number"),
+					data_type: "text",
+				},
+				{
+					name: "external_code",
+					label: proseText("External code"),
+					data_type: "text",
+				},
 			],
 		};
 		const rows = generator.generate({
@@ -614,9 +702,9 @@ describe("HeuristicCaseGenerator property-name heuristic", () => {
 		const caseType: CaseType = {
 			name: "visit",
 			properties: [
-				{ name: "clinic_name", label: "Clinic", data_type: "text" },
-				{ name: "facility", label: "Facility", data_type: "text" },
-				{ name: "site", label: "Site", data_type: "text" },
+				{ name: "clinic_name", label: proseText("Clinic"), data_type: "text" },
+				{ name: "facility", label: proseText("Facility"), data_type: "text" },
+				{ name: "site", label: proseText("Site"), data_type: "text" },
 			],
 		};
 		const rows = generator.generate({
@@ -638,10 +726,10 @@ describe("HeuristicCaseGenerator property-name heuristic", () => {
 		const caseType: CaseType = {
 			name: "follow_up",
 			properties: [
-				{ name: "notes", label: "Notes", data_type: "text" },
+				{ name: "notes", label: proseText("Notes"), data_type: "text" },
 				{
 					name: "clinical_notes",
-					label: "Clinical notes",
+					label: proseText("Clinical notes"),
 					data_type: "text",
 				},
 			],

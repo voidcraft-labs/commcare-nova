@@ -41,10 +41,10 @@
 //      instance.
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import {
 	advancedSearchInputDef,
-	asUuid,
 	type CaseListConfig,
 	type CaseSearchConfig,
 	calculatedColumn,
@@ -65,13 +65,14 @@ import {
 	whenInput,
 } from "@/lib/domain/predicate";
 import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
+import { proseText } from "@/lib/domain/prose";
 import { emitSearchSession } from "../searchSession";
 import type { WireShape } from "../types";
 
 // ── Test helpers ────────────────────────────────────────────────────
 
 const INPUT_UUIDS = {
-	a: asUuid("00000000-0000-4000-8000-aaaa00000001"),
+	a: testUuid("00000000-0000-4000-8000-aaaa00000001"),
 } as const;
 
 const WEB_LIST_FIRST: WireShape = {
@@ -360,13 +361,28 @@ describe("emitSearchSession — _xpath_query AND-composition", () => {
 		// satisfies the validator rule
 		// `searchInputRefUsesWhenInputPresent` (every bare input ref
 		// in the composed `_xpath_query` must be gated).
-		const baseAge = { kind: "input" as const, name: "base_age" };
+		const baseAgeUuid = testUuid("base_age");
+		const baseAge = {
+			kind: "input" as const,
+			searchInputUuid: baseAgeUuid,
+		};
 		const filter = whenInput(
 			baseAge,
 			eq(prop("patient", "age"), arith("+", term(baseAge), term(literal(1)))),
 		);
 		const { instances, xml } = emitSearchSession({
-			caseListConfig: makeListConfig({ filter }),
+			caseListConfig: makeListConfig({
+				filter,
+				searchInputs: [
+					advancedSearchInputDef(
+						baseAgeUuid,
+						"base_age",
+						"Base age",
+						"text",
+						matchAll(),
+					),
+				],
+			}),
 			caseSearchConfig: {},
 			wire: WEB_LIST_FIRST,
 			caseType: "patient",
@@ -398,7 +414,7 @@ describe("emitSearchSession — _xpath_query AND-composition", () => {
 			caseListConfig: makeListConfig({
 				columns: [
 					calculatedColumn(
-						asUuid("00000000-0000-4000-8000-cccc00000001"),
+						testUuid("00000000-0000-4000-8000-cccc00000001"),
 						"Region tag",
 						concat(
 							term(region),
@@ -674,13 +690,19 @@ describe("emitSearchSession — simple-arm-with-via _xpath_query routing", () =>
 					properties: [
 						{
 							name: "visit_date",
-							label: "Visit date",
+							label: proseText("Visit date"),
 							data_type: "date",
 						},
 					],
 				},
 			],
-			knownInputs: [{ name: "household_visit", data_type: "date" }],
+			knownInputs: [
+				{
+					uuid: INPUT_UUIDS.a,
+					name: "household_visit",
+					data_type: "date",
+				},
+			],
 			currentCaseType: "patient",
 		};
 		const { xml } = emitSearchSession({
@@ -722,13 +744,19 @@ describe("emitSearchSession — simple-arm-with-via _xpath_query routing", () =>
 					properties: [
 						{
 							name: "last_seen",
-							label: "Last seen",
+							label: proseText("Last seen"),
 							data_type: "datetime",
 						},
 					],
 				},
 			],
-			knownInputs: [{ name: "household_seen", data_type: "date" }],
+			knownInputs: [
+				{
+					uuid: INPUT_UUIDS.a,
+					name: "household_seen",
+					data_type: "date",
+				},
+			],
 			currentCaseType: "patient",
 		};
 		const { xml } = emitSearchSession({
@@ -774,7 +802,7 @@ describe("emitSearchSession — simple-arm-with-via _xpath_query routing", () =>
 						"full_name",
 					),
 					simpleSearchInputDef(
-						asUuid("00000000-0000-4000-8000-aaaa00000002"),
+						testUuid("00000000-0000-4000-8000-aaaa00000002"),
 						"parent_region",
 						"Parent region",
 						"text",
@@ -1157,37 +1185,6 @@ describe("emitSearchSession — non-exact mode routing on self-walk inputs", () 
 		expect(xml).toContain("<validation");
 	});
 
-	it("does NOT route a blank-property simple input into _xpath_query (transient editor state, validator carries the authoring error)", () => {
-		// The schema admits `property === ""` as the "row added, not
-		// yet picked" transient editor state. Deriving a predicate
-		// against `prop(caseType, "", …)` would emit malformed XPath
-		// (`<empty> = instance(...)`); the wire emitter falls back to
-		// the bare-prompt shape so the compile path stays clean while
-		// the validator surfaces the authoring error as
-		// `CASE_LIST_SEARCH_INPUT_UNKNOWN_PROPERTY`.
-		const { xml } = emitSearchSession({
-			caseListConfig: makeListConfig({
-				searchInputs: [
-					simpleSearchInputDef(INPUT_UUIDS.a, "name_q", "Name", "text", "", {
-						mode: { kind: "fuzzy" },
-					}),
-				],
-			}),
-			caseSearchConfig: {},
-			wire: WEB_LIST_FIRST,
-			caseType: "patient",
-			moduleIndex: 0,
-		});
-		expect(xml).not.toContain(`<data key="_xpath_query"`);
-		// The prompt still emits — the typed value binds into
-		// `search-input:results` for downstream evaluation once the
-		// property is filled in.
-		expect(xml).toContain(`<prompt key="name_q"`);
-		// And the bare-prompt routing means no `exclude="true()"` —
-		// the prompt is in the transient state, not actively gated.
-		expect(xml).not.toContain(`exclude="true()"`);
-	});
-
 	it("does NOT route a self-walk `exact` simple input with `name === property` into _xpath_query (rides on bare prompt)", () => {
 		// The bare-prompt-correct shape: self-walk + default exact AND
 		// `name === property` so CCHQ's runtime auto-match against
@@ -1318,7 +1315,7 @@ describe("composeXPathQueryEmission — defense in depth on bare input refs", ()
 	it("throws when an advanced-arm predicate carries a bare input ref outside any when-input-present envelope", () => {
 		const bareRefPredicate = eq(
 			prop("patient", "city"),
-			term({ kind: "input", name: "city_q" }),
+			term({ kind: "input", searchInputUuid: INPUT_UUIDS.a }),
 		);
 		expect(() =>
 			emitSearchSession({
@@ -1357,6 +1354,6 @@ describe("composeXPathQueryEmission — CSQL representability defense", () => {
 				caseType: "patient",
 				moduleIndex: 0,
 			}),
-		).toThrow(/composed _xpath_query predicate is representable/);
+		).toThrow(/composed _xpath_query predicate is not representable/);
 	});
 });

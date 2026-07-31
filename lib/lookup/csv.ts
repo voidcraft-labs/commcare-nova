@@ -7,6 +7,7 @@ import {
 	LOOKUP_MAX_VALIDATION_DETAILS,
 } from "./constants";
 import { createLookupIssueCollector } from "./errors";
+import { formatLookupBytes, formatLookupCount } from "./format";
 import type {
 	LookupColumn,
 	LookupCsvDocument,
@@ -52,12 +53,13 @@ function invalidCsv(
  */
 export function parseLookupCsv(bytes: Uint8Array): LookupCsvParseResult {
 	if (bytes.byteLength > LOOKUP_MAX_CSV_BYTES) {
+		const limit = formatLookupBytes(LOOKUP_MAX_CSV_BYTES);
 		return invalidCsv(
-			`CSV exceeds the ${LOOKUP_MAX_CSV_BYTES}-byte limit.`,
+			`That CSV is ${formatLookupBytes(bytes.byteLength)}, which is over the ${limit} limit for one import.`,
 			[
 				{
 					code: "csv_too_large",
-					message: `CSV exceeds the ${LOOKUP_MAX_CSV_BYTES}-byte limit.`,
+					message: `Split it into smaller files, or remove some rows, so each import is at most ${limit}.`,
 				},
 			],
 			1,
@@ -109,6 +111,7 @@ export function parseLookupCsv(bytes: Uint8Array): LookupCsvParseResult {
 	const rows: LookupCsvWireRow[] = [];
 	let dataRecordCount = 0;
 	let rowLimitReported = false;
+	let rowLimitFirstSourceRow = 0;
 
 	const consumeRecord = (record: CsvRecord) => {
 		const sourceRow = headers === undefined ? 1 : dataRecordCount + 2;
@@ -137,12 +140,12 @@ export function parseLookupCsv(bytes: Uint8Array): LookupCsvParseResult {
 
 		dataRecordCount++;
 		if (dataRecordCount > LOOKUP_MAX_ROWS) {
+			/* Keep counting past the cap but stop collecting per-row issues: the
+			 * exact total is what the refusal after the loop reports, and a file
+			 * twice the limit would otherwise bury that one actionable fact under
+			 * a hundred incidental ones. */
 			if (!rowLimitReported) {
-				issues.add({
-					code: "row_limit",
-					row: sourceRow,
-					message: `CSV may contain at most ${LOOKUP_MAX_ROWS} data rows.`,
-				});
+				rowLimitFirstSourceRow = sourceRow;
 				rowLimitReported = true;
 			}
 			return;
@@ -337,6 +340,23 @@ export function parseLookupCsv(bytes: Uint8Array): LookupCsvParseResult {
 	// the preceding blank record and reports it as interior.
 	if (pending) consumeRecord(pending);
 
+	/* The row cap supersedes every other finding, and reports the count that was
+	 * actually measured. "At most 5,000 rows" alone leaves an author guessing
+	 * whether they are 6 rows over or 6,000 — the difference between deleting a
+	 * few and splitting the file. */
+	if (rowLimitReported) {
+		return invalidCsv(
+			`That CSV has ${formatLookupCount(dataRecordCount, "row")} of data, and a table holds at most ${formatLookupCount(LOOKUP_MAX_ROWS, "row")}.`,
+			[
+				{
+					code: "row_limit",
+					row: rowLimitFirstSourceRow,
+					message: `Remove ${formatLookupCount(dataRecordCount - LOOKUP_MAX_ROWS, "row")}, or split the data across two tables.`,
+				},
+			],
+			1,
+		);
+	}
 	if (issues.totalDetailCount > 0) {
 		return invalidCsv(
 			"CSV could not be imported.",

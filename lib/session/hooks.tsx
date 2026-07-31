@@ -11,6 +11,7 @@
 
 import { useContext, useMemo } from "react";
 import { useStore } from "zustand";
+import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { docHasData } from "@/lib/doc/predicates";
 import type { CommitOutcome, ConnectConfig, ConnectType } from "@/lib/domain";
@@ -146,7 +147,7 @@ export function useSetSidebarOpen(): (
  *  included. Returns the commit outcome so the caller's UI can react to
  *  a rejection. See `BuilderSessionState.switchConnectMode`. */
 export function useSwitchConnectMode(): (
-	type: ConnectType | null | undefined,
+	type: ConnectType | null,
 	stagedBlocks?: Record<string, ConnectConfig>,
 	opts?: { announce?: boolean },
 ) => CommitOutcome {
@@ -159,16 +160,6 @@ export function useSwitchConnectMode(): (
  *  committing. */
 export function useLastConnectType(): ConnectType | undefined {
 	return useBuilderSession((s) => s.lastConnectType);
-}
-
-/** Stash a single form's connect config by uuid. Used by form-level
- *  toggles that disable connect on an individual form. */
-export function useStashFormConnect(): (
-	mode: ConnectType,
-	formUuid: string,
-	config: ConnectConfig,
-) => void {
-	return useBuilderSession((s) => s.stashFormConnect);
 }
 
 /** Read a single form's stashed connect config. Returns `undefined` when
@@ -377,19 +368,45 @@ export function useCanEdit(): boolean {
 	return useStore(store, (s) => s.canEdit);
 }
 
+/**
+ * The Project this builder session's app belongs to — the tenancy every
+ * Project-scoped boundary authorizes against. `undefined` for a new build
+ * before the app row exists, and outside a session (the fallback store).
+ *
+ * This is the app's Project, NOT the user's mutable active Project: a
+ * Project-scoped write must carry the id from the state it is displaying, so
+ * another tab switching the active Project can never retarget it. A
+ * cross-Project move advances the scope epoch and reseeds this value, so a
+ * consumer keyed on both always follows the app.
+ */
+export function useProjectId(): string | undefined {
+	const store = useContext(BuilderSessionContext) ?? FALLBACK_SESSION_STORE;
+	return useStore(store, (s) => s.projectId);
+}
+
+/**
+ * Whether this session's user holds the Project's `delete` capability —
+ * admin or owner. It gates the irreversible and externally-visible edits an
+ * ordinary editor must not make on their own: deleting a Project data table,
+ * removing or retyping one of its columns, and changing a table tag or column
+ * wire name, all of which either destroy shared data or rewrite an external
+ * contract every referencing app depends on.
+ *
+ * Same three-layer discipline as `useCanEdit`: this hides the affordance,
+ * and the server re-gates the exact capability on the explicit Project
+ * (`runLookupAction`), which remains the authority.
+ */
+export function useCanDelete(): boolean {
+	const store = useContext(BuilderSessionContext) ?? FALLBACK_SESSION_STORE;
+	const role = useStore(store, (s) => s.role);
+	return role !== undefined && roleAllowsApp(role, "delete");
+}
+
 /** The lifecycle of the authoritative access tuple. Provider-optional for the
  *  same standalone builder leaves as `useCanEdit`; those default authorized. */
 export function useAccessPhase(): AccessPhase {
 	const store = useContext(BuilderSessionContext) ?? FALLBACK_SESSION_STORE;
 	return useStore(store, (s) => s.accessPhase);
-}
-
-/** The last authoritative Project identity for this builder session. It stays
- * stable while access refreshes and changes only when the snapshot confirms a
- * tenant move. */
-export function useProjectId(): string | undefined {
-	const store = useContext(BuilderSessionContext) ?? FALLBACK_SESSION_STORE;
-	return useStore(store, (s) => s.projectId);
 }
 
 /** Monotonic Project-scope generation. Consumers should normally subscribe to
@@ -435,10 +452,11 @@ export interface DerivePhaseSession {
  * - **Completed** — `runCompletedAt` stamped by `data-done`; cleared
  *   by `acknowledgeCompletion()` after the done-animation settles.
  * - **Generating** — a generation-stage mutation is in the buffer AND
- *   the run opened on an EMPTY doc (`runStartedWithData` false — an
- *   initial build). The run-start capture distinguishes a build from a
- *   post-build edit — both emit the same stage tags (`module:create`,
- *   `form:M-F`), so stage alone is ambiguous. An active run with no
+ *   the run began before app creation (`runStartedWithData` false — an
+ *   initial build). Canonical genesis arrives during that run, so the
+ *   run-start capture distinguishes a build from a post-build edit even
+ *   though both emit the same stage tags (`module:create`, `form:M-F`).
+ *   An active run with no
  *   stage yet (the planning / askQuestions window) stays in Idle;
  *   edits stay in Ready while the agent works.
  * - **Ready** — doc has data (a usable blueprint exists).

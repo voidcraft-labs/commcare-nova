@@ -9,7 +9,8 @@ import { deepEqual } from "@/lib/doc/deepEqual";
 import type { Mutation } from "@/lib/doc/types";
 import {
 	type CaseSearchConfig,
-	normalizeOwnerOnlyCaseSearchConfig,
+	isOwnerOnlyCaseSearchConfig,
+	type OrdinaryCaseSearchConfig,
 	type Uuid,
 } from "@/lib/domain";
 
@@ -26,35 +27,25 @@ const SETTINGS = [
 	"searchButtonDisplayCondition",
 ] as const satisfies readonly (keyof CaseSearchConfigPatch)[];
 
-/**
- * Plan one whole editor projection as independent setting writes. A local
- * whole-bag snapshot remains only as the pre-deploy reducer fallback; current
- * receivers apply `caseSearchConfigPatch` to fresh state so title, button,
- * condition, and owner edits commute.
- */
+/** Plan one whole editor projection as independent setting writes. */
 export function caseSearchConfigPatchMutations(
 	uuid: Uuid,
 	current: CaseSearchConfig | undefined,
 	next: CaseSearchConfig,
 ): Mutation[] {
-	if (next.searchActionEnabled === false) {
+	if (isOwnerOnlyCaseSearchConfig(next)) {
 		return [setOwnerOnlyCaseSearchMutation(uuid, next)];
 	}
 
-	const normalizedCurrent =
+	const currentEnabled =
+		current !== undefined && !isOwnerOnlyCaseSearchConfig(current);
+	const baseline: OrdinaryCaseSearchConfig =
 		current === undefined
-			? undefined
-			: normalizeOwnerOnlyCaseSearchConfig(current);
-	const currentEnabled = normalizedCurrent?.searchActionEnabled !== false;
-	const baseline: CaseSearchConfig =
-		normalizedCurrent === undefined
 			? {}
-			: (() => {
-					const { searchActionEnabled: _intent, ...enabled } =
-						normalizedCurrent;
-					return enabled;
-				})();
-	const desired = structuredClone(next);
+			: isOwnerOnlyCaseSearchConfig(current)
+				? { excludedOwnerIds: current.excludedOwnerIds }
+				: current;
+	const desired: OrdinaryCaseSearchConfig = structuredClone(next);
 	const patch: CaseSearchConfigPatch = {};
 	for (const key of SETTINGS) {
 		if (deepEqual(baseline[key], desired[key])) continue;
@@ -69,7 +60,7 @@ export function caseSearchConfigPatchMutations(
 		mutations.push({
 			kind: "updateModule",
 			uuid,
-			patch: { caseSearchConfig: desired },
+			patch: {},
 			caseSearchConfigPatch: patch,
 		});
 	}
@@ -86,7 +77,11 @@ export function clearCaseSearchConfigSettingsMutations(
 	current: CaseSearchConfig | undefined,
 ): Mutation[] {
 	if (current === undefined) return [];
-	const normalized = normalizeOwnerOnlyCaseSearchConfig(current);
+	const normalized: OrdinaryCaseSearchConfig = isOwnerOnlyCaseSearchConfig(
+		current,
+	)
+		? { excludedOwnerIds: current.excludedOwnerIds }
+		: current;
 	const patch: CaseSearchConfigPatch = {};
 	for (const key of SETTINGS) {
 		if (normalized[key] !== undefined) {
@@ -98,7 +93,7 @@ export function clearCaseSearchConfigSettingsMutations(
 		mutations.push({
 			kind: "updateModule",
 			uuid,
-			patch: { caseSearchConfig: null },
+			patch: {},
 			caseSearchConfigPatch: patch,
 		});
 	}

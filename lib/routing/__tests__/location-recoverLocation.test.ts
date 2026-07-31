@@ -18,7 +18,8 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { asUuid } from "@/lib/doc/types";
+import { testUuid } from "@/__tests__/helpers/uuid";
+
 import { type LocationDoc, recoverLocation } from "@/lib/routing/location";
 import type { Location } from "@/lib/routing/types";
 
@@ -27,14 +28,14 @@ import type { Location } from "@/lib/routing/types";
  * they pass into `Location` shapes without casts. `MISSING_*` uuids are
  * deliberately absent from the doc fixtures below.
  */
-const MOD_A = asUuid("mod-a");
-const MOD_B = asUuid("mod-b");
-const FORM_A = asUuid("form-a"); // lives in MOD_A's formOrder
-const FORM_B = asUuid("form-b"); // lives in MOD_B's formOrder
-const Q_1 = asUuid("q-1");
-const MISSING_MOD = asUuid("missing-mod");
-const MISSING_FORM = asUuid("missing-form");
-const MISSING_Q = asUuid("missing-q");
+const MOD_A = testUuid("mod-a");
+const MOD_B = testUuid("mod-b");
+const FORM_A = testUuid("form-a"); // lives in MOD_A's formOrder
+const FORM_B = testUuid("form-b"); // lives in MOD_B's formOrder
+const Q_1 = testUuid("q-1");
+const MISSING_MOD = testUuid("missing-mod");
+const MISSING_FORM = testUuid("missing-form");
+const MISSING_Q = testUuid("missing-q");
 
 /**
  * Minimal fixture with two modules, two forms (one per module), and one

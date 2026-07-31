@@ -26,7 +26,9 @@ import { getMigrations } from "better-auth/db/migration";
 import type { Kysely } from "kysely";
 import { runAuthAppMigrations } from "@/lib/auth/migrate";
 import { authMigrateOptions } from "@/lib/auth-migrate-options";
-import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
+import { withSchemaContext } from "@/lib/case-store";
+import { runCaseStoreMigrationsWithReport } from "@/lib/case-store/migrate";
+import { CANONICAL_IDENTITY_FOUNDATION_MIGRATION_NAME } from "@/lib/case-store/migrations";
 import {
 	closeCaseStoreDatabase,
 	getCaseStoreDatabase,
@@ -35,15 +37,47 @@ import {
 import {
 	convergeDatabasePrivileges,
 	readDatabasePrivilegeRoleConfig,
+	terminateAndAssertNoRuntimeDatabaseSessions,
 } from "@/lib/db/privilegeConvergence";
+import { runCanonicalRuntimeDatabaseProbe } from "@/lib/db/runtimeDatabaseProbe";
 
 async function main(): Promise<void> {
+	const args = process.argv.slice(2);
+	if (
+		args.length > 0 &&
+		(args.length !== 1 || args[0] !== "--terminate-runtime-sessions-only")
+	) {
+		throw new Error(`Unknown migration argument(s): ${args.join(", ")}`);
+	}
+	if (args[0] === "--terminate-runtime-sessions-only") {
+		const privilegeRoles = readDatabasePrivilegeRoleConfig();
+		if (privilegeRoles === null) {
+			throw new Error(
+				"Runtime-session termination is a production-only recovery operation.",
+			);
+		}
+		const db = await getCaseStoreDatabase();
+		const terminated = await terminateAndAssertNoRuntimeDatabaseSessions(
+			db as unknown as Kysely<unknown>,
+			privilegeRoles.runtimeRole,
+		);
+		console.log(
+			`[migrate] recovery runtime-session fence stable; terminated=${terminated}`,
+		);
+		return;
+	}
+
 	const pool = await getCaseStorePool();
 	const db = await getCaseStoreDatabase();
 	// `getCaseStoreDatabase()` is typed `Kysely<Database>`; the migrator takes the
 	// schema-agnostic `Kysely<unknown>` (it only issues raw `sql` + DDL).
-	await runCaseStoreMigrations(db as unknown as Kysely<unknown>);
+	const caseStoreMigrationReport = await runCaseStoreMigrationsWithReport(
+		db as unknown as Kysely<unknown>,
+	);
 	console.log("[migrate] case-store migrations applied");
+	const schemaStore = await withSchemaContext();
+	await schemaStore.drainAllPendingIndexConvergence();
+	console.log("[migrate] case-schema expression indexes converged");
 
 	// Better Auth's own migrator creates / updates the `auth_*` tables. It is
 	// introspection-based and idempotent (creates missing tables, adds missing
@@ -74,6 +108,32 @@ async function main(): Promise<void> {
 			privilegeRoles,
 		);
 		console.log("[migrate] database privileges converged");
+
+		if (
+			caseStoreMigrationReport.appliedMigrationNames.includes(
+				CANONICAL_IDENTITY_FOUNDATION_MIGRATION_NAME,
+			)
+		) {
+			const terminated = await terminateAndAssertNoRuntimeDatabaseSessions(
+				db as unknown as Kysely<unknown>,
+				privilegeRoles.runtimeRole,
+			);
+			console.log(
+				`[migrate] canonical cutover runtime-session fence stable; terminated=${terminated}`,
+			);
+		}
+
+		const runtimeProbe = await runCanonicalRuntimeDatabaseProbe(
+			db as unknown as Kysely<unknown>,
+			privilegeRoles.runtimeRole,
+		);
+		console.log(
+			JSON.stringify({
+				severity: "INFO",
+				message: "[migrate] runtime database probe passed",
+				...runtimeProbe,
+			}),
+		);
 	}
 }
 

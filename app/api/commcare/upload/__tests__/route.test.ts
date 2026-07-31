@@ -23,6 +23,7 @@ import { expandDoc } from "@/lib/commcare/expander";
 import { validationError } from "@/lib/commcare/validator/errors";
 import { resolveAppAccess } from "@/lib/db/appAccess";
 import { getCredentialsForUpload } from "@/lib/db/settings";
+import { proseText } from "@/lib/domain/prose";
 import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
 import { resolveMediaManifest } from "@/lib/media/manifest";
 import { POST } from "../route";
@@ -72,7 +73,10 @@ function validDoc() {
 	const { fieldParent: _fieldParent, ...doc } = buildDoc({
 		appName: "Vaccine Tracker",
 		caseTypes: [
-			{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+			{
+				name: "patient",
+				properties: [{ name: "case_name", label: proseText("Name") }],
+			},
 		],
 		modules: [
 			{
@@ -86,8 +90,8 @@ function validDoc() {
 							{
 								kind: "text",
 								id: "case_name",
-								label: "Name",
-								case_property_on: "patient",
+								label: proseText("Name"),
+								caseWrite: { caseType: "patient", property: "case_name" },
 							},
 						],
 					},
@@ -107,7 +111,10 @@ function docWithFieldImage(assetId: string) {
 	const { fieldParent: _fieldParent, ...doc } = buildDoc({
 		appName: "Vaccine Tracker",
 		caseTypes: [
-			{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+			{
+				name: "patient",
+				properties: [{ name: "case_name", label: proseText("Name") }],
+			},
 		],
 		modules: [
 			{
@@ -121,13 +128,13 @@ function docWithFieldImage(assetId: string) {
 							{
 								kind: "text",
 								id: "case_name",
-								label: "Name",
-								case_property_on: "patient",
+								label: proseText("Name"),
+								caseWrite: { caseType: "patient", property: "case_name" },
 							},
 							{
 								kind: "text",
 								id: "photo",
-								label: "Photo",
+								label: proseText("Photo"),
 								label_media: { image: assetId },
 							},
 						],

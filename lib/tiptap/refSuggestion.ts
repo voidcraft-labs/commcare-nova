@@ -23,7 +23,7 @@ import {
 	ReferenceAutocomplete,
 	type ReferenceAutocompleteHandle,
 } from "@/components/builder/ReferenceAutocomplete";
-import { classifyNamespace, namespaceOf } from "@/lib/references/config";
+import { classifyNamespace } from "@/lib/references/config";
 import type { ReferenceProvider } from "@/lib/references/provider";
 import type { Reference, ReferenceType } from "@/lib/references/types";
 
@@ -128,8 +128,7 @@ export function createRefSuggestion(
 				.insertContent({
 					type: "commcareRef",
 					attrs: {
-						refType: namespaceOf(ref),
-						path: ref.path,
+						part: ref.part,
 						label: ref.label,
 					},
 				})

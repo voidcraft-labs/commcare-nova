@@ -9,29 +9,26 @@
  *
  * The generator drives one op per applyMutations batch over a
  * reference-rich seed doc, with picks resolved against the RUNNING doc
- * the way the construction fuzz resolves its ops; the `addThenRename`
- * compound op lowers to a TWO-mutation batch with an intra-batch
- * dependency (the add lands a ref, the same batch renames its target),
- * pinning mid-batch index currency. Reducers are total, so the
- * alphabet deliberately includes shapes the commit gate would reject
- * (sibling-id collisions via rename, dangling refs, case-type flips on
- * referenced types) — the index must stay rebuild-equal through every
- * degenerate state replay can produce, not just gated ones.
+ * the way the construction fuzz resolves its ops. The alphabet deliberately includes
+ * candidate shapes the commit gate rejects (sibling-ID collisions,
+ * dangling refs, and case-type flips on referenced types): index
+ * maintenance runs while constructing the candidate the gate evaluates,
+ * so it must stay rebuild-equal even when that candidate is rejected.
  *
  * Floors per the fuzz doctrine: the seed is pinned, and the run
  * asserts every op kind INDIVIDUALLY changed the doc at least once
  * (one op per batch, so a kind whose lowering always no-ops can't ride
  * a changing batch) — plus occurrence floors for the three
  * at-a-distance arms that motivated the maintenance buckets, each
- * tied to the shape it names: a root add of the pending id that
- * provably materialized the standing dangling carrier's edge, a
- * case-bound rename with a genuinely new id, and a cross-module form
- * move.
+ * tied to the shape it names: a root add carrying the predeclared pending
+ * UUID that provably materialized the standing dangling carrier's edge, and
+ * a cross-module form move.
  */
 
 import * as fc from "fast-check";
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { duplicateFieldMutations } from "@/lib/doc/duplicateFieldMutations";
 import {
@@ -43,17 +40,14 @@ import { applyMutations } from "@/lib/doc/mutations";
 import { findContainingForm } from "@/lib/doc/mutations/helpers";
 import { buildReferenceIndex } from "@/lib/doc/referenceIndex";
 import type { Mutation } from "@/lib/doc/types";
-import {
-	asUuid,
-	type BlueprintDoc,
-	entityTargetKey,
-	fieldCasePropertyOn,
-	type Uuid,
-} from "@/lib/domain";
+import { type BlueprintDoc, entityTargetKey, type Uuid } from "@/lib/domain";
 import { eq, literal, prop, subcasePath, term } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
+
+const PENDING_X_UUID = testUuid("reference-index-pending-x");
 
 /** Reference-rich seed: two modules, every reference surface kind, and
- *  a standing dangling `#form/pending_x` ref the add pool can satisfy. */
+ *  a standing dangling field UUID the add pool can satisfy. */
 function seedDoc(): BlueprintDoc {
 	return buildDoc({
 		appName: "Fuzz Clinic",
@@ -61,12 +55,15 @@ function seedDoc(): BlueprintDoc {
 			{
 				name: "patient",
 				properties: [
-					{ name: "case_name", label: "Name" },
-					{ name: "age", label: "Age" },
-					{ name: "village", label: "Village" },
+					{ name: "case_name", label: proseText("Name") },
+					{ name: "age", label: proseText("Age") },
+					{ name: "village", label: proseText("Village") },
 				],
 			},
-			{ name: "household", properties: [{ name: "region", label: "Region" }] },
+			{
+				name: "household",
+				properties: [{ name: "region", label: proseText("Region") }],
+			},
 		],
 		modules: [
 			{
@@ -75,13 +72,13 @@ function seedDoc(): BlueprintDoc {
 				caseListConfig: {
 					columns: [
 						{
-							uuid: asUuid("col00000-0000-4000-8000-000000000001"),
+							uuid: testUuid("col00000-0000-4000-8000-000000000001"),
 							kind: "plain",
 							field: "case_name",
 							header: "Name",
 						},
 						{
-							uuid: asUuid("col00000-0000-4000-8000-000000000002"),
+							uuid: testUuid("col00000-0000-4000-8000-000000000002"),
 							kind: "calculated",
 							header: "Age calc",
 							expression: term(prop("patient", "age")),
@@ -89,7 +86,7 @@ function seedDoc(): BlueprintDoc {
 					],
 					searchInputs: [
 						{
-							uuid: asUuid("sin00000-0000-4000-8000-000000000001"),
+							uuid: testUuid("sin00000-0000-4000-8000-000000000001"),
 							kind: "simple",
 							name: "by_village",
 							label: "Village",
@@ -97,7 +94,7 @@ function seedDoc(): BlueprintDoc {
 							property: "village",
 						},
 						{
-							uuid: asUuid("sin00000-0000-4000-8000-000000000002"),
+							uuid: testUuid("sin00000-0000-4000-8000-000000000002"),
 							kind: "advanced",
 							name: "age_filter",
 							label: "Age",
@@ -118,7 +115,7 @@ function seedDoc(): BlueprintDoc {
 								condition: "#form/age > 17 and #patient/age > 17",
 								target: {
 									type: "module",
-									moduleUuid: asUuid("mod00000-0000-4000-8000-00000000000a"),
+									moduleUuid: testUuid("mod00000-0000-4000-8000-00000000000a"),
 								},
 								datums: [{ name: "case_id", xpath: "/data/age" }],
 							},
@@ -127,45 +124,54 @@ function seedDoc(): BlueprintDoc {
 							f({
 								kind: "text",
 								id: "case_name",
-								label: "Name",
-								case_property_on: "patient",
+								label: proseText("Name"),
+								caseWrite: {
+									caseType: "patient",
+									property: "case_name",
+								},
 							}),
 							f({
 								kind: "int",
 								id: "age",
-								label: "Age",
-								case_property_on: "patient",
+								label: proseText("Age"),
+								caseWrite: { caseType: "patient", property: "age" },
 							}),
 							f({
 								kind: "group",
 								id: "grp",
-								children: [f({ kind: "text", id: "inner", label: "Inner" })],
+								children: [
+									f({ kind: "text", id: "inner", label: proseText("Inner") }),
+								],
 							}),
 							f({
 								kind: "text",
 								id: "watcher",
-								label: "See #patient/age and #form/grp/inner",
+								label: proseText("See #patient/age and #form/grp/inner"),
 								relevant: "#form/grp/inner != '' and /data/age > 0",
 								required: "/data/case_name != ''",
 							}),
 							f({
 								kind: "text",
 								id: "pending",
-								// The standing dangling ref lives in PROSE: label refs
-								// resolve at extraction, so a later add re-keys the
-								// edge through the `local` bucket. The relevant's AST
-								// raw leaf deliberately extracts nothing — unresolved
-								// identity stays text forever.
-								label: "Pending #form/pending_x",
-								relevant: "#form/pending_x = '1'",
+								label: proseText("Pending"),
+								// The canonical AST carries the predeclared identity
+								// even while its field is absent. A later add with
+								// that exact UUID materializes the index edge without
+								// mutable path matching.
+								relevant: {
+									parts: [
+										{ kind: "field-ref", uuid: PENDING_X_UUID },
+										{ kind: "text", text: " = '1'" },
+									],
+								},
 							}),
 							f({
 								kind: "text",
 								id: "ctx_ref",
-								label: "Ctx #case/age",
-								relevant: "#case/age > 1",
+								label: proseText("Ctx #patient/age"),
+								relevant: "#patient/age > 1",
 							}),
-							f({ kind: "text", id: "outcome", label: "Outcome" }),
+							f({ kind: "text", id: "outcome", label: proseText("Outcome") }),
 						],
 					},
 					{
@@ -175,8 +181,8 @@ function seedDoc(): BlueprintDoc {
 							f({
 								kind: "text",
 								id: "village",
-								label: "Village",
-								case_property_on: "patient",
+								label: proseText("Village"),
+								caseWrite: { caseType: "patient", property: "village" },
 							}),
 							f({
 								kind: "hidden",
@@ -188,7 +194,7 @@ function seedDoc(): BlueprintDoc {
 				],
 			},
 			{
-				uuid: "mod00000-0000-4000-8000-00000000000a",
+				uuid: testUuid("households-module"),
 				name: "Households",
 				caseType: "household",
 				caseListConfig: {
@@ -207,14 +213,14 @@ function seedDoc(): BlueprintDoc {
 							f({
 								kind: "text",
 								id: "region",
-								label: "Region",
-								case_property_on: "household",
+								label: proseText("Region"),
+								caseWrite: { caseType: "household", property: "region" },
 							}),
 							f({
 								kind: "text",
 								id: "hh_ctx",
-								label: "HH",
-								relevant: "#case/region != ''",
+								label: proseText("HH"),
+								relevant: "#patient/region != ''",
 							}),
 						],
 					},
@@ -227,7 +233,7 @@ function seedDoc(): BlueprintDoc {
 // ── Pools ───────────────────────────────────────────────────────────
 
 const ID_POOL = [
-	"pending_x", // satisfies the seed's standing dangling ref
+	"pending_x", // carries the seed's predeclared dangling UUID
 	"age",
 	"village",
 	"note",
@@ -241,7 +247,7 @@ const XPATH_POOL = [
 	"#form/grp/inner = '1'",
 	"/data/village != ''",
 	"#patient/age > 0",
-	"#case/age = '1'",
+	"#patient/age = '1'",
 	"#user/username != ''",
 	"string-length(#form/pending_x) > 0",
 	"if(", // unparseable — extraction and rewriters see the same tree
@@ -250,7 +256,7 @@ const XPATH_POOL = [
 const LABEL_POOL = [
 	"Plain label",
 	"See #patient/age",
-	"Check #form/grp/inner then #case/village",
+	"Check #form/grp/inner then #patient/village",
 	"Trailing #household/region.",
 ];
 const CASE_TYPE_POOL = ["patient", "household", "visit", undefined];
@@ -266,7 +272,7 @@ type FuzzOp =
 			asGroup: boolean;
 	  }
 	| { kind: "removeField"; fieldPick: number }
-	| { kind: "renameField"; fieldPick: number; idPick: number }
+	| { kind: "updateFieldId"; fieldPick: number; idPick: number }
 	| { kind: "moveField"; fieldPick: number; parentPick: number; index: number }
 	| { kind: "duplicateField"; fieldPick: number }
 	| { kind: "convertField"; fieldPick: number }
@@ -286,14 +292,8 @@ type FuzzOp =
 	| { kind: "moveModule"; modulePick: number; index: number }
 	| { kind: "renameModule"; modulePick: number }
 	| { kind: "updateModule"; modulePick: number; caseTypePick: number }
-	| { kind: "setCaseTypes"; drop: boolean }
-	| { kind: "setAppName" }
-	| {
-			kind: "addThenRename";
-			formPick: number;
-			targetPick: number;
-			idPick: number;
-	  };
+	| { kind: "editCaseTypes"; drop: boolean }
+	| { kind: "setAppName" };
 
 const opArb: fc.Arbitrary<FuzzOp> = fc.oneof(
 	{
@@ -322,7 +322,7 @@ const opArb: fc.Arbitrary<FuzzOp> = fc.oneof(
 				fieldPick: fc.nat({ max: 30 }),
 				idPick: fc.nat({ max: ID_POOL.length - 1 }),
 			})
-			.map((r) => ({ kind: "renameField" as const, ...r })),
+			.map((r) => ({ kind: "updateFieldId" as const, ...r })),
 	},
 	{
 		weight: 3,
@@ -430,19 +430,9 @@ const opArb: fc.Arbitrary<FuzzOp> = fc.oneof(
 		weight: 1,
 		arbitrary: fc
 			.record({ drop: fc.boolean() })
-			.map((r) => ({ kind: "setCaseTypes" as const, ...r })),
+			.map((r) => ({ kind: "editCaseTypes" as const, ...r })),
 	},
 	{ weight: 1, arbitrary: fc.constant({ kind: "setAppName" as const }) },
-	{
-		weight: 2,
-		arbitrary: fc
-			.record({
-				formPick: fc.nat({ max: 6 }),
-				targetPick: fc.nat({ max: 9 }),
-				idPick: fc.nat({ max: ID_POOL.length - 1 }),
-			})
-			.map((r) => ({ kind: "addThenRename" as const, ...r })),
-	},
 );
 
 // ── Pick resolution against the running doc ─────────────────────────
@@ -500,9 +490,9 @@ function parseRelevant(doc: BlueprintDoc, parentUuid: Uuid, pick: number) {
 }
 
 let minted = 0;
-function mintUuid(): string {
+function mintUuid(): Uuid {
 	minted++;
-	return `fz000000-0000-4000-8000-${minted.toString().padStart(12, "0")}`;
+	return testUuid(`reference-index-fuzz-${minted}`);
 }
 
 /** Lower one abstract op to concrete mutations against `doc` — or none
@@ -513,20 +503,27 @@ function lower(doc: BlueprintDoc, op: FuzzOp): Mutation[] {
 			const parentUuid = pickParent(doc, op.parentPick);
 			if (!parentUuid) return [];
 			const caseProp = CASE_TYPE_POOL[op.casePropPick];
+			const id = ID_POOL[op.idPick];
+			const uuid =
+				id === "pending_x" && doc.fields[PENDING_X_UUID] === undefined
+					? PENDING_X_UUID
+					: mintUuid();
 			const field = op.asGroup
 				? ({
-						uuid: mintUuid(),
+						uuid,
 						kind: "group",
-						id: ID_POOL[op.idPick],
-						label: "Group",
+						id,
+						label: proseText("Group"),
 					} as never)
 				: ({
-						uuid: mintUuid(),
+						uuid,
 						kind: "text",
-						id: ID_POOL[op.idPick],
-						label: LABEL_POOL[op.labelPick],
+						id,
+						label: proseText(LABEL_POOL[op.labelPick]),
 						relevant: parseRelevant(doc, parentUuid, op.relevantPick),
-						...(caseProp && { case_property_on: caseProp }),
+						...(caseProp && {
+							caseWrite: { caseType: caseProp, property: id },
+						}),
 					} as never);
 			return [{ kind: "addField", parentUuid, field }];
 		}
@@ -534,10 +531,18 @@ function lower(doc: BlueprintDoc, op: FuzzOp): Mutation[] {
 			const uuid = pickField(doc, op.fieldPick);
 			return uuid ? [{ kind: "removeField", uuid }] : [];
 		}
-		case "renameField": {
+		case "updateFieldId": {
 			const uuid = pickField(doc, op.fieldPick);
-			return uuid
-				? [{ kind: "renameField", uuid, newId: ID_POOL[op.idPick] }]
+			const field = uuid ? doc.fields[uuid] : undefined;
+			return field
+				? [
+						{
+							kind: "updateField",
+							uuid: field.uuid,
+							targetKind: field.kind,
+							patch: { id: ID_POOL[op.idPick] },
+						} as Mutation,
+					]
 				: [];
 		}
 		case "moveField": {
@@ -577,7 +582,7 @@ function lower(doc: BlueprintDoc, op: FuzzOp): Mutation[] {
 							uuid,
 							XPATH_POOL[op.relevantPick],
 						),
-						label: LABEL_POOL[op.labelPick],
+						label: proseText(LABEL_POOL[op.labelPick]),
 					},
 				} as Mutation,
 			];
@@ -627,7 +632,7 @@ function lower(doc: BlueprintDoc, op: FuzzOp): Mutation[] {
 					uuid,
 					patch: {
 						closeCondition: {
-							field: asUuid(
+							field: testUuid(
 								resolveCloseFieldRef(doc, uuid, ID_POOL[op.closeIdPick]),
 							),
 							answer: "done",
@@ -678,50 +683,18 @@ function lower(doc: BlueprintDoc, op: FuzzOp): Mutation[] {
 			const caseType = CASE_TYPE_POOL[op.caseTypePick];
 			return [{ kind: "updateModule", uuid, patch: { caseType } }];
 		}
-		case "setCaseTypes":
-			return [
-				{
-					kind: "setCaseTypes",
-					caseTypes: op.drop ? null : [{ name: "patient", properties: [] }],
-				},
-			];
+		case "editCaseTypes":
+			if (op.drop) {
+				return (doc.caseTypes ?? []).map((caseType) => ({
+					kind: "retireCaseType" as const,
+					caseType: caseType.name,
+				}));
+			}
+			return doc.caseTypes?.some((caseType) => caseType.name === "patient")
+				? []
+				: [{ kind: "declareCaseType", caseType: "patient" }];
 		case "setAppName":
 			return [{ kind: "setAppName", name: "Renamed app" }];
-		case "addThenRename": {
-			// TWO mutations in ONE batch with an intra-batch dependency: the
-			// add lands a ref to an existing root-level field, then the SAME
-			// batch renames that field — the rename's reducer lookup only
-			// finds the fresh carrier if the add's maintenance ran before it
-			// (mid-batch currency).
-			const formUuid = pickForm(doc, op.formPick);
-			if (!formUuid) return [];
-			const roots = doc.fieldOrder[formUuid] ?? [];
-			if (roots.length === 0) return [];
-			const target = roots[op.targetPick % roots.length];
-			const targetId = doc.fields[target]?.id;
-			if (!targetId) return [];
-			return [
-				{
-					kind: "addField",
-					parentUuid: formUuid,
-					field: {
-						uuid: mintUuid(),
-						kind: "text",
-						id: "fresh_ref",
-						// The prose ref is what the rename REWRITES (AST refs
-						// follow at print with no rewrite), so the mid-batch
-						// lookup must surface this fresh carrier.
-						label: `Fresh #form/${targetId}`,
-						relevant: parseXPathForForm(
-							doc,
-							formUuid,
-							`#form/${targetId} != ''`,
-						),
-					} as never,
-				},
-				{ kind: "renameField", uuid: target, newId: ID_POOL[op.idPick] },
-			];
-		}
 	}
 }
 
@@ -730,7 +703,7 @@ function lower(doc: BlueprintDoc, op: FuzzOp): Mutation[] {
 const OP_KINDS = [
 	"addField",
 	"removeField",
-	"renameField",
+	"updateFieldId",
 	"moveField",
 	"duplicateField",
 	"convertField",
@@ -745,9 +718,8 @@ const OP_KINDS = [
 	"moveModule",
 	"renameModule",
 	"updateModule",
-	"setCaseTypes",
+	"editCaseTypes",
 	"setAppName",
-	"addThenRename",
 ] as const satisfies readonly FuzzOp["kind"][];
 
 describe("reference index fuzz — incremental ≡ rebuild after every batch", () => {
@@ -756,27 +728,21 @@ describe("reference index fuzz — incremental ≡ rebuild after every batch", (
 			OP_KINDS.map((k) => [k, 0]),
 		);
 		let danglingSatisfiedAdds = 0;
-		let caseBoundRenames = 0;
 		let crossModuleFormMoves = 0;
 
 		fc.assert(
 			fc.property(
 				// One op per applyMutations batch, so the per-kind floor
 				// credits exactly the op that changed the doc — a kind whose
-				// lowering always no-ops can't ride a changing batch. The
-				// multi-mutation/mid-batch-currency coverage lives in the
-				// `addThenRename` compound op, whose single lowering IS a
-				// two-mutation batch with an intra-batch dependency.
+				// lowering always no-ops can't ride a changing batch.
 				fc.array(opArb, { minLength: 1, maxLength: 24 }),
 				(ops) => {
 					let doc = seedDoc();
 					/* Seed landmarks for the dangling-ref tally: the standing
-					 * `#form/pending_x` ref lives on the `pending` field at the
-					 * Register form's ROOT, so only a root add of `pending_x`
-					 * THERE can satisfy it. Uuids are stable, so the landmarks
-					 * survive renames/moves; if the sequence deletes them the
-					 * edge check below simply never credits. */
-					const registerRoot = doc.formOrder[doc.moduleOrder[0]]?.[0];
+					 * identity ref lives on the `pending` field. Only an add
+					 * carrying `PENDING_X_UUID` can satisfy it. UUIDs are stable,
+					 * so the landmarks survive renames/moves; if the sequence
+					 * deletes them the edge check below simply never credits. */
 					const pendingUuid = Object.values(doc.fields).find(
 						(field) => field.id === "pending",
 					)?.uuid;
@@ -787,20 +753,9 @@ describe("reference index fuzz — incremental ≡ rebuild after every batch", (
 						for (const mut of lowered) {
 							if (
 								mut.kind === "addField" &&
-								(mut.field as { id?: string }).id === "pending_x" &&
-								mut.parentUuid === registerRoot
+								(mut.field as { uuid?: string }).uuid === PENDING_X_UUID
 							) {
 								satisfyingAddUuid = (mut.field as { uuid: string }).uuid;
-							}
-							if (mut.kind === "renameField") {
-								const field = doc.fields[mut.uuid];
-								if (
-									field &&
-									field.id !== mut.newId &&
-									fieldCasePropertyOn(field) !== undefined
-								) {
-									caseBoundRenames++;
-								}
 							}
 							if (mut.kind === "moveForm") {
 								const owner = Object.entries(doc.formOrder).find(([, list]) =>
@@ -846,11 +801,7 @@ describe("reference index fuzz — incremental ≡ rebuild after every batch", (
 		}
 		expect(
 			danglingSatisfiedAdds,
-			"no add ever satisfied the standing dangling #form/pending_x ref",
-		).toBeGreaterThan(0);
-		expect(
-			caseBoundRenames,
-			"no rename ever hit a case-bound field — the c:-edge re-key arm went unexercised",
+			"no add ever satisfied the standing dangling field identity",
 		).toBeGreaterThan(0);
 		expect(
 			crossModuleFormMoves,

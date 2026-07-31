@@ -22,6 +22,7 @@
  *     `removeSearchInput`, `reorderSearchInputs`,
  *     `setCaseSearchAdvanced`, `setCaseSearchDisplay`, `editField`,
  *     `moveField`, `createForm`, `createModule`, `updateModule`,
+ *     `renameCaseProperties`,
  *     `attachFieldMedia`, `attachOptionMedia`, `setMenuMedia`,
  *     `setAppLogo`, `listMediaAssets`,
  *     `removeMediaAsset`, `uploadMediaAsset`.
@@ -54,6 +55,7 @@ import { removeMediaAssetTool } from "../lib/agent/tools/media/removeMediaAsset"
 import { setAppLogoTool } from "../lib/agent/tools/media/setAppLogo";
 import { setMenuMediaTool } from "../lib/agent/tools/media/setMenuMedia";
 import { moveFieldTool } from "../lib/agent/tools/moveField";
+import { renameCasePropertiesTool } from "../lib/agent/tools/renameCaseProperties";
 import { updateAppTool } from "../lib/agent/tools/updateApp";
 import {
 	updateModuleInputSchema,
@@ -81,98 +83,98 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		description: addFieldsTool.description,
 		schema: addFieldsTool.inputSchema,
 		prompt:
-			"Use addFields on module 0, form 0 to add two fields: patient_name (a text field labeled 'Patient name') and age (an int field labeled 'Age').",
+			'Use addFields with moduleUuid 11111111-1111-4111-8111-111111111111 and formUuid 22222222-2222-4222-8222-222222222222 to add two fields: patient_name (a text field with caseWrite {caseType: "patient", property: "case_name"}) and age (an int field with caseWrite {caseType: "patient", property: "age"}).',
 	},
 	{
 		name: "updateModule",
 		description: updateModuleTool.description,
 		schema: updateModuleInputSchema,
 		prompt:
-			'Use updateModule on module 0 to set its case_type to "patient" and rename it to "Patients".',
+			'Use updateModule with moduleUuid 11111111-1111-4111-8111-111111111111 to set its case type to "patient" and rename it to "Patients".',
 	},
 	{
 		name: "addCaseListColumns",
 		description: addCaseListColumnsTool.description,
 		schema: addCaseListColumnsTool.inputSchema,
 		prompt:
-			"Use addCaseListColumns to add two plain columns on module 0: case_name with header Patient, and status with header Status.",
+			"Use addCaseListColumns with moduleUuid 11111111-1111-4111-8111-111111111111 to add two plain columns: case_name with header Patient, and status with header Status.",
 	},
 	{
 		name: "updateCaseListColumn",
 		description: updateCaseListColumnTool.description,
 		schema: updateCaseListColumnTool.inputSchema,
 		prompt:
-			"Use updateCaseListColumn on module 0, columnUuid 11111111-1111-1111-1111-111111111111, replacing it with a date column for dob with header Date of birth and pattern %Y-%m-%d.",
+			"Use updateCaseListColumn with moduleUuid 11111111-1111-4111-8111-111111111111 and columnUuid 33333333-3333-4333-8333-333333333333, replacing it with a date column for dob with header Date of birth and pattern %Y-%m-%d.",
 	},
 	{
 		name: "removeCaseListColumn",
 		description: removeCaseListColumnTool.description,
 		schema: removeCaseListColumnTool.inputSchema,
 		prompt:
-			"Use removeCaseListColumn on module 0, columnUuid 11111111-1111-1111-1111-111111111111.",
+			"Use removeCaseListColumn with moduleUuid 11111111-1111-4111-8111-111111111111 and columnUuid 33333333-3333-4333-8333-333333333333.",
 	},
 	{
 		name: "reorderCaseListColumns",
 		description: reorderCaseListColumnsTool.description,
 		schema: reorderCaseListColumnsTool.inputSchema,
 		prompt:
-			"Use reorderCaseListColumns on module 0 with the order [22222222-2222-2222-2222-222222222222, 11111111-1111-1111-1111-111111111111].",
+			"Use reorderCaseListColumns with moduleUuid 11111111-1111-4111-8111-111111111111 and columnUuids [44444444-4444-4444-8444-444444444444, 33333333-3333-4333-8333-333333333333].",
 	},
 	{
 		name: "setCaseListFilter",
 		description: setCaseListFilterTool.description,
 		schema: setCaseListFilterTool.inputSchema,
 		prompt:
-			"Use setCaseListFilter to set the filter on module 0 to a comparison: the patient case status property equals the literal string active.",
+			"Use setCaseListFilter with moduleUuid 11111111-1111-4111-8111-111111111111 to set a comparison: the patient case status property equals the literal string active.",
 	},
 	{
 		name: "setCaseListTile",
 		description: setCaseListTileTool.description,
 		schema: setCaseListTileTool.inputSchema,
 		prompt:
-			"Use setCaseListTile on module 0 to lay the case list out as a tile that stays above every form, placing field 11111111-1111-1111-1111-111111111111 across the full width of the top row and field 22222222-2222-2222-2222-222222222222 on the left half of the second row.",
+			"Use setCaseListTile with moduleUuid 11111111-1111-4111-8111-111111111111 to lay the case list out as a tile that stays above every form, placing fieldUuid 33333333-3333-4333-8333-333333333333 across the full width of the top row and fieldUuid 44444444-4444-4444-8444-444444444444 on the left half of the second row.",
 	},
 	{
 		name: "addSearchInputs",
 		description: addSearchInputsTool.description,
 		schema: addSearchInputsTool.inputSchema,
 		prompt:
-			"Use addSearchInputs on module 0 to add a simple search input named patient_name_input labeled Patient name type text targeting case property name.",
+			"Use addSearchInputs with moduleUuid 11111111-1111-4111-8111-111111111111 to add a simple search input named patient_name_input labeled Patient name type text targeting case property case_name.",
 	},
 	{
 		name: "updateSearchInput",
 		description: updateSearchInputTool.description,
 		schema: updateSearchInputTool.inputSchema,
 		prompt:
-			"Use updateSearchInput on module 0, searchInputUuid 11111111-1111-1111-1111-111111111111, replacing it with a simple search input named region labeled Region type text targeting case property region.",
+			"Use updateSearchInput with moduleUuid 11111111-1111-4111-8111-111111111111 and searchInputUuid 33333333-3333-4333-8333-333333333333, replacing it with a simple search input named region labeled Region type text targeting case property region.",
 	},
 	{
 		name: "removeSearchInput",
 		description: removeSearchInputTool.description,
 		schema: removeSearchInputTool.inputSchema,
 		prompt:
-			"Use removeSearchInput on module 0, searchInputUuid 11111111-1111-1111-1111-111111111111.",
+			"Use removeSearchInput with moduleUuid 11111111-1111-4111-8111-111111111111 and searchInputUuid 33333333-3333-4333-8333-333333333333.",
 	},
 	{
 		name: "reorderSearchInputs",
 		description: reorderSearchInputsTool.description,
 		schema: reorderSearchInputsTool.inputSchema,
 		prompt:
-			"Use reorderSearchInputs on module 0 with the order [22222222-2222-2222-2222-222222222222, 11111111-1111-1111-1111-111111111111].",
+			"Use reorderSearchInputs with moduleUuid 11111111-1111-4111-8111-111111111111 and searchInputUuids [44444444-4444-4444-8444-444444444444, 33333333-3333-4333-8333-333333333333].",
 	},
 	{
 		name: "setCaseSearchAdvanced",
 		description: setCaseSearchAdvancedTool.description,
 		schema: setCaseSearchAdvancedTool.inputSchema,
 		prompt:
-			"Use setCaseSearchAdvanced on module 0 to clear the excluded owner ids (null).",
+			"Use setCaseSearchAdvanced with moduleUuid 11111111-1111-4111-8111-111111111111 to clear the excluded owner ids (null).",
 	},
 	{
 		name: "setCaseSearchDisplay",
 		description: setCaseSearchDisplayTool.description,
 		schema: setCaseSearchDisplayTool.inputSchema,
 		prompt:
-			"Use setCaseSearchDisplay on module 0 to set the searchScreenTitle to 'Find a patient' and clear every other display slot (null).",
+			"Use setCaseSearchDisplay with moduleUuid 11111111-1111-4111-8111-111111111111 to set the searchScreenTitle to 'Find a patient' and clear every other display slot (null).",
 	},
 	/* `editField` carries the new `help` slot — re-tested here to confirm
 	 * the edit-patch schema still compiles within the tool-input limits
@@ -184,28 +186,35 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		description: editFieldTool.description,
 		schema: editFieldTool.inputSchema,
 		prompt:
-			"Use editField on module 0, form 0, field patient_name to set its help text to 'Enter the patient's full legal name.'",
+			"Use editField with moduleUuid 11111111-1111-4111-8111-111111111111, formUuid 22222222-2222-4222-8222-222222222222, and fieldUuid 33333333-3333-4333-8333-333333333333 to set its help text to 'Enter the patient's full legal name.' and set caseWrite to null.",
 	},
 	{
 		name: "moveField",
 		description: moveFieldTool.description,
 		schema: moveFieldTool.inputSchema,
 		prompt:
-			"Use moveField on module 0, form 0 to move the field visit_notes after the field visit_date.",
+			"Use moveField with moduleUuid 11111111-1111-4111-8111-111111111111 and formUuid 22222222-2222-4222-8222-222222222222 to move fieldUuid 33333333-3333-4333-8333-333333333333 after afterFieldUuid 44444444-4444-4444-8444-444444444444.",
 	},
 	{
 		name: "createForm",
 		description: createFormTool.description,
 		schema: createFormTool.inputSchema,
 		prompt:
-			"Use createForm on module 0 to add a followup form named 'Visit' with two fields: visit_date (a date labeled 'Visit date', case_property_on patient) and visit_notes (a text labeled 'Notes').",
+			'Use createForm with moduleUuid 11111111-1111-4111-8111-111111111111 to add a followup form named "Visit" with two fields: visit_date (a date labeled "Visit date" with caseWrite {caseType: "patient", property: "visit_date"}) and visit_notes (a text labeled "Notes").',
 	},
 	{
 		name: "createModule",
 		description: createModuleTool.description,
 		schema: createModuleTool.inputSchema,
 		prompt:
-			"Use createModule to add a module named 'Households' with case_type household, one registration form named 'Register household' whose fields are case_name (text labeled 'Household name', case_property_on household) and head_name (text labeled 'Head of household', case_property_on household), and one plain case-list column on field case_name with header Name.",
+			'Use createModule to add a module named "Households" with case type household, one registration form named "Register household" whose fields are household_name (text labeled "Household name" with caseWrite {caseType: "household", property: "case_name"}) and head_name (text labeled "Head of household" with caseWrite {caseType: "household", property: "head_name"}), and one plain case-list column on case property household.case_name with header Name.',
+	},
+	{
+		name: "renameCaseProperties",
+		description: renameCasePropertiesTool.description,
+		schema: renameCasePropertiesTool.inputSchema,
+		prompt:
+			'Use renameCaseProperties with the complete simultaneous relation [{caseType: "patient", from: "phone", to: "primary_phone"}, {caseType: "patient", from: "primary_phone", to: "phone"}].',
 	},
 	{
 		name: "generateSchema",
@@ -230,21 +239,21 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		description: attachFieldMediaTool.description,
 		schema: attachFieldMediaTool.inputSchema,
 		prompt:
-			"Use attachFieldMedia with two attachments in one call: on module 0, form 0, set field patient_name's label media image to asset 11111111-1111-1111-1111-111111111111, and field age's hint media audio to asset 22222222-2222-2222-2222-222222222222.",
+			"Use attachFieldMedia with two attachments in one call: under moduleUuid 11111111-1111-4111-8111-111111111111 and formUuid 22222222-2222-4222-8222-222222222222, set fieldUuid 33333333-3333-4333-8333-333333333333 label image to asset 55555555-5555-4555-8555-555555555555, and fieldUuid 44444444-4444-4444-8444-444444444444 hint audio to asset 66666666-6666-4666-8666-666666666666.",
 	},
 	{
 		name: "attachOptionMedia",
 		description: attachOptionMediaTool.description,
 		schema: attachOptionMediaTool.inputSchema,
 		prompt:
-			"Use attachOptionMedia with two attachments in one call: on module 0, form 0, field symptom, set option fever's image to asset 11111111-1111-1111-1111-111111111111 and option cough's image to asset 22222222-2222-2222-2222-222222222222.",
+			"Use attachOptionMedia with two attachments in one call: under moduleUuid 11111111-1111-4111-8111-111111111111 and formUuid 22222222-2222-4222-8222-222222222222, on fieldUuid 33333333-3333-4333-8333-333333333333 set optionUuid 44444444-4444-4444-8444-444444444444 image to asset 66666666-6666-4666-8666-666666666666 and optionUuid 55555555-5555-4555-8555-555555555555 image to asset 77777777-7777-4777-8777-777777777777.",
 	},
 	{
 		name: "setMenuMedia",
 		description: setMenuMediaTool.description,
 		schema: setMenuMediaTool.inputSchema,
 		prompt:
-			"Use setMenuMedia with two items in one call: set module 0's icon to the built-in household icon, and module 0 form 0's icon to the built-in register icon. Clear every audio label (null).",
+			"Use setMenuMedia with two items in one call: set moduleUuid 11111111-1111-4111-8111-111111111111 icon to the built-in household icon, and formUuid 22222222-2222-4222-8222-222222222222 under that moduleUuid to the built-in register icon. Clear every audio label (null).",
 	},
 	{
 		name: "setAppLogo",

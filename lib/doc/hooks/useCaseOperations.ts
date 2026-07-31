@@ -22,6 +22,7 @@
 "use client";
 
 import { useCallback, useMemo } from "react";
+import { useLookupCommitState } from "@/lib/doc/lookupCommitContext";
 import {
 	type CaseOperation,
 	type CasePropertyDataType,
@@ -32,7 +33,6 @@ import {
 	type CaseOperationEditVerdict,
 	type CaseOperationMutationPlan,
 	caseOperationAddVerdict,
-	caseOperationAuthoringVerdict,
 	caseOperationEditVerdict,
 	moveCaseOperationMutation,
 	planCaseOperationUpdate,
@@ -79,9 +79,6 @@ export interface CaseOperationsView {
 		operation: CaseOperation,
 		index?: number,
 	) => CaseOperationEditVerdict;
-	/** Whether this operation's full author shape is available on all editors.
-	 * Moving is separate and remains available for a read-only carrier. */
-	readonly authoringVerdict: (uuid: Uuid) => CaseOperationEditVerdict;
 	/** The type one write's value must be assignable to, or `undefined` when
 	 * this write is what establishes the property's type. */
 	readonly writeValueType: (
@@ -166,27 +163,22 @@ export function useCaseOperations(formUuid: Uuid): CaseOperationsView {
 		(uuid: Uuid) => removeCaseOperationMutation(doc, formUuid, uuid),
 		[doc, formUuid],
 	);
+	/* The builder already holds the Project's definitions; hand them to the
+	 * verdict. Without them every occurrence a lookup carrier produces is
+	 * unverifiable, which is a soundness finding, which refuses the edit — so
+	 * an operation that reads a data table could never be retargeted at all,
+	 * and the picker would disable every choice with "lookup data hasn't
+	 * finished reconnecting" that nothing would ever resolve. */
+	const { lookupContext } = useLookupCommitState();
 	const editVerdict = useCallback(
 		(operation: CaseOperation) =>
-			caseOperationEditVerdict(doc, formUuid, operation),
-		[doc, formUuid],
+			caseOperationEditVerdict(doc, formUuid, operation, lookupContext),
+		[doc, formUuid, lookupContext],
 	);
 	const addVerdict = useCallback(
 		(operation: CaseOperation, index?: number) =>
-			caseOperationAddVerdict(doc, formUuid, operation, index),
-		[doc, formUuid],
-	);
-	const authoringVerdict = useCallback(
-		(uuid: Uuid): CaseOperationEditVerdict => {
-			const operation = operations.find((candidate) => candidate.uuid === uuid);
-			return operation === undefined
-				? {
-						ok: false,
-						reason: "This case change is no longer part of the form.",
-					}
-				: caseOperationAuthoringVerdict(operation);
-		},
-		[operations],
+			caseOperationAddVerdict(doc, formUuid, operation, index, lookupContext),
+		[doc, formUuid, lookupContext],
 	);
 
 	const writeValueType = useCallback(
@@ -316,7 +308,6 @@ export function useCaseOperations(formUuid: Uuid): CaseOperationsView {
 			removalPlan,
 			editVerdict,
 			addVerdict,
-			authoringVerdict,
 			writeValueType,
 			add,
 			update,
@@ -333,7 +324,6 @@ export function useCaseOperations(formUuid: Uuid): CaseOperationsView {
 			removalPlan,
 			editVerdict,
 			addVerdict,
-			authoringVerdict,
 			writeValueType,
 			add,
 			update,

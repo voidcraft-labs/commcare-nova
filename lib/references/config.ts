@@ -56,8 +56,8 @@ export function classifyNamespace(namespace: string): ReferenceType {
  * Regex matching hashtag references: #form/path, #user/path, and #<caseType>/path
  * (one namespace per case type, e.g. #mother/household_code). Built from the
  * shared segment definition in `lib/domain/hashtagSegments.ts` so it stays in
- * lockstep with the prose matcher (`BARE_HASHTAG_PATTERN`) and the Lezer
- * grammar's hashtag tokens. The namespace is any identifier — the resolve gate
+ * lockstep with the Lezer grammar's hashtag tokens. The namespace is any
+ * identifier — the resolve gate
  * (not this regex) decides whether a match renders as a chip or stays plain
  * text, so the pattern stays deliberately permissive. Path segments are
  * `/`-joined identifiers (nested groups make multi-segment paths); a segment

@@ -6,7 +6,8 @@
 // `uncarriedLogoAsset` (the standalone-logo predicate).
 
 import { describe, expect, it } from "vitest";
-import { asUuid, type BlueprintDoc } from "@/lib/domain";
+import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
+import type { BlueprintDoc } from "@/lib/domain";
 import {
 	type AssetRef,
 	carriesViaBulkUpload,
@@ -20,10 +21,10 @@ function ref(
 	location: MediaRefLocation,
 	slotKind: MediaSlotKind = "image",
 ): AssetRef {
-	return { assetId: "x", slotKind, location };
+	return { assetId: testMediaAssetId("x"), slotKind, location };
 }
 
-const U = asUuid("u");
+const U = testUuid("u");
 
 describe("describeCarrier", () => {
 	it("names the app logo", () => {
@@ -81,6 +82,7 @@ describe("describeCarrier", () => {
 						formName: "Intake",
 						fieldUuid: U,
 						fieldId: "symptom",
+						optionUuid: U,
 						optionValue: "fever",
 					},
 					"audio",

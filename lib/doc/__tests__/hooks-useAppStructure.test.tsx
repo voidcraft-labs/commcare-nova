@@ -8,14 +8,14 @@
 import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { useAppStructure } from "@/lib/doc/hooks/useAppStructure";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { BlueprintDoc } from "@/lib/doc/types";
-import { asUuid } from "@/lib/doc/types";
 
-const MOD_UUID = asUuid("module-1-uuid");
-const FORM_UUID = asUuid("form-1-uuid");
+const MOD_UUID = testUuid("module-1-uuid");
+const FORM_UUID = testUuid("form-1-uuid");
 
 function setup() {
 	const store = createBlueprintDocStore();
@@ -38,7 +38,7 @@ function setup() {
 		fields: {},
 		moduleOrder: [MOD_UUID],
 		formOrder: { [MOD_UUID]: [FORM_UUID] },
-		fieldOrder: {},
+		fieldOrder: { [FORM_UUID]: [] },
 		fieldParent: {},
 	};
 	store.getState().load(doc);

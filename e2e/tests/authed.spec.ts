@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import type { Page, Response } from "@playwright/test";
+import type { Page } from "@playwright/test";
 import { CROSS_PROJECT_MOVE_DISCLOSURE } from "../../lib/projects/moveTargets";
 import {
 	CASE_CHANGES_ROUTINE,
@@ -56,12 +56,15 @@ interface SeedManifest {
 			details: string;
 			condition: string;
 			tileResults: string;
+			projectData: string;
+			selectField: string;
 			tileForm: string;
 		};
 	};
 	caseChanges: {
 		appId: string;
 		route: string;
+		identityProjectionRoute: string;
 		caseId: string;
 		viewerStateFile: string;
 	}[];
@@ -74,81 +77,6 @@ type SecondaryHeaderName =
 	| "chat"
 	| "chat-rail"
 	| "inspector";
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null;
-}
-
-function isBlankExpressionTarget(value: unknown): boolean {
-	if (!isRecord(value) || value.kind !== "expression") return false;
-	const expr = value.expr;
-	if (!isRecord(expr) || expr.kind !== "term") return false;
-	const expressionTerm = expr.term;
-	return (
-		isRecord(expressionTerm) &&
-		expressionTerm.kind === "literal" &&
-		expressionTerm.value === ""
-	);
-}
-
-/**
- * A generic PUT response can belong to any earlier leading/trailing autosave.
- * Match the exact semantic delta introduced by choosing the blank calculated
- * link target. The granular intent is normally `update-link`, but it can be
- * `add-link` (or only the deployed full-operation fallback) when the new link
- * and this edit share one throttled batch.
- */
-function isBlankExpressionTargetAutosave(
-	response: Response,
-	appId: string,
-): boolean {
-	if (
-		response.request().method() !== "PUT" ||
-		new URL(response.url()).pathname !== `/api/apps/${appId}`
-	) {
-		return false;
-	}
-	let body: unknown;
-	try {
-		body = response.request().postDataJSON();
-	} catch {
-		return false;
-	}
-	if (!isRecord(body) || !Array.isArray(body.mutations)) return false;
-	return body.mutations.some((mutation) => {
-		if (!isRecord(mutation)) return false;
-		const semantic = mutation.caseOperationPatch;
-		if (isRecord(semantic)) {
-			if (
-				semantic.operation === "update-link" &&
-				isRecord(semantic.patch) &&
-				isBlankExpressionTarget(semantic.patch.target)
-			) {
-				return true;
-			}
-			if (
-				semantic.operation === "add-link" &&
-				isRecord(semantic.value) &&
-				isBlankExpressionTarget(semantic.value.target)
-			) {
-				return true;
-			}
-			return false;
-		}
-		const fallback = mutation.caseOperationChange;
-		if (
-			!isRecord(fallback) ||
-			(fallback.operation !== "add" && fallback.operation !== "update") ||
-			!isRecord(fallback.value) ||
-			!Array.isArray(fallback.value.links)
-		) {
-			return false;
-		}
-		return fallback.value.links.some(
-			(link) => isRecord(link) && isBlankExpressionTarget(link.target),
-		);
-	});
-}
 
 /**
  * The conversation's true scroll element. use-stick-to-bottom scrolls an
@@ -389,15 +317,16 @@ test.describe("authenticated builder", () => {
 		await page.getByRole("link", { name: `Open ${seed.openAppName}` }).click();
 		await page.waitForURL(new RegExp(`/build/${seed.openAppId}`));
 
-		// An empty app opens into the chat-first builder (the structural
-		// canvas/sidebar only appears once it has content). Assert the builder
-		// chrome (Account menu) AND the page content (the chat composer) mounted —
-		// the latter proves we rendered the page, not the error boundary.
-		await expect(
-			page.getByRole("button", { name: "Account menu" }),
-		).toBeVisible({ timeout: 20_000 });
+		// A born-valid canonical starter opens in the builder with chat available
+		// for refinement. The chat composer carries the arrival wait: it is the
+		// first thing that is unique to THIS route, whereas the account menu is
+		// shared chrome that the page we just left also rendered, so waiting on
+		// the menu can be satisfied before the builder has mounted at all.
 		await expect(
 			page.getByRole("button", { name: "Attach a file" }),
+		).toBeVisible({ timeout: 20_000 });
+		await expect(
+			page.getByRole("button", { name: "Account menu" }),
 		).toBeVisible();
 		// Authed, not bounced to the landing page.
 		await expect(
@@ -1377,8 +1306,11 @@ test.describe("authenticated builder", () => {
 		await expect(canvas).toBeVisible({ timeout: 20_000 });
 		expect(await canvas.evaluate((el) => el.clientHeight)).toBeGreaterThan(0);
 
-		// One row per authored field.
-		await expect(canvas.locator("[data-field-uuid]")).toHaveCount(3);
+		// One row per authored field, counted from the seed rather than a
+		// literal — the seed is what decides how many rows there should be.
+		await expect(canvas.locator("[data-field-uuid]")).toHaveCount(
+			CASE_WORKSPACE_SEED.tile.formFieldIds.length,
+		);
 		await expect(canvas.getByText("Visit note")).toBeVisible();
 	});
 
@@ -1430,7 +1362,9 @@ test.describe("authenticated builder", () => {
 			});
 
 		const edit = await rowGeometry();
-		expect(edit).toHaveLength(3);
+		// Counted from the seed: this test is about edit and live landing every
+		// row at identical geometry, not about how many rows the form has.
+		expect(edit).toHaveLength(CASE_WORKSPACE_SEED.tile.formFieldIds.length);
 
 		await page.getByRole("button", { name: "Preview", exact: true }).click();
 		const dateTrigger = page.locator('button[data-slot="date-picker"]');
@@ -1770,7 +1704,123 @@ test.describe("authenticated builder", () => {
 		});
 	});
 
-	test("case changes add, retarget, preserve dormant logic, and stay navigable to viewers", async ({
+	test("a close condition keeps its friendly field projection through rename and move", async ({
+		page,
+	}, testInfo) => {
+		test.setTimeout(120_000);
+		const fixture = seed.caseChanges[testInfo.retry];
+		if (fixture === undefined) {
+			throw new Error(
+				`Identity-projection fixture missing for Playwright attempt ${testInfo.retry}`,
+			);
+		}
+		const identity = CASE_CHANGES_SEED.identityProjection;
+		const waitForSavedMutation = async (
+			bodyNeedle: string,
+			mutate: () => Promise<void>,
+		) => {
+			const responsePromise = page.waitForResponse((response) => {
+				const request = response.request();
+				return (
+					new URL(response.url()).pathname === `/api/apps/${fixture.appId}` &&
+					request.method() === "PUT" &&
+					(request.postData() ?? "").includes(bodyNeedle)
+				);
+			});
+			await mutate();
+			const response = await responsePromise;
+			expect(response.ok()).toBe(true);
+		};
+		await page.goto(fixture.identityProjectionRoute);
+		await expect(
+			page.getByRole("button", { name: "Form settings" }),
+		).toBeVisible({ timeout: 20_000 });
+
+		await test.step("Always becomes a complete conditional reference without an empty saved identity", async () => {
+			await page.getByRole("button", { name: "Form settings" }).click();
+			await page.getByRole("button", { name: "Close Behavior" }).click();
+			await page
+				.getByRole("menuitem", { name: "When condition is met" })
+				.click();
+
+			const field = page.getByPlaceholder("Search fields...");
+			await expect(field).toHaveValue("");
+			await field.click();
+			await page
+				.getByRole("option", { name: /First name.*first_name/ })
+				.click();
+			await expect(field).toHaveValue("first_name");
+
+			const answer = page.getByPlaceholder("Plain text value");
+			await waitForSavedMutation('"answer":"Ada"', async () => {
+				await answer.fill("Ada");
+				await answer.blur();
+			});
+			await expect(answer).toHaveValue("Ada");
+		});
+
+		await test.step("renaming and moving the field preserve the reference", async () => {
+			await page.goto(
+				`${fixture.identityProjectionRoute}/${identity.firstNameUuid}`,
+			);
+			const idInput = page.locator('[data-field-id="id"] input:visible');
+			await expect(idInput).toHaveValue("first_name", { timeout: 20_000 });
+			/* A field id rename is `updateField` with `patch.id` — `newId` belongs
+			 * to renameModule/renameForm, which name a different entity. */
+			await waitForSavedMutation('"id":"given_name"', async () => {
+				await idInput.fill("given_name");
+				await idInput.press("Enter");
+			});
+			await expect(idInput).toHaveValue("given_name");
+
+			await page.getByRole("button", { name: "Field actions" }).click();
+			await waitForSavedMutation('"kind":"moveField"', async () => {
+				await page.getByRole("menuitem", { name: "Move Down" }).click();
+			});
+			await expect(
+				page.locator("main [data-field-uuid]").first(),
+			).toHaveAttribute("data-field-uuid", identity.noteUuid);
+		});
+
+		await test.step("reopening and Preview show names, never UUID-shaped XPath", async () => {
+			await page.goto(fixture.identityProjectionRoute);
+			await page.getByRole("button", { name: "Form settings" }).click();
+			const field = page.getByPlaceholder("Search fields...");
+			await expect(field).toHaveValue("given_name", { timeout: 20_000 });
+			const settings = page
+				.getByRole("dialog")
+				.filter({ hasText: "Form Settings" });
+			await expect(settings).toHaveCount(1);
+			await expect(settings).not.toContainText(identity.firstNameUuid);
+			await expect(settings).not.toContainText(
+				`#form/${identity.firstNameUuid}`,
+			);
+
+			await page.getByRole("button", { name: "Form settings" }).click();
+			await page.getByRole("button", { name: "Preview", exact: true }).click();
+			await expect(
+				page.getByRole("textbox", { name: "First name" }),
+			).toBeVisible({ timeout: 20_000 });
+			const previewOrder = await page
+				.locator("main [data-field-uuid]")
+				.evaluateAll((elements) =>
+					elements.map((element) => (element as HTMLElement).dataset.fieldUuid),
+				);
+			expect(previewOrder).toEqual([identity.noteUuid, identity.firstNameUuid]);
+		});
+
+		await test.step("returning to Always clears the reference cleanly", async () => {
+			await page.getByRole("button", { name: "Back to edit" }).click();
+			await page.getByRole("button", { name: "Form settings" }).click();
+			await page.getByRole("button", { name: "Close Behavior" }).click();
+			await waitForSavedMutation('"closeCondition":null', async () => {
+				await page.getByRole("menuitem", { name: "Always" }).click();
+			});
+			await expect(page.getByPlaceholder("Search fields...")).toHaveCount(0);
+		});
+	});
+
+	test("case changes add, retarget, preserve table lookups, and stay navigable to viewers", async ({
 		page,
 		browser,
 		baseURL,
@@ -1874,7 +1924,7 @@ test.describe("authenticated builder", () => {
 				page.getByText(beforeDeep.id, { exact: true }),
 			).toBeVisible();
 
-			// Two forward lands on the dormant change, which is last — so the
+			// Two forward lands on the table-lookup change, which is last — so the
 			// traversal ends rather than wrapping, and says so by going dead.
 			const next = page.getByRole("button", { name: "Next change" });
 			await next.click();
@@ -1950,31 +2000,35 @@ test.describe("authenticated builder", () => {
 			).toBeVisible();
 		});
 
-		await test.step("a persisted lookup-bearing change opens but remains safely read-only", async () => {
+		await test.step("a persisted lookup-bearing change opens and stays editable", async () => {
 			await page.getByRole("button", { name: "All case changes" }).click();
 			await page
 				.locator(
-					`[data-case-operation-select="${CASE_CHANGES_SEED.operations.dormant}"]`,
+					`[data-case-operation-select="${CASE_CHANGES_SEED.operations.tableLookup}"]`,
 				)
 				.click();
-			const notes = page
-				.getByRole("note")
-				.filter({ hasText: "uses lookup-table logic" });
-			await expect(notes).toHaveCount(2);
+			/* Reading a data table is ordinary expression vocabulary, not a
+			 * reason to withdraw the editor: `planCaseOperationUpdate` states
+			 * that no operation becomes read-only merely because one expression
+			 * contains lookup-table logic. So there is no read-only note, and
+			 * both pickers stay live. */
+			await expect(
+				page.getByRole("note").filter({ hasText: "lookup-table logic" }),
+			).toHaveCount(0);
 			await expect(
 				page.getByRole("button", { name: "Kind of case: Patient" }),
-			).toBeDisabled();
+			).toBeEnabled();
 			await expect(
 				page.getByRole("button", {
 					name: "Which case: The case this form opened",
 				}),
-			).toBeDisabled();
+			).toBeEnabled();
 
 			await page.getByRole("button", { name: "All case changes" }).click();
 			await expect(
 				page.getByRole("button", {
 					name: new RegExp(
-						`^Move ${CASE_CHANGES_SEED.ids.dormant}\\. Runs ${CASE_CHANGES_SEQUENCE_LENGTH} of ${CASE_CHANGES_SEQUENCE_LENGTH}`,
+						`^Move ${CASE_CHANGES_SEED.ids.tableLookup}\\. Runs ${CASE_CHANGES_SEQUENCE_LENGTH} of ${CASE_CHANGES_SEQUENCE_LENGTH}`,
 					),
 				}),
 			).toBeVisible();
@@ -2027,8 +2081,9 @@ test.describe("authenticated builder", () => {
 				}),
 			).toBeVisible();
 
-			// Keep a blank runtime target for the first Preview submit. It is
-			// editable immediately and the submission must refuse atomically.
+			// A calculated target has no honest persisted seed. Selecting it
+			// opens a local draft in place while the stored link remains on the
+			// prior create until the calculation becomes complete.
 			await page
 				.getByRole("button", {
 					name: new RegExp(
@@ -2036,45 +2091,35 @@ test.describe("authenticated builder", () => {
 					),
 				})
 				.click();
-			const blankTargetSaved = page.waitForResponse((response) =>
-				isBlankExpressionTargetAutosave(response, caseChanges.appId),
-			);
-			await page
-				.getByRole("menuitem", {
-					name: /^A case found by a calculation/,
-				})
-				.click();
-			expect((await blankTargetSaved).ok()).toBe(true);
+			const calculatedTarget = page.getByRole("menuitem", {
+				name: /^A case found by a calculation/,
+			});
+			await expect(calculatedTarget).toBeEnabled();
+			await calculatedTarget.click();
 			await expect(
 				page.getByText("Work out the id of the case at the other end."),
 			).toBeVisible();
-		});
-
-		await test.step("running Preview refuses a blank link target with no partial case effects", async () => {
-			await page.getByRole("button", { name: "Preview", exact: true }).click();
 			await expect(
-				page.getByRole("button", { name: "Back to edit", exact: true }),
+				page.getByRole("button", {
+					name: new RegExp(
+						`Connect to: The case from .${CASE_CHANGES_SEED.ids.create}.`,
+					),
+				}),
 			).toBeVisible();
-			const relatedPatientCaseId = page.getByRole("textbox", {
-				name: "Related patient case id",
-			});
-			await expect(relatedPatientCaseId).toBeVisible();
-			const submit = page
-				.locator("main")
-				.getByRole("button", { name: "Submit", exact: true });
-			await expect(submit).toBeEnabled();
-			await relatedPatientCaseId.fill(caseChanges.caseId);
-			await expect(relatedPatientCaseId).toHaveValue(caseChanges.caseId);
-			await submit.click();
+			await page.getByRole("button", { name: "Cancel", exact: true }).click();
 			await expect(
-				page.getByRole("alert").filter({ hasText: "Nothing was saved" }),
-			).toContainText(
-				"a case automation points at a case that no longer exists or moved out of reach",
-			);
+				page.getByText("Work out the id of the case at the other end."),
+			).not.toBeVisible();
+			await expect(
+				page.getByRole("button", {
+					name: new RegExp(
+						`Connect to: The case from .${CASE_CHANGES_SEED.ids.create}.`,
+					),
+				}),
+			).toBeVisible();
 		});
 
 		await test.step("repairing the target submits real effects and the linked rows are visible", async () => {
-			await page.getByRole("button", { name: "Back to edit" }).click();
 			const removalSaved = page.waitForResponse(
 				(response) =>
 					response.request().method() === "PUT" &&
@@ -2218,15 +2263,15 @@ test.describe("authenticated builder", () => {
 		).toBeVisible();
 	});
 
-	test("the blank-app escape hatch mints a real app and opens it (no LLM)", async ({
+	test("the from-scratch escape hatch mints the canonical starter and opens it (no LLM)", async ({
 		page,
 	}) => {
 		await page.goto("/build/new");
 
-		const startBlank = page.getByRole("button", {
-			name: "Start with a blank app",
+		const startFromScratch = page.getByRole("button", {
+			name: "Start from scratch",
 		});
-		await expect(startBlank).toBeVisible({ timeout: 20_000 });
+		await expect(startFromScratch).toBeVisible({ timeout: 20_000 });
 
 		// The chat owns the screen until an app exists, so the sidebar chrome is
 		// absent here — this is the "centered, phase = Idle" state.
@@ -2234,19 +2279,18 @@ test.describe("authenticated builder", () => {
 			page.getByRole("button", { name: "Collapse chat sidebar" }),
 		).toHaveCount(0);
 
-		await startBlank.click();
+		await startFromScratch.click();
 
-		// The real createBlankApp Server Action → createApp → router.replace.
+		// The real createStarterApp Server Action → createApp → router.replace.
 		await page.waitForURL(/\/build\/(?!new)[\w-]+$/, { timeout: 30_000 });
 
 		// The chat DOCKED, which only happens once `docHasData` (moduleOrder is
-		// non-empty). That is the load-bearing assertion: a blank app that shipped
-		// with zero modules would render the centered chat again — and would fail
-		// the export validator with NO_MODULES.
+		// non-empty). That is the load-bearing assertion: the from-scratch path
+		// opens the canonical starter rather than reconstructing a zero-module app.
 		await expect(
 			page.getByRole("button", { name: "Collapse chat sidebar" }),
 		).toBeVisible({ timeout: 20_000 });
-		await expect(startBlank).toHaveCount(0);
+		await expect(startFromScratch).toHaveCount(0);
 	});
 
 	test("conversations open at the bottom and switch without exposing the prior transcript", async ({
@@ -2558,5 +2602,665 @@ test.describe("authenticated builder", () => {
 		await expect(
 			page.getByRole("button", { name: "Account menu" }),
 		).toBeVisible();
+	});
+
+	/**
+	 * The Project data workspace's reason to exist, end to end: a shared table
+	 * is there, it can be opened, and a question can be pointed at one of its
+	 * columns.
+	 *
+	 * This path exists because the two defects that shipped through review —
+	 * a table picker that silently did nothing, and a date-and-time cell that
+	 * erased itself — both passed the type checker, the linter, and every pure
+	 * test. They were only visible by driving the surface. `View = f(state)`
+	 * makes the state model the right unit for Vitest; it does not make the
+	 * composition around it verify itself.
+	 */
+	test("a select can be pointed at a shared data table's column", async ({
+		page,
+		browser,
+		baseURL,
+	}) => {
+		test.setTimeout(300_000);
+
+		// 1. The workspace lists the Project's tables, and says they are shared.
+		await page.goto(seed.caseWorkspace.routes.projectData);
+		await expect(
+			page.getByRole("heading", { name: "Data tables", level: 1 }),
+		).toBeVisible({ timeout: 20_000 });
+		await expect(
+			page.getByText("shared with every app in this project", { exact: false }),
+		).toBeVisible();
+
+		// Export identity is visible before opening a table; authors do not need
+		// to enter an admin-only edit control merely to discover it.
+		await expect(
+			page.getByText(`Export tag: ${CASE_WORKSPACE_SEED.lookupTableTag}`, {
+				exact: true,
+			}),
+		).toBeVisible();
+
+		// 2. A table with no rows still exposes its schema and column settings.
+		await page
+			.getByRole("button", {
+				name: new RegExp(`^${CASE_WORKSPACE_SEED.emptyLookupTableName}`),
+			})
+			.click();
+		await expect(
+			page.getByRole("heading", {
+				name: CASE_WORKSPACE_SEED.emptyLookupTableName,
+				level: 1,
+			}),
+		).toBeVisible({ timeout: 20_000 });
+		const emptyLookupTablePath = new URL(page.url()).pathname;
+		await expect(
+			page.getByRole("columnheader", {
+				name: new RegExp(CASE_WORKSPACE_SEED.emptyLookupColumnLabel),
+			}),
+		).toBeVisible();
+		await expect(
+			page.getByText("This table has its columns but no rows yet.", {
+				exact: false,
+			}),
+		).toBeVisible();
+		await page
+			.getByRole("button", {
+				name: new RegExp(CASE_WORKSPACE_SEED.emptyLookupColumnLabel),
+			})
+			.click();
+		await expect(
+			page.getByRole("heading", {
+				name: CASE_WORKSPACE_SEED.emptyLookupColumnLabel,
+				level: 2,
+			}),
+		).toBeVisible();
+
+		// 3. Opening the populated table shows its rows — the read path,
+		// columns, tag and all.
+		await page.getByRole("button", { name: "All data tables" }).click();
+		await page
+			.getByRole("button", {
+				name: new RegExp(`^${CASE_WORKSPACE_SEED.lookupTableName}`),
+			})
+			.click();
+		await expect(
+			page.getByRole("heading", {
+				name: CASE_WORKSPACE_SEED.lookupTableName,
+				level: 1,
+			}),
+		).toBeVisible({ timeout: 20_000 });
+		const populatedLookupTablePath = new URL(page.url()).pathname;
+		await expect(
+			page.getByRole("columnheader", {
+				name: new RegExp(CASE_WORKSPACE_SEED.lookupLabelColumnLabel),
+			}),
+		).toBeVisible();
+		await expect(
+			page.getByText(`Export tag: ${CASE_WORKSPACE_SEED.lookupTableTag}`, {
+				exact: true,
+			}),
+		).toBeVisible();
+		await expect(page.getByText("District hospital")).toBeVisible();
+
+		// Table identity changes in the URL synchronously. Sampling the first
+		// two animation frames catches the former A-under-B paint; browser
+		// Back/Forward then proves the same fence is not limited to button
+		// navigation.
+		const headingsDuringDirectNavigation = await page.evaluate(async (path) => {
+			window.history.pushState(window.history.state, "", path);
+			window.dispatchEvent(new PopStateEvent("popstate"));
+			const headings: Array<string | null> = [];
+			for (let frame = 0; frame < 2; frame += 1) {
+				await new Promise<void>((resolve) =>
+					window.requestAnimationFrame(() => resolve()),
+				);
+				headings.push(
+					document
+						.querySelector("#project-data-table-heading")
+						?.textContent?.trim() ?? null,
+				);
+			}
+			return headings;
+		}, emptyLookupTablePath);
+		expect(headingsDuringDirectNavigation).not.toContain(
+			CASE_WORKSPACE_SEED.lookupTableName,
+		);
+		await expect(
+			page.getByRole("heading", {
+				name: CASE_WORKSPACE_SEED.emptyLookupTableName,
+				level: 1,
+			}),
+		).toBeVisible();
+		await page.goBack();
+		await expect(
+			page.getByRole("heading", {
+				name: CASE_WORKSPACE_SEED.lookupTableName,
+				level: 1,
+			}),
+		).toBeVisible();
+		await page.goForward();
+		await expect(
+			page.getByRole("heading", {
+				name: CASE_WORKSPACE_SEED.emptyLookupTableName,
+				level: 1,
+			}),
+		).toBeVisible();
+		await page.evaluate((path) => {
+			window.history.pushState(window.history.state, "", path);
+			window.dispatchEvent(new PopStateEvent("popstate"));
+		}, populatedLookupTablePath);
+		await expect(
+			page.getByRole("heading", {
+				name: CASE_WORKSPACE_SEED.lookupTableName,
+				level: 1,
+			}),
+		).toBeVisible();
+
+		// Opening an already-visible search result keeps the author's search.
+		// Only a newly minted row needs the grid to clear filters and reveal it.
+		const findRow = page.getByRole("searchbox", { name: "Find a row" });
+		await findRow.fill("District hospital");
+		const districtRow = page.getByRole("row", {
+			name: /District hospital/,
+		});
+		const openedRow = districtRow.getByRole("button", {
+			name: /^Open row/,
+		});
+		await openedRow.click();
+		await expect(findRow).toHaveValue("District hospital");
+		const destination = page.getByRole("textbox", {
+			name: new RegExp(`^${CASE_WORKSPACE_SEED.lookupLabelColumnLabel}`),
+		});
+		const openingTime = page.getByRole("textbox", {
+			name: `${CASE_WORKSPACE_SEED.lookupTimeColumnLabel} time`,
+		});
+		await expect(openingTime).toHaveValue("09:30:00.125");
+		await expect(
+			page.getByRole("textbox", {
+				name: `${CASE_WORKSPACE_SEED.lookupDatetimeColumnLabel} time`,
+			}),
+		).toHaveValue("14:45:00");
+		// Draft ownership is the controller's contract, not the rail body's.
+		// Close, another selection, a table route, and Escape all unmount the
+		// body; each must recover the exact typed value.
+		await destination.fill("  District hospital  ");
+		await openingTime.fill("10:00 AM");
+		await openingTime.fill("09:30:00.125");
+		await page
+			.getByRole("button", { name: "Close properties", exact: true })
+			.click();
+		await expect(
+			page.getByText(
+				"One retained row draft or decision is kept in this table.",
+			),
+		).toBeVisible();
+		await page.getByRole("button", { name: "Review row work" }).click();
+		await expect(destination).toHaveValue("  District hospital  ");
+		await expect(openingTime).toHaveValue("09:30:00.125");
+
+		await page
+			.getByRole("button", {
+				name: new RegExp(CASE_WORKSPACE_SEED.lookupLabelColumnLabel),
+			})
+			.first()
+			.click();
+		await expect(
+			page.getByRole("heading", {
+				name: CASE_WORKSPACE_SEED.lookupLabelColumnLabel,
+				level: 2,
+			}),
+		).toBeVisible();
+		await page.getByRole("button", { name: "Review row work" }).click();
+		await expect(destination).toHaveValue("  District hospital  ");
+
+		await page.getByRole("button", { name: "All data tables" }).click();
+		const recovery = page.getByRole("region", {
+			name: "Row work to review",
+		});
+		await expect(recovery).toBeVisible();
+		await expect(
+			recovery.getByText(CASE_WORKSPACE_SEED.lookupTableName, {
+				exact: true,
+			}),
+		).toBeVisible();
+		await recovery.getByRole("button", { name: /Review unsaved row/ }).click();
+		await expect(destination).toHaveValue("  District hospital  ");
+
+		await page.getByRole("button", { name: "Add row" }).focus();
+		await page.keyboard.press("Escape");
+		await expect(
+			page.getByRole("button", { name: "Close properties", exact: true }),
+		).toBeHidden();
+		await expect(openedRow).toBeFocused();
+		await page.getByRole("button", { name: "Review row work" }).click();
+		await expect(destination).toHaveValue("  District hospital  ");
+
+		// The origin survives selection teardown at every shell width. Narrow
+		// Close returns to the exact column header; handset Escape returns to
+		// the exact row Open control through Base UI's deferred finalFocus.
+		await page.setViewportSize({ width: 800, height: 800 });
+		await page
+			.getByRole("button", { name: "Close properties", exact: true })
+			.click();
+		await expect(openedRow).toBeFocused();
+		const destinationColumn = page
+			.getByRole("button", {
+				name: new RegExp(CASE_WORKSPACE_SEED.lookupLabelColumnLabel),
+			})
+			.first();
+		await destinationColumn.click();
+		await expect(
+			page.getByRole("heading", {
+				name: CASE_WORKSPACE_SEED.lookupLabelColumnLabel,
+				level: 2,
+			}),
+		).toBeVisible();
+		await page
+			.getByRole("button", { name: "Close properties", exact: true })
+			.click();
+		await expect(destinationColumn).toBeFocused();
+		await page.getByRole("button", { name: "Review row work" }).click();
+
+		await page.setViewportSize({ width: 500, height: 780 });
+		await destination.focus();
+		await page.keyboard.press("Escape");
+		await expect(
+			page.getByRole("button", { name: "Close properties", exact: true }),
+		).toBeHidden();
+		await expect(openedRow).toBeFocused();
+
+		await page.setViewportSize({ width: 1280, height: 900 });
+		await page.getByRole("button", { name: "Review row work" }).click();
+		await expect(destination).toHaveValue("  District hospital  ");
+		await page.getByRole("button", { name: "Save row" }).click();
+		await expect(
+			page.getByRole("status").filter({ hasText: "Saved." }),
+		).toBeVisible();
+		await expect(destination).toHaveValue("  District hospital  ");
+		await expect(
+			districtRow.getByText("09:30:00.125+05:30", { exact: true }),
+		).toBeVisible();
+		await expect(
+			districtRow.getByText("2026-07-26T14:45:00-04:00", {
+				exact: true,
+			}),
+		).toBeVisible();
+		await findRow.fill("");
+
+		// A rapid repeated gesture creates exactly one row, and the returned row
+		// is selected/revealed immediately instead of being stranded off-page.
+		const rowsBefore = await page.getByRole("row").count();
+		const addRow = page.getByRole("button", { name: "Add row" });
+		await addRow.dblclick();
+		await expect(
+			page.getByRole("status").filter({
+				hasText: "Added and opened a new empty row.",
+			}),
+		).toBeVisible({ timeout: 20_000 });
+		await expect(page.getByRole("row")).toHaveCount(rowsBefore + 1);
+		await expect(page.getByRole("button", { name: "Save row" })).toBeVisible();
+
+		// 4. The gesture the unit is for: bind a question's choices to a column.
+		await page.goto(seed.caseWorkspace.routes.selectField);
+		const source = page.getByRole("combobox", {
+			name: "Where the choices come from",
+		});
+		await expect(source).toBeVisible({ timeout: 20_000 });
+		// It starts on the field's one committed inline source.
+		await expect(source).toHaveText("Options in this question");
+
+		await source.click();
+		await page
+			.getByRole("option", { name: CASE_WORKSPACE_SEED.lookupTableName })
+			.click();
+
+		/* Choosing a table starts a local draft. Nova does not auto-bind either
+		 * column and does not replace the committed inline source until the
+		 * author completes and confirms the whole lookup source. */
+		const savedValue = page.getByRole("combobox", {
+			name: "Value that gets saved",
+		});
+		const shownValue = page.getByRole("combobox", {
+			name: "Value people see",
+		});
+		await expect(savedValue).toBeVisible({ timeout: 20_000 });
+		await expect(shownValue).toBeVisible();
+		await expect(source).toHaveText(CASE_WORKSPACE_SEED.lookupTableName);
+		await expect(savedValue).toHaveText("Choose a column");
+		await expect(shownValue).toHaveText("Choose a column");
+		const useTable = page.getByRole("button", { name: "Use this table" });
+		await expect(useTable).toBeDisabled();
+
+		await savedValue.click();
+		await page
+			.getByRole("option", {
+				name: CASE_WORKSPACE_SEED.lookupValueColumnLabel,
+			})
+			.click();
+		await shownValue.click();
+		await page
+			.getByRole("option", {
+				name: CASE_WORKSPACE_SEED.lookupLabelColumnLabel,
+			})
+			.click();
+		await expect(savedValue).toHaveText(
+			CASE_WORKSPACE_SEED.lookupValueColumnLabel,
+		);
+		await expect(shownValue).toHaveText(
+			CASE_WORKSPACE_SEED.lookupLabelColumnLabel,
+		);
+		await expect(useTable).toBeEnabled();
+		await useTable.click();
+		await expect(useTable).toBeHidden({ timeout: 20_000 });
+		await expect(source).toHaveText(CASE_WORKSPACE_SEED.lookupTableName);
+
+		// 5. Switching back stages a fresh, complete inline source too. There is
+		// no dormant lookup receiver and no retained inline fallback.
+		await source.click();
+		await page
+			.getByRole("option", { name: "Options in this question" })
+			.click();
+		const useInline = page.getByRole("button", {
+			name: "Use these options",
+		});
+		await expect(useInline).toBeVisible();
+		await expect(source).toHaveText("Options in this question");
+		await expect(useInline).toBeEnabled();
+		await useInline.click();
+		await expect(useInline).toBeHidden({ timeout: 20_000 });
+		await expect(
+			page.getByRole("combobox", { name: "Value that gets saved" }),
+		).toBeHidden();
+
+		// 6. Retype conflicts keep raw temporal text visible until a deliberate
+		// replacement, and a table deleted in another browser upgrades BOTH a
+		// dirty save conflict and a pristine delete conflict while this tab is
+		// looking elsewhere.
+		const appStream = "**/api/apps/*/stream*";
+		const recoveryContext = await browser.newContext({
+			storageState: await page.context().storageState(),
+		});
+		/* Install the route before this context creates its first EventSource.
+		 * That makes the optimistic conflict deterministic without taking the
+		 * whole page offline (which would also fail the table read). */
+		await recoveryContext.route(appStream, (route) =>
+			route.abort("blockedbyclient"),
+		);
+		const recoveryPage = await recoveryContext.newPage();
+		const recoveryGuard = attachErrorGuard(recoveryPage, baseURL);
+		await recoveryPage.goto(seed.caseWorkspace.routes.projectData);
+		const temporalTableName = `Smoke temporal recovery ${Date.now()}`;
+		await recoveryPage.getByRole("button", { name: "New data table" }).click();
+		const createTable = recoveryPage.getByRole("dialog", {
+			name: "Create a data table",
+		});
+		await createTable
+			.getByRole("textbox", { name: "Table name" })
+			.fill(temporalTableName);
+		await createTable
+			.getByRole("textbox", { name: "Name in exports" })
+			.fill(`smoke_${Date.now().toString(36)}`);
+		await createTable
+			.getByRole("textbox", { name: "Column 1 name" })
+			.fill("Visit date");
+		await createTable
+			.getByRole("button", { name: "Add another column" })
+			.click();
+		await createTable
+			.getByRole("textbox", { name: "Column 2 name" })
+			.fill("Visit moment");
+		await createTable.getByRole("button", { name: "Create table" }).click();
+		await expect(
+			recoveryPage.getByRole("heading", {
+				name: temporalTableName,
+				level: 1,
+			}),
+		).toBeVisible({ timeout: 20_000 });
+		const temporalTablePath = new URL(recoveryPage.url()).pathname;
+
+		const addTemporalRow = async (dateText: string, dateTimeText: string) => {
+			await recoveryPage.getByRole("button", { name: "Add row" }).click();
+			await recoveryPage
+				.getByRole("textbox", { name: /^Visit date/ })
+				.fill(dateText);
+			await recoveryPage
+				.getByRole("textbox", { name: /^Visit moment/ })
+				.fill(dateTimeText);
+			await recoveryPage.getByRole("button", { name: "Save row" }).click();
+			await expect(
+				recoveryPage.getByRole("status").filter({ hasText: "Saved." }),
+			).toBeVisible();
+			await recoveryPage
+				.getByRole("button", { name: "Close properties", exact: true })
+				.click();
+		};
+		await addTemporalRow("2026-01-01", "2026-01-01T10:00:00Z");
+		await addTemporalRow("2026-02-02", "2026-02-02T11:00:00Z");
+
+		const firstTemporalRow = recoveryPage.getByRole("row", {
+			name: /2026-01-01/,
+		});
+		await firstTemporalRow.getByRole("button", { name: /^Open row/ }).click();
+		await recoveryPage
+			.getByRole("textbox", { name: /^Visit date/ })
+			.fill("not-a-date");
+		await recoveryPage
+			.getByRole("textbox", { name: /^Visit moment/ })
+			.fill("not-a-datetime");
+
+		const peerContext = await browser.newContext({
+			storageState: await recoveryContext.storageState(),
+		});
+		const peerPage = await peerContext.newPage();
+		const peerGuard = attachErrorGuard(peerPage, baseURL);
+		await peerPage.goto(temporalTablePath);
+		await expect(
+			peerPage.getByRole("heading", {
+				name: temporalTableName,
+				level: 1,
+			}),
+		).toBeVisible({ timeout: 20_000 });
+
+		const retypeColumn = async (
+			label: string,
+			nextType: "Date" | "Date and time",
+		) => {
+			await peerPage
+				.getByRole("columnheader", { name: new RegExp(label) })
+				.getByRole("button")
+				.click();
+			const type = peerPage.getByRole("combobox", {
+				name: "Type of value",
+			});
+			await type.click();
+			await peerPage
+				.getByRole("option", { name: nextType, exact: true })
+				.click();
+			const confirmation = peerPage.getByRole("alertdialog");
+			await expect(
+				confirmation.getByText("No app in this project uses it right now."),
+			).toBeVisible();
+			await confirmation.getByRole("button", { name: "Change type" }).click();
+			await expect(confirmation).toBeHidden();
+		};
+		await retypeColumn("Visit date", "Date");
+		await retypeColumn("Visit moment", "Date and time");
+
+		await recoveryPage.getByRole("button", { name: "Save row" }).click();
+		await expect(
+			recoveryPage.getByRole("heading", { name: "Not saved", level: 2 }),
+		).toBeVisible();
+		await expect(
+			recoveryPage.getByText("not-a-date", { exact: true }),
+		).toBeVisible();
+		await expect(
+			recoveryPage.getByText("not-a-datetime", { exact: true }),
+		).toBeVisible();
+		await recoveryPage
+			.getByRole("button", { name: "Keep my reconciled row" })
+			.click();
+		await expect(
+			recoveryPage.locator('[data-slot="date-picker"][aria-invalid="true"]'),
+		).toHaveCount(2);
+		const reconciledMomentTime = recoveryPage.getByRole("textbox", {
+			name: "Visit moment time",
+		});
+		await expect(reconciledMomentTime).toHaveAttribute("aria-invalid", "true");
+		await reconciledMomentTime.fill("3:15 PM");
+		await expect(
+			recoveryPage.getByText("not-a-datetimeT3:15 PM", { exact: true }),
+		).toBeVisible();
+		await recoveryPage
+			.getByRole("button", { name: "Close properties", exact: true })
+			.click();
+
+		// Open row two with no local edit. This context's stream was blocked
+		// before its first navigation, so the peer write leaves this exact
+		// snapshot stale and Delete produces a conflict with NO row-edit session.
+		const secondTemporalRow = recoveryPage.getByRole("row", {
+			name: /2026-02-02/,
+		});
+		await secondTemporalRow.getByRole("button", { name: /^Open row/ }).click();
+
+		const peerSecondRow = peerPage.getByRole("row", {
+			name: /2026-02-02/,
+		});
+		await peerSecondRow.getByRole("button", { name: /^Open row/ }).click();
+		await peerPage
+			.getByRole("textbox", { name: "Visit moment time" })
+			.fill("12:00 PM");
+		await peerPage.getByRole("button", { name: "Save row" }).click();
+		await expect(
+			peerPage.getByRole("status").filter({ hasText: "Saved." }),
+		).toBeVisible();
+
+		await recoveryPage.getByRole("button", { name: "Delete row" }).click();
+		await expect(recoveryPage.getByText("Delete this row?")).toBeVisible();
+		await recoveryPage.getByRole("button", { name: "Delete row" }).click();
+		await expect(
+			recoveryPage.getByText("This row wasn’t deleted"),
+		).toBeVisible();
+
+		// Leave the conflicted table, reconnect this page's stream, and delete
+		// the table from the other browser. The table-list recovery section is
+		// the only honest discovery surface for both retained rows.
+		await recoveryPage.getByRole("button", { name: "All data tables" }).click();
+		await recoveryPage
+			.getByRole("button", {
+				name: new RegExp(`^${CASE_WORKSPACE_SEED.emptyLookupTableName}`),
+			})
+			.click();
+		await recoveryContext.unroute(appStream);
+		await peerPage.getByRole("button", { name: "Delete table" }).click();
+		const peerDeleteTable = peerPage.getByRole("alertdialog");
+		await expect(
+			peerDeleteTable.getByText("No app in this project uses it right now."),
+		).toBeVisible();
+		await peerDeleteTable.getByRole("button", { name: "Delete table" }).click();
+		await expect(
+			peerPage.getByRole("heading", { name: "Data tables", level: 1 }),
+		).toBeVisible();
+		peerGuard.assertNoErrors();
+		await peerContext.close();
+
+		await recoveryPage.getByRole("button", { name: "All data tables" }).click();
+		const deletedTableRecovery = recoveryPage.getByRole("region", {
+			name: "Row work to review",
+		});
+		await expect(
+			deletedTableRecovery.getByText(temporalTableName, { exact: true }),
+		).toHaveCount(2, { timeout: 40_000 });
+		await expect(
+			deletedTableRecovery.getByText(
+				"Original table unavailable — copy or discard this local row",
+				{ exact: true },
+			),
+		).toHaveCount(2);
+
+		const deletedTableReviews = deletedTableRecovery.getByRole("button", {
+			name: /Review original table unavailable/,
+		});
+		await deletedTableReviews.first().click();
+		await expect(
+			recoveryPage.getByRole("heading", {
+				name: "Local row copy recovered",
+				level: 2,
+			}),
+		).toBeVisible();
+		await expect(
+			recoveryPage.getByText("not-a-date", { exact: true }),
+		).toBeVisible();
+		await expect(
+			recoveryPage.getByText("not-a-datetimeT3:15 PM", { exact: true }),
+		).toBeVisible();
+		await recoveryPage
+			.getByRole("button", { name: "Discard local copy" })
+			.click();
+
+		await recoveryPage.getByRole("button", { name: "All data tables" }).click();
+		await recoveryPage
+			.getByRole("region", { name: "Row work to review" })
+			.getByRole("button", {
+				name: /Review original table unavailable/,
+			})
+			.click();
+		await expect(
+			recoveryPage.getByText("2026-02-02", { exact: true }),
+		).toBeVisible();
+		await expect(
+			recoveryPage.getByText("2026-02-02T11:00:00Z", { exact: true }),
+		).toBeVisible();
+		await recoveryPage
+			.getByRole("button", { name: "Discard local copy" })
+			.click();
+
+		// 7. A self-delete follows the same contract immediately, before a
+		// realtime round trip: the dirty row remains discoverable on the list,
+		// and only its explicit local discard removes it.
+		await recoveryPage.getByRole("button", { name: "All data tables" }).click();
+		await recoveryPage
+			.getByRole("button", {
+				name: new RegExp(`^${CASE_WORKSPACE_SEED.emptyLookupTableName}`),
+			})
+			.click();
+		await recoveryPage.getByRole("button", { name: "Add row" }).click();
+		await recoveryPage
+			.getByRole("textbox", {
+				name: new RegExp(`^${CASE_WORKSPACE_SEED.emptyLookupColumnLabel}`),
+			})
+			.fill("self-delete local draft");
+		await recoveryPage.getByRole("button", { name: "Delete table" }).click();
+		const selfDeleteTable = recoveryPage.getByRole("alertdialog");
+		await expect(
+			selfDeleteTable.getByText(
+				"Nova will keep the one local row draft or decision",
+				{ exact: false },
+			),
+		).toBeVisible();
+		await expect(
+			selfDeleteTable.getByText("No app in this project uses it right now."),
+		).toBeVisible();
+		await selfDeleteTable.getByRole("button", { name: "Delete table" }).click();
+		const selfDeleteRecovery = recoveryPage.getByRole("region", {
+			name: "Row work to review",
+		});
+		await expect(selfDeleteRecovery).toBeVisible();
+		await selfDeleteRecovery
+			.getByRole("button", {
+				name: /Review original table unavailable/,
+			})
+			.click();
+		await expect(
+			recoveryPage.getByText("self-delete local draft", { exact: true }),
+		).toBeVisible();
+		await recoveryPage
+			.getByRole("button", { name: "Discard local copy" })
+			.click();
+		await recoveryPage.getByRole("button", { name: "All data tables" }).click();
+		await expect(
+			recoveryPage.getByRole("region", { name: "Row work to review" }),
+		).toBeHidden();
+		recoveryGuard.assertNoErrors();
+		await recoveryContext.close();
 	});
 });

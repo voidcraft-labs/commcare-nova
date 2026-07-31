@@ -48,7 +48,10 @@ import {
 	resolveAuthorizedAppSnapshot,
 } from "@/lib/db/appAccess";
 import { loadApp } from "@/lib/db/apps";
-import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchemas";
+import {
+	drainPendingCaseSchemaIndexes,
+	materializeCaseStoreSchemas,
+} from "@/lib/db/materializeCaseStoreSchemas";
 import type { AppDoc } from "@/lib/db/types";
 import {
 	caseOperationConditionalGuardUuids,
@@ -61,12 +64,13 @@ import {
 	PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS,
 } from "@/lib/doc/lookupReferences";
 import {
+	asUuid,
 	type BlueprintDoc,
 	type CaseListConfig,
 	type CaseOperation,
 	type CaseType,
 	type Column,
-	caseListColumnHasRuntimeRole,
+	caseListColumnIsEmitted,
 	isCaptureFieldKind,
 	orderedCaseOperations,
 	orderedColumns,
@@ -93,8 +97,8 @@ import {
 import {
 	ancestorPath,
 	eq,
+	isBlank,
 	isIn,
-	isNull,
 	literal,
 	not,
 	or,
@@ -141,20 +145,21 @@ import {
  */
 export const SAMPLE_CASE_DEFAULT_COUNT = 30;
 
-/** Narrow and discard legacy calculated definitions that are neither shown
- * nor used for ordering. Keeping this as a real type predicate lets the
- * case-store receive the calculated-column arm rather than the broad union. */
+/** Narrow to calculated definitions that the running app executes. A dormant
+ * saved calculation remains fully valid but contributes no query projection.
+ * Keeping this as a real type predicate lets the case-store receive the
+ * calculated-column arm rather than the broad union. */
 function isRuntimeCalculatedColumn(
 	column: Column,
 ): column is Extract<Column, { kind: "calculated" }> {
-	return column.kind === "calculated" && caseListColumnHasRuntimeRole(column);
+	return column.kind === "calculated" && caseListColumnIsEmitted(column);
 }
 
 /**
  * Read an optional bounded window of one case type for the bound tenant,
  * projecting each `caseListConfig.columns` calc-arm column's expression as a
- * SELECT slot. Running Results always supplies a page; raw helper consumers
- * may omit it for their legacy unpaged read. An empty bounded worker query
+ * SELECT slot. Running Results always supplies a page; the current form
+ * auto-selection consumer omits it for a complete candidate read. An empty bounded worker query
  * also reports the authored-only population so the UI can name Search versus
  * Cases available as the real cause.
  *
@@ -399,8 +404,8 @@ function composeQueryPredicate(
 	const clauses: Predicate[] = [];
 	let hasAuthoredConstraint = false;
 	let hasWorkerConstraint = false;
-	const knownInputNames = new Set(
-		caseListConfig?.searchInputs.map((input) => input.name) ?? [],
+	const knownInputUuids = new Set(
+		caseListConfig?.searchInputs.map((input) => input.uuid) ?? [],
 	);
 	const emptyExpressionInputValues =
 		caseListConfig === undefined
@@ -418,7 +423,7 @@ function composeQueryPredicate(
 			? bindSearchInputValuesInPredicate(
 					caseListConfig.filter,
 					expressionInputValues,
-					knownInputNames,
+					knownInputUuids,
 					caseListConfig.searchInputs,
 				)
 			: caseListConfig?.filter;
@@ -431,7 +436,7 @@ function composeQueryPredicate(
 				? bindSearchInputValuesInPredicate(
 						caseListConfig.filter,
 						emptyExpressionInputValues,
-						knownInputNames,
+						knownInputUuids,
 						caseListConfig.searchInputs,
 					)
 				: caseListConfig?.filter;
@@ -480,7 +485,7 @@ function composeQueryPredicate(
 		const [firstOwnerId, ...otherOwnerIds] = ownerIds;
 		clauses.push(
 			or(
-				isNull(prop(caseType, "owner_id")),
+				isBlank(prop(caseType, "owner_id")),
 				not(
 					isIn(
 						prop(caseType, "owner_id"),
@@ -1046,7 +1051,7 @@ export async function buildSubmissionOperationProgram(args: {
 	const receiptIdentity = buildSubmissionReceiptIdentity(args);
 
 	const app = args.committedApp;
-	if (app.blueprint.forms[args.projection.formUuid as Uuid] === undefined) {
+	if (app.blueprint.forms[args.projection.formUuid] === undefined) {
 		throw new CaptureSubmissionRejectedError(
 			"The submitted form no longer exists in the committed app.",
 		);
@@ -1242,7 +1247,7 @@ export function buildCaseOperationProgramFromDoc(args: {
 	readonly viewerTimeZone?: string;
 }): BuiltSubmissionOperations {
 	const { mutation } = args;
-	const formUuid = args.projection.formUuid as Uuid;
+	const formUuid = args.projection.formUuid;
 	const blueprint = args.blueprint;
 	const doc = asWalkableDoc(blueprint);
 	const form = doc.forms[formUuid];
@@ -1291,7 +1296,7 @@ export function buildCaseOperationProgramFromDoc(args: {
 		entries: ReadonlyArray<SubmissionAnswerEntry> | undefined,
 	): ReadonlyMap<Uuid, string | readonly string[]> =>
 		new Map(
-			(entries ?? []).map((entry) => [entry.fieldUuid as Uuid, entry.value]),
+			(entries ?? []).map((entry) => [asUuid(entry.fieldUuid), entry.value]),
 		);
 	/* A repeat the COMMITTED doc scopes an operation over, with no scope in
 	 * the payload, is provable staleness rather than an empty repeat.
@@ -1537,6 +1542,14 @@ export async function withSchemaHeal<T>(
 	args: { appId: string },
 	run: () => Promise<T>,
 ): Promise<T> {
+	try {
+		await drainPendingCaseSchemaIndexes(args.appId);
+	} catch (error) {
+		log.warn("[caseDataBinding] pending index convergence failed", {
+			appId: args.appId,
+			error,
+		});
+	}
 	try {
 		return await run();
 	} catch (err) {

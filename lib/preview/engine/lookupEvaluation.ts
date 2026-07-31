@@ -204,6 +204,7 @@ function emissionContext(
 		}),
 		lookup: {
 			naming: data.naming,
+			instanceScope: "suite",
 			// `unaddressable` keeps the anchor honest: a bare self
 			// case-property read inside a row filter either goes through
 			// `emitSelfProperty` (form display conditions) or throws the

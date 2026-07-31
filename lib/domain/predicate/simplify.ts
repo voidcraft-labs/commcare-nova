@@ -113,7 +113,6 @@ export function simplifyForEmission(predicate: Predicate): Predicate {
 					upper: simplifyExpression(predicate.upper),
 				}),
 			};
-		case "is-null":
 		case "is-blank":
 			return { ...predicate, left: simplifyExpression(predicate.left) };
 		case "match":
@@ -256,7 +255,6 @@ function simplifyExpression(expr: ValueExpression): ValueExpression {
 		case "date-coerce":
 		case "datetime-coerce":
 		case "double":
-		case "unwrap-list":
 			return { ...expr, value: simplifyExpression(expr.value) };
 		case "format-date":
 			return { ...expr, date: simplifyExpression(expr.date) };

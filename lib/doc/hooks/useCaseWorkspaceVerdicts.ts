@@ -8,6 +8,14 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "../lookupReferences";
 import type { Uuid } from "../types";
 import { useBlueprintDocEq } from "./useBlueprintDoc";
 
+const CLEAN_VERDICTS: CaseWorkspaceBoundaryVerdicts = {
+	filterBroken: false,
+	searchInputsBroken: false,
+	searchButtonConditionBroken: false,
+	excludedOwnerIdsBroken: false,
+	brokenColumnUuids: [],
+};
+
 function equalVerdicts(
 	left: CaseWorkspaceBoundaryVerdicts,
 	right: CaseWorkspaceBoundaryVerdicts,
@@ -26,15 +34,17 @@ function equalVerdicts(
 
 /** Subscribe only to the case-workspace-ready validator projection. */
 export function useCaseWorkspaceBoundaryVerdicts(
-	moduleUuid: Uuid,
+	moduleUuid: Uuid | undefined,
 ): CaseWorkspaceBoundaryVerdicts {
 	return useBlueprintDocEq(
 		(doc) =>
-			caseWorkspaceBoundaryVerdicts(
-				doc,
-				moduleUuid,
-				LOOKUP_CONTEXT_UNAVAILABLE,
-			),
+			moduleUuid === undefined
+				? CLEAN_VERDICTS
+				: caseWorkspaceBoundaryVerdicts(
+						doc,
+						moduleUuid,
+						LOOKUP_CONTEXT_UNAVAILABLE,
+					),
 		equalVerdicts,
 	);
 }

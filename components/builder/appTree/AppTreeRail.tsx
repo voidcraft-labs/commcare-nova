@@ -31,7 +31,7 @@ import {
 	useLocation,
 	useNavigate,
 } from "@/lib/routing/hooks";
-import { APP_SETUP_LABEL } from "@/lib/routing/types";
+import { APP_SETUP_LABEL, PROJECT_DATA_LABEL } from "@/lib/routing/types";
 
 export function AppTreeRail({ onExpand }: { onExpand: () => void }) {
 	const moduleIds = useModuleIds();
@@ -60,12 +60,13 @@ export function AppTreeRail({ onExpand }: { onExpand: () => void }) {
 					<RailModuleGroup key={moduleUuid} moduleUuid={moduleUuid} />
 				))}
 			</div>
-			{/* App setup keeps its own footer cell rather than joining the
-			 *  module groups above: collapsing the tree trades width for
-			 *  labels, never for the distinction between app content and app
-			 *  administration. */}
-			<div className="flex w-full shrink-0 flex-col items-center border-t border-nova-border py-2">
+			{/* The configuration workspaces keep their own footer cell rather
+			 *  than joining the module groups above: collapsing the tree trades
+			 *  width for labels, never for the distinction between this app's
+			 *  content, its administration, and the project's shared data. */}
+			<div className="flex w-full shrink-0 flex-col items-center gap-1 border-t border-nova-border py-2">
 				<AppSetupRailButton />
+				<ProjectDataRailButton />
 			</div>
 		</aside>
 	);
@@ -81,6 +82,20 @@ function AppSetupRailButton() {
 			onClick={() => navigate.openAppSetup()}
 		>
 			<Icon icon={tablerSettings} width="17" height="17" />
+		</RailButton>
+	);
+}
+
+function ProjectDataRailButton() {
+	const navigate = useNavigate();
+	const loc = useLocation();
+	return (
+		<RailButton
+			label={PROJECT_DATA_LABEL}
+			active={loc.kind === "project-data"}
+			onClick={() => navigate.openProjectData()}
+		>
+			<Icon icon={tablerTable} width="17" height="17" />
 		</RailButton>
 	);
 }

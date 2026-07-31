@@ -29,9 +29,11 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { xp } from "@/lib/__tests__/docHelpers";
 import type { BlueprintDoc } from "@/lib/domain";
-import { asUuid } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
+
 import { renderAgentPrompt } from "../prompts";
 
 /**
@@ -43,9 +45,9 @@ import { renderAgentPrompt } from "../prompts";
  * spot-check.
  */
 function fixturePopulatedDoc(): BlueprintDoc {
-	const modUuid = asUuid("11111111-1111-1111-1111-111111111111");
-	const formUuid = asUuid("22222222-2222-2222-2222-222222222222");
-	const fieldUuid = asUuid("33333333-3333-3333-3333-333333333333");
+	const modUuid = testUuid("11111111-1111-1111-1111-111111111111");
+	const formUuid = testUuid("22222222-2222-2222-2222-222222222222");
+	const fieldUuid = testUuid("33333333-3333-3333-3333-333333333333");
 	return {
 		appId: "a-edit",
 		appName: "Vaccine Tracker",
@@ -72,7 +74,7 @@ function fixturePopulatedDoc(): BlueprintDoc {
 				uuid: fieldUuid,
 				id: "patient_name",
 				kind: "text",
-				label: "Patient Name",
+				label: proseText("Patient Name"),
 				required: xp("true()"),
 			},
 		},
@@ -84,11 +86,9 @@ function fixturePopulatedDoc(): BlueprintDoc {
 }
 
 /**
- * Empty-doc fixture — the degenerate edit case `createApp` produces
- * before any modules land. `buildSolutionsArchitectPrompt` keys off
- * `doc?.moduleOrder.length > 0` and routes empty docs into the build
- * branch; the test confirms that fallthrough is preserved when the doc
- * comes through the MCP renderer.
+ * Defensive in-memory empty-doc fixture. Persisted `createApp` always returns
+ * canonical genesis, but `buildSolutionsArchitectPrompt` still fails safe to
+ * build framing when this impossible persisted shape reaches the MCP renderer.
  */
 function fixtureEmptyDoc(): BlueprintDoc {
 	return {
@@ -147,11 +147,8 @@ describe("renderAgentPrompt", () => {
 	});
 
 	it("edit mode with an empty-modules doc falls back to the build prompt", () => {
-		/* `createApp` writes an empty doc before any generation tools
-		 * fire — there's nothing to "edit" yet, so
-		 * `buildSolutionsArchitectPrompt` routes empty docs into the
-		 * build branch. The test confirms the MCP renderer inherits
-		 * that behavior end-to-end. */
+		/* Persisted creation never supplies this shape, but a defensive
+		 * in-memory empty doc still routes to build framing. */
 		const sp = renderAgentPrompt(true, fixtureEmptyDoc());
 		expect(sp).toContain("Initial Build");
 		expect(sp).not.toContain("Editing Mode");

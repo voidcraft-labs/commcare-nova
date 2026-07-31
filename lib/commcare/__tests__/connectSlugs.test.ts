@@ -21,6 +21,7 @@
  * through `expandDoc` (wire-surface consistency) and `runValidation` (the
  * valid-path set).
  */
+
 import { describe, expect, it } from "vitest";
 import { buildDoc, f, xp } from "@/lib/__tests__/docHelpers";
 import {
@@ -34,6 +35,7 @@ import { expandDoc } from "@/lib/commcare/expander";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 
 // ── Fixture helpers ──────────────────────────────────────────────────
 
@@ -53,9 +55,8 @@ describe("buildConnectSlugMap — typed pass-through (no transform)", () => {
 	// The resolver does NOT cap, dedup, or fall back. Connect ids are forced
 	// valid + unique + within-length at the SOURCE (creation autofill via
 	// `deriveConnectId`, the field/tool guards via `connectIdError` +
-	// `connectIdConflictError`, and the validate-time backfill). So the
-	// resolver only narrows `id` from `string | undefined` to `string` and
-	// passes the stored id through verbatim.
+	// `connectIdConflictError`, and the final document topology). The
+	// resolver passes the required stored id through verbatim.
 
 	it("passes a valid stored id through unchanged", () => {
 		const doc = buildDoc({
@@ -136,35 +137,6 @@ describe("buildConnectSlugMap — typed pass-through (no transform)", () => {
 		expect(dConfig?.task?.id).toBe("task_id");
 	});
 
-	it("throws an invariant violation if a block reaches it with no id", () => {
-		// Source-correctness should make this unreachable. If it ever fires,
-		// an entry point skipped enforcement — the resolver refuses to invent
-		// an id rather than silently paper over the gap.
-		const doc = buildDoc({
-			connectType: "learn",
-			modules: [
-				{
-					name: "Training",
-					forms: [
-						{
-							name: "Lesson",
-							type: "survey",
-							connect: {
-								// id deliberately omitted to simulate the broken state.
-								learn_module: {
-									name: "Intro",
-									description: "x",
-									time_estimate: 5,
-								},
-							},
-						},
-					],
-				},
-			],
-		});
-		expect(() => buildConnectSlugMap(doc)).toThrow(/no id/i);
-	});
-
 	it("throws on a present-but-over-length id (it does NOT cap)", () => {
 		// The resolver is the emit invariant: a valid id or a loud throw. An
 		// over-length id is NOT silently capped here — that would corrupt the
@@ -219,116 +191,6 @@ describe("buildConnectSlugMap — typed pass-through (no transform)", () => {
 			],
 		});
 		expect(() => buildConnectSlugMap(doc)).toThrow(/bad id/);
-	});
-
-	it("throws on a duplicate id across two forms (citing both sites + the id)", () => {
-		// The emit invariant covers uniqueness, not just per-id validity. Two
-		// distinct blocks sharing an id would collide on Connect's `(app, slug)`
-		// key / produce duplicate XForm element names — so the resolver fails
-		// loud if a duplicate somehow reaches emission (the source guards +
-		// validator should catch it first).
-		const doc = buildDoc({
-			connectType: "learn",
-			modules: [
-				{
-					name: "Training A",
-					forms: [
-						{
-							name: "Lesson",
-							type: "survey",
-							connect: {
-								learn_module: {
-									id: "shared_slug",
-									name: "A",
-									description: "x",
-									time_estimate: 5,
-								},
-							},
-						},
-					],
-				},
-				{
-					name: "Training B",
-					forms: [
-						{
-							name: "Lesson",
-							type: "survey",
-							connect: {
-								learn_module: {
-									id: "shared_slug",
-									name: "B",
-									description: "x",
-									time_estimate: 5,
-								},
-							},
-						},
-					],
-				},
-			],
-		});
-		expect(() => buildConnectSlugMap(doc)).toThrow(/shared_slug/);
-		expect(() => buildConnectSlugMap(doc)).toThrow(/duplicate/i);
-	});
-
-	it("skips a cross-mode block (deliver_unit on a learn app) — no throw", () => {
-		// The connect schema isn't mode-discriminated, so a learn app can carry
-		// a stray deliver_unit block. The defaulter only fills the matching
-		// mode's blocks; the resolver must agree — process only blocks matching
-		// `connectType`, so a cross-mode (and possibly id-less) block neither
-		// emits nor trips the invariant.
-		const doc = buildDoc({
-			connectType: "learn",
-			modules: [
-				{
-					name: "Training",
-					forms: [
-						{
-							name: "Lesson",
-							type: "survey",
-							connect: {
-								learn_module: {
-									id: "intro_module",
-									name: "Intro",
-									description: "x",
-									time_estimate: 5,
-								},
-								// Stray cross-mode block, id-less — must be ignored.
-								deliver_unit: { name: "Stray" },
-							},
-						},
-					],
-				},
-			],
-		});
-		const config = buildConnectSlugMap(doc).get(onlyFormUuid(doc));
-		expect(config?.learn_module?.id).toBe("intro_module");
-		// The cross-mode deliver_unit is not emitted.
-		expect(config?.deliver_unit).toBeUndefined();
-	});
-
-	it("produces NO map entry for a form whose connect holds only a cross-mode stray", () => {
-		// A learn form carrying ONLY a stray deliver_unit has nothing to emit.
-		// The contract is `map.get(formUuid) === undefined` means "nothing to
-		// emit" — so a present-but-empty `{}` entry would be a contract
-		// violation (a future consumer doing `if (map.get(f)) emitWrapper()`
-		// would emit a spurious empty wrapper).
-		const doc = buildDoc({
-			connectType: "learn",
-			modules: [
-				{
-					name: "Training",
-					forms: [
-						{
-							name: "Lesson",
-							type: "survey",
-							// No live (learn) kind — only a cross-mode stray.
-							connect: { deliver_unit: { id: "stray", name: "Stray" } },
-						},
-					],
-				},
-			],
-		});
-		expect(buildConnectSlugMap(doc).get(onlyFormUuid(doc))).toBeUndefined();
 	});
 });
 
@@ -398,41 +260,6 @@ describe("buildConnectSlugMap — empty / absent handling", () => {
 		});
 		expect(buildConnectSlugMap(doc).get(onlyFormUuid(doc))).toBeUndefined();
 	});
-
-	it("returns an empty map when the app is not in Connect mode", () => {
-		const doc = buildDoc({
-			connectType: null,
-			modules: [
-				{
-					name: "M",
-					forms: [
-						{
-							name: "F",
-							type: "survey",
-							connect: {
-								learn_module: {
-									id: "intro",
-									name: "F",
-									description: "x",
-									time_estimate: 30,
-								},
-							},
-						},
-					],
-				},
-			],
-		});
-		expect(buildConnectSlugMap(doc).size).toBe(0);
-	});
-
-	// Note: id-less blocks are filled at the source (`enforceConnectIds` on
-	// the SA tools, `dedupeRestoredConnectIds` on the UI seed/restore), so
-	// they never reach the resolver id-less in normal flow — the autofill +
-	// uniqueness behavior is covered by the `deriveConnectId` tests below
-	// and the per-tool enforcement tests, the validator's
-	// `CONNECT_ID_MISSING` backstop covers a doc that skipped enforcement,
-	// and the resolver's invariant-throw on a blank id is covered by the
-	// pass-through describe above.
 });
 
 // ── End-to-end through expandDoc — wire-surface consistency ──────────
@@ -460,7 +287,9 @@ describe("Connect id — end-to-end XForm consistency", () => {
 								time_estimate: 30,
 							},
 						},
-						fields: [f({ kind: "text", id: "feedback", label: "Feedback" })],
+						fields: [
+							f({ kind: "text", id: "feedback", label: proseText("Feedback") }),
+						],
 					},
 				],
 			},
@@ -487,8 +316,8 @@ describe("Connect id — end-to-end XForm consistency", () => {
 	});
 
 	it("agrees between the XForm bind and the case-references load map for a deliver_unit", () => {
-		// `entity_id` carries a `#case/` hashtag so it surfaces in the
-		// case-references load map. The load-map key and the XForm bind
+		// `entity_id` carries a typed case ref so its private HQ projection
+		// surfaces in the case-references load map. The load-map key and XForm bind
 		// nodeset must reference the SAME id, or the runtime would preload
 		// into a node the form never declares.
 		const doc = buildDoc({
@@ -506,10 +335,12 @@ describe("Connect id — end-to-end XForm consistency", () => {
 								deliver_unit: {
 									id: "vendor_visit",
 									name: "Visit",
-									entity_id: xp("#case/beneficiary_id"),
+									entity_id: xp("#visit/beneficiary_id"),
 								},
 							},
-							fields: [f({ kind: "text", id: "notes", label: "Notes" })],
+							fields: [
+								f({ kind: "text", id: "notes", label: proseText("Notes") }),
+							],
 						},
 					],
 				},
@@ -527,10 +358,9 @@ describe("Connect id — end-to-end XForm consistency", () => {
 		]);
 	});
 
-	it("throws (not silently corrupts) when an over-length id reaches expandDoc", () => {
-		// The emit boundary: a doc carrying an over-length connect id makes
-		// `expandDoc` throw via `narrowId`, so the compile/upload routes catch
-		// it and return a clean error instead of shipping a corrupt wire.
+	it("asserts an over-length id cannot reach expandDoc", () => {
+		// The emitter keeps one final invariant assertion against a structurally
+		// forged document. Authoring cannot commit this state.
 		const doc = buildDoc({
 			appName: "Over-length id",
 			connectType: "learn",
@@ -549,13 +379,13 @@ describe("Connect id — end-to-end XForm consistency", () => {
 									time_estimate: 5,
 								},
 							},
-							fields: [f({ kind: "text", id: "q", label: "Q" })],
+							fields: [f({ kind: "text", id: "q", label: proseText("Q") })],
 						},
 					],
 				},
 			],
 		});
-		expect(() => expandDoc(doc)).toThrow(/invalid id/i);
+		expect(() => expandDoc(doc)).toThrow(/invalid final id/i);
 	});
 });
 
@@ -585,7 +415,9 @@ describe("Connect assessment — user_score value lives in the bind, not the ele
 								user_score: xp("42"),
 							},
 						},
-						fields: [f({ kind: "text", id: "answer", label: "Answer" })],
+						fields: [
+							f({ kind: "text", id: "answer", label: proseText("Answer") }),
+						],
 					},
 				],
 			},
@@ -640,7 +472,7 @@ describe("Connect id — validator valid-path set exposes the stored id", () => 
 								f({
 									kind: "text",
 									id: "note",
-									label: "Note",
+									label: proseText("Note"),
 									relevant: `${refPath} = 'x'`,
 								}),
 							],
@@ -669,7 +501,7 @@ describe("Connect id — validator valid-path set exposes the stored id", () => 
 								f({
 									kind: "text",
 									id: "note",
-									label: "Note",
+									label: proseText("Note"),
 									relevant: `${refPath} = 'x'`,
 								}),
 							],

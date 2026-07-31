@@ -7,12 +7,7 @@
 
 "use client";
 import { useMemo } from "react";
-import {
-	type CaseProperty,
-	canonicalCasePropertyName,
-	isDateTyped,
-	isTextShaped,
-} from "@/lib/domain";
+import { type CaseProperty, isDateTyped, isTextShaped } from "@/lib/domain";
 import {
 	formField,
 	input,
@@ -64,7 +59,7 @@ export function matchDefault(
 ): Extract<Predicate, { kind: "match" }> {
 	const ct = ctx.caseTypes.find((c) => c.name === ctx.currentCaseType);
 	const property = ct?.properties.find(isTextShaped);
-	const propName = canonicalCasePropertyName(property?.name ?? "");
+	const propName = property?.name ?? "";
 	// `starts-with` is the only mode CommCare's own evaluator implements,
 	// so it is the only one valid on every carrier. Defaulting to `fuzzy`
 	// made this seed unusable anywhere a rule runs on the device — which
@@ -92,7 +87,7 @@ export function matchDefault(
  */
 function matchSeedValue(ctx: PredicateEditContext): ValueExpression {
 	const searchInput = ctx.knownInputs[0];
-	if (searchInput !== undefined) return term(input(searchInput.name));
+	if (searchInput !== undefined) return term(input(searchInput.uuid));
 	const answer = ctx.formFields?.[0];
 	if (answer !== undefined) return term(formField(answer.uuid));
 	return term(sessionContext("username"));

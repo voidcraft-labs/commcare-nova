@@ -10,13 +10,14 @@
  * Runs unconditionally under `npm test` (the case-store testcontainer boots in
  * `globalSetup`).
  */
+
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import type { Mutation } from "@/lib/doc/types";
 import {
-	asUuid,
-	type LookupOptionsSource,
 	lookupOptionsSourceSchema,
+	type SelectOptionsSource,
 } from "@/lib/domain";
 import { readEvents } from "../reader";
 import type { Event } from "../types";
@@ -25,19 +26,34 @@ import { LogWriter } from "../writer";
 const h = setupAppStateTestDb("log_writer_");
 
 const APP = "app-writer-int";
-const LOOKUP_FIELD = asUuid("30000000-0000-4000-8000-000000000000");
+const LOOKUP_FIELD = testUuid("30000000-0000-4000-8000-000000000000");
 const LOOKUP_SOURCE_A = lookupOptionsSourceSchema.parse({
-	kind: "lookup-table",
+	kind: "lookup",
 	tableId: "018f3e8a-7b2c-7def-8abc-1234567890ab",
 	valueColumnId: "018f3e8a-7b2c-7def-8abc-1234567890ad",
 	labelColumnId: "018f3e8a-7b2c-7def-8abc-1234567890ae",
 });
 const LOOKUP_SOURCE_B = lookupOptionsSourceSchema.parse({
-	kind: "lookup-table",
+	kind: "lookup",
 	tableId: "018f3e8a-7b2c-7def-8abc-1234567890ac",
 	valueColumnId: "018f3e8a-7b2c-7def-8abc-1234567890af",
 	labelColumnId: "018f3e8a-7b2c-7def-8abc-1234567890b0",
 });
+const INLINE_SOURCE: SelectOptionsSource = {
+	kind: "inline",
+	options: [
+		{
+			uuid: testUuid("inline-a"),
+			value: "a",
+			label: { parts: [{ kind: "text", text: "A" }] },
+		},
+		{
+			uuid: testUuid("inline-b"),
+			value: "b",
+			label: { parts: [{ kind: "text", text: "B" }] },
+		},
+	],
+};
 
 function mutationEvent(seq: number, runId = "run-1"): Event {
 	return {
@@ -63,21 +79,18 @@ function conversationEvent(seq: number, runId = "run-1"): Event {
 	};
 }
 
-function lookupSourceMutation(
-	optionsSource: LookupOptionsSource | null,
-): Mutation {
+function lookupSourceMutation(optionsSource: SelectOptionsSource): Mutation {
 	return {
 		kind: "updateField",
 		uuid: LOOKUP_FIELD,
 		targetKind: "single_select",
-		patch: {},
-		optionsSource,
+		patch: { optionsSource },
 	};
 }
 
 function lookupMutationEvent(
 	seq: number,
-	optionsSource: LookupOptionsSource | null,
+	optionsSource: SelectOptionsSource,
 ): Event {
 	return {
 		kind: "mutation",
@@ -89,10 +102,6 @@ function lookupMutationEvent(
 		stage: "lookup",
 		mutation: lookupSourceMutation(optionsSource),
 	};
-}
-
-function owns(value: object, key: PropertyKey): boolean {
-	return Object.hasOwn(value, key);
 }
 
 describe("LogWriter default pgSink", () => {
@@ -157,18 +166,26 @@ describe("LogWriter default pgSink", () => {
 		expect((row.event as { source: string }).source).toBe("mcp");
 	});
 
-	it("round-trips lookup-source set, replace, and explicit-null clear through the Postgres writer and reader", async () => {
+	it("round-trips lookup-source set, replace, and inline-source replacement through the Postgres writer and reader", async () => {
 		const carrierEvents = [
 			lookupMutationEvent(0, LOOKUP_SOURCE_A),
 			lookupMutationEvent(1, LOOKUP_SOURCE_B),
-			lookupMutationEvent(2, null),
+			lookupMutationEvent(2, INLINE_SOURCE),
 		];
-		const inputClear = carrierEvents[2];
-		if (inputClear?.kind !== "mutation") {
-			throw new Error("input clear event is missing");
+		const inputReplacement = carrierEvents[2];
+		if (inputReplacement?.kind !== "mutation") {
+			throw new Error("input replacement event is missing");
 		}
-		expect(owns(inputClear.mutation, "optionsSource")).toBe(true);
-		expect(inputClear.mutation).toHaveProperty("optionsSource", null);
+		if (
+			inputReplacement.mutation.kind !== "updateField" ||
+			inputReplacement.mutation.targetKind !== "single_select"
+		) {
+			throw new Error("input replacement is not a select-field update");
+		}
+		expect(inputReplacement.mutation.patch).toHaveProperty(
+			"optionsSource",
+			INLINE_SOURCE,
+		);
 
 		const writer = new LogWriter(APP, "chat");
 		for (const event of carrierEvents) writer.logEvent(event);
@@ -195,23 +212,18 @@ describe("LogWriter default pgSink", () => {
 			}
 			return event.mutation;
 		});
-		expect(storedMutations.map((mutation) => mutation.optionsSource)).toEqual([
-			LOOKUP_SOURCE_A,
-			LOOKUP_SOURCE_B,
-			null,
-		]);
-		expect(owns(storedMutations[2] ?? {}, "optionsSource")).toBe(true);
-		expect(storedMutations[2]?.optionsSource).toBeNull();
-		expect(storedMutations[2]?.patch).toEqual({});
-		expect(storedMutations[2]?.patch).not.toHaveProperty("optionsSource");
+		expect(
+			storedMutations.map(
+				(mutation) =>
+					(mutation.patch as Record<string, unknown>)?.optionsSource,
+			),
+		).toEqual([LOOKUP_SOURCE_A, LOOKUP_SOURCE_B, INLINE_SOURCE]);
 
-		/* readEvents performs the production jsonb decode plus
-		 * canonicalMutationSchema validation. A skipped clear would make the
-		 * persisted run stream partial, so assert both the count and exact shape. */
+		/* readEvents performs the production jsonb decode plus canonical
+		 * mutationSchema validation and never returns partial history. */
 		const read = await readEvents(APP, "run-lookup-carriers");
-		expect(read.skipped).toBe(0);
-		expect(read.events).toHaveLength(3);
-		const decodedMutations = read.events.map((event) => {
+		expect(read).toHaveLength(3);
+		const decodedMutations = read.map((event) => {
 			if (event.kind !== "mutation") {
 				throw new Error("decoded carrier event is not a mutation");
 			}
@@ -219,16 +231,19 @@ describe("LogWriter default pgSink", () => {
 		});
 		expect(
 			decodedMutations.map((mutation) =>
-				"optionsSource" in mutation ? mutation.optionsSource : undefined,
+				mutation.kind === "updateField" &&
+				mutation.targetKind === "single_select"
+					? mutation.patch.optionsSource
+					: undefined,
 			),
-		).toEqual([LOOKUP_SOURCE_A, LOOKUP_SOURCE_B, null]);
-		const decodedClear = decodedMutations[2];
-		if (decodedClear?.kind !== "updateField") {
-			throw new Error("decoded clear updateField mutation is missing");
+		).toEqual([LOOKUP_SOURCE_A, LOOKUP_SOURCE_B, INLINE_SOURCE]);
+		const decodedReplacement = decodedMutations[2];
+		if (
+			decodedReplacement?.kind !== "updateField" ||
+			decodedReplacement.targetKind !== "single_select"
+		) {
+			throw new Error("decoded replacement updateField mutation is missing");
 		}
-		expect(owns(decodedClear, "optionsSource")).toBe(true);
-		expect(decodedClear).toHaveProperty("optionsSource", null);
-		expect(decodedClear.patch).toEqual({});
-		expect(decodedClear.patch).not.toHaveProperty("optionsSource");
+		expect(decodedReplacement.patch.optionsSource).toEqual(INLINE_SOURCE);
 	});
 });

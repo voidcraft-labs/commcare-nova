@@ -20,16 +20,17 @@
 import {
 	act,
 	fireEvent,
-	render,
+	render as rtlRender,
 	screen,
 	waitFor,
 } from "@testing-library/react";
-import { useState } from "react";
+import { type ReactElement, type ReactNode, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import {
 	activateWithEnter,
 	focusElement,
 } from "@/__tests__/helpers/baseUiInteractions";
+import { BlueprintDocProvider } from "@/lib/doc/provider";
 import type { CaseType } from "@/lib/domain";
 import {
 	ancestorPath,
@@ -48,7 +49,6 @@ import {
 	gt,
 	isBlank,
 	isIn,
-	isNull,
 	literal,
 	match,
 	multiSelectAny,
@@ -58,37 +58,52 @@ import {
 	subcasePath,
 	term,
 	today,
-	unwrapList,
 	within,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { ExpressionCardEditor } from "../ExpressionCardEditor";
 import { buildValidityIndex, PredicateEditProvider } from "../editorContext";
 import { PredicateCardEditor } from "../PredicateCardEditor";
 import { RelationPathBuilder } from "../primitives/RelationPathBuilder";
 
+// Cards and the path builder spell authored prose — option labels, property
+// names — against the document. Wrapping at `render` reproduces the builder's
+// provider for every surface here.
+function DocumentProvider({ children }: { readonly children: ReactNode }) {
+	return (
+		<BlueprintDocProvider appId="test-app">{children}</BlueprintDocProvider>
+	);
+}
+
+function render(ui: ReactElement) {
+	return rtlRender(ui, { wrapper: DocumentProvider });
+}
+
 const HOUSEHOLD: CaseType = {
 	name: "household",
-	properties: [{ name: "region", label: "Region", data_type: "text" }],
+	properties: [
+		{ name: "region", label: proseText("Region"), data_type: "text" },
+	],
 };
 const PATIENT: CaseType = {
 	name: "patient",
 	parent_type: "household",
 	properties: [
-		{ name: "age", label: "Age", data_type: "int" },
-		{ name: "name", label: "Name", data_type: "text" },
+		{ name: "age", label: proseText("Age"), data_type: "int" },
+		{ name: "case_name", label: proseText("Case name"), data_type: "text" },
 		{
 			name: "tags",
-			label: "Tags",
+			label: proseText("Tags"),
 			data_type: "multi_select",
-			options: [{ value: "vip", label: "VIP" }],
+			options: [{ value: "vip", label: proseText("VIP") }],
 		},
-		{ name: "location", label: "Home", data_type: "geopoint" },
+		{ name: "location", label: proseText("Home"), data_type: "geopoint" },
 	],
 };
 const VISIT: CaseType = {
 	name: "visit",
 	parent_type: "patient",
-	properties: [{ name: "kind", label: "Kind", data_type: "text" }],
+	properties: [{ name: "kind", label: proseText("Kind"), data_type: "text" }],
 };
 const CASE_TYPES = [HOUSEHOLD, PATIENT, VISIT];
 
@@ -541,26 +556,6 @@ describe("ExpressionPicker — non-Term round-trip preservation", () => {
 		expect(onChange).toHaveBeenCalledTimes(1);
 		expect(onChange.mock.calls[0][0].kind).toBe("arith");
 		expect(screen.queryByRole("alertdialog")).toBeNull();
-	});
-
-	it("keeps round-trip-only values editable without offering them as new targets", async () => {
-		const imported = unwrapList(term(literal('["one"]')));
-		const onChange = vi.fn();
-		render(
-			<ExpressionCardEditor
-				value={imported}
-				onChange={onChange}
-				caseTypes={CASE_TYPES}
-				currentCaseType="patient"
-			/>,
-		);
-		expect(screen.getByText("Saved selections")).toBeDefined();
-		openRootExpressionKindMenu();
-		const current = await screen.findByRole("menuitem", {
-			name: /^Saved selections/i,
-		});
-		expect(current.getAttribute("aria-disabled")).toBe("true");
-		expect(onChange).not.toHaveBeenCalled();
 	});
 });
 
@@ -1109,9 +1104,8 @@ describe("ExpressionPicker — exhaustive left-subject editing", () => {
 	// the real expression card. A calculated subject is editable in
 	// place; it never collapses to a read-only replacement badge.
 	//
-	// The five surfaces: `compare` (ComparisonCard) / `in` (InCard) /
-	// `between` (BetweenCard) / `is-null` (IsNullCard) / `is-blank`
-	// (IsBlankCard).
+	// The four surfaces: `compare` (ComparisonCard) / `in` (InCard) /
+	// `between` (BetweenCard) / `is-blank` (IsBlankCard).
 
 	const NON_TERM_LEFT = arith("+", term(literal(1)), term(literal(2)));
 
@@ -1215,24 +1209,6 @@ describe("ExpressionPicker — exhaustive left-subject editing", () => {
 		expect(onChange).not.toHaveBeenCalled();
 	});
 
-	it("IsNullCard preserves a non-Term left", () => {
-		const value = isNull(NON_TERM_LEFT);
-		const onChange = vi.fn();
-		const { container } = render(
-			<PredicateCardEditor
-				value={value}
-				onChange={onChange}
-				caseTypes={CASE_TYPES}
-				currentCaseType="patient"
-			/>,
-		);
-		expect(container.textContent).toMatch(/Math/i);
-		expect(
-			screen.getByRole("button", { name: "Change value type" }),
-		).toBeDefined();
-		expect(onChange).not.toHaveBeenCalled();
-	});
-
 	it("IsBlankCard preserves a non-Term left", () => {
 		const value = isBlank(NON_TERM_LEFT);
 		const onChange = vi.fn();
@@ -1255,7 +1231,7 @@ describe("ExpressionPicker — exhaustive left-subject editing", () => {
 		const onChange = vi.fn();
 		render(
 			<PredicateCardEditor
-				value={isBlank(prop("patient", "name"))}
+				value={isBlank(prop("patient", "case_name"))}
 				onChange={onChange}
 				caseTypes={CASE_TYPES}
 				currentCaseType="patient"
@@ -1374,7 +1350,9 @@ describe("PropertyRefPicker — `prop.via` round-trip preservation", () => {
 		const labResult: CaseType = {
 			name: "lab_result",
 			parent_type: "patient",
-			properties: [{ name: "kind", label: "Kind", data_type: "text" }],
+			properties: [
+				{ name: "kind", label: proseText("Kind"), data_type: "text" },
+			],
 		};
 		const onChange = vi.fn();
 		render(
@@ -1445,20 +1423,6 @@ describe("PropertyRefPicker — `prop.via` round-trip preservation", () => {
 		expectEditableRelation(container, onChange);
 	});
 
-	it("IsNullCard preserves and exposes prop.via on render", () => {
-		const value = isNull(term(prop("patient", "age", VIA)));
-		const onChange = vi.fn();
-		const { container } = render(
-			<PredicateCardEditor
-				value={value}
-				onChange={onChange}
-				caseTypes={CASE_TYPES}
-				currentCaseType="patient"
-			/>,
-		);
-		expectEditableRelation(container, onChange);
-	});
-
 	it("IsBlankCard preserves and exposes prop.via on render", () => {
 		const value = isBlank(term(prop("patient", "age", VIA)));
 		const onChange = vi.fn();
@@ -1477,7 +1441,7 @@ describe("PropertyRefPicker — `prop.via` round-trip preservation", () => {
 
 	it("MatchCard preserves and exposes prop.via on render", () => {
 		const value = match(
-			prop("patient", "name", VIA),
+			prop("patient", "case_name", VIA),
 			term(literal("alice")),
 			"fuzzy",
 		);
@@ -1542,7 +1506,7 @@ describe('PropertyRefPicker — `via.kind === "self"` is canonical', () => {
 		const onChange = vi.fn();
 		render(
 			<PredicateCardEditor
-				value={isBlank(term(prop("patient", "name")))}
+				value={isBlank(term(prop("patient", "case_name")))}
 				onChange={onChange}
 				caseTypes={CASE_TYPES}
 				currentCaseType="patient"
@@ -1582,7 +1546,7 @@ describe('PropertyRefPicker — `via.kind === "self"` is canonical', () => {
 
 	it("a ValueExpression subject renders the editing surface for prop with via=self", async () => {
 		// IsBlankCard exercises ExpressionPicker's property Term arm.
-		const value = isBlank(term(prop("patient", "name", SELF_VIA)));
+		const value = isBlank(term(prop("patient", "case_name", SELF_VIA)));
 		const onChange = vi.fn();
 		const { container } = render(
 			<PredicateCardEditor
@@ -1631,7 +1595,7 @@ describe('PropertyRefPicker — `via.kind === "self"` is canonical', () => {
 		// contract: via=self is editable in place, and the via slot
 		// survives a property name change.
 		const value = match(
-			prop("patient", "name", SELF_VIA),
+			prop("patient", "case_name", SELF_VIA),
 			term(literal("alice")),
 			"fuzzy",
 		);

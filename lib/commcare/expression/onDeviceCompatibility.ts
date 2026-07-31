@@ -2,61 +2,35 @@
  * Compatibility checks for a ValueExpression whose root is evaluated as one
  * scalar by CommCare Core's on-device XPath engine.
  *
- * Two schema-valid persisted shapes are not valid scalar device expressions:
- *
- * - `unwrap-list` is a CCHQ CSQL value function, but Core does not register an
- *   XPath function by that name. It remains valid when the CSQL emitter keeps
- *   it server-side.
- * - a property reached through `subcase` or a genuinely bidirectional
+ * A property reached through `subcase` or a genuinely bidirectional
  *   `any-relation` can yield several case nodes. Core's scalar operators unpack
  *   a node-set and throw when it has more than one item. `ancestor` stays valid
  *   because one case index names at most one ancestor; the graph canonicalizer
- *   also admits a legacy `any-relation(parent)` whose chosen destination is
- *   provably parent-only. `count(via, ...)` is the explicit aggregate for every
- *   multi-valued shape.
+ *   also admits an `any-relation(parent)` whose chosen destination proves that
+ *   only the parent direction is reachable. `count(via, ...)` is the explicit
+ *   aggregate for every multi-valued shape.
  *
  * Predicate subtrees carried by `if.cond` and `count.where` are deliberately
  * excluded from the relation-cardinality check. The predicate emitter lowers
- * their related reads into explicit quantifiers before evaluating them. They
- * are still included in the `unwrap-list` scan because an unsupported function
- * anywhere in a device predicate would fail at runtime.
+ * their related reads into explicit quantifiers before evaluating them.
  */
 
-import {
-	type PropertyRef,
-	type ValueExpression,
-	walkExpressionNodes,
-} from "@/lib/domain/predicate";
+import type { PropertyRef, ValueExpression } from "@/lib/domain/predicate";
 import {
 	canonicalizeRelationPath,
 	type RelationEvaluationScopeContext,
 } from "@/lib/domain/predicate/normalizeRelationEvaluationScopes";
 
-export type OnDeviceScalarExpressionIssue =
-	| {
-			readonly reason: "unwrap-list";
-			readonly expression: Extract<ValueExpression, { kind: "unwrap-list" }>;
-	  }
-	| {
-			readonly reason: "multi-valued-relation-read";
-			readonly property: PropertyRef;
-	  };
+export type OnDeviceScalarExpressionIssue = {
+	readonly reason: "multi-valued-relation-read";
+	readonly property: PropertyRef;
+};
 
 /** Return the first device incompatibility in a scalar expression root. */
 export function findOnDeviceScalarExpressionIssue(
 	expression: ValueExpression,
 	context: RelationEvaluationScopeContext = {},
 ): OnDeviceScalarExpressionIssue | undefined {
-	let unwrapList: Extract<ValueExpression, { kind: "unwrap-list" }> | undefined;
-	walkExpressionNodes(expression, (node) => {
-		if (unwrapList === undefined && node.kind === "unwrap-list") {
-			unwrapList = node;
-		}
-	});
-	if (unwrapList !== undefined) {
-		return { reason: "unwrap-list", expression: unwrapList };
-	}
-
 	const property = findMultiValuedScalarPropertyRead(expression, context);
 	return property === undefined
 		? undefined
@@ -96,7 +70,6 @@ function findMultiValuedScalarPropertyRead(
 		case "date-coerce":
 		case "datetime-coerce":
 		case "double":
-		case "unwrap-list":
 			return findMultiValuedScalarPropertyRead(expression.value, context);
 		case "format-date":
 			return findMultiValuedScalarPropertyRead(expression.date, context);

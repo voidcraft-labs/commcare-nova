@@ -1,8 +1,9 @@
 // @vitest-environment happy-dom
 
-import { fireEvent, render, screen } from "@testing-library/react";
-import { useState } from "react";
+import { fireEvent, render as rtlRender, screen } from "@testing-library/react";
+import { type ReactElement, type ReactNode, useState } from "react";
 import { describe, expect, it } from "vitest";
+import { BlueprintDocProvider } from "@/lib/doc/provider";
 import type { CaseType } from "@/lib/domain";
 import {
 	and,
@@ -20,6 +21,7 @@ import {
 	term,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { ExpressionCardEditor } from "../ExpressionCardEditor";
 import { PredicateCardEditor } from "../PredicateCardEditor";
 import {
@@ -31,8 +33,8 @@ const CASE_TYPES: readonly CaseType[] = [
 	{
 		name: "patient",
 		properties: [
-			{ name: "dob", label: "Date of birth", data_type: "date" },
-			{ name: "region", label: "Region", data_type: "text" },
+			{ name: "dob", label: proseText("Date of birth"), data_type: "date" },
+			{ name: "region", label: proseText("Region"), data_type: "text" },
 		],
 	},
 ];
@@ -102,6 +104,18 @@ function ControlledPredicateCard({ initial }: { readonly initial: Predicate }) {
 			</output>
 		</>
 	);
+}
+
+// Every editor here spells authored prose against the document. Wrapping at
+// `render` reproduces the builder's provider for all three harnesses at once.
+function DocumentProvider({ children }: { readonly children: ReactNode }) {
+	return (
+		<BlueprintDocProvider appId="test-app">{children}</BlueprintDocProvider>
+	);
+}
+
+function render(ui: ReactElement) {
+	return rtlRender(ui, { wrapper: DocumentProvider });
 }
 
 function workbenchRegion(path: readonly (string | number)[]): HTMLElement {

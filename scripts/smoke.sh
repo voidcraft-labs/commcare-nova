@@ -42,7 +42,14 @@ export NEXT_TELEMETRY_DISABLED="${NEXT_TELEMETRY_DISABLED:-1}"
 # Pin 127.0.0.1, not `localhost`: on Linux CI runners `localhost` resolves to
 # ::1 first, where the compose-published port (IPv4 only) isn't reachable —
 # the migrate runner / the app get "connection reset by peer" on [::1]:5432.
-export NOVA_DB_LOCAL_URL="${NOVA_DB_LOCAL_URL:-postgres://nova:nova@127.0.0.1:5432/nova_cases?sslmode=disable}"
+# The suite owns `nova_smoke`, NOT the `nova_cases` database `npm run dev` uses.
+# Two reasons, both load-bearing: a smoke run would otherwise delete a
+# developer's local apps, and it can no longer clean up after itself anyway —
+# `app_change_fold_baselines` rows are immutable by design and RESTRICT their
+# Project's delete, so once any seeded app has folded, a reused database can
+# never be returned to a seedable state. Recreating it each run is what CI's
+# fresh volume already gives us.
+export NOVA_DB_LOCAL_URL="${NOVA_DB_LOCAL_URL:-postgres://nova:nova@127.0.0.1:5432/nova_smoke?sslmode=disable}"
 
 # ── 1+2. Case-store Postgres (compose) + migrations ──────────────────
 # Not `npm run db:dev` — that script hardcodes a `localhost` URL for the migrate
@@ -51,6 +58,25 @@ export NOVA_DB_LOCAL_URL="${NOVA_DB_LOCAL_URL:-postgres://nova:nova@127.0.0.1:54
 # runner reads) instead.
 echo "[smoke] booting case-store Postgres…"
 docker compose up -d --wait
+
+# Recreate the suite's own database from scratch. The extensions come from the
+# same init SQL compose runs for `nova_cases`; they are created by the
+# superuser, since the migrate runner (a non-superuser) cannot CREATE EXTENSION.
+case "$NOVA_DB_LOCAL_URL" in
+  */nova_smoke*)
+    echo "[smoke] recreating nova_smoke…"
+    docker compose exec -T postgres psql -U nova -d postgres \
+      -c "DROP DATABASE IF EXISTS nova_smoke WITH (FORCE);" \
+      -c "CREATE DATABASE nova_smoke;" >/dev/null
+    docker compose exec -T postgres psql -U nova -d nova_smoke \
+      < lib/case-store/dev/init-extensions.sql >/dev/null
+    ;;
+  *)
+    # An explicit NOVA_DB_LOCAL_URL means the caller chose the database; never
+    # drop one this script did not create.
+    echo "[smoke] using the caller's database; not recreating it."
+    ;;
+esac
 
 # compose.yaml's healthcheck now probes over TCP, so the `--wait` above already
 # guarantees Postgres accepts TCP queries. Keep a short retry as cheap insurance

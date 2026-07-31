@@ -4,14 +4,18 @@
  * These hooks resolve "what is selected for inspection right now" from the two
  * selection sources and hand the rail a ready-to-render descriptor:
  *
- *   - a selected form FIELD (URL state, `useSelectedField`), or
+ *   - a selected form FIELD (URL state, `useSelectedField`),
  *   - the case-list workspace's current selection (`useCaseListInspector` — the
  *     narrow, memoized slice of the shared controller carrying just the resolved
  *     `inspector` + its close handler, so these hooks don't re-render on every
- *     unrelated workspace change).
+ *     unrelated workspace change), or
+ *   - the Project data workspace's selected row or column
+ *     (`useProjectDataInspector`, the same narrow shape).
  *
- * They are mutually exclusive: a field is only selected on a form screen, and
- * the case-list `inspector` is non-null only while its workspace is on-screen.
+ * They are mutually exclusive, and the URL is what makes them so: a field is
+ * only selected on a form screen, the case-list `inspector` is non-null only
+ * while its workspace is on-screen, and a Project data URL names no module and
+ * no field at all.
  * Because the rail is always mounted (it just parks off-screen during a preview
  * flip), whatever these return stays mounted across the flip — scroll survives
  * for free. The mode (edit vs preview) is deliberately NOT consulted: parking
@@ -27,7 +31,9 @@ import { operationSentence } from "@/components/builder/case-operations/operatio
 import { useOperationSentenceContext } from "@/components/builder/case-operations/useOperationSentenceContext";
 import { FieldInspectorBody } from "@/components/builder/editor/FieldInspectorBody";
 import { PeerBadge } from "@/components/builder/PeerBadge";
+import { useProjectDataInspector } from "@/components/builder/project-data/projectDataInspector";
 import { useCaseOperation } from "@/lib/doc/hooks/useCaseOperationFacts";
+import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import type { Uuid } from "@/lib/doc/types";
 import type { CaseOperation } from "@/lib/domain";
 import { fieldRegistry } from "@/lib/domain";
@@ -50,14 +56,19 @@ export function useActiveInspector(): ActiveInspector | null {
 	const field = useSelectedField();
 	const select = useSelect();
 	const caseList = useCaseListInspector();
+	const projectData = useProjectDataInspector();
 	const operation = useSelectedCaseOperation();
 	const navigate = useNavigate();
+	const projectProse = useProseProjection();
 
 	if (field) {
 		// Title = the field's prompt, falling back to its id (the `hidden` kind
 		// carries no label). The header truncates, so a long markdown label shows
 		// raw rather than rendered — short labels are the norm.
-		const label = "label" in field ? field.label?.trim() : undefined;
+		const label =
+			"label" in field && field.label
+				? projectProse(field.label).trim()
+				: undefined;
 		return {
 			kicker: fieldRegistry[field.kind].label,
 			title: label || field.id,
@@ -74,6 +85,9 @@ export function useActiveInspector(): ActiveInspector | null {
 	}
 	if (caseList?.inspector) {
 		return { ...caseList.inspector, onClose: caseList.onClose };
+	}
+	if (projectData?.inspector) {
+		return { ...projectData.inspector, onClose: projectData.onClose };
 	}
 	if (operation !== null) {
 		return {
@@ -112,19 +126,25 @@ export function useInspectorPresence(): {
 	const field = useSelectedField();
 	const select = useSelect();
 	const caseList = useCaseListInspector();
+	const projectData = useProjectDataInspector();
 	const operation = useSelectedCaseOperationTarget();
 	const navigate = useNavigate();
 	const caseListClose = caseList?.onClose;
+	const projectDataClose = projectData?.onClose;
 	const docked =
 		field !== null ||
 		(caseList?.inspector ?? null) !== null ||
+		(projectData?.inspector ?? null) !== null ||
 		operation !== null;
 	const requestClose = useCallback(() => {
 		if (field !== null) select(undefined);
 		else if (operation !== null) {
 			navigate.openFormOperations(operation.moduleUuid, operation.formUuid);
-		} else caseListClose?.();
-	}, [field, select, caseListClose, operation, navigate]);
+		} else {
+			caseListClose?.();
+			projectDataClose?.();
+		}
+	}, [field, select, operation, navigate, caseListClose, projectDataClose]);
 	return { docked, requestClose };
 }
 
@@ -171,16 +191,10 @@ function useSelectedCaseOperation():
 	| (SelectedCaseOperationTarget & { readonly title: string })
 	| null {
 	const target = useSelectedCaseOperationTarget();
-	const context = useOperationSentenceContext(
-		target?.formUuid ?? EMPTY_FORM_UUID,
-	);
+	const context = useOperationSentenceContext(target?.formUuid);
 	if (target === null) return null;
 	return {
 		...target,
 		title: operationSentence(target.operation, context).lead,
 	};
 }
-
-/** A form uuid that resolves to nothing, for the hook-order-preserving
- *  call the sentence context makes while no change is selected. */
-const EMPTY_FORM_UUID = "" as Uuid;

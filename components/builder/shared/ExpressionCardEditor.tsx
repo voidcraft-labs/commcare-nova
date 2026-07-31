@@ -41,6 +41,7 @@
 
 "use client";
 import { useMemo } from "react";
+import { useBuilderLookupCatalog } from "@/components/builder/lookup/BuilderLookupCatalogProvider";
 import { useValidityPropagator } from "@/components/builder/shared/useInnerValidityShadow";
 import type { CaseType, UserProperty } from "@/lib/domain";
 import {
@@ -62,6 +63,10 @@ import {
 import type { CaseDataScope } from "./editorSchemas";
 import type { OperationValueScope } from "./expressionEditorSchemas";
 import type { EditorFormFieldDecl } from "./formFieldPresentation";
+import type {
+	EditorLookupTableDecl,
+	EditorLookupTableScope,
+} from "./lookupTablePresentation";
 import { ROOT_PATH } from "./path";
 import { ExpressionPicker } from "./primitives/ExpressionPicker";
 import type { EditorSearchInputDecl } from "./searchInputPresentation";
@@ -88,10 +93,14 @@ interface ExpressionCardEditorProps {
 	/** Form answers this expression may read — already narrowed by the
 	 *  owning surface to the ones its slot admits. */
 	readonly formFields?: readonly EditorFormFieldDecl[];
+	readonly lookupTables?: readonly EditorLookupTableDecl[];
+	readonly tableScope?: EditorLookupTableScope;
 	/** Present only inside a case operation, where the submission's own
 	 *  vocabulary (the acting user, no owner, an earlier create's case) is
 	 *  available. */
 	readonly operationScope?: OperationValueScope;
+	/** Enables acting-user/unowned only for a case-owner value slot. */
+	readonly ownerValues?: boolean;
 	/** When the slot evaluates relative to a case row. `"global"` slots
 	 *  (a search input's starting value) resolve once, before any case
 	 *  is selected — the provider-derived admission oracle drops every
@@ -101,10 +110,9 @@ interface ExpressionCardEditorProps {
 	 * The root slot's type constraint. Flows to the root
 	 * `ExpressionPicker` so the kind menu + value sources offer ONLY
 	 * types the slot accepts (valid by construction). The same
-	 * accept-set also feeds the DISPLAY backstop — a pre-existing
-	 * (legacy / hypothetical) expression that resolves to a type
-	 * outside the constraint surfaces a root error, even though no
-	 * sequence of picker choices can author one. Defaults to
+	 * accept-set also feeds the defensive root verdict, so a caller that
+	 * bypasses the authoring choices cannot commit a mismatched tree.
+	 * Defaults to
 	 * `ANY_CONSTRAINT` (no narrowing).
 	 */
 	readonly constraint?: SlotConstraint;
@@ -112,11 +120,8 @@ interface ExpressionCardEditorProps {
 	 * Surfaces the boolean validity verdict to the parent on every
 	 * onChange. The editor authors valid by construction — no sequence
 	 * of picker choices yields a type-incorrect expression — so for
-	 * normally-authored trees this stays `true`. The verdict (and the
-	 * inline diagnostics it summarizes, including the root-constraint
-	 * backstop) is a DISPLAY BACKSTOP for a pre-existing (legacy /
-	 * hypothetical) invalid AST a user opens; the parent gates its save
-	 * affordance on it so such a tree can't be re-saved while broken.
+	 * normally-authored trees this stays `true`. The parent gates its save
+	 * affordance on the same verdict, including the root constraint.
 	 */
 	readonly onValidityChange?: (valid: boolean) => void;
 }
@@ -135,11 +140,18 @@ export function ExpressionCardEditor({
 	knownInputs = [],
 	userProperties,
 	formFields,
+	lookupTables,
+	tableScope,
 	operationScope,
+	ownerValues = false,
 	caseDataScope = "per-case",
 	constraint = ANY_CONSTRAINT,
 	onValidityChange,
 }: ExpressionCardEditorProps) {
+	const lookupCatalog = useBuilderLookupCatalog();
+	const effectiveLookupTables =
+		lookupTables ??
+		(lookupCatalog.kind === "ready" ? lookupCatalog.tables : []);
 	// Build the type-check context from props. The same context
 	// reaches both the validation pass below and the per-card
 	// helpers (`PropertyRefPicker`, `LiteralValueInput`, etc.) via
@@ -152,7 +164,10 @@ export function ExpressionCardEditor({
 				currentCaseType,
 				userProperties,
 				formFields,
+				lookupTables: effectiveLookupTables,
+				tableScope,
 				operationScope,
+				ownerValues,
 			}),
 		[
 			caseTypes,
@@ -160,7 +175,10 @@ export function ExpressionCardEditor({
 			currentCaseType,
 			userProperties,
 			formFields,
+			effectiveLookupTables,
+			tableScope,
 			operationScope,
+			ownerValues,
 		],
 	);
 
@@ -170,7 +188,7 @@ export function ExpressionCardEditor({
 	// root error when the whole expression resolves to a type the slot
 	// won't accept. Valid-by-construction editing can't reach that
 	// backstop — the kind menu + value sources only offer admissible
-	// values — but a pre-existing invalid AST still surfaces it.
+	// values — but a checker-invalid in-memory draft still surfaces it.
 	const errors = useMemo<readonly CheckError[]>(() => {
 		const result = checkValueExpression(value, typeCtx);
 		const collected: CheckError[] = result.ok ? [] : [...result.errors];
@@ -203,7 +221,10 @@ export function ExpressionCardEditor({
 			knownInputs={knownInputs}
 			userProperties={userProperties}
 			formFields={formFields}
+			lookupTables={effectiveLookupTables}
+			tableScope={tableScope}
 			operationScope={operationScope}
+			ownerValues={ownerValues}
 			caseDataScope={caseDataScope}
 			validityIndex={validityIndex}
 		>

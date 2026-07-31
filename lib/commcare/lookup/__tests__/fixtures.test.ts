@@ -18,7 +18,7 @@ import {
 	MAX_LOOKUP_FIXTURE_CELLS,
 	MAX_LOOKUP_FIXTURE_ROWS,
 } from "../fixtures";
-import { lookupFixtureInstanceId, lookupWireNaming } from "../naming";
+import { lookupFixtureId, lookupWireNaming } from "../naming";
 
 const CODE_COL = "018f0000-0000-7000-8000-0000000000c1" as LookupColumnId;
 const NAME_COL = "018f0000-0000-7000-8000-0000000000c2" as LookupColumnId;
@@ -165,12 +165,12 @@ function fakeFixture(spec: {
 	cellCount?: number;
 	bytes?: number;
 }): CompiledLookupFixture {
-	const instanceId = lookupFixtureInstanceId(spec.tag);
+	const fixtureId = lookupFixtureId(spec.tag);
 	return {
 		tableId: tableId(spec.tag),
 		tag: spec.tag,
-		instanceId,
-		element: el("fixture", { id: instanceId }),
+		fixtureId,
+		element: el("fixture", { id: fixtureId }),
 		xml: "",
 		bytes: spec.bytes ?? 0,
 		rowCount: spec.rowCount ?? 0,

@@ -14,16 +14,11 @@
  * the empty-value entry carries.
  *
  * Short-circuits cleanly when `caseListConfig` is absent or carries no
- * runtime-active id-mapping columns. Fully off-screen, unsorted legacy
- * mappings remain recoverable but cannot block an otherwise valid export.
+ * id-mapping columns. Visibility controls emission only; every saved mapping
+ * must be complete before it can later return to a screen.
  */
 
-import {
-	type BlueprintDoc,
-	caseListColumnHasRuntimeRole,
-	type Module,
-	type Uuid,
-} from "@/lib/domain";
+import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
 import { type ValidationError, validationError } from "../../errors";
 
 export function idMappingValueRequired(
@@ -37,7 +32,6 @@ export function idMappingValueRequired(
 	const errors: ValidationError[] = [];
 	for (let columnIndex = 0; columnIndex < columns.length; columnIndex++) {
 		const column = columns[columnIndex];
-		if (!caseListColumnHasRuntimeRole(column)) continue;
 		if (column.kind !== "id-mapping") continue;
 		for (let entryIndex = 0; entryIndex < column.mapping.length; entryIndex++) {
 			const entry = column.mapping[entryIndex];

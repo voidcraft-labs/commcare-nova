@@ -58,6 +58,7 @@
  */
 
 import {
+	asUuid,
 	type CaseProperty,
 	type CasePropertyDataType,
 	caseDataTypeForFieldKind,
@@ -65,9 +66,9 @@ import {
 	convertNeedsOptionSeed,
 	type Field,
 	type FieldKind,
-	fieldCasePropertyOn,
+	fieldCaseWrite,
 	getConvertibleTypes,
-	type SelectOption,
+	type SelectOptionsSource,
 } from "@/lib/domain";
 import { declarersOf } from "./referenceIndex";
 import type { BlueprintDoc, Mutation, Uuid } from "./types";
@@ -131,61 +132,84 @@ export type KindConversionPlanResult =
 /**
  * Build the conversion batch for `field` → `toKind`.
  *
- * `field` is the shape the CALL leaves in place for planning purposes —
- * a caller whose same call retargets or clears `case_property_on` must
- * pass the field with that override applied, or the plan cascades a
- * binding the field is about to leave.
+ * `field` is the shape the CALL leaves in place for planning purposes — a
+ * caller whose same call retargets or clears `caseWrite` must pass the field
+ * with that override applied, or the plan cascades a binding the field is
+ * about to leave.
  *
- * `mintOptions` supplies born options for a converted field whose
- * source kind has none (`convertNeedsOptionSeed`) — called once PER
- * converted field so every field gets its own minted option identities
- * (uuid + order), never shared references.
+ * `optionsSource` supplies the complete source for a converted field whose
+ * source kind has none (`convertNeedsOptionSeed`). The authoring boundary has
+ * already established every nested identity.
  */
 export function planKindConversion(args: {
 	doc: BlueprintDoc;
 	field: Field;
 	toKind: FieldKind;
-	mintOptions?: () => SelectOption[];
+	optionsSource?: SelectOptionsSource;
 }): KindConversionPlanResult {
-	const { doc, field, toKind, mintOptions } = args;
+	const { doc, field, toKind, optionsSource } = args;
 
-	const convertMutation = (target: Field): Mutation => ({
-		kind: "convertField",
-		uuid: target.uuid,
-		toKind,
-		...(convertNeedsOptionSeed(target, toKind) &&
-			mintOptions && { options: mintOptions() }),
-	});
+	const sourceFor = (target: Field): SelectOptionsSource | undefined => {
+		if (optionsSource === undefined) return undefined;
+		if (target.uuid === field.uuid || optionsSource.kind === "lookup") {
+			return structuredClone(optionsSource);
+		}
+		// A property-wide cascade may convert several peer fields. Inline
+		// options are authored sub-entities, so each owning field gets distinct
+		// final identities while retaining the authored values and labels.
+		return {
+			kind: "inline",
+			options: optionsSource.options.map((option) => ({
+				...structuredClone(option),
+				uuid: asUuid(crypto.randomUUID()),
+			})),
+		};
+	};
+
+	const convertMutation = (target: Field): Mutation => {
+		const source = convertNeedsOptionSeed(target, toKind)
+			? sourceFor(target)
+			: undefined;
+		return {
+			kind: "convertField",
+			uuid: target.uuid,
+			toKind,
+			...(source !== undefined && { optionsSource: source }),
+		};
+	};
 
 	const addressedConvert = convertMutation(field);
 
-	const caseType = fieldCasePropertyOn(field);
-	if (caseType === undefined || field.id.length === 0) {
+	const write = fieldCaseWrite(field);
+	if (write === undefined) {
 		// Not case-bound — a plain single-field conversion.
 		return { ok: true, mutations: [addressedConvert], peers: [] };
 	}
+	const { caseType, property } = write;
 
 	const fromType = caseDataTypeForFieldKind(field.kind);
 	const toType = caseDataTypeForFieldKind(toKind);
 	const record = doc.caseTypes?.find((ct) => ct.name === caseType);
-	const entry = record?.properties.find((p) => p.name === field.id);
+	const entry = record?.properties.find((p) => p.name === property);
 
 	// Peer writers of the same (caseType, property) — via the reference
 	// index, never a doc walk. The addressed field itself is excluded.
-	const declarerUuids = declarersOf(doc, caseType, field.id).filter(
+	const declarerUuids = declarersOf(doc, caseType, property).filter(
 		(uuid) => uuid !== field.uuid,
 	);
 	const declarers = declarerUuids
-		.map((uuid) => doc.fields[uuid as Uuid])
+		.map((uuid) => doc.fields[asUuid(uuid)])
 		.filter((f): f is Field => f !== undefined);
 	const operationBlocker = declarerUuids
-		.map((uuid) => doc.forms[uuid as Uuid])
+		.map((uuid) => doc.forms[asUuid(uuid)])
 		.filter((form) => form !== undefined)
 		.flatMap((form) => form.caseOperations ?? [])
 		.find(
 			(operation) =>
 				(operation.retype ?? operation.caseType) === caseType &&
-				(operation.writes ?? []).some((write) => write.property === field.id),
+				(operation.writes ?? []).some(
+					(operationWrite) => operationWrite.property === property,
+				),
 		);
 
 	const mutations: Mutation[] = [addressedConvert];
@@ -270,7 +294,7 @@ export function planKindConversion(args: {
 		fromType !== undefined &&
 		toType !== undefined &&
 		castCanFail(fromType, toType)
-			? { caseType, property: field.id, fromType, toType }
+			? { caseType, property, fromType, toType }
 			: undefined;
 
 	return {
@@ -317,8 +341,11 @@ function declarationOptions(
 	}
 	const source =
 		addressedConvert.kind === "convertField" &&
-		addressedConvert.options !== undefined
-			? addressedConvert.options
-			: (field as { options?: SelectOption[] }).options;
+		addressedConvert.optionsSource?.kind === "inline"
+			? addressedConvert.optionsSource.options
+			: (field.kind === "single_select" || field.kind === "multi_select") &&
+					field.optionsSource.kind === "inline"
+				? field.optionsSource.options
+				: undefined;
 	return source?.map(({ value, label }) => ({ value, label }));
 }

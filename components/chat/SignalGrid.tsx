@@ -1,17 +1,11 @@
 "use client";
 import type { UIMessage } from "ai";
 import { useCallback, useContext, useEffect, useRef } from "react";
-import { type FieldPath, fpathId } from "@/lib/doc/fieldPath";
-import {
-	orderedFieldUuids,
-	orderedFormUuids,
-	orderedModuleUuids,
-} from "@/lib/doc/fieldWalk";
+import { orderedFormUuids, orderedModuleUuids } from "@/lib/doc/fieldWalk";
 import {
 	BlueprintDocContext,
 	type BlueprintDocStore,
 } from "@/lib/doc/provider";
-import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import type { EditScope } from "@/lib/session/builderTypes";
 import { derivePostBuildEdit } from "@/lib/session/lifecycle";
 import type { BuilderSessionStoreApi } from "@/lib/session/provider";
@@ -19,46 +13,6 @@ import { useBuilderSessionApi } from "@/lib/session/provider";
 import { computeEditFocus } from "@/lib/signalGrid/editFocus";
 import { signalGrid } from "@/lib/signalGrid/store";
 import type { SignalGridController } from "@/lib/signalGridController";
-
-/**
- * Walk the form's normalized subtree depth-first and return the flat
- * 0-based index of the first field whose bare `id` matches. Returns -1
- * when the form is empty or the id is not present.
- *
- * The SA's tool events reference fields by their semantic id; the signal
- * grid consumes flat indices so its activity gauge can compute a focus
- * range over the form's linear field sequence. This helper replaces the
- * old wire-format `flatIndexById` walk — the normalized doc's
- * `fieldOrder` is the single source of ordering truth.
- */
-function flatIndexInForm(
-	doc: BlueprintDoc,
-	formUuid: Uuid,
-	bareId: string,
-): number {
-	let index = 0;
-	let found = -1;
-	const walk = (parent: Uuid): boolean => {
-		// Visual (display) sequence — the flat index feeds the activity
-		// gauge's focus range over the form's rendered field layout, so it
-		// must count in `sort-by-(order, uuid)` order, not `fieldOrder`
-		// array position.
-		const children = orderedFieldUuids(doc, parent);
-		for (const childUuid of children) {
-			const field = doc.fields[childUuid];
-			if (!field) continue;
-			if (field.id === bareId) {
-				found = index;
-				return true;
-			}
-			index++;
-			if (walk(childUuid)) return true;
-		}
-		return false;
-	};
-	walk(formUuid);
-	return found;
-}
 
 interface SignalGridProps {
 	/** Controller instance — created and owned by the parent (ChatSidebar). */
@@ -120,34 +74,12 @@ export function SignalGrid({ controller, messages }: SignalGridProps) {
 				contentLen += JSON.stringify(part.input).length;
 
 				const input = part.input as Record<string, unknown>;
-				if (typeof input.moduleIndex === "number") {
-					latestToolScope = { moduleIndex: input.moduleIndex };
-					if (typeof input.formIndex === "number") {
-						latestToolScope.formIndex = input.formIndex;
-
-						const rawRef = input.fieldPath ?? input.questionId ?? input.path;
-						const qRef = typeof rawRef === "string" ? rawRef : undefined;
-						if (typeof qRef === "string" && qRef) {
-							/* Resolve the field's flat index within its form by
-							 * walking the doc's normalized entity maps directly —
-							 * no wire-shape assembly needed. */
-							const doc = docStoreRef.current?.getState();
-							// The SA's `moduleIndex` / `formIndex` are DISPLAY-order
-							// positions (its resolvers speak `orderedModule/FormUuids`),
-							// so resolve them the same way — not by `moduleOrder` /
-							// `formOrder` array position.
-							const moduleId = doc
-								? orderedModuleUuids(doc)[input.moduleIndex as number]
-								: undefined;
-							const formId =
-								doc && moduleId
-									? orderedFormUuids(doc, moduleId)[input.formIndex as number]
-									: undefined;
-							if (doc && formId) {
-								const bareId = fpathId(qRef as FieldPath);
-								const flatIdx = flatIndexInForm(doc, formId, bareId);
-								if (flatIdx >= 0) latestToolScope.fieldIndex = flatIdx;
-							}
+				if (typeof input.moduleUuid === "string") {
+					latestToolScope = { moduleUuid: input.moduleUuid };
+					if (typeof input.formUuid === "string") {
+						latestToolScope.formUuid = input.formUuid;
+						if (typeof input.fieldUuid === "string") {
+							latestToolScope.fieldUuid = input.fieldUuid;
 						}
 					}
 				}
@@ -171,11 +103,8 @@ export function SignalGrid({ controller, messages }: SignalGridProps) {
 		 * progress (events buffer non-empty), so a separate "agent
 		 * active" check would be redundant. */
 		if (doc && derivePostBuildEdit(s.events, s.runStartedWithData)) {
-			/* computeEditFocus converts scope indices into a 0–1 focus range.
-			 * It's order-agnostic (it lays fields out in the sequence it's
-			 * given), so hand it DISPLAY-ordered slices — the same
-			 * `sort-by-(order, uuid)` sequence the scope indices address and
-			 * the canvas renders — not the raw `moduleOrder` / `formOrder`. */
+			/* Hand the UUID-backed scope the current display sequences. Reorders
+			 * change only where the focus renders, never which entity it follows. */
 			const orderedModules = orderedModuleUuids(doc);
 			const orderedForms: Record<string, readonly string[]> = {};
 			for (const moduleId of orderedModules) {

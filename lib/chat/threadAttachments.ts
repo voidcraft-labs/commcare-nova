@@ -1,5 +1,11 @@
 /** Canonical chat-thread attachment traversal and identity rewrites. */
 
+import {
+	type AttachmentRef,
+	attachmentRefSchema,
+} from "@/lib/chat/attachmentRefs";
+import { type MediaAssetId, mediaAssetIdSchema } from "@/lib/domain/multimedia";
+
 type UnknownRecord = Record<string, unknown>;
 
 function asRecord(value: unknown): UnknownRecord | null {
@@ -13,18 +19,45 @@ function attachmentArray(message: unknown): unknown[] | null {
 	return Array.isArray(metadata?.attachments) ? metadata.attachments : null;
 }
 
-/** Every canonical `metadata.attachments[*].assetId` in stored order. */
-export function collectThreadAttachmentAssetIds(
-	messages: readonly unknown[],
-): string[] {
-	const ids: string[] = [];
-	for (const message of messages) {
-		for (const attachment of attachmentArray(message) ?? []) {
-			const assetId = asRecord(attachment)?.assetId;
-			if (typeof assetId === "string" && assetId.length > 0) ids.push(assetId);
+function strictAttachmentArray(message: unknown, index: number): unknown[] {
+	const messageRecord = asRecord(message);
+	if (messageRecord === null) {
+		throw new Error(`Conversation message ${index} is not an object.`);
+	}
+	if (messageRecord.metadata === undefined) return [];
+	const metadata = asRecord(messageRecord.metadata);
+	if (metadata === null) {
+		throw new Error(`Conversation message ${index} metadata is not an object.`);
+	}
+	if (metadata.attachments === undefined) return [];
+	if (!Array.isArray(metadata.attachments)) {
+		throw new Error(
+			`Conversation message ${index} attachments are not an array.`,
+		);
+	}
+	return metadata.attachments;
+}
+
+/** Every strict canonical `metadata.attachments[*]` reference in stored order. */
+export function collectThreadAttachments(messages: unknown): AttachmentRef[] {
+	if (!Array.isArray(messages)) {
+		throw new Error("Conversation messages are not an array.");
+	}
+	const refs: AttachmentRef[] = [];
+	for (const [index, message] of messages.entries()) {
+		for (const attachment of strictAttachmentArray(message, index)) {
+			const ref = attachmentRefSchema.parse(attachment);
+			refs.push(ref);
 		}
 	}
-	return ids;
+	return refs;
+}
+
+/** Every canonical `metadata.attachments[*].assetId` in stored order. */
+export function collectThreadAttachmentAssetIds(
+	messages: unknown,
+): MediaAssetId[] {
+	return collectThreadAttachments(messages).map((ref) => ref.assetId);
 }
 
 /**
@@ -34,7 +67,7 @@ export function collectThreadAttachmentAssetIds(
  */
 export function remapThreadAttachmentAssetIds(
 	messages: readonly unknown[],
-	assetIdMap: ReadonlyMap<string, string>,
+	assetIdMap: ReadonlyMap<MediaAssetId, MediaAssetId>,
 ): unknown[] {
 	return messages.map((message) => {
 		const messageRecord = asRecord(message);
@@ -47,7 +80,9 @@ export function remapThreadAttachmentAssetIds(
 			const record = asRecord(attachment);
 			const assetId = record?.assetId;
 			const destination =
-				typeof assetId === "string" ? assetIdMap.get(assetId) : undefined;
+				assetId === undefined
+					? undefined
+					: assetIdMap.get(mediaAssetIdSchema.parse(assetId));
 			if (!record || destination === undefined || destination === assetId) {
 				return attachment;
 			}

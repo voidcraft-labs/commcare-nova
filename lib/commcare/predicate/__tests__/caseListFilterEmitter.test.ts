@@ -23,6 +23,7 @@
 // `today`, `now`).
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	ancestorPath,
 	and,
@@ -39,7 +40,6 @@ import {
 	input,
 	isBlank,
 	isIn,
-	isNull,
 	literal,
 	lt,
 	lte,
@@ -64,7 +64,34 @@ import {
 	whenInput,
 	within,
 } from "@/lib/domain/predicate/builders";
-import { emitCaseListFilter } from "../caseListFilterEmitter";
+import { emitCaseListFilter as emitCaseListFilterRaw } from "../caseListFilterEmitter";
+
+const TEST_SEARCH_INPUTS = [
+	"name_query",
+	"phone_query",
+	"region",
+	"user_loc",
+].map((name) => ({
+	uuid: testUuid(name),
+	name,
+	data_type: "text" as const,
+}));
+
+function emitCaseListFilter(
+	...args: Parameters<typeof emitCaseListFilterRaw>
+): string {
+	const [predicate, root, context, anchor, termContext] = args;
+	return emitCaseListFilterRaw(
+		predicate,
+		root,
+		{
+			...context,
+			knownInputs: context?.knownInputs ?? TEST_SEARCH_INPUTS,
+		},
+		anchor,
+		termContext,
+	);
+}
 
 function expectGuardedDistance(
 	wire: string,
@@ -176,7 +203,7 @@ describe("emitCaseListFilter — term emission", () => {
 	});
 
 	it("emits search-input refs against the search-input results instance", () => {
-		const p = eq(prop("patient", "full_name"), input("name_query"));
+		const p = eq(prop("patient", "full_name"), input(testUuid("name_query")));
 		expect(emitCaseListFilter(p)).toBe(
 			"full_name = instance('search-input:results')/input/field[@name='name_query']",
 		);
@@ -334,8 +361,8 @@ describe("emitCaseListFilter — when-input-present", () => {
 		// boolean coercion of `''` is `false`, which would silently
 		// exclude every case on input-unset.
 		const p = whenInput(
-			input("name_query"),
-			eq(prop("patient", "full_name"), input("name_query")),
+			input(testUuid("name_query")),
+			eq(prop("patient", "full_name"), input(testUuid("name_query"))),
 		);
 		expect(emitCaseListFilter(p)).toBe(
 			"if(count(instance('search-input:results')/input/field[@name='name_query']), full_name = instance('search-input:results')/input/field[@name='name_query'], true())",
@@ -344,9 +371,9 @@ describe("emitCaseListFilter — when-input-present", () => {
 
 	it("recurses into a logical-conjunction inner clause without redundant grouping", () => {
 		const p = whenInput(
-			input("region"),
+			input(testUuid("region")),
 			and(
-				eq(prop("patient", "region"), input("region")),
+				eq(prop("patient", "region"), input(testUuid("region"))),
 				gt(prop("patient", "age"), literal(18)),
 			),
 		);
@@ -363,7 +390,7 @@ describe("emitCaseListFilter — is-blank", () => {
 	});
 
 	it("emits is-blank against a search-input reference as input = ''", () => {
-		const p = isBlank(input("name_query"));
+		const p = isBlank(input(testUuid("name_query")));
 		expect(emitCaseListFilter(p)).toBe(
 			"instance('search-input:results')/input/field[@name='name_query'] = ''",
 		);
@@ -587,7 +614,7 @@ describe("emitCaseListFilter — within-distance", () => {
 	it("emits within-distance with an input center and kilometers", () => {
 		const p = within(
 			prop("clinic", "location"),
-			input("user_loc"),
+			input(testUuid("user_loc")),
 			25,
 			"kilometers",
 		);
@@ -633,33 +660,6 @@ describe("emitCaseListFilter — within-distance", () => {
 			rawCenter: "'40.7,-74.0'",
 			meters: "80467.2",
 		});
-	});
-});
-
-describe("emitCaseListFilter — is-null", () => {
-	// CCHQ wire collapses absent / cleared / empty alike on every
-	// dialect — `prop = ''` is the closest CCHQ form for a strict-
-	// absent semantic. The AST distinction (`is-null` vs `is-blank`)
-	// is preserved on the Postgres runtime; both collapse to the same
-	// CCHQ wire string.
-
-	it("emits is-null against a property reference as prop = ''", () => {
-		const p = isNull(prop("patient", "full_name"));
-		expect(emitCaseListFilter(p)).toBe("full_name = ''");
-	});
-
-	it("emits is-null identically to is-blank for the same operand", () => {
-		const left = prop("patient", "full_name");
-		expect(emitCaseListFilter(isNull(left))).toBe(
-			emitCaseListFilter(isBlank(left)),
-		);
-	});
-
-	it("emits is-null against a search-input reference as input = ''", () => {
-		const p = isNull(input("name_query"));
-		expect(emitCaseListFilter(p)).toBe(
-			"instance('search-input:results')/input/field[@name='name_query'] = ''",
-		);
 	});
 });
 
@@ -710,15 +710,6 @@ describe("emitCaseListFilter — relational property node sets", () => {
 		);
 		expect(emitCaseListFilter(p)).toBe(
 			"count(@case_id) > 0 and selected(join(' ', instance('casedb')/casedb/case[@case_type='patient' and (age >= 20)]/index/parent), @case_id) and count(@case_id) > 0 and selected(join(' ', instance('casedb')/casedb/case[@case_type='patient' and (age <= 25)]/index/parent), @case_id)",
-		);
-	});
-
-	it("emits related is-null as node-set equality with the empty string", () => {
-		const p = isNull(
-			prop("household", "nickname", subcasePath("parent", "patient")),
-		);
-		expect(emitCaseListFilter(p)).toBe(
-			"count(@case_id) > 0 and selected(join(' ', instance('casedb')/casedb/case[@case_type='patient' and (nickname = '')]/index/parent), @case_id)",
 		);
 	});
 
@@ -961,7 +952,7 @@ describe("emitCaseListFilter — term-arm operand (happy path)", () => {
 	});
 
 	it("emits a search-input reference in a comparison's right operand", () => {
-		const p = eq(prop("patient", "phone"), input("phone_query"));
+		const p = eq(prop("patient", "phone"), input(testUuid("phone_query")));
 		expect(emitCaseListFilter(p)).toMatch(/instance\('search-input:results'\)/);
 	});
 });

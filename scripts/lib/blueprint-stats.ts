@@ -7,11 +7,16 @@
  * property count, quality flags) rather than one walk per metric.
  *
  * Field discriminator is `kind`; validation key is `validate`; case
- * linkage is `case_property_on`. Children live in `fieldOrder[parentUuid]`,
+ * linkage is `caseWrite`. Children live in `fieldOrder[parentUuid]`,
  * not on the field itself.
  */
 
-import { expressionSource, isContainer } from "../../lib/domain";
+import {
+	expressionSource,
+	fieldCaseWrite,
+	isContainer,
+	projectProseTemplate,
+} from "../../lib/domain";
 import type { BlueprintDoc, Field, Form, Module, Uuid } from "./types";
 
 // ── Result types ────────────────────────────────────────────────────
@@ -62,7 +67,7 @@ export interface FormStats {
 	hasCloseCase: boolean;
 	hasFormLinks: boolean;
 	hasConnect: boolean;
-	/** Number of case properties saved by this form (fields with case_property_on). */
+	/** Number of case properties saved by this form (fields with caseWrite). */
 	casePropertyCount: number;
 }
 
@@ -161,7 +166,8 @@ function collectFieldsUnder(doc: BlueprintDoc, parentUuid: Uuid): Field[] {
 	const out: Field[] = [];
 	const stack: Uuid[] = [...(doc.fieldOrder[parentUuid] ?? [])];
 	while (stack.length > 0) {
-		const uuid = stack.pop() as Uuid;
+		const uuid = stack.pop();
+		if (uuid === undefined) continue;
 		const field = doc.fields[uuid];
 		if (!field) continue;
 		out.push(field);
@@ -244,12 +250,12 @@ function countLogicFromList(doc: BlueprintDoc, fields: Field[]): LogicCounts {
 
 /**
  * Count fields from a pre-collected list that save to a case property
- * (have `case_property_on` set).
+ * (have `caseWrite` set).
  */
 function countCasePropertiesFromList(fields: Field[]): number {
 	let count = 0;
 	for (const f of fields) {
-		if ("case_property_on" in f && f.case_property_on) count++;
+		if (fieldCaseWrite(f) !== undefined) count++;
 	}
 	return count;
 }
@@ -509,7 +515,7 @@ function walkForLogic(
 		}
 		if ("hint" in f && f.hint) {
 			has.push("hint");
-			expressions.hint = f.hint;
+			expressions.hint = projectProseTemplate(f.hint, doc).text;
 		}
 
 		if (has.length > 0) {
@@ -529,10 +535,10 @@ function walkForLogic(
  * already-collected per-form field lists — no additional walks.
  *
  * Checks:
- *   - Registration forms without a case_name field (case has no name)
+ *   - Registration forms without an own-type `case_name` writer
  *   - Modules with caseType but no displayed columns (invisible columns)
  *   - Hidden fields without calculate/default (orphaned, always blank)
- *   - Forms with zero case_property_on fields (form saves nothing)
+ *   - Forms with zero caseWrite fields (form saves nothing)
  *
  * NOTE: post_submit is NOT flagged. The system applies form-type
  * defaults automatically, so omitting it is correct behavior.
@@ -556,13 +562,21 @@ function checkQuality(
 			const fields = formFields.get(form.uuid) ?? [];
 
 			if (form.type === "registration") {
-				if (!fields.some((f) => f.id === "case_name")) {
+				const hasOwnCaseNameWriter = fields.some((field) => {
+					const write = fieldCaseWrite(field);
+					return (
+						write !== undefined &&
+						write.caseType === mod.caseType &&
+						write.property === "case_name"
+					);
+				});
+				if (!hasOwnCaseNameWriter) {
 					flags.push({
 						severity: "error",
 						module: mod.name,
 						form: form.name,
 						message:
-							"Registration form has no case_name field — case will have no name",
+							"Registration form has no field writing case_name to its own case type — case will have no name",
 					});
 				}
 			}
@@ -578,7 +592,7 @@ function checkQuality(
 					module: mod.name,
 					form: form.name,
 					message:
-						"Form has no fields with case_property_on — saves nothing to the case",
+						"Form has no fields with caseWrite — saves nothing to the case",
 				});
 			}
 

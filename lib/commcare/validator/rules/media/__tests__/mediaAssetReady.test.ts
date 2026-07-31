@@ -1,4 +1,5 @@
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { proseText } from "@/lib/domain/prose";
 /**
  * Tests for `mediaAssetReady` — every referenced asset is in
  * `status: "ready"`. The validator's manifest loader includes
@@ -21,7 +22,10 @@ function docWithOptionMedia(assetId: string) {
 	return buildDoc({
 		appName: "T",
 		caseTypes: [
-			{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+			{
+				name: "patient",
+				properties: [{ name: "case_name", label: proseText("Name") }],
+			},
 		],
 		modules: [
 			{
@@ -35,13 +39,13 @@ function docWithOptionMedia(assetId: string) {
 							f({
 								kind: "text",
 								id: "case_name",
-								label: "Name",
-								case_property_on: "patient",
+								label: proseText("Name"),
+								caseWrite: { caseType: "patient", property: "case_name" },
 							}),
 							f({
 								kind: "single_select",
 								id: "color",
-								label: "Color",
+								label: proseText("Color"),
 								options: [
 									{
 										value: "r",
@@ -61,9 +65,11 @@ function docWithOptionMedia(assetId: string) {
 
 describe("mediaAssetReady", () => {
 	it("fires when a pending asset is referenced", () => {
-		const doc = docWithOptionMedia("pending-asset");
+		const doc = docWithOptionMedia("50000000-0000-4000-8000-000000000001");
 		const manifest = makeManifest([
-			makeAssetRecord("pending-asset", { status: "pending" }),
+			makeAssetRecord("50000000-0000-4000-8000-000000000001", {
+				status: "pending",
+			}),
 		]);
 		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE, {
 			mediaAssets: manifest,
@@ -72,14 +78,18 @@ describe("mediaAssetReady", () => {
 		expect(hits[0].message).toBe(
 			`At the media on option "r" of field "color" in form "Reg", the attached media asset hasn't finished uploading yet. Wait for the upload to complete (the asset chip shows a spinner during upload), or clear the slot if the upload was abandoned.`,
 		);
-		expect(hits[0].details?.assetId).toBe("pending-asset");
+		expect(hits[0].details?.assetId).toBe(
+			"50000000-0000-4000-8000-000000000001",
+		);
 		expect(hits[0].details?.status).toBe("pending");
 	});
 
 	it("is silent when every referenced asset is ready", () => {
-		const doc = docWithOptionMedia("ready-asset");
+		const doc = docWithOptionMedia("50000000-0000-4000-8000-000000000002");
 		const manifest = makeManifest([
-			makeAssetRecord("ready-asset", { status: "ready" }),
+			makeAssetRecord("50000000-0000-4000-8000-000000000002", {
+				status: "ready",
+			}),
 		]);
 		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE, {
 			mediaAssets: manifest,

@@ -10,9 +10,9 @@
  *
  *   - It removes the uuid before re-inserting, so applying the same move twice
  *     lands the same sequence rather than duplicating the entry.
- *   - An `after` naming something absent appends rather than throwing. A peer
- *     may have removed the anchor between the author's gesture and the replay,
- *     and a reducer that threw there would make a historical fold unreplayable.
+ *   - An `after` naming something absent leaves the sequence unchanged rather
+ *     than translating the authored placement into append. Live admission
+ *     rejects the missing anchor before reduction; replay remains total.
  *
  * `null` means first, `undefined` means append. They are distinct on purpose: a
  * command that says "put this at the top" and one that says "put this wherever
@@ -28,7 +28,7 @@ export function spliceAfter<Id extends string>(
 	if (after === null) return [uuid, ...without];
 	if (after === undefined) return [...without, uuid];
 	const at = without.indexOf(after);
-	if (at < 0) return [...without, uuid];
+	if (at < 0) return [...(sequence ?? [])];
 	return [...without.slice(0, at + 1), uuid, ...without.slice(at + 1)];
 }
 
@@ -40,10 +40,10 @@ export function spliceAfter<Id extends string>(
  * order they display. Same operation, same totality and idempotence, one
  * element type down.
  *
- * Entries with no uuid at all (options that predate option identity) are never
- * the subject and never the anchor, so they simply keep their relative places.
+ * Every final entry has identity. Missing UUIDs are rejected at the domain
+ * boundary rather than skipped or repaired by this reducer helper.
  */
-export function spliceEntryAfter<T extends { readonly uuid?: string }>(
+export function spliceEntryAfter<T extends { readonly uuid: string }>(
 	entries: readonly T[],
 	entry: T,
 	after: string | null | undefined,
@@ -52,7 +52,7 @@ export function spliceEntryAfter<T extends { readonly uuid?: string }>(
 	if (after === null) return [entry, ...without];
 	if (after === undefined) return [...without, entry];
 	const at = without.findIndex((held) => held.uuid === after);
-	if (at < 0) return [...without, entry];
+	if (at < 0) return [...entries];
 	return [...without.slice(0, at + 1), entry, ...without.slice(at + 1)];
 }
 
@@ -110,8 +110,8 @@ export interface SequenceMove<Id extends string> {
 /**
  * The moves that turn one sequence into another.
  *
- * Used where a sequence has to be RECOVERED from two states rather than read
- * from the gesture that produced it — the authoritative repair writer, which is
+ * Used where a sequence has to be derived from two states rather than read
+ * from the gesture that produced it — the authoritative diff writer, which is
  * handed a target document and has to derive the batch that reaches it. The
  * builder does not use this: it knows what the author did and says so directly,
  * which is the entire point of the change this lives inside.

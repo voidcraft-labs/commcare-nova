@@ -17,7 +17,7 @@ import type { LookupTableId } from "@/lib/domain/lookupIds";
 
 export interface LookupReferenceScanApp {
 	readonly appId: string;
-	readonly projectId: string | null;
+	readonly projectId: string;
 	readonly appName: string;
 	readonly deletedAt: string | null;
 }
@@ -258,7 +258,7 @@ export function buildLookupReferenceScanReport(
 }
 
 function appHeading(app: LookupReferenceScanApp): string {
-	const scope = app.projectId ?? "no Project";
+	const scope = app.projectId;
 	const lifecycle =
 		app.deletedAt === null ? "live" : `soft-deleted ${app.deletedAt}`;
 	const name = app.appName.length === 0 ? "unnamed" : app.appName;

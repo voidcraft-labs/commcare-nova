@@ -1,6 +1,8 @@
 /**
  * Presence write endpoint — a collaborator's live location in the builder.
  *
+ * GET    /api/apps/{id}/presence — authoritative complete current roster,
+ *        used to recover presence alone after a malformed SSE page.
  * POST   /api/apps/{id}/presence — upsert this session's presence row (heartbeat
  *        + on selection change). The client supplies `sessionId`, `name`,
  *        `color`, and `location`; the server stamps `userId` (never client-
@@ -30,6 +32,10 @@ import { requireSession } from "@/lib/auth-utils";
 import { resolveAppScopeInTransaction } from "@/lib/db/appAccess";
 import { PRESENCE_TTL_MS } from "@/lib/db/constants";
 import { notifyPresence, withAppTx } from "@/lib/db/pg";
+import {
+	type PresenceRosterRow,
+	projectPresenceRoster,
+} from "@/lib/db/presenceRoster";
 import { locationSchema } from "@/lib/routing/types";
 
 /** The per-tab session id the client mints via `crypto.randomUUID()`. Shape-
@@ -51,6 +57,47 @@ const presenceBodySchema = z
 
 /** The client-supplied half of a presence delete (`userId` is server-stamped). */
 const presenceDeleteSchema = z.object({ sessionId: sessionIdSchema }).strict();
+
+/** Authoritative all-or-nothing roster refetch used after a malformed current
+ * SSE presence frame. It refreshes presence only; no Blueprint cursor or
+ * Project lookup clock participates. */
+export async function GET(
+	req: Request,
+	{ params }: { params: Promise<{ id: string }> },
+) {
+	try {
+		const session = await requireSession(req);
+		const { id } = await params;
+		const roster = await withAppTx(async (tx) => {
+			await resolveAppScopeInTransaction(tx, id, session.user.id, "view");
+			const rows = await tx
+				.selectFrom("presence")
+				.select([
+					"user_id",
+					"session_id",
+					"name",
+					"image",
+					"email",
+					"color",
+					"location",
+					"updated_at",
+				])
+				.where("app_id", "=", id)
+				.where(sql<boolean>`expire_at > now()`)
+				.execute();
+			return projectPresenceRoster(rows as PresenceRosterRow[]);
+		});
+		return Response.json(roster, {
+			headers: { "Cache-Control": "private, no-store" },
+		});
+	} catch (err) {
+		const response = handleApiError(
+			err instanceof Error ? err : new ApiError("Failed to load presence", 500),
+		);
+		response.headers.set("Cache-Control", "private, no-store");
+		return response;
+	}
+}
 
 export async function POST(
 	req: Request,

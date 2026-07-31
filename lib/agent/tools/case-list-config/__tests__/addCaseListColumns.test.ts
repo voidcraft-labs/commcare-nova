@@ -16,15 +16,13 @@
  *   6. Module-not-found surfaces an Elm-style error.
  *   7. Cross-surface parity — chat + MCP contexts produce
  *      structurally identical mutation batches.
- *   8. Initializes the caseListConfig when the module has none.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import {
-	asUuid,
 	type BlueprintDoc,
-	type Module,
 	plainColumn,
 	simpleSearchInputDef,
 } from "@/lib/domain";
@@ -37,7 +35,12 @@ vi.mock("@/lib/db/apps", () => ({
 }));
 
 vi.mock("@/lib/db/applyBlueprintChange", () => ({
-	applyBlueprintChange: vi.fn(() => Promise.resolve({ seq: 0 })),
+	applyBlueprintChange: vi.fn(async (args) => {
+		const { commitApplyBlueprintChangeTestBatch } = await import(
+			"@/lib/db/__tests__/applyBlueprintChangeTestWriter"
+		);
+		return commitApplyBlueprintChangeTestBatch(args);
+	}),
 }));
 
 beforeEach(() => {
@@ -50,7 +53,7 @@ describe("addCaseListColumns", () => {
 
 		const result = await addCaseListColumnsTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				columns: [{ kind: "plain", field: "case_name", header: "Patient" }],
 			},
 			ctx,
@@ -59,8 +62,8 @@ describe("addCaseListColumns", () => {
 
 		expect(result.kind).toBe("mutate");
 		const final = result.newDoc.modules[MOD_A]?.caseListConfig;
-		expect(final?.columns).toHaveLength(1);
-		const col = final?.columns[0];
+		expect(final?.columns).toHaveLength(2);
+		const col = final?.columns.at(-1);
 		expect(col?.kind).toBe("plain");
 		expect(col?.uuid).toBeTruthy();
 		if (col?.kind === "plain") {
@@ -73,7 +76,7 @@ describe("addCaseListColumns", () => {
 		const { doc, ctx } = makeCaseListFixture();
 		const result = await addCaseListColumnsTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				columns: [
 					{ kind: "plain", field: "case_name", header: "Name" },
 					{ kind: "phone", field: "phone", header: "Phone" },
@@ -91,19 +94,22 @@ describe("addCaseListColumns", () => {
 		const final = result.newDoc.modules[MOD_A]?.caseListConfig;
 		expect(final?.columns.map((c) => c.kind)).toEqual([
 			"plain",
+			"plain",
 			"phone",
 			"date",
 		]);
 		if ("error" in result.result) throw new Error(result.result.error);
 		// One uuid per column, aligned with input order + the stored columns.
-		expect(result.result.uuids).toEqual(final?.columns.map((c) => c.uuid));
+		expect(result.result.uuids).toEqual(
+			final?.columns.slice(-3).map((c) => c.uuid),
+		);
 	});
 
 	it("surfaces each new uuid in the structured result and the message", async () => {
 		const { doc, ctx } = makeCaseListFixture();
 		const result = await addCaseListColumnsTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				columns: [{ kind: "plain", field: "case_name", header: "Patient" }],
 			},
 			ctx,
@@ -112,7 +118,8 @@ describe("addCaseListColumns", () => {
 		if ("error" in result.result) {
 			throw new Error(`unexpected error: ${result.result.error}`);
 		}
-		const newColumn = result.newDoc.modules[MOD_A]?.caseListConfig?.columns[0];
+		const newColumn =
+			result.newDoc.modules[MOD_A]?.caseListConfig?.columns.at(-1);
 		expect(result.result.uuids[0]).toBe(newColumn?.uuid);
 		expect(result.result.message).toContain("Patient");
 	});
@@ -120,7 +127,7 @@ describe("addCaseListColumns", () => {
 	it("preserves filter and searchInputs when adding columns", async () => {
 		const { doc: baseDoc, ctx } = makeCaseListFixture();
 		const seededInput = simpleSearchInputDef(
-			asUuid("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"),
+			testUuid("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"),
 			"name_search",
 			"Name",
 			"text",
@@ -133,7 +140,7 @@ describe("addCaseListColumns", () => {
 				[MOD_A]: {
 					...baseDoc.modules[MOD_A],
 					caseListConfig: resolveCaseListConfig({
-						columns: [],
+						columns: baseDoc.modules[MOD_A].caseListConfig?.columns ?? [],
 						searchInputs: [seededInput],
 						filter: seededFilter,
 					}),
@@ -143,7 +150,7 @@ describe("addCaseListColumns", () => {
 
 		const result = await addCaseListColumnsTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				columns: [{ kind: "plain", field: "case_name", header: "Patient" }],
 			},
 			ctx,
@@ -158,7 +165,7 @@ describe("addCaseListColumns", () => {
 	it("appends to an existing columns array without disturbing prior entries", async () => {
 		const { doc: baseDoc, ctx } = makeCaseListFixture();
 		const existing = plainColumn(
-			asUuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+			testUuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
 			"existing",
 			"Existing",
 		);
@@ -177,7 +184,7 @@ describe("addCaseListColumns", () => {
 
 		const result = await addCaseListColumnsTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				columns: [{ kind: "phone", field: "phone", header: "Phone" }],
 			},
 			ctx,
@@ -194,14 +201,14 @@ describe("addCaseListColumns", () => {
 		const { doc: baseDoc, ctx } = makeCaseListFixture();
 		const first = {
 			...plainColumn(
-				asUuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+				testUuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
 				"first",
 				"First",
 			),
 		};
 		const second = {
 			...plainColumn(
-				asUuid("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"),
+				testUuid("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"),
 				"second",
 				"Second",
 			),
@@ -225,7 +232,7 @@ describe("addCaseListColumns", () => {
 
 		const result = await addCaseListColumnsTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				columns: [{ kind: "phone", field: "phone", header: "Phone" }],
 			},
 			ctx,
@@ -280,28 +287,36 @@ describe("addCaseListColumns", () => {
 				field: "status",
 				header: "Status",
 				mapping: [
-					{ value: "active", assetId: "asset-active" },
-					{ value: "closed", assetId: "asset-closed" },
+					{
+						value: "active",
+						assetId: testMediaAssetId("asset-active"),
+					},
+					{
+						value: "closed",
+						assetId: testMediaAssetId("asset-closed"),
+					},
 				],
 			},
 		];
 
 		const r = await addCaseListColumnsTool.execute(
-			{ moduleIndex: 0, columns },
+			{ moduleUuid: MOD_A, columns },
 			ctx,
 			doc,
 		);
 
 		const finalCols = r.newDoc.modules[MOD_A]?.caseListConfig?.columns ?? [];
-		expect(finalCols).toHaveLength(columns.length);
-		expect(finalCols.map((c) => c.kind)).toEqual(columns.map((i) => i.kind));
+		expect(finalCols).toHaveLength(columns.length + 1);
+		expect(finalCols.slice(-columns.length).map((c) => c.kind)).toEqual(
+			columns.map((i) => i.kind),
+		);
 	});
 
-	it("returns an Elm-style error on out-of-range moduleIndex", async () => {
+	it("returns the canonical UUID-address error for an unknown module", async () => {
 		const { doc, ctx } = makeCaseListFixture();
 		const result = await addCaseListColumnsTool.execute(
 			{
-				moduleIndex: 99,
+				moduleUuid: testUuid("unknown-module"),
 				columns: [{ kind: "plain", field: "case_name", header: "Patient" }],
 			},
 			ctx,
@@ -312,49 +327,24 @@ describe("addCaseListColumns", () => {
 		if (!("error" in result.result)) {
 			throw new Error("expected error result");
 		}
-		expect(result.result.error).toContain("Tried to add");
-		expect(result.result.error).toContain("module index 99");
-		expect(result.result.error).toContain("Found no module");
+		expect(result.result.error).toContain("No module with UUID");
 	});
 
-	it("initializes the caseListConfig when the module has none", async () => {
-		const { doc: baseDoc, ctx } = makeCaseListFixture();
-		const baseMod = baseDoc.modules[MOD_A];
-		const docWithoutConfig: BlueprintDoc = {
-			...baseDoc,
-			modules: {
-				[MOD_A]: { ...baseMod, caseListConfig: undefined } as Module,
-			},
-		};
-
-		const result = await addCaseListColumnsTool.execute(
-			{
-				moduleIndex: 0,
-				columns: [{ kind: "plain", field: "case_name", header: "Patient" }],
-			},
-			ctx,
-			docWithoutConfig,
-		);
-
-		const final = result.newDoc.modules[MOD_A]?.caseListConfig;
-		expect(final?.columns).toHaveLength(1);
-		expect(final?.searchInputs).toEqual([]);
-		expect(final?.filter).toBeUndefined();
-	});
-
-	it("emits the same mutation batch through chat + MCP contexts", async () => {
+	it("authors a dormant definition identically through chat and MCP", async () => {
 		// `crypto.randomUUID` produces a fresh value per call, so the
 		// minted column uuids won't match across the two runs. Strip them
 		// before comparing so the test pins the rest of the mutation shape.
 		const { doc, ctx: chatCtx } = makeCaseListFixture();
 		const { ctx: mcpCtx } = makeCaseListMcpFixture();
 		const input = {
-			moduleIndex: 0,
+			moduleUuid: MOD_A,
 			columns: [
 				{
 					kind: "plain" as const,
 					field: "case_name",
 					header: "Patient",
+					visibleInList: false,
+					visibleInDetail: false,
 				},
 			],
 		};
@@ -372,5 +362,17 @@ describe("addCaseListColumns", () => {
 			});
 
 		expect(stripUuid(r1.mutations)).toEqual(stripUuid(r2.mutations));
+		expect(r1.newDoc.modules[MOD_A]?.caseListConfig?.columns.at(-1)).toEqual(
+			expect.objectContaining({
+				visibleInList: false,
+				visibleInDetail: false,
+			}),
+		);
+		expect(r2.newDoc.modules[MOD_A]?.caseListConfig?.columns.at(-1)).toEqual(
+			expect.objectContaining({
+				visibleInList: false,
+				visibleInDetail: false,
+			}),
+		);
 	});
 });

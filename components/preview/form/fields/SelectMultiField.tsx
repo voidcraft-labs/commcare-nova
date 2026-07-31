@@ -1,6 +1,7 @@
 "use client";
 import { MediaDisplay } from "@/components/builder/media/MediaDisplay";
-import type { MultiSelectField } from "@/lib/domain";
+import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
+import type { MultiSelectField, SelectOption } from "@/lib/domain";
 import { PreviewMarkdown } from "@/lib/markdown";
 import type { FieldState } from "@/lib/preview/engine/types";
 import { useEditMode } from "@/lib/session/hooks";
@@ -31,20 +32,29 @@ export function SelectMultiField({
 	onChange,
 	onBlur,
 }: SelectMultiFieldProps) {
-	// Static options render in DISPLAY order (`sort-by-(order, uuid)`,
-	// matching the wire `<item>` order), never `options` array position; a
+	// Static options render in their authored array sequence, matching the wire
+	// `<item>` order; a
 	// lookup-backed select reads the ENGINE's live filtered choices — see
 	// the single-select twin for the loading contract.
-	const lookupBacked = field.optionsSource !== undefined;
+	const lookupBacked = field.optionsSource.kind === "lookup";
+	// Document-aware option-label projection — see the single-select twin.
+	const projectProse = useProseProjection();
 	// `key` is display identity — see the single-select twin.
 	const options: ReadonlyArray<{
 		key: string;
 		value: string;
 		label: string;
-		media?: (typeof field.options)[number]["media"];
+		media?: SelectOption["media"];
 	}> = lookupBacked
 		? (state.choices ?? [])
-		: [...(field.options ?? [])].map((opt) => ({ ...opt, key: opt.value }));
+		: field.optionsSource.kind === "inline"
+			? field.optionsSource.options.map((opt) => ({
+					...opt,
+					key: opt.value,
+					label:
+						state.resolvedOptionLabels?.[opt.uuid] ?? projectProse(opt.label),
+				}))
+			: [];
 	const selected = new Set(state.value ? state.value.split(" ") : []);
 	const showError = state.touched && !state.valid;
 	const isEditMode = useEditMode() === "edit";

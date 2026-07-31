@@ -27,7 +27,6 @@ import {
 import {
 	AppBusyError,
 	AppRunStateCorruptError,
-	CaseDataStrandedError,
 	moveAppToProject,
 } from "@/lib/db/moveAppToProject";
 import { log } from "@/lib/logger";
@@ -54,7 +53,6 @@ export type MoveAppErrorCode =
 	| "stale_client"
 	| "move_rejected"
 	| "not_permitted"
-	| "case_sync_failed"
 	| "internal_error";
 
 /** Result of the `moveApp` boundary: either the app changed Projects, or an
@@ -248,14 +246,6 @@ export async function moveApp(
 				code: "run_state_corrupt",
 				error:
 					"This app's last Solutions Architect run left an inconsistent record, so it can't move yet. Contact support.",
-			};
-		}
-		if (err instanceof CaseDataStrandedError) {
-			return {
-				success: false,
-				code: "case_sync_failed",
-				error:
-					"Couldn't finish syncing this app's case data in its current Project. The data is safe. Try again shortly; if it keeps failing, contact support.",
 			};
 		}
 		log.error("[home/move-app] error", err);

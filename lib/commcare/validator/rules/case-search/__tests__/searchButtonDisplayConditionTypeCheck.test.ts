@@ -1,4 +1,6 @@
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { proseText } from "@/lib/domain/prose";
 /**
  * Tests for the `searchButtonDisplayConditionTypeCheck` rule. One
  * invariant per `it(...)` block; the rule routes through the shared
@@ -12,7 +14,7 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import { asUuid, plainColumn, simpleSearchInputDef } from "@/lib/domain";
+import { plainColumn, simpleSearchInputDef } from "@/lib/domain";
 import {
 	eq,
 	exists,
@@ -33,9 +35,9 @@ describe("searchButtonDisplayConditionTypeCheck", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
-						listColumnOrder: [asUuid("col-name")],
-						detailColumnOrder: [asUuid("col-name")],
+						columns: [plainColumn(testUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [testUuid("col-name")],
+						detailColumnOrder: [testUuid("col-name")],
 						searchInputs: [],
 					},
 					caseSearchConfig: {
@@ -52,8 +54,8 @@ describe("searchButtonDisplayConditionTypeCheck", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},
@@ -63,7 +65,9 @@ describe("searchButtonDisplayConditionTypeCheck", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "case_name", label: "Name", data_type: "text" }],
+					properties: [
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+					],
 				},
 			],
 		});
@@ -91,9 +95,9 @@ describe("searchButtonDisplayConditionTypeCheck", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
-						listColumnOrder: [asUuid("col-name")],
-						detailColumnOrder: [asUuid("col-name")],
+						columns: [plainColumn(testUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [testUuid("col-name")],
+						detailColumnOrder: [testUuid("col-name")],
 						searchInputs: [],
 					},
 					caseSearchConfig: {
@@ -111,8 +115,8 @@ describe("searchButtonDisplayConditionTypeCheck", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},
@@ -122,7 +126,9 @@ describe("searchButtonDisplayConditionTypeCheck", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "case_name", label: "Name", data_type: "text" }],
+					properties: [
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+					],
 				},
 				{ name: "visit", parent_type: "patient", properties: [] },
 			],
@@ -147,9 +153,9 @@ describe("searchButtonDisplayConditionTypeCheck", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
-						listColumnOrder: [asUuid("col-name")],
-						detailColumnOrder: [asUuid("col-name")],
+						columns: [plainColumn(testUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [testUuid("col-name")],
+						detailColumnOrder: [testUuid("col-name")],
 						searchInputs: [],
 					},
 					caseSearchConfig: {
@@ -163,8 +169,8 @@ describe("searchButtonDisplayConditionTypeCheck", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},
@@ -174,7 +180,9 @@ describe("searchButtonDisplayConditionTypeCheck", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "case_name", label: "Name", data_type: "text" }],
+					properties: [
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+					],
 				},
 			],
 		});
@@ -201,12 +209,12 @@ describe("searchButtonDisplayConditionTypeCheck", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
-						listColumnOrder: [asUuid("col-name")],
-						detailColumnOrder: [asUuid("col-name")],
+						columns: [plainColumn(testUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [testUuid("col-name")],
+						detailColumnOrder: [testUuid("col-name")],
 						searchInputs: [
 							simpleSearchInputDef(
-								asUuid("si-name"),
+								testUuid("si-name"),
 								"name_search",
 								"Name",
 								"text",
@@ -215,7 +223,10 @@ describe("searchButtonDisplayConditionTypeCheck", () => {
 						],
 					},
 					caseSearchConfig: {
-						searchButtonDisplayCondition: eq(input("ghost"), literal("x")),
+						searchButtonDisplayCondition: eq(
+							input(testUuid("ghost")),
+							literal("x"),
+						),
 					},
 					forms: [
 						{
@@ -225,8 +236,8 @@ describe("searchButtonDisplayConditionTypeCheck", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},
@@ -236,18 +247,23 @@ describe("searchButtonDisplayConditionTypeCheck", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "case_name", label: "Name", data_type: "text" }],
+					properties: [
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+					],
 				},
 			],
 		});
 		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
 			(e) => e.code === "CASE_SEARCH_BUTTON_DISPLAY_CONDITION_TYPE_ERROR",
 		);
-		expect(
-			hits.some((e) =>
-				e.message.toLowerCase().includes("unknown search input"),
-			),
-		).toBe(true);
+		expect(hits).toHaveLength(1);
+		/* The checker's message is concatenated into this finding, so this is the
+		 * text a person reads. It must name what is wrong and must not hand back
+		 * the stored uuid. */
+		expect(hits[0]?.message).toMatch(/Search field/i);
+		expect(hits[0]?.message).not.toMatch(
+			/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/,
+		);
 	});
 
 	it("does not fire on a well-typed global display condition", () => {
@@ -258,9 +274,9 @@ describe("searchButtonDisplayConditionTypeCheck", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
-						listColumnOrder: [asUuid("col-name")],
-						detailColumnOrder: [asUuid("col-name")],
+						columns: [plainColumn(testUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [testUuid("col-name")],
+						detailColumnOrder: [testUuid("col-name")],
 						searchInputs: [],
 					},
 					caseSearchConfig: {
@@ -277,8 +293,8 @@ describe("searchButtonDisplayConditionTypeCheck", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},
@@ -288,7 +304,9 @@ describe("searchButtonDisplayConditionTypeCheck", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "case_name", label: "Name", data_type: "text" }],
+					properties: [
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+					],
 				},
 			],
 		});
@@ -311,9 +329,9 @@ describe("searchButtonDisplayConditionTypeCheck", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
-						listColumnOrder: [asUuid("col-name")],
-						detailColumnOrder: [asUuid("col-name")],
+						columns: [plainColumn(testUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [testUuid("col-name")],
+						detailColumnOrder: [testUuid("col-name")],
 						searchInputs: [],
 					},
 					forms: [
@@ -324,8 +342,8 @@ describe("searchButtonDisplayConditionTypeCheck", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},
@@ -335,7 +353,9 @@ describe("searchButtonDisplayConditionTypeCheck", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "case_name", label: "Name", data_type: "text" }],
+					properties: [
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+					],
 				},
 			],
 		});
@@ -357,9 +377,9 @@ describe("searchButtonDisplayConditionTypeCheck", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
-						listColumnOrder: [asUuid("col-name")],
-						detailColumnOrder: [asUuid("col-name")],
+						columns: [plainColumn(testUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [testUuid("col-name")],
+						detailColumnOrder: [testUuid("col-name")],
 						searchInputs: [],
 					},
 					caseSearchConfig: {},
@@ -371,8 +391,8 @@ describe("searchButtonDisplayConditionTypeCheck", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},
@@ -382,7 +402,9 @@ describe("searchButtonDisplayConditionTypeCheck", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "case_name", label: "Name", data_type: "text" }],
+					properties: [
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+					],
 				},
 			],
 		});

@@ -35,6 +35,9 @@ describe("action tense follows the call's status", () => {
 			"Updating available cases",
 		);
 		expect(toolAction(pendingPart("updateApp"))).toBe("Updating app settings");
+		expect(toolAction(pendingPart("configureConnect"))).toBe(
+			"Configuring CommCare Connect",
+		);
 		expect(toolAction(pendingPart("getCaseOperations"))).toBe(
 			"Inspecting case operations",
 		);
@@ -94,37 +97,39 @@ describe("updateApp transcript row", () => {
 		expect(toolLocation(part)).toBe("Village Health");
 	});
 
-	it("names the Connect flip directly when only connect changed", () => {
-		expect(toolAction(donePart("updateApp", { connect: "learn" }))).toBe(
-			"Set CommCare Connect to Learn",
-		);
-		expect(toolAction(donePart("updateApp", { connect: "off" }))).toBe(
-			"Turned off CommCare Connect",
-		);
-		// A connect-only change has no name to point at.
-		expect(
-			toolLocation(donePart("updateApp", { connect: "learn" })),
-		).toBeNull();
-	});
-
-	it("surfaces the Connect flip on the detail line when both slots changed", () => {
-		const part = donePart("updateApp", {
-			subject: "Outreach",
-			nameChange: "named",
-			connect: "deliver",
-		});
-		expect(toolAction(part)).toBe("Named the app");
-		expect(toolLocation(part)).toBe("Outreach");
-		expect(toolDetail(part)).toBe("Set CommCare Connect to Deliver");
-	});
-
 	it("falls back to the generic phrase for a row recorded before the facts existed", () => {
-		// Threads persisted before the tool reported nameChange/connect carry
-		// only `subject` — the name still moves to the → line, never truncating
-		// the headline.
 		const part = donePart("updateApp", { subject: "Client Registration" });
 		expect(toolAction(part)).toBe("Updated app settings");
 		expect(toolLocation(part)).toBe("Client Registration");
+	});
+});
+
+describe("configureConnect transcript row", () => {
+	it("names each exact target state directly", () => {
+		expect(toolAction(donePart("configureConnect", { connect: "learn" }))).toBe(
+			"Set CommCare Connect to Learn",
+		);
+		expect(
+			toolAction(donePart("configureConnect", { connect: "deliver" })),
+		).toBe("Set CommCare Connect to Deliver");
+		expect(toolAction(donePart("configureConnect", { connect: "off" }))).toBe(
+			"Turned off CommCare Connect",
+		);
+		expect(
+			toolLocation(donePart("configureConnect", { connect: "learn" })),
+		).toBeNull();
+	});
+
+	it("uses the in-progress phrase when a refused target writes nothing", () => {
+		const refused = {
+			type: "tool-configureConnect",
+			toolCallId: "call_1",
+			state: "output-available",
+			input: {},
+			output: { error: "A non-null mode requires participants." },
+		} as ToolUIPart;
+		expect(toolAction(refused)).toBe("Configuring CommCare Connect");
+		expect(toolDetail(refused)).toBe("A non-null mode requires participants.");
 	});
 });
 
@@ -184,6 +189,17 @@ describe("scoped-edit rows are unchanged", () => {
 		});
 		expect(toolAction(part)).toBe('Updated form "Register Client"');
 		expect(toolLocation(part)).toBe("Clients");
+	});
+});
+
+describe("case-property rename transcript row", () => {
+	it("renders the exact simultaneous relation size without exposing payload internals", () => {
+		expect(toolAction(pendingPart("renameCaseProperties"))).toBe(
+			"Renaming case properties",
+		);
+		expect(toolAction(donePart("renameCaseProperties", { count: 2 }))).toBe(
+			"Renamed 2 case properties",
+		);
 	});
 });
 

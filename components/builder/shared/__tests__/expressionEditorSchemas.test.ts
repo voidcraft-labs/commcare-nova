@@ -19,6 +19,7 @@
 //      schema).
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import type { CaseType } from "@/lib/domain";
 import {
 	type SearchInputDecl,
@@ -26,6 +27,7 @@ import {
 	valueExpressionSchema,
 	walkExpressionTerms,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import {
 	type ExpressionEditContext,
 	expressionCardSchemas,
@@ -37,42 +39,45 @@ import {
 const PATIENT: CaseType = {
 	name: "patient",
 	properties: [
-		{ name: "name", label: "Name", data_type: "text" },
-		{ name: "age", label: "Age", data_type: "int" },
-		{ name: "weight", label: "Weight", data_type: "decimal" },
-		{ name: "dob", label: "Date of birth", data_type: "date" },
-		{ name: "last_seen", label: "Last seen", data_type: "datetime" },
-		{ name: "wakeup", label: "Wake time", data_type: "time" },
+		{ name: "case_name", label: proseText("Case name"), data_type: "text" },
+		{ name: "age", label: proseText("Age"), data_type: "int" },
+		{ name: "weight", label: proseText("Weight"), data_type: "decimal" },
+		{ name: "dob", label: proseText("Date of birth"), data_type: "date" },
+		{ name: "last_seen", label: proseText("Last seen"), data_type: "datetime" },
+		{ name: "wakeup", label: proseText("Wake time"), data_type: "time" },
 		{
 			name: "status",
-			label: "Status",
+			label: proseText("Status"),
 			data_type: "single_select",
 			options: [
-				{ value: "active", label: "Active" },
-				{ value: "inactive", label: "Inactive" },
+				{ value: "active", label: proseText("Active") },
+				{ value: "inactive", label: proseText("Inactive") },
 			],
 		},
 		{
 			name: "tags",
-			label: "Tags",
+			label: proseText("Tags"),
 			data_type: "multi_select",
 			options: [
-				{ value: "vip", label: "VIP" },
-				{ value: "new", label: "New" },
+				{ value: "vip", label: proseText("VIP") },
+				{ value: "new", label: proseText("New") },
 			],
 		},
-		{ name: "location", label: "Home", data_type: "geopoint" },
+		{ name: "location", label: proseText("Home"), data_type: "geopoint" },
 	],
 };
 
 const KNOWN_INPUTS: readonly SearchInputDecl[] = [
-	{ name: "name_search", data_type: "text" },
+	{ uuid: testUuid("name-search"), name: "name_search", data_type: "text" },
 ];
 
 const ctx: ExpressionEditContext = {
 	caseTypes: [PATIENT],
 	currentCaseType: "patient",
 	knownInputs: KNOWN_INPUTS,
+	operationScope: {
+		creates: [{ uuid: testUuid("earlier-create"), label: "Create a referral" }],
+	},
 };
 
 describe("expressionCardSchemas — registry exhaustivity", () => {
@@ -82,7 +87,6 @@ describe("expressionCardSchemas — registry exhaustivity", () => {
 		) as ValueExpression["kind"][]) {
 			const entry = expressionCardSchemas[kind];
 			expect(entry.kind).toBe(kind);
-			expect(["authorable", "roundTripOnly"]).toContain(entry.authoring);
 			expect(entry.label).toBeTruthy();
 			expect(entry.icon).toBeTruthy();
 			expect(typeof entry.component).toBe("function");
@@ -90,18 +94,48 @@ describe("expressionCardSchemas — registry exhaustivity", () => {
 			expect(typeof entry.applicable).toBe("function");
 		}
 	});
-});
 
-describe("expressionCardSchemas — authoring boundary", () => {
-	it("keeps unwrap-list editable only as imported data", () => {
-		expect(expressionCardSchemas["unwrap-list"].authoring).toBe(
-			"roundTripOnly",
+	it("contains exactly the stored ValueExpression vocabulary", () => {
+		expect(Object.keys(expressionCardSchemas).sort()).toEqual(
+			[
+				"acting-user",
+				"arith",
+				"coalesce",
+				"concat",
+				"count",
+				"date-add",
+				"date-coerce",
+				"datetime-coerce",
+				"double",
+				"format-date",
+				"id-of",
+				"if",
+				"now",
+				"switch",
+				"table-lookup",
+				"term",
+				"today",
+				"unowned",
+			].sort(),
 		);
-		expect(isAuthorableExpressionKind("unwrap-list")).toBe(false);
+		expect(
+			valueExpressionSchema.safeParse({
+				kind: "unwrap-list",
+				value: { kind: "term", term: { kind: "literal", value: "[]" } },
+			}).success,
+		).toBe(false);
 	});
 
-	it("keeps format-date available as an authored calculation", () => {
-		expect(expressionCardSchemas["format-date"].authoring).toBe("authorable");
+	it("admits submission-local values only in their owning slots", () => {
+		expect(isAuthorableExpressionKind("id-of", ctx)).toBe(true);
+		expect(isAuthorableExpressionKind("acting-user", ctx)).toBe(false);
+		expect(isAuthorableExpressionKind("unowned", ctx)).toBe(false);
+		expect(
+			isAuthorableExpressionKind("acting-user", {
+				...ctx,
+				ownerValues: true,
+			}),
+		).toBe(true);
 		expect(isAuthorableExpressionKind("format-date")).toBe(true);
 	});
 });
@@ -117,16 +151,23 @@ describe("expressionCardSchemas — defaultValue parses through the schema", () 
 	) as ValueExpression["kind"][]) {
 		it(`${kind}: default value parses through valueExpressionSchema`, () => {
 			const entry = expressionCardSchemas[kind];
+			if (kind === "table-lookup") {
+				expect(() => entry.defaultValue(ctx)).toThrow(
+					/cannot be created without an available result column that fits this value/,
+				);
+				return;
+			}
 			const value = entry.defaultValue(ctx);
 			expect(() => valueExpressionSchema.parse(value)).not.toThrow();
 			expect(value.kind).toBe(kind);
 		});
 	}
 
-	it("never seeds CCHQ's legacy property alias from an alias-first catalog", () => {
+	it("seeds only admitted canonical property names", () => {
 		for (const kind of Object.keys(
 			expressionCardSchemas,
 		) as ValueExpression["kind"][]) {
+			if (kind === "table-lookup") continue;
 			const refs: string[] = [];
 			walkExpressionTerms(
 				expressionCardSchemas[kind].defaultValue(ctx),
@@ -135,6 +176,11 @@ describe("expressionCardSchemas — defaultValue parses through the schema", () 
 				},
 			);
 			expect(refs, `${kind} property refs`).not.toContain("name");
+			for (const property of refs) {
+				expect(
+					PATIENT.properties.some((entry) => entry.name === property),
+				).toBe(true);
+			}
 		}
 	});
 });
@@ -258,20 +304,6 @@ describe("expressionCardSchemas — applicable predicates", () => {
 		expect(expressionCardSchemas.count.applicable(ctx, "int")).toBe(false);
 	});
 
-	it("unwrap-list is gated to `_sequence` expectedTypes (round-trip-only)", () => {
-		// `unwrap-list` produces a sequence type; no scalar value slot
-		// consumes a sequence, so the kind picker hides it from every
-		// scalar slot. The kind exists in the registry only for round-
-		// trip preservation when a saved AST carries one.
-		expect(expressionCardSchemas["unwrap-list"].applicable(ctx)).toBe(false);
-		expect(expressionCardSchemas["unwrap-list"].applicable(ctx, "int")).toBe(
-			false,
-		);
-		expect(
-			expressionCardSchemas["unwrap-list"].applicable(ctx, "_sequence"),
-		).toBe(true);
-	});
-
 	it("format-date requires a date / datetime property in the case type", () => {
 		expect(expressionCardSchemas["format-date"].applicable(ctx)).toBe(true);
 		const noDates: ExpressionEditContext = {
@@ -279,7 +311,13 @@ describe("expressionCardSchemas — applicable predicates", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "name", label: "Name", data_type: "text" }],
+					properties: [
+						{
+							name: "case_name",
+							label: proseText("Case name"),
+							data_type: "text",
+						},
+					],
 				},
 			],
 		};

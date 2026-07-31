@@ -1,4 +1,4 @@
-/** Rolling-deploy-safe planners for Search-input row edits. */
+/** Planners for Search-input row edits. */
 
 import type { Mutation } from "@/lib/doc/types";
 import type {
@@ -7,10 +7,9 @@ import type {
 	SearchInputDef,
 	Uuid,
 } from "@/lib/domain";
+import { isOwnerOnlyCaseSearchConfig, searchInputDefault } from "@/lib/domain";
 import {
 	type PredicateAstPath,
-	renameSearchInputInExpression,
-	renameSearchInputInPredicate,
 	walkExpressionInputRefsWithPaths,
 	walkInputRefsWithPaths,
 } from "@/lib/domain/predicate";
@@ -69,22 +68,22 @@ export type SearchInputRemovalDependency =
 
 function predicateInputPaths(
 	predicate: NonNullable<CaseListConfig["filter"]>,
-	name: string,
+	searchInputUuid: Uuid,
 ): PredicateAstPath[] {
 	const paths: PredicateAstPath[] = [];
 	walkInputRefsWithPaths(predicate, (ref, path) => {
-		if (ref.name === name) paths.push(path);
+		if (ref.searchInputUuid === searchInputUuid) paths.push(path);
 	});
 	return paths;
 }
 
 function expressionInputPaths(
 	expression: NonNullable<CaseSearchConfig["excludedOwnerIds"]>,
-	name: string,
+	searchInputUuid: Uuid,
 ): PredicateAstPath[] {
 	const paths: PredicateAstPath[] = [];
 	walkExpressionInputRefsWithPaths(expression, (ref, path) => {
-		if (ref.name === name) paths.push(path);
+		if (ref.searchInputUuid === searchInputUuid) paths.push(path);
 	});
 	return paths;
 }
@@ -96,11 +95,11 @@ export function searchInputRemovalDependencies(
 	inputUuid: Uuid,
 ): readonly SearchInputRemovalDependency[] {
 	const target = config.searchInputs.find((input) => input.uuid === inputUuid);
-	if (target === undefined || target.name.length === 0) return [];
+	if (target === undefined) return [];
 	const dependencies: SearchInputRemovalDependency[] = [];
 	if (config.filter !== undefined) {
 		const paths = nonEmptyPaths(
-			predicateInputPaths(config.filter, target.name),
+			predicateInputPaths(config.filter, target.uuid),
 		);
 		if (paths !== undefined) {
 			dependencies.push({
@@ -115,7 +114,7 @@ export function searchInputRemovalDependencies(
 			continue;
 		}
 		const paths = nonEmptyPaths(
-			predicateInputPaths(input.predicate, target.name),
+			predicateInputPaths(input.predicate, target.uuid),
 		);
 		if (paths === undefined) continue;
 		dependencies.push({
@@ -130,11 +129,12 @@ export function searchInputRemovalDependencies(
 	// the condition slots do). The target's own default leaves with the
 	// row, so only siblings count.
 	for (const input of config.searchInputs) {
-		if (input.uuid === target.uuid || input.default === undefined) {
+		const defaultValue = searchInputDefault(input);
+		if (input.uuid === target.uuid || defaultValue === undefined) {
 			continue;
 		}
 		const paths = nonEmptyPaths(
-			expressionInputPaths(input.default, target.name),
+			expressionInputPaths(defaultValue, target.uuid),
 		);
 		if (paths === undefined) continue;
 		dependencies.push({
@@ -144,16 +144,14 @@ export function searchInputRemovalDependencies(
 			paths,
 		});
 	}
-	// Calculated-column formulas are a reference-bearing surface too — the
-	// rename path (`rewriteModuleSearchInputRefs`) keeps `input(...)` refs
-	// there coherent, and a stored pre-gate doc can carry one while its
-	// repair is owner-tier pending. Without this walk the review dialog
+	// Calculated-column formulas are a reference-bearing surface too.
+	// Without this walk the review dialog
 	// reports "zero uses" for a doc where a use exists, and the removal
 	// strands the formula against a field that no longer exists.
 	for (const column of config.columns) {
 		if (column.kind !== "calculated") continue;
 		const paths = nonEmptyPaths(
-			expressionInputPaths(column.expression, target.name),
+			expressionInputPaths(column.expression, target.uuid),
 		);
 		if (paths === undefined) continue;
 		dependencies.push({
@@ -165,7 +163,7 @@ export function searchInputRemovalDependencies(
 	}
 	if (searchConfig?.excludedOwnerIds !== undefined) {
 		const paths = nonEmptyPaths(
-			expressionInputPaths(searchConfig.excludedOwnerIds, target.name),
+			expressionInputPaths(searchConfig.excludedOwnerIds, target.uuid),
 		);
 		if (paths !== undefined) {
 			dependencies.push({
@@ -179,11 +177,15 @@ export function searchInputRemovalDependencies(
 	// declared inputs (`searchButtonDisplayConditionTypeCheck`), so a
 	// removal that orphans a ref here would bounce off the commit gate
 	// without this entry.
-	if (searchConfig?.searchButtonDisplayCondition !== undefined) {
+	if (
+		searchConfig !== undefined &&
+		!isOwnerOnlyCaseSearchConfig(searchConfig) &&
+		searchConfig.searchButtonDisplayCondition !== undefined
+	) {
 		const paths = nonEmptyPaths(
 			predicateInputPaths(
 				searchConfig.searchButtonDisplayCondition,
-				target.name,
+				target.uuid,
 			),
 		);
 		if (paths !== undefined) {
@@ -197,50 +199,20 @@ export function searchInputRemovalDependencies(
 	return dependencies;
 }
 
-/**
- * Replace one Search field without making its runtime name a rolling-deploy
- * hazard. Origin/main's reducer does not know how to rewrite `input(name)` AST
- * leaves, so the nested fallback retains the old declaration name and rewrites
- * the replacement row's own AST back to that name. Current reducers take the
- * desired name from the optional top-level extension and rewrite every module
- * reference against fresh replay-time state.
- */
+/** Replace one Search field; UUID-backed references need no rename rewrite. */
 export function searchInputUpdateMutation(
 	moduleUuid: Uuid,
 	current: SearchInputDef,
 	replacement: SearchInputDef,
 ): UpdateSearchInputMutation {
-	const desired = {
+	const { uuid: _uuid, ...searchInput } = {
 		...structuredClone(replacement),
 		uuid: current.uuid,
 	};
-	if (desired.name === current.name) {
-		return {
-			kind: "updateSearchInput",
-			moduleUuid,
-			uuid: current.uuid,
-			searchInput: desired,
-		};
-	}
-
-	const fallback = structuredClone(desired);
-	if (fallback.default !== undefined) {
-		renameSearchInputInExpression(fallback.default, desired.name, current.name);
-	}
-	if (fallback.kind === "advanced") {
-		renameSearchInputInPredicate(
-			fallback.predicate,
-			desired.name,
-			current.name,
-		);
-	}
-	fallback.name = current.name;
-
 	return {
 		kind: "updateSearchInput",
 		moduleUuid,
 		uuid: current.uuid,
-		searchInput: fallback,
-		renamedTo: desired.name,
+		searchInput,
 	};
 }

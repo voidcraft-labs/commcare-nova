@@ -51,9 +51,9 @@ export function setModuleDisplayConditionMutation(
  * Set or remove a form's display condition. Pass `undefined` to remove
  * it; the emitted patch carries the durable `null`.
  *
- * The `patch`-only shape is deliberate: `caseOperationChange` is the
- * form's other semantic axis and the two never travel together, so a
- * condition edit carries no operation state for a peer to misapply.
+ * The `patch`-only shape is deliberate: case-operation edits are the form's
+ * other semantic axis, so a condition edit carries no operation state for a
+ * peer to misapply.
  */
 export function setFormDisplayConditionMutation(
 	uuid: Uuid,

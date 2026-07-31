@@ -24,6 +24,10 @@ export interface FieldState {
 	resolvedLabel?: string;
 	/** Hint with hashtag refs evaluated to runtime values. Only set when the hint contains refs. */
 	resolvedHint?: string;
+	/** Help text with structural refs evaluated to runtime values. */
+	resolvedHelp?: string;
+	/** Structural option-label refs evaluated by stable option uuid. */
+	resolvedOptionLabels?: Readonly<Record<string, string>>;
 	/** Live instance count for repeat fields. Only set on `repeat` kinds —
 	 *  undefined elsewhere. Surfaced through `useEngineState(uuid)` so the
 	 *  preview's `RepeatField` re-renders when add/remove mutates
@@ -78,14 +82,33 @@ export function fieldStatesEqual(a: FieldState, b: FieldState): boolean {
 		a.errorMessage === b.errorMessage &&
 		a.resolvedLabel === b.resolvedLabel &&
 		a.resolvedHint === b.resolvedHint &&
+		a.resolvedHelp === b.resolvedHelp &&
+		stringRecordsEqual(a.resolvedOptionLabels, b.resolvedOptionLabels) &&
 		a.repeatCount === b.repeatCount &&
 		lookupChoicesEqual(a.choices, b.choices)
+	);
+}
+
+export function stringRecordsEqual(
+	left: Readonly<Record<string, string>> | undefined,
+	right: Readonly<Record<string, string>> | undefined,
+): boolean {
+	if (left === right) return true;
+	if (!left || !right) return false;
+	const leftKeys = Object.keys(left);
+	return (
+		leftKeys.length === Object.keys(right).length &&
+		leftKeys.every((key) => left[key] === right[key])
 	);
 }
 
 /** Navigation screen types for the preview. */
 export type PreviewScreen =
 	| { type: "home" }
+	/** The Project data workspace. Uuid-free, because it names no blueprint
+	 *  entity at all — Project-shared lookup tables are not app content. An
+	 *  absent `tableId` is the table list. */
+	| { type: "projectData"; tableId?: string }
 	| { type: "module"; moduleIndex: number }
 	| { type: "caseList"; moduleIndex: number; formIndex: number }
 	/** Per-module case-search / case-detail authoring surfaces.
@@ -127,6 +150,8 @@ export function getParentScreen(
 export function screensEqual(a: PreviewScreen, b: PreviewScreen): boolean {
 	if (a.type !== b.type) return false;
 	if (a.type === "home") return true;
+	if (a.type === "projectData" && b.type === "projectData")
+		return a.tableId === b.tableId;
 	if (a.type === "module" && b.type === "module")
 		return a.moduleIndex === b.moduleIndex;
 	if (a.type === "caseList" && b.type === "caseList")
@@ -155,6 +180,8 @@ export function screenKey(screen: PreviewScreen): string {
 	switch (screen.type) {
 		case "home":
 			return "home";
+		case "projectData":
+			return `projectData-${screen.tableId ?? "list"}`;
 		case "module":
 			return `module-${screen.moduleIndex}`;
 		case "caseList":

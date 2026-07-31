@@ -29,9 +29,10 @@ import {
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useModule } from "@/lib/doc/hooks/useEntity";
 import { useFormIds } from "@/lib/doc/hooks/useModuleIds";
+import type { ModuleAuthoringPatch } from "@/lib/doc/modulePatchMutations";
 import { caseTypeClearPatch, caseTypeSetPatch } from "@/lib/doc/scaffolds";
 import type { Uuid } from "@/lib/doc/types";
-import { humanizeId, type Module } from "@/lib/domain";
+import { humanizeId } from "@/lib/domain";
 
 interface ModuleCaseTypeSectionProps {
 	moduleUuid: Uuid;
@@ -62,7 +63,7 @@ export function ModuleCaseTypeSection({
 	// The set/clear patches (including the born-valid Name-column seed and the
 	// config drop on clear) live in `lib/doc/scaffolds` so the rule isn't
 	// re-encoded here; this component just supplies what it already has.
-	const apply = (patch: Partial<Omit<Module, "uuid">>) => {
+	const apply = (patch: ModuleAuthoringPatch) => {
 		const outcome = inline.updateModule(moduleUuid, patch);
 		setError(outcome.ok ? null : outcome.messages.join(" "));
 		return outcome;

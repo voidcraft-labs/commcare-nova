@@ -18,7 +18,6 @@ import {
 	gte,
 	isBlank,
 	isIn,
-	isNull,
 	literal,
 	lte,
 	match,
@@ -28,6 +27,7 @@ import {
 	subcasePath,
 	within,
 } from "@/lib/domain/predicate/builders";
+import { proseText } from "@/lib/domain/prose";
 import {
 	compilePredicate,
 	type PredicateCompileContext,
@@ -44,18 +44,20 @@ const EMPTY_HOUSEHOLD_ID = "71000000-0000-0000-0000-000000000005";
 
 const HOUSEHOLD_SCHEMA: CaseType = {
 	name: "household",
-	properties: [{ name: "region", label: "Region", data_type: "text" }],
+	properties: [
+		{ name: "region", label: proseText("Region"), data_type: "text" },
+	],
 };
 
 const PATIENT_SCHEMA: CaseType = {
 	name: "patient",
 	parent_type: "household",
 	properties: [
-		{ name: "nickname", label: "Nickname", data_type: "text" },
-		{ name: "alias", label: "Alias", data_type: "text" },
-		{ name: "age", label: "Age", data_type: "int" },
-		{ name: "tags", label: "Tags", data_type: "multi_select" },
-		{ name: "location", label: "Location", data_type: "geopoint" },
+		{ name: "nickname", label: proseText("Nickname"), data_type: "text" },
+		{ name: "alias", label: proseText("Alias"), data_type: "text" },
+		{ name: "age", label: proseText("Age"), data_type: "int" },
+		{ name: "tags", label: proseText("Tags"), data_type: "multi_select" },
+		{ name: "location", label: proseText("Location"), data_type: "geopoint" },
 	],
 };
 
@@ -583,31 +585,7 @@ describe("compilePredicate — normalized relation property reads", () => {
 		]);
 	});
 
-	test("is-null does not invent a related row when no relation exists", async ({
-		db,
-	}) => {
-		await db
-			.insertInto("cases")
-			.values(
-				makeCaseRow({
-					case_id: HOUSEHOLD_ID,
-					app_id: APP_ID,
-					project_id: PROJECT_ID,
-					case_type: "household",
-				}),
-			)
-			.execute();
-
-		const predicate = isNull(
-			prop("household", "nickname", subcasePath("parent", "patient")),
-		);
-
-		expect(await executeHouseholdPredicate(db, predicate)).toEqual([]);
-	});
-
-	test("related null/blank checks quantify real rows and preserve strict absence", async ({
-		db,
-	}) => {
+	test("related blank checks quantify real rows", async ({ db }) => {
 		await seedHouseholdWithTwoChildren(db, {
 			nonmatching: {},
 			matching: { nickname: "" },
@@ -617,9 +595,6 @@ describe("compilePredicate — normalized relation property reads", () => {
 			"nickname",
 			subcasePath("parent", "patient"),
 		);
-		expect(await executeHouseholdPredicate(db, isNull(related))).toEqual([
-			HOUSEHOLD_ID,
-		]);
 		expect(await executeHouseholdPredicate(db, isBlank(related))).toEqual([
 			HOUSEHOLD_ID,
 		]);

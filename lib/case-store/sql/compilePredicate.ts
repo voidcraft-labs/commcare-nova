@@ -156,10 +156,8 @@ export function compilePredicate(
 			return compileExistsOrMissing(pred, ctx, "missing");
 		case "when-input-present":
 			return compileWhenInputPresent(pred, ctx);
-		case "is-null":
-			return compileAbsenceCheck(pred.left, ctx, "is-null");
 		case "is-blank":
-			return compileAbsenceCheck(pred.left, ctx, "is-blank");
+			return compileAbsenceCheck(pred.left, ctx);
 		default: {
 			const _exhaustive: never = pred;
 			throw new Error(
@@ -187,7 +185,6 @@ export function compilePredicate(
 						"exists",
 						"missing",
 						"when-input-present",
-						"is-null",
 						"is-blank",
 					],
 				}),
@@ -1185,7 +1182,7 @@ function compileSelfViaQuantifier(
  * bindings resolve before compilation, so input-bound → compile
  * `clause`; input-absent → `lit(true)` (the AND-chain identity).
  *
- * "Bound" means `searchInputs.has(name)` regardless of value — an
+ * "Bound" means `searchInputs.has(searchInputUuid)` regardless of value — an
  * empty-string binding is still bound and the wrapped clause runs.
  * This diverges from CCHQ's wire `count(input)` semantic (which
  * returns 0 for empty strings and skips the clause). Deliberate:
@@ -1199,7 +1196,8 @@ function compileWhenInputPresent(
 	pred: Extract<Predicate, { kind: "when-input-present" }>,
 	ctx: PredicateCompileContext,
 ): Expression<SqlBool> {
-	const isBound = ctx.bindings.searchInputs?.has(pred.input.name) ?? false;
+	const isBound =
+		ctx.bindings.searchInputs?.has(pred.input.searchInputUuid) ?? false;
 	if (isBound) {
 		return compilePredicate(pred.clause, ctx);
 	}
@@ -1207,24 +1205,18 @@ function compileWhenInputPresent(
 }
 
 /**
- * `is-null` / `is-blank` dispatch — they differ only in the
- * empty-string disjunction. Property-ref left-operands route
- * through `?`-key-existence (Postgres-strict semantics); non-
- * property operands fall back to SQL `IS NULL`.
+ * `is-blank` dispatch. Property-ref left-operands route through
+ * `?`-key-existence; non-property operands use SQL null-or-empty.
  */
 function compileAbsenceCheck(
 	left: ValueExpression,
 	ctx: PredicateCompileContext,
-	op: "is-null" | "is-blank",
 ): Expression<SqlBool> {
 	if (left.kind === "term" && left.term.kind === "prop") {
-		return compilePropertyAbsenceCheck(left.term, ctx, op);
+		return compilePropertyAbsenceCheck(left.term, ctx);
 	}
 
 	const operand = compileValueExprOperand(left, ctx);
-	if (op === "is-null") {
-		return eb(operand, "is", null);
-	}
 	return eb.or([eb(operand, "is", null), eb(operand, "=", eb.val(""))]);
 }
 
@@ -1235,7 +1227,6 @@ function compileAbsenceCheck(
 function compilePropertyAbsenceCheck(
 	property: Extract<Term, { kind: "prop" }>,
 	ctx: PredicateCompileContext,
-	op: "is-null" | "is-blank",
 ): Expression<SqlBool> {
 	const isSelfVia = property.via === undefined || property.via.kind === "self";
 	const propertyName = property.property;
@@ -1262,23 +1253,19 @@ function compilePropertyAbsenceCheck(
 		const columnRef = (eb as DynamicExprBuilder).ref(
 			`${sourceAlias}.${reserved.column}`,
 		);
-		if (op === "is-null" || !reserved.blankable) {
+		if (!reserved.blankable) {
 			return eb(columnRef, "is", null);
 		}
 		return eb.or([eb(columnRef, "is", null), eb(columnRef, "=", eb.val(""))]);
 	}
 
-	// JSONB-document property: `?` key-existence; `is-blank` adds
-	// `properties->>'<key>' = ''` for absent-or-empty.
+	// JSONB-document property: absent or an empty text projection.
 	const propertiesRef = `${sourceAlias}.properties` as const;
 	const keyExists = (eb as DynamicExprBuilder)(
 		propertiesRef,
 		"?",
 		propertyName,
 	) as Expression<SqlBool>;
-	if (op === "is-null") {
-		return eb.not(keyExists);
-	}
 	const textRead = (eb as DynamicExprBuilder)
 		.ref(propertiesRef, "->>")
 		.key(propertyName);

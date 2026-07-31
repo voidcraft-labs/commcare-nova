@@ -12,11 +12,12 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { buildReferenceIndex } from "@/lib/doc/referenceIndex";
-import { asUuid } from "@/lib/doc/types";
 import type { BlueprintDoc, FieldKind, Form } from "@/lib/domain";
 import { today } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { planKindConversion } from "../kindConversionCascade";
 
 /** Two forms writing the same `visit_on` date property (declared), so a
@@ -27,8 +28,8 @@ function temporalDoc(): BlueprintDoc {
 			{
 				name: "patient",
 				properties: [
-					{ name: "case_name", label: "Name" },
-					{ name: "visit_on", label: "Visited", data_type: "date" },
+					{ name: "case_name", label: proseText("Name") },
+					{ name: "visit_on", label: proseText("Visited"), data_type: "date" },
 				],
 			},
 		],
@@ -44,14 +45,14 @@ function temporalDoc(): BlueprintDoc {
 							f({
 								id: "case_name",
 								kind: "text",
-								label: "Name",
-								case_property_on: "patient",
+								label: proseText("Name"),
+								caseWrite: { caseType: "patient", property: "case_name" },
 							}),
 							f({
 								id: "visit_on",
 								kind: "date",
-								label: "Visited",
-								case_property_on: "patient",
+								label: proseText("Visited"),
+								caseWrite: { caseType: "patient", property: "visit_on" },
 							}),
 						],
 					},
@@ -62,8 +63,8 @@ function temporalDoc(): BlueprintDoc {
 							f({
 								id: "visit_on",
 								kind: "date",
-								label: "Visited",
-								case_property_on: "patient",
+								label: proseText("Visited"),
+								caseWrite: { caseType: "patient", property: "visit_on" },
 							}),
 						],
 					},
@@ -111,20 +112,51 @@ describe("planKindConversion — generalized escort", () => {
 		expect(result.redeclaredTo).toBe("datetime");
 	});
 
+	it("keys the conversion plan by caseWrite.property, never the field id", () => {
+		const doc = temporalDoc();
+		const addressed = fieldIn(doc, "visit_on");
+		addressed.id = "visit_date_question";
+		doc.refIndex = buildReferenceIndex(doc);
+
+		const result = planKindConversion({
+			doc,
+			field: addressed,
+			toKind: "time",
+		});
+		if (!result.ok) throw new Error("conversion unexpectedly blocked");
+
+		expect(result.dataLossRisk).toEqual({
+			caseType: "patient",
+			property: "visit_on",
+			fromType: "date",
+			toType: "time",
+		});
+		expect(
+			result.mutations.find((mutation) => mutation.kind === "setCaseProperty"),
+		).toEqual(
+			expect.objectContaining({
+				property: expect.objectContaining({
+					name: "visit_on",
+					data_type: "time",
+				}),
+			}),
+		);
+	});
+
 	it("multi_select → text converts every selection writer and re-declares without options", () => {
 		const doc = buildDoc({
 			caseTypes: [
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name" },
+						{ name: "case_name", label: proseText("Name") },
 						{
 							name: "symptoms",
-							label: "Symptoms",
+							label: proseText("Symptoms"),
 							data_type: "multi_select",
 							options: [
-								{ value: "fever", label: "Fever" },
-								{ value: "cough", label: "Cough" },
+								{ value: "fever", label: proseText("Fever") },
+								{ value: "cough", label: proseText("Cough") },
 							],
 						},
 					],
@@ -142,14 +174,17 @@ describe("planKindConversion — generalized escort", () => {
 								f({
 									id: "case_name",
 									kind: "text",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: {
+										caseType: "patient",
+										property: "case_name",
+									},
 								}),
 								f({
 									id: "symptoms",
 									kind: "multi_select",
-									label: "Symptoms",
-									case_property_on: "patient",
+									label: proseText("Symptoms"),
+									caseWrite: { caseType: "patient", property: "symptoms" },
 									options: [
 										{ value: "fever", label: "Fever" },
 										{ value: "cough", label: "Cough" },
@@ -164,8 +199,8 @@ describe("planKindConversion — generalized escort", () => {
 								f({
 									id: "symptoms",
 									kind: "multi_select",
-									label: "Symptoms",
-									case_property_on: "patient",
+									label: proseText("Symptoms"),
+									caseWrite: { caseType: "patient", property: "symptoms" },
 									options: [
 										{ value: "fever", label: "Fever" },
 										{ value: "cough", label: "Cough" },
@@ -204,7 +239,7 @@ describe("planKindConversion — generalized escort", () => {
 		const formUuid = Object.keys(doc.forms)[0] as import("@/lib/domain").Uuid;
 		(doc.forms[formUuid] as Form).caseOperations = [
 			{
-				uuid: asUuid("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
+				uuid: testUuid("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
 				id: "record_visit_date",
 				action: "update",
 				caseType: "patient",
@@ -224,7 +259,7 @@ describe("planKindConversion — generalized escort", () => {
 			ok: false,
 			blocker: {
 				carrier: "case-operation",
-				uuid: asUuid("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
+				uuid: testUuid("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
 				id: "record_visit_date",
 			},
 		});
@@ -267,7 +302,9 @@ describe("planKindConversion — dataLossRisk verdict", () => {
 						{
 							name: "Feedback",
 							type: "survey",
-							fields: [f({ id: "when", kind: "date", label: "When" })],
+							fields: [
+								f({ id: "when", kind: "date", label: proseText("When") }),
+							],
 						},
 					],
 				},

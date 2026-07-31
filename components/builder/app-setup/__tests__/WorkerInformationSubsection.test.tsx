@@ -6,15 +6,16 @@ import {
 	focusElement,
 	settleBaseUiTransitions,
 } from "@/__tests__/helpers/baseUiInteractions";
-import { asUuid, type UserProperty } from "@/lib/domain";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import type { UserProperty } from "@/lib/domain";
 
 const PROPERTY: UserProperty = {
-	uuid: asUuid("worker-region"),
+	uuid: testUuid("worker-region"),
 	slug: "region",
 	label: "Region",
 };
 const SECOND_PROPERTY: UserProperty = {
-	uuid: asUuid("worker-cadre"),
+	uuid: testUuid("worker-cadre"),
 	slug: "cadre",
 	label: "Cadre",
 };

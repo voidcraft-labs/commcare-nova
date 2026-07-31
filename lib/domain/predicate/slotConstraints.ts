@@ -27,7 +27,6 @@ import {
 	isValueStorageAssignable,
 	MATCH_PROPERTY_TYPES_BY_MODE,
 	type ResolvedType,
-	SEQUENCE_TYPE,
 	TEXT_SHAPED_TYPES,
 	type ValueExpressionResultClass,
 	valueExpressionKindResultClass,
@@ -89,9 +88,8 @@ const TEXT_OR_NUMERIC_TYPES: ReadonlySet<ResolvedType> = new Set<ResolvedType>([
 	...NUMERIC_TYPES,
 ]);
 
-/** Scalar result types that have at least one compatible counterpart under
- * the checker's own `typesCompatible` table. This excludes only the sequence
- * sentinel today, without maintaining a second editor-side type list. */
+/** Result types that have at least one compatible counterpart under
+ * the checker's own `typesCompatible` table. */
 const COMPARABLE_SUBJECT_TYPES: ReadonlySet<ResolvedType> = new Set(
 	ALL_RESOLVED_TYPES.filter((type) => compatibleTypesFor(type).size > 0),
 );
@@ -329,11 +327,6 @@ export function coerceOperandConstraint(): SlotConstraint {
 	return { accepts: TEXT_OR_DATE_TYPES };
 }
 
-/** A text-shaped value. */
-export function textShapedConstraint(): SlotConstraint {
-	return { accepts: TEXT_SHAPED_TYPES };
-}
-
 /**
  * A value that will be STORED — a case-operation write, or an operation
  * facet whose result lands verbatim in the case block.
@@ -352,11 +345,7 @@ export function storageAssignmentConstraint(
 	const destinations = [...new Set(destinationTypes)];
 	if (destinations.length === 0) {
 		return {
-			accepts: new Set(
-				ALL_RESOLVED_TYPES.filter(
-					(type) => type !== ANY_TYPE && type !== SEQUENCE_TYPE,
-				),
-			),
+			accepts: new Set(ALL_RESOLVED_TYPES.filter((type) => type !== ANY_TYPE)),
 		};
 	}
 	return {
@@ -390,7 +379,6 @@ const RESULT_CLASS_TYPES: Record<
 	datetime: ["datetime"],
 	"date-or-datetime": ["date", "datetime"],
 	int: ["int"],
-	sequence: ["_sequence"],
 };
 
 /**
@@ -420,8 +408,7 @@ export function admitsValueExpressionKind(
 // ── Reason copy ───────────────────────────────────────────────────
 //
 // Person-to-person phrasing for a disabled choice's tooltip — names what
-// the slot WANTS, not the internal type tokens. `_any` (null-universal)
-// and `_sequence` never carry user meaning here and are dropped.
+// the slot WANTS, not the internal null-universal token.
 
 const FRIENDLY_TYPE: Partial<Record<ResolvedType, string>> = {
 	int: "a number",

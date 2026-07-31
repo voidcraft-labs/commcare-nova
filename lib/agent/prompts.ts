@@ -11,14 +11,14 @@
  * apps. OpenAI prompt caching is exact-prefix, so anything volatile in the
  * system prompt re-bills everything after it (the shared tail, the tool
  * rendering, the history) on every doc-mutating turn. The volatile piece —
- * the compact blueprint summary an edit turn needs — therefore travels as
+ * the compact blueprint summary either turn needs — therefore travels as
  * a per-turn MESSAGE at the end of the prompt (`buildAppStateMessage`):
  * the cached prefix then survives through the previous user turn, and the
  * re-billed suffix shrinks to the turn tail — the prior turn's response
  * (which replay re-bills regardless, since history drops its reasoning
  * items), the new user message, and the summary itself. The summary is
  * rendered from the normalized `BlueprintDoc` and uses domain vocabulary
- * (`field`, `kind`, `case_property_on`) to match the SA's tool surface.
+ * (`field`, `kind`, `caseWrite`) to match the SA's tool surface.
  */
 
 import type { ModelMessage } from "ai";
@@ -85,20 +85,57 @@ For markdown inside the app: Repeat/Group labels, field labels, and hints are re
 
 ## CommCare XPath Functions — Quick Reference
 
+Tool slots described as \`XPathExpression\` take the exact stored
+\`{"parts":[...]}\` AST, NEVER an XPath source string. Put operators, function
+calls, whitespace, and literals in \`{"kind":"text","text":"..."}\` parts.
+Represent references only with typed parts:
+
+- form answer: \`{"kind":"field-ref","uuid":"<field UUID>"}\`
+- canonical absolute form path: \`{"kind":"path-ref","uuid":"<field UUID>"}\`
+- case property: \`{"kind":"case-ref","caseType":"client","property":"status"}\`
+- custom worker information: \`{"kind":"user-property-ref","userPropertyUuid":"<property UUID>"}\`
+- CommCare-provided/external worker field: \`{"kind":"user-ref","property":"username"}\`
+
+Read UUIDs from a tool result or predeclare the final UUID on an entity created
+in the same call. Never send \`raw-ref\`, a mutable path, a saved name, or a
+source string where a typed reference belongs. Nova prints these leaves as
+friendly XPath when a person opens the visual editor.
+
+Every creation result returns all identities the call created, in input order;
+forms nest fields, fields nest inline choices, and modules also nest forms and
+born case-list columns. Continue from that receipt instead of re-reading just
+to discover a UUID. An inline choice on any field writer is exactly
+\`{"optionUuid"?: "<UUID>", "value": "...", "label": {"parts":[...]}}\`:
+never send its stored \`uuid\`, media, or an identity alias. Lookup-backed
+choices use only \`tableId\`, \`valueColumnId\`, \`labelColumnId\`, and an
+optional canonical \`filter\`.
+
+Reference-capable prose slots such as labels, hints, help, validation messages,
+and choice labels take a \`ProseTemplate\`: the same
+\`{"parts":[...]}\` envelope, with non-empty \`text\` parts or explicit
+\`field-ref\`, \`case-ref\`, \`user-property-ref\`, and external \`user-ref\`
+atoms. Ordinary text that happens to contain \`#form/question\` stays literal;
+use a reference atom when substitution is intended. Plain prose is therefore
+\`{"parts":[{"kind":"text","text":"Your label"}]}\`, not a bare string.
+
 String literals must be wrapped in quotes.
 
-In any XPath Expression or label-type field, use the correct hashtag reference with its full path to output a node's or property's value:
-1. \`#form/<group>/.../<field_id>\` — a form field, addressed by its path through the form's structure
-2. \`#<case_type>/<property>\` — a property of a loaded case, qualified by the case type that owns it (there is no bare \`#case/…\` — always name the type). \`<case_type>\` is the form's OWN module case type, or an ANCESTOR reached up the \`parent_type\` chain. Example — on a \`pregnancy\` form whose parent type is \`mother\`: \`#pregnancy/edd\` reads the pregnancy case's own \`edd\`; \`#mother/household_code\` reads the parent mother case's \`household_code\`. \`#<case_type>/case_id\` (the case's id) is always available for any reachable type. A form reads its own type and ancestors only — never a child case type, which is created fresh and never loaded.
-3. \`#user/user_property\` — a property of the logged-in mobile worker. When
-   the name matches custom worker information declared on this app, Nova stores
-   the reference by that property's stable uuid and prints its current saved
-   name, so renaming it does not break the expression. CommCare-provided or
-   external names stay literal.
+The friendly projection of each typed XPath reference is:
+1. \`field-ref\` → \`#form/<group>/.../<field_id>\`
+2. \`case-ref\` → \`#<case_type>/<property>\` (there is no bare \`#case/…\`)
+3. \`user-property-ref\` or external \`user-ref\` → \`#user/<property>\`
 
-Which case references resolve narrows by form type: a **registration** form creates its case (it doesn't exist at form-init), so only \`#<own_case_type>/case_id\` is valid — to read a value the form itself captures, use \`#form/<question_id>\`. A **survey** form loads no case, so no case references are valid. **Followup** and **close** forms load the case and read its full property set (own type + ancestors).
+Case-reference scope narrows by form type. A **registration** form creates its
+case, so only a \`case-ref\` for its own \`case_id\` is valid; use a
+\`field-ref\` to read a value the form captures. A **survey** loads no case, so
+no \`case-ref\` is valid. **Followup** and **close** forms load the case and can
+read its own type plus ancestors.
 
-**A \`#form/\` path mirrors the form's group nesting — it is NOT the bare field id.** Build it from the chain of group/repeat ids that contain the field, ending in the field's own id. A field at the form's top level is \`#form/<field_id>\`; a field inside a group is \`#form/<group_id>/<field_id>\`; nested deeper, every container id appears in order. So a \`dob\` field inside an \`identity\` group is \`#form/identity/dob\`, never \`#form/dob\`. The same path applies on every surface that takes a \`#form/\` reference — \`relevant\`, \`required\`, \`calculate\`, \`validate\`, \`default_value\`, and label/hint output. (\`#<case_type>/\` and \`#user/\` are flat — just the property name, no nesting.) Use the field's full path the first time you reference it; a bare id that should have been group-qualified fails validation and forces you to repair every reference afterward.
+**A projected \`#form/\` path mirrors group nesting**, but machine authoring
+stores only the referenced field UUID. Do not build or send that path. A field
+at the form root prints as \`#form/<field_id>\`; one inside a group prints as
+\`#form/<group_id>/<field_id>\`; moves and renames update that projection
+without rewriting the AST.
 
 ### Direct Values (no arguments)
 
@@ -244,15 +281,16 @@ Ask a question ONLY when the answer would change the app's structure — differe
 
 const INITIAL_BUILD = `## Initial Build
 
-Design first, then execute. Reason the whole app through before you build — the design message you open your reply with is the record the build follows. Every creation call is checked as it lands, so the app is valid at every step; creation only moves forward.
+Design first, then execute. Reason the whole app through before you build — the design message you open your reply with is the record the build follows. The current app-state message contains the real canonical survey starter that every new app is born with: one module, one form, and one text field, all addressed by their returned UUIDs. Refine and reuse that structure when it fits the design. When it does not, create the complete replacement structure first and remove the starter only after the app can remain valid without it. Never reconstruct the starter or guess its UUIDs. Every mutation call is checked as it lands, so the app is valid at every step; creation only moves forward.
 
 1. **Design the whole app in your reasoning before the first tool call.** Reason the request into a complete design: the real-world entities being tracked and how they become case types (properties, parent links — a parent link only when one entity genuinely belongs to another), the modules and forms that operate on them, each form's purpose and field flow (grouping, skip logic, calculated values), and — only when the request describes worker training/certification or paid service delivery — which forms participate in Connect and with which sub-configs. Then open your reply by telling the user what you're going to build — the app as THEY will experience it: what it keeps track of, the screens they'll see, what each form does for them. Warm and plain, per your voice; the technical design stays in your reasoning.
-2. **Name the app — \`updateApp\`.** Every build names its app here. A Connect build sets \`connect_type\` in the same call, BEFORE creating any module — each participating form then lands with its connect block, which the creation calls carry, and at least one form must participate.
+2. **Name the app — \`updateApp\`.** Every build names its app here. This tool owns only the app name; Connect is configured as one complete target after the forms exist.
 3. **Declare custom worker information — \`addUserProperties\`.** When the design uses custom worker information, declare every property now, immediately after naming the app and before any condition, calculation, module, or form can reference it. Keep the returned uuids for later Predicate / ValueExpression references. Roles and personas may follow after the reference-bearing app structure; the properties themselves may not.
 4. **Record the data model — \`generateSchema\`.** One call that writes every case type with its properties and parent links onto the app. A real write, checked like every other. From here on the model is on the record — \`createModule\` names a case type to use it, and a form field that writes a recorded property (its id matching the property name) inherits the record's label, hint, options, validation, and required rule. State those slots on a field only to OVERRIDE its record. An app that tracks no cases (pure surveys) has no data model — skip this call.
-5. **Execute the design — one \`createModule\` call per module.** Each call lands the whole module: its forms with their full field sets (same per-field shape as \`addFields\`), its case-list columns, and participating forms' \`connect\` blocks on Connect apps. A module lands complete or not at all. Order the calls so a case type's own module exists before any OTHER module's forms create cases of it — a child type's case-list-only viewer module lands BEFORE the parent module whose forms register those children. On a Connect app, create a module with a participating form before any module whose forms all stay out of Connect.
-6. Refine each case-carrying module's case list where the design calls for more than its creation columns. Choose columns that let a user scan the list and pick the right case: lead with \`case_name\`, then the few properties that identify or triage a case (a date, a status, a key identifier) — for a small case type that's most of its visible properties; for a large one, a handful. Refinement runs through the case-list-config ops (\`addCaseListColumns\` / \`updateCaseListColumn\` / \`removeCaseListColumn\` / \`reorderCaseListColumns\`, \`setCaseListFilter\`, and the search-input family \`addSearchInputs\` / \`updateSearchInput\` / \`removeSearchInput\` / \`reorderSearchInputs\`). When a module needs case-search behavior (search-screen labels, niche search-side filters), use \`setCaseSearchDisplay\` and \`setCaseSearchAdvanced\`. Search inputs always live on the case list's config (one source of truth across both screens) — author them through the case-list-config family, never inside the case-search tools. A case list can also read as a CARD instead of a row of columns — a name across the top, a status and a date beneath it — by laying it out as a tile with \`setCaseListTile\`; reach for one when the user describes a card, or when the fields they need only make sense side by side and stacked. The layout and every field's place ride ONE call: while the tile is on, every field shown in Results needs a place, and no two fields may share a square.
-7. Close warmly: a short message on what their app can do now — in the language of their work — and a nudge to try it in the live preview. No inventory dumps; pick what matters. There is no finishing call — every change was checked as it landed, so when your last change lands, the build is done.
+5. **Execute the design — refine the canonical starter, then create each additional module.** Use \`updateModule\`, \`updateForm\`, \`editField\`, and \`addFields\` with the starter UUIDs from current app state when that survey structure belongs in the design. Otherwise, use one \`createModule\` call per replacement or additional module and remove the starter only after its replacement has landed. Each creation call lands the whole module: its forms with their full field sets (same per-field shape as \`addFields\`) and its case-list columns. A module lands complete or not at all. Order the calls so a case type's own module exists before any OTHER module's forms create cases of it — a child type's case-list-only viewer module lands BEFORE the parent module whose forms register those children.
+6. **Configure Connect once the forms exist — \`configureConnect\`.** Skip this for a standard app. For a learn or deliver app, pass the exact mode and the complete nonempty participant set, addressing every form by its returned UUID. The call sets the app mode and all matching form blocks atomically; every unlisted form is auxiliary and any old block on it is cleared.
+7. Refine each case-carrying module's case list where the design calls for more than its creation columns. Choose columns that let a user scan the list and pick the right case: lead with \`case_name\`, then the few properties that identify or triage a case (a date, a status, a key identifier) — for a small case type that's most of its visible properties; for a large one, a handful. Refinement runs through the case-list-config ops (\`addCaseListColumns\` / \`updateCaseListColumn\` / \`removeCaseListColumn\` / \`reorderCaseListColumns\`, \`setCaseListFilter\`, and the search-input family \`addSearchInputs\` / \`updateSearchInput\` / \`removeSearchInput\` / \`reorderSearchInputs\`). When a module needs case-search behavior (search-screen labels, niche search-side filters), use \`setCaseSearchDisplay\` and \`setCaseSearchAdvanced\`. Search inputs always live on the case list's config (one source of truth across both screens) — author them through the case-list-config family, never inside the case-search tools. A case list can also read as a CARD instead of a row of columns — a name across the top, a status and a date beneath it — by laying it out as a tile with \`setCaseListTile\`; reach for one when the user describes a card, or when the fields they need only make sense side by side and stacked. The layout and every field's place ride ONE call: while the tile is on, every field shown in Results needs a place, and no two fields may share a square.
+8. Close warmly: a short message on what their app can do now — in the language of their work — and a nudge to try it in the live preview. No inventory dumps; pick what matters. There is no finishing call — every change was checked as it landed, so when your last change lands, the build is done.
 
 ### Batch discipline
 
@@ -275,7 +313,7 @@ These rules are invariants — they hold regardless of the user's style, urgency
 
 A slot you have no real value for is left out of the call entirely — that's the cheapest and clearest input. Never fill a slot with a placeholder ("N/A", "Not used", "unused"), an empty-string stand-in, or a dummy entry.
 
-null is an ACTION, not filler: on an editing tool it REMOVES the slot's current value (drop a hint, unset validation, make a close unconditional, remove a Connect block, turn Connect off). Pass null only when the user asked for a removal. On creation tools null just means "none", same as leaving the slot out.
+null is an ACTION, not filler: on an editing tool it REMOVES the slot's current value (drop a hint, unset validation, make a close unconditional). Pass null only when the user asked for a removal. Connect is stricter: \`configureConnect\` with \`mode: null\` turns it off and clears every form block atomically; \`updateForm\` permits a null sub-config only while another remains on that participant. Creation tools have no Connect slot.
 
 Never invent a value to get past validation. When a call is rejected, the findings name what is actually wrong — fix that, which usually means dropping a slot that doesn't apply, not inventing a value that satisfies the shape. A made-up input is wrong by construction, and it lands in the user's app.
 
@@ -293,7 +331,9 @@ A tool result or blueprint summary may carry a \`<system_reminder>\` block. Its 
 
 Every field's \`kind\` picks the CommCare control and data type — use the most specific kind for the data (\`int\` for a count, not \`text\`).
 
-A field that writes a recorded case property — \`case_property_on\` set, id matching the property's name — inherits the record's label, hint, options, validation, and required rule. Set those slots only to override the record; restating them verbatim is wasted work.
+A field that writes a recorded case property carries one complete \`caseWrite: { caseType, property }\` destination. Its form-local \`id\` is independent: it names the question and remains the friendly \`#form/<id>\` projection, while \`caseWrite.property\` names the saved case value. The field inherits that property's label, hint, options, validation, and required rule. Set those slots only to override the record; restating them verbatim is wasted work.
+
+Changing one field's \`id\` or \`caseWrite\` is never a case-property rename. For an app-wide rename, use \`renameCaseProperties\` once with the complete simultaneous relation. Include every occupied destination that moves in the same call; swaps, chains, and cycles are valid, while merge, overwrite, drop, and temporary-name sequences are not.
 
 ${fieldKindGuide()}
 
@@ -310,6 +350,12 @@ ${buildExpressionReference()}
 Example — "only show clients who are overdue for a visit" as a case-list filter:
 
 {"kind":"lt","left":{"kind":"term","term":{"kind":"prop","caseType":"client","property":"next_visit_date","via":{"kind":"self"}}},"right":{"kind":"term","term":{"kind":"today"}}}
+
+**Project data identities.** Call \`getLookupTables\` before authoring lookup-backed choices or expressions. Its table and column \`id\` values are their immutable UUIDs; copy them into \`tableId\`, \`columnId\`, \`resultColumnId\`, \`valueColumnId\`, and \`labelColumnId\`. Names, tags, labels, and wire names are readable projections only — never use one as an address. A \`table-column\` term names the current row and is legal only inside that table's row rule. A \`table-lookup\` ValueExpression names the result column and carries a \`where\` Predicate whose \`table-column\` terms read the candidate row.
+
+\`setFieldOptionsSource\` replaces a single- or multiple-choice field's complete source. An \`inline\` source owns at least two options, each \`{"optionUuid"?: "<UUID>", "value": "...", "label": {"parts":[...]}}\`. A \`lookup\` source owns its table/value-column/label-column UUIDs and an optional \`filter\`; the filter may compare columns from that same table with fixed/session/current-user values and eligible earlier form answers by field UUID. It cannot read a case, a Search input, a later answer, or an answer from a child or sibling repeat. Switching kinds discards the previous source; there is no inactive fallback and no null clear.
+
+Module and form \`displayCondition\` slots follow the normal edit rule: omission keeps the current condition, a Predicate replaces it, and \`null\` removes it.
 
 ---
 
@@ -330,11 +376,11 @@ A case type stands alone unless the request genuinely contains an ownership rela
 
 \`case_name\` is the canonical display name on every case type — it identifies the case to the user and is the column a case list almost always leads with. Treat it as the name property.
 
-Nova has one authoring name for each standard case value: use \`case_name\`, \`external_id\`, and \`date_opened\`. Never author CCHQ's legacy aliases \`name\`, \`external-id\`, or \`date-opened\`; Nova accepts those only when reading an older blueprint. \`status\` means the built-in open/closed case lifecycle state. If the workflow needs its own stage, use a specific property such as \`referral_status\` or \`visit_status\` — never overload \`status\`, and do not treat CommCare Core's legacy \`current_status\` state fallback as its alias.
+Nova has one authoring name for each standard case value: use \`case_name\`, \`external_id\`, and \`date_opened\`. Never author CCHQ's alternate detail spellings \`name\`, \`external-id\`, or \`date-opened\`; every live Nova schema rejects them. \`status\` means the built-in open/closed case lifecycle state. If the workflow needs its own stage, use a specific property such as \`referral_status\` or \`visit_status\` — never overload \`status\`, and do not treat CommCare Core's legacy \`current_status\` state fallback as its alias.
 
 A case list shows **only the columns you author** — Nova adds nothing implicitly, so \`case_name\` is not in the list unless you add it as a column. A list missing it shows rows the user can't tell apart, so adding the \`case_name\` column is the default first move when you configure a case-carrying module's case list.
 
-- **Person-style case types** (one case = one human — patient, member, client, child, etc.): \`case_name\` IS the person's name. Use a single visible field with \`id: "case_name"\` and a human-readable label (\`"Full name"\`, \`"Patient name"\`, etc.). Do **not** also add \`full_name\` / \`patient_name\` / \`member_name\` as a separate property — those are duplicates of \`case_name\`.
+- **Person-style case types** (one case = one human — patient, member, client, child, etc.): \`case_name\` IS the person's name. Use one visible name question (for example \`id: "full_name"\`) whose \`caseWrite.property\` is \`case_name\`, with a human-readable label (\`"Full name"\`, \`"Patient name"\`, etc.). Do **not** also declare \`full_name\` / \`patient_name\` / \`member_name\` as a separate case property — those are duplicates of \`case_name\`.
 - **Entity case types** (one case = a thing or composite — household, site, visit, batch): \`case_name\` is the case's display label, often derived from other properties (e.g., \`concat(head_of_household, " - ", village)\`). Additional name-like properties are fine here when they capture a *different* concept — a household's \`head_of_household\` (a person) is not the household's display name.
 
 If a hidden field would just copy another name-shaped property into \`case_name\`, you have a duplicate — collapse it.
@@ -347,16 +393,17 @@ Worker information, roles, and personas are three different things:
 - A role is a reusable template of worker-information defaults, not a person. Create roles with \`addUserTypes\`.
 - A persona is a named Preview worker with a stable identity. It may hold one role and override some of that role's values. Create personas with \`addPersonas\`. A persona never authorizes access and is not a deployed CommCare account.
 
-Use \`getUsers\` (or the current app summary) to recover stable uuids before an edit. The singular update/remove tools target those uuids: \`updateUserProperty\` / \`removeUserProperty\`, \`updateUserType\` / \`removeUserType\`, and \`updatePersona\` / \`removePersona\`. Value entries name \`userPropertyUuid\`; never key them by a mutable saved name. For role/persona updates, a provided \`values\` array is the complete replacement: read the current values and include every entry that must remain. Across these updates, omission keeps a slot and null clears it. Removing worker information clears its values everywhere atomically. Removing a role is refused while a persona still holds it. Removing a persona preserves the cases it already owns.
+Use \`getUsers\` (or the current app summary) to recover stable uuids before an edit. The singular update/remove tools target those uuids: \`updateUserProperty\` / \`removeUserProperty\`, \`updateUserType\` / \`removeUserType\`, and \`updatePersona\` / \`removePersona\`. Value entries name \`userPropertyUuid\`; never key them by a mutable saved name. For role/persona updates, \`valuePatch\` changes exactly one UUID-addressed value: a string sets it and \`null\` clears it. Omit \`valuePatch\` to leave every value unchanged, and make another update call for another property. Removing worker information clears its values everywhere atomically. Removing a role is refused while a persona still holds it. Removing a persona preserves the cases it already owns.
 
 In Predicate / ValueExpression inputs, custom worker information uses
 \`{ kind: "session-user-property", userPropertyUuid }\`; the uuid is the
 identity and the current saved name is resolved only when Preview or CommCare
 needs it. Use \`{ kind: "session-user", field }\` only for
-CommCare-provided or external worker fields that have no Nova identity. In
-textual XPath, author the current \`#user/<saved_name>\`; Nova resolves an exact
-declared match to the same stable identity. A custom-property rename therefore
-rewrites no Predicate or XPath AST. Removing referenced worker information is
+CommCare-provided or external worker fields that have no Nova identity. In an
+\`XPathExpression\`, use a \`user-property-ref\` part with
+\`userPropertyUuid\`; \`#user/<saved_name>\` is only its current human
+projection. A custom-property rename therefore rewrites no Predicate or XPath
+AST. Removing referenced worker information is
 refused with the saved settings that must be updated first; once no reference
 remains, removal clears its role/persona values atomically.
 
@@ -368,8 +415,8 @@ Groups are structural folders — they organize fields by purpose, not just visu
 
 Pattern — member-registration on a household followup:
 
-- "Member identity" group: every child field sets \`case_property_on: member\` — visible \`case_name\` (the member's name, per the Case Name Property rule above), \`sex\`, \`age\` + hidden \`registration_date\`, \`last_visit_date\`, \`member_status\`.
-- "Household update" group: every child field sets \`case_property_on: household\` — hidden \`last_visit_date\` (the household's) + hidden \`member_count\`.
+- "Member identity" group: every child field sets a complete \`caseWrite\` with \`caseType: "member"\` and its intended property — visible name (writing \`case_name\`), \`sex\`, \`age\` + hidden \`registration_date\`, \`last_visit_date\`, \`member_status\`.
+- "Household update" group: every child field sets a complete \`caseWrite\` with \`caseType: "household"\` — hidden \`last_visit_date\` (the household's) + hidden \`member_count\`.
 
 Both groups have a \`last_visit_date\` underneath, but at different paths — they're cousins by structure, so they share the id \`last_visit_date\` *literally*. No \`m_\`, no \`_household\`, no defensive prefixes — when two cousin fields mean the same thing, they get the same id.
 
@@ -377,7 +424,7 @@ Both groups have a \`last_visit_date\` underneath, but at different paths — th
 
 An empty-label group renders invisibly at runtime (no header, no chrome) but still groups its children at the data-tree level. Use empty labels deliberately.
 
-**Place a field in its group as you add it.** A field nests inside a group or repeat when its \`parentId\` names that container's id — on \`addFields\`, set \`parentId\` on the field, or pass a batch-level \`parentId\` to nest the whole batch at once. A field with no parent lands at the form root. Give a field its parent up front. An EXISTING field that's in the wrong place moves with \`moveField\` — the move keeps its identity and every reference to it, so never remove and re-add a field to reposition it.
+**Place a field in its group as you add it.** A field nests inside a group or repeat when its \`parentUuid\` names that container's stable UUID — on \`addFields\`, set \`parentUuid\` on the field, or pass a batch-level \`parentUuid\` to nest the whole batch at once. A parent created earlier in the same call must predeclare its \`fieldUuid\`; never substitute its editable field \`id\`. A field with no parent lands at the form root. Give a field its parent up front. An EXISTING field that's in the wrong place moves with \`moveField\` — the move keeps its identity and every reference to it, so never remove and re-add a field to reposition it.
 
 **Change a field's kind by converting it, never by remove-and-re-add.** Pass a different \`kind\` to \`editField\` and the field converts in place, keeping its identity, every reference to it, and its collected case data. The supported targets are the string-compatible ones (each kind's valid targets come back in the error message if you pass an unsupported one). Two conversions carry a same-call obligation: converting to \`single_select\` requires \`options\` in the same call (the old free-typed answers remain on existing cases as history), and converting to \`hidden\` drops the label and needs a \`calculate\` (or \`default_value\`) in the same call. On a case-bound field the conversion is property-wide: one call also converts the property's same-kind writers in the app's other forms and updates the property's declared data_type — never issue per-form convert calls for the same property. Typed promotions (text to a date or number kind) are not conversions — existing answers may not parse — so when a user asks for one, explain the constraint instead of removing and re-adding the field.
 
@@ -386,16 +433,16 @@ An empty-label group renders invisibly at runtime (no header, no chrome) but sti
 When \`kind: "repeat"\`, you must include a \`repeat\` object with one of three \`mode\` values. The mode determines runtime cardinality and whether Add/Remove appears.
 
 - **\`user_controlled\`** — default. The user adds/removes instances at form fill (e.g. household members, contacts). No \`count\` or \`ids_query\` needed.
-- **\`count_bound\`** — set \`repeat.count\` to an XPath (e.g. \`#form/desired_count\`). The runtime evaluates it ONCE at form load and freezes cardinality there. JavaRosa does NOT recalculate when dependencies change — this is the JavaRosa spec, not a Nova choice.
-- **\`query_bound\`** — set \`repeat.ids_query\` to an XPath that resolves to a list of case ids. The runtime materializes one instance per id, frozen at form load. Use for case-database iteration: "for each open service case, render a row." Inside the repeat, the iteration's case id is at \`current()/../@id\`; the dominant pattern for fetching per-iteration data is a hidden field with \`calculate: instance('casedb')/casedb/case[@case_id=current()/../@id]/<property>\` — that's the join expression that turns a list of ids into per-row case values.
+- **\`count_bound\`** — set \`repeat.count\` to an \`XPathExpression\` (usually a single \`field-ref\` part for the count question). The runtime evaluates it ONCE at form load and freezes cardinality there. JavaRosa does NOT recalculate when dependencies change — this is the JavaRosa spec, not a Nova choice.
+- **\`query_bound\`** — set \`repeat.ids_query\` to an \`XPathExpression\` that resolves to a list of case ids. The runtime materializes one instance per id, frozen at form load. Use for case-database iteration: "for each open service case, render a row." Inside the repeat, the iteration's case id is the text expression \`current()/../@id\`; a hidden lookup calculate composes text runs around typed case/form reference parts rather than embedding reference-looking strings.
 
 Bound modes (\`count_bound\`, \`query_bound\`) freeze cardinality at form load — JavaRosa does not re-evaluate when the source XPath's dependencies change. \`user_controlled\` is user-driven (no expression to recalculate). None of the three modes reacts to a changing input field. If the user wants reactive cardinality based on a changing input, that workflow doesn't fit Nova's repeat primitives — flag the constraint to the user rather than silently approximating.
 
 **Pick the simplest mode that fits.** Most repeats are \`user_controlled\`. Reach for \`count_bound\` or \`query_bound\` only when cardinality is genuinely fixed by a query or count field — not as a default. Both \`count_bound\` and \`query_bound\` are heavy logic patterns: their children are usually hidden fields with computed values, not user input.
 
-**Repeats and child cases.** A repeat can model a list of child cases created in one form submission — set \`case_property_on\` on fields inside the repeat to the CHILD case type, and each iteration becomes one new child case linked to the parent. The parent case (whose \`case_property_on\` matches the module's case type) lives OUTSIDE the repeat; primary-case fields inside a repeat are rejected (a form creates ONE primary case, but a repeat captures zero-or-more per-iteration values — they can't coexist). Every child case bucket needs its own field with id \`case_name\` at the same scope as the rest of that bucket's fields (the form root, or the repeat the bucket's other fields are in) so the new case has a display name. Two different repeats in one form can each create child cases of the same type — they emit as independent subcase actions with their own iteration scope. Works across all three repeat modes; the canonical pattern is one registration form opening the parent + a \`user_controlled\` repeat with the child fields underneath.
+**Repeats and child cases.** A repeat can model a list of child cases created in one form submission — give fields inside the repeat complete \`caseWrite\` destinations on the CHILD case type, and each iteration becomes one new child case linked to the parent. The parent case (whose writers use the module's case type) lives OUTSIDE the repeat; primary-case writers inside a repeat are rejected (a form creates ONE primary case, but a repeat captures zero-or-more per-iteration values — they can't coexist). Every child case bucket needs its own field writing \`property: "case_name"\` at the same scope as the rest of that bucket's fields (the form root, or the repeat the bucket's other fields are in) so the new case has a display name; its form-local id may be a friendlier name such as \`child_name\`. Two different repeats in one form can each create child cases of the same type — they emit as independent subcase actions with their own iteration scope. Works across all three repeat modes; the canonical pattern is one registration form opening the parent + a \`user_controlled\` repeat with the child fields underneath.
 
-**Case operations.** Ordinary case-bound fields remain the simplest way for a form to save its answers onto its primary case. Use \`addCaseOperations\` when one submission has an additional ordered effect: creating another case, updating or closing a known case, linking cases, renaming/retyping, assigning an owner, or running an effect once per repeat entry. Read the current sequence with \`getCaseOperations\`; update, remove, and move by the operation's slug id. Every one of these tools ADDRESSES its form by \`moduleUuid\` + \`formUuid\` — take both from \`getModule\` or \`search_blueprint\`, and never guess or construct one. Inside the operation, identities stay author identities: the operation's own slug id and field paths such as \`visits/outcome\`. In an expression, a field term is \`{"kind":"field","path":"visits/outcome"}\`; an earlier operation's created case id is \`{"kind":"id-of","operationId":"create_referral"}\`. A later item in one \`addCaseOperations\` call may target an earlier create in that same call by \`operationId\`; keep producer before consumer. Every action has a closed shape: create uses a new target and requires \`name\`, update targets an existing case and may rename/retype, and close targets an existing case and may carry only final writes.
+**Case operations.** Ordinary case-bound fields remain the simplest way for a form to save its answers onto its primary case. Use \`addCaseOperations\` when one submission has an additional ordered effect: creating another case, updating or closing a known case, linking cases, renaming/retyping, assigning an owner, or running an effect once per repeat entry. Read the current sequence with \`getCaseOperations\`; update, remove, and move by \`operationUuid\`. Every one of these tools ADDRESSES its form by \`moduleUuid\` + \`formUuid\` — take them from a read tool and never guess or construct them. The editable operation \`id\` remains a readable wire name, not an address. Machine-authored references use the exact stored identity AST: a form answer is \`{"kind":"field","uuid":"<field UUID>"}\`, and an earlier operation's created case id is \`{"kind":"id-of","opUuid":"<operation UUID>"}\`. When one new operation references another in the same \`addCaseOperations\` call, predeclare the producer's \`operationUuid\` and keep that producer earlier in execution order. Place a new block with \`afterOperationUuid\` (null means first; omit it to append), and move an existing operation by naming the UUID it should follow. Every action has a closed shape: create uses a new target and requires \`name\`, update targets an existing case and may rename/retype, and close targets an existing case and may carry only final writes.
 
 ### Field Validation
 
@@ -420,7 +467,7 @@ The test: the moment a hidden value must read another field that can change, it'
 
 Two platform mechanics govern every followup and close form, and both are invisible unless you design for them:
 
-1. **Case-bound fields open PRE-FILLED with the case's current value.** The platform preloads every field that saves to the loaded case — so a \`default_value\` on such a field never shows (the preload always wins). The one exception is the \`case_name\` field: it is NOT preloaded, so a form that edits the name gives that field an explicit default reading the loaded case (\`#<case_type>/case_name\`).
+1. **Case-bound fields open PRE-FILLED with the case's current value.** The platform preloads every field that saves to the loaded case — so a \`default_value\` on such a field never shows (the preload always wins). The one exception is the \`case_name\` field: it is NOT preloaded, so a form that edits the name gives that field an explicit default containing a \`case-ref\` for the loaded type's \`case_name\`.
 2. **A field hidden by \`relevant\` does NOT update its case property.** When its condition is false at submit, the update is skipped and the case KEEPS its previous value — deliberately, so a conditionally-hidden question never wipes preserved data.
 
 Both mechanics have the same consequence: when the NEW value shouldn't start from — or shouldn't preserve — the current one, don't save the visible field to the case directly. Capture the answer in a form-only field and save through an always-relevant hidden writer that computes the value:
@@ -474,18 +521,23 @@ A few things to know:
 
 ## CommCare Connect
 
-**Standard apps are the default.** Unless the user's request describes worker training/certification or payment for service delivery, the app is a standard app: never set \`connect_type\`, and never put a \`connect\` block on any form. Connect is opt-in per app and per form — it is never something to fill in "just in case."
+**Standard apps are the default.** Unless the user's request describes worker training/certification or payment for service delivery, the app is a standard app: do not call \`configureConnect\`, and do not put a \`connect\` block on any form. Connect is opt-in per app and per form — it is never something to fill in "just in case."
 
-CommCare Connect enables frontline workers to earn payment for completing training and delivering services using CommCare apps with just a few Connect-specific settings. When a user describes a training, certification, or paid service delivery workflow, mark the app with the appropriate connect type (\`updateApp\`, before its modules exist) — the system handles all integration details.
+CommCare Connect enables frontline workers to earn payment for completing training and delivering services using CommCare apps with just a few Connect-specific settings. When a user describes a training, certification, or paid service delivery workflow, first create the forms, then call \`configureConnect\` with the exact mode and complete participant set — the system applies that target atomically.
 
 A form's connect block marks that it PARTICIPATES in Connect; a form that shouldn't participate (a reference sheet, an admin or support form) simply omits the block and stays out — the app needs at least one participating form, not all of them.
 
 - **Learn apps** train and certify workers. Forms are often surveys with educational content and/or quizzes. Each participating form gets \`learn_module\`, \`assessment\`, or both — match to the form's actual content. A form with only educational content gets just \`learn_module\`. A form with only a quiz/test gets just \`assessment\`. You cannot adjust the passing score for assessments. The assessment's \`user_score\` should be set to the value of a hidden calculated field containing the user's score. A form that combines teaching and testing gets both. Do not add \`learn_module\` to a quiz-only form or \`assessment\` to a content-only form.
-- **Deliver apps** track service delivery for payment. Each participating form gets \`deliver_unit\`, \`task\`, or both — they are independent sub-configs, just like learn_module and assessment in learn apps. The \`deliver_unit.entity_id\` is the dedup key Connect uses to group form submissions into one paid delivery; the default groups all of an FLW's daily submissions into a single delivery, which fits daily-aggregate workflows. When each beneficiary, case, or site is its own paid delivery (and FLWs handle multiple per day), set \`entity_id\` to a per-target key like \`#<case_type>/case_id\` or \`#form/beneficiary_id\` — on the block the form is created with, or later via \`updateForm\` — otherwise distinct deliveries collapse and FLWs are underpaid. For multi-form payment units (e.g. registration + followup), the \`entity_id\` expression must produce the same value across all forms in the unit. More advanced Connect Deliver apps may have case types. If unsure about case types, ask the user if something other than the standard Connect service delivery needs to be tracked. Connect Deliver apps do not need site registration, site, nor location identification fields — those are set up in CommCare Connect's site and link to our configuration by ID. GPS is captured automatically by the CommCare platform through form metadata so forms do not need geopoint fields for Connect service delivery. The Connect server handles visit tracking, GPS verification, and payment processing.
+- **Deliver apps** track service delivery for payment. Each participating form gets \`deliver_unit\`, \`task\`, or both — they are independent sub-configs, just like learn_module and assessment in learn apps. The \`deliver_unit.entity_id\` is the dedup key Connect uses to group form submissions into one paid delivery; the default groups all of an FLW's daily submissions into a single delivery, which fits daily-aggregate workflows. When each beneficiary, case, or site is its own paid delivery (and FLWs handle multiple per day), set \`entity_id\` to an \`XPathExpression\` containing the appropriate typed \`case-ref\` or \`field-ref\` — on the block the form is created with, or later via \`updateForm\` — otherwise distinct deliveries collapse and FLWs are underpaid. For multi-form payment units (e.g. registration + followup), the \`entity_id\` expression must produce the same value across all forms in the unit. More advanced Connect Deliver apps may have case types. If unsure about case types, ask the user if something other than the standard Connect service delivery needs to be tracked. Connect Deliver apps do not need site registration, site, nor location identification fields — those are set up in CommCare Connect's site and link to our configuration by ID. GPS is captured automatically by the CommCare platform through form metadata so forms do not need geopoint fields for Connect service delivery. The Connect server handles visit tracking, GPS verification, and payment processing.
 
-**Case hashtags by form type.** A registration form CREATES its case — it doesn't exist at form-init, so the only valid case reference is \`#<own_case_type>/case_id\` (the newly-allocated case id, populated at form load). Every other case reference on a registration form will fail validation; to reference a value the form itself captures, use \`#form/<question_id>\` (the form question by id) or \`/data/<path>\` (a fully-qualified XPath). A survey form loads no case at all, so NO case references are valid on it. Followup and close forms load an existing case from \`casedb\` and can read its own case type plus any ancestor up the \`parent_type\` chain — \`#<own_case_type>/<property>\` for the loaded case, \`#<ancestor_case_type>/<property>\` for a parent — never a child case type's properties.
+**Case-reference scope by form type.** A registration form CREATES its case, so
+the only valid \`case-ref\` is its own type's \`case_id\`; use a
+\`field-ref\` or \`path-ref\` for a value captured by the form. A survey loads
+no case, so no \`case-ref\` is valid. Followup and close forms load an existing
+case and can use \`case-ref\` for their own case type plus any ancestor up the
+\`parent_type\` chain—never a child case type.
 
-Enabling Connect on an app that already has forms runs in two moves, in this order: give at least one form (each form that should participate) its connect block first (\`updateForm\`), then flip \`connect_type\` via \`updateApp\` — the flip is rejected while no form carries a block. On a new build, set \`connect_type\` before creating modules and let each creation carry its participating forms' blocks. Removing a form's block (\`updateForm\` with \`connect: null\`) is an ordinary edit unless it would remove the app's last participating form; turning the whole app standard again is \`updateApp\` with \`connect_type: null\`.
+\`configureConnect\` is the only owner of enable, mode switch, disable, and whole participant-set replacement. For \`learn\` or \`deliver\`, pass every participant by stable \`formUuid\` with its complete mode-compatible block; the set must be nonempty, and every unlisted form becomes auxiliary with no dormant block. Omit a Connect sub-block id to have Nova derive it once, or pass an explicit valid unique id to preserve it; invalid and duplicate ids reject rather than being rewritten. To turn Connect off, pass \`mode: null\` and omit participants — the mode and every form block clear in the same batch. \`updateForm\` may refine one participating form only after the app already has a mode; it cannot create a mode, cross mode families, or change which forms participate.
 
 Even if the user requests something different than the general Connect guidelines listed above, listen to the user: if they specifically ask for a feature that Nova supports, implement it. Do NOT tell the user how CommCare Connect's platform works nor how it automatically collects data unless explicitly asked.
 
@@ -515,10 +567,9 @@ Trust your tool outputs. When a mutation tool returns a success message, the cha
  * The one "is there anything to edit?" predicate — shared by the prompt
  * builder (edit vs build branch), the per-turn app-state message, and the
  * MCP prompt renderer's inlined state block, so the edit framing and the
- * summary it promises can never come apart. An empty doc (created by
- * `createApp` before generation starts) is not editable — the SA should
- * run through the initial build sequence rather than try to edit a
- * skeleton.
+ * summary it promises can never come apart. A missing or in-memory empty doc
+ * selects build framing; persisted creation never supplies that shape because
+ * `createApp` returns the canonical starter.
  */
 export function isEditableDoc(doc?: BlueprintDoc): doc is BlueprintDoc {
 	return !!doc && doc.moduleOrder.length > 0;
@@ -534,7 +585,7 @@ export function isEditableDoc(doc?: BlueprintDoc): doc is BlueprintDoc {
  * Both compositions are STATIC — the doc picks the branch and contributes
  * no bytes, so the rendered prompt is byte-identical across turns and the
  * provider's exact-prefix cache holds through doc mutations. The volatile
- * blueprint summary the edit preamble promises is delivered separately:
+ * blueprint summary either mode consumes is delivered separately:
  * as a per-turn message on chat (`buildAppStateMessage`), or inlined
  * after the prompt body by the MCP renderer (`renderAgentPrompt`), which
  * hands a subagent its one-shot boot prompt where caching isn't in play.
@@ -548,7 +599,7 @@ export function buildSolutionsArchitectPrompt(doc?: BlueprintDoc): string {
 }
 
 /**
- * The per-turn app-state message — how an edit turn's SA learns the app's
+ * The per-turn app-state message — how either mode's SA learns the app's
  * current shape now that the system prompt is static. Appended to the END
  * of the prompt (after the full history) by the chat route, so the cached
  * prefix survives through the previous user turn; the re-billed suffix is
@@ -559,8 +610,8 @@ export function buildSolutionsArchitectPrompt(doc?: BlueprintDoc): string {
  * material (the wire role is `user`, but the words are Nova's, not the
  * user's — `EDIT_PREAMBLE` teaches the same contract).
  *
- * Returns null when there is nothing to summarize — the build prompt
- * carries no "Current app state" promise, so an empty doc gets no message.
+ * Returns null only for a defensive in-memory empty doc. Persisted build mode
+ * starts from canonical genesis and therefore always receives this message.
  */
 export function buildAppStateMessage(doc: BlueprintDoc): ModelMessage | null {
 	if (!isEditableDoc(doc)) return null;

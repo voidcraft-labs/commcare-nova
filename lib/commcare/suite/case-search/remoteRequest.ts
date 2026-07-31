@@ -14,10 +14,11 @@ import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import {
 	type CaseListConfig,
-	type CaseSearchConfig,
 	DEFAULT_CASE_SEARCH_BUTTON_LABEL,
+	effectiveCaseSearchConfig,
 	emptyCaseListConfig,
 	type Module,
+	type OrdinaryCaseSearchConfig,
 } from "@/lib/domain";
 import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
 import { instanceSourceFor } from "../../predicate";
@@ -84,9 +85,10 @@ export function buildRemoteRequest(args: {
 
 	// Defensive narrowing — the upstream compiler gates on both slots,
 	// but the type narrows locally here.
-	if (mod.caseType === undefined || mod.caseSearchConfig === undefined) {
+	const effectiveSearch = effectiveCaseSearchConfig(mod);
+	if (mod.caseType === undefined || effectiveSearch === undefined) {
 		const missing =
-			mod.caseType === undefined && mod.caseSearchConfig === undefined
+			mod.caseType === undefined && effectiveSearch === undefined
 				? "neither a case type nor a caseSearchConfig"
 				: mod.caseType === undefined
 					? "no case type"
@@ -99,7 +101,7 @@ export function buildRemoteRequest(args: {
 	}
 
 	const caseType: string = mod.caseType;
-	const caseSearchConfig: CaseSearchConfig = mod.caseSearchConfig;
+	const caseSearchConfig: OrdinaryCaseSearchConfig = effectiveSearch;
 	const caseListConfig: CaseListConfig =
 		mod.caseListConfig ?? emptyCaseListConfig();
 
@@ -142,7 +144,9 @@ export function buildRemoteRequest(args: {
 	// iteration order.
 	const instanceElements: Element[] = Array.from(sessionEmission.instances)
 		.sort()
-		.map((id) => el("instance", { id, src: instanceSourceFor(id) }));
+		.map((id) =>
+			el("instance", { id, src: instanceSourceFor(id, args.lookupNaming) }),
+		);
 
 	// `<stack>` rewind frame — CCHQ's contract on every
 	// `<remote-request>`. The frame pops the search-result selection

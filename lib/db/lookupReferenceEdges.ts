@@ -5,6 +5,7 @@ import {
 	normalizeLookupReferenceTargetSet,
 } from "@/lib/doc/lookupReferences";
 import {
+	type LookupColumnId,
 	type LookupTableId,
 	lookupColumnIdSchema,
 	lookupTableIdSchema,
@@ -144,40 +145,110 @@ export async function readStoredLookupReferenceTargets(
 	}
 }
 
+/** One app that a destructive lookup change would break, named. */
+export interface LookupReferencingApp {
+	readonly appId: string;
+	readonly appName: string;
+	/** True when the app is in the trash. A soft-deleted app still holds its
+	 *  edges and still blocks the change, so naming it without saying where it
+	 *  is would show the author a blocker they cannot find. */
+	readonly deleted: boolean;
+}
+
+/**
+ * The apps whose blueprints reference a lookup table, or one of its columns.
+ *
+ * This is the confirmation surface's read, and it is deliberately ADVISORY:
+ * the authority is the transactional edge check inside
+ * `applyLookupSchemaGovernanceInTransaction`, which re-proves zero edges under
+ * the table lock. This read exists so an author is told which apps a
+ * destructive change would break BEFORE they ask for it, rather than being
+ * refused afterwards with a list of opaque ids.
+ *
+ * Naming the apps leaks nothing across tenants. `replaceLookupReferenceEdges`
+ * only writes an edge whose app sits in the edge's own Project, so every row
+ * matching a `(project_id, table_id)` belongs to an app in that Project — and
+ * the caller has already been authorized against exactly that Project.
+ *
+ * Passing a `columnId` narrows to that column's edges; omitting it reads the
+ * table's. The two are separate sets on purpose: removing a column is blocked
+ * only by apps that reference THAT column, while deleting the table is blocked
+ * by any app that references the table at all.
+ */
+export async function readLookupReferencingApps(
+	db: LookupReferenceReadExecutor,
+	args: {
+		projectId: string;
+		tableId: LookupTableId;
+		columnId?: LookupColumnId;
+	},
+): Promise<LookupReferencingApp[]> {
+	const edges =
+		args.columnId === undefined
+			? db
+					.selectFrom("lookup_table_references")
+					.where("project_id", "=", args.projectId)
+					.where("table_id", "=", args.tableId)
+					.select("app_id")
+			: db
+					.selectFrom("lookup_column_references")
+					.where("project_id", "=", args.projectId)
+					.where("table_id", "=", args.tableId)
+					.where("column_id", "=", args.columnId)
+					.select("app_id");
+
+	/* The Project predicate is on BOTH sides deliberately. The edge subquery
+	 * already scopes to this Project, and an app carrying edges cannot move
+	 * Projects — the move refuses a nonempty lookup closure — so the outer
+	 * filter is redundant today. It stays because "redundant" there rests on a
+	 * rule enforced in another module: a tenancy boundary that holds only by a
+	 * two-hop argument is one edit away from holding by nothing. It also makes
+	 * this query the same shape as the refusal-naming query in
+	 * `lib/lookup/actions.ts`, so the two cannot answer the same question with
+	 * different tenancy. */
+	const rows = await db
+		.selectFrom("apps")
+		.where("apps.project_id", "=", args.projectId)
+		.where("apps.id", "in", edges)
+		.select(["apps.id", "apps.app_name", "apps.deleted_at"])
+		.orderBy("apps.app_name", "asc")
+		.orderBy("apps.id", "asc")
+		.execute();
+
+	return rows.map((row) => ({
+		appId: row.id,
+		appName: row.app_name,
+		deleted: row.deleted_at !== null,
+	}));
+}
+
 /**
  * Replace both of an app's edge sets from one complete structural target set.
  *
  * This is never a delta API. Deletes are app-wide and child-first so stale
  * source-Project edges are removed; inserts are parent-first in canonical
  * order so every column's implied table edge exists before its column edge.
- * A null/invalid Project may clear to the empty set but can never gain targets.
+ * The app's required Project is part of every replacement, including an empty
+ * target set.
  */
 export async function replaceLookupReferenceEdges(
 	tx: Transaction<AppDatabase>,
 	args: {
 		appId: string;
-		projectId: string | null;
+		projectId: string;
 		targets: LookupReferenceTargetSet;
 	},
 ): Promise<void> {
 	const targets = normalizeLookupReferenceTargetSet(args.targets);
 	const hasTargets =
 		targets.tableIds.length > 0 || targets.columnTargets.length > 0;
-	const targetProjectId =
-		typeof args.projectId === "string" && args.projectId.length > 0
-			? args.projectId
-			: null;
 
-	// Reject before deleting anything so even a caller that catches the typed
-	// error inside its transaction cannot accidentally turn a bad replacement
-	// into an edge clear.
-	if (hasTargets && targetProjectId === null) throwMismatch();
 	if (hasTargets) {
 		const app = await tx
 			.selectFrom("apps")
 			.select("id")
 			.where("id", "=", args.appId)
-			.where("project_id", "=", targetProjectId)
+			.where("project_id", "=", args.projectId)
 			.executeTakeFirst();
 		if (!app) throwMismatch();
 	}
@@ -191,13 +262,13 @@ export async function replaceLookupReferenceEdges(
 		.where("app_id", "=", args.appId)
 		.execute();
 
-	if (!hasTargets || targetProjectId === null) return;
+	if (!hasTargets) return;
 
 	await tx
 		.insertInto("lookup_table_references")
 		.values(
 			targets.tableIds.map((tableId) => ({
-				project_id: targetProjectId,
+				project_id: args.projectId,
 				table_id: tableId,
 				app_id: args.appId,
 			})),
@@ -209,7 +280,7 @@ export async function replaceLookupReferenceEdges(
 			.insertInto("lookup_column_references")
 			.values(
 				targets.columnTargets.map(({ tableId, columnId }) => ({
-					project_id: targetProjectId,
+					project_id: args.projectId,
 					table_id: tableId,
 					column_id: columnId,
 					app_id: args.appId,

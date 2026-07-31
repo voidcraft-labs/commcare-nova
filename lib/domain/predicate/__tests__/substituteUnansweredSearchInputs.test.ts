@@ -8,6 +8,7 @@
 // runtime-crash rationale.
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	and,
 	concat,
@@ -39,8 +40,8 @@ describe("substituteUnansweredSearchInputsInPredicate", () => {
 		const always = eq(prop("patient", "is_priority"), literal(true));
 		const filter = and(
 			whenInput(
-				input("name_query"),
-				eq(prop("patient", "full_name"), term(input("name_query"))),
+				input(testUuid("name_query")),
+				eq(prop("patient", "full_name"), term(input(testUuid("name_query")))),
 			),
 			always,
 		);
@@ -55,8 +56,11 @@ describe("substituteUnansweredSearchInputsInPredicate", () => {
 
 	it("collapses a nested envelope through its enclosing envelope", () => {
 		const filter = whenInput(
-			input("outer"),
-			whenInput(input("inner"), eq(prop("patient", "age"), literal(18))),
+			input(testUuid("outer")),
+			whenInput(
+				input(testUuid("inner")),
+				eq(prop("patient", "age"), literal(18)),
+			),
 		);
 		expect(substituteUnansweredSearchInputsInPredicate(filter)).toEqual(
 			matchAll(),
@@ -64,7 +68,10 @@ describe("substituteUnansweredSearchInputsInPredicate", () => {
 	});
 
 	it("blanks a bare input ref used as a comparison operand", () => {
-		const filter = eq(prop("patient", "region"), term(input("region_query")));
+		const filter = eq(
+			prop("patient", "region"),
+			term(input(testUuid("region_query"))),
+		);
 		expect(substituteUnansweredSearchInputsInPredicate(filter)).toEqual(
 			eq(prop("patient", "region"), term(literal(""))),
 		);
@@ -84,7 +91,7 @@ describe("substituteUnansweredSearchInputsInExpression", () => {
 
 	it("blanks input refs inside composite expressions", () => {
 		const expression = concat(
-			term(input("excluded_owners")),
+			term(input(testUuid("excluded_owners"))),
 			term(literal(" ")),
 			term(sessionUser("excluded_owner_ids")),
 		);
@@ -99,7 +106,10 @@ describe("substituteUnansweredSearchInputsInExpression", () => {
 
 	it("collapses an envelope carried by an if-condition", () => {
 		const expression = ifExpr(
-			whenInput(input("q"), eq(prop("patient", "age"), term(input("q")))),
+			whenInput(
+				input(testUuid("q")),
+				eq(prop("patient", "age"), term(input(testUuid("q")))),
+			),
 			term(literal("a")),
 			term(literal("b")),
 		);

@@ -21,6 +21,7 @@
  * keeps its writes on the local Postgres, never the real Cloud SQL instance
  * (which holds BOTH auth and app state).
  */
+
 import { randomBytes, randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -46,11 +47,13 @@ import {
 import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchemas";
 import { appendThreadResponse, upsertThreadTurn } from "@/lib/db/threads";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
-import { createLookupTable } from "@/lib/lookup/service";
+import { proseText } from "@/lib/domain/prose";
+import { createLookupRow, createLookupTable } from "@/lib/lookup/service";
 import {
 	buildCaseChangesBlueprint,
 	CASE_CHANGES_SEED,
 	caseChangesRoute,
+	identityProjectionRoute,
 } from "./lib/caseChangesSeed";
 import {
 	buildCaseWorkspaceBlueprint,
@@ -178,6 +181,7 @@ async function seedSettledThread(args: {
 		holderNonce: claimed.holderNonce,
 		threadType: args.threadType,
 		messages: tallThreadHistory(args.prefix, args.firstUserText),
+		expectedProjectId: args.projectId,
 	});
 	if (!written) throw new Error("e2e/seed.ts: thread seed write failed");
 	const releaseOutcome =
@@ -396,35 +400,38 @@ async function main(): Promise<void> {
 
 	// App state → Postgres, via the real no-LLM create path (status
 	// `complete`), one throwaway "delete me" app per possible Playwright attempt.
-	const openAppId = await createApp(SEED.userId, seedProjectId, randomUUID(), {
-		appName: SEED.openAppName,
-		status: "complete",
-	});
+	const { appId: openAppId } = await createApp(
+		SEED.userId,
+		seedProjectId,
+		randomUUID(),
+		{
+			name: SEED.openAppName,
+			status: "complete",
+		},
+	);
 
 	/* Full Search / Results / Details visual-QA fixture. The authored ids and
 	 * patient values are stable; the app + case ids are minted by their real
 	 * stores and written into seed.json for exact deep links. Materialize before
 	 * inserting so the fixture exercises the same schema gate as live case data. */
-	const caseWorkspaceAppId = await createApp(
-		SEED.userId,
-		seedProjectId,
-		randomUUID(),
-		{ appName: CASE_WORKSPACE_SEED.appName, status: "complete" },
-	);
+	const { appId: caseWorkspaceAppId, baseSeq: caseWorkspaceGenesisSeq } =
+		await createApp(SEED.userId, seedProjectId, randomUUID(), {
+			name: CASE_WORKSPACE_SEED.appName,
+			status: "complete",
+		});
 	const caseWorkspaceDoc = toPersistableDoc(
 		buildCaseWorkspaceBlueprint(caseWorkspaceAppId),
 	);
 	await appendSyntheticBatch({
 		appId: caseWorkspaceAppId,
-		expectedBaseSeq: 0,
+		expectedBaseSeq: caseWorkspaceGenesisSeq,
 		targetDoc: caseWorkspaceDoc,
 		authority: { kind: "user", actorUserId: SEED.userId },
 	});
 	await materializeCaseStoreSchemas({
 		appId: caseWorkspaceAppId,
 		blueprint: caseWorkspaceDoc,
-		// A newly-created app starts at seq 0; appendSyntheticBatch advances it once.
-		syncedSeq: 1,
+		syncedSeq: caseWorkspaceGenesisSeq + 1,
 	});
 	const caseStore = await withProjectContext(
 		seedProjectId,
@@ -443,6 +450,76 @@ async function main(): Promise<void> {
 	if (!firstCaseId) {
 		throw new Error("e2e/seed.ts: patient workspace seeded no case rows");
 	}
+	/* One Project data table for the smoke's primary gesture: open the
+	 * workspace, open the table, then bind a select to a column of it. Written
+	 * through the real service so its counters, order keys, and revisions are
+	 * the ones a live table has — a hand-inserted row would let the workspace
+	 * read a table no writer could have produced. */
+	const lookupScope = {
+		projectId: seedProjectId,
+		actorId: SEED.userId,
+		role: "owner" as const,
+	};
+	const referralTable = await createLookupTable(lookupScope, {
+		name: CASE_WORKSPACE_SEED.lookupTableName,
+		tag: CASE_WORKSPACE_SEED.lookupTableTag,
+		columns: [
+			{
+				wireName: "code",
+				label: CASE_WORKSPACE_SEED.lookupValueColumnLabel,
+				dataType: "text",
+			},
+			{
+				wireName: "destination",
+				label: CASE_WORKSPACE_SEED.lookupLabelColumnLabel,
+				dataType: "text",
+			},
+			{
+				wireName: "opening_time",
+				label: CASE_WORKSPACE_SEED.lookupTimeColumnLabel,
+				dataType: "time",
+			},
+			{
+				wireName: "last_verified",
+				label: CASE_WORKSPACE_SEED.lookupDatetimeColumnLabel,
+				dataType: "datetime",
+			},
+		],
+	});
+	const referralColumns = referralTable.columns;
+	let referralRevision = referralTable.tableRevision;
+	for (const [code, destination] of [
+		["chc", "Community health centre"],
+		["dh", "District hospital"],
+	] as const) {
+		const receipt = await createLookupRow(lookupScope, {
+			tableId: referralTable.id,
+			expectedTableRevision: referralRevision,
+			toIndex: 0,
+			values: {
+				[referralColumns[0].id]: code,
+				[referralColumns[1].id]: destination,
+				[referralColumns[2].id]: "09:30:00.125+05:30",
+				[referralColumns[3].id]: "2026-07-26T14:45:00-04:00",
+			},
+		});
+		referralRevision = receipt.tableRevision;
+	}
+	/* A second, intentionally row-less table guards the zero-row authoring
+	 * contract: its schema remains visible and selectable even before the
+	 * first row is added. */
+	await createLookupTable(lookupScope, {
+		name: CASE_WORKSPACE_SEED.emptyLookupTableName,
+		tag: CASE_WORKSPACE_SEED.emptyLookupTableTag,
+		columns: [
+			{
+				wireName: "tier",
+				label: CASE_WORKSPACE_SEED.emptyLookupColumnLabel,
+				dataType: "text",
+			},
+		],
+	});
+
 	const caseWorkspace = {
 		appId: caseWorkspaceAppId,
 		moduleUuid: CASE_WORKSPACE_SEED.moduleUuid,
@@ -461,16 +538,16 @@ async function main(): Promise<void> {
 	const caseChanges: {
 		appId: string;
 		route: string;
+		identityProjectionRoute: string;
 		caseId: string;
 		viewerStateFile: string;
 	}[] = [];
 	for (let attempt = 0; attempt < CASE_CHANGES_FIXTURE_COUNT; attempt++) {
-		const caseChangesAppId = await createApp(
-			SEED.userId,
-			seedProjectId,
-			randomUUID(),
-			{ appName: CASE_CHANGES_SEED.appName, status: "complete" },
-		);
+		const { appId: caseChangesAppId, baseSeq: caseChangesGenesisSeq } =
+			await createApp(SEED.userId, seedProjectId, randomUUID(), {
+				name: CASE_CHANGES_SEED.appName,
+				status: "complete",
+			});
 		const caseChangesLookup = await createLookupTable(
 			{
 				projectId: seedProjectId,
@@ -501,14 +578,14 @@ async function main(): Promise<void> {
 		);
 		await appendSyntheticBatch({
 			appId: caseChangesAppId,
-			expectedBaseSeq: 0,
+			expectedBaseSeq: caseChangesGenesisSeq,
 			targetDoc: caseChangesDoc,
 			authority: { kind: "user", actorUserId: SEED.userId },
 		});
 		await materializeCaseStoreSchemas({
 			appId: caseChangesAppId,
 			blueprint: caseChangesDoc,
-			syncedSeq: 1,
+			syncedSeq: caseChangesGenesisSeq + 1,
 		});
 		const caseChangesPatient = await caseStore.insert({
 			appId: caseChangesAppId,
@@ -522,6 +599,7 @@ async function main(): Promise<void> {
 		caseChanges.push({
 			appId: caseChangesAppId,
 			route: caseChangesRoute(caseChangesAppId),
+			identityProjectionRoute: identityProjectionRoute(caseChangesAppId),
 			caseId: caseChangesPatient.caseId,
 			viewerStateFile: VIEWER_STATE_FILE,
 		});
@@ -532,15 +610,15 @@ async function main(): Promise<void> {
 	 * upsert + response append, live marker cleared) — exactly the rows finished
 	 * runs leave. The builder must hydrate the newest transcript on load and
 	 * switch to the older one without exposing the prior transcript. */
-	const threadsAppId = await createApp(
+	const { appId: threadsAppId, baseSeq: threadsGenesisSeq } = await createApp(
 		SEED.userId,
 		seedProjectId,
 		randomUUID(),
-		{ appName: SEED.threadsAppName, status: "complete" },
+		{ name: SEED.threadsAppName, status: "complete" },
 	);
 	await appendSyntheticBatch({
 		appId: threadsAppId,
-		expectedBaseSeq: 0,
+		expectedBaseSeq: threadsGenesisSeq,
 		authority: { kind: "user", actorUserId: SEED.userId },
 		targetDoc: toPersistableDoc(
 			buildDoc({
@@ -560,7 +638,7 @@ async function main(): Promise<void> {
 										uuid: "0f000000-0000-4000-8000-000000000003",
 										kind: "text",
 										id: "visit_notes",
-										label: "Visit notes",
+										label: proseText("Visit notes"),
 									}),
 								],
 							},
@@ -613,15 +691,15 @@ async function main(): Promise<void> {
 	 * upsert marks the thread live, and the response append (the assistant
 	 * message carrying the input-available tool part) retires the marker — so
 	 * opening it must not attempt a stream resume. */
-	const scrollAppId = await createApp(
+	const { appId: scrollAppId, baseSeq: scrollGenesisSeq } = await createApp(
 		SEED.userId,
 		seedProjectId,
 		randomUUID(),
-		{ appName: SEED.scrollAppName, status: "complete" },
+		{ name: SEED.scrollAppName, status: "complete" },
 	);
 	await appendSyntheticBatch({
 		appId: scrollAppId,
-		expectedBaseSeq: 0,
+		expectedBaseSeq: scrollGenesisSeq,
 		authority: { kind: "user", actorUserId: SEED.userId },
 		targetDoc: toPersistableDoc(
 			buildDoc({
@@ -641,7 +719,7 @@ async function main(): Promise<void> {
 										uuid: "0f000000-0000-4000-8000-000000000013",
 										kind: "text",
 										id: "referral_notes",
-										label: "Referral notes",
+										label: proseText("Referral notes"),
 									}),
 								],
 							},
@@ -674,6 +752,7 @@ async function main(): Promise<void> {
 				"smoke-scroll-q",
 				SEED.scrollQuestionThreadUserText,
 			),
+			expectedProjectId: seedProjectId,
 		});
 		if (!written) {
 			throw new Error("e2e/seed.ts: scroll question thread seed write failed");
@@ -758,10 +837,12 @@ async function main(): Promise<void> {
 	const deleteAppIds: string[] = [];
 	for (let i = 0; i < DELETE_APP_COUNT; i++) {
 		deleteAppIds.push(
-			await createApp(SEED.userId, seedProjectId, randomUUID(), {
-				appName: SEED.deleteAppName,
-				status: "complete",
-			}),
+			(
+				await createApp(SEED.userId, seedProjectId, randomUUID(), {
+					name: SEED.deleteAppName,
+					status: "complete",
+				})
+			).appId,
 		);
 	}
 
@@ -772,10 +853,12 @@ async function main(): Promise<void> {
 	const moveAppIds: string[] = [];
 	for (let i = 0; i < MOVE_APP_COUNT; i++) {
 		moveAppIds.push(
-			await createApp(SEED.userId, seedProjectId, randomUUID(), {
-				appName: SEED.moveAppName,
-				status: "complete",
-			}),
+			(
+				await createApp(SEED.userId, seedProjectId, randomUUID(), {
+					name: SEED.moveAppName,
+					status: "complete",
+				})
+			).appId,
 		);
 	}
 

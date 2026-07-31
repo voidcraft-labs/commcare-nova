@@ -11,9 +11,9 @@
 //   - `header` — column display label.
 //
 // No per-kind extras beyond the shared field/header pair. The
-// optional common slots (`sort`, `visibleInList`, `visibleInDetail`)
-// are surfaced by `ColumnEditor`'s Visibility and Sorting sections —
-// every column kind shares those regardless of its body shape.
+// optional common slots (`sort`, visibility, and tile presentation)
+// belong to the surrounding display workspace — every column kind
+// shares those regardless of its body shape.
 
 "use client";
 import type { Column } from "@/lib/domain";
@@ -64,10 +64,12 @@ function slotsFrom(value: Extract<Column, { kind: "plain" }>): {
 	sort?: typeof value.sort;
 	visibleInList?: typeof value.visibleInList;
 	visibleInDetail?: typeof value.visibleInDetail;
+	tile?: typeof value.tile;
 } {
 	return {
 		sort: value.sort,
 		visibleInList: value.visibleInList,
 		visibleInDetail: value.visibleInDetail,
+		tile: value.tile,
 	};
 }

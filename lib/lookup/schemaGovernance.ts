@@ -526,10 +526,17 @@ async function retypeColumn(
 }
 
 /**
- * Package-private production wrapper. It declares the one shared runtime
- * writer capability; the database floor and destructive-action flag remain
- * the admission authority. No route, action, or public lookup barrel imports
- * this module.
+ * The production wrapper the three destructive Project data actions call.
+ *
+ * It requires the scope's `delete` capability before taking a lock, and the
+ * transaction core below requires it again — an insufficient role collapses to
+ * the same not-found shape as a missing or foreign resource on both gates, so
+ * a caller can never tell "you may not" from "it isn't there".
+ *
+ * The blocker set it raises is app ids only. Turning those into names is the
+ * confirmation surface's job (`actions.ts::governanceFailure`), which reads
+ * them outside this transaction — this seam holds locks and must not also own
+ * presentation.
  */
 export async function applyLookupSchemaGovernance(
 	scope: LookupScope,
@@ -544,9 +551,16 @@ export async function applyLookupSchemaGovernance(
 }
 
 /**
- * Transaction core for the package's seeded integration harness. This function
- * never acquires an app lock: Project state -> table -> exact edges is its
- * complete lock prefix.
+ * Transaction core, also the package's seeded integration seam for exact race
+ * coverage. This function never acquires an app lock: Project state -> table
+ * -> exact edges is its complete lock prefix. Because neither prefix ever
+ * holds a lock the other takes first, a table deletion racing an app commit
+ * serializes rather than deadlocking.
+ *
+ * The edge check here is the AUTHORITY. The workspace shows an advisory scan
+ * first so an author is told which apps a change would break before they ask
+ * for it, but a scan cannot authorize a destructive schema change — it races a
+ * concurrent app commit, and only this check runs under the table lock.
  */
 export async function applyLookupSchemaGovernanceInTransaction(
 	tx: Transaction<AppDatabase>,

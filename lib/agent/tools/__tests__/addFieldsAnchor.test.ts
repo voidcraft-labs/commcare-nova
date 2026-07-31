@@ -1,35 +1,35 @@
 /**
- * SA `add_fields` anchored insert — a `beforeFieldId` / `afterFieldId` batch
- * lands AT the anchor in DISPLAY order, not appended.
- *
- * Sequence is derived (`sort-by-(order, uuid)`), so the anchored fields must
- * take `order` keys BETWEEN the anchor's display neighbors — the same neighbor
- * bounds the builder's `orderKeyForFieldSlot` uses. These would fail while the
- * order-minting pass always appended.
+ * SA `add_fields` anchored insert — a `beforeFieldUuid` / `afterFieldUuid` batch
+ * lands at the anchor in `fieldOrder`, not appended. These regressions would
+ * fail if the creation batch always appended.
  */
 
 import { describe, expect, it, vi } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import type { PreparedMutationCandidate } from "@/lib/doc/commitVerdicts";
 import {
 	hydratePersistedBlueprint,
 	toPersistableDoc,
 } from "@/lib/doc/fieldParent";
 import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { addFieldsTool } from "../addFields";
 
 function makeCtx() {
 	// The guarded writer returns `{ events, committedDoc }`; echo the passed
 	// post-mutation doc so the tool's `newDoc` reflects the anchored insert.
-	const recordMutations = vi.fn(async (_m: unknown, doc: unknown) => ({
-		events: [],
-		committedDoc: doc,
-	}));
-	const recordMutationStages = vi.fn(
-		async (stages: Array<{ doc: unknown }>) => ({
+	const recordMutations = vi.fn(
+		async (prepared: PreparedMutationCandidate) => ({
 			events: [],
-			committedDoc: stages[stages.length - 1]?.doc,
+			committedDoc: prepared.nextDoc,
+		}),
+	);
+	const recordMutationStages = vi.fn(
+		async (prepared: PreparedMutationCandidate) => ({
+			events: [],
+			committedDoc: prepared.nextDoc,
 		}),
 	);
 	const ctx = {
@@ -58,9 +58,9 @@ function threeFieldDoc(): BlueprintDoc {
 								name: "F",
 								type: "survey",
 								fields: [
-									f({ kind: "text", id: "qa", label: "A" }),
-									f({ kind: "text", id: "qb", label: "B" }),
-									f({ kind: "text", id: "qc", label: "C" }),
+									f({ kind: "text", id: "qa", label: proseText("A") }),
+									f({ kind: "text", id: "qb", label: proseText("B") }),
+									f({ kind: "text", id: "qc", label: proseText("C") }),
 								],
 							},
 						],
@@ -83,37 +83,49 @@ function displayIds(doc: BlueprintDoc): string[] {
 }
 
 function textField(id: string) {
-	return { kind: "text", id, label: id.toUpperCase() } as never;
+	return { kind: "text" as const, id, label: proseText(id.toUpperCase()) };
+}
+
+function address(doc: BlueprintDoc) {
+	return { moduleUuid: doc.moduleOrder[0], formUuid: formUuidOf(doc) };
+}
+
+function fieldUuidOf(doc: BlueprintDoc, id: string): Uuid {
+	const uuid = orderedFieldUuids(doc, formUuidOf(doc)).find(
+		(candidate) => doc.fields[candidate]?.id === id,
+	);
+	if (!uuid) throw new Error(`fixture missing field "${id}"`);
+	return uuid;
 }
 
 describe("add_fields anchored insert lands at the anchor in display order", () => {
-	it("afterFieldId places a single field immediately AFTER the anchor", async () => {
+	it("afterFieldUuid places a single field immediately AFTER the anchor", async () => {
 		const { ctx } = makeCtx();
+		const doc = threeFieldDoc();
 		const out = await addFieldsTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
+				...address(doc),
 				fields: [textField("qx")],
-				afterFieldId: "qa",
+				afterFieldUuid: fieldUuidOf(doc, "qa"),
 			},
 			ctx,
-			threeFieldDoc(),
+			doc,
 		);
 		expect("message" in out.result).toBe(true);
 		expect(displayIds(out.newDoc)).toEqual(["qa", "qx", "qb", "qc"]);
 	});
 
-	it("beforeFieldId places a single field immediately BEFORE the anchor", async () => {
+	it("beforeFieldUuid places a single field immediately BEFORE the anchor", async () => {
 		const { ctx } = makeCtx();
+		const doc = threeFieldDoc();
 		const out = await addFieldsTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
+				...address(doc),
 				fields: [textField("qx")],
-				beforeFieldId: "qc",
+				beforeFieldUuid: fieldUuidOf(doc, "qc"),
 			},
 			ctx,
-			threeFieldDoc(),
+			doc,
 		);
 		expect("message" in out.result).toBe(true);
 		expect(displayIds(out.newDoc)).toEqual(["qa", "qb", "qx", "qc"]);
@@ -121,15 +133,15 @@ describe("add_fields anchored insert lands at the anchor in display order", () =
 
 	it("a MULTI-field anchored insert lands the run contiguously in input order", async () => {
 		const { ctx } = makeCtx();
+		const doc = threeFieldDoc();
 		const out = await addFieldsTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
+				...address(doc),
 				fields: [textField("qx"), textField("qy"), textField("qz")],
-				afterFieldId: "qa",
+				afterFieldUuid: fieldUuidOf(doc, "qa"),
 			},
 			ctx,
-			threeFieldDoc(),
+			doc,
 		);
 		expect("message" in out.result).toBe(true);
 		expect(displayIds(out.newDoc)).toEqual([
@@ -142,33 +154,33 @@ describe("add_fields anchored insert lands at the anchor in display order", () =
 		]);
 	});
 
-	it("beforeFieldId on the FIRST child lands the field ahead of everything", async () => {
+	it("beforeFieldUuid on the FIRST child lands the field ahead of everything", async () => {
 		const { ctx } = makeCtx();
+		const doc = threeFieldDoc();
 		const out = await addFieldsTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
+				...address(doc),
 				fields: [textField("qx")],
-				beforeFieldId: "qa",
+				beforeFieldUuid: fieldUuidOf(doc, "qa"),
 			},
 			ctx,
-			threeFieldDoc(),
+			doc,
 		);
 		expect("message" in out.result).toBe(true);
 		expect(displayIds(out.newDoc)).toEqual(["qx", "qa", "qb", "qc"]);
 	});
 
-	it("afterFieldId on the LAST child appends after everything", async () => {
+	it("afterFieldUuid on the LAST child appends after everything", async () => {
 		const { ctx } = makeCtx();
+		const doc = threeFieldDoc();
 		const out = await addFieldsTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
+				...address(doc),
 				fields: [textField("qx")],
-				afterFieldId: "qc",
+				afterFieldUuid: fieldUuidOf(doc, "qc"),
 			},
 			ctx,
-			threeFieldDoc(),
+			doc,
 		);
 		expect("message" in out.result).toBe(true);
 		expect(displayIds(out.newDoc)).toEqual(["qa", "qb", "qc", "qx"]);
@@ -176,10 +188,11 @@ describe("add_fields anchored insert lands at the anchor in display order", () =
 
 	it("no anchor still appends (regression guard for the default path)", async () => {
 		const { ctx } = makeCtx();
+		const doc = threeFieldDoc();
 		const out = await addFieldsTool.execute(
-			{ moduleIndex: 0, formIndex: 0, fields: [textField("qx")] },
+			{ ...address(doc), fields: [textField("qx")] },
 			ctx,
-			threeFieldDoc(),
+			doc,
 		);
 		expect("message" in out.result).toBe(true);
 		expect(displayIds(out.newDoc)).toEqual(["qa", "qb", "qc", "qx"]);

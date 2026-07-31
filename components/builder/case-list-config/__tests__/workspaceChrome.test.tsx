@@ -2,25 +2,27 @@
 
 import {
 	fireEvent,
-	render,
+	render as rtlRender,
 	screen,
 	waitFor,
 	within,
 } from "@testing-library/react";
+import type { ReactElement, ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { settleBaseUiTransitions } from "@/__tests__/helpers/baseUiInteractions";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
+import { BlueprintDocProvider } from "@/lib/doc/provider";
 import {
 	advancedSearchInputDef,
-	asUuid,
 	type CaseProperty,
 	type CaseType,
 	type Column,
 	caseSearchConfigAfterFinalInputRemoval,
 	emptyCaseListConfig,
 	fuzzyDateMode,
-	multiSelectContainsMode,
 	rangeMode,
+	searchInputDefault,
 	simpleSearchInputDef,
 	type Uuid,
 } from "@/lib/domain";
@@ -38,6 +40,7 @@ import {
 	term,
 	today,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { AssignedCasesSetting } from "../canvas/AssignedCasesSetting";
 import { CaseListCanvas } from "../canvas/CaseListCanvas";
 import { DetailCanvas } from "../canvas/DetailCanvas";
@@ -49,6 +52,20 @@ import { SearchCanvas } from "../canvas/SearchCanvas";
 import { SearchConditionCanvas } from "../canvas/SearchConditionCanvas";
 import { SearchInputEditor } from "../inspector/SearchInputEditor";
 import { SearchPanelInspectorBody } from "../inspector/SearchPanelInspectorBody";
+
+// Every surface on this canvas spells authored prose — an information label, a
+// field name, a saved condition — against the document. Wrapping at `render`
+// rather than per component reproduces the builder's provider for the whole
+// workspace, and carries through each `rerender`.
+function DocumentProvider({ children }: { readonly children: ReactNode }) {
+	return (
+		<BlueprintDocProvider appId="test-app">{children}</BlueprintDocProvider>
+	);
+}
+
+function render(ui: ReactElement) {
+	return rtlRender(ui, { wrapper: DocumentProvider });
+}
 
 const session = vi.hoisted(() => ({ canEdit: true }));
 
@@ -65,7 +82,7 @@ vi.mock("@/components/builder/inspector/OptionalMarkdownRow", () => ({
 
 function column(uuidSuffix: string, field: string, header: string): Column {
 	return {
-		uuid: asUuid(`00000000-0000-4000-8000-${uuidSuffix.padStart(12, "0")}`),
+		uuid: testUuid(`00000000-0000-4000-8000-${uuidSuffix.padStart(12, "0")}`),
 		kind: "plain",
 		field,
 		header,
@@ -89,18 +106,20 @@ const NAME = column("1", "case_name", "Patient name");
 const DOB = column("2", "date_of_birth", "Date of birth");
 const DOB_PROPERTY: CaseProperty = {
 	name: "date_of_birth",
-	label: "Date of birth",
+	label: proseText("Date of birth"),
 	data_type: "date",
 };
 const AGE_PROPERTY: CaseProperty = {
 	name: "age",
-	label: "Age",
+	label: proseText("Age"),
 	data_type: "int",
 };
 const SEARCH_CONDITION_CASE_TYPES: readonly CaseType[] = [
 	{
 		name: "patient",
-		properties: [{ name: "status", label: "Status", data_type: "text" }],
+		properties: [
+			{ name: "status", label: proseText("Status"), data_type: "text" },
+		],
 	},
 ];
 // The Search-button condition resolves before any case is selected, so
@@ -309,7 +328,6 @@ describe("case workspace chrome", () => {
 				addDisabledReason={undefined}
 				onMoveColumn={() => {}}
 				onShowColumn={() => {}}
-				onRepairColumn={() => {}}
 			/>,
 		);
 
@@ -335,7 +353,6 @@ describe("case workspace chrome", () => {
 				addDisabledReason={undefined}
 				onMoveColumn={() => {}}
 				onShowColumn={() => {}}
-				onRepairColumn={() => {}}
 			/>,
 		);
 
@@ -360,7 +377,9 @@ describe("case workspace chrome", () => {
 		session.canEdit = false;
 		const patient: CaseType = {
 			name: "patient",
-			properties: [{ name: "case_name", label: "Patient", data_type: "text" }],
+			properties: [
+				{ name: "case_name", label: proseText("Patient"), data_type: "text" },
+			],
 		};
 		render(
 			<CaseListCanvas
@@ -377,7 +396,6 @@ describe("case workspace chrome", () => {
 				onMoveColumn={() => {}}
 				onColumnsChange={() => {}}
 				onShowColumn={() => {}}
-				onRepairColumn={() => {}}
 				filterBroken={false}
 				onFilterChange={() => ({ ok: true })}
 				onClearFilter={() => ({ ok: true })}
@@ -425,7 +443,6 @@ describe("case workspace chrome", () => {
 				onMoveColumn={() => {}}
 				onColumnsChange={() => {}}
 				onShowColumn={() => {}}
-				onRepairColumn={() => {}}
 				filterBroken={false}
 				onFilterChange={() => ({ ok: true })}
 				onClearFilter={() => ({ ok: true })}
@@ -454,7 +471,9 @@ describe("case workspace chrome", () => {
 		};
 		const patient: CaseType = {
 			name: "patient",
-			properties: [{ name: "case_name", label: "Patient", data_type: "text" }],
+			properties: [
+				{ name: "case_name", label: proseText("Patient"), data_type: "text" },
+			],
 		};
 		render(
 			<CaseListCanvas
@@ -474,7 +493,6 @@ describe("case workspace chrome", () => {
 				onMoveColumn={() => {}}
 				onColumnsChange={() => {}}
 				onShowColumn={() => {}}
-				onRepairColumn={() => {}}
 				filterBroken={false}
 				onFilterChange={() => ({ ok: true })}
 				onClearFilter={() => ({ ok: true })}
@@ -510,7 +528,6 @@ describe("case workspace chrome", () => {
 				repeatableProperties={[]}
 				brokenColumns={new Set()}
 				onShow={() => {}}
-				onRepair={() => {}}
 				onCreate={onCreate}
 				onCreateCalculated={() => {}}
 				createDisabledReason={undefined}
@@ -552,7 +569,6 @@ describe("case workspace chrome", () => {
 				repeatableProperties={[]}
 				brokenColumns={new Set()}
 				onShow={() => {}}
-				onRepair={() => {}}
 				onCreate={onCreate}
 				onCreateCalculated={() => {}}
 				createDisabledReason={undefined}
@@ -577,7 +593,6 @@ describe("case workspace chrome", () => {
 				repeatableProperties={[DOB_PROPERTY]}
 				brokenColumns={new Set()}
 				onShow={() => {}}
-				onRepair={() => {}}
 				onCreate={onCreate}
 				onCreateCalculated={() => {}}
 				createDisabledReason={undefined}
@@ -595,14 +610,13 @@ describe("case workspace chrome", () => {
 		expect(screen.getByRole("option", { name: /^age\b/i })).toBeDefined();
 	});
 
-	it("keeps a Details-only repair quiet on Results until Add information opens", () => {
+	it("sends every saved definition through the one gated reveal path", () => {
 		const hidden = {
 			...column("33", "date_of_birth", "Date of birth"),
 			visibleInList: false,
 			visibleInDetail: true,
 		};
 		const onShow = vi.fn();
-		const onRepair = vi.fn();
 		render(
 			<AddInformationControl
 				surface="list"
@@ -611,7 +625,6 @@ describe("case workspace chrome", () => {
 				repeatableProperties={[]}
 				brokenColumns={new Set([hidden.uuid])}
 				onShow={onShow}
-				onRepair={onRepair}
 				onCreate={() => {}}
 				onCreateCalculated={() => {}}
 				createDisabledReason={undefined}
@@ -630,8 +643,7 @@ describe("case workspace chrome", () => {
 			}),
 		);
 
-		expect(onRepair).toHaveBeenCalledWith(hidden);
-		expect(onShow).not.toHaveBeenCalled();
+		expect(onShow).toHaveBeenCalledWith(hidden);
 	});
 
 	it("describes a saved off-screen setup by its label and format", async () => {
@@ -648,7 +660,6 @@ describe("case workspace chrome", () => {
 				repeatableProperties={[]}
 				brokenColumns={new Set()}
 				onShow={() => {}}
-				onRepair={() => {}}
 				onCreate={() => {}}
 				onCreateCalculated={() => {}}
 				createDisabledReason={undefined}
@@ -686,7 +697,6 @@ describe("case workspace chrome", () => {
 				repeatableProperties={[]}
 				brokenColumns={new Set()}
 				onShow={onShow}
-				onRepair={() => {}}
 				onCreate={() => {}}
 				onCreateCalculated={() => {}}
 				createDisabledReason={undefined}
@@ -752,7 +762,6 @@ describe("case workspace chrome", () => {
 				repeatableProperties={[]}
 				brokenColumns={new Set()}
 				onShow={() => {}}
-				onRepair={() => {}}
 				onCreate={() => {}}
 				onCreateCalculated={onCreateCalculated}
 				createDisabledReason={undefined}
@@ -777,7 +786,6 @@ describe("case workspace chrome", () => {
 				repeatableProperties={[]}
 				brokenColumns={new Set()}
 				onShow={() => {}}
-				onRepair={() => {}}
 				onCreate={() => {}}
 				onCreateCalculated={() => {}}
 				createDisabledReason={undefined}
@@ -813,7 +821,6 @@ describe("case workspace chrome", () => {
 				repeatableProperties={[DOB_PROPERTY]}
 				brokenColumns={new Set()}
 				onShow={() => {}}
-				onRepair={() => {}}
 				onCreate={onCreate}
 				onCreateCalculated={() => {}}
 				createDisabledReason={undefined}
@@ -848,7 +855,6 @@ describe("case workspace chrome", () => {
 				repeatableProperties={[DOB_PROPERTY]}
 				brokenColumns={new Set()}
 				onShow={() => {}}
-				onRepair={() => {}}
 				onCreate={onCreate}
 				onCreateCalculated={() => {}}
 				createDisabledReason={undefined}
@@ -903,7 +909,7 @@ describe("case workspace chrome", () => {
 
 	it("opens Search screen settings without depicting a submit button", () => {
 		const input = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000004"),
+			testUuid("00000000-0000-4000-8000-000000000004"),
 			"case_name",
 			"Patient name",
 			"text",
@@ -922,7 +928,11 @@ describe("case workspace chrome", () => {
 					{
 						name: "patient",
 						properties: [
-							{ name: "case_name", label: "Patient", data_type: "text" },
+							{
+								name: "case_name",
+								label: proseText("Patient"),
+								data_type: "text",
+							},
 						],
 					} as CaseType,
 				]}
@@ -953,14 +963,14 @@ describe("case workspace chrome", () => {
 
 	it("moves a search field with one identity-keyed gesture", () => {
 		const first = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000041"),
+			testUuid("00000000-0000-4000-8000-000000000041"),
 			"case_name",
 			"Patient name",
 			"text",
 			"case_name",
 		);
 		const second = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000042"),
+			testUuid("00000000-0000-4000-8000-000000000042"),
 			"external_id",
 			"External ID",
 			"text",
@@ -995,14 +1005,14 @@ describe("case workspace chrome", () => {
 
 	it("groups authored Search fields as one labelled ordered list", () => {
 		const first = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000041"),
+			testUuid("00000000-0000-4000-8000-000000000041"),
 			"case_name",
 			"Patient name",
 			"text",
 			"case_name",
 		);
 		const second = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000042"),
+			testUuid("00000000-0000-4000-8000-000000000042"),
 			"external_id",
 			"External ID",
 			"text",
@@ -1037,7 +1047,7 @@ describe("case workspace chrome", () => {
 		const longLabel =
 			"Client name exactly as it appears on the household registration document";
 		const input = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000043"),
+			testUuid("00000000-0000-4000-8000-000000000043"),
 			"missing_property",
 			longLabel,
 			"text",
@@ -1067,7 +1077,7 @@ describe("case workspace chrome", () => {
 
 	it("keeps date-range fields readable in the open-sidebar canvas", () => {
 		const input = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000045"),
+			testUuid("00000000-0000-4000-8000-000000000045"),
 			"last_visit",
 			"Last visit",
 			"date-range",
@@ -1083,7 +1093,11 @@ describe("case workspace chrome", () => {
 					{
 						name: "patient",
 						properties: [
-							{ name: "last_visit", label: "Last visit", data_type: "date" },
+							{
+								name: "last_visit",
+								label: proseText("Last visit"),
+								data_type: "date",
+							},
 						],
 					} as CaseType,
 				]}
@@ -1109,13 +1123,13 @@ describe("case workspace chrome", () => {
 		expect(rowContent?.contains(range ?? null)).toBe(true);
 	});
 
-	it("canonicalizes a legacy alias when a custom binding returns to this case", async () => {
+	it("rebinds a related search field to the canonical case-name property", async () => {
 		const input = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000044"),
-			"name",
-			"Name",
+			testUuid("00000000-0000-4000-8000-000000000044"),
+			"status",
+			"Status",
 			"text",
-			"name",
+			"status",
 			{
 				via: ancestorPath(relationStep("parent"), relationStep("parent")),
 			},
@@ -1130,8 +1144,16 @@ describe("case workspace chrome", () => {
 					{
 						name: "patient",
 						properties: [
-							{ name: "name", label: "Patient name", data_type: "text" },
-							{ name: "case_name", label: "Case name", data_type: "text" },
+							{
+								name: "status",
+								label: proseText("Patient status"),
+								data_type: "text",
+							},
+							{
+								name: "case_name",
+								label: proseText("Case name"),
+								data_type: "text",
+							},
 						],
 					} as CaseType,
 				]}
@@ -1143,9 +1165,7 @@ describe("case workspace chrome", () => {
 		fireEvent.click(
 			screen.getByRole("combobox", { name: "Search field 1 information" }),
 		);
-		fireEvent.click(
-			await screen.findByRole("option", { name: /patient name/i }),
-		);
+		fireEvent.click(await screen.findByRole("option", { name: /case name/i }));
 		expect(onChange).toHaveBeenCalled();
 		const next = onChange.mock.calls[0]?.[0];
 		expect(next).toMatchObject({
@@ -1362,48 +1382,6 @@ describe("case workspace chrome", () => {
 		expect(
 			screen.queryByText("Cases assigned to the person using the app"),
 		).toBeNull();
-	});
-
-	it("keeps owner-only availability out of zero-input Search settings", () => {
-		const view = render(
-			<SearchPanelInspectorBody
-				value={{
-					searchActionEnabled: false,
-					excludedOwnerIds: term(sessionContext("userid")),
-				}}
-				onChange={() => {}}
-				caseTypes={[]}
-				currentCaseType="patient"
-				hasVisibleSearchScreen={false}
-				hasSearchAction={false}
-				onEditDisplayCondition={() => {}}
-			/>,
-		);
-
-		expect(
-			screen.getByText(/Add Search from Results when they need/i),
-		).toBeDefined();
-		let moreSettings = screen.getByRole("button", { name: "More settings" });
-		expect(moreSettings.getAttribute("aria-expanded")).toBe("false");
-		expect(screen.queryByText("In use")).toBeNull();
-
-		view.rerender(
-			<SearchPanelInspectorBody
-				value={{}}
-				onChange={() => {}}
-				caseTypes={[]}
-				currentCaseType="patient"
-				hasVisibleSearchScreen={false}
-				hasSearchAction
-				onEditDisplayCondition={() => {}}
-			/>,
-		);
-		expect(screen.getByText(/Search is available from Results/i)).toBeDefined();
-		moreSettings = screen.getByRole("button", {
-			name: /More settings.*In use/,
-		});
-		expect(moreSettings.getAttribute("aria-expanded")).toBe("true");
-		expect(screen.getByText("Search action label")).toBeDefined();
 	});
 
 	it("opens Search settings from the keyboard without moving focus", () => {
@@ -1794,7 +1772,7 @@ describe("case workspace chrome", () => {
 
 	it("uses the shared search input inside the information picker", async () => {
 		const input = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000045"),
+			testUuid("00000000-0000-4000-8000-000000000045"),
 			"case_name",
 			"Patient name",
 			"text",
@@ -1809,7 +1787,11 @@ describe("case workspace chrome", () => {
 					{
 						name: "patient",
 						properties: [
-							{ name: "case_name", label: "Patient name", data_type: "text" },
+							{
+								name: "case_name",
+								label: proseText("Patient name"),
+								data_type: "text",
+							},
 						],
 					} as CaseType,
 				]}
@@ -1838,7 +1820,7 @@ describe("case workspace chrome", () => {
 		const longPropertyLabel =
 			"Preferred household contact name from the most recent registration visit";
 		const input = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000049"),
+			testUuid("00000000-0000-4000-8000-000000000049"),
 			"preferred_household_contact_name",
 			"Preferred contact",
 			"text",
@@ -1855,11 +1837,11 @@ describe("case workspace chrome", () => {
 						properties: [
 							{
 								name: "preferred_household_contact_name",
-								label: longPropertyLabel,
+								label: proseText(longPropertyLabel),
 								data_type: "text",
 							},
 						],
-					} as CaseType,
+					},
 				]}
 				currentCaseType="patient"
 				onChange={() => {}}
@@ -1894,7 +1876,7 @@ describe("case workspace chrome", () => {
 
 	it("opens a custom search match in the center editor as soon as it is chosen", async () => {
 		const input = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000046"),
+			testUuid("00000000-0000-4000-8000-000000000046"),
 			"case_name",
 			"Patient name",
 			"text",
@@ -1911,7 +1893,11 @@ describe("case workspace chrome", () => {
 					{
 						name: "patient",
 						properties: [
-							{ name: "case_name", label: "Patient name", data_type: "text" },
+							{
+								name: "case_name",
+								label: proseText("Patient name"),
+								data_type: "text",
+							},
 						],
 					} as CaseType,
 				]}
@@ -1935,7 +1921,7 @@ describe("case workspace chrome", () => {
 
 	it("keeps a saved match and starting value until a field-type change is confirmed", async () => {
 		const input = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000146"),
+			testUuid("00000000-0000-4000-8000-000000000146"),
 			"visit_date",
 			"Visit date",
 			"text",
@@ -1958,7 +1944,7 @@ describe("case workspace chrome", () => {
 						properties: [
 							{
 								name: "visit_date",
-								label: "Visit date",
+								label: proseText("Visit date"),
 								data_type: "date",
 							},
 						],
@@ -2004,7 +1990,7 @@ describe("case workspace chrome", () => {
 
 	it("makes Between dates one atomic date-range transition", async () => {
 		const input = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000246"),
+			testUuid("00000000-0000-4000-8000-000000000246"),
 			"visit_date",
 			"Visit date",
 			"date",
@@ -2022,7 +2008,7 @@ describe("case workspace chrome", () => {
 						properties: [
 							{
 								name: "visit_date",
-								label: "Visit date",
+								label: proseText("Visit date"),
 								data_type: "date",
 							},
 						],
@@ -2045,14 +2031,14 @@ describe("case workspace chrome", () => {
 		expect(onChange.mock.calls[0]?.[0]).toMatchObject({
 			type: "date-range",
 			property: "visit_date",
+			mode: { kind: "range" },
 		});
-		expect(onChange.mock.calls[0]?.[0]).not.toHaveProperty("mode");
 		expect(onChange.mock.calls[0]?.[0]).not.toHaveProperty("default");
 	});
 
 	it("clears a saved one-date default in the same confirmed range transition", async () => {
 		const input = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000247"),
+			testUuid("00000000-0000-4000-8000-000000000247"),
 			"visit_date",
 			"Visit date",
 			"date",
@@ -2071,7 +2057,7 @@ describe("case workspace chrome", () => {
 						properties: [
 							{
 								name: "visit_date",
-								label: "Visit date",
+								label: proseText("Visit date"),
 								data_type: "date",
 							},
 						],
@@ -2100,52 +2086,39 @@ describe("case workspace chrome", () => {
 		fireEvent.click(within(dialog).getByRole("button", { name: "Change" }));
 		await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
 		expect(onChange).toHaveBeenCalledOnce();
-		expect(onChange.mock.calls[0]?.[0]).toMatchObject({ type: "date-range" });
-		expect(onChange.mock.calls[0]?.[0]).not.toHaveProperty("mode");
+		expect(onChange.mock.calls[0]?.[0]).toMatchObject({
+			type: "date-range",
+			mode: { kind: "range" },
+		});
 		expect(onChange.mock.calls[0]?.[0]).not.toHaveProperty("default");
 	});
 
-	it("shows no starting-value control for a date range and only repairs a legacy one", () => {
+	it("shows no starting-value control for a date range", () => {
 		const base = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000248"),
+			testUuid("00000000-0000-4000-8000-000000000248"),
 			"visit_date",
 			"Visit date",
 			"date-range",
 			"visit_date",
 		);
-		const onChange = vi.fn();
 		const props = {
 			index: 0,
 			caseTypes: [] as CaseType[],
 			currentCaseType: "patient",
-			onChange,
+			onChange: vi.fn(),
 			onEditCondition: () => {},
 		};
-		const view = render(
-			<SearchInputEditor value={base} siblings={[base]} {...props} />,
-		);
+		render(<SearchInputEditor value={base} siblings={[base]} {...props} />);
 
 		expect(screen.queryByText("Starting value")).toBeNull();
 		expect(
 			screen.queryByRole("button", { name: /add a starting value/i }),
 		).toBeNull();
-
-		const legacy = { ...base, default: today() };
-		view.rerender(
-			<SearchInputEditor value={legacy} siblings={[legacy]} {...props} />,
-		);
-		const removeLegacyStartingValue = screen.getByRole("button", {
-			name: /remove the incompatible starting value/i,
-		});
-		expect(removeLegacyStartingValue.className).toContain("bg-destructive");
-		fireEvent.click(removeLegacyStartingValue);
-		expect(onChange).toHaveBeenCalledOnce();
-		expect(onChange.mock.calls[0]?.[0]).not.toHaveProperty("default");
 	});
 
 	it("replaces an incompatible match and starting value only after confirmation", async () => {
 		const input = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000151"),
+			testUuid("00000000-0000-4000-8000-000000000151"),
 			"visit_date",
 			"Visit date",
 			"text",
@@ -2167,7 +2140,7 @@ describe("case workspace chrome", () => {
 						properties: [
 							{
 								name: "visit_date",
-								label: "Visit date",
+								label: proseText("Visit date"),
 								data_type: "date",
 							},
 						],
@@ -2205,7 +2178,7 @@ describe("case workspace chrome", () => {
 
 	it("preserves a compatible saved match and starting value without interruption", async () => {
 		const input = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000147"),
+			testUuid("00000000-0000-4000-8000-000000000147"),
 			"case_name",
 			"Patient name",
 			"text",
@@ -2226,7 +2199,11 @@ describe("case workspace chrome", () => {
 					{
 						name: "patient",
 						properties: [
-							{ name: "case_name", label: "Patient name", data_type: "text" },
+							{
+								name: "case_name",
+								label: proseText("Patient name"),
+								data_type: "text",
+							},
 						],
 					} as CaseType,
 				]}
@@ -2249,18 +2226,18 @@ describe("case workspace chrome", () => {
 		expect(onChange.mock.calls[0]?.[0]).toMatchObject({
 			type: "barcode",
 			mode: { kind: "exact" },
-			default: input.default,
+			default: searchInputDefault(input),
 		});
 	});
 
-	it("keeps binding-driven match and default changes behind one consequence dialog", async () => {
+	it("keeps binding-driven default changes behind one consequence dialog", async () => {
 		const input = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000148"),
+			testUuid("00000000-0000-4000-8000-000000000148"),
 			"birth_date",
 			"Birth date",
 			"date",
 			"birth_date",
-			{ mode: rangeMode(), default: today() },
+			{ default: today() },
 		);
 		const onChange = vi.fn();
 		const editor = (key: string) => (
@@ -2273,8 +2250,16 @@ describe("case workspace chrome", () => {
 					{
 						name: "patient",
 						properties: [
-							{ name: "birth_date", label: "Birth date", data_type: "date" },
-							{ name: "case_name", label: "Case name", data_type: "text" },
+							{
+								name: "birth_date",
+								label: proseText("Birth date"),
+								data_type: "date",
+							},
+							{
+								name: "case_name",
+								label: proseText("Case name"),
+								data_type: "text",
+							},
 						],
 					} as CaseType,
 				]}
@@ -2300,7 +2285,7 @@ describe("case workspace chrome", () => {
 			}),
 		).toBeDefined();
 		expect(dialog.textContent).toContain(
-			"“Between dates” will become “Similar spelling”. The starting value will be removed because Case name can’t use it. You can undo this change.",
+			"The starting value will be removed because Case name can’t use it. You can undo this change.",
 		);
 		fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
 		await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
@@ -2327,14 +2312,14 @@ describe("case workspace chrome", () => {
 			kind: "simple",
 			property: "case_name",
 			type: "text",
-			mode: { kind: "fuzzy" },
 		});
+		expect(onChange.mock.calls[0]?.[0]).not.toHaveProperty("mode");
 		expect(onChange.mock.calls[0]?.[0]).not.toHaveProperty("default");
 	});
 
 	it("explains the unsupported range-to-custom transition before replacing it", async () => {
 		const input = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000149"),
+			testUuid("00000000-0000-4000-8000-000000000149"),
 			"visit_range",
 			"Visit range",
 			"date-range",
@@ -2401,53 +2386,13 @@ describe("case workspace chrome", () => {
 		expect(onEditCondition).toHaveBeenCalledOnce();
 	});
 
-	it("names the authored multi-select quantifier in the custom consequence", async () => {
-		const input = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000150"),
-			"services",
-			"Services",
-			"text",
-			"services",
-			{ mode: multiSelectContainsMode("all") },
-		);
-		render(
-			<SearchInputEditor
-				value={input}
-				index={0}
-				siblings={[input]}
-				caseTypes={[]}
-				currentCaseType="patient"
-				onChange={() => {}}
-				onEditCondition={() => {}}
-			/>,
-		);
-
-		fireEvent.click(
-			screen.getByRole("button", {
-				name: /search field 1 match: includes options/i,
-			}),
-		);
-		fireEvent.click(
-			await screen.findByRole("menuitemradio", { name: /custom condition/i }),
-		);
-		const dialog = await screen.findByRole("alertdialog");
-		expect(
-			within(dialog).getByRole("heading", {
-				name: "Replace “All chosen options” with a custom condition?",
-			}),
-		).toBeDefined();
-		expect(dialog.textContent).toContain(
-			"can’t keep the full list from “All chosen options”",
-		);
-	});
-
 	it("keeps an imported custom condition when standard replacement is canceled", async () => {
 		const importedPredicate = eq(
 			prop("patient", "status"),
 			term(sessionContext("userid")),
 		);
 		const input = advancedSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000054"),
+			testUuid("00000000-0000-4000-8000-000000000054"),
 			"status_search",
 			"Status",
 			"text",
@@ -2463,7 +2408,7 @@ describe("case workspace chrome", () => {
 					{
 						name: "patient",
 						properties: [
-							{ name: "status", label: "Status", data_type: "text" },
+							{ name: "status", label: proseText("Status"), data_type: "text" },
 						],
 					} as CaseType,
 				]}
@@ -2509,7 +2454,7 @@ describe("case workspace chrome", () => {
 			term(sessionContext("userid")),
 		);
 		const input = advancedSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000055"),
+			testUuid("00000000-0000-4000-8000-000000000055"),
 			"status_search",
 			"Status",
 			"date",
@@ -2526,7 +2471,7 @@ describe("case workspace chrome", () => {
 					{
 						name: "patient",
 						properties: [
-							{ name: "status", label: "Status", data_type: "text" },
+							{ name: "status", label: proseText("Status"), data_type: "text" },
 						],
 					} as CaseType,
 				]}
@@ -2579,7 +2524,7 @@ describe("case workspace chrome", () => {
 
 	it("keeps the unsupported choice-list field type out of normal authoring", async () => {
 		const input = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000048"),
+			testUuid("00000000-0000-4000-8000-000000000048"),
 			"case_name",
 			"Patient name",
 			"text",
@@ -2606,50 +2551,16 @@ describe("case workspace chrome", () => {
 		).toBeNull();
 	});
 
-	it("shows a saved choice list only as a legacy repair state", async () => {
-		const input = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000049"),
-			"status",
-			"Status",
-			"select",
-			"status",
-		);
-		render(
-			<SearchInputEditor
-				value={input}
-				index={0}
-				siblings={[input]}
-				caseTypes={[]}
-				currentCaseType="patient"
-				onChange={() => {}}
-				onEditCondition={() => {}}
-			/>,
-		);
-
-		fireEvent.click(
-			screen.getByRole("button", { name: /search field 1 type/i }),
-		);
-		const legacyType = await screen.findByRole("menuitemradio", {
-			name: /choice list/i,
-		});
-		expect(legacyType.hasAttribute("data-disabled")).toBe(true);
-		expect(
-			screen.getByText(
-				/choose another type because this saved field isn’t supported/i,
-			),
-		).toBeDefined();
-	});
-
 	it("only foregrounds the condition name when it needs attention", () => {
 		const input = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000052"),
+			testUuid("00000000-0000-4000-8000-000000000052"),
 			"case_name",
 			"Patient name",
 			"text",
 			"case_name",
 		);
 		const duplicate = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000053"),
+			testUuid("00000000-0000-4000-8000-000000000053"),
 			"case_name",
 			"Another patient name",
 			"text",
@@ -2691,7 +2602,7 @@ describe("case workspace chrome", () => {
 
 	it("opens a search field's additional settings from the keyboard", () => {
 		const input = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000054"),
+			testUuid("00000000-0000-4000-8000-000000000054"),
 			"case_name",
 			"Patient name",
 			"text",
@@ -2728,7 +2639,7 @@ describe("case workspace chrome", () => {
 
 	it("describes forgiving match modes by their outcome", async () => {
 		const input = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000050"),
+			testUuid("00000000-0000-4000-8000-000000000050"),
 			"case_name",
 			"Patient name",
 			"text",
@@ -2765,7 +2676,7 @@ describe("case workspace chrome", () => {
 
 	it("calls forgiving date matching Flexible date", () => {
 		const input = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000051"),
+			testUuid("00000000-0000-4000-8000-000000000051"),
 			"visit_date",
 			"Visit date",
 			"date",
@@ -2793,7 +2704,7 @@ describe("case workspace chrome", () => {
 
 	it("summarizes a custom search match in the inspector", () => {
 		const input = advancedSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000047"),
+			testUuid("00000000-0000-4000-8000-000000000047"),
 			"case_name",
 			"Patient name",
 			"text",
@@ -2826,7 +2737,13 @@ describe("case workspace chrome", () => {
 				onChange={onChange}
 				caseTypes={SEARCH_CONDITION_CASE_TYPES}
 				currentCaseType="patient"
-				knownInputs={[{ name: "query", data_type: "text" }]}
+				knownInputs={[
+					{
+						uuid: testUuid("query"),
+						name: "query",
+						data_type: "text",
+					},
+				]}
 				onEditDisplayCondition={onEditDisplayCondition}
 			/>,
 		);
@@ -2852,7 +2769,13 @@ describe("case workspace chrome", () => {
 				onChange={onChange}
 				caseTypes={SEARCH_CONDITION_CASE_TYPES}
 				currentCaseType="patient"
-				knownInputs={[{ name: "query", data_type: "text" }]}
+				knownInputs={[
+					{
+						uuid: testUuid("query"),
+						name: "query",
+						data_type: "text",
+					},
+				]}
 				hasVisibleSearchScreen={false}
 				onEditDisplayCondition={onEditDisplayCondition}
 			/>,

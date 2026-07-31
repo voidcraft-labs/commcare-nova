@@ -1,5 +1,5 @@
 // Kysely typing + handle for the app-state tables (`apps`,
-// `blueprint_entities`, `accepted_mutations`, `events`, `threads`,
+// `blueprint_entities`, `app_changes`, `events`, `threads`,
 // `run_summaries`, `presence`, `user_settings`, the two monthly ledgers, media
 // assets, and Project-scoped lookup data) — the storage layer behind every
 // `lib/db` module. DDL lives in `lib/case-store/migrations/`; these types and
@@ -29,13 +29,18 @@ import {
 import { getCaseStorePool } from "@/lib/case-store/postgres/connection";
 import type { EntityRowKind } from "@/lib/db/blueprintRows";
 import type { Mutation } from "@/lib/doc/types";
-import type { CaseType, ConnectType } from "@/lib/domain";
+import type { CaseType, ConnectType, MediaAssetId, Uuid } from "@/lib/domain";
+import type {
+	LookupColumnId,
+	LookupRowId,
+	LookupTableId,
+} from "@/lib/domain/lookupIds";
 import type { Location } from "@/lib/routing/types";
 import { delay } from "@/lib/utils/delay";
 
 /** Server-set timestamp: read as `Date`, write as `Date`/ISO, omit when defaulted. */
 type Timestamp = ColumnType<Date, Date | string | undefined, Date | string>;
-/** Legacy `bigint` counters whose bounded readers intentionally `Number(...)`. */
+/** `bigint` counters read through the shared nonnegative safe-integer boundary. */
 type BigIntColumn = ColumnType<string | number, number, number>;
 /** Lookup revisions stay exact decimal strings on every application boundary. */
 type LookupRevisionColumn = ColumnType<string, string, string>;
@@ -45,18 +50,22 @@ type DefaultedLookupRevisionColumn = ColumnType<
 	string | undefined,
 	string
 >;
-/** Server-defaulted UUIDv7 identity: optional on INSERT, immutable on UPDATE. */
-type DefaultedUuidV7Column = ColumnType<string, string | undefined, never>;
+/** Server-defaulted branded UUIDv7 identity: optional on INSERT, immutable on UPDATE. */
+type DefaultedUuidV7Column<Identity extends string> = ColumnType<
+	Identity,
+	Identity | undefined,
+	never
+>;
 
 export interface AppsTable {
 	id: string;
 	owner: string;
-	project_id: string | null;
+	project_id: string;
 	app_name: string;
 	app_name_lower: string;
 	connect_type: ConnectType | null;
 	case_types: JSONColumnType<CaseType[] | null, string | null, string | null>;
-	logo: string | null;
+	logo: MediaAssetId | null;
 	module_count: number;
 	form_count: number;
 	mutation_seq: BigIntColumn;
@@ -99,17 +108,16 @@ export interface AppsTable {
 
 export interface BlueprintEntitiesTable {
 	app_id: string;
-	uuid: string;
+	uuid: Uuid;
 	/** The kind union lives on `EntityRowKind` in `lib/db/blueprintRows.ts`
 	 *  beside the decompose/assemble pair, and the SQL `CHECK` constraint
 	 *  mirrors it. */
 	kind: EntityRowKind;
-	parent_uuid: string | null;
-	/** Index within the parent's membership array at write time — the arrays
-	 *  round-trip byte-identically (display sequence is still derived from the
-	 *  entities' fractional `order` keys, exactly as before; this preserves the
-	 *  array itself, including position-seeded backfill inputs). The flat user
-	 *  collections have no membership array and store a constant 0. */
+	parent_uuid: Uuid | null;
+	/** Index within the owning membership array at write time. Nested rows use
+	 *  their parent's array; Blueprint-root and flat rows use their root array.
+	 *  The array is the sequence, so every ordered kind — including the three
+	 *  flat user collections — stores a real ordinal. */
 	ordinal: number;
 	// The entity record verbatim (a `Module` / `Form` / `Field` / `UserProperty`
 	// / `UserType` / `Persona`); typed loosely here because every kind shares
@@ -118,7 +126,7 @@ export interface BlueprintEntitiesTable {
 	data: JSONColumnType<Record<string, unknown>>;
 }
 
-export interface AcceptedMutationsTable {
+export interface AppChangesTable {
 	app_id: string;
 	seq: BigIntColumn;
 	batch_id: string;
@@ -126,7 +134,21 @@ export interface AcceptedMutationsTable {
 	actor_id: string;
 	kind: string;
 	mutations: JSONColumnType<Mutation[]>;
+	from_project_id: string | null;
+	to_project_id: string | null;
 	ts: Timestamp;
+}
+
+/** Immutable canonical snapshot establishing one explicit app-change fold
+ * horizon. Runtime may read these rows but only a schema migration inserts
+ * them; database triggers reject update/delete. */
+export interface AppChangeFoldBaselinesTable {
+	app_id: string;
+	seq: BigIntColumn;
+	project_id: string;
+	snapshot: JSONColumnType<Record<string, unknown>>;
+	snapshot_digest: string;
+	created_at: Timestamp;
 }
 
 export interface EventsTable {
@@ -258,7 +280,7 @@ export interface CreditGrantsTable {
 }
 
 export interface MediaAssetsTable {
-	id: string;
+	id: MediaAssetId;
 	project_id: string;
 	owner: string;
 	content_hash: string;
@@ -286,23 +308,19 @@ export interface MediaAssetsTable {
 }
 
 export interface MediaAssetRefsTable {
-	asset_id: string;
+	project_id: string;
+	asset_id: MediaAssetId;
 	app_id: string;
 }
 
 /** One successful pending-attempt id -> canonical ready asset replay record. */
 export interface MediaUploadAliasesTable {
-	attempt_asset_id: string;
+	attempt_asset_id: MediaAssetId;
 	project_id: string;
 	content_hash: string;
-	canonical_asset_id: string;
+	canonical_asset_id: MediaAssetId;
 	created_at: Timestamp;
 	expires_at: Timestamp;
-}
-
-export interface MediaReferenceIndexStateTable {
-	singleton: boolean;
-	audited_complete_at: ColumnType<Date | null, Date | null, Date | null>;
 }
 
 export interface LookupProjectStateTable {
@@ -314,7 +332,7 @@ export interface LookupProjectStateTable {
 
 export interface LookupTablesTable {
 	project_id: string;
-	id: DefaultedUuidV7Column;
+	id: DefaultedUuidV7Column<LookupTableId>;
 	name: string;
 	tag: string;
 	/** Definition and row revisions are exact signed-int64 decimal strings. */
@@ -340,8 +358,8 @@ export type StoredLookupColumnDataType =
 
 export interface LookupColumnsTable {
 	project_id: string;
-	table_id: string;
-	id: DefaultedUuidV7Column;
+	table_id: LookupTableId;
+	id: DefaultedUuidV7Column<LookupColumnId>;
 	wire_name: string;
 	label: string;
 	data_type: StoredLookupColumnDataType;
@@ -350,11 +368,11 @@ export interface LookupColumnsTable {
 
 export interface LookupRowsTable {
 	project_id: string;
-	table_id: string;
-	id: DefaultedUuidV7Column;
+	table_id: LookupTableId;
+	id: DefaultedUuidV7Column<LookupRowId>;
 	order_key: string;
 	/** UUID-keyed scalar cells; runtime validation owns the per-column shape. */
-	values: JSONColumnType<Record<string, string | number>>;
+	values: JSONColumnType<Record<LookupColumnId, string | number>>;
 	/** Postgres-generated `octet_length(values::text)`; never caller-written. */
 	value_bytes: ColumnType<number, never, never>;
 	created_by: string;
@@ -366,15 +384,15 @@ export interface LookupRowsTable {
 /** One exact app -> lookup-table target. Structural occurrence paths stay in memory. */
 export interface LookupTableReferencesTable {
 	project_id: string;
-	table_id: string;
+	table_id: LookupTableId;
 	app_id: string;
 }
 
 /** One exact app -> lookup-column target; its parent table edge must also exist. */
 export interface LookupColumnReferencesTable {
 	project_id: string;
-	table_id: string;
-	column_id: string;
+	table_id: LookupTableId;
+	column_id: LookupColumnId;
 	app_id: string;
 }
 
@@ -395,7 +413,7 @@ export interface FormAttachmentsTable {
 	created_by: string;
 	/** One form entry (an `activateForm`), the idempotency/reservation scope. */
 	entry_key: string;
-	field_uuid: string;
+	field_uuid: Uuid;
 	/** Concrete engine path, so replace/clear targets one repeat instance. */
 	instance_path: string;
 	original_filename: string;
@@ -430,7 +448,7 @@ export interface FormSubmissionIntentsTable {
 	project_id: string;
 	created_by: string;
 	entry_key: string;
-	form_uuid: string;
+	form_uuid: Uuid;
 	app_mutation_seq: BigIntColumn;
 	request_digest: string;
 	/** Null exists only inside the transaction while the envelope executes. */
@@ -449,7 +467,8 @@ export interface FormAttachmentRateLimitsTable {
 export interface AppDatabase {
 	apps: AppsTable;
 	blueprint_entities: BlueprintEntitiesTable;
-	accepted_mutations: AcceptedMutationsTable;
+	app_changes: AppChangesTable;
+	app_change_fold_baselines: AppChangeFoldBaselinesTable;
 	events: EventsTable;
 	threads: ThreadsTable;
 	chat_stream_chunks: ChatStreamChunksTable;
@@ -462,7 +481,6 @@ export interface AppDatabase {
 	media_assets: MediaAssetsTable;
 	media_asset_refs: MediaAssetRefsTable;
 	media_upload_aliases: MediaUploadAliasesTable;
-	media_reference_index_state: MediaReferenceIndexStateTable;
 	form_attachments: FormAttachmentsTable;
 	form_attachment_rate_limits: FormAttachmentRateLimitsTable;
 	form_submission_intents: FormSubmissionIntentsTable;

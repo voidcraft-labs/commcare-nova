@@ -23,7 +23,10 @@ import { requireSession } from "@/lib/auth-utils";
 import { userInProject } from "@/lib/db/appAccess";
 import { loadAssetById } from "@/lib/db/mediaAssets";
 import { deleteMediaAssetForActor } from "@/lib/db/mediaDeletion";
-import { asAssetId, extractObjectKeyForAsset } from "@/lib/domain/multimedia";
+import {
+	asMediaAssetId,
+	extractObjectKeyForAsset,
+} from "@/lib/domain/multimedia";
 import { log } from "@/lib/logger";
 import { purgeAssetStorage } from "@/lib/media/assetDeletion";
 import { getStoredObjectSize, streamAsset } from "@/lib/storage/media";
@@ -35,7 +38,7 @@ export async function GET(
 	try {
 		const session = await requireSession(req);
 		const { assetId: rawAssetId } = await params;
-		const assetId = asAssetId(rawAssetId);
+		const assetId = asMediaAssetId(rawAssetId);
 
 		const asset = await loadAssetById(assetId);
 		if (asset?.status !== "ready") {
@@ -129,7 +132,7 @@ export async function DELETE(
 	try {
 		const session = await requireSession(req);
 		const { assetId: rawAssetId } = await params;
-		const assetId = asAssetId(rawAssetId);
+		const assetId = asMediaAssetId(rawAssetId);
 
 		const asset = await loadAssetById(assetId);
 		if (
@@ -142,7 +145,7 @@ export async function DELETE(
 			);
 		}
 
-		const deleted = await purgeAssetStorage(asset, {
+		const deleted = await purgeAssetStorage({
 			alsoDeleteForAsset: (deletedAsset) => [
 				extractObjectKeyForAsset(deletedAsset),
 			],

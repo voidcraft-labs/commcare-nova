@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import { blueprintDocSchema } from "@/lib/domain";
+import { blueprintDocSchema, isOwnerOnlyCaseSearchConfig } from "@/lib/domain";
 import { projectTileGrid } from "@/lib/preview/caseTileLayout";
 import {
 	buildCaseWorkspaceBlueprint,
@@ -24,7 +24,12 @@ describe("case workspace visual-QA seed", () => {
 		const module = doc.modules[CASE_WORKSPACE_SEED.moduleUuid];
 		expect(module).toBeDefined();
 		expect(module?.caseListOnly).toBe(true);
-		expect(module?.caseSearchConfig?.searchScreenSubtitle).toBeUndefined();
+		const searchConfig = module?.caseSearchConfig;
+		expect(
+			searchConfig === undefined || isOwnerOnlyCaseSearchConfig(searchConfig)
+				? undefined
+				: searchConfig.searchScreenSubtitle,
+		).toBeUndefined();
 
 		const columns = module?.caseListConfig?.columns ?? [];
 		expect(
@@ -99,6 +104,10 @@ describe("case workspace visual-QA seed", () => {
 			firstCase: `/build/${APP_ID}/${CASE_WORKSPACE_SEED.moduleUuid}/cases/${CASE_ID}`,
 			tileResults: `/build/${APP_ID}/${tile.moduleUuid}/results`,
 			tileForm: `/build/${APP_ID}/${tile.formUuid}`,
+			projectData: `/build/${APP_ID}/project-data`,
+			// A selected field serializes as its own uuid, so the smoke's deep
+			// link into the options-source editor is one segment, not two.
+			selectField: `/build/${APP_ID}/${tile.selectFieldUuid}`,
 		});
 	});
 

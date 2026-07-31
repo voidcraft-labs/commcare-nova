@@ -30,6 +30,8 @@ import type { PoolConfig } from "pg";
 import { Pool } from "pg";
 import { describe, expect, it } from "vitest";
 import {
+	AUDIT_DB_ROLE_CONNECTION_LIMIT,
+	AUDIT_POOL_MAX_PER_EXECUTION,
 	buildPoolConfig,
 	CAPTURE_CLEANUP_DB_ROLE_CONNECTION_LIMIT,
 	CAPTURE_CLEANUP_LOCK_CONTENDER_CONNECTIONS,
@@ -194,6 +196,7 @@ describe("readCaseStoreWorkload", () => {
 		["service", 3],
 		["migration", 1],
 		["capture-cleanup", 2],
+		["audit", 1],
 		["operator", 1],
 	] as const)("maps %s to its exact pool maximum", (workload, poolMax) => {
 		expect(readCaseStoreWorkload({ NOVA_DB_WORKLOAD: workload })).toBe(
@@ -204,6 +207,11 @@ describe("readCaseStoreWorkload", () => {
 
 	it("keeps one-off operator tooling inside one residual ordinary connection", () => {
 		expect(OPERATOR_POOL_MAX_PER_PROCESS).toBe(1);
+	});
+
+	it("caps the dedicated read-only audit identity at one connection", () => {
+		expect(AUDIT_POOL_MAX_PER_EXECUTION).toBe(1);
+		expect(AUDIT_DB_ROLE_CONNECTION_LIMIT).toBe(1);
 	});
 
 	it("fails loudly when a production process omits the workload", () => {
@@ -269,6 +277,7 @@ describe("buildPoolConfig", () => {
 	it.each([
 		["migration", 1],
 		["capture-cleanup", 2],
+		["audit", 1],
 		["operator", 1],
 	] as const)("applies the %s workload pool maximum", (workload, poolMax) => {
 		expect(buildPoolConfig(stubClientOpts, env, workload).max).toBe(poolMax);
@@ -344,7 +353,7 @@ describe("enforceConnectionBudget", () => {
 		expect(() => enforceConnectionBudget()).not.toThrow();
 	});
 
-	it("reserves capacity for live service, migration, cleanup, and one rejected overlap", () => {
+	it("reserves capacity for service, migration, cleanup, audit, and one rejected overlap", () => {
 		const servicePeak =
 			CLOUD_RUN_MAX_INSTANCES *
 			(POOL_MAX_PER_INSTANCE + LISTENER_CONNECTIONS_PER_INSTANCE);
@@ -354,7 +363,8 @@ describe("enforceConnectionBudget", () => {
 		const productionPeak =
 			RUNTIME_DB_ROLE_CONNECTION_LIMIT +
 			MIGRATION_DB_ROLE_CONNECTION_LIMIT +
-			CAPTURE_CLEANUP_DB_ROLE_CONNECTION_LIMIT;
+			CAPTURE_CLEANUP_DB_ROLE_CONNECTION_LIMIT +
+			AUDIT_DB_ROLE_CONNECTION_LIMIT;
 		const applicationBudget =
 			CLOUD_SQL_MAX_CONNECTIONS - CLOUD_SQL_CAPACITY_HEADROOM_CONNECTIONS;
 
@@ -365,6 +375,8 @@ describe("enforceConnectionBudget", () => {
 			migrationRoleLimit: MIGRATION_DB_ROLE_CONNECTION_LIMIT,
 			cleanupPeak,
 			cleanupRoleLimit: CAPTURE_CLEANUP_DB_ROLE_CONNECTION_LIMIT,
+			auditPeak: AUDIT_POOL_MAX_PER_EXECUTION,
+			auditRoleLimit: AUDIT_DB_ROLE_CONNECTION_LIMIT,
 			productionPeak,
 			applicationBudget,
 			ordinaryHeadroom: CLOUD_SQL_ORDINARY_LOGIN_HEADROOM_CONNECTIONS,
@@ -377,9 +389,11 @@ describe("enforceConnectionBudget", () => {
 			migrationRoleLimit: 1,
 			cleanupPeak: 3,
 			cleanupRoleLimit: 3,
-			productionPeak: 20,
-			applicationBudget: 20,
-			ordinaryHeadroom: 2,
+			auditPeak: 1,
+			auditRoleLimit: 1,
+			productionPeak: 21,
+			applicationBudget: 21,
+			ordinaryHeadroom: 1,
 			superuserReserved: 3,
 			reservedConnectionsSetting: 0,
 		});

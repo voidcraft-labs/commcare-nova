@@ -11,7 +11,8 @@
 
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { iconCatalogEntry } from "@/lib/domain/builtinIcons";
+import { testMediaAssetId } from "@/__tests__/helpers/uuid";
+import { builtinIconRef, iconCatalogEntry } from "@/lib/domain/builtinIcons";
 import {
 	builtinAssetRows,
 	partitionAssetRefs,
@@ -19,15 +20,15 @@ import {
 } from "../builtinIconAssets";
 
 describe("partitionAssetRefs", () => {
-	it("splits real ids from built-in slugs, deduping and dropping stale slugs", () => {
+	it("splits strict uploaded ids from closed built-in refs and dedupes both", () => {
+		const uploaded = testMediaAssetId("uploaded");
 		const { realIds, builtinSlugs } = partitionAssetRefs([
-			"nova-icon:household",
-			"a1b2c3d4-uuid",
-			"nova-icon:household", // duplicate → collapses
-			"nova-icon:bogus", // stale → dropped (fails closed)
-			"nova-icon:register",
+			builtinIconRef("household"),
+			uploaded,
+			builtinIconRef("household"), // duplicate → collapses
+			builtinIconRef("register"),
 		]);
-		expect(realIds).toEqual(["a1b2c3d4-uuid"]);
+		expect(realIds).toEqual([uploaded]);
 		expect(builtinSlugs).toEqual(["household", "register"]);
 	});
 

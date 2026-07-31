@@ -5,15 +5,14 @@
  *
  * Every reference operation in the write path answers "who references
  * X?" / "who declares X?" through these lookups instead of walking the
- * document: the rename cascade and `moveField`'s prose re-anchor pass
- * (`mutations/fields.ts`), the case-type retirement planner
+ * document: the case-property rename cascade (`mutations/fields.ts`), the
+ * case-type retirement planner
  * (`caseTypeRetirement.ts`), the peer-aware rename verdict
  * (`identifierVerdicts.ts`), and the unwritten-property derivation
  * (`unwrittenProperties.ts`). Edges carry (carrier uuid, slot id),
- * never character positions — a consumer that needs structure walks
- * the named slot's leaves (AST slots) or re-locates the hashtag
- * substrings (prose), so nothing positional can go stale across
- * mutations.
+ * never character positions — a consumer that needs structure walks the
+ * named slot's typed AST/template leaves, so nothing positional can go stale
+ * across mutations.
  *
  * ## One extractor, two builders
  *
@@ -27,11 +26,9 @@
  *
  * ## Extraction discipline
  *
- * Expression slots store the XPath AST (`lib/domain/xpath`), so their
- * extraction is a pure leaf walk — identity leaves edge directly, no
- * parse, no resolution. Prose slots are located with the shared
- * hashtag matcher (`lib/domain/hashtagSegments.ts`) and their refs
- * resolved against the doc, never parsed as XPath.
+ * Expression slots store the XPath AST (`lib/domain/xpath`) and prose slots
+ * store typed templates, so extraction is a pure leaf walk — identity atoms
+ * edge directly, with no parse or name resolution.
  * Predicate/value-expression slots are walked structurally via
  * `lib/domain/predicate`'s term walkers, keying each `PropertyRef` on
  * the walk's DESTINATION type — the rename rewriter's matching rule.
@@ -42,23 +39,10 @@
  * `mutations/index.ts`) seeds the index on first contact and then, per
  * mutation, re-derives exactly the carriers the mutation could have
  * changed: the named entity (plus its subtree on removals, plus minted
- * clones on duplication), the carriers whose edges a rename re-keys
- * (peers via the declarations index, property referencers via the
- * `c:`-bucket), and two resolution-context groups —
- *
- *   - `local[form]`: carriers whose PROSE embeds form-local hashtag
- *     text. Prose refs resolve by id-path against the form's field
- *     tree at extraction, so any mutation that changes the form's
- *     id/path namespace (add/remove/move/rename/duplicate) can flip a
- *     ref between dangling and resolved WITHOUT touching the carrier.
- *     Re-deriving the bucket keeps the incremental index equal to a
- *     rebuild even for those at-a-distance shifts. AST slots never
- *     join: their identity leaves resolve at PRINT, and an unresolved
- *     leaf stays text forever — extraction has no resolution to track.
- *   - `ctx[module]`: carriers whose extraction read the module's case
- *     type (contextual `#case/…` refs, prose or transitional AST raw
- *     leaves). A module case-type change or a cross-module form move
- *     re-keys their `c:` edges the same way.
+ * clones on duplication), every carrier for the explicit app-wide property
+ * rename, and the `ctx[module]` group whose extraction read the module's
+ * case-type context. A module case-type change or a cross-module form move
+ * re-keys those edges.
  *
  * Re-extraction is idempotent, so over-approximating a touched set
  * costs only repeated parses of that carrier's own slots — never
@@ -72,7 +56,6 @@
 import type { Mutation } from "@/lib/doc/types";
 import {
 	type BlueprintDoc,
-	buildHashtagRefRegex,
 	casePropertyDeclKey,
 	casePropertyTargetKey,
 	caseTypeTargetKey,
@@ -80,20 +63,24 @@ import {
 	type Field,
 	FORM_REFERENCE_SLOTS,
 	type Form,
-	fieldCasePropertyOn,
+	fieldCaseWrite,
 	fieldReferenceSlotsFor,
+	isOwnerOnlyCaseSearchConfig,
 	isOwnRecord,
 	isXPathExpression,
 	MODULE_REFERENCE_SLOTS,
 	type Module,
 	ownRecordValue,
+	type ProseTemplate,
 	type ReferenceIndex,
 	readSlotStrings,
 	readSlotValues,
 	recordFromEntries,
+	searchInputDefault,
 	USER_PROPERTY_TARGET_PREFIX,
 	type Uuid,
 	userPropertyTargetKey,
+	uuidSchema,
 	type XPathExpression,
 } from "@/lib/domain";
 import {
@@ -118,7 +105,6 @@ function emptyReferenceIndex(): ReferenceIndex {
 		in: recordFromEntries([]),
 		out: recordFromEntries([]),
 		decl: recordFromEntries([]),
-		local: recordFromEntries([]),
 		ctx: recordFromEntries([]),
 	};
 }
@@ -150,13 +136,9 @@ function removeFromBucket(
 }
 
 /**
- * The extraction context a carrier's references resolve in: the
- * containing form (form-local id-path resolution) and the owning
- * module (whose `caseType` contextualizes `#case/…` refs and the
- * module config's property slots).
+ * The owning-module context a carrier's references resolve in.
  */
 interface CarrierContext {
-	formUuid?: Uuid;
 	moduleUuid?: Uuid;
 	moduleCaseType?: string;
 }
@@ -179,17 +161,19 @@ interface CarrierContext {
  * maintained buckets in O(1).
  */
 function carrierContext(doc: BlueprintDoc, carrier: string): CarrierContext {
+	const identity = uuidSchema.safeParse(carrier);
+	if (!identity.success) return {};
 	const mod = ownRecordValue(doc.modules, carrier);
 	if (mod) {
 		return {
-			moduleUuid: carrier as Uuid,
+			moduleUuid: identity.data,
 			...(mod.caseType !== undefined && { moduleCaseType: mod.caseType }),
 		};
 	}
 	let formUuid: Uuid | undefined;
-	if (ownRecordValue(doc.forms, carrier)) formUuid = carrier as Uuid;
+	if (ownRecordValue(doc.forms, carrier)) formUuid = identity.data;
 	else if (ownRecordValue(doc.fields, carrier)) {
-		formUuid = findContainingForm(doc, carrier as Uuid);
+		formUuid = findContainingForm(doc, identity.data);
 	} else return {};
 	if (formUuid === undefined) return {};
 	const moduleUuid = resolveFormModule(doc, formUuid);
@@ -198,7 +182,6 @@ function carrierContext(doc: BlueprintDoc, carrier: string): CarrierContext {
 			? ownRecordValue(doc.modules, moduleUuid)?.caseType
 			: undefined;
 	return {
-		formUuid,
 		...(moduleUuid !== undefined && { moduleUuid }),
 		...(moduleCaseType !== undefined && { moduleCaseType }),
 	};
@@ -211,7 +194,10 @@ function resolveFormModule(
 	formUuid: Uuid,
 ): Uuid | undefined {
 	for (const [moduleUuid, formUuids] of Object.entries(doc.formOrder)) {
-		if (formUuids.includes(formUuid)) return moduleUuid as Uuid;
+		if (formUuids.includes(formUuid)) {
+			const parsedModuleUuid = uuidSchema.safeParse(moduleUuid);
+			if (parsedModuleUuid.success) return parsedModuleUuid.data;
+		}
 	}
 	return undefined;
 }
@@ -235,15 +221,13 @@ function unindexCarrier(index: ReferenceIndex, carrier: string): void {
 	for (const declaration of entry.decls ?? []) {
 		removeFromBucket(index.decl, declaration, carrier);
 	}
-	if (entry.local !== undefined) {
-		removeFromBucket(index.local, entry.local, carrier);
-	}
 	if (entry.ctx !== undefined) removeFromBucket(index.ctx, entry.ctx, carrier);
 	delete index.out[carrier];
 }
 
 /**
- * Register a field's `(case_property_on, id)` case-property
+ * Register a field's explicit `(caseWrite.caseType, caseWrite.property)`
+ * case-property
  * contribution (`decl`). Runs for EVERY (re-)indexed field BEFORE any
  * edge extraction in the same pass.
  */
@@ -253,14 +237,14 @@ function registerFieldDeclarations(
 	carrier: string,
 ): void {
 	const field = ownRecordValue(doc.fields, carrier);
-	if (!field || field.id.length === 0) return;
-	const caseType = fieldCasePropertyOn(field);
-	if (caseType === undefined) return;
+	if (!field) return;
+	const write = fieldCaseWrite(field);
+	if (write === undefined) return;
 	const entry = ownRecordValue(index.out, carrier) ?? {
 		edges: recordFromEntries([]),
 	};
 	index.out[carrier] = entry;
-	const key = casePropertyDeclKey(caseType, field.id);
+	const key = casePropertyDeclKey(write.caseType, write.property);
 	entry.decl = key;
 	addToBucket(index.decl, key, carrier);
 }
@@ -299,7 +283,6 @@ function registerFormDeclarations(
 
 interface EdgeSink {
 	edge(targetKey: string, slot: string): void;
-	markLocal(): void;
 	markCtx(): void;
 }
 
@@ -330,13 +313,6 @@ function makeSink(
 			inSlots[slot] = true;
 			byCarrier[carrier] = inSlots;
 		},
-		markLocal() {
-			if (ctx.formUuid === undefined) return;
-			const e = entry();
-			if (e.local !== undefined) return;
-			e.local = ctx.formUuid;
-			addToBucket(index.local, ctx.formUuid, carrier);
-		},
 		markCtx() {
 			if (ctx.moduleUuid === undefined) return;
 			const e = entry();
@@ -362,36 +338,31 @@ function extractCarrierEdges(
 	}
 	const form = ownRecordValue(doc.forms, carrier);
 	if (form) {
-		extractFormEdges(makeSink(index, carrier, ctx), form, ctx);
+		extractFormEdges(makeSink(index, carrier, ctx), form);
 		return;
 	}
 	const field = ownRecordValue(doc.fields, carrier);
-	if (field) extractFieldEdges(makeSink(index, carrier, ctx), doc, field, ctx);
+	if (field) extractFieldEdges(makeSink(index, carrier, ctx), field);
 }
 
-function extractFieldEdges(
-	sink: EdgeSink,
-	doc: BlueprintDoc,
-	field: Field,
-	ctx: CarrierContext,
-): void {
+function extractFieldEdges(sink: EdgeSink, field: Field): void {
 	const repeatMode = field.kind === "repeat" ? field.repeat_mode : undefined;
 	for (const slot of fieldReferenceSlotsFor(field.kind, repeatMode)) {
 		switch (slot.kind) {
 			case "xpath-ast":
 				for (const value of readSlotValues(field, slot.path)) {
 					if (isXPathExpression(value.value)) {
-						extractAstRefs(sink, ctx, value.value, slot.slot);
+						extractAstRefs(sink, value.value, slot.slot);
 					}
 				}
 				break;
 			case "prose":
-				for (const value of readSlotStrings(field, slot.path)) {
-					extractProseRefs(sink, doc, ctx, value.text, slot.slot);
+				for (const value of readSlotValues(field, slot.path)) {
+					extractProseRefs(sink, value.value as ProseTemplate, slot.slot);
 				}
 				break;
 			case "case-type-ref":
-				// `case_property_on` — names the case type the field writes
+				// `caseWrite.caseType` — names the case type the field writes
 				// to. The matching DECLARATION entry is registered separately
 				// (`registerFieldDeclarations`); the edge here is what makes
 				// the field show up as a referencer of the type.
@@ -404,17 +375,24 @@ function extractFieldEdges(
 			case "lookup-carrier":
 				if (
 					(field.kind === "single_select" || field.kind === "multi_select") &&
-					field.optionsSource?.filter !== undefined
+					field.optionsSource.kind === "lookup" &&
+					field.optionsSource.filter !== undefined
 				) {
 					predicateEdges(sink, slot.slot, field.optionsSource.filter);
 				}
 				break;
+			case "case-property-ref": {
+				const write = fieldCaseWrite(field);
+				if (write !== undefined) {
+					sink.edge(
+						casePropertyTargetKey(write.caseType, write.property),
+						slot.slot,
+					);
+				}
+				break;
+			}
 			case "predicate-ast":
 			case "entity-uuid":
-			case "case-property-ref":
-				// No field slot carries these kinds today — kept explicit so
-				// the registry's kind union stays exhaustively handled here,
-				// the same contract the rename rewriters hold.
 				break;
 			default: {
 				const _exhaustive: never = slot.kind;
@@ -424,11 +402,7 @@ function extractFieldEdges(
 	}
 }
 
-function extractFormEdges(
-	sink: EdgeSink,
-	form: Form,
-	ctx: CarrierContext,
-): void {
+function extractFormEdges(sink: EdgeSink, form: Form): void {
 	for (const slot of FORM_REFERENCE_SLOTS) {
 		switch (slot.slot) {
 			case "form_display_condition":
@@ -447,7 +421,7 @@ function extractFormEdges(
 				// same as the field expression slots.
 				for (const value of readSlotValues(form, slot.path)) {
 					if (isXPathExpression(value.value)) {
-						extractAstRefs(sink, ctx, value.value, slot.slot);
+						extractAstRefs(sink, value.value, slot.slot);
 					}
 				}
 				break;
@@ -612,8 +586,9 @@ function extractModuleEdges(sink: EdgeSink, mod: Module): void {
 				break;
 			case "search_input_default":
 				for (const input of list?.searchInputs ?? []) {
-					if (input.default !== undefined) {
-						expressionEdges(sink, slot.slot, input.default);
+					const defaultValue = searchInputDefault(input);
+					if (defaultValue !== undefined) {
+						expressionEdges(sink, slot.slot, defaultValue);
 					}
 				}
 				break;
@@ -625,7 +600,11 @@ function extractModuleEdges(sink: EdgeSink, mod: Module): void {
 				}
 				break;
 			case "search_button_display_condition":
-				if (search?.searchButtonDisplayCondition) {
+				if (
+					search !== undefined &&
+					!isOwnerOnlyCaseSearchConfig(search) &&
+					search.searchButtonDisplayCondition
+				) {
 					predicateEdges(sink, slot.slot, search.searchButtonDisplayCondition);
 				}
 				break;
@@ -757,22 +736,11 @@ function expressionEdges(
 /**
  * Edges for one stored expression AST — a pure leaf walk, no parse:
  *
- *   - `field-ref` / `path-ref` carry the target's uuid directly. No
- *     `local` mark: identity edges cannot shift with the form's id
- *     namespace, which is the whole point of the representation.
+ *   - `field-ref` / `path-ref` carry the target's UUID directly.
  *   - `case-ref` names its type (`t:`) and reads its property (`c:`).
- *   - `raw-ref` keeps the string extractor's namespace dispatch: a
- *     contextual `#case/<prop>` keys under the owning module's CURRENT
- *     type and marks the carrier context-dependent; an explicit
- *     namespace (always multi-segment here — single-segment explicit
- *     refs parse to `case-ref` leaves) names its type; dangling
- *     `#form/…` and `#user/…` shapes contribute nothing — an
- *     unresolved leaf stays text forever, so there is no resolution
- *     to track.
  */
 function extractAstRefs(
 	sink: EdgeSink,
-	ctx: CarrierContext,
 	expr: XPathExpression,
 	slot: string,
 ): void {
@@ -793,19 +761,6 @@ function extractAstRefs(
 			case "user-property-ref":
 				sink.edge(userPropertyTargetKey(part.userPropertyUuid), slot);
 				break;
-			case "raw-ref":
-				if (part.namespace === "case") {
-					sink.markCtx();
-					if (part.segments.length === 1 && ctx.moduleCaseType) {
-						sink.edge(
-							casePropertyTargetKey(ctx.moduleCaseType, part.segments[0]),
-							slot,
-						);
-					}
-				} else if (part.namespace !== "form" && part.namespace !== "user") {
-					sink.edge(caseTypeTargetKey(part.namespace), slot);
-				}
-				break;
 			default: {
 				const _exhaustive: never = part;
 				break;
@@ -817,93 +772,36 @@ function extractAstRefs(
 // ── Prose extraction ────────────────────────────────────────────────
 
 /**
- * Edges for one prose string. Only the bare-hashtag substrings the
- * shared matcher locates are reference-bearing — the surrounding text
- * is never parsed as XPath, exactly like the prose rewrite path.
+ * Edges for one canonical prose template. Text parts are always inert,
+ * including hashtag-looking text; only typed parts are references.
  */
 function extractProseRefs(
 	sink: EdgeSink,
-	doc: BlueprintDoc,
-	ctx: CarrierContext,
-	text: string,
+	template: ProseTemplate,
 	slot: string,
 ): void {
-	if (!text?.includes("#")) return;
-	const re = buildHashtagRefRegex("g");
-	for (let match = re.exec(text); match !== null; match = re.exec(text)) {
-		const parts = match[0].slice(1).split("/");
-		hashtagEdges(sink, doc, ctx, slot, parts[0] ?? "", parts.slice(1));
-	}
-}
-
-/**
- * Namespace dispatch shared by the XPath and prose extractors:
- *
- *   - `form` — form-local; a `u:` edge per resolved anchored prefix.
- *   - `user` — built-in user properties, outside the doc; no edge.
- *   - `case` — contextual; keys under the owning module's CURRENT case
- *     type (single-segment refs only — multi-segment `#case/…` is a
- *     shape the property-rename rewriter never matches), and marks the
- *     carrier context-dependent either way so a later type change
- *     re-extracts it.
- *   - anything else — an explicit case-type namespace: a `t:` edge
- *     always, plus the `c:` property edge for the single-segment form.
- */
-function hashtagEdges(
-	sink: EdgeSink,
-	doc: BlueprintDoc,
-	ctx: CarrierContext,
-	slot: string,
-	namespace: string,
-	segments: string[],
-): void {
-	if (namespace.length === 0) return;
-	if (namespace === "form") {
-		sink.markLocal();
-		for (const uuid of resolveIdChain(doc, ctx.formUuid, segments)) {
-			sink.edge(entityTargetKey(uuid), slot);
+	if (!template || !Array.isArray(template.parts)) return;
+	for (const part of template.parts) {
+		switch (part.kind) {
+			case "text":
+			case "user-ref":
+				break;
+			case "field-ref":
+				sink.edge(entityTargetKey(part.uuid), slot);
+				break;
+			case "case-ref":
+				sink.edge(caseTypeTargetKey(part.caseType), slot);
+				sink.edge(casePropertyTargetKey(part.caseType, part.property), slot);
+				break;
+			case "user-property-ref":
+				sink.edge(userPropertyTargetKey(part.userPropertyUuid), slot);
+				break;
+			default: {
+				const _exhaustive: never = part;
+				break;
+			}
 		}
-		return;
 	}
-	if (namespace === "user") return;
-	if (namespace === "case") {
-		sink.markCtx();
-		if (segments.length === 1 && ctx.moduleCaseType) {
-			sink.edge(casePropertyTargetKey(ctx.moduleCaseType, segments[0]), slot);
-		}
-		return;
-	}
-	sink.edge(caseTypeTargetKey(namespace), slot);
-	if (segments.length === 1) {
-		sink.edge(casePropertyTargetKey(namespace, segments[0]), slot);
-	}
-}
-
-/**
- * Resolve an id path stepwise from the form root, returning the field
- * uuid landed on at each step (stopping at the first unresolvable
- * segment). Resolution follows `fieldOrder` structure by semantic id —
- * the same anchored-prefix walk the rewriters' segment matching
- * performs textually.
- */
-function resolveIdChain(
-	doc: BlueprintDoc,
-	formUuid: Uuid | undefined,
-	segments: readonly string[],
-): Uuid[] {
-	if (formUuid === undefined) return [];
-	const resolved: Uuid[] = [];
-	let parent: Uuid = formUuid;
-	for (const segment of segments) {
-		const children = ownRecordValue(doc.fieldOrder, parent) ?? [];
-		const next = children.find(
-			(uuid) => ownRecordValue(doc.fields, uuid)?.id === segment,
-		);
-		if (next === undefined) break;
-		resolved.push(next);
-		parent = next;
-	}
-	return resolved;
 }
 
 // ── Builders + accessors ────────────────────────────────────────────
@@ -948,7 +846,6 @@ function referenceIndexRootsAreOwn(index: ReferenceIndex): boolean {
 		isOwnRecord(index.in) &&
 		isOwnRecord(index.out) &&
 		isOwnRecord(index.decl) &&
-		isOwnRecord(index.local) &&
 		isOwnRecord(index.ctx)
 	);
 }
@@ -962,7 +859,6 @@ function referenceIndexIsOwn(index: ReferenceIndex): boolean {
 	if (
 		!referenceIndexRootsAreOwn(index) ||
 		!nestedSetBucketIsOwn(index.decl) ||
-		!nestedSetBucketIsOwn(index.local) ||
 		!nestedSetBucketIsOwn(index.ctx)
 	) {
 		return false;
@@ -1085,37 +981,30 @@ export function planReferenceIndexMaintenance(
 	const index = doc.refIndex;
 	if (!index) return NO_MAINTENANCE;
 	const carriers = new Set<string>();
-	const addLocalCarriers = (formUuid: string | undefined): void => {
-		if (formUuid === undefined) return;
-		for (const carrier of Object.keys(
-			ownRecordValue(index.local, formUuid) ?? {},
-		)) {
-			carriers.add(carrier);
-		}
-	};
 	const addFieldSubtree = (uuid: Uuid): void => {
 		carriers.add(uuid);
 		for (const descendant of walkFormFieldUuids(doc, uuid)) {
 			carriers.add(descendant);
 		}
 	};
-	const containingFormOf = (uuid: Uuid): Uuid | undefined =>
-		ownRecordValue(doc.forms, uuid) ? uuid : findContainingForm(doc, uuid);
-
 	switch (mut.kind) {
 		// App-level slots are never indexed (the case-type catalog is
-		// root-level data the planner reads directly), so the catalog kinds —
-		// wholesale and granular alike — are no-ops here.
+		// root-level data the planner reads directly), so the granular catalog
+		// kinds are no-ops here.
 		case "setAppName":
 		case "setConnectType":
 		case "setAppLogo":
-		case "setCaseTypes":
 		case "declareCaseType":
 		case "retireCaseType":
 		case "addCaseProperty":
 		case "setCaseProperty":
 		case "removeCaseProperty":
 		case "setCaseTypeMeta":
+			break;
+		case "renameCaseProperties":
+			for (const uuid of Object.keys(doc.modules)) carriers.add(uuid);
+			for (const uuid of Object.keys(doc.forms)) carriers.add(uuid);
+			for (const uuid of Object.keys(doc.fields)) carriers.add(uuid);
 			break;
 		case "addModule":
 			carriers.add(mut.module.uuid);
@@ -1142,7 +1031,7 @@ export function planReferenceIndexMaintenance(
 		case "updateModule": {
 			carriers.add(mut.uuid);
 			// A case-type change re-keys every context-dependent ref in the
-			// module's forms (`#case/…` extracts under the module's type).
+			// module's forms and module-owned contextual property slots.
 			if ("caseType" in mut.patch) {
 				const previous = ownRecordValue(doc.modules, mut.uuid)?.caseType;
 				if (mut.patch.caseType !== previous) {
@@ -1195,51 +1084,15 @@ export function planReferenceIndexMaintenance(
 			break;
 		case "addField":
 			carriers.add(mut.field.uuid);
-			addLocalCarriers(containingFormOf(mut.parentUuid));
 			break;
 		case "removeField":
 			addFieldSubtree(mut.uuid);
-			addLocalCarriers(containingFormOf(mut.uuid));
 			break;
 		case "moveField":
-			// The moved field's path (and possibly its dedup-renamed id)
-			// changes; same-form refs re-anchor textually but resolution can
-			// shift for refs the rewrite never matched.
+			// Parent/path changes re-project UUID references at read time. The
+			// carrier is cheap to re-extract and its id/caseWrite stay unchanged.
 			carriers.add(mut.uuid);
-			addLocalCarriers(containingFormOf(mut.uuid));
 			break;
-		case "renameField": {
-			const field = ownRecordValue(doc.fields, mut.uuid);
-			if (!field || field.id === mut.newId) break;
-			carriers.add(mut.uuid);
-			addLocalCarriers(containingFormOf(mut.uuid));
-			const caseType = fieldCasePropertyOn(field);
-			if (caseType !== undefined && field.id.length > 0) {
-				// Peers rename in lockstep (their declarations re-key, and
-				// their forms' local namespaces change with them)…
-				const declKey = casePropertyDeclKey(caseType, field.id);
-				for (const peer of Object.keys(
-					ownRecordValue(index.decl, declKey) ?? {},
-				)) {
-					if (peer === mut.uuid) continue;
-					carriers.add(peer);
-					addLocalCarriers(
-						ownRecordValue(doc.fields, peer)
-							? findContainingForm(doc, peer as Uuid)
-							: undefined,
-					);
-				}
-				// …and every carrier reading the property re-keys from
-				// `c:<type>/<old>` to `c:<type>/<new>`.
-				const propertyKey = casePropertyTargetKey(caseType, field.id);
-				for (const carrier of Object.keys(
-					ownRecordValue(index.in, propertyKey) ?? {},
-				)) {
-					carriers.add(carrier);
-				}
-			}
-			break;
-		}
 		case "convertField":
 		case "setFieldMedia":
 			carriers.add(mut.kind === "setFieldMedia" ? mut.fieldUuid : mut.uuid);
@@ -1273,14 +1126,6 @@ export function planReferenceIndexMaintenance(
 			break;
 		case "updateField": {
 			carriers.add(mut.uuid);
-			// The generic patch CAN carry `id` (the rename mutation is the
-			// designed path, but replayed events are total) — an id change
-			// shifts the form's namespace like a rename does.
-			const patch = mut.patch as Record<string, unknown>;
-			const field = ownRecordValue(doc.fields, mut.uuid);
-			if (field && typeof patch.id === "string" && patch.id !== field.id) {
-				addLocalCarriers(containingFormOf(mut.uuid));
-			}
 			break;
 		}
 		// User properties, user types, and personas register NO edges. The

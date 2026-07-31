@@ -30,7 +30,6 @@ export function isStructuralPredicate(
 		case "lte":
 		case "in":
 		case "between":
-		case "is-null":
 		case "is-blank":
 		case "match":
 		case "multi-select-contains":

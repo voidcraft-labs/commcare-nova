@@ -47,15 +47,17 @@
 // display block) matches the fixture row-for-row.
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
+import { lookupWireNaming } from "@/lib/commcare/lookup/naming";
 import {
 	advancedSearchInputDef,
-	asUuid,
 	type CaseListConfig,
 	type SearchInputDef,
 	type SearchInputType,
 	simpleSearchInputDef,
 } from "@/lib/domain";
+import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import {
 	ancestorPath,
 	and,
@@ -71,6 +73,8 @@ import {
 	prop,
 	relationStep,
 	subcasePath,
+	tableColumn,
+	tableLookup,
 	term,
 	today,
 	whenInput,
@@ -91,13 +95,93 @@ import {
 // ============================================================
 
 const INPUT_UUIDS = {
-	a: asUuid("00000000-0000-4000-8000-aaaa00000001"),
-	b: asUuid("00000000-0000-4000-8000-aaaa00000002"),
-	c: asUuid("00000000-0000-4000-8000-aaaa00000003"),
+	a: testUuid("00000000-0000-4000-8000-aaaa00000001"),
+	b: testUuid("00000000-0000-4000-8000-aaaa00000002"),
+	c: testUuid("00000000-0000-4000-8000-aaaa00000003"),
 } as const;
 
 /** Wire-side module identifier matching CCHQ's `m{idx}` pattern. */
 const MODULE_ID = "m0";
+
+const LOOKUP_TABLE = "018f3e8a-7b2c-7def-8abc-0000000000a1" as LookupTableId;
+const LOOKUP_VALUE = "018f3e8a-7b2c-7def-8abc-0000000000b1" as LookupColumnId;
+const LOOKUP_NAME = "018f3e8a-7b2c-7def-8abc-0000000000b2" as LookupColumnId;
+const LOOKUP_NAMING = lookupWireNaming([
+	{
+		id: LOOKUP_TABLE,
+		name: "Regions",
+		tag: "regions",
+		definitionRevision: "1" as never,
+		columns: [
+			{
+				id: LOOKUP_VALUE,
+				wireName: "value",
+				label: "Value",
+				dataType: "text",
+			},
+			{
+				id: LOOKUP_NAME,
+				wireName: "name",
+				label: "Name",
+				dataType: "text",
+			},
+		],
+	},
+]);
+
+describe("composeXPathQueryEmission — Project data lookup", () => {
+	it("lowers a table lookup through the suite fixture id inside CSQL", () => {
+		const config: CaseListConfig = resolveCaseListConfig({
+			columns: [],
+			filter: eq(
+				prop("patient", "region_name"),
+				tableLookup(
+					LOOKUP_TABLE,
+					LOOKUP_NAME,
+					eq(tableColumn(LOOKUP_TABLE, LOOKUP_VALUE), literal("north")),
+				),
+			),
+			searchInputs: [],
+		});
+
+		const emission = composeXPathQueryEmission(
+			config,
+			"patient",
+			{
+				caseTypes: [
+					{
+						name: "patient",
+						properties: [
+							{
+								name: "region_name",
+								label: { parts: [{ kind: "text", text: "Region name" }] },
+								data_type: "text",
+							},
+						],
+					},
+				],
+				currentCaseType: "patient",
+				knownInputs: [],
+				lookupTables: new Map([
+					[
+						LOOKUP_TABLE,
+						new Map([
+							[LOOKUP_VALUE, "text"],
+							[LOOKUP_NAME, "text"],
+						]),
+					],
+				]),
+			},
+			LOOKUP_NAMING,
+		);
+
+		expect(emission?.wrapper).toContain(
+			"instance('item-list:regions')/regions_list/regions[value = 'north'][1]/name",
+		);
+		expect(emission?.wrapper).not.toContain(LOOKUP_TABLE);
+		expect(emission?.wrapper).not.toContain(LOOKUP_NAME);
+	});
+});
 
 // ============================================================
 // Per-input-type wire-attribute mapping
@@ -106,10 +190,10 @@ const MODULE_ID = "m0";
 describe("emitSearchPrompts — per-input-type attribute mapping", () => {
 	it("combines quote and calendar-number rules into Core's one validation slot", () => {
 		const predicate = whenInput(
-			input("months"),
+			input(INPUT_UUIDS.a),
 			eq(
 				prop("patient", "due_date"),
-				dateAdd(today(), "months", double(term(input("months")))),
+				dateAdd(today(), "months", double(term(input(INPUT_UUIDS.a)))),
 			),
 		);
 		const inputDef = advancedSearchInputDef(
@@ -143,8 +227,8 @@ describe("emitSearchPrompts — per-input-type attribute mapping", () => {
 
 	it("uses a nonnegative whole-number rule for prompted child counts", () => {
 		const predicate = whenInput(
-			input("minimum"),
-			gt(count(subcasePath("child")), double(term(input("minimum")))),
+			input(INPUT_UUIDS.a),
+			gt(count(subcasePath("child")), double(term(input(INPUT_UUIDS.a)))),
 		);
 		const inputDef = advancedSearchInputDef(
 			INPUT_UUIDS.a,
@@ -175,10 +259,10 @@ describe("emitSearchPrompts — per-input-type attribute mapping", () => {
 			"Near home",
 			"text",
 			whenInput(
-				input("near_home"),
+				input(INPUT_UUIDS.a),
 				within(
 					prop("patient", "home_location"),
-					input("near_home"),
+					input(INPUT_UUIDS.a),
 					5,
 					"kilometers",
 				),
@@ -190,10 +274,10 @@ describe("emitSearchPrompts — per-input-type attribute mapping", () => {
 			"Near work",
 			"text",
 			whenInput(
-				input("near_work"),
+				input(INPUT_UUIDS.b),
 				within(
 					prop("patient", "work_location"),
-					input("near_work"),
+					input(INPUT_UUIDS.b),
 					5,
 					"kilometers",
 				),
@@ -286,25 +370,26 @@ describe("emitSearchPrompts — per-input-type attribute mapping", () => {
 			"Owner row",
 			"text",
 			whenInput(
-				input("sibling"),
-				eq(prop("patient", "region"), input("sibling")),
+				input(INPUT_UUIDS.b),
+				eq(prop("patient", "region"), input(INPUT_UUIDS.b)),
 			),
 		);
+		const triggerOnlyUuid = testUuid("00000000-0000-4000-8000-aaaa00000004");
 		const triggerOnly = advancedSearchInputDef(
-			asUuid("00000000-0000-4000-8000-aaaa00000004"),
+			triggerOnlyUuid,
 			"trigger_only",
 			"Optional rule",
 			"text",
 			whenInput(
-				input("trigger_only"),
+				input(triggerOnlyUuid),
 				eq(prop("patient", "status"), literal("active")),
 			),
 		);
 		const config: CaseListConfig = resolveCaseListConfig({
 			columns: [],
 			filter: whenInput(
-				input("filter_value"),
-				eq(prop("patient", "status"), input("filter_value")),
+				input(INPUT_UUIDS.a),
+				eq(prop("patient", "status"), input(INPUT_UUIDS.a)),
 			),
 			searchInputs: [filterValue, sibling, owner, triggerOnly],
 		});
@@ -324,20 +409,30 @@ describe("emitSearchPrompts — per-input-type attribute mapping", () => {
 		expect(validations.get("sibling")?.test).not.toContain("@name='owner'");
 	});
 
-	it.each<SearchInputType>(["text", "select", "date", "date-range", "barcode"])(
+	it.each<SearchInputType>(["text", "date", "date-range", "barcode"])(
 		"attaches the same CSQL quote guard to an explicitly bound %s prompt",
 		(type) => {
 			const inputName = `query_${type.replace("-", "_")}`;
-			const inputDef = advancedSearchInputDef(
-				INPUT_UUIDS.a,
-				inputName,
-				"Query",
-				type,
-				whenInput(
-					input(inputName),
-					eq(prop("patient", "case_name"), input(inputName)),
-				),
+			const predicate = whenInput(
+				input(INPUT_UUIDS.a),
+				eq(prop("patient", "case_name"), input(INPUT_UUIDS.a)),
 			);
+			const inputDef =
+				type === "date-range"
+					? advancedSearchInputDef(
+							INPUT_UUIDS.a,
+							inputName,
+							"Query",
+							"date-range",
+							predicate,
+						)
+					: advancedSearchInputDef(
+							INPUT_UUIDS.a,
+							inputName,
+							"Query",
+							type,
+							predicate,
+						);
 			const config: CaseListConfig = resolveCaseListConfig({
 				columns: [],
 				searchInputs: [inputDef],
@@ -377,22 +472,6 @@ describe("emitSearchPrompts — per-input-type attribute mapping", () => {
 		expect(strings).toEqual({ "search_property.m0.full_name": "Name" });
 	});
 
-	it("select type emits input='select1'", () => {
-		const inputs: SearchInputDef[] = [
-			simpleSearchInputDef(
-				INPUT_UUIDS.a,
-				"district",
-				"District",
-				"select",
-				"district",
-			),
-		];
-
-		const { xml } = emitSearchPrompts(inputs, MODULE_ID);
-
-		expect(xml).toContain(`<prompt key="district" input="select1">`);
-	});
-
 	it("date type emits input='date'", () => {
 		const inputs: SearchInputDef[] = [
 			simpleSearchInputDef(
@@ -426,42 +505,6 @@ describe("emitSearchPrompts — per-input-type attribute mapping", () => {
 		const { xml } = emitSearchPrompts(inputs, MODULE_ID);
 
 		expect(xml).toContain(`<prompt key="visit_date" input="daterange">`);
-	});
-
-	it("never emits a legacy scalar default on a paired date-range prompt", () => {
-		const inputs: SearchInputDef[] = [
-			simpleSearchInputDef(
-				INPUT_UUIDS.a,
-				"visit_date",
-				"Visit window",
-				"date-range",
-				"visit_date",
-				{ default: today() },
-			),
-		];
-
-		const { xml } = emitSearchPrompts(inputs, MODULE_ID);
-
-		expect(xml).toContain(`<prompt key="visit_date" input="daterange">`);
-		expect(xml).not.toContain(" default=");
-	});
-
-	it("keeps a legacy date-opened target on the canonical daterange prompt", () => {
-		const { xml } = emitSearchPrompts(
-			[
-				simpleSearchInputDef(
-					INPUT_UUIDS.a,
-					"date_opened",
-					"Date opened",
-					"date-range",
-					"date-opened",
-				),
-			],
-			MODULE_ID,
-		);
-
-		expect(xml).toContain(`<prompt key="date_opened" input="daterange">`);
-		expect(xml).not.toContain(`exclude="true()"`);
 	});
 
 	it("barcode type emits appearance='barcode_scan' (NOT @input)", () => {
@@ -831,7 +874,7 @@ describe("emitSearchPrompts — per-arm dispatch", () => {
 
 	it("advanced-arm predicates surface via getAdvancedArmPredicates", () => {
 		const predicate = whenInput(
-			input("full_name"),
+			input(testUuid("full_name")),
 			eq(prop("patient", "full_name"), literal("Alice")),
 		);
 
@@ -944,21 +987,15 @@ describe("emitSearchPrompts — empty + ordering invariants", () => {
 // ============================================================
 
 describe("emitSearchPrompts — golden-file vs CCHQ remote_request.xml", () => {
-	it("matches the fixture's <prompt> block shape (text + dob + select)", () => {
+	it("matches the supported rows in the fixture's <prompt> block", () => {
 		// The fixture at
 		// `commcare-hq/corehq/apps/app_manager/tests/data/suite/remote_request.xml`
 		// carries three prompts:
 		//   - `name` (text, no `@input`); this test uses the nonreserved
 		//     `full_name` fixture while preserving the same prompt structure
 		//   - `dob` (date, `@input="date"`)
-		//   - `consent` (checkbox, `@input="checkbox"`)
-		//
-		// Nova's authoring vocabulary surfaces `text` / `select` /
-		// `date` / `date-range` / `barcode`. `checkbox` is not an
-		// authored kind; the closest mapping is `select`, which CCHQ
-		// renders as `input="select1"`. The structural shape (key
-		// attribute, input-attr presence, display block, locale id
-		// pattern) matches the fixture row-for-row.
+		// Nova does not author the fixture's checkbox prompt. The supported
+		// text and date rows retain its exact element and attribute shape.
 		const inputs: SearchInputDef[] = [
 			simpleSearchInputDef(
 				INPUT_UUIDS.a,
@@ -973,13 +1010,6 @@ describe("emitSearchPrompts — golden-file vs CCHQ remote_request.xml", () => {
 				"Date of birth",
 				"date",
 				"dob",
-			),
-			simpleSearchInputDef(
-				INPUT_UUIDS.c,
-				"consent",
-				"Consent",
-				"select",
-				"consent",
 			),
 		];
 
@@ -997,16 +1027,12 @@ describe("emitSearchPrompts — golden-file vs CCHQ remote_request.xml", () => {
 			`<prompt key="dob" input="date" exclude="true()">` +
 				`<display><text><locale id="search_property.m0.dob"/></text></display>` +
 				`</prompt>`,
-			`<prompt key="consent" input="select1">` +
-				`<display><text><locale id="search_property.m0.consent"/></text></display>` +
-				`</prompt>`,
 		].join("\n");
 
 		expect(xml).toBe(expected);
 		expect(strings).toEqual({
 			"search_property.m0.full_name": "Name",
 			"search_property.m0.dob": "Date of birth",
-			"search_property.m0.consent": "Consent",
 		});
 	});
 });

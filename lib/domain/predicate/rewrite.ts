@@ -1,16 +1,17 @@
 /**
  * Case-property rename over the `Predicate` / `ValueExpression` ASTs.
  *
- * When a field with a `case_property_on` is renamed, the case property
- * it writes is renamed with it (field id = case property name), and
- * every `PropertyRef` leaf that reads that property must follow. The
- * refs live inside module-level ASTs (case-list filters, calculated
- * column expressions, search-input predicates/defaults, search-button
- * display conditions, excluded-owner-id expressions) and are rewritten
- * STRUCTURALLY — the tree is walked via `walkTerms` and matching
- * `PropertyRef` nodes have their `property` slot renamed in place.
- * String surgery over a serialized form is never an option here: the
- * AST is the stored representation.
+ * An explicit case-property rename changes the name-backed identity
+ * `(caseType, property)`, so every `PropertyRef` leaf that reads that
+ * identity must follow. Field UUID-owned rename/move is separate and
+ * leaves stored references untouched. Property refs live inside
+ * module-level ASTs (case-list filters, calculated column expressions,
+ * search-input predicates/defaults, search-button display conditions,
+ * excluded-owner-id expressions) and are rewritten STRUCTURALLY — the
+ * tree is walked via `walkTerms` and matching `PropertyRef` nodes have
+ * their `property` slot renamed in place. String surgery over a
+ * serialized form is never an option here: the AST is the stored
+ * representation.
  *
  * ## Matching semantics
  *
@@ -73,14 +74,51 @@ export function relationDestinationCaseType(
 	return via.ofCaseType;
 }
 
-/**
- * Does `ref` structurally read the renamed property? Destination-type
- * matching per the module header — origin-only matching would rename a
- * same-named property on a DIFFERENT type reached through a walk.
- */
-function refMatches(ref: PropertyRef, rename: CasePropertyRename): boolean {
-	if (ref.property !== rename.oldName) return false;
-	return relationDestinationCaseType(ref.via, ref.caseType) === rename.caseType;
+export type CasePropertyNameResolver = (
+	caseType: string,
+	property: string,
+) => string | undefined;
+
+function mappedProperty(
+	ref: PropertyRef,
+	resolve: CasePropertyNameResolver,
+): string | undefined {
+	const destination = relationDestinationCaseType(ref.via, ref.caseType);
+	return destination === undefined
+		? undefined
+		: resolve(destination, ref.property);
+}
+
+/** Apply a complete case-property relation in one Predicate walk. */
+export function mapCasePropertiesInPredicate(
+	predicate: Predicate,
+	resolve: CasePropertyNameResolver,
+): number {
+	let renamed = 0;
+	walkTerms(predicate, (term) => {
+		if (term.kind !== "prop") return;
+		const property = mappedProperty(term, resolve);
+		if (property === undefined || property === term.property) return;
+		term.property = property;
+		renamed++;
+	});
+	return renamed;
+}
+
+/** Apply a complete case-property relation in one ValueExpression walk. */
+export function mapCasePropertiesInExpression(
+	expression: ValueExpression,
+	resolve: CasePropertyNameResolver,
+): number {
+	let renamed = 0;
+	walkExpressionTerms(expression, (term) => {
+		if (term.kind !== "prop") return;
+		const property = mappedProperty(term, resolve);
+		if (property === undefined || property === term.property) return;
+		term.property = property;
+		renamed++;
+	});
+	return renamed;
 }
 
 /**
@@ -94,14 +132,11 @@ export function renameCasePropertyInPredicate(
 	predicate: Predicate,
 	rename: CasePropertyRename,
 ): number {
-	let renamed = 0;
-	walkTerms(predicate, (term) => {
-		if (term.kind !== "prop") return;
-		if (!refMatches(term, rename)) return;
-		term.property = rename.newName;
-		renamed++;
-	});
-	return renamed;
+	return mapCasePropertiesInPredicate(predicate, (caseType, property) =>
+		caseType === rename.caseType && property === rename.oldName
+			? rename.newName
+			: undefined,
+	);
 }
 
 /**
@@ -114,12 +149,9 @@ export function renameCasePropertyInExpression(
 	expression: ValueExpression,
 	rename: CasePropertyRename,
 ): number {
-	let renamed = 0;
-	walkExpressionTerms(expression, (term) => {
-		if (term.kind !== "prop") return;
-		if (!refMatches(term, rename)) return;
-		term.property = rename.newName;
-		renamed++;
-	});
-	return renamed;
+	return mapCasePropertiesInExpression(expression, (caseType, property) =>
+		caseType === rename.caseType && property === rename.oldName
+			? rename.newName
+			: undefined,
+	);
 }

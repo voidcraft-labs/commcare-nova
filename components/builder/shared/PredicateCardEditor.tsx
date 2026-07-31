@@ -68,11 +68,8 @@ interface PredicateCardEditorProps {
 	 * Surfaces the boolean validity verdict to the parent on every
 	 * onChange. The editor authors valid by construction — no sequence
 	 * of picker choices yields a type-incorrect predicate — so for
-	 * normally-authored trees this stays `true`. The verdict (and the
-	 * inline diagnostics it summarizes) is a DISPLAY BACKSTOP for a
-	 * pre-existing (legacy / hypothetical) invalid AST a user opens;
-	 * the parent gates its save affordance on it so such a tree can't
-	 * be re-saved while broken.
+	 * normally-authored trees this stays `true`. The parent gates its save
+	 * affordance on the same verdict.
 	 */
 	readonly onValidityChange?: (valid: boolean) => void;
 	/**

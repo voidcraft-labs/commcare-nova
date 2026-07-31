@@ -36,14 +36,12 @@ import {
 	type ValueExpression,
 	valueExpressionKindResultClass,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 
-// The real case-property data types — excludes the internal sentinels
-// (`_any` = null literal, `_sequence` = unwrap-list), which never resolve
-// from a property/subject. The inversion helpers special-case `_any` (it
-// can't prove an incompatibility), so the per-type agreement checks below
-// cover concrete data types only.
+// The real case-property data types exclude `_any`, the null-literal
+// sentinel that cannot resolve from a property/subject.
 const REAL_TYPES = ALL_RESOLVED_TYPES.filter(
-	(t) => t !== ANY_TYPE && t !== "_sequence",
+	(t) => t !== ANY_TYPE,
 ) as ResolvedType[];
 
 describe("compatibleTypesFor", () => {
@@ -85,8 +83,12 @@ describe("comparisonOperatorsFor", () => {
 			{
 				name: "patient",
 				properties: [
-					{ name: "age", label: "Age", data_type: "int" },
-					{ name: "name", label: "Name", data_type: "text" },
+					{ name: "age", label: proseText("Age"), data_type: "int" },
+					{
+						name: "case_name",
+						label: proseText("Case name"),
+						data_type: "text",
+					},
 				],
 			} as CaseType,
 		];
@@ -99,11 +101,11 @@ describe("comparisonOperatorsFor", () => {
 
 		expect(comparisonOperatorsFor("text").has("gt")).toBe(false);
 		expect(
-			checkPredicate(gt(prop("patient", "name"), literal("x")), ctx).ok,
+			checkPredicate(gt(prop("patient", "case_name"), literal("x")), ctx).ok,
 		).toBe(false);
 		// eq stays valid on text (admitted by the helper).
 		expect(
-			checkPredicate(eq(prop("patient", "name"), literal("x")), ctx).ok,
+			checkPredicate(eq(prop("patient", "case_name"), literal("x")), ctx).ok,
 		).toBe(true);
 	});
 });
@@ -116,8 +118,7 @@ describe("left-subject constraints", () => {
 			if (constraint.accepts === "any") continue;
 
 			for (const type of ALL_RESOLVED_TYPES) {
-				const expected =
-					type !== "_sequence" && comparisonOperatorsFor(type).has(kind);
+				const expected = comparisonOperatorsFor(type).has(kind);
 				expect(
 					constraint.accepts.has(type),
 					`${kind} subject admission for ${type}`,
@@ -140,11 +141,9 @@ describe("left-subject constraints", () => {
 		// Membership lists must contain a non-null literal, but the editor has
 		// no geopoint literal control. Do not offer an unfinishable subject.
 		expect(membership.accepts.has("geopoint")).toBe(false);
-		expect(membership.accepts.has("_sequence")).toBe(false);
 		expect(range.accepts.has("int")).toBe(true);
 		expect(range.accepts.has("date")).toBe(true);
 		expect(range.accepts.has("text")).toBe(false);
-		expect(range.accepts.has("_sequence")).toBe(false);
 	});
 
 	it("makes the absence literal restriction node-local", () => {
@@ -172,7 +171,6 @@ describe("storage assignment constraints", () => {
 		expect(constraint.accepts.has("multi_select")).toBe(true);
 		expect(constraint.accepts.has("geopoint")).toBe(true);
 		expect(constraint.accepts.has("_any")).toBe(false);
-		expect(constraint.accepts.has("_sequence")).toBe(false);
 	});
 });
 
@@ -204,7 +202,6 @@ describe("valueExpressionKindResultClass", () => {
 		"date-coerce",
 		"datetime-coerce",
 		"count",
-		"unwrap-list",
 		"if",
 		"switch",
 		"coalesce",

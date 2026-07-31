@@ -20,7 +20,7 @@ export interface FormActionCondition {
 export interface OpenCaseAction {
 	doc_type: "OpenCaseAction";
 	name_update: { question_path: string };
-	external_id: null;
+	external_id: string | null;
 	condition: FormActionCondition;
 }
 

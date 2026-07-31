@@ -1,6 +1,6 @@
 // Search-input identity belongs to the Predicate AST, while its authored label
-// belongs to the editor. Keep those concerns separate: type checking still
-// resolves by `name`, and every visible surface asks this helper for the label.
+// belongs to the editor. Keep those concerns separate: type checking resolves
+// by UUID, and every visible surface asks this helper for the label.
 
 import { humanizeId } from "@/lib/domain/idSlug";
 import type { SearchInputDecl } from "@/lib/domain/predicate";
@@ -10,11 +10,11 @@ export type EditorSearchInputDecl = SearchInputDecl & {
 };
 
 export function searchInputDisplayLabel(
-	name: string,
+	uuid: string,
 	inputs: readonly EditorSearchInputDecl[],
 ): string {
-	const input = inputs.find((candidate) => candidate.name === name);
-	const fallback = humanizeId(name) || "Search field";
+	const input = inputs.find((candidate) => candidate.uuid === uuid);
+	const fallback = humanizeId(input?.name ?? "") || "Search field";
 	const label = input?.label?.trim() || fallback;
 	const duplicateCount = inputs.filter(
 		(candidate) =>

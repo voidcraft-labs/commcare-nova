@@ -19,22 +19,18 @@ import tablerBarcode from "@iconify-icons/tabler/barcode";
 import tablerCalendar from "@iconify-icons/tabler/calendar";
 import tablerCalendarStats from "@iconify-icons/tabler/calendar-stats";
 import tablerSearch from "@iconify-icons/tabler/search";
-import tablerSelect from "@iconify-icons/tabler/select";
 import { propertyDisplayLabel } from "@/components/builder/shared/primitives/propertyDisplay";
+import type { ProseProjector } from "@/lib/doc/hooks/useProseProjection";
 import {
 	applicableSearchModes,
-	authorableCaseProperties,
 	type CaseProperty,
 	type CasePropertyDataType,
 	type CaseType,
-	canonicalCasePropertyName,
 	effectiveDataType,
 	effectiveSimpleSearchModeKind,
 	exactMode,
 	fuzzyDateMode,
 	fuzzyMode,
-	type MultiSelectQuantifier,
-	multiSelectContainsMode,
 	phoneticMode,
 	rangeMode,
 	SEARCH_INPUT_RUNTIME_VALUE_TYPES,
@@ -47,13 +43,11 @@ import {
 	startsWithMode,
 } from "@/lib/domain";
 import {
-	ANY_CONSTRAINT,
 	compatibleTypesFor,
 	eq,
 	input,
 	literal,
 	match,
-	matchAll,
 	type Predicate,
 	prop,
 	type RelationPath,
@@ -92,7 +86,6 @@ export const NO_SEARCH_INPUTS: readonly SearchInputDecl[] = Object.freeze([]);
 
 export const SEARCH_INPUT_TYPE_LABELS: Record<SearchInputType, string> = {
 	text: "Text box",
-	select: "Choice list",
 	date: "Date picker",
 	"date-range": "Date range",
 	barcode: "Barcode",
@@ -100,7 +93,6 @@ export const SEARCH_INPUT_TYPE_LABELS: Record<SearchInputType, string> = {
 
 export const SEARCH_INPUT_TYPE_ICONS: Record<SearchInputType, IconifyIcon> = {
 	text: tablerSearch,
-	select: tablerSelect,
 	date: tablerCalendar,
 	"date-range": tablerCalendarStats,
 	barcode: tablerBarcode,
@@ -110,7 +102,6 @@ export const SEARCH_INPUT_TYPE_ICONS: Record<SearchInputType, IconifyIcon> = {
  *  like in the running app. Shown in the picker beside each label. */
 export const SEARCH_INPUT_TYPE_DESCRIPTIONS: Record<SearchInputType, string> = {
 	text: "A box to type into",
-	select: "Choose another field type before Preview can run",
 	date: "A calendar for one date",
 	"date-range": "Two calendars for a start and end date",
 	barcode: "A field for scanning a barcode",
@@ -129,7 +120,6 @@ export const SEARCH_MODE_LABELS: Record<SearchInputMode["kind"], string> = {
 	phonetic: MATCH_MODE_VOCABULARY.phonetic.pickerLabel,
 	"fuzzy-date": MATCH_MODE_VOCABULARY["fuzzy-date"].pickerLabel,
 	range: "Between dates",
-	"multi-select-contains": "Includes options",
 };
 
 /**
@@ -153,7 +143,6 @@ export const SEARCH_MODE_DESCRIPTIONS: Record<SearchInputMode["kind"], string> =
 		phonetic: MATCH_MODE_VOCABULARY.phonetic.description,
 		"fuzzy-date": MATCH_MODE_VOCABULARY["fuzzy-date"].description,
 		range: "Finds dates between the From and To values",
-		"multi-select-contains": "Finds cases that include the selected options",
 	};
 
 const PROPERTY_TYPE_NAMES: Record<CasePropertyDataType, string> = {
@@ -185,10 +174,7 @@ export function effectiveModeKind(
 
 // ── Per-mode builder lookup ───────────────────────────────────────
 
-export function buildMode(
-	kind: SearchInputMode["kind"],
-	previousQuantifier: MultiSelectQuantifier = "any",
-): SearchInputMode {
+export function buildMode(kind: SearchInputMode["kind"]): SearchInputMode {
 	switch (kind) {
 		case "exact":
 			return exactMode();
@@ -202,8 +188,6 @@ export function buildMode(
 			return fuzzyDateMode();
 		case "range":
 			return rangeMode();
-		case "multi-select-contains":
-			return multiSelectContainsMode(previousQuantifier);
 	}
 }
 
@@ -223,9 +207,6 @@ export type PropertyState =
 	/** Bound and resolvable (or advanced arm — the predicate AST owns
 	 *  property resolution). */
 	| { kind: "ok" }
-	/** Simple arm with `property: ""` — an unbound input matches
-	 *  NOTHING at runtime, which reads as "search is broken". */
-	| { kind: "empty" }
 	/** Simple arm naming a property the destination case type doesn't
 	 *  declare (renamed or removed since) — also matches nothing. */
 	| { kind: "dangling"; destination: string };
@@ -250,6 +231,7 @@ export function resolveRows(
 	value: readonly SearchInputDef[],
 	caseTypes: readonly CaseType[],
 	currentCaseType: string,
+	project: ProseProjector,
 ): readonly ResolvedRow[] {
 	const firstIndexByName = new Map<string, number>();
 	for (let i = 0; i < value.length; i++) {
@@ -278,9 +260,7 @@ export function resolveRows(
 		let typeCouplingErrors: readonly string[] = [];
 		if (row.kind === "simple") {
 			const property = resolveProperty(caseTypes, row, currentCaseType);
-			if (row.property === "") {
-				propertyState = { kind: "empty" };
-			} else if (property === undefined) {
+			if (property === undefined) {
 				propertyState = {
 					kind: "dangling",
 					destination: resolveDestinationCaseType(
@@ -290,7 +270,7 @@ export function resolveRows(
 					),
 				};
 			}
-			typeCouplingErrors = computeTypeCouplingErrors(row, property);
+			typeCouplingErrors = computeTypeCouplingErrors(row, property, project);
 		}
 
 		return {
@@ -312,16 +292,14 @@ export function resolveProperty(
 	row: SimpleSearchInputDef,
 	currentCaseType: string,
 ): CaseProperty | undefined {
-	if (row.property === "") return undefined;
 	const destinationCaseType = resolveDestinationCaseType(
 		caseTypes,
 		row.via,
 		currentCaseType,
 	);
 	const ct = caseTypes.find((c) => c.name === destinationCaseType);
-	const propertyName = canonicalCasePropertyName(row.property);
-	return authorableCaseProperties(ct?.properties ?? []).find(
-		(property) => property.name === propertyName,
+	return (ct?.properties ?? []).find(
+		(property) => property.name === row.property,
 	);
 }
 
@@ -364,6 +342,7 @@ export function resolveDestinationCaseType(
 export function computeTypeCouplingErrors(
 	row: SimpleSearchInputDef,
 	property: CaseProperty | undefined,
+	project: ProseProjector,
 ): readonly string[] {
 	const errors: string[] = [];
 
@@ -388,7 +367,7 @@ export function computeTypeCouplingErrors(
 	const typeAllowList = SEARCH_INPUT_TYPE_PROPERTY_TYPES[row.type];
 	if (typeAllowList !== undefined && !typeAllowList.includes(dataType)) {
 		errors.push(
-			`${SEARCH_INPUT_TYPE_LABELS[row.type]} can’t search ${propertyDisplayLabel(property)}. Choose ${friendlyPropertyTypes(typeAllowList)} information.`,
+			`${SEARCH_INPUT_TYPE_LABELS[row.type]} can’t search ${propertyDisplayLabel(property, project)}. Choose ${friendlyPropertyTypes(typeAllowList)} information.`,
 		);
 	}
 
@@ -396,7 +375,7 @@ export function computeTypeCouplingErrors(
 		const modeAllowList = SEARCH_MODE_PROPERTY_TYPES[row.mode.kind];
 		if (modeAllowList !== undefined && !modeAllowList.includes(dataType)) {
 			errors.push(
-				`“${SEARCH_MODE_LABELS[row.mode.kind]}” can’t match ${propertyDisplayLabel(property)}. Choose ${friendlyPropertyTypes(modeAllowList)} information.`,
+				`“${SEARCH_MODE_LABELS[row.mode.kind]}” can’t match ${propertyDisplayLabel(property, project)}. Choose ${friendlyPropertyTypes(modeAllowList)} information.`,
 			);
 		}
 	}
@@ -435,6 +414,7 @@ export function deriveSearchInputDecl(
 	row: SearchInputDef,
 ): EditorSearchInputDecl {
 	return {
+		uuid: row.uuid,
 		name: row.name,
 		label: row.label,
 		data_type: SEARCH_INPUT_RUNTIME_VALUE_TYPES[row.type],
@@ -444,12 +424,7 @@ export function deriveSearchInputDecl(
 export function searchInputDecls(
 	rows: readonly SearchInputDef[],
 ): readonly EditorSearchInputDecl[] {
-	const decls: EditorSearchInputDecl[] = [];
-	for (const row of rows) {
-		if (row.name === "") continue;
-		decls.push(deriveSearchInputDecl(row));
-	}
-	return decls;
+	return rows.map(deriveSearchInputDecl);
 }
 
 // ── Default-value expectedType + seed ─────────────────────────────
@@ -465,16 +440,13 @@ export function expectedTypeForDefault(
 			return "date";
 		case "date-range":
 			return undefined;
-		case "select":
-			return undefined;
 	}
 }
 
 /**
  * The default-value slot's `SlotConstraint` — the editor's
  * valid-by-construction surface for the default expression. A value
- * compatible with the input's `expectedTypeForDefault` (or
- * unconstrained for `select`, which accepts any option value). The
+ * compatible with the input's `expectedTypeForDefault`. The
  * config-validity gate keeps using `expectedTypeForDefault` directly
  * (a single-type `checkValueExpression` arm); this is its set-valued
  * twin for the editor's pickers. Frozen module-level entries so the
@@ -493,7 +465,6 @@ const CONSTRAINT_FOR_DEFAULT: Record<
 	text: { accepts: compatibleTypesFor("text") },
 	barcode: { accepts: compatibleTypesFor("text") },
 	date: { accepts: compatibleTypesFor("date") },
-	select: ANY_CONSTRAINT,
 };
 
 export function constraintForDefault(
@@ -510,7 +481,6 @@ export function seedDefaultExpression(
 			return today();
 		case "text":
 		case "barcode":
-		case "select":
 			return term(literal(""));
 	}
 }
@@ -528,8 +498,7 @@ export function seedDefaultExpression(
  * Equality and the four text/date match functions accept a runtime
  * `input(...)` value, so their simple-arm semantics can move into a custom
  * condition without changing. A range input is two runtime bindings while
- * the Predicate AST has no range-input term, and multi-select containment's
- * values are deliberately literal-only. Those two modes therefore need an
+ * the Predicate AST has no range-input term. That mode therefore needs an
  * explicit consequence confirmation before the UI calls
  * `seedCustomCondition`'s exact-match recovery seed.
  */
@@ -544,7 +513,6 @@ export function canSeedCustomConditionFaithfully(
 		case "fuzzy-date":
 			return true;
 		case "range":
-		case "multi-select-contains":
 			return false;
 	}
 }
@@ -564,9 +532,7 @@ export function canSeedCustomConditionFaithfully(
  * resolves to the empty string before anyone searches, matching every
  * empty-valued case, and the commit gate
  * (`CASE_LIST_BARE_SEARCH_INPUT_REF`) rejects the seed outright — so
- * the envelope is what makes "Custom Condition" land at all. A
- * nameless row compares to a literal, carries no input ref, and needs
- * no envelope.
+ * the envelope is what makes "Custom Condition" land at all.
  *
  * The property reference preserves the row's relation walk the same
  * way `deriveSimpleArmPredicate` does: a non-self `via` threads through
@@ -580,12 +546,10 @@ export function seedCustomCondition(
 	row: SimpleSearchInputDef,
 	currentCaseType: string,
 ): Predicate {
-	if (row.property === "") return matchAll();
 	const viaForRef =
 		row.via === undefined || row.via.kind === "self" ? undefined : row.via;
 	const propertyRef = prop(currentCaseType, row.property, viaForRef);
-	if (row.name === "") return eq(propertyRef, literal(""));
-	const inputRef = input(row.name);
+	const inputRef = input(row.uuid);
 	const modeKind = effectiveModeKind(row);
 	const clause = (() => {
 		switch (modeKind) {
@@ -597,8 +561,7 @@ export function seedCustomCondition(
 			case "fuzzy-date":
 				return match(propertyRef, inputRef, modeKind);
 			case "range":
-			case "multi-select-contains":
-				// Neither mode can carry its runtime value(s) into the current
+				// Range cannot carry its runtime values into the current
 				// Predicate AST. The caller must gate this branch with
 				// `canSeedCustomConditionFaithfully` and confirm that the custom
 				// condition will begin as an exact comparison.
@@ -610,8 +573,8 @@ export function seedCustomCondition(
 
 /**
  * The property a custom condition is anchored on, when it has the
- * left-anchored shape (`comparison` / `in` / `between` / `is-null` /
- * `is-blank` whose left side reads a self property). Lets a
+ * left-anchored shape (`comparison` / `in` / `between` / `is-blank`
+ * whose left side reads a self property). Lets a
  * round-tripped custom→standard conversion land back on the same
  * property rather than re-seeding.
  *

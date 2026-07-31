@@ -6,7 +6,10 @@
 import type { Kysely } from "kysely";
 import { sql } from "kysely";
 import { describe, expect, it } from "vitest";
-import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
+import {
+	runCaseStoreMigrations,
+	runCaseStoreMigrationsWithReport,
+} from "@/lib/case-store/migrate";
 import { caseStoreMigrations } from "@/lib/case-store/migrations";
 import { setupPerTestDatabase } from "./perTestDatabase";
 
@@ -49,14 +52,15 @@ async function columnExists(
 describe("runCaseStoreMigrations", () => {
 	it("creates the full schema and records the ledger on a fresh database", async () => {
 		const db = dbHandle.db;
-		await runCaseStoreMigrations(db);
+		const report = await runCaseStoreMigrationsWithReport(db);
 
+		expect(report.appliedMigrationNames).toEqual(EXPECTED_LEDGER);
 		expect(await regclassExists(db, "public.cases")).toBe(true);
 		expect(await regclassExists(db, "public.case_indices")).toBe(true);
 		expect(await regclassExists(db, "public.case_type_schemas")).toBe(true);
 		expect(await regclassExists(db, "public.parked_case_values")).toBe(true);
 		expect(await regclassExists(db, "public.media_reference_index_state")).toBe(
-			true,
+			false,
 		);
 		// The baseline's whole-row quarantine sink is created and then
 		// dropped by the park migration — the full chain must end
@@ -71,53 +75,40 @@ describe("runCaseStoreMigrations", () => {
 	it("is idempotent — a second run applies nothing and does not throw", async () => {
 		const db = dbHandle.db;
 		await runCaseStoreMigrations(db);
+		await expect(runCaseStoreMigrationsWithReport(db)).resolves.toEqual({
+			appliedMigrationNames: [],
+		});
 		await expect(runCaseStoreMigrations(db)).resolves.toBeUndefined();
 		expect(await ledgerNames(db)).toEqual(EXPECTED_LEDGER);
 	});
 
-	it("adopts a pre-existing (Atlas-style) schema that has no Kysely ledger", async () => {
+	it("fails closed when a final schema loses its immutable migration ledger", async () => {
 		const db = dbHandle.db;
-		// Build the schema, then erase Kysely's ledger to reproduce the Atlas-era
-		// signature: the tables exist, but Kysely has never tracked them.
 		await runCaseStoreMigrations(db);
 		await sql`DROP TABLE kysely_migration`.execute(db);
 		await sql`DROP TABLE IF EXISTS kysely_migration_lock`.execute(db);
 
-		// The idempotent baselines must replay as a clean no-op against the
-		// existing schema (no "relation already exists" / "constraint already
-		// exists"), and the ledger must end up fully recorded.
-		await expect(runCaseStoreMigrations(db)).resolves.toBeUndefined();
-		expect(await ledgerNames(db)).toEqual(EXPECTED_LEDGER);
-		expect(await regclassExists(db, "public.cases")).toBe(true);
-		expect(await columnExists(db, "cases", "case_name")).toBe(true);
-		const mediaIndexState = await sql<{ count: string }>`
-			SELECT count(*)::text AS count
-			FROM media_reference_index_state
-			WHERE singleton = true
-		`.execute(db);
-		expect(mediaIndexState.rows[0]?.count).toBe("1");
+		/* Still fails closed, just earlier: the canonical-identity migration now
+		 * runs its repair first, and the repair's boundary check refuses a
+		 * database whose canonical state is already applied but whose ledger no
+		 * longer records it. Either refusal is the point — a re-run must never
+		 * replay a destructive migration over a schema that already has it. */
+		await expect(runCaseStoreMigrations(db)).rejects.toThrow(
+			/canonical identity repair/i,
+		);
 	});
 
-	it("adds case_name when adopting a volume that only had the first baseline", async () => {
+	it("does not replay history to heal drift in a fully ledgered final schema", async () => {
 		const db = dbHandle.db;
-		// Reproduce the narrow window where only the first baseline had run: the
-		// tables exist but `case_name` (the second baseline's effect) does not, and
-		// there is no Kysely ledger. The idempotent second baseline must still add
-		// the column rather than being wrongly skipped.
 		await runCaseStoreMigrations(db);
-		await sql`DROP TABLE kysely_migration`.execute(db);
-		await sql`DROP TABLE IF EXISTS kysely_migration_lock`.execute(db);
 		await sql`ALTER TABLE "cases" DROP CONSTRAINT IF EXISTS "cases_case_name_check"`.execute(
 			db,
 		);
-		// (`cases_quarantine` needs no companion drop here — the park
-		// migration at the end of the chain removed the table, and the
-		// replay below re-creates + re-drops it along the way.)
 		await sql`ALTER TABLE "cases" DROP COLUMN "case_name"`.execute(db);
 		expect(await columnExists(db, "cases", "case_name")).toBe(false);
 
 		await expect(runCaseStoreMigrations(db)).resolves.toBeUndefined();
-		expect(await columnExists(db, "cases", "case_name")).toBe(true);
+		expect(await columnExists(db, "cases", "case_name")).toBe(false);
 		expect(await ledgerNames(db)).toEqual(EXPECTED_LEDGER);
 	});
 });

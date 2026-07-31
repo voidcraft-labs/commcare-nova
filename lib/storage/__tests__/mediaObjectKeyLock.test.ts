@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 
 const { getCaseStorePool } = vi.hoisted(() => ({
 	getCaseStorePool: vi.fn(),
@@ -67,7 +68,7 @@ describe("withMediaObjectKeyLock", () => {
 				lockedDb
 					.selectFrom("media_assets")
 					.select("id")
-					.where("id", "=", "same-session-asset")
+					.where("id", "=", testMediaAssetId("same-session-asset"))
 					.executeTakeFirst(),
 		);
 

@@ -6,8 +6,10 @@
 
 import type { CaseProperty, CaseType } from "./blueprint";
 import type { CasePropertyDataType } from "./casePropertyTypes";
-import type { FieldKind } from "./fields";
+import type { CaseWrite, FieldKind } from "./fields";
 import type { FormType } from "./forms";
+import { projectProseTemplate } from "./prose";
+import type { XPathPrintableDoc } from "./xpath/print";
 
 /**
  * The case-property `data_type` a field of the given kind writes.
@@ -25,7 +27,7 @@ import type { FormType } from "./forms";
  * `hidden` — the calculate expression's output type drives the
  * property's actual data type, which is a separate type-checker
  * concern — and the structural / media / display kinds, whose schemas
- * carry no `case_property_on` slot at all. `barcode` and `secret`
+ * carry no `caseWrite` slot at all. `barcode` and `secret`
  * map to `text` because they're text-shaped at the wire layer despite
  * carrying a separate authoring kind; coercion paths (e.g. `text`
  * field → `int` property) are deliberately not expressed.
@@ -67,7 +69,7 @@ export function caseDataTypeForFieldKind(
 		case "signature":
 		case "file":
 			// `hidden` skipped: see the function doc. The remaining kinds
-			// carry no `case_property_on` slot in their schema and are
+			// carry no `caseWrite` slot in their schema and are
 			// structurally unreachable; listing them keeps the switch
 			// exhaustive against `FieldKind` — adding a new kind without
 			// a parallel arm here breaks the build.
@@ -88,23 +90,27 @@ export function caseDataTypeForFieldKind(
 }
 
 /**
- * Read a field's `case_property_on` value in a kind-agnostic way — the
- * case type the field's id writes a property to, or `undefined` when
- * the field isn't case-bound. `case_property_on` lives on the
- * input-field mixin but not on structural kinds, so a narrow structural
- * read beats walking the discriminated union at every consumer. An
- * empty string reads as not-set (the clear shape) — that rule is what
- * keeps a cleared pointer from triggering rename cascades or peer
- * matches, so every consumer (the rename reducer, the peer-aware
- * rename verdict, the reference index's declarations) shares this one
- * definition.
+ * Read a field's explicit case-storage destination in a kind-agnostic way, or
+ * `undefined` when the field is not case-bound. `caseWrite` lives on the
+ * input-field mixin plus hidden fields, but not on structural/capture kinds,
+ * so this one structural read avoids a union-wide narrowing cascade at every
+ * consumer. Parsed `Field` values always carry the complete strict pair; the
+ * runtime checks keep untyped/corrupted boundaries from manufacturing a
+ * half-binding.
  */
-export function fieldCasePropertyOn(field: {
-	kind: string;
-}): string | undefined {
-	const value = (field as { case_property_on?: string }).case_property_on;
-	if (typeof value !== "string" || value.length === 0) return undefined;
-	return value;
+export function fieldCaseWrite(field: { kind: string }): CaseWrite | undefined {
+	const value = (field as { caseWrite?: unknown }).caseWrite;
+	if (typeof value !== "object" || value === null) return undefined;
+	const candidate = value as { caseType?: unknown; property?: unknown };
+	if (
+		typeof candidate.caseType !== "string" ||
+		candidate.caseType.length === 0 ||
+		typeof candidate.property !== "string" ||
+		candidate.property.length === 0
+	) {
+		return undefined;
+	}
+	return candidate as CaseWrite;
 }
 
 /**
@@ -148,9 +154,9 @@ export interface ReachableCaseType {
  * runtime; a child case is created fresh and never loaded, so it is a write
  * target but not a readable source.
  *
- * `depth` is the load-bearing output: the wire emitter turns `#<type>/<prop>`
- * into the same `…/index/parent × depth …/<prop>` walk that `#case/parent…/`
- * already produces. Ordered own-first; cycle-guarded against malformed
+ * `depth` is the load-bearing output: the wire emitter turns a typed
+ * `case-ref` into the corresponding `…/index/parent × depth …/<prop>` walk.
+ * Ordered own-first; cycle-guarded against malformed
  * `parent_type` chains. An undeclared own type still appears at depth 0 (with
  * no properties) so its namespace is recognized even before properties exist.
  */
@@ -192,14 +198,22 @@ export type ReachableCaseTypeIndex = Map<
  *  property of every type: it's a system property of every case (the loaded
  *  case's id), addressable as `#<type>/case_id`, so resolve / validate /
  *  autocomplete all see it uniformly even though the case-type record never
- *  declares it. A declared `case_id` (rare) keeps its own label. */
+ *  declares it. A declared `case_id` (rare) keeps its own label.
+ *
+ *  `doc` is what a catalog label's worker-property references are spelled
+ *  against — the label reaches a person as the autocomplete's `detail` line and
+ *  as a case chip's title. */
 export function toReachableIndex(
 	reachable: ReachableCaseType[],
+	doc: XPathPrintableDoc,
 ): ReachableCaseTypeIndex {
 	const index: ReachableCaseTypeIndex = new Map();
 	for (const t of reachable) {
 		const properties = new Map(
-			t.properties.map((p) => [p.name, { label: p.label }]),
+			t.properties.map((p) => [
+				p.name,
+				{ label: projectProseTemplate(p.label, doc).text },
+			]),
 		);
 		if (!properties.has("case_id"))
 			properties.set("case_id", { label: "case id" });

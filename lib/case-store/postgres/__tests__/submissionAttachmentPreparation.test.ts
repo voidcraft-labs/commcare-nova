@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { CaptureSubmissionRejectedError } from "../../errors";
 import { prepareCaptureSubmissionBytes } from "../submissionAttachments";
 
@@ -24,19 +25,19 @@ const args = {
 	actorUserId: "user-1",
 	intent: {
 		entryKey: "11111111-1111-4111-8111-111111111111",
-		formUuid: "22222222-2222-4222-8222-222222222222",
+		formUuid: testUuid("22222222-2222-4222-8222-222222222222"),
 		expectedAppMutationSeq: 7,
 		requestDigest: "digest",
 		attachments: [
 			{
 				attachmentName: "photo.png",
-				fieldUuid: "33333333-3333-4333-8333-333333333333",
+				fieldUuid: testUuid("33333333-3333-4333-8333-333333333333"),
 				instancePath: "/data/photo",
 			},
 		],
 		allowedAttachments: [
 			{
-				fieldUuid: "33333333-3333-4333-8333-333333333333",
+				fieldUuid: testUuid("33333333-3333-4333-8333-333333333333"),
 				instancePathTemplate: "/data/photo",
 				captureKind: "image" as const,
 				acceptedFormats: [{ extension: ".png", contentType: "image/png" }],

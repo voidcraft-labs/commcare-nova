@@ -50,15 +50,11 @@ export function formatPeriodLabel(period: string): string {
 /**
  * Status badge colors and labels for app cards.
  *
- * Keyed by every value of `AppDoc["status"]` so the card component can
- * index directly without a runtime fallback. `deleted` rows are
- * filtered out of user-facing lists at the persistence boundary (see
- * `listApps`), but admin and historical surfaces may still render
- * archived rows — the muted styling keeps them visually distinct from
- * live errors without drawing attention.
+ * Keyed by every run-lifecycle status. Soft deletion is a separate timestamp
+ * axis and never adds a status value.
  */
 export const STATUS_STYLES: Record<
-	"complete" | "generating" | "error" | "deleted",
+	"complete" | "generating" | "error",
 	{ bg: string; text: string; label: string }
 > = {
 	complete: {
@@ -72,9 +68,4 @@ export const STATUS_STYLES: Record<
 		label: "Generating",
 	},
 	error: { bg: "bg-nova-rose/15", text: "text-nova-rose", label: "Error" },
-	deleted: {
-		bg: "bg-nova-surface",
-		text: "text-nova-text-muted",
-		label: "Deleted",
-	},
 };

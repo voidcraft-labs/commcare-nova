@@ -12,6 +12,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { BlueprintDoc } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import { log } from "@/lib/logger";
 import {
 	interpretMediaAttach,
@@ -48,7 +49,7 @@ function doc(): BlueprintDoc {
 				kind: "text",
 				uuid: "fld1",
 				id: "photo",
-				label: "Photo",
+				label: proseText("Photo"),
 				label_media: { image: "img-asset" },
 			},
 		},
@@ -147,14 +148,14 @@ describe("interpretMediaAttach", () => {
 					kind: "text",
 					uuid: "a1",
 					id: "front",
-					label: "Front",
+					label: proseText("Front"),
 					label_media: { image: "shared" },
 				},
 				a2: {
 					kind: "text",
 					uuid: "a2",
 					id: "back",
-					label: "Back",
+					label: proseText("Back"),
 					label_media: { image: "shared" },
 				},
 			},

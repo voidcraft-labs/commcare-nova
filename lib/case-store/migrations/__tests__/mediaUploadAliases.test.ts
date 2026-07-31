@@ -32,7 +32,7 @@ describe("media upload alias migration", () => {
 				id, project_id, owner, content_hash, mime_type, extension,
 				size_bytes, kind, gcs_object_key, original_filename, status
 			) VALUES (
-				'canonical-asset', 'project-a', 'owner-a', $1, 'image/png',
+				'10000000-0000-4000-8000-000000000001', 'project-a', 'owner-a', $1, 'image/png',
 				'.png', 10, 'image', 'projects/project-a/hash.png',
 				'logo.png', 'ready'
 			)`,
@@ -43,7 +43,12 @@ describe("media upload alias migration", () => {
 		}>(
 			`INSERT INTO media_upload_aliases (
 				attempt_asset_id, project_id, content_hash, canonical_asset_id
-			) VALUES ('attempt-asset', 'project-a', $1, 'canonical-asset')
+			) VALUES (
+				'20000000-0000-4000-8000-000000000002',
+				'project-a',
+				$1,
+				'10000000-0000-4000-8000-000000000001'
+			)
 			RETURNING extract(epoch FROM (expires_at - created_at))::text
 				AS retention_seconds`,
 			["a".repeat(64)],
@@ -68,7 +73,12 @@ describe("media upload alias migration", () => {
 			"23514",
 			`INSERT INTO media_upload_aliases (
 				attempt_asset_id, project_id, content_hash, canonical_asset_id
-			) VALUES ('canonical-asset', 'project-a', $1, 'canonical-asset')`,
+			) VALUES (
+				'10000000-0000-4000-8000-000000000001',
+				'project-a',
+				$1,
+				'10000000-0000-4000-8000-000000000001'
+			)`,
 			["a".repeat(64)],
 		);
 		await expectSqlState(
@@ -76,12 +86,17 @@ describe("media upload alias migration", () => {
 			"23503",
 			`INSERT INTO media_upload_aliases (
 				attempt_asset_id, project_id, content_hash, canonical_asset_id
-			) VALUES ('missing-target', 'project-a', $1, 'missing-asset')`,
+			) VALUES (
+				'30000000-0000-4000-8000-000000000003',
+				'project-a',
+				$1,
+				'40000000-0000-4000-8000-000000000004'
+			)`,
 			["a".repeat(64)],
 		);
 
 		await pgClient.query(
-			"DELETE FROM media_assets WHERE id = 'canonical-asset'",
+			"DELETE FROM media_assets WHERE id = '10000000-0000-4000-8000-000000000001'",
 		);
 		const remaining = await pgClient.query<{ count: string }>(
 			"SELECT count(*)::text AS count FROM media_upload_aliases",

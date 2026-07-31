@@ -7,18 +7,20 @@
 // the planner's own arithmetic.
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { columnSnapshotMutations } from "@/lib/doc/caseListColumnMutations";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { Mutation } from "@/lib/doc/types";
 import {
-	asUuid,
 	type BlueprintDoc,
 	type Column,
 	emptyCaseListConfig,
 	plainColumn,
 	type Uuid,
 } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import {
 	nextFreeTilePlacement,
 	placementForJoiningTile,
@@ -38,9 +40,9 @@ function docWithColumns(columns: readonly Column[]): {
 			{
 				name: "patient",
 				properties: [
-					{ name: "case_name", label: "Name", data_type: "text" },
-					{ name: "village", label: "Village", data_type: "text" },
-					{ name: "age", label: "Age", data_type: "int" },
+					{ name: "case_name", label: proseText("Name"), data_type: "text" },
+					{ name: "village", label: proseText("Village"), data_type: "text" },
+					{ name: "age", label: proseText("Age"), data_type: "int" },
 				],
 			},
 		],
@@ -53,7 +55,7 @@ function docWithColumns(columns: readonly Column[]): {
 					{
 						name: "Follow up",
 						type: "followup",
-						fields: [{ kind: "text", id: "note", label: "Note" }],
+						fields: [{ kind: "text", id: "note", label: proseText("Note") }],
 					},
 				],
 			},
@@ -66,7 +68,7 @@ function docWithColumns(columns: readonly Column[]): {
 
 function column(field: string, header: string, slots: Partial<Column> = {}) {
 	return {
-		...plainColumn(asUuid(`col-${field}`), field, header),
+		...plainColumn(testUuid(`col-${field}`), field, header),
 		...slots,
 	} as Column;
 }
@@ -100,12 +102,12 @@ describe("turning the tile on", () => {
 			column("case_name", "Patient name"),
 		]);
 		const verdict = accepts(doc, [
-			{ kind: "setCaseListMeta", uuid: moduleUuid, patch: {}, tilePatch: {} },
+			{ kind: "setCaseListMeta", uuid: moduleUuid, patch: { tile: {} } },
 		]);
 		expect(verdict.ok).toBe(false);
 		if (verdict.ok) return;
 		expect(
-			verdict.introduced.some(
+			verdict.findings.some(
 				(finding) => finding.code === "CASE_LIST_TILE_COLUMN_NOT_PLACED",
 			),
 		).toBe(true);
@@ -138,7 +140,7 @@ describe("turning the tile on", () => {
 	it("stays accepted at a full grid of single squares", () => {
 		const columns = Array.from({ length: 144 }, (_unused, index) =>
 			column(`age`, `Field ${index}`),
-		).map((entry, index) => ({ ...entry, uuid: asUuid(`col-${index}`) }));
+		).map((entry, index) => ({ ...entry, uuid: testUuid(`col-${index}`) }));
 		const { doc, moduleUuid } = docWithColumns(columns);
 		const plan = planTileLayoutEnable({
 			moduleUuid,
@@ -161,7 +163,7 @@ describe("joining Results while it is a tile", () => {
 			}),
 		]);
 		const enabled = accepts(doc, [
-			{ kind: "setCaseListMeta", uuid: moduleUuid, patch: {}, tilePatch: {} },
+			{ kind: "setCaseListMeta", uuid: moduleUuid, patch: { tile: {} } },
 		]);
 		if (!enabled.ok) throw new Error("tile did not turn on");
 		return { doc: enabled.nextDoc, moduleUuid };
@@ -181,7 +183,7 @@ describe("joining Results while it is a tile", () => {
 		expect(verdict.ok).toBe(false);
 		if (verdict.ok) return;
 		expect(
-			verdict.introduced.some(
+			verdict.findings.some(
 				(finding) => finding.code === "CASE_LIST_TILE_COLUMN_NOT_PLACED",
 			),
 		).toBe(true);
@@ -205,27 +207,25 @@ describe("joining Results while it is a tile", () => {
 			}),
 		]);
 		const enabled = accepts(doc, [
-			{ kind: "setCaseListMeta", uuid: moduleUuid, patch: {}, tilePatch: {} },
+			{ kind: "setCaseListMeta", uuid: moduleUuid, patch: { tile: {} } },
 		]);
 		expect(enabled.ok).toBe(true);
 		if (!enabled.ok) return;
 
 		const columns =
 			enabled.nextDoc.modules[moduleUuid]?.caseListConfig?.columns ?? [];
-		const hidden = columns.find((entry) => entry.uuid === asUuid("col-age"));
+		const hidden = columns.find((entry) => entry.uuid === testUuid("col-age"));
 		expect(hidden).toBeDefined();
 		if (hidden === undefined) return;
 
 		// The stale cell would refuse; the re-adjudicated one commits.
-		const stale = accepts(enabled.nextDoc, [
-			{
-				kind: "updateColumn",
-				moduleUuid,
-				uuid: hidden.uuid,
-				column: { ...hidden, visibleInList: undefined } as Column,
-				visibilityPatch: { surface: "list", visible: true },
-			},
-		]);
+		const stale = accepts(
+			enabled.nextDoc,
+			columnSnapshotMutations(moduleUuid, hidden, {
+				...hidden,
+				visibleInList: undefined,
+			} as Column),
+		);
 		expect(stale.ok).toBe(false);
 
 		const place = placementForJoiningTile(
@@ -235,22 +235,14 @@ describe("joining Results while it is a tile", () => {
 		);
 		expect(place).not.toBeNull();
 		if (place === null) return;
-		const revealed = accepts(enabled.nextDoc, [
-			{
-				kind: "updateColumn",
-				moduleUuid,
-				uuid: hidden.uuid,
-				column: { ...hidden, visibleInList: undefined } as Column,
-				visibilityPatch: { surface: "list", visible: true },
-			},
-			{
-				kind: "updateColumn",
-				moduleUuid,
-				uuid: hidden.uuid,
-				column: hidden,
-				tilePatch: place,
-			},
-		]);
+		const revealed = accepts(
+			enabled.nextDoc,
+			columnSnapshotMutations(moduleUuid, hidden, {
+				...hidden,
+				visibleInList: undefined,
+				tile: place,
+			} as Column),
+		);
 		expect(revealed.ok).toBe(true);
 	});
 
@@ -266,10 +258,12 @@ describe("joining Results while it is a tile", () => {
 			{
 				kind: "addColumn",
 				moduleUuid,
-				column: column("village", "Village"),
+				column: {
+					...column("village", "Village"),
+					tile: place,
+				} as Column,
 				afterInList: null,
 				afterInDetail: null,
-				tileCell: place,
 			},
 		]);
 		expect(verdict.ok).toBe(true);

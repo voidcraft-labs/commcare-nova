@@ -199,8 +199,8 @@ export function FieldIdentitySection({ field }: FieldIdentitySectionProps) {
 	}, [idNotice]);
 
 	/** Runs the shared identifier verdict and, on a clean verdict,
-	 * dispatches the rename. Rename doesn't change uuid, so no selection
-	 * update is needed. The verdict (`renameFieldIdVerdict`) is the same
+	 * dispatches the field-id update. The update doesn't change UUID, so no
+	 * selection update is needed. The verdict (`renameFieldIdVerdict`) is the same
 	 * one the SA tools enforce — XML-name legality, the reserved
 	 * `__nova_` prefix, the case-property length cap, and the peer-aware
 	 * sibling-conflict scan — so UI and agent renames can't drift. The
@@ -242,7 +242,7 @@ export function FieldIdentitySection({ field }: FieldIdentitySectionProps) {
 					});
 					return { ok: false, messages: [outcome.message] };
 				case "success": {
-					/* Verdict clean — dispatch the rename (the store re-runs
+					/* Verdict clean — dispatch the field-id update (the hook re-runs
 					 * the conflict scan as its own backstop, and the commit
 					 * gate can still refuse for findings only the whole-doc
 					 * validator sees). Uuid stays the same, selection is

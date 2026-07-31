@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import { asUuid, type Field, fieldKinds, fieldSchema } from "@/lib/domain";
+import { type Field, fieldKinds, fieldSchema } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import { NEW_FIELD_BUILDERS } from "../newFieldDefaults";
 
-const UUID = asUuid("00000000-0000-4000-8000-000000000000");
+const UUID = testUuid("00000000-0000-4000-8000-000000000000");
 
 describe("NEW_FIELD_BUILDERS — every kind's starter field is schema-valid", () => {
 	// The mapped type guarantees each builder's STRUCTURE matches its kind, but
@@ -56,14 +58,14 @@ describe("NEW_FIELD_BUILDERS — every starter passes the commit gate", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 								f({
 									kind: "text",
 									id: "village",
-									label: "Village",
-									case_property_on: "patient",
+									label: proseText("Village"),
+									caseWrite: { caseType: "patient", property: "village" },
 								}),
 							],
 						},
@@ -74,8 +76,8 @@ describe("NEW_FIELD_BUILDERS — every starter passes the commit gate", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name" },
-						{ name: "village", label: "Village" },
+						{ name: "case_name", label: proseText("Name") },
+						{ name: "village", label: proseText("Village") },
 					],
 				},
 			],
@@ -96,7 +98,7 @@ describe("NEW_FIELD_BUILDERS — every starter passes the commit gate", () => {
 			verdict.ok,
 			verdict.ok
 				? ""
-				: `${kind}: ${verdict.introduced.map((e) => e.code).join(", ")}`,
+				: `${kind}: ${verdict.findings.map((e) => e.code).join(", ")}`,
 		).toBe(true);
 	});
 });

@@ -286,7 +286,7 @@ function accumulateCaseLoadingInstances(
 		for (const id of collectPredicateInstances(unanswered, lookupNaming)) {
 			if (seen.has(id)) continue;
 			seen.add(id);
-			instances.push({ id, src: instanceSourceFor(id) });
+			instances.push({ id, src: instanceSourceFor(id, lookupNaming) });
 		}
 	}
 
@@ -300,7 +300,7 @@ function accumulateCaseLoadingInstances(
 		for (const id of collectExpressionInstances(unanswered, lookupNaming)) {
 			if (seen.has(id)) continue;
 			seen.add(id);
-			instances.push({ id, src: instanceSourceFor(id) });
+			instances.push({ id, src: instanceSourceFor(id, lookupNaming) });
 		}
 	}
 
@@ -311,7 +311,7 @@ function accumulateCaseLoadingInstances(
 		)) {
 			if (seen.has(id)) continue;
 			seen.add(id);
-			instances.push({ id, src: instanceSourceFor(id) });
+			instances.push({ id, src: instanceSourceFor(id, lookupNaming) });
 		}
 	}
 
@@ -332,7 +332,7 @@ function accumulateCaseLoadingInstances(
 		for (const id of ids) {
 			if (seen.has(id)) continue;
 			seen.add(id);
-			instances.push({ id, src: instanceSourceFor(id) });
+			instances.push({ id, src: instanceSourceFor(id, lookupNaming) });
 		}
 	}
 
@@ -346,7 +346,7 @@ function accumulateCaseLoadingInstances(
 			for (const id of collectExpressionInstances(expression, lookupNaming)) {
 				if (seen.has(id)) continue;
 				seen.add(id);
-				instances.push({ id, src: instanceSourceFor(id) });
+				instances.push({ id, src: instanceSourceFor(id, lookupNaming) });
 			}
 		}
 	}
@@ -466,10 +466,8 @@ export function deriveSessionDatums(
  *
  * | Destination      | Operation                                              |
  * |------------------|--------------------------------------------------------|
- * | `default`        | `<create/>` — empty frame, resolves to home            |
- * | `root`           | `<create><command value="'root'"/></create>`            |
+ * | `app_home`       | `<create/>` — empty frame, resolves to home             |
  * | `module`         | `<create><command value="'m{idx}'"/></create>`          |
- * | `parent_module`  | Same as module (stub — parent modules not modeled)     |
  * | `previous`       | `<create>` with module cmd + case datums from session  |
  */
 export function derivePostSubmitStack(
@@ -482,21 +480,7 @@ export function derivePostSubmitStack(
 		case "app_home":
 			return [{ op: "create", children: [] }];
 
-		case "root":
-			return [
-				{ op: "create", children: [{ type: "command", value: "'root'" }] },
-			];
-
 		case "module":
-			return [
-				{
-					op: "create",
-					children: [{ type: "command", value: `'m${moduleIndex}'` }],
-				},
-			];
-
-		case "parent_module":
-			// Stub: falls back to module until parent modules are modeled.
 			return [
 				{
 					op: "create",
@@ -1048,9 +1032,7 @@ export function renderStackXml(operations: StackOperation[]): string {
 
 const NOVA_TO_HQ: Record<PostSubmitDestination, string> = {
 	app_home: "default",
-	root: "root",
 	module: "module",
-	parent_module: "parent_module",
 	previous: "previous_screen",
 };
 

@@ -43,10 +43,12 @@ import render from "dom-serializer";
 import type { Element } from "domhandler";
 import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
-import type {
-	SearchInputDef,
-	SearchInputType,
-	SimpleSearchInputDef,
+import {
+	SEARCH_INPUT_RUNTIME_VALUE_TYPES,
+	type SearchInputDef,
+	type SearchInputType,
+	type SimpleSearchInputDef,
+	searchInputDefault,
 } from "@/lib/domain";
 import type { Predicate, ValueExpression } from "@/lib/domain/predicate";
 import type { RelationEvaluationScopeContext } from "@/lib/domain/predicate/normalizeRelationEvaluationScopes";
@@ -142,16 +144,6 @@ export const PROMPT_ATTRIBUTE_MAPPINGS: Readonly<
 > = {
 	// CCHQ default — both attributes omitted, plain text input.
 	text: {},
-	// Wire attribute `input="select1"`. The runtime widget needs an
-	// `<itemset>` child on the prompt to render as a select —
-	// `commcare-core`'s `QueryPrompt::isSelect` returns false
-	// otherwise and the widget falls back to a text input. Nova's
-	// schema does not carry an itemset slot today, so the
-	// `searchInputSelectWidgetNotSupported` validator rule rejects
-	// the combination at authoring time; this mapping stays as the
-	// wire-correct emission for the day the itemset infrastructure
-	// lands.
-	select: { input: "select1" },
 	date: { input: "date" },
 	// CCHQ collapses the token to `daterange` (no hyphen).
 	"date-range": { input: "daterange" },
@@ -188,6 +180,14 @@ export function buildSearchPrompts(
 ): SearchPromptsEmission {
 	const elements: Element[] = [];
 	const strings: Record<string, string> = {};
+	const promptRelationContext: RelationEvaluationScopeContext = {
+		...relationContext,
+		knownInputs: searchInputs.map((input) => ({
+			uuid: input.uuid,
+			name: input.name,
+			data_type: SEARCH_INPUT_RUNTIME_VALUE_TYPES[input.type],
+		})),
+	};
 
 	for (const input of searchInputs) {
 		// When `input.label` is empty the locale registers `input.name`
@@ -210,7 +210,7 @@ export function buildSearchPrompts(
 				searchInputSuppressesAutoMatch(input),
 				validationLocaleId,
 				runtimeValidation?.test,
-				relationContext,
+				promptRelationContext,
 				lookupNaming,
 			),
 		);
@@ -385,12 +385,10 @@ function composePromptAttributes(
 
 	// `default` is the attribute form, not a child `<default>` element
 	// — see `QueryPrompt::default_value = StringField('@default', ...)`.
-	// The historical scalar default slot cannot represent CommCare's paired
-	// daterange answer. Validation asks legacy authors to remove it; omission
-	// here is the final defense against turning one date into an exact query.
-	if (input.type !== "date-range" && input.default !== undefined) {
+	const inputDefault = searchInputDefault(input);
+	if (inputDefault !== undefined) {
 		attribs.default = compileDefaultExpression(
-			input.default,
+			inputDefault,
 			relationContext,
 			lookupNaming,
 		);
@@ -424,6 +422,8 @@ function compileDefaultExpression(
 		undefined,
 		relationContext,
 		undefined,
-		lookupNaming === undefined ? {} : { lookup: { naming: lookupNaming } },
+		lookupNaming === undefined
+			? {}
+			: { lookup: { naming: lookupNaming, instanceScope: "suite" } },
 	);
 }

@@ -36,24 +36,21 @@ import {
 	caseSearchConfigHasAuthoredSettings,
 	isOwnerOnlyCaseSearchConfig,
 	type Module,
-	normalizeOwnerOnlyCaseSearchConfig,
+	type OrdinaryCaseSearchConfig,
+	type OwnerOnlyCaseSearchConfig,
 } from "@/lib/domain";
 import {
-	carrierBlindPredicateSchema,
-	carrierBlindValueExpressionSchema,
 	expressionReadsCaseData,
 	type Predicate,
 	predicateReadsCaseData,
+	predicateSchema,
 	type ValueExpression,
+	valueExpressionSchema,
 } from "@/lib/domain/predicate";
 
-// Builders expose canonical AST union types. These aliases keep existing tool
-// callers source-compatible while retaining the carrier-blind Zod nodes at
-// runtime and in generated MCP/chat schemas.
-const carrierBlindPredicateInputSchema =
-	carrierBlindPredicateSchema as z.ZodType<Predicate>;
-const carrierBlindValueExpressionInputSchema =
-	carrierBlindValueExpressionSchema as z.ZodType<ValueExpression>;
+const predicateInputSchema = predicateSchema as z.ZodType<Predicate>;
+const valueExpressionInputSchema =
+	valueExpressionSchema as z.ZodType<ValueExpression>;
 
 // ── Cluster slot tuples — source of truth ───────────────────────────
 
@@ -72,15 +69,18 @@ export const INTERNAL_SLOT_NAMES = ["searchActionEnabled"] as const;
 export type DisplaySlotName = (typeof DISPLAY_SLOT_NAMES)[number];
 export type AdvancedSlotName = (typeof ADVANCED_SLOT_NAMES)[number];
 type InternalSlotName = (typeof INTERNAL_SLOT_NAMES)[number];
+type CaseSearchConfigKey =
+	| keyof OrdinaryCaseSearchConfig
+	| keyof OwnerOnlyCaseSearchConfig;
 
 // Partition exhaustiveness — every `CaseSearchConfig` key must land
 // in exactly one tuple, so a new schema slot without a home fails to
 // compile.
-type _ClusterPartitionExhaustive = [keyof CaseSearchConfig] extends [
+type _ClusterPartitionExhaustive = [CaseSearchConfigKey] extends [
 	DisplaySlotName | AdvancedSlotName | InternalSlotName,
 ]
 	? [DisplaySlotName | AdvancedSlotName | InternalSlotName] extends [
-			keyof CaseSearchConfig,
+			CaseSearchConfigKey,
 		]
 		? true
 		: never
@@ -110,8 +110,10 @@ void _disjoint;
  */
 export function pickAdvancedCluster(
 	config: CaseSearchConfig | undefined,
-): Partial<Pick<CaseSearchConfig, AdvancedSlotName>> {
-	return pickClusterSlots(config, ADVANCED_SLOT_NAMES);
+): Partial<Pick<OrdinaryCaseSearchConfig, AdvancedSlotName>> {
+	return config?.excludedOwnerIds === undefined
+		? {}
+		: { excludedOwnerIds: config.excludedOwnerIds };
 }
 
 /**
@@ -121,14 +123,15 @@ export function pickAdvancedCluster(
  */
 export function pickDisplayCluster(
 	config: CaseSearchConfig | undefined,
-): Partial<Pick<CaseSearchConfig, DisplaySlotName>> {
+): Partial<Pick<OrdinaryCaseSearchConfig, DisplaySlotName>> {
+	if (config === undefined || isOwnerOnlyCaseSearchConfig(config)) return {};
 	return pickClusterSlots(config, DISPLAY_SLOT_NAMES);
 }
 
 /** Preserve the owner-only no-Search provenance across SA cluster edits. */
-export function pickSearchActionIntent(
-	config: CaseSearchConfig | undefined,
-): Partial<Pick<CaseSearchConfig, "searchActionEnabled">> {
+export function pickSearchActionIntent(config: CaseSearchConfig | undefined): {
+	readonly searchActionEnabled?: false;
+} {
 	return isOwnerOnlyCaseSearchConfig(config)
 		? { searchActionEnabled: false }
 		: {};
@@ -139,11 +142,11 @@ export function pickSearchActionIntent(
  * undefined values is what keeps cleared slots truly absent rather
  * than leaking through as `key: undefined`.
  */
-function pickClusterSlots<K extends keyof CaseSearchConfig>(
-	config: CaseSearchConfig | undefined,
+function pickClusterSlots<K extends keyof OrdinaryCaseSearchConfig>(
+	config: OrdinaryCaseSearchConfig | undefined,
 	slots: readonly K[],
-): Partial<Pick<CaseSearchConfig, K>> {
-	const out: Partial<Pick<CaseSearchConfig, K>> = {};
+): Partial<Pick<OrdinaryCaseSearchConfig, K>> {
+	const out: Partial<Pick<OrdinaryCaseSearchConfig, K>> = {};
 	if (config === undefined) return out;
 	for (const slot of slots) {
 		const value = config[slot];
@@ -164,8 +167,8 @@ function pickClusterSlots<K extends keyof CaseSearchConfig>(
  * slots are truly absent" contract. The SA-boundary schemas use
  * `.nullable()`, so this tightened shape matches what callers pass.
  */
-export type ClusterPatchInput<K extends keyof CaseSearchConfig> = {
-	readonly [P in K]: NonNullable<CaseSearchConfig[P]> | null;
+export type ClusterPatchInput<K extends keyof OrdinaryCaseSearchConfig> = {
+	readonly [P in K]: NonNullable<OrdinaryCaseSearchConfig[P]> | null;
 };
 
 /**
@@ -173,11 +176,11 @@ export type ClusterPatchInput<K extends keyof CaseSearchConfig> = {
  * `slots` so the slot list lives in one place; `null` inputs skip
  * the write so the returned keys reflect only what the SA set.
  */
-export function applyClusterPatch<K extends keyof CaseSearchConfig>(
+export function applyClusterPatch<K extends keyof OrdinaryCaseSearchConfig>(
 	input: ClusterPatchInput<K>,
 	slots: readonly K[],
-): Partial<Pick<CaseSearchConfig, K>> {
-	const out: Partial<Pick<CaseSearchConfig, K>> = {};
+): Partial<Pick<OrdinaryCaseSearchConfig, K>> {
+	const out: Partial<Pick<OrdinaryCaseSearchConfig, K>> = {};
 	for (const slot of slots) {
 		const value = input[slot];
 		if (value !== null) {
@@ -193,7 +196,7 @@ export function applyClusterPatch<K extends keyof CaseSearchConfig>(
  * this projection's emit set in lockstep with `applyClusterPatch`'s
  * by construction.
  */
-export function slotsSetByInput<K extends keyof CaseSearchConfig>(
+export function slotsSetByInput<K extends keyof OrdinaryCaseSearchConfig>(
 	input: ClusterPatchInput<K>,
 	slots: readonly K[],
 ): readonly K[] {
@@ -203,7 +206,7 @@ export function slotsSetByInput<K extends keyof CaseSearchConfig>(
 // ── Input schemas — advanced cluster ────────────────────────────────
 
 const globallyResolvedOwnerExpressionSchema =
-	carrierBlindValueExpressionInputSchema.superRefine((expression, ctx) => {
+	valueExpressionInputSchema.superRefine((expression, ctx) => {
 		if (!expressionReadsCaseData(expression)) return;
 		ctx.addIssue({
 			code: "custom",
@@ -221,20 +224,21 @@ const globallyResolvedOwnerExpressionSchema =
  * rejects the shape with the honest alternatives instead of letting
  * the gate (or the runtime) break the news.
  */
-const globallyResolvedDisplayConditionSchema =
-	carrierBlindPredicateInputSchema.superRefine((condition, ctx) => {
+const globallyResolvedDisplayConditionSchema = predicateInputSchema.superRefine(
+	(condition, ctx) => {
 		if (!predicateReadsCaseData(condition)) return;
 		ctx.addIssue({
 			code: "custom",
 			message:
 				"The search-button display condition is evaluated before a case is selected, so it cannot read case properties or relationships. Compose it from fixed values and current-user/session values; to filter which cases appear, use the case list filter or a search input instead.",
 		});
-	});
+	},
+);
 
 /**
- * SA boundary shape for `setCaseSearchAdvanced`. `moduleIndex` is
- * omitted from this body schema so `setCaseSearchAdvanced` can wrap
- * it back in its full tool input schema.
+ * SA boundary shape for `setCaseSearchAdvanced`. The module UUID address is
+ * omitted from this body schema so the tool can compose it once at the outer
+ * input boundary.
  */
 export const setCaseSearchAdvancedBodySchema = z
 	.object({
@@ -294,7 +298,7 @@ export function snapshotCaseSearchConfig(
 ): CaseSearchConfig | undefined {
 	return mod.caseSearchConfig === undefined
 		? undefined
-		: normalizeOwnerOnlyCaseSearchConfig(mod.caseSearchConfig);
+		: structuredClone(mod.caseSearchConfig);
 }
 
 // ── Collapse-to-absent decision ─────────────────────────────────────
@@ -304,9 +308,7 @@ export function snapshotCaseSearchConfig(
  * collapses to absence. Shared by both cluster tools so the decision
  * cannot drift: a candidate with no authored settings collapses when
  * the module had no config to begin with (a cluster call must not
- * birth an empty bag), or when only the internal owner-only
- * `searchActionEnabled: false` marker remains (it qualifies authored
- * settings, never stands alone). An EXISTING enabled config survives
+ * birth an empty bag). An EXISTING enabled config survives
  * with every slot cleared — a saved zero-input Search action is
  * deliberate authored state.
  */
@@ -314,7 +316,7 @@ export function collapseUnauthoredCaseSearchConfig(
 	existing: CaseSearchConfig | undefined,
 	candidate: CaseSearchConfig,
 ): CaseSearchConfig | undefined {
-	return (existing === undefined || candidate.searchActionEnabled === false) &&
+	return existing === undefined &&
 		!caseSearchConfigHasAuthoredSettings(candidate)
 		? undefined
 		: candidate;

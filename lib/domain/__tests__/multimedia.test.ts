@@ -142,13 +142,13 @@ describe("gcsObjectKeyFor", () => {
 describe("mediaSchema", () => {
 	it("accepts a fully-populated slot bundle", () => {
 		const parsed = mediaSchema.parse({
-			image: "asset-1",
-			audio: "asset-2",
-			video: "asset-3",
+			image: "00000000-0000-4000-8000-000000000001",
+			audio: "00000000-0000-4000-8000-000000000002",
+			video: "00000000-0000-4000-8000-000000000003",
 		});
-		expect(parsed.image).toBe("asset-1");
-		expect(parsed.audio).toBe("asset-2");
-		expect(parsed.video).toBe("asset-3");
+		expect(parsed.image).toBe("00000000-0000-4000-8000-000000000001");
+		expect(parsed.audio).toBe("00000000-0000-4000-8000-000000000002");
+		expect(parsed.video).toBe("00000000-0000-4000-8000-000000000003");
 	});
 
 	it("accepts an empty slot bundle (nothing attached yet)", () => {
@@ -156,7 +156,9 @@ describe("mediaSchema", () => {
 	});
 
 	it("rejects unknown slot keys (strict shape)", () => {
-		expect(() => mediaSchema.parse({ pdf: "asset-1" })).toThrow();
+		expect(() =>
+			mediaSchema.parse({ pdf: "00000000-0000-4000-8000-000000000001" }),
+		).toThrow();
 	});
 
 	it("rejects empty asset ids", () => {

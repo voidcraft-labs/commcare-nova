@@ -15,11 +15,15 @@
 import tablerSignature from "@iconify-icons/tabler/signature";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
-import { fieldBaseSchema, xpathExpressionSchema } from "./base";
+import {
+	fieldBaseSchema,
+	proseTemplateSchema,
+	xpathExpressionSchema,
+} from "./base";
 
 export const signatureFieldSchema = fieldBaseSchema.extend({
 	kind: z.literal("signature"),
-	hint: z.string().optional(),
+	hint: proseTemplateSchema.optional(),
 	required: xpathExpressionSchema.optional(),
 	relevant: xpathExpressionSchema.optional(),
 });

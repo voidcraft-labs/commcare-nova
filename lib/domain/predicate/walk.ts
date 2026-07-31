@@ -209,58 +209,16 @@ export function walkInputRefs(
 	});
 }
 
-/** Whether a predicate reads the named Search input anywhere in its AST. */
+/** Whether a predicate reads the identified Search input anywhere in its AST. */
 export function predicateReferencesSearchInput(
 	predicate: Predicate,
-	name: string,
+	searchInputUuid: SearchInputRef["searchInputUuid"],
 ): boolean {
 	let found = false;
 	walkInputRefs(predicate, (ref) => {
-		if (ref.name === name) found = true;
+		if (ref.searchInputUuid === searchInputUuid) found = true;
 	});
 	return found;
-}
-
-/** Expression-rooted counterpart to `predicateReferencesSearchInput`. */
-export function expressionReferencesSearchInput(
-	expression: ValueExpression,
-	name: string,
-): boolean {
-	let found = false;
-	walkExpressionTerms(expression, (term) => {
-		if (term.kind === "input" && term.name === name) found = true;
-	});
-	return found;
-}
-
-/** Structurally rename every matching Search-input leaf in a predicate. */
-export function renameSearchInputInPredicate(
-	predicate: Predicate,
-	oldName: string,
-	newName: string,
-): number {
-	let changed = 0;
-	walkInputRefs(predicate, (ref) => {
-		if (ref.name !== oldName) return;
-		ref.name = newName;
-		changed++;
-	});
-	return changed;
-}
-
-/** Structurally rename every matching Search-input leaf in an expression. */
-export function renameSearchInputInExpression(
-	expression: ValueExpression,
-	oldName: string,
-	newName: string,
-): number {
-	let changed = 0;
-	walkExpressionTerms(expression, (term) => {
-		if (term.kind !== "input" || term.name !== oldName) return;
-		term.name = newName;
-		changed++;
-	});
-	return changed;
 }
 
 /**
@@ -345,7 +303,7 @@ function collapseWhenInputPresent(predicate: Predicate): void {
 function blankInputTerm(term: Term): void {
 	if (term.kind !== "input") return;
 	const node = term as unknown as Record<string, unknown>;
-	delete node.name;
+	delete node.searchInputUuid;
 	node.kind = "literal";
 	node.value = "";
 }
@@ -560,7 +518,6 @@ function walkPredicate(
 				visitor.visitTerm?.(predicate.values[i], [...path, "values", i]);
 			}
 			return;
-		case "is-null":
 		case "is-blank":
 			walkValueExpression(predicate.left, visitor, [...path, "left"]);
 			return;
@@ -649,7 +606,6 @@ function walkValueExpression(
 		case "date-coerce":
 		case "datetime-coerce":
 		case "double":
-		case "unwrap-list":
 			walkValueExpression(expr.value, visitor, [...path, "value"]);
 			return;
 		case "format-date":

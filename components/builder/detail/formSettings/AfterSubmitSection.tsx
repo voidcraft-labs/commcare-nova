@@ -11,13 +11,7 @@ import { defaultPostSubmit, type PostSubmitDestination } from "@/lib/domain";
 import { SelectMenu, type SelectMenuOption } from "./SelectMenu";
 import type { FormSettingsSectionProps } from "./types";
 
-/**
- * User-facing destination options. HQ also supports `root` and
- * `parent_module` as legacy equivalents of `app_home` and `module`
- * respectively; we fold those down to the canonical values via
- * `resolveUserFacing` before rendering so the menu only ever shows one
- * label per semantic destination.
- */
+/** The complete stored and authorable post-submit vocabulary. */
 const AFTER_SUBMIT_OPTIONS: ReadonlyArray<
 	SelectMenuOption<PostSubmitDestination> & {
 		description: string;
@@ -44,33 +38,22 @@ const AFTER_SUBMIT_OPTIONS: ReadonlyArray<
 	},
 ];
 
-/** Map internal-only values (root, parent_module) to their user-facing equivalent. */
-function resolveUserFacing(dest: PostSubmitDestination): PostSubmitDestination {
-	if (dest === "root") return "app_home";
-	if (dest === "parent_module") return "module";
-	return dest;
-}
-
 /**
  * Dropdown for "After Submit" — what screen the user lands on after the
- * form is submitted. Writes `undefined` when the choice matches the
- * form-type default so the doc doesn't carry redundant state (a close
- * form defaults to "parent_module"; a registration form defaults to
- * "app_home", etc.).
+ * form is submitted. Writes the JSON-stable clear `null` when the choice matches the
+ * form-type default so the doc doesn't carry redundant state.
  */
 export function AfterSubmitSection({ formUuid }: FormSettingsSectionProps) {
 	const form = useForm(formUuid);
 	const { updateForm } = useBlueprintMutations();
 	const formType = form?.type ?? "survey";
-	const current = resolveUserFacing(
-		form?.postSubmit ?? defaultPostSubmit(formType),
-	);
+	const current = form?.postSubmit ?? defaultPostSubmit(formType);
 	const triggerId = useId();
 
 	const handleSelect = useCallback(
 		(dest: PostSubmitDestination) => {
 			updateForm(asUuid(formUuid), {
-				postSubmit: dest === defaultPostSubmit(formType) ? undefined : dest,
+				postSubmit: dest === defaultPostSubmit(formType) ? null : dest,
 			});
 		},
 		[updateForm, formUuid, formType],

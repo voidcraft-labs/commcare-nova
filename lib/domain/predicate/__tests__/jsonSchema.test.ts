@@ -16,18 +16,21 @@
 
 import { describe, expect, it } from "vitest";
 import type { CaseType } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import { caseTypeToJsonSchema } from "../jsonSchema";
 
 describe("caseTypeToJsonSchema", () => {
 	it("maps a text property", () => {
 		const ct: CaseType = {
 			name: "patient",
-			properties: [{ name: "name", label: "Name", data_type: "text" }],
+			properties: [
+				{ name: "nickname", label: proseText("Nickname"), data_type: "text" },
+			],
 		};
 		expect(caseTypeToJsonSchema(ct)).toEqual({
 			type: "object",
 			properties: {
-				name: { type: "string" },
+				nickname: { type: "string" },
 			},
 			additionalProperties: false,
 		});
@@ -37,11 +40,15 @@ describe("caseTypeToJsonSchema", () => {
 		const ct: CaseType = {
 			name: "patient",
 			properties: [
-				{ name: "age", label: "Age", data_type: "int" },
-				{ name: "bmi", label: "BMI", data_type: "decimal" },
-				{ name: "dob", label: "DOB", data_type: "date" },
-				{ name: "appointment_at", label: "When", data_type: "time" },
-				{ name: "registered_at", label: "When", data_type: "datetime" },
+				{ name: "age", label: proseText("Age"), data_type: "int" },
+				{ name: "bmi", label: proseText("BMI"), data_type: "decimal" },
+				{ name: "dob", label: proseText("DOB"), data_type: "date" },
+				{ name: "appointment_at", label: proseText("When"), data_type: "time" },
+				{
+					name: "registered_at",
+					label: proseText("When"),
+					data_type: "datetime",
+				},
 			],
 		};
 		const schema = caseTypeToJsonSchema(ct);
@@ -73,17 +80,17 @@ describe("caseTypeToJsonSchema", () => {
 			name: "patient",
 			properties: [
 				{
-					name: "status",
-					label: "Status",
+					name: "condition",
+					label: proseText("Condition"),
 					data_type: "single_select",
 					options: [
-						{ value: "open", label: "Open" },
-						{ value: "closed", label: "Closed" },
+						{ value: "open", label: proseText("Open") },
+						{ value: "closed", label: proseText("Closed") },
 					],
 				},
 			],
 		};
-		expect(caseTypeToJsonSchema(ct).properties.status).toEqual({
+		expect(caseTypeToJsonSchema(ct).properties.condition).toEqual({
 			type: "string",
 			// The annotation is data-type provenance, not a constraint — ajv
 			// ignores it; the case-store's transition detection reads it.
@@ -97,11 +104,11 @@ describe("caseTypeToJsonSchema", () => {
 			properties: [
 				{
 					name: "languages",
-					label: "Languages",
+					label: proseText("Languages"),
 					data_type: "multi_select",
 					options: [
-						{ value: "en", label: "English" },
-						{ value: "fr", label: "French" },
+						{ value: "en", label: proseText("English") },
+						{ value: "fr", label: proseText("French") },
 					],
 				},
 			],
@@ -119,26 +126,67 @@ describe("caseTypeToJsonSchema", () => {
 			name: "patient",
 			properties: [
 				{
-					name: "status",
-					label: "Status",
+					name: "condition",
+					label: proseText("Condition"),
 					data_type: "single_select",
 				},
 				{
 					name: "languages",
-					label: "Languages",
+					label: proseText("Languages"),
 					data_type: "multi_select",
 					options: [],
 				},
 			],
 		};
 		const schema = caseTypeToJsonSchema(ct);
-		expect(schema.properties.status).toEqual({
+		expect(schema.properties.condition).toEqual({
 			type: "string",
 			"x-novaDataType": "single_select",
 		});
 		expect(schema.properties.languages).toEqual({
 			type: "array",
 			items: { type: "string" },
+		});
+	});
+
+	it("omits every scalar-backed case value even when explicitly declared", () => {
+		const ct: CaseType = {
+			name: "patient",
+			properties: [
+				{ name: "case_id", label: proseText("Case ID"), data_type: "text" },
+				{
+					name: "case_type",
+					label: proseText("Case type"),
+					data_type: "text",
+				},
+				{
+					name: "case_name",
+					label: proseText("Case name"),
+					data_type: "text",
+				},
+				{
+					name: "date_opened",
+					label: proseText("Date opened"),
+					data_type: "datetime",
+				},
+				{
+					name: "last_modified",
+					label: proseText("Last modified"),
+					data_type: "datetime",
+				},
+				{ name: "owner_id", label: proseText("Owner"), data_type: "text" },
+				{
+					name: "external_id",
+					label: proseText("External ID"),
+					data_type: "text",
+				},
+				{ name: "status", label: proseText("Status"), data_type: "text" },
+				{ name: "notes", label: proseText("Notes"), data_type: "text" },
+			],
+		};
+
+		expect(caseTypeToJsonSchema(ct).properties).toEqual({
+			notes: { type: "string" },
 		});
 	});
 
@@ -150,7 +198,9 @@ describe("caseTypeToJsonSchema", () => {
 		// validation, which is an application-layer concern, not regex).
 		const ct: CaseType = {
 			name: "clinic",
-			properties: [{ name: "location", label: "Loc", data_type: "geopoint" }],
+			properties: [
+				{ name: "location", label: proseText("Loc"), data_type: "geopoint" },
+			],
 		};
 		const schema = caseTypeToJsonSchema(ct);
 		const propSchema = schema.properties.location;
@@ -192,7 +242,7 @@ describe("caseTypeToJsonSchema", () => {
 	it("defaults a property without data_type to string", () => {
 		const ct: CaseType = {
 			name: "patient",
-			properties: [{ name: "notes", label: "Notes" }],
+			properties: [{ name: "notes", label: proseText("Notes") }],
 		};
 		expect(caseTypeToJsonSchema(ct).properties.notes).toEqual({
 			type: "string",
@@ -202,7 +252,9 @@ describe("caseTypeToJsonSchema", () => {
 	it("forbids unknown properties via additionalProperties:false", () => {
 		const ct: CaseType = {
 			name: "patient",
-			properties: [{ name: "name", label: "Name", data_type: "text" }],
+			properties: [
+				{ name: "case_name", label: proseText("Case name"), data_type: "text" },
+			],
 		};
 		expect(caseTypeToJsonSchema(ct).additionalProperties).toBe(false);
 	});
@@ -236,8 +288,8 @@ describe("caseTypeToJsonSchema", () => {
 		const ct: CaseType = {
 			name: "patient",
 			properties: [
-				{ name: "case_name", label: "Name", data_type: "text" },
-				{ name: "age", label: "Age", data_type: "int" },
+				{ name: "case_name", label: proseText("Name"), data_type: "text" },
+				{ name: "age", label: proseText("Age"), data_type: "int" },
 			],
 		};
 		const schema = caseTypeToJsonSchema(ct);

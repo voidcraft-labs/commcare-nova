@@ -12,8 +12,13 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
-import { asUuid, type BlueprintDoc, simpleSearchInputDef } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	plainColumn,
+	simpleSearchInputDef,
+} from "@/lib/domain";
 import { matchAll } from "@/lib/domain/predicate";
 import { updateSearchInputTool } from "../updateSearchInput";
 import { MOD_A, makeCaseListFixture } from "./fixtures";
@@ -23,15 +28,20 @@ vi.mock("@/lib/db/apps", () => ({
 }));
 
 vi.mock("@/lib/db/applyBlueprintChange", () => ({
-	applyBlueprintChange: vi.fn(() => Promise.resolve({ seq: 0 })),
+	applyBlueprintChange: vi.fn(async (args) => {
+		const { commitApplyBlueprintChangeTestBatch } = await import(
+			"@/lib/db/__tests__/applyBlueprintChangeTestWriter"
+		);
+		return commitApplyBlueprintChangeTestBatch(args);
+	}),
 }));
 
 beforeEach(() => {
 	vi.clearAllMocks();
 });
 
-const TARGET_UUID = asUuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
-const SIBLING_UUID = asUuid("cccccccc-cccc-cccc-cccc-cccccccccccc");
+const TARGET_UUID = testUuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+const SIBLING_UUID = testUuid("cccccccc-cccc-cccc-cccc-cccccccccccc");
 
 function fixtureWithInputs(): BlueprintDoc {
 	const { doc } = makeCaseListFixture();
@@ -55,7 +65,13 @@ function fixtureWithInputs(): BlueprintDoc {
 			[MOD_A]: {
 				...doc.modules[MOD_A],
 				caseListConfig: resolveCaseListConfig({
-					columns: [],
+					columns: [
+						plainColumn(
+							testUuid("search-input-fixture-column"),
+							"case_name",
+							"Name",
+						),
+					],
 					searchInputs: [target, sibling],
 				}),
 			},
@@ -70,7 +86,7 @@ describe("updateSearchInput", () => {
 
 		const result = await updateSearchInputTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				searchInputUuid: TARGET_UUID,
 				searchInput: {
 					kind: "advanced",
@@ -97,7 +113,7 @@ describe("updateSearchInput", () => {
 		const doc = fixtureWithInputs();
 		const result = await updateSearchInputTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				searchInputUuid: TARGET_UUID,
 				searchInput: {
 					kind: "advanced",
@@ -123,7 +139,7 @@ describe("updateSearchInput", () => {
 
 		const result = await updateSearchInputTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				searchInputUuid: TARGET_UUID,
 				searchInput: {
 					kind: "simple",
@@ -142,12 +158,12 @@ describe("updateSearchInput", () => {
 		expect(inputs[1]).toEqual(sibling);
 	});
 
-	it("returns an Elm-style error on out-of-range moduleIndex", async () => {
+	it("returns the canonical UUID-address error for an unknown module", async () => {
 		const { ctx } = makeCaseListFixture();
 		const doc = fixtureWithInputs();
 		const result = await updateSearchInputTool.execute(
 			{
-				moduleIndex: 99,
+				moduleUuid: testUuid("unknown-module"),
 				searchInputUuid: TARGET_UUID,
 				searchInput: {
 					kind: "simple",
@@ -165,17 +181,16 @@ describe("updateSearchInput", () => {
 		if (!("error" in result.result)) {
 			throw new Error("expected error result");
 		}
-		expect(result.result.error).toContain("Tried to update");
-		expect(result.result.error).toContain("module index 99");
+		expect(result.result.error).toContain("No module with UUID");
 	});
 
 	it("returns an Elm-style error when the search-input uuid is unknown", async () => {
 		const { ctx } = makeCaseListFixture();
 		const doc = fixtureWithInputs();
-		const unknown = asUuid("dddddddd-dddd-dddd-dddd-dddddddddddd");
+		const unknown = testUuid("dddddddd-dddd-dddd-dddd-dddddddddddd");
 		const result = await updateSearchInputTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				searchInputUuid: unknown,
 				searchInput: {
 					kind: "simple",

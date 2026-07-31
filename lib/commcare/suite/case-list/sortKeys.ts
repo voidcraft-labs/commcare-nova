@@ -6,7 +6,7 @@
 //
 //   1. Walks the columns once, drops the ones without `sort`, and
 //      sorts the survivors by `priority` ascending. Tie-break is
-//      independent Results order (`listOrder ?? order`, then uuid): the
+//      the config's exact Results UUID permutation: the
 //      column appearing earlier on Results wins on equal priority. The rule binds
 //      uniformly at the saga, preview, and wire layers; no layer
 //      assumes priority uniqueness.
@@ -45,10 +45,8 @@
 //     through `applicableSortTypes(dataType)[0]` (the canonical
 //     comparator for the column's `data_type`); calculated columns
 //     route through `checkExpression(expression, ctx, errors, path)`
-//     mapped to a `SortType`. Three failure shapes — `undefined`
-//     (resolution failure), `ANY_TYPE` (null-literal arm), or a
-//     `ResolvedType` with no mapping (e.g. `SEQUENCE_TYPE`) —
-//     route to `"plain"`.
+//     mapped to a `SortType`. A resolution failure or the null-literal
+//     `ANY_TYPE` arm routes to `"plain"`.
 
 import render from "dom-serializer";
 import type { Element } from "domhandler";
@@ -186,11 +184,9 @@ export function applicableSortTypes(
 
 /**
  * Map a checker-resolved `ResolvedType` to the matching wire
- * `SortType`. Returns `null` for resolved types with no mapping;
- * the `ANY_TYPE` and `SEQUENCE_TYPE` sentinels both fall here, as
- * does any future declared type that hasn't been wired into the
- * sort-comparator table. The fallback rule routes the `null`
- * return to `"plain"` at the call site.
+ * `SortType`. Returns `null` for `ANY_TYPE`, and for any future
+ * declared type that has not yet been wired into the sort-comparator
+ * table. The caller routes that sentinel to `"plain"`.
  *
  * Property-rooted columns don't route through this helper — they
  * use `applicableSortTypes(dataType)[0]` directly because their
@@ -215,11 +211,9 @@ function mapResolvedTypeToSortType(rt: ResolvedType): SortType | null {
 		case "geopoint":
 			return "plain";
 		default:
-			// `ANY_TYPE` (null-literal arm) and `SEQUENCE_TYPE`
-			// (`unwrap-list` result) fall here, as does any future
-			// `ResolvedType` not yet wired into the sort-comparator
-			// table. The caller routes `null` to `"plain"` per the
-			// explicit fallback rule.
+			// `ANY_TYPE` (the null-literal arm) falls here, as does any
+			// future `ResolvedType` not yet wired into the sort-comparator
+			// table. The caller routes `null` to `"plain"`.
 			return null;
 	}
 }
@@ -251,9 +245,8 @@ function mapResolvedTypeToSortType(rt: ResolvedType): SortType | null {
  *          arm. Comparing nulls under any comparator is well-defined
  *          but the comparator choice doesn't matter; `"plain"` is
  *          the canonical no-op default.
- *       3. `checkExpression` returns a `ResolvedType` with no
- *          mapping (`SEQUENCE_TYPE`, or any future type not wired
- *          into `mapResolvedTypeToSortType`). The expression is
+ *       3. `checkExpression` returns a future `ResolvedType` not wired
+ *          into `mapResolvedTypeToSortType`. The expression is
  *          structurally inadmissible as a sort source but the wire
  *          emitter still produces `"plain"` so an in-flight edit
  *          state doesn't crash the build.
@@ -406,7 +399,7 @@ export function buildSortDirectives(
 	const emissionTypeContext = moduleTypeContext(mod, doc);
 
 	// Phase 1 — collect sortable columns with their Results index
-	// (`listOrder ?? order`, then uuid — the same sequence the short-detail
+	// (the config's exact Results UUID permutation — the same sequence the short-detail
 	// emitter walks), used only as the equal-priority tie-break below. Details
 	// order is intentionally irrelevant to list sorting.
 	type Survivor = {
@@ -455,7 +448,9 @@ export function buildSortDirectives(
 				undefined,
 				emissionTypeContext,
 				undefined,
-				lookupNaming === undefined ? {} : { lookup: { naming: lookupNaming } },
+				lookupNaming === undefined
+					? {}
+					: { lookup: { naming: lookupNaming, instanceScope: "suite" } },
 			);
 			out.set(column.uuid, {
 				kind: "calculated",

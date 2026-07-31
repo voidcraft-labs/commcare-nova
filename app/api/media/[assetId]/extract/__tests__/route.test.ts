@@ -67,7 +67,7 @@ vi.mock("@/lib/storage/media", () => ({ readTextObject: readTextObjectMock }));
 /** Build a ready document asset record, overridable per test. */
 function docAsset(over: Partial<MediaAssetRecord> = {}): MediaAssetRecord {
 	return {
-		id: "asset-1",
+		id: "00000000-0000-4000-8000-000000000001",
 		owner: "user-1",
 		project_id: "project-1",
 		contentHash: "a".repeat(64),
@@ -84,15 +84,15 @@ function docAsset(over: Partial<MediaAssetRecord> = {}): MediaAssetRecord {
 	} as MediaAssetRecord;
 }
 
-const ctx = (assetId = "asset-1") => ({
+const ctx = (assetId = "00000000-0000-4000-8000-000000000001") => ({
 	params: Promise.resolve({ assetId }),
 });
 // GET reads `req.url` (the `?meta` switch), so the stub carries a realistic URL;
 // pass a query (e.g. "?meta=1") to exercise the metadata branch.
 const req = (query = "") =>
-	({ url: `http://localhost/api/media/asset-1/extract${query}` }) as Parameters<
-		typeof POST
-	>[0];
+	({
+		url: `http://localhost/api/media/00000000-0000-4000-8000-000000000001/extract${query}`,
+	}) as Parameters<typeof POST>[0];
 
 /** Drain a handler response's body. An unread `NextResponse.json` body leaves a
  *  pending promise the async-leak gate flags, so status-only assertions still

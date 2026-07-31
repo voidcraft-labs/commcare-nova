@@ -1,6 +1,6 @@
 /**
  * Compact blueprint-summary renderer. Walks `BlueprintDoc` directly and
- * emits domain-vocabulary text (`field`, `kind`, `case_property_on`) — no
+ * emits domain-vocabulary text (`field`, `kind`, `caseWrite`) — no
  * CommCare wire terms. The SA prompt composer and the MCP `get_app`
  * tool both consume this so the two surfaces show one canonical
  * domain-vocabulary view of an app.
@@ -22,7 +22,9 @@ import type {
 	Uuid,
 } from "@/lib/domain";
 import {
+	fieldCaseWrite,
 	isContainer,
+	isOwnerOnlyCaseSearchConfig,
 	orderedColumns,
 	orderedPersonas,
 	orderedUserProperties,
@@ -32,6 +34,7 @@ import {
 	userPropertiesOf,
 	userTypesOf,
 } from "@/lib/domain";
+import { projectProseTemplate } from "@/lib/domain/prose";
 import { unwrittenPropertiesReminder } from "./systemReminder";
 import {
 	ADVANCED_SLOT_NAMES,
@@ -40,7 +43,7 @@ import {
 
 /**
  * Render a field and its children as nested bullet lines. Shows `id`,
- * `kind`, and the `label` / `case_property_on` hints when present. Nested
+ * `kind`, and the `label` / `caseWrite` hints when present. Nested
  * containers indent their children by two spaces per level so depth is
  * visually obvious.
  */
@@ -51,14 +54,21 @@ function summarizeField(
 ): string | undefined {
 	const field = doc.fields[uuid];
 	if (!field) return undefined;
-	// `label` is absent on hidden, `case_property_on` is absent on
+	// `label` is absent on hidden, `caseWrite` is absent on
 	// structural/media kinds and on non-case fields — render each
 	// piece only when it's meaningful.
-	const pieces: string[] = [`${indent}- ${field.id} (${field.kind})`];
-	if ("label" in field && field.label) pieces[0] += `: "${field.label}"`;
-	if ("case_property_on" in field && field.case_property_on) {
-		pieces[0] += ` → ${field.case_property_on}`;
+	const pieces: string[] = [
+		`${indent}- ${field.id} [uuid ${field.uuid}] (${field.kind})`,
+	];
+	// `label` is a `ProseTemplate`, so it has to be projected against the
+	// owning document rather than interpolated — a template dropped into a
+	// template literal stringifies to `[object Object]`, which would make
+	// every field in the app indistinguishable to whoever reads this summary.
+	if ("label" in field && field.label) {
+		pieces[0] += `: "${projectProseTemplate(field.label, doc).text}"`;
 	}
+	const write = fieldCaseWrite(field);
+	if (write) pieces[0] += ` → ${write.caseType}.${write.property}`;
 	if (isContainer(field)) {
 		const children = orderedFieldUuids(doc, uuid);
 		const childLines = children
@@ -69,26 +79,22 @@ function summarizeField(
 	return pieces.join("\n");
 }
 
-/** Summarize one form: name, type, field count, nested field list. */
-function summarizeForm(
-	doc: BlueprintDoc,
-	formUuid: Uuid,
-	formIndex: number,
-): string {
+/** Summarize one form: name, uuid, type, field count, nested field list. */
+function summarizeForm(doc: BlueprintDoc, formUuid: Uuid): string {
 	const form = doc.forms[formUuid];
-	if (!form) return `  - Form ${formIndex}: <missing>`;
+	if (!form) return `  - Missing form [uuid ${formUuid}]`;
 	const count = countFieldsUnder(doc, formUuid);
-	const header = `  - Form ${formIndex}: "${form.name}" (${form.type}, ${count} field${count === 1 ? "" : "s"})`;
+	const header = `  - Form "${form.name}" [uuid ${formUuid}] (${form.type}, ${count} field${count === 1 ? "" : "s"})`;
 	const extras: string[] = [];
 	if (form.postSubmit) extras.push(`    post_submit: ${form.postSubmit}`);
 	if (form.connect) extras.push("    [Connect enabled]");
 	if (form.closeCondition) {
 		const op =
 			form.closeCondition.operator === "selected" ? "has selected" : "=";
-		// The SA speaks field ids — resolve the stored uuid to the current
-		// id (a dangler shows its text verbatim).
+		// The SA speaks field ids — project the stored uuid through the current
+		// field. Never expose or reinterpret the uuid as a friendly id.
 		const closeFieldId =
-			doc.fields[form.closeCondition.field]?.id ?? form.closeCondition.field;
+			doc.fields[form.closeCondition.field]?.id ?? "<missing field>";
 		extras.push(
 			`    close_condition: ${closeFieldId} ${op} "${form.closeCondition.answer}"`,
 		);
@@ -155,6 +161,16 @@ function summarizeCaseList(mod: Module): string | undefined {
 			// Details is never a tile — long-detail tiles are out of scope by
 			// contract — so no placement is reported here even when the column
 			// carries one for Results.
+			lines.push(`        - ${formatColumn(col, "")}`);
+		}
+	}
+	const dormant = orderedColumns(config, "list").filter(
+		(column) =>
+			column.visibleInList === false && column.visibleInDetail === false,
+	);
+	if (dormant.length > 0) {
+		lines.push("      saved_off_screen:");
+		for (const col of dormant) {
 			lines.push(`        - ${formatColumn(col, "")}`);
 		}
 	}
@@ -248,6 +264,9 @@ function formatSearchInput(input: SearchInputDef): string {
 function summarizeCaseSearch(mod: Module): string | undefined {
 	const config = mod.caseSearchConfig;
 	if (config === undefined) return undefined;
+	if (isOwnerOnlyCaseSearchConfig(config)) {
+		return "    case_search: disabled owner-availability={excludedOwnerIds}";
+	}
 	// Both summaries iterate the source-of-truth tuples that the SA
 	// tool surface partitions on. A new slot landing on either tuple
 	// flows into the SA's app-state summary here automatically — no
@@ -271,25 +290,19 @@ function summarizeCaseSearch(mod: Module): string | undefined {
 }
 
 /** Summarize a module: name, case type, forms. */
-function summarizeModule(
-	doc: BlueprintDoc,
-	moduleUuid: Uuid,
-	index: number,
-): string {
+function summarizeModule(doc: BlueprintDoc, moduleUuid: Uuid): string {
 	const mod = doc.modules[moduleUuid];
-	if (!mod) return `- Module ${index}: <missing>`;
+	if (!mod) return `- Missing module [uuid ${moduleUuid}]`;
 	const caseInfo = mod.caseType ? ` (case_type: ${mod.caseType})` : "";
 	const listOnly = mod.caseListOnly ? " [case list only]" : "";
-	const header = `- Module ${index}: "${mod.name}"${caseInfo}${listOnly}`;
+	const header = `- Module "${mod.name}" [uuid ${moduleUuid}]${caseInfo}${listOnly}`;
 	const sections: string[] = [header];
 	const caseList = summarizeCaseList(mod);
 	if (caseList) sections.push(caseList);
 	const caseSearch = summarizeCaseSearch(mod);
 	if (caseSearch) sections.push(caseSearch);
 	const formUuids = orderedFormUuids(doc, moduleUuid);
-	const forms = formUuids
-		.map((fUuid, fi) => summarizeForm(doc, fUuid, fi))
-		.join("\n");
+	const forms = formUuids.map((fUuid) => summarizeForm(doc, fUuid)).join("\n");
 	if (forms) sections.push(forms);
 	return sections.join("\n");
 }
@@ -375,11 +388,9 @@ export function summarizeBlueprint(doc: BlueprintDoc): string {
 
 	lines.push("");
 	lines.push("**Structure:**");
-	const moduleUuids = orderedModuleUuids(doc);
-	for (let i = 0; i < moduleUuids.length; i++) {
-		const moduleUuid = moduleUuids[i];
-		if (!moduleUuid) continue;
-		lines.push(summarizeModule(doc, moduleUuid, i));
+	// Display order controls only the line order; every address is a uuid.
+	for (const moduleUuid of orderedModuleUuids(doc)) {
+		lines.push(summarizeModule(doc, moduleUuid));
 	}
 
 	// Ambient knowledge, not a finding: properties the app reads but no

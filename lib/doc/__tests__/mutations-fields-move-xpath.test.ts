@@ -1,9 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveDocExpressions } from "@/lib/__tests__/docHelpers";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
-import { asUuid } from "@/lib/doc/types";
-import { expressionSource } from "@/lib/domain";
+import {
+	canonicalProseTemplate,
+	expressionSource,
+	printProseTemplate,
+} from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 
 /** Printed text of an AST-stored expression slot off the live store doc. */
 function calcText(doc: BlueprintDoc, uuid: Uuid): string | undefined {
@@ -12,12 +17,12 @@ function calcText(doc: BlueprintDoc, uuid: Uuid): string | undefined {
 }
 
 // Fixed UUIDs for all entities in the fixture.
-const MOD = asUuid("module-1-uuid");
-const FORM = asUuid("form-1-uuid");
-const GRP1 = asUuid("g1-0000-0000-0000-000000000000");
-const GRP2 = asUuid("g2-0000-0000-0000-000000000000");
-const SRC = asUuid("src-0000-0000-0000-000000000000");
-const REF = asUuid("ref-0000-0000-0000-000000000000");
+const MOD = testUuid("module-1-uuid");
+const FORM = testUuid("form-1-uuid");
+const GRP1 = testUuid("g1-0000-0000-0000-000000000000");
+const GRP2 = testUuid("g2-0000-0000-0000-000000000000");
+const SRC = testUuid("src-0000-0000-0000-000000000000");
+const REF = testUuid("ref-0000-0000-0000-000000000000");
 
 /**
  * Build a normalized `BlueprintDoc` fixture for XPath-rewrite tests.
@@ -50,19 +55,19 @@ function fixture(): BlueprintDoc {
 				uuid: GRP1,
 				id: "grp1",
 				kind: "group",
-				label: "G1",
+				label: proseText("G1"),
 			} as BlueprintDoc["fields"][typeof GRP1],
 			[GRP2]: {
 				uuid: GRP2,
 				id: "grp2",
 				kind: "group",
-				label: "G2",
+				label: proseText("G2"),
 			} as BlueprintDoc["fields"][typeof GRP2],
 			[SRC]: {
 				uuid: SRC,
 				id: "source",
 				kind: "text",
-				label: "Source",
+				label: proseText("Source"),
 			} as BlueprintDoc["fields"][typeof SRC],
 			[REF]: {
 				uuid: REF,
@@ -102,11 +107,11 @@ describe("moveField + path rewrite", () => {
 
 // ── Moved-container descendants ─────────────────────────────────────
 
-const OUTER = asUuid("out-0000-0000-0000-000000000000");
-const GRP = asUuid("grp-0000-0000-0000-000000000000");
-const CHILD = asUuid("chd-0000-0000-0000-000000000000");
-const WATCH = asUuid("wat-0000-0000-0000-000000000000");
-const LABELED = asUuid("lbl-0000-0000-0000-000000000000");
+const OUTER = testUuid("out-0000-0000-0000-000000000000");
+const GRP = testUuid("grp-0000-0000-0000-000000000000");
+const CHILD = testUuid("chd-0000-0000-0000-000000000000");
+const WATCH = testUuid("wat-0000-0000-0000-000000000000");
+const LABELED = testUuid("lbl-0000-0000-0000-000000000000");
 
 /**
  * M → F → outer {}
@@ -135,19 +140,19 @@ function containerFixture(): BlueprintDoc {
 				uuid: OUTER,
 				id: "outer",
 				kind: "group",
-				label: "Outer",
+				label: proseText("Outer"),
 			} as BlueprintDoc["fields"][typeof OUTER],
 			[GRP]: {
 				uuid: GRP,
 				id: "grp",
 				kind: "group",
-				label: "Grp",
+				label: proseText("Grp"),
 			} as BlueprintDoc["fields"][typeof GRP],
 			[CHILD]: {
 				uuid: CHILD,
 				id: "child",
 				kind: "text",
-				label: "Child",
+				label: proseText("Child"),
 			} as BlueprintDoc["fields"][typeof CHILD],
 			[WATCH]: {
 				uuid: WATCH,
@@ -159,7 +164,11 @@ function containerFixture(): BlueprintDoc {
 				uuid: LABELED,
 				id: "labeled",
 				kind: "text",
-				label: "Compare with #form/grp/child today",
+				label: canonicalProseTemplate([
+					{ kind: "text", text: "Compare with " },
+					{ kind: "field-ref", uuid: CHILD },
+					{ kind: "text", text: " today" },
+				]),
 			} as BlueprintDoc["fields"][typeof LABELED],
 		},
 		moduleOrder: [MOD],
@@ -187,7 +196,7 @@ describe("moveField re-anchors refs to a moved CONTAINER's descendants", () => {
 		);
 	});
 
-	it("rewrites descendant hashtag refs embedded in prose surfaces", () => {
+	it("projects descendant prose refs at their current path", () => {
 		const store = createBlueprintDocStore();
 		store.getState().load(resolveDocExpressions(containerFixture()));
 		store
@@ -195,20 +204,23 @@ describe("moveField re-anchors refs to a moved CONTAINER's descendants", () => {
 			.applyMany([
 				{ kind: "moveField", uuid: GRP, toParentUuid: OUTER, after: null },
 			]);
-		const labeled = store.getState().fields[LABELED] as
-			| { label?: string }
-			| undefined;
-		expect(labeled?.label).toBe("Compare with #form/outer/grp/child today");
+		const next = store.getState();
+		const labeled = next.fields[LABELED];
+		expect(
+			labeled && "label" in labeled && labeled.label !== undefined
+				? printProseTemplate(labeled.label, next)
+				: undefined,
+		).toBe("Compare with #form/outer/grp/child today");
 	});
 });
 
 // ── Cross-form moves ────────────────────────────────────────────────
 
-const FORM_B = asUuid("form-2-uuid");
-const NOTES_A = asUuid("nta-0000-0000-0000-000000000000");
-const WATCH_A = asUuid("wta-0000-0000-0000-000000000000");
-const NOTES_B = asUuid("ntb-0000-0000-0000-000000000000");
-const WATCH_B = asUuid("wtb-0000-0000-0000-000000000000");
+const FORM_B = testUuid("form-2-uuid");
+const NOTES_A = testUuid("nta-0000-0000-0000-000000000000");
+const WATCH_A = testUuid("wta-0000-0000-0000-000000000000");
+const NOTES_B = testUuid("ntb-0000-0000-0000-000000000000");
+const WATCH_B = testUuid("wtb-0000-0000-0000-000000000000");
 
 /**
  * M → A { notes, watch_a (references /data/notes — A's own `notes`) }
@@ -237,7 +249,7 @@ function crossFormFixture(): BlueprintDoc {
 				uuid: NOTES_A,
 				id: "notes",
 				kind: "text",
-				label: "Notes A",
+				label: proseText("Notes A"),
 			} as BlueprintDoc["fields"][typeof NOTES_A],
 			[WATCH_A]: {
 				uuid: WATCH_A,
@@ -249,7 +261,7 @@ function crossFormFixture(): BlueprintDoc {
 				uuid: NOTES_B,
 				id: "notes",
 				kind: "text",
-				label: "Notes B",
+				label: proseText("Notes B"),
 			} as BlueprintDoc["fields"][typeof NOTES_B],
 			[WATCH_B]: {
 				uuid: WATCH_B,
@@ -295,21 +307,21 @@ describe("moveField across forms is warn-and-skipped (undesigned operation)", ()
 		// grp { a, b(calc /data/grp/a) } in form A; destination is form B's
 		// group `sec`. The skip must resolve the container's containing form,
 		// not just compare against form uuids.
-		const SEC = asUuid("sec-0000-0000-0000-000000000000");
-		const SUB_A = asUuid("sba-0000-0000-0000-000000000000");
-		const SUB_B = asUuid("sbb-0000-0000-0000-000000000000");
+		const SEC = testUuid("sec-0000-0000-0000-000000000000");
+		const SUB_A = testUuid("sba-0000-0000-0000-000000000000");
+		const SUB_B = testUuid("sbb-0000-0000-0000-000000000000");
 		const doc = crossFormFixture();
 		doc.fields[GRP] = {
 			uuid: GRP,
 			id: "grp",
 			kind: "group",
-			label: "Grp",
+			label: proseText("Grp"),
 		} as BlueprintDoc["fields"][typeof GRP];
 		doc.fields[SUB_A] = {
 			uuid: SUB_A,
 			id: "a",
 			kind: "text",
-			label: "A",
+			label: proseText("A"),
 		} as BlueprintDoc["fields"][typeof SUB_A];
 		doc.fields[SUB_B] = {
 			uuid: SUB_B,
@@ -321,7 +333,7 @@ describe("moveField across forms is warn-and-skipped (undesigned operation)", ()
 			uuid: SEC,
 			id: "sec",
 			kind: "group",
-			label: "Sec",
+			label: proseText("Sec"),
 		} as BlueprintDoc["fields"][typeof SEC];
 		doc.fieldOrder[FORM] = [NOTES_A, WATCH_A, GRP];
 		doc.fieldOrder[GRP] = [SUB_A, SUB_B];
@@ -346,46 +358,32 @@ describe("moveField across forms is warn-and-skipped (undesigned operation)", ()
 		expect(calcText(state, SUB_B)).toBe("/data/grp/a + 1");
 	});
 
-	it("skips a move whose destination container is reachable from NO form (fail closed)", () => {
-		// An orphaned group (present in `fields`, absent from every
-		// `fieldOrder`) can arrive via a degenerate historical replay. The
-		// guard must skip unless the move is PROVABLY same-form — proceeding
-		// would teleport the field out of its form with zero reference
-		// rewriting, the exact dangling-then-captured bug class the skip
-		// exists to eliminate.
-		const ORPHAN = asUuid("orp-0000-0000-0000-000000000000");
+	it("refuses to load a destination container reachable from no form", () => {
+		// Closed topology rejects an orphaned group before it can become live
+		// reducer state. The move guard still fails closed for stale in-memory
+		// inputs, while the persisted/load boundary prevents this degenerate
+		// shape from entering an authoring session at all.
+		const ORPHAN = testUuid("orp-0000-0000-0000-000000000000");
 		const doc = fixture();
 		doc.fields[ORPHAN] = {
 			uuid: ORPHAN,
 			id: "orphan",
 			kind: "group",
-			label: "Orphan",
+			label: proseText("Orphan"),
 		} as BlueprintDoc["fields"][typeof ORPHAN];
 
 		const store = createBlueprintDocStore();
-		store.getState().load(resolveDocExpressions(doc));
-		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-		const [result] = store
-			.getState()
-			.applyMany([
-				{ kind: "moveField", uuid: SRC, toParentUuid: ORPHAN, after: null },
-			]);
-
-		expect(warn).toHaveBeenCalledTimes(1);
-		warn.mockRestore();
-		expect(result).toBeUndefined();
-		const state = store.getState();
-		expect(state.fieldOrder[GRP1]).toEqual([SRC]);
-		expect(state.fieldOrder[ORPHAN]).toBeUndefined();
-		expect(calcText(state, REF)).toBe("/data/grp1/source + 1");
+		expect(() => store.getState().load(resolveDocExpressions(doc))).toThrow(
+			/invalid blueprint topology/,
+		);
 	});
 });
 
 // ── Self-subtree moves ──────────────────────────────────────────────
 
-const PAR = asUuid("par-0000-0000-0000-000000000000");
-const INNER = asUuid("inr-0000-0000-0000-000000000000");
-const LEAF = asUuid("lef-0000-0000-0000-000000000000");
+const PAR = testUuid("par-0000-0000-0000-000000000000");
+const INNER = testUuid("inr-0000-0000-0000-000000000000");
+const LEAF = testUuid("lef-0000-0000-0000-000000000000");
 
 /**
  * M → F → par { inner { leaf } }
@@ -413,19 +411,19 @@ function selfSubtreeFixture(): BlueprintDoc {
 				uuid: PAR,
 				id: "par",
 				kind: "group",
-				label: "Par",
+				label: proseText("Par"),
 			} as BlueprintDoc["fields"][typeof PAR],
 			[INNER]: {
 				uuid: INNER,
 				id: "inner",
 				kind: "group",
-				label: "Inner",
+				label: proseText("Inner"),
 			} as BlueprintDoc["fields"][typeof INNER],
 			[LEAF]: {
 				uuid: LEAF,
 				id: "leaf",
 				kind: "text",
-				label: "Leaf",
+				label: proseText("Leaf"),
 			} as BlueprintDoc["fields"][typeof LEAF],
 		},
 		moduleOrder: [MOD],

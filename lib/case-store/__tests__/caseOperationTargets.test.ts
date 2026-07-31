@@ -1,13 +1,14 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import {
 	buildCaseTypeMap,
 	validateCaseOperationTargetDescriptor,
 	validateResolvedCaseOperationTypeSequence,
 } from "@/lib/case-store";
-import { asUuid } from "@/lib/doc/types";
 import type { Form } from "@/lib/domain";
 import { literal, term } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 
 describe("case-operation runtime target descriptors", () => {
 	const expected = {
@@ -198,7 +199,7 @@ describe("case-operation schema materialization", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "score", label: "Score" }],
+					properties: [{ name: "score", label: proseText("Score") }],
 				},
 			],
 			modules: [
@@ -213,7 +214,7 @@ describe("case-operation schema materialization", () => {
 		const formUuid = doc.formOrder[moduleUuid][0];
 		(doc.forms[formUuid] as Form).caseOperations = [
 			{
-				uuid: asUuid("11111111-1111-4111-8111-111111111111"),
+				uuid: testUuid("11111111-1111-4111-8111-111111111111"),
 				id: "score_patient",
 				action: "update",
 				caseType: "patient",

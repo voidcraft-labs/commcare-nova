@@ -16,7 +16,7 @@
  *     — image + audio + video, any subset. `mediaSchema` is the single
  *     source of truth for that bundle; the tools reuse it directly.
  *   - **Menu carriers** (module / form menu tiles, app logo) take only
- *     direct `AssetId` slots (image + audio, or just image for the logo)
+ *     direct `MediaAssetId` slots (image + audio, or just image for the logo)
  *     — see `lib/domain/multimedia.ts::mediaSchema`'s docstring for why
  *     menu carriers don't use the bundle.
  *
@@ -34,16 +34,19 @@
 
 import { z } from "zod";
 import { loadAppProjectId } from "@/lib/db/apps";
+import type { AdmittedMutationBatch } from "@/lib/doc/mutationAdmission";
 import type { Mutation } from "@/lib/doc/types";
 import {
-	type AssetId,
+	asMediaAssetId,
 	type BlueprintDoc,
+	type BuiltinIconRefFor,
 	builtinIconRef,
 	type IconSlug,
 	iconCatalogEntry,
 	type Media,
+	type MediaAssetId,
+	mediaAssetIdSchema,
 	mediaSchema,
-	parseBuiltinIconSlug,
 } from "@/lib/domain";
 import {
 	type MediaAttachExpectation,
@@ -56,7 +59,7 @@ import { type GuardedMutateOutcome, guardedMutate } from "../common";
  * The full image/audio/video bundle carried by question-message slots and
  * select options. Reuses the domain `mediaSchema` verbatim so the tool
  * boundary and the stored shape can't drift — `mediaSchema` is
- * `.strict()` with three optional `assetIdSchema` slots, none of which
+ * `.strict()` with three optional `mediaAssetIdSchema` slots, none of which
  * carries a `.transform()`, so it lowers cleanly to JSON Schema for the
  * provider tool-input compiler.
  *
@@ -68,11 +71,9 @@ export const mediaBundleInput = (description: string) =>
 	mediaSchema.describe(description);
 
 /**
- * A single asset-id slot for the menu carriers (module / form icon +
- * audio label, app logo). `assetIdSchema` is a plain non-empty string at
- * runtime (the `AssetId` brand is compile-time only), so it lowers to
- * JSON Schema cleanly. Tool bodies cast the parsed value to `AssetId`
- * before threading it into the branded mutation builders.
+ * A single uploaded-asset slot for menu audio labels and the app logo.
+ * `mediaAssetIdSchema` admits only Nova's canonical lowercase UUID spelling
+ * and lowers to the same regex-constrained JSON Schema for SA/MCP callers.
  *
  * The SA passes `null` to clear the slot and a non-null asset id to set
  * it — a required-and-nullable shape that removes the "absent vs null"
@@ -80,7 +81,7 @@ export const mediaBundleInput = (description: string) =>
  * `null → null` straight through to the mutation builders, which clear.
  */
 export const nullableAssetSlot = (description: string) =>
-	z.string().min(1).nullable().describe(description);
+	mediaAssetIdSchema.nullable().describe(description);
 
 /**
  * The icon slot for a menu carrier (module / form tile). Unlike a plain
@@ -91,36 +92,16 @@ export const nullableAssetSlot = (description: string) =>
  * `anyOf` carries the slug list so the model sees the choices while still
  * allowing an asset-id string. `resolveIconInput` disambiguates at runtime.
  */
-export const nullableIconSlot = (
-	slugs: readonly [string, ...string[]],
+export const nullableIconSlot = <
+	const Slugs extends readonly [string, ...string[]],
+>(
+	slugs: Slugs,
 	description: string,
 ) =>
 	z
-		.union([z.enum(slugs), z.string().min(1)])
+		.union([z.enum(slugs), mediaAssetIdSchema])
 		.nullable()
 		.describe(description);
-
-/**
- * Cast a parsed nullable asset-slot value to the branded `AssetId | null`
- * the mutation builders expect. The runtime value is already a string (or
- * null); the cast only re-applies the compile-time brand the wire schema
- * drops. Centralized here so every menu-media tool brands its slots the
- * same way.
- */
-export function brandAssetSlot(value: string | null): AssetId | null {
-	return value as AssetId | null;
-}
-
-/**
- * Cast a parsed `Media` bundle's slot values to the branded `Media`
- * shape. `mediaSchema` parses each slot to a plain string; the doc stores
- * `AssetId`, whose brand is compile-time only — so the parsed value is
- * structurally identical and the cast just re-applies the brand. Returns
- * the bundle unchanged at runtime.
- */
-export function brandMediaBundle(bundle: z.infer<typeof mediaSchema>): Media {
-	return bundle as Media;
-}
 
 /**
  * The four field-message slots a `Media` bundle can attach to. Mirrors
@@ -188,7 +169,7 @@ export function bundleExpectations(
  * the carrier slot itself (`the icon on module "x"`).
  */
 export function slotExpectation(
-	value: string | null,
+	value: MediaAssetId | null,
 	kind: MediaAttachExpectation["kind"],
 	slotPhrase: string,
 ): MediaAttachExpectation[] {
@@ -196,61 +177,62 @@ export function slotExpectation(
 }
 
 /**
- * Resolve a menu-tile icon input (from `nullableIconSlot`) into the `AssetId`
- * the mutation stores plus the attach expectation it imposes:
+ * Resolve a menu-tile icon input into the exact built-in ref or uploaded-media
+ * UUID the matching mutation stores, plus the attach expectation it imposes:
  *
  *   - a value matching a built-in icon slug → the reserved `nova-icon:<slug>`
  *     ref and NO expectation. Built-ins have no library row — they're always a
  *     ready image, resolved from the shipped set at emit — so the at-source
  *     verdict (which reads the asset row) must not run for them. An empty
  *     expectation list is exactly what skips it.
- *   - a STORED built-in ref (`nova-icon:<slug>`, a valid catalog slug) → the
- *     ref unchanged, NO expectation. This is the echo-back path: the SA
- *     preserves a tile's current icon by reading it (getModule / getForm) and
- *     passing the stored value back, so the stored form must round-trip. A
- *     STALE prefixed ref (slug gone from the catalog) falls through to the
- *     uploaded-id arm and fails closed at the verdict, like any dangling ref.
- *   - any other non-null value → an uploaded asset id: branded, with the
+ *   - any other non-null value is already a schema-validated uploaded UUID,
+ *     with the
  *     standard image expectation so the verdict checks it exists / is ready.
  *   - `null` → clear, no expectation.
  *
  * Slugs and uploaded asset-id UUIDs can't collide, so catalog membership is a
  * sound discriminator.
  */
-export function resolveIconInput(
-	value: string | null,
+export function resolveIconInput<Slug extends IconSlug>(
+	value: Slug | MediaAssetId | null,
 	slotPhrase: string,
-): { icon: AssetId | null; expectations: MediaAttachExpectation[] } {
+): {
+	icon: MediaAssetId | BuiltinIconRefFor<Slug> | null;
+	expectations: MediaAttachExpectation[];
+} {
 	if (value === null) return { icon: null, expectations: [] };
 	if (iconCatalogEntry(value)) {
-		return { icon: builtinIconRef(value as IconSlug), expectations: [] };
+		return { icon: builtinIconRef(value as Slug), expectations: [] };
 	}
-	if (parseBuiltinIconSlug(value)) {
-		return { icon: brandAssetSlot(value), expectations: [] };
-	}
+	const assetId = asMediaAssetId(value);
 	return {
-		icon: brandAssetSlot(value),
-		expectations: [{ assetId: value, kind: "image", slot: slotPhrase }],
+		icon: assetId,
+		expectations: [
+			{
+				assetId,
+				kind: "image",
+				slot: slotPhrase,
+			},
+		],
 	};
 }
 
 /**
  * Resolve the Project an SA media tool operates in — the app's Project (media's
- * tenant). Throws a consistent, actionable error when the app carries no
- * Project; every app has one post-migration, so a missing one is an internal
- * inconsistency, not a user action. The read tools (`listMediaAssets` /
+ * tenant). A missing app is an internal inconsistency at this already-admitted
+ * tool boundary. The read tools (`listMediaAssets` /
  * `removeMediaAsset`) let it propagate to the tool runner; `attachGuardedMutate`
  * resolves inline because it reports the failure in its `{ ok: false }`
  * contract rather than throwing.
  */
 export async function requireToolProjectId(appId: string): Promise<string> {
-	const projectId = await loadAppProjectId(appId);
-	if (!projectId) {
+	const lookup = await loadAppProjectId(appId);
+	if (lookup.kind === "not-found") {
 		throw new Error(
-			`Couldn't find the Project for app "${appId}". The app row may be missing its project_id.`,
+			`Couldn't find app "${appId}" while resolving its Project.`,
 		);
 	}
-	return projectId;
+	return lookup.projectId;
 }
 
 /**
@@ -269,7 +251,7 @@ export interface ResolvedMediaBatchItem {
 /** Outcome of {@link commitMediaBatch}: the committed doc + the flattened
  *  mutation batch, or the error string for the tool's `{ error }` envelope. */
 export type MediaBatchOutcome =
-	| { ok: true; newDoc: BlueprintDoc; mutations: Mutation[] }
+	| { ok: true; newDoc: BlueprintDoc; mutations: AdmittedMutationBatch }
 	| { ok: false; error: string };
 
 /**
@@ -314,7 +296,7 @@ export async function commitMediaBatch(args: {
 		resolved.flatMap((r) => r.expectations),
 	);
 	if (!commit.ok) return { ok: false, error: commit.error };
-	return { ok: true, newDoc: commit.newDoc, mutations };
+	return { ok: true, newDoc: commit.newDoc, mutations: commit.mutations };
 }
 
 /** Join a batch's per-item lines into one sentence-cased success message. */
@@ -346,20 +328,19 @@ export async function attachGuardedMutate(
 		/* The attach verdict scopes to the app's Project (media's tenant), so an
 		 * asset must belong to THIS app's Project to attach — resolved from the
 		 * app the tool operates on. */
-		const projectId = await loadAppProjectId(ctx.appId);
-		if (!projectId) {
+		const lookup = await loadAppProjectId(ctx.appId);
+		if (lookup.kind === "not-found") {
 			return {
 				ok: false,
-				error:
-					"This app has no Project, so its media can't be verified. Reload and try again.",
+				error: "This app is no longer available. Reload and try again.",
 			};
 		}
 		const verdict = await mediaAttachVerdict({
-			projectId,
+			projectId: lookup.projectId,
 			doc,
 			expectations,
 		});
 		if (!verdict.ok) return { ok: false, error: verdict.error };
 	}
-	return guardedMutate(ctx, doc, mutations, stage, expectations);
+	return guardedMutate(ctx, doc, mutations, stage);
 }

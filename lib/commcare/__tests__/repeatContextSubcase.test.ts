@@ -1,4 +1,5 @@
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { proseText } from "@/lib/domain/prose";
 /**
  * Per-mode + per-nest compiler tests for repeat-context subcase
  * emission. Pins the wire shape across the (repeat_mode, nest)
@@ -47,7 +48,7 @@ import { runValidation } from "@/lib/commcare/validator/runner";
 /**
  * Compile a Nova doc and return the registration form's XForm XML +
  * suite.xml. Asserts validation is clean — none of the new authoring
- * rules (PRIMARY_CASE_FIELD_IN_REPEAT / CHILD_CASE_NO_NAME_FIELD) fire
+ * rules (PRIMARY_CASE_FIELD_IN_REPEAT / CASE_CREATE_NAME_MISSING) fire
  * on any test in this file. Co-located here to keep the test bodies
  * focused on the per-mode wire-shape assertions.
  */
@@ -60,7 +61,7 @@ function compile(doc: ReturnType<typeof buildDoc>): {
 		errors.find(
 			(e) =>
 				e.code === "PRIMARY_CASE_FIELD_IN_REPEAT" ||
-				e.code === "CHILD_CASE_NO_NAME_FIELD",
+				e.code === "CASE_CREATE_NAME_MISSING",
 		),
 	).toBeUndefined();
 	const buf = compileCcz(expandDoc(doc), "Parity", doc);
@@ -91,6 +92,7 @@ function withRepeat(
 	const repeatChildren: ReturnType<typeof f>[] = [];
 	const caseTypes: {
 		name: string;
+		parent_type?: string;
 		properties: { name: string; label: string }[];
 	}[] = [
 		{ name: "parent", properties: [{ name: "case_name", label: "Name" }] },
@@ -98,7 +100,7 @@ function withRepeat(
 	for (let i = 0; i < childCount; i++) {
 		const childType = `child${i + 1}`;
 		// Each child case bucket gets its own `case_name`-id'd field
-		// (required by `CHILD_CASE_NO_NAME_FIELD`). For nest=true (two
+		// (required by `CASE_CREATE_NAME_MISSING`). For nest=true (two
 		// subcases sharing one repeat), the second child's bucket key is
 		// `(child2, repeat_id)` — distinct from `(child1, repeat_id)` —
 		// so it lives in its own subcase wrapper. The two `case_name`
@@ -115,7 +117,7 @@ function withRepeat(
 					kind: "text",
 					id: "case_name",
 					label: `${childType} name`,
-					case_property_on: childType,
+					caseWrite: { caseType: childType, property: "case_name" },
 				}),
 			);
 		} else {
@@ -129,7 +131,7 @@ function withRepeat(
 							kind: "text",
 							id: "case_name",
 							label: `${childType} name`,
-							case_property_on: childType,
+							caseWrite: { caseType: childType, property: "case_name" },
 						}),
 					],
 				}),
@@ -137,6 +139,7 @@ function withRepeat(
 		}
 		caseTypes.push({
 			name: childType,
+			parent_type: "parent",
 			properties: [{ name: "case_name", label: "Name" }],
 		});
 	}
@@ -145,7 +148,7 @@ function withRepeat(
 			? f({
 					kind: "repeat",
 					id: "children",
-					label: "Children",
+					label: proseText("Children"),
 					repeat_mode: "count_bound",
 					repeat_count: repeat.count,
 					children: repeatChildren,
@@ -154,7 +157,7 @@ function withRepeat(
 				? f({
 						kind: "repeat",
 						id: "children",
-						label: "Children",
+						label: proseText("Children"),
 						repeat_mode: "query_bound",
 						data_source: { ids_query: repeat.idsQuery },
 						children: repeatChildren,
@@ -162,7 +165,7 @@ function withRepeat(
 				: f({
 						kind: "repeat",
 						id: "children",
-						label: "Children",
+						label: proseText("Children"),
 						repeat_mode: "user_controlled",
 						children: repeatChildren,
 					});
@@ -183,8 +186,8 @@ function withRepeat(
 							f({
 								kind: "text",
 								id: "case_name",
-								label: "Parent name",
-								case_property_on: "parent",
+								label: proseText("Parent name"),
+								caseWrite: { caseType: "parent", property: "case_name" },
 							}),
 							repeatField,
 						],
@@ -229,7 +232,7 @@ describe("repeat-context subcase emission — per-mode + per-nest matrix", () =>
 		// `field_paths` map deriveCaseConfig records per-bucket prevents
 		// the silent calculate-from-parent-name bug.
 		expect(form).toContain(
-			'<bind nodeset="/data/children/case/create/case_name" calculate="/data/children/case_name"',
+			'<bind nodeset="/data/children/case/create/case_name" calculate="replace(/data/children/case_name, &apos;^[\\x00-\\x20]+|[\\x00-\\x20]+$&apos;, &apos;&apos;)"',
 		);
 		// Hostile: assert the wrong path is NOT what the calculate points at.
 		expect(form).not.toMatch(
@@ -368,34 +371,34 @@ describe("repeat-context subcase emission — cross-shape variants", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Household name",
-									case_property_on: "household",
+									label: proseText("Household name"),
+									caseWrite: { caseType: "household", property: "case_name" },
 								}),
 								f({
 									kind: "repeat",
 									id: "family_members",
-									label: "Family members",
+									label: proseText("Family members"),
 									repeat_mode: "user_controlled",
 									children: [
 										f({
 											kind: "text",
 											id: "case_name",
-											label: "Family member name",
-											case_property_on: "person",
+											label: proseText("Family member name"),
+											caseWrite: { caseType: "person", property: "case_name" },
 										}),
 									],
 								}),
 								f({
 									kind: "repeat",
 									id: "neighbors",
-									label: "Neighbors",
+									label: proseText("Neighbors"),
 									repeat_mode: "user_controlled",
 									children: [
 										f({
 											kind: "text",
 											id: "case_name",
-											label: "Neighbor name",
-											case_property_on: "person",
+											label: proseText("Neighbor name"),
+											caseWrite: { caseType: "person", property: "case_name" },
 										}),
 									],
 								}),
@@ -407,11 +410,12 @@ describe("repeat-context subcase emission — cross-shape variants", () => {
 			caseTypes: [
 				{
 					name: "household",
-					properties: [{ name: "case_name", label: "Name" }],
+					properties: [{ name: "case_name", label: proseText("Name") }],
 				},
 				{
 					name: "person",
-					properties: [{ name: "case_name", label: "Name" }],
+					parent_type: "household",
+					properties: [{ name: "case_name", label: proseText("Name") }],
 				},
 			],
 		});
@@ -460,8 +464,8 @@ describe("repeat-context subcase emission — cross-shape variants", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Household name",
-									case_property_on: "household",
+									label: proseText("Household name"),
+									caseWrite: { caseType: "household", property: "case_name" },
 								}),
 								// Root-level subcase — wraps in `<subcase_N>`
 								// under `<data>`, uses xforms-ready setvalue
@@ -469,13 +473,16 @@ describe("repeat-context subcase emission — cross-shape variants", () => {
 								f({
 									kind: "group",
 									id: "guardian_section",
-									label: "Guardian",
+									label: proseText("Guardian"),
 									children: [
 										f({
 											kind: "text",
 											id: "case_name",
-											label: "Guardian name",
-											case_property_on: "guardian",
+											label: proseText("Guardian name"),
+											caseWrite: {
+												caseType: "guardian",
+												property: "case_name",
+											},
 										}),
 									],
 								}),
@@ -485,14 +492,14 @@ describe("repeat-context subcase emission — cross-shape variants", () => {
 								f({
 									kind: "repeat",
 									id: "children",
-									label: "Children",
+									label: proseText("Children"),
 									repeat_mode: "user_controlled",
 									children: [
 										f({
 											kind: "text",
 											id: "case_name",
-											label: "Child name",
-											case_property_on: "child",
+											label: proseText("Child name"),
+											caseWrite: { caseType: "child", property: "case_name" },
 										}),
 									],
 								}),
@@ -504,15 +511,17 @@ describe("repeat-context subcase emission — cross-shape variants", () => {
 			caseTypes: [
 				{
 					name: "household",
-					properties: [{ name: "case_name", label: "Name" }],
+					properties: [{ name: "case_name", label: proseText("Name") }],
 				},
 				{
 					name: "guardian",
-					properties: [{ name: "case_name", label: "Name" }],
+					parent_type: "household",
+					properties: [{ name: "case_name", label: proseText("Name") }],
 				},
 				{
 					name: "child",
-					properties: [{ name: "case_name", label: "Name" }],
+					parent_type: "household",
+					properties: [{ name: "case_name", label: proseText("Name") }],
 				},
 			],
 		});

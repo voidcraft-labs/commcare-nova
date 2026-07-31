@@ -194,10 +194,21 @@ function buildSeedBlueprint(appId: string): BlueprintDoc {
 								kind: "single_select",
 								id: "status",
 								label: MP_SEED.fieldThreeLabel,
-								options: [
-									{ value: "new", label: "New" },
-									{ value: "active", label: "Active" },
-								],
+								optionsSource: {
+									kind: "inline",
+									options: [
+										{
+											uuid: asUuid("2530b79e-48c7-4a28-a6c2-357477be6e2c"),
+											value: "new",
+											label: "New",
+										},
+										{
+											uuid: asUuid("d78246dd-340e-4613-abcc-87fad10cd1e5"),
+											value: "active",
+											label: "Active",
+										},
+									],
+								},
 							}),
 						],
 					},
@@ -323,20 +334,25 @@ export async function seedMultiplayerFixture(args: {
 
 	// ── The shared app (Postgres) ─────────────────────────────────────────
 	// Mint a `complete` app owned by Ada in the shared Project, then install
-	// the populated fixed-uuid blueprint. `createApp` writes the empty basis;
+	// the populated fixed-uuid blueprint. `createApp` writes canonical genesis;
 	// `appendSyntheticBatch` derives the deterministic fixed-uuid mutations,
 	// validates them against that exact seq, updates denormalized counts, and
 	// advances the stream — the at-rest `complete` shape (no run markers) two
 	// collaborators open.
-	const appId = await createApp(MP_SEED.userA.id, projectId, "mp-seed", {
-		appName: MP_SEED.appName,
-		status: "complete",
-	});
+	const { appId, baseSeq } = await createApp(
+		MP_SEED.userA.id,
+		projectId,
+		"mp-seed",
+		{
+			name: MP_SEED.appName,
+			status: "complete",
+		},
+	);
 	const doc = buildSeedBlueprint(appId);
 	const persistable = toPersistableDoc(doc);
 	await appendSyntheticBatch({
 		appId,
-		expectedBaseSeq: 0,
+		expectedBaseSeq: baseSeq,
 		targetDoc: persistable,
 		authority: { kind: "user", actorUserId: MP_SEED.userA.id },
 	});

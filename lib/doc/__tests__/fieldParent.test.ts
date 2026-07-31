@@ -22,13 +22,15 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { duplicateFieldMutations } from "@/lib/doc/duplicateFieldMutations";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { BlueprintDocStoreApi } from "@/lib/doc/store";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
-import { asUuid } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 
 // ── Invariant checker ────────────────────────────────────────────────────────
 
@@ -104,14 +106,42 @@ function applyBatch(
 
 // ── Shared UUID factories ────────────────────────────────────────────────────
 // Fixed, readable test UUIDs so failure messages are greppable.
-const FRM = asUuid("frm1-0000-0000-0000-000000000000");
-const FLD_A = asUuid("flda-0000-0000-0000-000000000000");
-const FLD_B = asUuid("fldb-0000-0000-0000-000000000000");
-const FLD_C = asUuid("fldc-0000-0000-0000-000000000000");
-const GRP = asUuid("grp0-0000-0000-0000-000000000000");
-const GRP2 = asUuid("grp2-0000-0000-0000-000000000000");
-const RPT = asUuid("rpt0-0000-0000-0000-000000000000");
-const NESTED = asUuid("nst0-0000-0000-0000-000000000000");
+const FRM = testUuid("frm1-0000-0000-0000-000000000000");
+const FLD_A = testUuid("flda-0000-0000-0000-000000000000");
+const FLD_B = testUuid("fldb-0000-0000-0000-000000000000");
+const FLD_C = testUuid("fldc-0000-0000-0000-000000000000");
+const GRP = testUuid("grp0-0000-0000-0000-000000000000");
+const GRP2 = testUuid("grp2-0000-0000-0000-000000000000");
+const RPT = testUuid("rpt0-0000-0000-0000-000000000000");
+const NESTED = testUuid("nst0-0000-0000-0000-000000000000");
+
+describe("persistable projection", () => {
+	it("omits an own undefined top-level clear marker", () => {
+		const doc = buildDoc({
+			modules: [
+				{
+					name: "M",
+					forms: [
+						{
+							name: "F",
+							type: "survey",
+							fields: [f({ kind: "text", id: "question" })],
+						},
+					],
+				},
+			],
+		});
+		Object.defineProperty(doc, "logo", {
+			value: undefined,
+			writable: true,
+			enumerable: true,
+			configurable: true,
+		});
+
+		expect(Object.hasOwn(doc, "logo")).toBe(true);
+		expect(Object.hasOwn(toPersistableDoc(doc), "logo")).toBe(false);
+	});
+});
 
 // ── addField ─────────────────────────────────────────────────────────────────
 
@@ -141,7 +171,7 @@ describe("after addField", () => {
 					uuid: FLD_A,
 					kind: "text",
 					id: "first",
-					label: "First",
+					label: proseText("First"),
 				} as BlueprintDoc["fields"][Uuid],
 				after: null,
 			},
@@ -179,7 +209,7 @@ describe("after addField", () => {
 					uuid: FLD_A,
 					kind: "text",
 					id: "last",
-					label: "Last",
+					label: proseText("Last"),
 				} as BlueprintDoc["fields"][Uuid],
 			},
 		]);
@@ -215,7 +245,7 @@ describe("after addField", () => {
 					uuid: FLD_A,
 					kind: "text",
 					id: "middle",
-					label: "Middle",
+					label: proseText("Middle"),
 				} as BlueprintDoc["fields"][Uuid],
 				after: Object.keys(doc.fields)[0] as Uuid,
 			},
@@ -255,7 +285,7 @@ describe("after addField", () => {
 					uuid: FLD_A,
 					kind: "text",
 					id: "nested",
-					label: "Nested",
+					label: proseText("Nested"),
 				} as BlueprintDoc["fields"][Uuid],
 			},
 		]);
@@ -302,7 +332,7 @@ describe("after addField", () => {
 					uuid: FLD_A,
 					kind: "text",
 					id: "deep",
-					label: "Deep",
+					label: proseText("Deep"),
 				} as BlueprintDoc["fields"][Uuid],
 			},
 		]);
@@ -576,10 +606,10 @@ describe("after moveField", () => {
 	});
 });
 
-// ── renameField / updateField (structural no-ops) ─────────────────────────────
+// ── updateField (structural no-op) ────────────────────────────────────────────
 
-describe("after renameField / updateField (structural noop)", () => {
-	it("renameField does not change fieldParent values", () => {
+describe("after updateField (structural noop)", () => {
+	it("a field-ID update does not change fieldParent values", () => {
 		const doc = buildDoc({
 			modules: [
 				{
@@ -599,10 +629,15 @@ describe("after renameField / updateField (structural noop)", () => {
 		const before = { ...doc.fieldParent };
 		const store = storeFrom(doc);
 		const result = applyBatch(store, [
-			{ kind: "renameField", uuid: FLD_A, newId: "new_id" },
+			{
+				kind: "updateField",
+				uuid: FLD_A,
+				targetKind: "text",
+				patch: { id: "new_id" },
+			},
 		]);
 		assertFieldParentInvariants(result);
-		// fieldParent values should be identical before and after rename.
+		// fieldParent values are identical before and after the ID change.
 		expect(result.fieldParent[FLD_A]).toBe(before[FLD_A]);
 	});
 
@@ -627,7 +662,7 @@ describe("after renameField / updateField (structural noop)", () => {
 				kind: "updateField",
 				uuid: FLD_A,
 				targetKind: "text",
-				patch: { label: "Updated Label" },
+				patch: { label: proseText("Updated Label") },
 			},
 		]);
 		assertFieldParentInvariants(result);
@@ -797,7 +832,7 @@ describe("after applyMany batches", () => {
 					uuid: FLD_A,
 					kind: "text",
 					id: "q1",
-					label: "Q1",
+					label: proseText("Q1"),
 				} as BlueprintDoc["fields"][Uuid],
 			},
 			{
@@ -807,7 +842,7 @@ describe("after applyMany batches", () => {
 					uuid: FLD_B,
 					kind: "text",
 					id: "q2",
-					label: "Q2",
+					label: proseText("Q2"),
 				} as BlueprintDoc["fields"][Uuid],
 			},
 			{
@@ -817,7 +852,7 @@ describe("after applyMany batches", () => {
 					uuid: FLD_C,
 					kind: "text",
 					id: "q3",
-					label: "Q3",
+					label: proseText("Q3"),
 				} as BlueprintDoc["fields"][Uuid],
 			},
 		]);
@@ -861,7 +896,7 @@ describe("after applyMany batches", () => {
 					uuid: FLD_A,
 					kind: "text",
 					id: "new_q",
-					label: "New Q",
+					label: proseText("New Q"),
 				} as BlueprintDoc["fields"][Uuid],
 			},
 			{ kind: "moveField", uuid: FLD_B, toParentUuid: GRP, after: null },
@@ -882,7 +917,7 @@ describe("after applyMany batches", () => {
 
 		// Build 20 field mutations with distinct UUIDs to simulate a large agent batch.
 		const muts: Mutation[] = Array.from({ length: 20 }, (_, i) => {
-			const uuid = asUuid(
+			const uuid = testUuid(
 				`agent${i.toString().padStart(4, "0")}-0000-0000-0000-0000`,
 			);
 			return {
@@ -892,7 +927,7 @@ describe("after applyMany batches", () => {
 					uuid,
 					kind: "text",
 					id: `q${i}`,
-					label: `Q${i}`,
+					label: proseText(`Q${i}`),
 				} as BlueprintDoc["fields"][Uuid],
 			};
 		});

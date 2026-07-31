@@ -59,12 +59,19 @@ import {
 import {
 	AppProjectChangedError,
 	CommitReauthError,
+	type MutationBatchIdCollisionError,
 	RunHolderLostError,
 } from "@/lib/db/commitGuard";
 import { MAX_RUN_MINUTES } from "@/lib/db/constants";
 import type { UsageAccumulator } from "@/lib/db/usage";
+import type { PreparedMutationCandidate } from "@/lib/doc/commitVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import type { Mutation } from "@/lib/doc/types";
+import {
+	type AdmittedMutationBatch,
+	type AdmittedMutationStages,
+	admittedMutationSlice,
+	encodeAdmittedMutationEnvelope,
+} from "@/lib/doc/mutationAdmission";
 import type { BlueprintDoc } from "@/lib/domain";
 import type {
 	ClassifiedErrorPayload,
@@ -74,7 +81,6 @@ import type {
 } from "@/lib/log/types";
 import type { LogWriter } from "@/lib/log/writer";
 import { log } from "@/lib/logger";
-import type { MediaAttachExpectation } from "@/lib/media/attachVerdicts";
 import {
 	MODEL_DEFAULT,
 	OPENAI_BASE_OPTIONS,
@@ -86,11 +92,14 @@ import type {
 	StructuredExtractResult,
 } from "./documentExtraction";
 import { type ClassifiedError, classifyError } from "./errorClassifier";
+import {
+	readToolLookupCatalog,
+	readToolLookupDefinitions,
+} from "./lookupContext";
 import { streamObjectWith } from "./subGeneration";
 import type {
 	ConversionImpactFn,
 	RecordMutationsResult,
-	StagedMutationBatch,
 	ToolExecutionContext,
 } from "./toolExecutionContext";
 import { describeParkedOutcome } from "./toolExecutionContext";
@@ -124,9 +133,9 @@ export function logWarnings(
  * `appId` is required — the chat route creates the app doc via `createApp`
  * before constructing the context (Postgres-down = 503, not an orphaned
  * build). Every `GenerationContext` has a target app because each tool batch
- * commits inline through `commitGuardedBatch(appId, …)` — the same shape as
- * `McpContext` — except rename-carrying batches, which ride the cross-store
- * saga so the case-store row migration runs with the commit.
+ * commits inline through the guarded writer. The batch-exclusive
+ * `renameCaseProperties` command additionally composes its case-schema and
+ * row movement into that same physical transaction.
  */
 interface GenerationContextOptions {
 	/** Server-shared OpenAI API key (resolved by `resolveOpenAIKey`) —
@@ -145,6 +154,8 @@ interface GenerationContextOptions {
 	appId: string;
 	/** Project captured with the run's authoritative app admission. */
 	projectId: string;
+	/** Fresh Better Auth Project role captured by that same admission. */
+	projectRole?: string;
 	/** Server-minted generation of this exact build/edit claim. */
 	holderNonce: string;
 	/**
@@ -212,6 +223,7 @@ export class GenerationContext implements ToolExecutionContext {
 	 * chat route so every context has a valid persistence target. */
 	readonly appId: string;
 	readonly projectId: string;
+	readonly projectRole: string;
 	private _holderNonce: string;
 	/**
 	 * Per-request tiebreaker for same-millisecond SSE bursts. Resets to 0
@@ -232,7 +244,7 @@ export class GenerationContext implements ToolExecutionContext {
 	 * a hard-killed one and refund its still-live hold. */
 	private _pausedOnInput = false;
 	/** The `mutation_seq` the run's most recent batch committed at — the head
-	 * of the durable `acceptedMutations` stream. The route stamps it on
+	 * of the durable `appChanges` stream. The route stamps it on
 	 * `data-done` so a reconnecting client knows the run's terminal cursor.
 	 * Absent until the first mutation batch lands. */
 	private _latestSeq: number | undefined;
@@ -253,6 +265,11 @@ export class GenerationContext implements ToolExecutionContext {
 	 * Terminal and replacement-safe: the route refunds/logs this run without
 	 * settling, releasing, failing, or otherwise touching the successor. */
 	private _holderLostError: RunHolderLostError | undefined;
+	/** A server-minted batch id was reused for different content. That is Nova's
+	 * own protocol failure, never something the model did or can fix, so the run
+	 * ends rather than handing back an error the model reads as retryable and
+	 * answers by reminting the id. Terminal and never cleared within a run. */
+	private _batchIdCollisionError: MutationBatchIdCollisionError | undefined;
 	private _parkedNote: string | undefined;
 	/** Which liveness horizon the heartbeats refresh: an edit `run_lock` lease,
 	 * or (false) a build's `updated_at` staleness clock.
@@ -278,10 +295,31 @@ export class GenerationContext implements ToolExecutionContext {
 		this.session = opts.session;
 		this.appId = opts.appId;
 		this.projectId = opts.projectId;
+		this.projectRole = opts.projectRole ?? "viewer";
 		this._holderNonce = opts.holderNonce;
 		this.editLease = opts.editLease;
 		this.conversionImpact = opts.conversionImpact;
 	}
+
+	readonly lookupDefinitions: NonNullable<
+		ToolExecutionContext["lookupDefinitions"]
+	> = (tableIds) =>
+		readToolLookupDefinitions(
+			{
+				projectId: this.projectId,
+				actorId: this.userId,
+				role: this.projectRole,
+			},
+			tableIds,
+		);
+
+	readonly lookupCatalog: NonNullable<ToolExecutionContext["lookupCatalog"]> =
+		() =>
+			readToolLookupCatalog({
+				projectId: this.projectId,
+				actorId: this.userId,
+				role: this.projectRole,
+			});
 
 	/** See {@link ToolExecutionContext.conversionImpact} — injected at
 	 * construction (`GenerationContextOptions.conversionImpact`). */
@@ -384,8 +422,9 @@ export class GenerationContext implements ToolExecutionContext {
 	 *   - `data-done` — the route's drain-end build-finished signal,
 	 *     carrying the final doc snapshot for client reconciliation.
 	 *   - `data-blueprint-updated` — edit-mode coarse-tool replacements.
-	 *   - `data-app-id` — one-shot appId announcement driving the
-	 *     `/build/new` → `/build/{id}` URL swap on new builds.
+	 *   - `data-app-id` — the one-shot canonical genesis receipt that installs
+	 *     the exact blueprint/cursor before driving the `/build/new` →
+	 *     `/build/{id}` URL swap and multiplayer activation.
 	 *   - `data-run-id` — server-minted run identifier the client echoes
 	 *     back on follow-up requests.
 	 *
@@ -460,35 +499,38 @@ export class GenerationContext implements ToolExecutionContext {
 	 * envelopes, and logs one `MutationEvent` per mutation.
 	 *
 	 * The optional `stage` string is a semantic tag for the log
-	 * (`"scaffold"`, `"module:0"`, `"form:0-1"`, `"rename:0-0"`). It's
+	 * (`"scaffold"`, `"module:0"`, `"form:0-1"`, `"convert:0-0"`). It's
 	 * stamped on every envelope — both log and SSE see the same tag, so
 	 * lifecycle derivations over the client buffer match replay derivations
 	 * over the persisted log.
 	 */
 	private buildEnvelopes(
-		mutations: Mutation[],
+		mutations: AdmittedMutationBatch,
 		stage?: string,
 	): MutationEvent[] {
-		return mutations.map((mutation) => ({
-			kind: "mutation",
-			runId: this.usage.runId,
-			ts: Date.now(),
-			seq: this.seq++,
-			actor: "agent",
-			/* Inline `source: "chat"` so the SSE envelope is schema-valid;
-			 * `LogWriter` re-stamps it authoritatively on the way to Postgres. */
-			source: "chat",
-			/* Include `stage` whenever the caller explicitly passed a value —
-			 * empty-string is a valid stage. */
-			...(stage !== undefined && { stage }),
-			mutation,
-		}));
+		return mutations.map(
+			(mutation) =>
+				encodeAdmittedMutationEnvelope({
+					kind: "mutation",
+					runId: this.usage.runId,
+					ts: Date.now(),
+					seq: this.seq++,
+					actor: "agent",
+					/* Inline `source: "chat"` so the SSE envelope is schema-valid;
+					 * `LogWriter` re-stamps it authoritatively on the way to Postgres. */
+					source: "chat",
+					/* Include `stage` whenever the caller explicitly passed a value —
+					 * empty-string is a valid stage. */
+					...(stage !== undefined && { stage }),
+					mutation,
+				}).value as unknown as MutationEvent,
+		);
 	}
 
 	/**
-	 * Commit one batch through the unified guarded writer (rename-carrying
-	 * batches detour through the cross-store saga — see the branch below),
-	 * then — AFTER the commit resolves — emit the `data-mutations` SSE
+	 * Commit one batch through the unified guarded writer (the explicit rename
+	 * command composes its case-row movement into that transaction), then —
+	 * AFTER the commit resolves — emit the `data-mutations` SSE
 	 * event and log the envelopes. Awaited-inline: the SA's `serial()`
 	 * mutex serializes tool
 	 * bodies, so the commit that lands here always builds on the previous one's
@@ -504,53 +546,28 @@ export class GenerationContext implements ToolExecutionContext {
 	 * latched before RE-THROWING: the tool + SA still see the failure and stop,
 	 * while the route can recover the signal after the AI SDK turns a tool throw
 	 * into a non-fatal chunk. Any other error rethrows unchanged.
-	 *
-	 * `mediaExpectations` forwards to the guarded commit so a media attach is
-	 * re-verified against asset rows read INSIDE the transaction — the same
-	 * in-txn re-check MCP performs — closing the window where a peer deletes the
-	 * asset between the pre-commit verdict and this commit.
 	 */
 	private async commitBatch(
-		mutations: Mutation[],
+		prepared: PreparedMutationCandidate,
 		events: MutationEvent[],
 		stage: string | undefined,
-		mediaExpectations?: readonly MediaAttachExpectation[],
 	): Promise<RecordMutationsResult> {
+		const mutations = prepared.mutations;
 		const batchId = crypto.randomUUID();
 		const chatRunHolder = this.chatRunHolder;
 		let result: { seq: number; committedDoc: BlueprintDoc };
 		try {
-			// A batch that can RENAME a case property routes through the
-			// cross-store saga instead of the bare guarded commit: the
-			// classifier proves the rename from the snapshots and the
-			// case-store migrates row values old-key → new-key in the same
-			// transaction as the schema regen. Committing such a batch
-			// bare would leave the rename's diff evidence expired at the
-			// drain-end additive materialize (the committed doc holds the
-			// new name on both sides), permanently stranding rows on the
-			// old key. The chat-emitted carriers are `renameField` and
-			// `moveField` — a cross-parent move's sibling-id dedup renames
-			// the field, and when the colliding sibling is NOT a writer of
-			// the same pair (a survey field sharing the id), the old
-			// property leaves the materializable view exactly like a
-			// rename. A moveField that renamed nothing classifies to zero
-			// entries and falls through the saga's fast path, so the
-			// over-trigger costs one in-memory replay. The diff-shaped
-			// undo batches exist only on the auto-save surface, which
-			// always rides the saga. Every other batch keeps the bare
-			// inline commit; the drain-end materialize covers its schema
-			// sync in one pass — including a `convertField` batch, whose
-			// row migration needs no batch intent: the property KEY is
-			// stable across a retype, so the materialize sync's own
-			// stored↔derived schema diff (`detectPropertyTransitions` in
-			// the case store) proves and runs the cast there, no saga
-			// detour required.
+			// Explicit property rename is the only batch that needs the
+			// cross-store boundary: its canonical relation moves Blueprint,
+			// schema, live rows, parked rows, and accepted history in one
+			// transaction. Ordinary batches keep the guarded writer fast path;
+			// drain-end materialization derives their schemas from the committed
+			// document.
 			if (
-				mutations.some(
-					(m) => m.kind === "renameField" || m.kind === "moveField",
-				)
+				mutations.length === 1 &&
+				mutations[0]?.kind === "renameCaseProperties"
 			) {
-				const saga = await applyBlueprintChange({
+				const renameResult = await applyBlueprintChange({
 					appId: this.appId,
 					userId: this.session.user.id,
 					expectedProjectId: this.projectId,
@@ -558,34 +575,28 @@ export class GenerationContext implements ToolExecutionContext {
 					chatRunHolder,
 					batchId,
 					kind: "chat",
-					...(this._latestDoc !== undefined && {
-						priorBlueprint: this._latestDoc,
-					}),
 					guard: {
 						mutations,
-						...(mediaExpectations !== undefined && { mediaExpectations }),
 					},
 				});
-				if (saga.committedDoc === undefined) {
-					// Only a top-level dedup omits the doc, and this batch's
-					// id was minted moments ago — reaching this is a latch
-					// collision on a fresh uuid.
-					throw new Error(
-						`[generationContext] rename batch ${batchId} deduped against an existing latch for app ${this.appId} — a freshly-minted batch id cannot have committed before`,
-					);
-				}
-				result = { seq: saga.seq, committedDoc: saga.committedDoc };
-				// A saga commit's row migration can PARK saved case values.
+				result = {
+					seq: renameResult.seq,
+					committedDoc: renameResult.committedDoc,
+				};
+				// A rename can PARK saved case values.
 				// Stash the note for the tool wrapper to append to its
 				// success message — and log it, since this boundary has no
 				// toast.
-				if (saga.migration !== undefined && saga.migration.parked > 0) {
-					this._parkedNote = describeParkedOutcome(saga.migration);
-					log.warn("[generationContext] saga commit parked case values", {
+				if (
+					renameResult.migration !== undefined &&
+					renameResult.migration.parked > 0
+				) {
+					this._parkedNote = describeParkedOutcome(renameResult.migration);
+					log.warn("[generationContext] rename parked case values", {
 						appId: this.appId,
 						batchId,
-						parked: saga.migration.parked,
-						failureReasons: saga.migration.failureReasons,
+						parked: renameResult.migration.parked,
+						failureReasons: renameResult.migration.failureReasons,
 					});
 				}
 			} else {
@@ -598,7 +609,6 @@ export class GenerationContext implements ToolExecutionContext {
 					actorUserId: this.session.user.id,
 					expectedProjectId: this.projectId,
 					kind: "chat",
-					...(mediaExpectations !== undefined && { mediaExpectations }),
 				});
 			}
 		} catch (err) {
@@ -614,17 +624,19 @@ export class GenerationContext implements ToolExecutionContext {
 		}
 		this._latestDoc = result.committedDoc;
 		this._latestSeq = result.seq;
-		this.writer.write({
-			type: "data-mutations",
-			data: {
-				mutations,
-				events,
-				seq: result.seq,
-				batchId,
-				...(stage !== undefined && { stage }),
-			},
-			transient: true,
-		});
+		this.writer.write(
+			encodeAdmittedMutationEnvelope({
+				type: "data-mutations",
+				data: {
+					mutations,
+					events,
+					seq: result.seq,
+					batchId,
+					...(stage !== undefined && { stage }),
+				},
+				transient: true,
+			}).value as never,
+		);
 		for (const e of events) this.logWriter.logEvent(e);
 		return { events, committedDoc: result.committedDoc };
 	}
@@ -646,48 +658,39 @@ export class GenerationContext implements ToolExecutionContext {
 	 * is what lets `consumeStream()` resolving imply every commit settled —
 	 * removing either reintroduces lost concurrent edits and unsettled writes at
 	 * drain end. A rejection propagates (the batch is not emitted).
-	 *
-	 * `mediaExpectations` (present when the batch attaches a media reference)
-	 * rides into the guarded commit for the in-transaction re-verification.
 	 */
 	async recordMutations(
-		mutations: Mutation[],
-		doc: BlueprintDoc,
+		prepared: PreparedMutationCandidate,
 		stage?: string,
-		mediaExpectations?: readonly MediaAttachExpectation[],
 	): Promise<RecordMutationsResult> {
-		if (mutations.length === 0) return { events: [], committedDoc: doc };
-		const events = this.buildEnvelopes(mutations, stage);
-		return this.commitBatch(mutations, events, stage, mediaExpectations);
+		if (prepared.mutations.length === 0) {
+			return { events: [], committedDoc: prepared.nextDoc };
+		}
+		const events = this.buildEnvelopes(prepared.mutations, stage);
+		return this.commitBatch(prepared, events, stage);
 	}
 
 	/**
 	 * ToolExecutionContext implementation. Concatenates the non-empty stages and
 	 * AWAITS ONE guarded commit for the whole sequence (one `batchId`, one `seq`),
-	 * preserving editField's convert→rename→patch atomicity — a rejection commits
+	 * preserving editField's convert→property-patch atomicity — a rejection commits
 	 * zero of the stages. Per-stage envelopes keep their own tags for the log /
 	 * replay chapters. Like `recordMutations`, the inline await is load-bearing.
 	 */
 	async recordMutationStages(
-		stages: StagedMutationBatch[],
+		prepared: PreparedMutationCandidate,
+		stages: AdmittedMutationStages,
 	): Promise<RecordMutationsResult> {
-		const nonEmpty = stages.filter((s) => s.mutations.length > 0);
-		if (nonEmpty.length === 0) {
-			// Nothing to commit — the last stage's doc is the current state.
-			const current = stages[stages.length - 1]?.doc;
-			if (current === undefined) {
-				throw new Error("recordMutationStages called with no stages");
-			}
-			return { events: [], committedDoc: current };
+		if (stages.batch.length === 0) {
+			return { events: [], committedDoc: prepared.nextDoc };
 		}
 		// ONE commit for the whole sequence (one batchId, one seq) — preserves
-		// editField's convert→rename→patch atomicity. Per-stage envelopes keep
+		// editField's convert→property-patch atomicity. Per-stage envelopes keep
 		// their own tags for the log / replay chapters.
-		const allMutations = nonEmpty.flatMap((s) => s.mutations);
-		const events = nonEmpty.flatMap((s) =>
-			this.buildEnvelopes(s.mutations, s.stage),
+		const events = stages.slices.flatMap((slice) =>
+			this.buildEnvelopes(admittedMutationSlice(stages, slice), slice.stage),
 		);
-		return this.commitBatch(allMutations, events, undefined);
+		return this.commitBatch(prepared, events, undefined);
 	}
 
 	/**
@@ -751,6 +754,16 @@ export class GenerationContext implements ToolExecutionContext {
 	/** Exact holder-loss signal captured from a guarded write or finalizer. */
 	holderLostError(): RunHolderLostError | undefined {
 		return this._holderLostError;
+	}
+
+	/** Batch-id collision captured from a guarded write; see the field. */
+	batchIdCollisionError(): MutationBatchIdCollisionError | undefined {
+		return this._batchIdCollisionError;
+	}
+
+	/** Preserve the first collision object so every run fence rethrows one signal. */
+	latchBatchIdCollision(error: MutationBatchIdCollisionError): void {
+		this._batchIdCollisionError ??= error;
 	}
 
 	/** Preserve the first authoritative holder-loss object for every run fence. */

@@ -40,6 +40,7 @@ import {
 } from "@/lib/db/appAccess";
 import {
 	type ClaimedRun,
+	type CreateAppReceipt,
 	claimAndReserveRun,
 	clearRunLock,
 	clearRunLockAndSettle,
@@ -369,12 +370,12 @@ export async function POST(req: Request) {
 	 */
 	let appId = parsed.data.appId;
 	let appCreated = false;
+	let createdAppReceipt: CreateAppReceipt | undefined;
 	let createdAppAccess:
 		| {
 				projectId: string;
 				role: string;
 				canEdit: boolean;
-				baseSeq: number;
 		  }
 		| undefined;
 	/* The credit reservation this run booked — set atomically with the claim
@@ -385,8 +386,8 @@ export async function POST(req: Request) {
 	let reservation: Reservation | undefined;
 	/* The persisted app doc for an EXISTING-app request — captured off the
 	 * authorization read below so the SA's working doc seeds from the saved
-	 * blueprint with no extra load. Undefined for a new build (no
-	 * app exists yet); the seed falls back to the empty doc there. */
+	 * blueprint with no extra load. Undefined for a new build, whose exact
+	 * canonical sequence-1 blueprint comes from `createdAppReceipt`. */
 	let loadedApp:
 		| Awaited<ReturnType<typeof resolveAuthorizedAppSnapshot>>["app"]
 		| undefined;
@@ -395,6 +396,9 @@ export async function POST(req: Request) {
 	 * used to scope chat-attachment resolution (`resolveAttachments`) to the
 	 * Project the documents live in. */
 	let projectId: string | undefined;
+	/** Role captured by the same admission as `projectId`; lookup tools pass
+	 * the exact authorized scope into the Project data boundary. */
+	let projectRole: string | undefined;
 	/* Set when this POST claimed an existing app's run window
 	 * (`claimAndReserveRun` — a build flipped to `generating`, or an edit's
 	 * `run_lock` — with the credit debit in the SAME transaction). There is no
@@ -441,11 +445,11 @@ export async function POST(req: Request) {
 		try {
 			projectId = expectedProjectId;
 			const access = await resolveProjectAccess(userId, projectId, "edit");
+			projectRole = access.role;
 			createdAppAccess = {
 				projectId,
 				role: access.role,
 				canEdit: roleAllowsApp(access.role, "edit"),
-				baseSeq: 0,
 			};
 		} catch (err) {
 			if (err instanceof AppAccessError) {
@@ -467,9 +471,10 @@ export async function POST(req: Request) {
 			);
 		}
 		try {
-			appId = await createApp(userId, projectId, effectiveRunId, {
+			createdAppReceipt = await createApp(userId, projectId, effectiveRunId, {
 				runHolderNonce: holderNonce,
 			});
+			appId = createdAppReceipt.appId;
 			appCreated = true;
 		} catch (err) {
 			if (err instanceof CommitReauthError) {
@@ -577,6 +582,7 @@ export async function POST(req: Request) {
 			);
 			loadedApp = snapshot.app;
 			projectId = snapshot.projectId;
+			projectRole = snapshot.role;
 		} catch (err) {
 			if (err instanceof AppAccessError) {
 				return Response.json(
@@ -668,7 +674,7 @@ export async function POST(req: Request) {
 			resumeMustCheckSupersede = true;
 		}
 	}
-	if (projectId === undefined) {
+	if (projectId === undefined || projectRole === undefined) {
 		throw new Error(
 			"[chat] compiler invariant: app admission completed without a Project scope",
 		);
@@ -715,7 +721,10 @@ export async function POST(req: Request) {
 		model: appReady ? SA_EDIT_MODEL : SA_BUILD_MODEL,
 		promptMode: appReady ? "edit" : "build",
 		appReady: !!appReady,
-		moduleCount: loadedApp?.module_count ?? 0,
+		moduleCount:
+			loadedApp?.module_count ??
+			createdAppReceipt?.blueprint.moduleOrder.length ??
+			0,
 		/* Reservation context for the refund branch in `flush()`. All three travel
 		 * together (a chargeable turn that reserved) or all absent (a free
 		 * continuation, which never reserves). On the NON-conflict path
@@ -786,10 +795,16 @@ export async function POST(req: Request) {
 				 * user has already navigated into. This is a one-shot creation receipt;
 				 * per-mutation persistence happens silently server-side inside the
 				 * mutation tool handlers. */
-				if (appCreated && createdAppAccess) {
+				if (appCreated && createdAppAccess && createdAppReceipt) {
 					writer.write({
 						type: "data-app-id",
-						data: { appId, ...createdAppAccess },
+						data: {
+							appId,
+							...createdAppAccess,
+							baseSeq: createdAppReceipt.baseSeq,
+							blueprint: createdAppReceipt.blueprint,
+							starter: createdAppReceipt.starter,
+						},
 						transient: true,
 					});
 				}
@@ -802,6 +817,7 @@ export async function POST(req: Request) {
 					session: keyResult.session,
 					appId,
 					projectId,
+					projectRole,
 					holderNonce,
 					/* An EDIT run (chargeable claim OR free-continuation resume) holds a
 					 * `run_lock`, so it heartbeats the lease off SA activity. A BUILD holds
@@ -1499,20 +1515,17 @@ export async function POST(req: Request) {
 						await failRun(err, "route:thread-marker-holder-lost");
 						return;
 					}
-					log.error("[chat] thread turn upsert failed", err, {
-						appId,
-						threadId,
-					});
+					await failRun(err, "route:thread-turn-upsert-failed");
+					return;
 				}
 				if (!threadPersisted) {
-					/* A run whose conversation can't persist still runs — the doc
-					 * commits inline and the event log records everything — but say so
-					 * where an admin will find it. (The cross-app forgery case never
-					 * reaches here; the 400 guard handled it pre-claim.) */
-					log.warn("[chat] thread row not persisted; history will not resume", {
-						appId,
-						threadId,
-					});
+					await failRun(
+						new Error(
+							"The conversation thread does not belong to the claimed app.",
+						),
+						"route:thread-turn-not-persisted",
+					);
+					return;
 				}
 				/* Dedicated operational capability: forward the real value only to
 				 * this authenticated POST caller. The durable stream stores an inert,
@@ -1537,23 +1550,18 @@ export async function POST(req: Request) {
 				 * IMMEDIATELY after an edit (with no typing in between) would be the
 				 * one case that could outrun the auto-save and need a flush.
 				 *
-				 * Brand-new builds get the empty doc stamped with the
-				 * `appId` that `createApp` just minted. */
+				 * Brand-new builds use the exact canonical sequence-1 blueprint
+				 * returned by `createApp`; no client or server reconstructs a second
+				 * genesis shape. */
+				const persistedSessionBlueprint =
+					loadedApp?.blueprint ?? createdAppReceipt?.blueprint;
+				if (!persistedSessionBlueprint) {
+					throw new Error(
+						"Chat session has neither an authorized app snapshot nor a genesis receipt.",
+					);
+				}
 				const sessionDoc: BlueprintDoc = hydratePersistedBlueprint(
-					loadedApp
-						? (loadedApp.blueprint as PersistableDoc)
-						: {
-								appId,
-								appName: "",
-								connectType: null,
-								caseTypes: null,
-								modules: {},
-								forms: {},
-								fields: {},
-								moduleOrder: [],
-								formOrder: {},
-								fieldOrder: {},
-							},
+					persistedSessionBlueprint as PersistableDoc,
 				);
 				/* Hydrate the reference index alongside — the SA's tool layer
 				 * answers "who references / declares X" through it (retirement
@@ -1784,7 +1792,7 @@ export async function POST(req: Request) {
 						saModel,
 					);
 
-					/* Edit turns deliver the CURRENT blueprint summary as a per-turn
+					/* Every turn delivers the CURRENT blueprint summary as a per-turn
 					 * message at the END of the prompt, not inside the system prompt:
 					 * the summary changes on every doc mutation and provider caching
 					 * is exact-prefix, so a volatile summary in the prompt would
@@ -1798,9 +1806,7 @@ export async function POST(req: Request) {
 					 * conversation never saw. Ephemeral by construction — a
 					 * ModelMessage appended past `validated` never reaches the thread
 					 * transcript, so each turn carries exactly one fresh snapshot. */
-					const appStateMessage = editing
-						? buildAppStateMessage(sessionDoc)
-						: null;
+					const appStateMessage = buildAppStateMessage(sessionDoc);
 
 					/* Record the input-context composition for the per-run finalize
 					 * log: how many messages were actually sent (after the sanitizer's
@@ -1849,7 +1855,7 @@ export async function POST(req: Request) {
 						}),
 					);
 					/* The full per-turn prompt: converted history, then the app-state
-					 * snapshot (edit turns). A retry/redrive attempt REPLACES the
+					 * snapshot. A retry/redrive attempt REPLACES the
 					 * snapshot with the turn-retry continuation below — the
 					 * continuation embeds its own, fresher committed-state summary,
 					 * and the model must see exactly one authoritative snapshot (a
@@ -2163,10 +2169,10 @@ export async function POST(req: Request) {
 						 *     editor.
 						 *
 						 * A run that persisted nothing (a purely conversational build
-						 * turn) still flips to complete — an empty app is at rest and
-						 * valid, and status never feeds gating — but emits no
-						 * `data-done`: nothing was built, so there is nothing to
-						 * celebrate or reconcile.
+						 * turn) still flips to complete — its canonical starter remains
+						 * the valid persisted app and status never feeds gating — but
+						 * emits no `data-done`: the SA changed nothing, so there is
+						 * nothing to celebrate or reconcile.
 						 *
 						 * A throw out of any step funnels through `failRun` — the same
 						 * infrastructure arm a mid-run fault takes (the app flips to

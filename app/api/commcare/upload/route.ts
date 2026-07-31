@@ -75,9 +75,8 @@ export async function POST(req: NextRequest) {
 		 * doc crosses the wire. Uploading to CommCare HQ PUBLISHES the app, so
 		 * it requires edit, not just view (matching the MCP upload tool); a
 		 * viewer can't push a shared app to HQ. An `AppAccessError` maps to 404.
-		 * The shared hydration chokepoint rebuilds `fieldParent` and backfills
-		 * a legacy doc's `order`/option-`uuid`s, so the wire the expander emits
-		 * reflects the same display sequence the builder shows. Media resolves
+		 * Hydration rebuilds derived in-memory indexes on the canonical stored
+		 * document; it does not backfill an alternate representation. Media resolves
 		 * at the app's PROJECT scope (the sharing boundary the assets live in)
 		 * so a Project co-member can upload a shared app. */
 		const access = await resolveAppAccess(body.appId, session.user.id, "edit");

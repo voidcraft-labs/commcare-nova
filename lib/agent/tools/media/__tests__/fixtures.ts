@@ -11,16 +11,21 @@
  * is the MCP-surface sibling for cross-surface parity.
  */
 
+import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { xp } from "@/lib/__tests__/docHelpers";
-import { backfillOptionUuids } from "@/lib/doc/optionIdentity";
 import {
-	asUuid,
 	type BlueprintDoc,
 	type Field,
 	type Form,
 	type Module,
+	plainColumn,
 } from "@/lib/domain";
-import type { AssetKind, MediaAssetStatus } from "@/lib/domain/multimedia";
+import type {
+	AssetKind,
+	MediaAssetId,
+	MediaAssetStatus,
+} from "@/lib/domain/multimedia";
+import { proseText } from "@/lib/domain/prose";
 import {
 	type MakeMcpTestContextHandles,
 	makeMcpTestContext,
@@ -41,28 +46,34 @@ import {
 
 /** The row fields the attach verdict reads, plus the id. */
 export interface TestAssetRow {
-	id: string;
+	id: MediaAssetId;
 	project_id: string;
 	status: MediaAssetStatus;
 	kind: AssetKind;
 	sizeBytes: number;
 }
 
-const testAssetRows = new Map<string, TestAssetRow>();
+const testAssetRows = new Map<MediaAssetId, TestAssetRow>();
+
+export const ASSET_IMG_1 = testMediaAssetId("asset-img-1");
+export const ASSET_AUD_1 = testMediaAssetId("asset-aud-1");
+export const ASSET_ICON = testMediaAssetId("asset-icon");
+export const ASSET_AUDIO = testMediaAssetId("asset-audio");
+export const ASSET_LOGO = testMediaAssetId("asset-logo");
 
 /** The ready, in-Project rows every happy-path attach test relies on. */
-const CANONICAL_ASSETS: ReadonlyArray<[string, AssetKind]> = [
-	["asset-img-1", "image"],
-	["asset-aud-1", "audio"],
-	["asset-icon", "image"],
-	["asset-audio", "audio"],
-	["asset-logo", "image"],
+const CANONICAL_ASSETS: ReadonlyArray<[MediaAssetId, AssetKind]> = [
+	[ASSET_IMG_1, "image"],
+	[ASSET_AUD_1, "audio"],
+	[ASSET_ICON, "image"],
+	[ASSET_AUDIO, "audio"],
+	[ASSET_LOGO, "image"],
 ];
 
 /** Seed (or overwrite) one asset row. Defaults: project "project-1" (the test
  *  app's Project), ready, 1 KiB. */
 export function seedTestAsset(
-	id: string,
+	id: MediaAssetId,
 	kind: AssetKind,
 	overrides: Partial<Omit<TestAssetRow, "id" | "kind">> = {},
 ): void {
@@ -85,7 +96,7 @@ resetTestAssets();
 /** Mock implementation of `loadAssetsByIds` — Project-filtered like the
  *  real one (a foreign-Project row reads as missing). */
 export async function loadAssetsByIdsMock(
-	ids: readonly string[],
+	ids: readonly MediaAssetId[],
 	projectId: string,
 ): Promise<TestAssetRow[]> {
 	return [...new Set(ids)]
@@ -96,11 +107,14 @@ export async function loadAssetsByIdsMock(
 
 /* Stable uuids the per-tool tests reference against the post-mutation
  * doc. */
-export const MOD_A = asUuid("11111111-1111-1111-1111-111111111111");
-export const FORM_A = asUuid("22222222-2222-2222-2222-222222222222");
-export const TEXT_FIELD = asUuid("33333333-3333-3333-3333-333333333333");
-export const SELECT_FIELD = asUuid("44444444-4444-4444-4444-444444444444");
-export const HIDDEN_FIELD = asUuid("55555555-5555-5555-5555-555555555555");
+export const MOD_A = testUuid("11111111-1111-1111-1111-111111111111");
+export const FORM_A = testUuid("22222222-2222-2222-2222-222222222222");
+export const TEXT_FIELD = testUuid("33333333-3333-3333-3333-333333333333");
+export const SELECT_FIELD = testUuid("44444444-4444-4444-4444-444444444444");
+export const HIDDEN_FIELD = testUuid("55555555-5555-5555-5555-555555555555");
+export const FEVER_OPTION = testUuid("66666666-6666-4666-8666-666666666666");
+export const COUGH_OPTION = testUuid("77777777-7777-4777-8777-777777777777");
+const RESULTS_COLUMN = testUuid("media-fixture-results-column");
 
 /**
  * Minimal field-bearing `BlueprintDoc`: a `patient` module + a
@@ -115,6 +129,12 @@ export function makeMediaDoc(): BlueprintDoc {
 		id: "patient",
 		name: "Patient",
 		caseType: "patient",
+		caseListConfig: {
+			columns: [plainColumn(RESULTS_COLUMN, "case_name", "Patient")],
+			listColumnOrder: [RESULTS_COLUMN],
+			detailColumnOrder: [RESULTS_COLUMN],
+			searchInputs: [],
+		},
 	};
 	const form: Form = {
 		uuid: FORM_A,
@@ -126,18 +146,29 @@ export function makeMediaDoc(): BlueprintDoc {
 		uuid: TEXT_FIELD,
 		id: "patient_name",
 		kind: "text",
-		label: "Patient name",
-		case_property_on: "case_name",
+		label: proseText("Patient name"),
+		caseWrite: { caseType: "patient", property: "case_name" },
 	} as Field;
 	const selectField: Field = {
 		uuid: SELECT_FIELD,
 		id: "symptom",
 		kind: "single_select",
-		label: "Primary symptom",
-		options: [
-			{ value: "fever", label: "Fever" },
-			{ value: "cough", label: "Cough" },
-		],
+		label: proseText("Primary symptom"),
+		optionsSource: {
+			kind: "inline",
+			options: [
+				{
+					uuid: FEVER_OPTION,
+					value: "fever",
+					label: proseText("Fever"),
+				},
+				{
+					uuid: COUGH_OPTION,
+					value: "cough",
+					label: proseText("Cough"),
+				},
+			],
+		},
 	} as Field;
 	const hiddenField: Field = {
 		uuid: HIDDEN_FIELD,
@@ -152,7 +183,7 @@ export function makeMediaDoc(): BlueprintDoc {
 		caseTypes: [
 			{
 				name: "patient",
-				properties: [{ name: "case_name", label: "Full name" }],
+				properties: [{ name: "case_name", label: proseText("Full name") }],
 			},
 		],
 		modules: { [MOD_A]: mod },
@@ -171,10 +202,6 @@ export function makeMediaDoc(): BlueprintDoc {
 			[HIDDEN_FIELD]: FORM_A,
 		},
 	};
-	// Mirror the production hydration boundary (`loadAppBlueprint`): backfill
-	// order keys + option uuids so a granular `updateOption` can key the option
-	// by uuid (a hand-built fixture lacks them otherwise).
-	backfillOptionUuids(doc);
 	return doc;
 }
 
@@ -197,7 +224,8 @@ export function makeMediaFixture(): MediaFixture {
 
 /** Build a `{ doc, ctx, ... }` bundle for the MCP surface. */
 export function makeMediaMcpFixture(): MediaMcpFixture {
-	return { ...makeMcpTestContext(), doc: makeMediaDoc() };
+	const doc = makeMediaDoc();
+	return { ...makeMcpTestContext({ initialDoc: doc }), doc };
 }
 
 /** Narrow a mutating-tool result to its error string, failing the test on

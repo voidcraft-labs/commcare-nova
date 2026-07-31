@@ -2,9 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { loadAssetsByIds } from "@/lib/db/mediaAssets";
 import type { LookupReferenceExtractorRegistry } from "@/lib/doc/lookupReferences";
-import type { LookupOptionsSource, Uuid } from "@/lib/domain";
+import type { LookupOptionsSource } from "@/lib/domain";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
+import { proseText } from "@/lib/domain/prose";
 import {
 	getLookupDefinitions,
 	getLookupFixtureData,
@@ -36,8 +37,8 @@ function validDoc() {
 			{
 				name: "patient",
 				properties: [
-					{ name: "case_name", label: "Name" },
-					{ name: "village", label: "Village" },
+					{ name: "case_name", label: proseText("Name") },
+					{ name: "village", label: proseText("Village") },
 				],
 			},
 		],
@@ -56,14 +57,14 @@ function validDoc() {
 							f({
 								kind: "text",
 								id: "case_name",
-								label: "Name",
-								case_property_on: "patient",
+								label: proseText("Name"),
+								caseWrite: { caseType: "patient", property: "case_name" },
 							}),
 							f({
 								kind: "text",
 								id: "village",
-								label: "Village",
-								case_property_on: "patient",
+								label: proseText("Village"),
+								caseWrite: { caseType: "patient", property: "village" },
 							}),
 						],
 					},
@@ -90,7 +91,7 @@ const CARRIER_VALUE_COLUMN =
 const CARRIER_LABEL_COLUMN =
 	"018f3e8a-7b2c-7def-8abc-1234567890ae" as LookupColumnId;
 const CARRIER_SOURCE: LookupOptionsSource = {
-	kind: "lookup-table",
+	kind: "lookup",
 	tableId: CARRIER_TABLE,
 	valueColumnId: CARRIER_VALUE_COLUMN,
 	labelColumnId: CARRIER_LABEL_COLUMN,
@@ -136,19 +137,7 @@ function lookupCarrierDoc() {
 							f({
 								kind: "single_select",
 								id: "status",
-								label: "Status",
-								options: [
-									{
-										uuid: "40000000-0000-4000-8000-000000000000" as Uuid,
-										value: "active",
-										label: "Active",
-									},
-									{
-										uuid: "50000000-0000-4000-8000-000000000000" as Uuid,
-										value: "closed",
-										label: "Closed",
-									},
-								],
+								label: proseText("Status"),
 								optionsSource: CARRIER_SOURCE,
 							}),
 						],
@@ -407,7 +396,7 @@ describe("prepareExportBoundary", () => {
 		if (!result.ok) throw new Error("expected prepared ccz export");
 		const wire = result.prepared.lookupWire;
 		expect(wire).toBeDefined();
-		expect(wire?.naming.tableFor(CARRIER_TABLE).instanceId).toBe(
+		expect(wire?.naming.tableFor(CARRIER_TABLE).fixtureId).toBe(
 			"item-list:statuses",
 		);
 		expect(wire?.fixtures.fixtures.map((fixture) => fixture.xml)).toEqual([

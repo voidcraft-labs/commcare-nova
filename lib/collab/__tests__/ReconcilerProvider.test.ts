@@ -20,6 +20,8 @@ import { createBuilderSessionStore } from "@/lib/session/store";
 
 const reportClientError = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/clientErrorReporter", () => ({ reportClientError }));
+const getLookupManifestAction = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/lookup/actions", () => ({ getLookupManifestAction }));
 
 const SOURCE_MANIFEST = {
 	projectId: "project-source",
@@ -116,6 +118,7 @@ afterEach(() => {
 	FakeEventSource.instances.length = 0;
 	window.sessionStorage.clear();
 	reportClientError.mockReset();
+	getLookupManifestAction.mockReset();
 	vi.useRealTimers();
 	vi.unstubAllGlobals();
 });
@@ -244,6 +247,274 @@ describe("ReconcilerProvider EventSource ownership", () => {
 
 		runtime.suspend();
 		expect(destinationStream.readyState).toBe(FakeEventSource.CLOSED);
+	});
+
+	it.each([
+		{
+			name: "a malformed mutation frame",
+			event: "mutation",
+			data: JSON.stringify({
+				seq: 1,
+				batchId: "peer-batch",
+				actorId: "peer",
+				kind: "autosave",
+				mutations: [
+					{ kind: "setAppName", name: "must not apply", unexpected: true },
+				],
+			}),
+			reportsClientError: true,
+			errorMessage: "Reconciler: malformed mutation frame",
+		},
+		{
+			name: "a malformed revocation frame",
+			event: "revoked",
+			data: JSON.stringify({
+				reason: "access-revoked",
+				unexpected: true,
+			}),
+			reportsClientError: true,
+			errorMessage: "Reconciler: malformed revocation frame",
+		},
+		{
+			name: "a server protocol-failure terminal",
+			event: "protocol-failure",
+			data: JSON.stringify({ reason: "malformed-mutation-suffix" }),
+			reportsClientError: false,
+			errorMessage: undefined,
+		},
+	])(
+		"disowns the stream and reloads from the unchanged cursor after $name",
+		async ({ event, data, reportsClientError, errorMessage }) => {
+			vi.stubGlobal("EventSource", FakeEventSource);
+			const persistedDoc = toPersistableDoc(emptyDoc());
+			const docStore = createBlueprintDocStore();
+			docStore.getState().load(persistedDoc);
+			docStore.getState().startTracking();
+			const sessionStore = createBuilderSessionStore({
+				appId: "app-1",
+				projectId: "project-source",
+				role: "editor",
+				canEdit: true,
+			});
+
+			let resolveReload: ((response: unknown) => void) | undefined;
+			const reloadFetch = vi.fn(
+				() =>
+					new Promise((resolve) => {
+						resolveReload = resolve;
+					}),
+			);
+			vi.stubGlobal("fetch", reloadFetch);
+
+			const runtime = createReconcilerRuntime(
+				docStore,
+				sessionStore,
+				{ appId: "app-1", baseSeq: 0, userId: "self" },
+				() => {},
+			);
+			runtime.start();
+			const sourceStream = FakeEventSource.instances[0];
+
+			sourceStream.emit(event, data);
+
+			expect(sourceStream.readyState).toBe(FakeEventSource.CLOSED);
+			expect(runtime.reconciler.getSnapshot().baseSeq).toBe(0);
+			expect(docStore.getState().appName).toBe("App");
+			expect(reloadFetch).toHaveBeenCalledTimes(1);
+			if (reportsClientError) {
+				expect(reportClientError).toHaveBeenCalledWith(
+					expect.objectContaining({
+						message: errorMessage,
+					}),
+				);
+			} else {
+				expect(reportClientError).not.toHaveBeenCalled();
+			}
+
+			resolveReload?.({
+				ok: true,
+				status: 200,
+				json: async () => ({
+					projectId: "project-source",
+					role: "editor",
+					canEdit: true,
+					blueprint: persistedDoc,
+					baseSeq: 0,
+				}),
+			});
+			await vi.waitFor(() => expect(FakeEventSource.instances).toHaveLength(2));
+			expect(FakeEventSource.instances[1]?.url).toBe(
+				"/api/apps/app-1/stream?since=0",
+			);
+
+			runtime.suspend();
+		},
+	);
+
+	it("does not trust an unknown canonicality reason from a malformed PUT response", async () => {
+		vi.useFakeTimers();
+		vi.stubGlobal("EventSource", FakeEventSource);
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () =>
+				Response.json(
+					{
+						type: "mutation_wire_canonicality_invalid",
+						details: {
+							mutationIndex: 0,
+							pointer: "/0/name",
+							reason: "invented-reason",
+						},
+					},
+					{ status: 400 },
+				),
+			),
+		);
+		const persistedDoc = toPersistableDoc(emptyDoc());
+		const docStore = createBlueprintDocStore();
+		docStore.getState().load(persistedDoc);
+		docStore.getState().startTracking();
+		const sessionStore = createBuilderSessionStore({
+			appId: "app-1",
+			projectId: "project-source",
+			role: "editor",
+			canEdit: true,
+		});
+		const runtime = createReconcilerRuntime(
+			docStore,
+			sessionStore,
+			{ appId: "app-1", baseSeq: 0, userId: "self" },
+			() => {},
+		);
+		const observed: string[] = [];
+
+		runtime.start();
+		docStore
+			.getState()
+			.applyMany([{ kind: "setAppName", name: "Still local" }]);
+		runtime.reconciler.dispatchHumanBatch((signal) =>
+			observed.push(signal.kind),
+		);
+		await vi.waitFor(() => expect(observed).toContain("error"));
+
+		const snapshot = runtime.reconciler.getSnapshot();
+		expect(snapshot.revoked).toBe(false);
+		expect(snapshot.sentPending).toHaveLength(1);
+		expect(docStore.getState().appName).toBe("Still local");
+		expect(observed).not.toContain("permanent");
+		runtime.suspend();
+	});
+
+	it("clears and authoritatively refetches only presence after a malformed frame", async () => {
+		vi.stubGlobal("EventSource", FakeEventSource);
+		const presenceFetch = vi.fn(async () =>
+			Response.json(DESTINATION_PRESENCE),
+		);
+		vi.stubGlobal("fetch", presenceFetch);
+		const persistedDoc = toPersistableDoc(emptyDoc());
+		const docStore = createBlueprintDocStore();
+		docStore.getState().load(persistedDoc);
+		const sessionStore = createBuilderSessionStore({
+			appId: "app-1",
+			projectId: "project-source",
+			role: "editor",
+			canEdit: true,
+		});
+		const runtime = createReconcilerRuntime(
+			docStore,
+			sessionStore,
+			{ appId: "app-1", baseSeq: 0, userId: "self" },
+			() => {},
+		);
+		const presenceSnapshots: PresenceFrame[] = [];
+		runtime.presenceSubs.add((snapshot) => presenceSnapshots.push(snapshot));
+
+		runtime.start();
+		const stream = FakeEventSource.instances[0];
+		stream.emit("presence", JSON.stringify(SOURCE_PRESENCE));
+		stream.emit(
+			"presence",
+			JSON.stringify([
+				{
+					...SOURCE_PRESENCE[0],
+					unexpected: true,
+				},
+			]),
+		);
+
+		expect(presenceSnapshots).toEqual([SOURCE_PRESENCE, []]);
+		await vi.waitFor(() =>
+			expect(presenceSnapshots).toEqual([
+				SOURCE_PRESENCE,
+				[],
+				DESTINATION_PRESENCE,
+			]),
+		);
+		expect(presenceFetch).toHaveBeenCalledExactlyOnceWith(
+			"/api/apps/app-1/presence",
+			{ cache: "no-store" },
+		);
+		expect(stream.readyState).not.toBe(FakeEventSource.CLOSED);
+		expect(reportClientError).toHaveBeenCalledWith(
+			expect.objectContaining({
+				message: "Reconciler: malformed presence frame",
+			}),
+		);
+		runtime.suspend();
+	});
+
+	it("clears and authoritatively refetches lookup state after a malformed frame", async () => {
+		vi.stubGlobal("EventSource", FakeEventSource);
+		const refreshed = {
+			projectId: "project-source",
+			projectRevision: "18",
+			tables: [],
+		} as unknown as LookupManifest;
+		getLookupManifestAction.mockResolvedValue({
+			success: true,
+			value: refreshed,
+		});
+		const docStore = createBlueprintDocStore();
+		docStore.getState().load(toPersistableDoc(emptyDoc()));
+		const sessionStore = createBuilderSessionStore({
+			appId: "app-1",
+			projectId: "project-source",
+			role: "editor",
+			canEdit: true,
+		});
+		const runtime = createReconcilerRuntime(
+			docStore,
+			sessionStore,
+			{ appId: "app-1", baseSeq: 0, userId: "self" },
+			() => {},
+		);
+		const snapshots: Array<LookupManifest | null> = [];
+		runtime.lookupManifestBroker.subscribe((snapshot) =>
+			snapshots.push(snapshot),
+		);
+
+		runtime.start();
+		const stream = FakeEventSource.instances[0];
+		stream.emit("lookup-revision", JSON.stringify(SOURCE_MANIFEST));
+		stream.emit(
+			"lookup-revision",
+			JSON.stringify({ ...SOURCE_MANIFEST, unexpected: true }),
+		);
+
+		expect(snapshots).toEqual([SOURCE_MANIFEST, null]);
+		await vi.waitFor(() =>
+			expect(snapshots).toEqual([SOURCE_MANIFEST, null, refreshed]),
+		);
+		expect(getLookupManifestAction).toHaveBeenCalledExactlyOnceWith(
+			"project-source",
+		);
+		expect(stream.readyState).not.toBe(FakeEventSource.CLOSED);
+		expect(reportClientError).toHaveBeenCalledWith(
+			expect.objectContaining({
+				message: "Reconciler: malformed lookup manifest frame",
+			}),
+		);
+		runtime.suspend();
 	});
 
 	it("cancels a superseded reopen while a non-SSE reload is pending", async () => {

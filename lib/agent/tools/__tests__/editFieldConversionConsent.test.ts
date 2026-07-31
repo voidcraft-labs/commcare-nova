@@ -15,8 +15,9 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import type { BlueprintDoc } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import { makeStubToolContext } from "../../__tests__/fixtures";
 import { editFieldTool } from "../editField";
 
@@ -24,7 +25,12 @@ vi.mock("@/lib/db/apps", () => ({
 	completeApp: vi.fn(() => Promise.resolve()),
 }));
 vi.mock("@/lib/db/applyBlueprintChange", () => ({
-	applyBlueprintChange: vi.fn(() => Promise.resolve({ seq: 0 })),
+	applyBlueprintChange: vi.fn(async (args) => {
+		const { commitApplyBlueprintChangeTestBatch } = await import(
+			"@/lib/db/__tests__/applyBlueprintChangeTestWriter"
+		);
+		return commitApplyBlueprintChangeTestBatch(args);
+	}),
 }));
 
 /** A patient module whose followup form writes `score` (a decimal case
@@ -35,9 +41,9 @@ function makeCaseBoundDoc(): BlueprintDoc {
 			{
 				name: "patient",
 				properties: [
-					{ name: "case_name", label: "Name" },
-					{ name: "score", label: "Score" },
-					{ name: "visit_on", label: "Visited" },
+					{ name: "case_name", label: proseText("Name") },
+					{ name: "score", label: proseText("Score") },
+					{ name: "visit_on", label: proseText("Visited") },
 				],
 			},
 		],
@@ -45,6 +51,9 @@ function makeCaseBoundDoc(): BlueprintDoc {
 			{
 				name: "Patients",
 				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
 				forms: [
 					{
 						name: "Register",
@@ -53,20 +62,20 @@ function makeCaseBoundDoc(): BlueprintDoc {
 							f({
 								id: "case_name",
 								kind: "text",
-								label: "Name",
-								case_property_on: "patient",
+								label: proseText("Name"),
+								caseWrite: { caseType: "patient", property: "case_name" },
 							}),
 							f({
 								id: "score",
 								kind: "decimal",
-								label: "Score",
-								case_property_on: "patient",
+								label: proseText("Score"),
+								caseWrite: { caseType: "patient", property: "score" },
 							}),
 							f({
 								id: "visit_on",
 								kind: "date",
-								label: "Visited",
-								case_property_on: "patient",
+								label: proseText("Visited"),
+								caseWrite: { caseType: "patient", property: "visit_on" },
 							}),
 						],
 					},
@@ -81,6 +90,14 @@ function soleField(doc: BlueprintDoc, id: string) {
 	const field = Object.values(doc.fields).find((fld) => fld.id === id);
 	if (!field) throw new Error(`fixture field "${id}" missing`);
 	return field;
+}
+
+function addressFor(doc: BlueprintDoc, id: string) {
+	return {
+		moduleUuid: doc.moduleOrder[0],
+		formUuid: doc.formOrder[doc.moduleOrder[0]][0],
+		fieldUuid: soleField(doc, id).uuid,
+	};
 }
 
 beforeEach(() => {
@@ -102,9 +119,7 @@ describe("editField — conversion consent", () => {
 		);
 		const result = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "score",
+				...addressFor(doc, "score"),
 				updates: { kind: "int" },
 			},
 			ctx,
@@ -154,9 +169,7 @@ describe("editField — conversion consent", () => {
 		);
 		const result = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "score",
+				...addressFor(doc, "score"),
 				updates: { kind: "int" },
 				confirmConversion: true,
 			},
@@ -178,9 +191,7 @@ describe("editField — conversion consent", () => {
 			makeStubToolContext();
 		const result = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "score",
+				...addressFor(doc, "score"),
 				updates: { kind: "int" },
 			},
 			ctx,
@@ -205,9 +216,7 @@ describe("editField — conversion consent", () => {
 		// date → datetime extends to midnight — total, no consent.
 		const result = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "visit_on",
+				...addressFor(doc, "visit_on"),
 				updates: { kind: "datetime" },
 			},
 			ctx,
@@ -228,7 +237,9 @@ describe("editField — conversion consent", () => {
 						{
 							name: "Feedback",
 							type: "survey",
-							fields: [f({ id: "score", kind: "decimal", label: "Score" })],
+							fields: [
+								f({ id: "score", kind: "decimal", label: proseText("Score") }),
+							],
 						},
 					],
 				},
@@ -237,9 +248,7 @@ describe("editField — conversion consent", () => {
 		const { ctx, conversionImpact } = makeStubToolContext();
 		const result = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "score",
+				...addressFor(doc, "score"),
 				updates: { kind: "int" },
 			},
 			ctx,

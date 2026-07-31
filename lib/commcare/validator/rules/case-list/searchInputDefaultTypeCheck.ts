@@ -26,11 +26,6 @@
  * missing reads at the gate; literals, `today()`/`now()`, and
  * session/current-user values remain valid.
  *
- * Date-range is the deliberate exception. Its legacy scalar `default`
- * slot cannot describe the complete start-and-end answer CommCare requires,
- * so any imported value gets one repairable finding instead of being
- * type-checked and then emitted with different device semantics.
- *
  * Mirrors `calculatedColumnTypeCheck`'s shape: walk the
  * `searchInputs` array, dispatch
  * `checkValueExpression(default, ctx, expectedType)` per input
@@ -50,7 +45,10 @@
  */
 
 import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
-import { SEARCH_INPUT_TYPE_DEFAULT_EXPECTED_TYPES } from "@/lib/domain";
+import {
+	SEARCH_INPUT_TYPE_DEFAULT_EXPECTED_TYPES,
+	searchInputDefault,
+} from "@/lib/domain";
 import {
 	checkValueExpression,
 	expressionReadsCaseData,
@@ -76,26 +74,9 @@ export function searchInputDefaultTypeCheck(
 
 	for (let index = 0; index < inputs.length; index++) {
 		const input = inputs[index];
-		if (!input.default) continue;
-		if (input.type === "date-range") {
-			errors.push(
-				validationError(
-					"CASE_LIST_SEARCH_INPUT_DEFAULT_TYPE_ERROR",
-					"module",
-					`Search input "${input.label}" (input #${index + 1}, name "${input.name}") on the case list of module "${mod.name}" is a date range with a legacy single-value default. A date range needs both a start and an end, but this saved default can express only one value; Preview and CommCare would otherwise start differently. Remove the starting value. The field will open empty until Nova supports authored paired range defaults.`,
-					{ moduleUuid, moduleName: mod.name },
-					{
-						index: String(index),
-						inputName: input.name,
-						inputUuid: input.uuid,
-						widgetType: input.type,
-						reason: "date-range-default-unsupported",
-					},
-				),
-			);
-			continue;
-		}
-		if (expressionReadsCaseData(input.default)) {
+		const inputDefault = searchInputDefault(input);
+		if (inputDefault === undefined) continue;
+		if (expressionReadsCaseData(inputDefault)) {
 			errors.push(
 				validationError(
 					"CASE_LIST_SEARCH_INPUT_DEFAULT_CASE_DATA_UNAVAILABLE",
@@ -113,9 +94,12 @@ export function searchInputDefaultTypeCheck(
 			);
 			continue;
 		}
+		if (input.type === "date-range") {
+			throw new Error("Date-range input exposed a scalar default.");
+		}
 		const expectedType = SEARCH_INPUT_TYPE_DEFAULT_EXPECTED_TYPES[input.type];
 		const typeErrors = semanticCheckErrors(
-			checkValueExpression(input.default, ctx, expectedType),
+			checkValueExpression(inputDefault, ctx, expectedType),
 		);
 		if (typeErrors.length === 0) continue;
 

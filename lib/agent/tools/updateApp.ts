@@ -1,22 +1,9 @@
 /**
- * SA tool: `updateApp` — set the app's name and/or its CommCare Connect
- * type, in one gated batch.
+ * SA tool: `updateApp` — set the app's display name.
  *
- * The app-level twin of `updateModule` / `updateForm`. Two slots:
- *
- *   - `name` — the display title. On a fresh build this is the first
- *     mutation of the run (an empty app's nameless state is a
- *     pre-existing finding that this call resolves).
- *   - `connect_type` — `"learn"` / `"deliver"` enables Connect, `null`
- *     disables it (back to a standard app), omitted leaves it unchanged.
- *     The gate adjudicates the flip like any other commit:
- *     enabling Connect on an app with forms but ZERO connect blocks
- *     would introduce CONNECT_NO_PARTICIPATING_FORMS and is rejected —
- *     give at least one form its block first (creation tools'
- *     `connect`, or `updateForm`), then flip. On an empty app the flip
- *     introduces nothing, which is why a Connect build sets the type up
- *     front and then creates each participating form WITH its block;
- *     forms that shouldn't participate just omit one.
+ * Connect mode and participation are deliberately absent. The shared
+ * `configureConnect` / `configure_connect` command owns that complete
+ * app-wide target state atomically.
  *
  * Both the SA chat factory and the MCP adapter call this through the
  * shared `ToolExecutionContext` interface.
@@ -41,17 +28,7 @@ export const updateAppInputSchema = z
 		name: z
 			.string()
 			.min(1)
-			.optional()
-			.describe(
-				"App display name (the title users see on devices). Leave it out to keep the current name.",
-			),
-		connect_type: z
-			.enum(["learn", "deliver"])
-			.nullable()
-			.optional()
-			.describe(
-				'"learn" (training/certification) or "deliver" (paid service delivery); null returns the app to standard. Set before creating a Connect app\'s modules.',
-			),
+			.describe("App display name (the title users see on devices)."),
 	})
 	.strict();
 
@@ -61,8 +38,7 @@ export type UpdateAppInput = z.infer<typeof updateAppInputSchema>;
 export type UpdateAppResult = MutationSuccess | { error: string };
 
 export const updateAppTool = {
-	description:
-		"Set the app's name and/or its Connect type. On a new Connect build, set the type before creating modules (enabling it later requires a form that already carries a connect block).",
+	description: "Set the app's display name.",
 
 	inputSchema: updateAppInputSchema,
 	async execute(
@@ -71,29 +47,7 @@ export const updateAppTool = {
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<UpdateAppResult>> {
 		try {
-			const mutations: Mutation[] = [];
-			if (input.name !== undefined) {
-				mutations.push({ kind: "setAppName", name: input.name });
-			}
-			// Omitted = leave unchanged; null = disable (stored as the
-			// domain's null connectType — a standard app).
-			if (input.connect_type !== undefined) {
-				mutations.push({
-					kind: "setConnectType",
-					connectType: input.connect_type,
-				});
-			}
-			if (mutations.length === 0) {
-				return {
-					kind: "mutate" as const,
-					mutations: [],
-					newDoc: doc,
-					result: {
-						error:
-							"Nothing to change — no slot was given. Pass a name, a connect_type, or both.",
-					},
-				};
-			}
+			const mutations: Mutation[] = [{ kind: "setAppName", name: input.name }];
 
 			const commit = await guardedMutate(ctx, doc, mutations, "app");
 			if (!commit.ok) {
@@ -105,36 +59,16 @@ export const updateAppTool = {
 				};
 			}
 
-			const changes: string[] = [];
-			if (input.name !== undefined) changes.push(`name to "${input.name}"`);
-			if (input.connect_type !== undefined) {
-				changes.push(
-					input.connect_type === null
-						? "Connect off (standard app)"
-						: `Connect type to ${input.connect_type}`,
-				);
-			}
-			// The summary reports only what this call CHANGED — the transcript's
-			// verb hangs off these facts, so claiming the app name as subject on a
-			// connect-only flip would read as a rename that never happened. The
-			// named-vs-renamed split needs the pre-commit doc, which only this
-			// execution sees (`doc.appName` is "" until the birth finding resolves).
-			const summary: ToolCallSummary = {};
-			if (input.name !== undefined) {
-				summary.subject = input.name;
-				summary.nameChange = doc.appName ? "renamed" : "named";
-			}
-			if (input.connect_type !== undefined) {
-				// The summary vocabulary keeps "off" (the transcript renderer
-				// and historical rows key on it); the INPUT speaks null.
-				summary.connect = input.connect_type ?? "off";
-			}
+			const summary: ToolCallSummary = {
+				subject: input.name,
+				nameChange: doc.appName ? "renamed" : "named",
+			};
 			return {
 				kind: "mutate" as const,
-				mutations,
+				mutations: commit.mutations,
 				newDoc: commit.newDoc,
 				result: {
-					message: `Successfully set the app's ${changes.join(" and ")}.`,
+					message: `Successfully set the app's name to "${input.name}".`,
 					summary,
 				},
 			};

@@ -11,8 +11,9 @@
 
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import {
-	expressionSource,
-	expressionSourceEntries,
+	expressionInspectionSource,
+	expressionSurfaceReads,
+	fieldCaseWrite,
 	isContainer,
 } from "@/lib/domain";
 import {
@@ -21,49 +22,50 @@ import {
 	orderedModuleUuids,
 } from "./fieldWalk";
 
-/**
- * A single match from `searchBlueprint`. The surface preserves the
- * positional index shape (`moduleIndex`, `formIndex`) so SA tool output
- * remains stable and human-readable; the `uuid` field lets callers
- * target follow-up mutations directly without re-resolving by index.
- *
- * For case-list matches (`case_list_column` and `search_input`), the
- * `uuid` is the entity's own uuid — the column or search input the
- * atomic-op tools consume directly. The `containerUuid` carries the
- * owning module's uuid so the caller has both handles in one record.
- */
-export interface SearchResult {
-	type: "module" | "form" | "field" | "case_list_column" | "search_input";
-	moduleIndex: number;
-	formIndex?: number;
-	/** Slash-delimited path of field ids within the containing form.
-	 *  Absent for module-level and form-level matches. */
-	fieldPath?: string;
-	/** Stable uuid of the matched entity — lets callers target
-	 *  mutations. For columns / search inputs, this is the entry's own
-	 *  uuid (consumed by `updateCaseListColumn` / `removeCaseListColumn` /
-	 *  `updateSearchInput` / `removeSearchInput`). */
-	uuid?: Uuid;
-	/** Owning module's uuid — surfaced on case-list matches so callers
-	 *  hold the (column-uuid, module-uuid) pair the atomic-op tools
-	 *  need together. */
-	containerUuid?: Uuid;
-	/** Which property matched (e.g. 'label', 'case_property_on', 'id', 'name'). */
+interface SearchMatch {
+	/** Which property matched (e.g. 'label', 'caseWrite', 'id', 'name'). */
 	field: string;
 	/** The matched value. */
 	value: string;
-	/** Human-readable location string. */
+	/** Human-readable projection of the current names. */
 	context: string;
 }
 
 /**
+ * A single match from `searchBlueprint`.
+ *
+ * Each arm carries exactly the stable UUIDs needed to address that entity, so
+ * a caller passes them straight to the matching read or mutation tool. Result
+ * order follows current display order, but positions, paths, and a generic
+ * identity key are deliberately absent: a machine-facing address is a UUID
+ * named for what it addresses, never a position that a peer's reorder moves.
+ */
+export type SearchResult =
+	| (SearchMatch & { type: "module"; moduleUuid: Uuid })
+	| (SearchMatch & { type: "form"; moduleUuid: Uuid; formUuid: Uuid })
+	| (SearchMatch & {
+			type: "field";
+			moduleUuid: Uuid;
+			formUuid: Uuid;
+			fieldUuid: Uuid;
+	  })
+	| (SearchMatch & {
+			type: "case_list_column";
+			moduleUuid: Uuid;
+			columnUuid: Uuid;
+	  })
+	| (SearchMatch & {
+			type: "search_input";
+			moduleUuid: Uuid;
+			searchInputUuid: Uuid;
+	  });
+
+/**
  * Full-text search across the entire blueprint.
  *
- * Walks modules → forms → fields (via the ordered indices) plus case-list
- * and case-detail columns. Each hit records the positional context
- * (moduleIndex / formIndex / fieldPath) so the result list is human-
- * readable, and also records the entity uuid so follow-up mutations can
- * target it directly.
+ * Walks modules → forms → fields plus case-list and case-detail columns. Each
+ * hit records display-order context for readability and stable UUID identity
+ * for every follow-up mutation.
  */
 export function searchBlueprint(
 	doc: BlueprintDoc,
@@ -72,10 +74,7 @@ export function searchBlueprint(
 	const results: SearchResult[] = [];
 	const q = query.toLowerCase();
 
-	// DISPLAY order (`sort-by-(order, uuid)`) — the reported `moduleIndex` /
-	// `formIndex` are the SAME sorted positions the SA's positional resolvers
-	// and `summarizeBlueprint` speak, so a search hit's "Module N" addresses
-	// the entity another tool call reaches by index N.
+	// Display order controls only result ordering. Stable UUIDs identify hits.
 	const moduleUuids = orderedModuleUuids(doc);
 	for (let mIdx = 0; mIdx < moduleUuids.length; mIdx++) {
 		const moduleUuid = moduleUuids[mIdx];
@@ -85,21 +84,19 @@ export function searchBlueprint(
 		if (mod.name.toLowerCase().includes(q)) {
 			results.push({
 				type: "module",
-				moduleIndex: mIdx,
-				uuid: moduleUuid,
+				moduleUuid,
 				field: "name",
 				value: mod.name,
-				context: `Module ${mIdx} "${mod.name}"`,
+				context: `Module "${mod.name}"`,
 			});
 		}
 		if (mod.caseType?.toLowerCase().includes(q)) {
 			results.push({
 				type: "module",
-				moduleIndex: mIdx,
-				uuid: moduleUuid,
+				moduleUuid,
 				field: "case_type",
 				value: mod.caseType,
-				context: `Module ${mIdx} "${mod.name}" case_type`,
+				context: `Module "${mod.name}" case_type`,
 			});
 		}
 
@@ -107,9 +104,9 @@ export function searchBlueprint(
 		 * SA searches when looking up a case-property reference or a
 		 * search-input handle. Each column carries `header` + (for
 		 * non-calc kinds) `field`; calc columns carry only `header`,
-		 * so the search shape branches on `kind`. The match's `uuid`
-		 * is the entry's own uuid; the owning module is surfaced as
-		 * `containerUuid` so the caller has both handles. */
+		 * so the search shape branches on `kind`. A column match
+		 * carries `columnUuid` and a search-input match `searchInputUuid`,
+		 * each alongside the owning `moduleUuid`. */
 		const config = mod.caseListConfig;
 		for (const col of config?.columns ?? []) {
 			const headerMatch = col.header.toLowerCase().includes(q);
@@ -122,12 +119,11 @@ export function searchBlueprint(
 						: `${col.field} (${col.header})`;
 				results.push({
 					type: "case_list_column",
-					moduleIndex: mIdx,
-					uuid: col.uuid,
-					containerUuid: moduleUuid,
+					moduleUuid,
+					columnUuid: col.uuid,
 					field: "column",
 					value,
-					context: `Module ${mIdx} "${mod.name}" column "${col.header}"`,
+					context: `Module "${mod.name}" column "${col.header}"`,
 				});
 			}
 		}
@@ -143,12 +139,11 @@ export function searchBlueprint(
 						: `${input.name} (advanced) (${input.label})`;
 				results.push({
 					type: "search_input",
-					moduleIndex: mIdx,
-					uuid: input.uuid,
-					containerUuid: moduleUuid,
+					moduleUuid,
+					searchInputUuid: input.uuid,
 					field: "search_input",
 					value,
-					context: `Module ${mIdx} "${mod.name}" search input "${input.label}"`,
+					context: `Module "${mod.name}" search input "${input.label}"`,
 				});
 			}
 		}
@@ -161,15 +156,14 @@ export function searchBlueprint(
 			if (form.name.toLowerCase().includes(q)) {
 				results.push({
 					type: "form",
-					moduleIndex: mIdx,
-					formIndex: fIdx,
-					uuid: formUuid,
+					moduleUuid,
+					formUuid,
 					field: "name",
 					value: form.name,
-					context: `m${mIdx}-f${fIdx} "${form.name}" (${form.type})`,
+					context: `Form "${form.name}" (${form.type})`,
 				});
 			}
-			searchFields(doc, formUuid, q, mIdx, fIdx, results, "");
+			searchFields(doc, formUuid, q, moduleUuid, formUuid, results);
 		}
 	}
 
@@ -182,35 +176,34 @@ function searchFields(
 	doc: BlueprintDoc,
 	parentUuid: Uuid,
 	query: string,
-	mIdx: number,
-	fIdx: number,
+	moduleUuid: Uuid,
+	formUuid: Uuid,
 	results: SearchResult[],
-	pathPrefix: string,
 ): void {
 	// Visual (display) sequence, so the surfaced result list matches form
 	// layout and any reported field ordering agrees with the wire/preview.
 	const order = orderedFieldUuids(doc, parentUuid);
-	for (const uuid of order) {
-		const field = doc.fields[uuid];
+	for (const fieldUuid of order) {
+		const field = doc.fields[fieldUuid];
 		if (!field) continue;
-		const path = pathPrefix ? `${pathPrefix}/${field.id}` : field.id;
 		const matchFields: Array<{ field: string; value: string }> = [];
 
 		if (field.id.toLowerCase().includes(query)) {
 			matchFields.push({ field: "id", value: field.id });
 		}
-		const label = expressionSource(field, "label", doc);
+		const label = expressionInspectionSource(field, "label", doc);
 		if (label?.toLowerCase().includes(query)) {
 			matchFields.push({ field: "label", value: label });
 		}
-		const anyField = field as Record<string, unknown>;
-		if (
-			typeof anyField.case_property_on === "string" &&
-			field.id.toLowerCase().includes(query)
-		) {
+		const caseWrite = fieldCaseWrite(field);
+		const savesTo =
+			caseWrite === undefined
+				? undefined
+				: `${caseWrite.caseType}/${caseWrite.property}`;
+		if (savesTo?.toLowerCase().includes(query)) {
 			matchFields.push({
-				field: "case_property_on",
-				value: `${field.id}→${anyField.case_property_on}`,
+				field: "caseWrite",
+				value: savesTo,
 			});
 		}
 		// The expression slots this search surface covers — a UX choice of
@@ -224,7 +217,7 @@ function searchFields(
 			"validate_msg",
 			"hint",
 		] as const) {
-			const v = expressionSource(field, key, doc);
+			const v = expressionInspectionSource(field, key, doc);
 			if (v?.toLowerCase().includes(query)) {
 				matchFields.push({ field: key, value: v });
 			}
@@ -232,24 +225,27 @@ function searchFields(
 		// Option labels read through the fan-out accessor; each entry's
 		// index pairs the label with its option's sibling `value` literal
 		// (a data literal, not an expression slot — read directly).
-		const opts = anyField.options;
-		if (Array.isArray(opts)) {
+		const opts =
+			"optionsSource" in field && field.optionsSource.kind === "inline"
+				? field.optionsSource.options
+				: [];
+		if (opts.length > 0) {
 			const labelByOption = new Map<number, string>();
-			for (const entry of expressionSourceEntries(field, "option_label", doc)) {
+			for (const entry of expressionSurfaceReads(field, "prose", doc)) {
+				if (entry.slot !== "option_label") continue;
 				const index = entry.indices[0];
 				if (index !== undefined) labelByOption.set(index, entry.text);
 			}
 			for (let i = 0; i < opts.length; i++) {
-				const o = opts[i] as { value?: unknown };
+				const o = opts[i];
 				const optLabel = labelByOption.get(i);
 				if (
-					(typeof o.value === "string" &&
-						o.value.toLowerCase().includes(query)) ||
+					o.value.toLowerCase().includes(query) ||
 					optLabel?.toLowerCase().includes(query)
 				) {
 					matchFields.push({
 						field: "option",
-						value: `${String(o.value)}: ${optLabel}`,
+						value: `${o.value}: ${optLabel}`,
 					});
 					break;
 				}
@@ -257,24 +253,20 @@ function searchFields(
 		}
 
 		for (const match of matchFields) {
-			const caseTag =
-				typeof anyField.case_property_on === "string"
-					? `, case_property_on:${anyField.case_property_on}`
-					: "";
+			const caseTag = savesTo === undefined ? "" : `, saves-to:${savesTo}`;
 			results.push({
 				type: "field",
-				moduleIndex: mIdx,
-				formIndex: fIdx,
-				fieldPath: path,
-				uuid,
+				moduleUuid,
+				formUuid,
+				fieldUuid,
 				field: match.field,
 				value: match.value,
-				context: `m${mIdx}-f${fIdx} field "${field.id}" (${field.kind}${caseTag})`,
+				context: `Field "${field.id}" (${field.kind}${caseTag})`,
 			});
 		}
 
 		if (isContainer(field)) {
-			searchFields(doc, uuid, query, mIdx, fIdx, results, path);
+			searchFields(doc, fieldUuid, query, moduleUuid, formUuid, results);
 		}
 	}
 }

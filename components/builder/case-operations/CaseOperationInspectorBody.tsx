@@ -57,6 +57,7 @@ import {
 import { useNavigate } from "@/lib/routing/hooks";
 import { useCanEdit } from "@/lib/session/hooks";
 import { useInlineConfirmFocus } from "@/lib/ui/hooks/useInlineConfirmFocus";
+import { useCaseTargetDraft } from "./CaseTargetDraftContext";
 import { CaseTargetPicker } from "./CaseTargetPicker";
 import {
 	identityKeyFieldDecls,
@@ -105,6 +106,7 @@ export function CaseOperationInspectorBody({
 	const navigate = useNavigate();
 	const canEdit = useCanEdit();
 	const [refusal, setRefusal] = useState<string | undefined>(undefined);
+	const targetDraft = useCaseTargetDraft(formUuid, operationUuid);
 
 	const fieldEntries = useFormFieldEntries(formUuid);
 	const caseFirst = useModuleSelectsCaseFirst(moduleUuid);
@@ -266,8 +268,7 @@ export function CaseOperationInspectorBody({
 
 	if (operation === undefined || actionChoices === undefined) return null;
 
-	const authoringVerdict = view.authoringVerdict(operation.uuid);
-	const operationCanEdit = canEdit && authoringVerdict.ok;
+	const operationCanEdit = canEdit;
 	const commit = (next: CaseOperation) => {
 		if (!operationCanEdit) return;
 		const outcome = view.update(next);
@@ -298,24 +299,6 @@ export function CaseOperationInspectorBody({
 				</div>
 			)}
 
-			{!authoringVerdict.ok && (
-				<div
-					role="note"
-					className="flex gap-2 rounded-xl border border-nova-amber/25 bg-nova-amber/[0.06] px-3 py-2.5 text-[13px] leading-relaxed text-nova-text-secondary"
-				>
-					<Icon
-						icon={tablerAlertCircle}
-						width="16"
-						height="16"
-						className="mt-0.5 shrink-0 text-nova-amber"
-					/>
-					<span>
-						{authoringVerdict.reason} You can still move it from the case
-						changes list.
-					</span>
-				</div>
-			)}
-
 			<fieldset disabled={!operationCanEdit} className="contents">
 				<Row
 					title="Name"
@@ -334,7 +317,10 @@ export function CaseOperationInspectorBody({
 						operation={operation}
 						canEdit={operationCanEdit}
 						choices={actionChoices}
-						onChange={commit}
+						onChange={(next) => {
+							targetDraft.clear();
+							commit(next);
+						}}
 					/>
 				</Row>
 
@@ -377,8 +363,10 @@ export function CaseOperationInspectorBody({
 									}
 								: view.editVerdict(retarget(target))
 						}
+						onRequestExpression={targetDraft.begin}
 						onChange={(target) => {
 							if (target === null) return;
+							targetDraft.clear();
 							commit(retarget(target));
 						}}
 					/>

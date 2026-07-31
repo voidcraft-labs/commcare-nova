@@ -195,53 +195,39 @@ describe("lookup reference edge materialization", () => {
 				projectId: PROJECT_B,
 				targets: EMPTY_LOOKUP_REFERENCE_TARGETS,
 			});
+			// The app-Project trigger requires an exact same-sequence
+			// `project-move` change for the transition, so the flip this test
+			// exercises has to carry one even though the subject is the edge
+			// delete.
+			const app = await tx
+				.selectFrom("apps")
+				.select(["project_id", "mutation_seq"])
+				.where("id", "=", APP_ID)
+				.executeTakeFirstOrThrow();
+			const seq = Number(app.mutation_seq) + 1;
+			await tx
+				.insertInto("app_changes")
+				.values({
+					app_id: APP_ID,
+					seq,
+					batch_id: crypto.randomUUID(),
+					run_id: null,
+					actor_id: "edge-test",
+					kind: "project-move",
+					mutations: "[]",
+					from_project_id: app.project_id,
+					to_project_id: PROJECT_B,
+				})
+				.execute();
 			await tx
 				.updateTable("apps")
-				.set({ project_id: PROJECT_B })
+				.set({ project_id: PROJECT_B, mutation_seq: seq })
 				.where("id", "=", APP_ID)
 				.executeTakeFirstOrThrow();
 		});
 
 		expect(await readTargets()).toEqual(EMPTY_LOOKUP_REFERENCE_TARGETS);
 		expect((await h.readAppRow(APP_ID))?.project_id).toBe(PROJECT_B);
-	});
-
-	it("allows a null-Project app to clear edges but fails closed before a nonempty write", async () => {
-		const table = await createTable(PROJECT_A, "Null Scope");
-		await h.seedApp({ id: APP_ID, project_id: PROJECT_A });
-		await h.withTransaction((tx) =>
-			tx
-				.updateTable("apps")
-				.set({ project_id: null })
-				.where("id", "=", APP_ID)
-				.execute(),
-		);
-
-		await withLockedApp(APP_ID, (tx) =>
-			replaceLookupReferenceEdges(tx, {
-				appId: APP_ID,
-				projectId: null,
-				targets: EMPTY_LOOKUP_REFERENCE_TARGETS,
-			}),
-		);
-		expect(await readTargets()).toEqual(EMPTY_LOOKUP_REFERENCE_TARGETS);
-
-		await expect(
-			withLockedApp(APP_ID, (tx) =>
-				replaceLookupReferenceEdges(tx, {
-					appId: APP_ID,
-					projectId: null,
-					targets: normalizeLookupReferenceTargetSet({
-						tableIds: [table.id],
-					}),
-				}),
-			),
-		).rejects.toMatchObject({
-			name: "LookupReferenceWriteError",
-			code: "mismatch",
-			message: "Lookup reference targets do not match the app scope.",
-		});
-		expect(await readTargets()).toEqual(EMPTY_LOOKUP_REFERENCE_TARGETS);
 	});
 
 	it("makes missing and foreign table locks exactly indistinguishable", async () => {

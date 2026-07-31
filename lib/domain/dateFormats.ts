@@ -1,11 +1,9 @@
 // lib/domain/dateFormats.ts
 //
-// Semantic date-style presets shared by every Nova runtime. The stored
-// predicate AST may carry the friendly preset ids (`short` / `long` / `iso`),
-// while a case-list column may carry either one of those ids (legacy Nova
-// documents) or a concrete CommCare pattern. Every consumer resolves through
-// this table before entering the shared JavaRosa parser, so Preview, Postgres,
-// suite.xml, and HQ JSON cannot assign different meanings to the same preset.
+// Semantic date-style presets for the `format-date` ValueExpression. Case-list
+// columns store a concrete CommCare pattern; their preset picker is only an
+// authoring projection and no live runtime or emitter resolves stored column
+// values through this table.
 
 import { FORMAT_DATE_PRESETS, type FormatDatePreset } from "./predicate/types";
 

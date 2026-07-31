@@ -8,7 +8,8 @@
 // identities from rebuilding evaluation state.
 
 import { describe, expect, it } from "vitest";
-import { asUuid, type UserCollections } from "@/lib/domain";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import type { UserCollections } from "@/lib/domain";
 import {
 	previewAsMe,
 	previewAsPersona,
@@ -22,10 +23,10 @@ const FULL_USER = {
 	email: "amina@example.org",
 };
 
-const REGION = asUuid("11111111-1111-4111-8111-111111111111");
-const CADRE = asUuid("22222222-2222-4222-8222-222222222222");
-const CHW = asUuid("33333333-3333-4333-8333-333333333333");
-const ASHA = asUuid("44444444-4444-4444-8444-444444444444");
+const REGION = testUuid("11111111-1111-4111-8111-111111111111");
+const CADRE = testUuid("22222222-2222-4222-8222-222222222222");
+const CHW = testUuid("33333333-3333-4333-8333-333333333333");
+const ASHA = testUuid("44444444-4444-4444-8444-444444444444");
 
 const DOC: UserCollections = {
 	userProperties: {
@@ -150,7 +151,7 @@ describe("session values are honest", () => {
 
 	it("keeps HQ's unconditional profile keys present even when their values are empty", () => {
 		const persona = {
-			uuid: asUuid("66666666-6666-4666-8666-666666666666"),
+			uuid: testUuid("66666666-6666-4666-8666-666666666666"),
 			name: "Asha",
 		};
 		const identity = previewAsPersona(FULL_USER, persona, DOC);
@@ -237,11 +238,11 @@ describe("the session block and the usercase are two projections", () => {
 	});
 
 	it("preserves valid prototype-named slugs as own data properties", () => {
-		const propertyProto = asUuid("property-proto");
-		const propertyConstructor = asUuid("property-constructor");
-		const roleUuid = asUuid("constructor");
+		const propertyProto = testUuid("property-proto");
+		const propertyConstructor = testUuid("property-constructor");
+		const roleUuid = testUuid("constructor");
 		const persona = {
-			uuid: asUuid("persona-hostile-slugs"),
+			uuid: testUuid("persona-hostile-slugs"),
 			name: "Asha",
 			userTypeUuid: roleUuid,
 		};
@@ -332,7 +333,7 @@ describe("samePreviewIdentity", () => {
 		const asha = previewAsPersona(FULL_USER, ASHA_PERSONA, DOC);
 		const bimal = previewAsPersona(
 			FULL_USER,
-			{ uuid: asUuid("55555555-5555-4555-8555-555555555555"), name: "Bimal" },
+			{ uuid: testUuid("55555555-5555-4555-8555-555555555555"), name: "Bimal" },
 			DOC,
 		);
 		expect(samePreviewIdentity(asha, bimal)).toBe(false);

@@ -36,7 +36,7 @@ import {
 } from "@/lib/db/mediaAssets";
 import {
 	ASSET_SIZE_CAPS_BYTES,
-	asAssetId,
+	asMediaAssetId,
 	gcsObjectKeyFor,
 } from "@/lib/domain/multimedia";
 import { log } from "@/lib/logger";
@@ -59,7 +59,7 @@ export async function POST(
 	try {
 		const session = await requireSession(req);
 		const { assetId: rawAssetId } = await params;
-		const assetId = asAssetId(rawAssetId);
+		const assetId = asMediaAssetId(rawAssetId);
 
 		// Owner-agnostic load, then authorize by Project membership. A missing
 		// pending row may still have a durable successful canonicalization:

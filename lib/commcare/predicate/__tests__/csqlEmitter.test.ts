@@ -41,7 +41,7 @@
 //      the inline shape is the only wire-correct option.
 
 import { describe, expect, it } from "vitest";
-import { asUuid } from "@/lib/domain";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	ancestorPath,
 	and,
@@ -63,7 +63,6 @@ import {
 	input,
 	isBlank,
 	isIn,
-	isNull,
 	literal,
 	lt,
 	lte,
@@ -86,16 +85,48 @@ import {
 	subcasePath,
 	term,
 	today,
-	unwrapList,
 	whenInput,
 	within,
 } from "@/lib/domain/predicate/builders";
 import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
-import { type CsqlEmissionResult, emitCsql } from "../csqlEmitter";
+import { proseText } from "@/lib/domain/prose";
+import {
+	type CsqlEmissionResult,
+	emitCsql as emitCsqlRaw,
+} from "../csqlEmitter";
+
+const TEST_INPUT_CONTEXT: TypeContext = {
+	caseTypes: [],
+	knownInputs: [
+		"base_date",
+		"minimum_children",
+		"month_offset",
+		"name_query",
+		"phone_query",
+		"q",
+		"user_date",
+		"user_dt",
+		"user_loc",
+		"user_region",
+	].map((name) => ({
+		uuid: testUuid(name),
+		name,
+		data_type: name === "base_date" ? ("date" as const) : ("text" as const),
+	})),
+};
+
+function emitCsql(
+	predicate: Parameters<typeof emitCsqlRaw>[0],
+	context: TypeContext = TEST_INPUT_CONTEXT,
+): CsqlEmissionResult {
+	return emitCsqlRaw(predicate, context);
+}
 
 const TEMPORAL_INPUT_CONTEXT: TypeContext = {
 	caseTypes: [],
-	knownInputs: [{ name: "base_date", data_type: "date" }],
+	knownInputs: [
+		{ uuid: testUuid("base_date"), name: "base_date", data_type: "date" },
+	],
 };
 
 function expectDynamicallyQuotedNativeArgument(
@@ -132,7 +163,7 @@ function expectRuntimeGuarded(
 
 describe("emitCsql — comparison operators", () => {
 	it("resolves a custom session-user property identity to its current slug", () => {
-		const propertyUuid = asUuid("worker-property-region");
+		const propertyUuid = testUuid("worker-property-region");
 		const result = emitCsql(
 			eq(prop("patient", "region"), sessionUserProperty(propertyUuid)),
 			{
@@ -147,7 +178,7 @@ describe("emitCsql — comparison operators", () => {
 	});
 
 	it("refuses a custom worker identity without a current slug binding", () => {
-		const propertyUuid = asUuid("missing-worker-property");
+		const propertyUuid = testUuid("missing-worker-property");
 		expect(() =>
 			emitCsql(
 				eq(prop("patient", "region"), sessionUserProperty(propertyUuid)),
@@ -412,7 +443,7 @@ describe("emitCsql — is-blank", () => {
 		// concat-of-alternating-quotes idiom built on
 		// `lib/commcare/xpath/grammar.lezer.grammar::StringLiteral`
 		// produces the segment chain.
-		const result = emitCsql(isBlank(input("name_query")));
+		const result = emitCsql(isBlank(input(testUuid("name_query"))));
 		expectRuntimeGuarded(
 			result,
 			`instance('search-input:results')/input/field[@name='name_query']`,
@@ -427,19 +458,6 @@ describe("emitCsql — is-blank", () => {
 			`instance('commcaresession')/session/context/userid`,
 			` = ''`,
 		);
-	});
-});
-
-describe("emitCsql — is-null faithful emission", () => {
-	it("emits is-null as <term> = '' (the same wire form is-blank uses)", () => {
-		// CCHQ's wire absent/cleared/empty collapse at
-		// `commcare-hq/corehq/apps/es/case_search.py::case_property_query`
-		// makes the strict-absent intent of `is-null` emit the same wire
-		// form `is-blank` produces. The strict semantic surfaces only
-		// on the Postgres target where JSONB key presence is
-		// observable; CSQL gets the closest faithful emission.
-		const result = emitCsql(isNull(prop("patient", "full_name")));
-		expect(result.wrapper).toBe(`concat("full_name = ''")`);
 	});
 });
 
@@ -458,8 +476,8 @@ describe("emitCsql — when-input-present conditional dispatch", () => {
 		// inner clause's CSQL fragment.
 		const result = emitCsql(
 			whenInput(
-				input("name_query"),
-				eq(prop("patient", "full_name"), input("name_query")),
+				input(testUuid("name_query")),
+				eq(prop("patient", "full_name"), input(testUuid("name_query"))),
 			),
 		);
 		expectRuntimeGuarded(
@@ -478,8 +496,8 @@ describe("emitCsql — when-input-present conditional dispatch", () => {
 			and(
 				eq(prop("patient", "age"), literal(18)),
 				whenInput(
-					input("name_query"),
-					eq(prop("patient", "full_name"), input("name_query")),
+					input(testUuid("name_query")),
+					eq(prop("patient", "full_name"), input(testUuid("name_query"))),
 				),
 			),
 		);
@@ -661,7 +679,12 @@ describe("emitCsql — within-distance", () => {
 		// styles and the wrap step splits via the XPath
 		// concat-of-alternating-quotes idiom.
 		const result = emitCsql(
-			within(prop("clinic", "location"), input("user_loc"), 25, "kilometers"),
+			within(
+				prop("clinic", "location"),
+				input(testUuid("user_loc")),
+				25,
+				"kilometers",
+			),
 		);
 		expect(result.wrapper).toContain("'match-none()'");
 		expect(result.wrapper).not.toContain(
@@ -822,7 +845,10 @@ describe("emitCsql — exists / missing", () => {
 		// concat. The segment-list IR composes filter segments into
 		// the outer concat at the call site.
 		const result = emitCsql(
-			exists(subcasePath("child"), eq(prop("child", "x"), input("q"))),
+			exists(
+				subcasePath("child"),
+				eq(prop("child", "x"), input(testUuid("q"))),
+			),
 		);
 		expectRuntimeGuarded(
 			result,
@@ -884,17 +910,23 @@ describe("emitCsql — exists / missing", () => {
 			caseTypes: [
 				{
 					name: "household",
-					properties: [{ name: "full_name", label: "Name", data_type: "text" }],
+					properties: [
+						{ name: "full_name", label: proseText("Name"), data_type: "text" },
+					],
 				},
 				{
 					name: "patient",
 					parent_type: "household",
-					properties: [{ name: "full_name", label: "Name", data_type: "text" }],
+					properties: [
+						{ name: "full_name", label: proseText("Name"), data_type: "text" },
+					],
 				},
 				{
 					name: "child",
 					parent_type: "patient",
-					properties: [{ name: "full_name", label: "Name", data_type: "text" }],
+					properties: [
+						{ name: "full_name", label: proseText("Name"), data_type: "text" },
+					],
 				},
 			],
 			knownInputs: [],
@@ -1034,7 +1066,10 @@ describe("emitCsql — subcase-count in comparison-LHS (native)", () => {
 	it("emits a prompted child-count bound as a guarded raw integer token", () => {
 		const path = `instance('search-input:results')/input/field[@name='minimum_children']`;
 		const result = emitCsql(
-			gt(count(subcasePath("child")), double(term(input("minimum_children")))),
+			gt(
+				count(subcasePath("child")),
+				double(term(input(testUuid("minimum_children")))),
+			),
 		);
 
 		expect(result.wrapper).toContain(`subcase-count('child') > `);
@@ -1065,7 +1100,7 @@ describe("emitCsql — concat() wrapping shape", () => {
 
 	it("lifts a single input ref as a separate concat() arg", () => {
 		const result = emitCsql(
-			eq(prop("patient", "full_name"), input("name_query")),
+			eq(prop("patient", "full_name"), input(testUuid("name_query"))),
 		);
 		expectRuntimeGuarded(
 			result,
@@ -1077,7 +1112,7 @@ describe("emitCsql — concat() wrapping shape", () => {
 	it("lifts multiple interpolation points as separate concat() args in document order", () => {
 		const result = emitCsql(
 			and(
-				eq(prop("patient", "full_name"), input("name_query")),
+				eq(prop("patient", "full_name"), input(testUuid("name_query"))),
 				eq(prop("patient", "region"), sessionUser("region")),
 			),
 		);
@@ -1106,7 +1141,7 @@ describe("emitCsql — concat() wrapping shape", () => {
 		const result = emitCsql(
 			and(
 				eq(prop("patient", "full_name"), literal("Alice")),
-				eq(prop("patient", "region"), input("user_region")),
+				eq(prop("patient", "region"), input(testUuid("user_region"))),
 			),
 		);
 		expectRuntimeGuarded(
@@ -1476,17 +1511,6 @@ describe("emitCsql — property-via lift (membership + range + null/blank)", () 
 		).toThrow(/mixed-property-scopes/);
 	});
 
-	it("lifts via on is-null.left into ancestor-exists envelope with absence equality", () => {
-		const result = emitCsql(
-			isNull(
-				prop("patient", "full_name", ancestorPath(relationStep("parent"))),
-			),
-		);
-		expect(result.wrapper).toBe(
-			`concat("ancestor-exists(parent, full_name = '')")`,
-		);
-	});
-
 	it("lifts via on is-blank.left into subcase-exists envelope", () => {
 		const result = emitCsql(
 			isBlank(prop("patient", "full_name", subcasePath("child"))),
@@ -1632,13 +1656,6 @@ describe("emitCsql — property-via lift (native value-expression carriers)", ()
 				),
 			),
 		},
-		{
-			carrier: "unwrap-list",
-			predicate: eq(
-				prop("patient", "tags"),
-				unwrapList(term(prop("patient", "parent_tags_json", parentVia))),
-			),
-		},
 	])("fails closed for an ancestor via below $carrier", ({ predicate }) => {
 		expect(() => emitCsql(predicate)).toThrow(/mixed-property-scopes/);
 	});
@@ -1705,10 +1722,10 @@ describe("emitCsql — property-via lift (recursion)", () => {
 		// through as a single runtime segment in the outer concat.
 		const result = emitCsql(
 			whenInput(
-				input("q"),
+				input(testUuid("q")),
 				eq(
 					prop("patient", "full_name", ancestorPath(relationStep("parent"))),
-					term(input("q")),
+					term(input(testUuid("q"))),
 				),
 			),
 		);
@@ -1779,7 +1796,9 @@ describe("emitCsql — term-arm unwrap (happy path)", () => {
 	});
 
 	it("unwraps a search-input reference in a comparison's right operand", () => {
-		const result = emitCsql(eq(prop("patient", "phone"), input("phone_query")));
+		const result = emitCsql(
+			eq(prop("patient", "phone"), input(testUuid("phone_query"))),
+		);
 		expectRuntimeGuarded(
 			result,
 			"phone = ",
@@ -1881,7 +1900,10 @@ describe("emitCsql — date-coerce / datetime-coerce rename", () => {
 		const xpath =
 			"instance('search-input:results')/input/field[@name='user_date']";
 		const result = emitCsql(
-			eq(prop("patient", "dob"), dateCoerce(term(input("user_date")))),
+			eq(
+				prop("patient", "dob"),
+				dateCoerce(term(input(testUuid("user_date")))),
+			),
 		);
 		expectDynamicallyQuotedNativeArgument(
 			result.wrapper,
@@ -1896,7 +1918,7 @@ describe("emitCsql — date-coerce / datetime-coerce rename", () => {
 		const result = emitCsql(
 			eq(
 				prop("patient", "modified_on"),
-				datetimeCoerce(term(input("user_dt"))),
+				datetimeCoerce(term(input(testUuid("user_dt")))),
 			),
 		);
 		expectDynamicallyQuotedNativeArgument(
@@ -1910,7 +1932,7 @@ describe("emitCsql — date-coerce / datetime-coerce rename", () => {
 describe("emitCsql — value-function whitelist arms in operand position", () => {
 	// The CSQL value-function whitelist (per
 	// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`)
-	// — `today`, `now`, `double`, `date-add`, `unwrap-list`,
+	// — `today`, `now`, `double`, `date-add`,
 	// `date-coerce` (wire full_name `date`), `datetime-coerce` (wire
 	// full_name `datetime`) — emits through the value-expression emitter
 	// at `lib/commcare/expression/csqlEmitter.ts`. The predicate
@@ -1973,7 +1995,11 @@ describe("emitCsql — value-function whitelist arms in operand position", () =>
 		const result = emitCsql(
 			eq(
 				prop("patient", "due_date"),
-				dateAdd(today(), "months", double(term(input("month_offset")))),
+				dateAdd(
+					today(),
+					"months",
+					double(term(input(testUuid("month_offset")))),
+				),
 			),
 		);
 
@@ -1994,7 +2020,7 @@ describe("emitCsql — value-function whitelist arms in operand position", () =>
 		const result = emitCsql(
 			eq(
 				prop("patient", "due_date"),
-				dateAdd(term(input("base_date")), "days", term(literal(7))),
+				dateAdd(term(input(testUuid("base_date"))), "days", term(literal(7))),
 			),
 			TEMPORAL_INPUT_CONTEXT,
 		);
@@ -2004,15 +2030,5 @@ describe("emitCsql — value-function whitelist arms in operand position", () =>
 			"concat('due_date = date-add(', ",
 		);
 		expect(result.wrapper).toContain(`'days', 7)`);
-	});
-
-	it("emits unwrap-list in a multi-select-contains shape via the predicate emitter", () => {
-		// `unwrap-list` emits through the value-expression emitter;
-		// the predicate emitter composes the segments with the
-		// comparison's surrounding constants.
-		const result = emitCsql(
-			eq(prop("p", "tags"), unwrapList(term(prop("p", "tags_json")))),
-		);
-		expect(result.wrapper).toBe(`concat('tags = unwrap-list(tags_json)')`);
 	});
 });

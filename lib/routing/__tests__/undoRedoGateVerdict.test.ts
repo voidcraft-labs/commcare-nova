@@ -11,13 +11,15 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import {
 	hydratePersistedBlueprint,
 	toPersistableDoc,
 } from "@/lib/doc/fieldParent";
 import { buildReferenceIndex } from "@/lib/doc/referenceIndex";
-import { asUuid, type BlueprintDoc } from "@/lib/doc/types";
+import type { BlueprintDoc } from "@/lib/doc/types";
+import { proseText } from "@/lib/domain/prose";
 import { undoRedoGateVerdict } from "@/lib/routing/builderActions";
 
 /** Hydrate a spec-built doc into a fully-indexed working doc (fieldParent +
@@ -55,15 +57,15 @@ function docWithFields(fields: Parameters<typeof f>[0][]): BlueprintDoc {
 describe("undoRedoGateVerdict", () => {
 	it("passes a benign step — taking back a label change", () => {
 		const displayed = docWithFields([
-			{ uuid: "q-a", kind: "text", id: "a", label: "A-renamed" },
-			{ uuid: "q-b", kind: "text", id: "b", label: "B" },
+			{ uuid: "q-a", kind: "text", id: "a", label: proseText("A-renamed") },
+			{ uuid: "q-b", kind: "text", id: "b", label: proseText("B") },
 		]);
 		const verdict = undoRedoGateVerdict(displayed, [
 			{
 				kind: "updateField",
-				uuid: asUuid("q-a"),
+				uuid: testUuid("q-a"),
 				targetKind: "text",
-				patch: { label: "A" },
+				patch: { label: proseText("A") },
 			},
 		]);
 		expect(verdict.ok).toBe(true);
@@ -71,7 +73,7 @@ describe("undoRedoGateVerdict", () => {
 
 	it("passes an empty step — nothing to introduce", () => {
 		const displayed = docWithFields([
-			{ uuid: "q-a", kind: "text", id: "a", label: "A" },
+			{ uuid: "q-a", kind: "text", id: "a", label: proseText("A") },
 		]);
 		expect(undoRedoGateVerdict(displayed, [])).toEqual({ ok: true });
 	});
@@ -80,10 +82,10 @@ describe("undoRedoGateVerdict", () => {
 		// Taking back the add of the form's last remaining field would leave an
 		// EMPTY_FORM — the shape a peer's removals can leave an old step facing.
 		const displayed = docWithFields([
-			{ uuid: "q-a", kind: "text", id: "a", label: "A" },
+			{ uuid: "q-a", kind: "text", id: "a", label: proseText("A") },
 		]);
 		const verdict = undoRedoGateVerdict(displayed, [
-			{ kind: "removeField", uuid: asUuid("q-a") },
+			{ kind: "removeField", uuid: testUuid("q-a") },
 		]);
 		expect(verdict.ok).toBe(false);
 		if (!verdict.ok) {

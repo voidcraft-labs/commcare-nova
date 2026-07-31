@@ -33,7 +33,11 @@
 // time AND silently filter case data on the server, so the inline
 // shape is the only wire-correct option.
 
-import type { CaseListConfig } from "@/lib/domain";
+import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
+import {
+	type CaseListConfig,
+	SEARCH_INPUT_RUNTIME_VALUE_TYPES,
+} from "@/lib/domain";
 import { and, effectiveFilterForEmission } from "@/lib/domain/predicate";
 import { compilerBugMessage } from "@/lib/domain/predicate/errors";
 import { normalizeRelationEvaluationScopes } from "@/lib/domain/predicate/normalizeRelationEvaluationScopes";
@@ -187,6 +191,7 @@ export function composeXPathQueryEmission(
 	caseListConfig: CaseListConfig,
 	caseType: string | undefined,
 	typeContext?: TypeContext,
+	lookupNaming?: LookupWireNaming,
 ): ComposedXPathQuery | undefined {
 	const composed = composeXPathQueryPredicate(
 		caseListConfig,
@@ -194,6 +199,18 @@ export function composeXPathQueryEmission(
 		typeContext,
 	);
 	if (composed === undefined) return undefined;
+	const emissionTypeContext: TypeContext = {
+		...(typeContext ?? { caseTypes: [] }),
+		knownInputs: caseListConfig.searchInputs.map((input) => ({
+			uuid: input.uuid,
+			name: input.name,
+			data_type: SEARCH_INPUT_RUNTIME_VALUE_TYPES[input.type],
+		})),
+	};
+	const csqlContext = {
+		...emissionTypeContext,
+		...(lookupNaming === undefined ? {} : { lookupNaming }),
+	};
 
 	// Defense in depth — the validator rule
 	// `searchInputRefUsesWhenInputPresent` rejects every bare
@@ -212,10 +229,10 @@ export function composeXPathQueryEmission(
 	assertCsqlRepresentable(composed);
 
 	return {
-		...emitCsql(composed, typeContext),
+		...emitCsql(composed, csqlContext),
 		predicate: normalizeRelationEvaluationScopes(
 			normalizeCsqlPredicate(composed),
-			typeContext ?? {},
+			emissionTypeContext,
 		),
 	};
 }
@@ -244,11 +261,8 @@ export function composeXPathQueryPredicate(
 	// wire boundary. A plain non-date exact self target can stay on the
 	// bare prompt; date exact always contributes its typed whole-day
 	// interval, even on self. The gate at
-	// `simpleArmNeedsXPathQueryEmission` is the single contract; it
-	// also returns `false` for blank-property inputs (transient editor
-	// state), so the compile path stays clean while the validator's
-	// `CASE_LIST_SEARCH_INPUT_UNKNOWN_PROPERTY` surfaces the authoring
-	// error to the user.
+	// `simpleArmNeedsXPathQueryEmission` is the single contract. Simple
+	// properties are structurally nonblank before this boundary.
 	if (caseType !== undefined) {
 		for (const input of caseListConfig.searchInputs) {
 			if (input.kind !== "simple") continue;
@@ -305,7 +319,7 @@ function assertCsqlRepresentable(predicate: Predicate): void {
 		compilerBugMessage({
 			where: "composeXPathQueryEmission",
 			invariant:
-				"the composed _xpath_query predicate is representable in CCHQ's server query language",
+				"the composed _xpath_query predicate is not representable in CCHQ's server query language",
 			detail: [
 				"The validator rule `csqlPredicateRepresentability` should have rejected this authored shape before compilation. Reaching this throw means validation was bypassed.",
 				"",
@@ -353,7 +367,6 @@ function visitPredicate(p: Predicate, gated: Set<string>): void {
 			if (p.lower !== undefined) visitExpression(p.lower, gated);
 			if (p.upper !== undefined) visitExpression(p.upper, gated);
 			return;
-		case "is-null":
 		case "is-blank":
 			visitExpression(p.left, gated);
 			return;
@@ -402,11 +415,11 @@ function visitPredicate(p: Predicate, gated: Set<string>): void {
 			// outer's gate when the inner exits. Mirrors the validator
 			// walker's `wasAlreadyGated` preserve at
 			// `searchInputRefUsesWhenInputPresent.ts::visitPredicate`.
-			const triggerName = p.input.name;
-			const wasAlreadyGated = gated.has(triggerName);
-			gated.add(triggerName);
+			const triggerUuid = p.input.searchInputUuid;
+			const wasAlreadyGated = gated.has(triggerUuid);
+			gated.add(triggerUuid);
 			visitPredicate(p.clause, gated);
-			if (!wasAlreadyGated) gated.delete(triggerName);
+			if (!wasAlreadyGated) gated.delete(triggerUuid);
 			return;
 		}
 		default: {
@@ -421,11 +434,11 @@ function visitPredicate(p: Predicate, gated: Set<string>): void {
 function visitExpression(expr: ValueExpression, gated: Set<string>): void {
 	switch (expr.kind) {
 		case "term":
-			if (expr.term.kind === "input" && !gated.has(expr.term.name)) {
+			if (expr.term.kind === "input" && !gated.has(expr.term.searchInputUuid)) {
 				throw new Error(
 					compilerBugMessage({
 						where: "composeXPathQueryEmission",
-						invariant: `the composed _xpath_query predicate carries a bare search-input reference (\`input("${expr.term.name}")\`) outside any when-input-present envelope`,
+						invariant: `the composed _xpath_query predicate carries a bare search-input reference (\`input("${expr.term.searchInputUuid}")\`) outside any when-input-present envelope`,
 						detail:
 							"The validator rule `searchInputRefUsesWhenInputPresent` rejects this shape at authoring time. Reaching this throw means the validator was bypassed — typically through an AST constructed at runtime, an `as any` cast, or a partial discriminated-union widening. Run validation before invoking the compile pipeline; the validator surfaces the offending slot so the author can wrap the subtree in a `when-input-present` envelope or remove the input reference.",
 					}),
@@ -441,7 +454,6 @@ function visitExpression(expr: ValueExpression, gated: Set<string>): void {
 		case "date-coerce":
 		case "datetime-coerce":
 		case "double":
-		case "unwrap-list":
 			visitExpression(expr.value, gated);
 			return;
 		case "arith":
@@ -480,9 +492,8 @@ function visitExpression(expr: ValueExpression, gated: Set<string>): void {
 			visitExpression(expr.quantity, gated);
 			return;
 		case "table-lookup":
-			throw new Error(
-				"composeXPathQueryEmission: lookup-table expressions are dormant until fixture emission lands; validation should reject them before suite query emission.",
-			);
+			visitPredicate(expr.where, gated);
+			return;
 		default: {
 			const _exhaustive: never = expr;
 			throw new Error(

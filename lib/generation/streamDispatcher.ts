@@ -47,8 +47,8 @@
  */
 
 import type { Reconciler } from "@/lib/collab/reconciler";
+import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import type { BlueprintDocStoreApi } from "@/lib/doc/store";
-import type { Mutation } from "@/lib/doc/types";
 import type { PersistableDoc } from "@/lib/domain";
 import type { ConversationEvent, MutationEvent } from "@/lib/log/types";
 import type { BuilderSessionStoreApi } from "@/lib/session/store";
@@ -109,6 +109,8 @@ export function applyStreamEvent(
 	runId: string | undefined,
 	projectToast?: StreamToastEmitter,
 ): void {
+	const admittedMutations =
+		type === "data-mutations" ? admitMutationBatch(data.mutations) : null;
 	injectSignalEnergy(type);
 
 	// ── Document-read progress (ephemeral) ───────────────────────────
@@ -129,11 +131,14 @@ export function applyStreamEvent(
 	// one history entry) and the `events` envelopes (for
 	// the session buffer — lifecycle derivations read the stage tags).
 	if (type === "data-mutations") {
-		const mutations = data.mutations as Mutation[] | undefined;
+		if (admittedMutations === null) {
+			throw new Error("data-mutations admission invariant failed");
+		}
+		const mutations = admittedMutations;
 		const events = data.events as MutationEvent[] | undefined;
 		const batchId = data.batchId as string | undefined;
 		const seq = data.seq as number | undefined;
-		if (mutations && mutations.length > 0) {
+		if (mutations.length > 0) {
 			/* Register the SA batch in the reconciler BEFORE applying it: once
 			 * it's in `sentPending`, `localBase()` folds it, so the reconciler's
 			 * view of the document accounts for the SA's edit instead of reading

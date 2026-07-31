@@ -6,7 +6,7 @@
  * shared `ToolExecutionContext` interface. The reducer cascades
  * deletion to the form's fields — the full subtree is dropped atomically.
  *
- * The tool tolerates a missing form index: instead of returning an
+ * The tool tolerates an already-missing form UUID: instead of returning an
  * error (which would poison the SA's follow-up logic), it returns a
  * clear "does not exist, no change" success message. The SA sees the
  * target-already-gone state explicitly and keeps moving rather than
@@ -15,37 +15,32 @@
  *
  * Two exit branches:
  *
- *   - Missing index → no mutations, "does not exist, no change" message.
+ *   - Missing UUID → no mutations, "does not exist, no change" message.
  *   - Success → human-readable "Successfully removed" summary tagged
  *     `form:M-F`.
  */
 
-import { z } from "zod";
+import type { z } from "zod";
 import { orderedFormUuids } from "@/lib/doc/fieldWalk";
 import type { Mutation } from "@/lib/doc/types";
-import type { BlueprintDoc } from "@/lib/domain";
-import {
-	removeFormMutations,
-	resolveFormUuid,
-	resolveModuleUuid,
-} from "../blueprintHelpers";
+import { asUuid, type BlueprintDoc } from "@/lib/domain";
+import { removeFormMutations } from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import {
 	guardedMutate,
 	type MutatingToolResult,
 	toToolErrorResult,
 } from "./common";
+import {
+	formAddressSchema,
+	resolveFormAddress,
+} from "./shared/entityAddresses";
 import type {
 	MutationSuccess,
 	ToolCallSummary,
 } from "./shared/toolCallSummary";
 
-export const removeFormInputSchema = z
-	.object({
-		moduleIndex: z.number().describe("0-based module index"),
-		formIndex: z.number().describe("0-based form index"),
-	})
-	.strict();
+export const removeFormInputSchema = formAddressSchema;
 
 export type RemoveFormInput = z.infer<typeof removeFormInputSchema>;
 
@@ -60,41 +55,41 @@ export const removeFormTool = {
 		ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<RemoveFormResult>> {
-		const { moduleIndex, formIndex } = input;
+		const { moduleUuid: rawModuleUuid, formUuid: rawFormUuid } = input;
 		try {
-			const formUuid = resolveFormUuid(doc, moduleIndex, formIndex);
+			const address = resolveFormAddress(doc, input);
 
-			// Missing index → return a clear "no change" summary. A
+			// Missing UUID → return a clear "no change" summary. A
 			// "Successfully removed" string on a missing target would
 			// poison the SA's follow-up reasoning — it would assume the
 			// form was just deleted and e.g. skip a subsequent recreate
 			// step. Reporting the state truthfully (target not present,
 			// no mutation applied) keeps the SA aligned with reality.
-			if (!formUuid) {
-				const moduleUuid = resolveModuleUuid(doc, moduleIndex);
-				const mod = moduleUuid ? doc.modules[moduleUuid] : undefined;
-				const remainingForms = moduleUuid
-					? orderedFormUuids(doc, moduleUuid)
+			if (!address.ok) {
+				const unresolvedModuleUuid = asUuid(rawModuleUuid);
+				const remainingForms = doc.modules[unresolvedModuleUuid]
+					? orderedFormUuids(doc, unresolvedModuleUuid)
 					: [];
 				return {
 					kind: "mutate" as const,
 					mutations: [],
 					newDoc: doc,
-					result: `Form m${moduleIndex}-f${formIndex} does not exist — no change. Module "${mod?.name ?? `module ${moduleIndex}`}" has ${remainingForms.length} form${remainingForms.length === 1 ? "" : "s"}.`,
+					result: `Form ${rawFormUuid} does not exist in module ${rawModuleUuid} — no change. That module has ${remainingForms.length} form${remainingForms.length === 1 ? "" : "s"}.`,
 				};
 			}
+			const { moduleUuid, module: mod, formUuid, form } = address;
 
 			// Snapshot the pre-mutation display name so the summary can
 			// reference the real form even after cascade deletion removes
 			// it from `forms`.
-			const removedName = doc.forms[formUuid]?.name ?? `form ${formIndex}`;
+			const removedName = form.name;
 
 			const mutations: Mutation[] = removeFormMutations(doc, formUuid);
 			const commit = await guardedMutate(
 				ctx,
 				doc,
 				mutations,
-				`form:${moduleIndex}-${formIndex}`,
+				`form:${formUuid}`,
 			);
 			if (!commit.ok) {
 				return {
@@ -106,19 +101,15 @@ export const removeFormTool = {
 			}
 			const newDoc = commit.newDoc;
 
-			const moduleUuid = resolveModuleUuid(newDoc, moduleIndex);
-			const mod = moduleUuid ? newDoc.modules[moduleUuid] : undefined;
-			const remainingForms = moduleUuid
-				? orderedFormUuids(newDoc, moduleUuid)
-				: [];
+			const remainingForms = orderedFormUuids(newDoc, moduleUuid);
 			return {
 				kind: "mutate" as const,
-				mutations,
+				mutations: commit.mutations,
 				newDoc,
 				result: {
-					message: `Successfully removed form "${removedName}" from module "${mod?.name ?? `module ${moduleIndex}`}". Module now has ${remainingForms.length} form${remainingForms.length === 1 ? "" : "s"}.`,
+					message: `Successfully removed form "${removedName}" from module "${mod.name}". Module now has ${remainingForms.length} form${remainingForms.length === 1 ? "" : "s"}.`,
 					summary: {
-						location: mod?.name,
+						location: mod.name,
 						subject: removedName,
 					} satisfies ToolCallSummary,
 				},

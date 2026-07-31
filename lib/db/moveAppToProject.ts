@@ -28,14 +28,6 @@ export class AppRunStateCorruptError extends Error {
 	}
 }
 
-/** Retained for the existing action contract; atomic repair no longer strands. */
-export class CaseDataStrandedError extends Error {
-	readonly name = "CaseDataStrandedError";
-	constructor() {
-		super("App case data could not be synced to its Project.");
-	}
-}
-
 const MAX_MOVE_ATTEMPTS = 4;
 
 export interface MoveAppToProjectArgs {
@@ -91,13 +83,8 @@ export async function runCrossProjectMove(
 			continue;
 		}
 
-		const attemptedRealIds = new Set([
-			...preparation.requiredAssetIds,
-			...preparation.historicalAssetIds,
-		]);
 		const assetIdMap = await copyAssetsIntoProject({
-			requiredAssetIds: preparation.requiredAssetIds,
-			historicalAssetIds: preparation.historicalAssetIds,
+			assetIds: preparation.assetIds,
 			fromProjectId: args.fromProjectId,
 			toProjectId: args.toProjectId,
 			actorUserId: args.actorUserId,
@@ -107,7 +94,6 @@ export async function runCrossProjectMove(
 			toProjectId: args.toProjectId,
 			actorUserId: args.actorUserId,
 			assetIdMap,
-			attemptedRealIds,
 		});
 		if (committed.kind === "moved") return;
 		if (committed.kind === "already_moved") {

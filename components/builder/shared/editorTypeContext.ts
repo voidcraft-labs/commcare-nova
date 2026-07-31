@@ -23,6 +23,10 @@ import type { CaseType, UserProperty } from "@/lib/domain";
 import type { TypeContext } from "@/lib/domain/predicate";
 import type { OperationValueScope } from "./expressionEditorSchemas";
 import type { EditorFormFieldDecl } from "./formFieldPresentation";
+import type {
+	EditorLookupTableDecl,
+	EditorLookupTableScope,
+} from "./lookupTablePresentation";
 import type { EditorSearchInputDecl } from "./searchInputPresentation";
 
 /** Shared empty lists so a surface without form answers or a custom
@@ -44,6 +48,9 @@ export interface EditorTypeVocabulary {
 	readonly userProperties?: readonly UserProperty[];
 	readonly formFields?: readonly EditorFormFieldDecl[];
 	readonly operationScope?: OperationValueScope | undefined;
+	readonly ownerValues?: boolean;
+	readonly lookupTables?: readonly EditorLookupTableDecl[];
+	readonly tableScope?: EditorLookupTableScope;
 }
 
 /**
@@ -58,6 +65,9 @@ export function buildEditorTypeContext(
 		userProperties = EMPTY_USER_PROPERTIES,
 		formFields = EMPTY_FORM_FIELDS,
 		operationScope,
+		ownerValues = false,
+		lookupTables = [],
+		tableScope,
 	} = args;
 	return {
 		caseTypes: [...args.caseTypes],
@@ -69,11 +79,25 @@ export function buildEditorTypeContext(
 		formFields: new Map(
 			formFields.map((field) => [field.uuid, field.dataType]),
 		),
+		lookupTables: new Map(
+			lookupTables.map((table) => [
+				table.id,
+				new Map(table.columns.map((column) => [column.id, column.dataType])),
+			]),
+		),
+		...(tableScope !== undefined && {
+			tableScope: {
+				tableId: tableScope.tableId,
+				columns: new Map(
+					tableScope.columns.map((column) => [column.id, column.dataType]),
+				),
+			},
+		}),
 		...(operationScope !== undefined && {
 			operationIds: new Set(
 				operationScope.creates.map((create) => create.uuid),
 			),
-			caseOperationValues: true,
 		}),
+		...(ownerValues && { ownerValues: true }),
 	};
 }

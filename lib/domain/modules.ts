@@ -12,8 +12,8 @@
 //     reorder handle, AST references), an optional `sort` (per-
 //     column direction + priority on the column itself), and optional
 //     `visibleInList` / `visibleInDetail` flags (absent ≡ visible),
-//     plus independent `listOrder` / `detailOrder` fractional keys for
-//     the two display surfaces (each falls back to the legacy `order`).
+//     plus independent `listColumnOrder` / `detailColumnOrder` UUID
+//     sequences on the containing config.
 //   - `filter?: Predicate` — single optional always-on predicate
 //     applied to every row before display.
 //   - `searchInputs: SearchInputDef[]` — discriminated union of
@@ -29,16 +29,21 @@
 // bound against the same Zod schemas.
 
 import { z } from "zod";
+import { moduleIconRefSchema } from "./builtinIcons";
+import { authoredCasePropertyNameSchema } from "./casePropertyName";
 import type { CasePropertyDataType } from "./casePropertyTypes";
 import { COMMCARE_DATE_PATTERN_REGEX } from "./commCareDatePattern";
-import { assetIdSchema } from "./multimedia";
+import {
+	persistableJsonNonnegativeIntegerSchema,
+	persistableJsonPositiveIntegerSchema,
+} from "./jsonNumber";
+import { type MediaAssetId, mediaAssetIdSchema } from "./multimedia";
 import type {
 	Predicate,
 	RelationPath,
 	ValueExpression,
 } from "./predicate/types";
 import {
-	CASE_PROPERTY_PATTERN,
 	predicateSchema,
 	relationPathSchema,
 	valueExpressionSchema,
@@ -55,11 +60,10 @@ import { type Uuid, uuidSchema } from "./uuid";
 //
 // `priority` is a non-negative integer (the schema's `int().min(0)`
 // rejects negatives at parse). Two columns at the same priority
-// tie-break to Results display order (`listOrder ?? order`) — that
+// tie-break to Results display order (`listColumnOrder`) — that
 // rule binds at the saga, preview, and wire-emission layers; the
-// editor maintains uniqueness on save, but the tie-break exists for
-// transient (undo / partial-save) editor states. No layer assumes
-// uniqueness.
+// whole-document admission enforces uniqueness. The positional tie-break keeps
+// the pure projection deterministic without weakening that stored invariant.
 //
 // The comparator type (lexicographic / numeric / date / decimal)
 // is NOT authored here — wire emission derives it from the case
@@ -89,7 +93,7 @@ export type SortType = (typeof SORT_TYPES)[number];
 export const columnSortSchema = z
 	.object({
 		direction: z.enum(SORT_DIRECTIONS),
-		priority: z.number().int().min(0),
+		priority: persistableJsonNonnegativeIntegerSchema,
 	})
 	.strict();
 export type ColumnSort = z.infer<typeof columnSortSchema>;
@@ -138,17 +142,14 @@ export type IntervalDisplay = (typeof INTERVAL_DISPLAYS)[number];
 //
 // Every column kind carries the same base slots: `uuid` for UI
 // identity, optional `sort` for column-level sort directive,
-// optional `visibleInList` / `visibleInDetail` for surface
-// filtering, and optional `listOrder` / `detailOrder` fractional keys for
-// independent Results / Details sequencing. Centralized here so every
-// per-kind schema below extends the same base.
+// optional `visibleInList` / `visibleInDetail` for surface filtering.
+// Independent Results / Details sequencing belongs to the containing
+// `CaseListConfig`, not to a column. Centralized here so every per-kind
+// schema below extends the same base.
 
 /**
- * Optional surface-visibility, sort, and surface-order slots shared by every
- * column kind. Absent visibility defaults to "visible" at the wire layer;
- * absent surface order falls back to the generic `order`. The schema preserves
- * slot presence so the editor can distinguish an explicit override from an
- * inherited default.
+ * Optional surface-visibility and sort slots shared by every column kind.
+ * Absent visibility defaults to "visible" at the wire layer.
  */
 const columnCommonSlots = z
 	.object({
@@ -162,7 +163,7 @@ const columnCommonSlots = z
 //
 // A tile-laid-out case list places each Results column on a grid
 // instead of stacking it in a row. The cell is PLACEMENT, entirely
-// separate from `listOrder` / `detailOrder`, which remain the
+// separate from `listColumnOrder` / `detailColumnOrder`, which remain the
 // column's position in the Results / Details sequences: moving a
 // column in the Results sequence never moves its tile cell, and
 // vice versa.
@@ -271,10 +272,10 @@ export type TileFontSize = (typeof TILE_FONT_SIZES)[number];
  */
 export const tileCellSchema = z
 	.object({
-		x: z.number().int().min(0),
-		y: z.number().int().min(0),
-		width: z.number().int().min(1),
-		height: z.number().int().min(1),
+		x: persistableJsonNonnegativeIntegerSchema,
+		y: persistableJsonNonnegativeIntegerSchema,
+		width: persistableJsonPositiveIntegerSchema,
+		height: persistableJsonPositiveIntegerSchema,
 		horizontalAlign: z.enum(TILE_HORIZONTAL_ALIGNS).optional(),
 		verticalAlign: z.enum(TILE_VERTICAL_ALIGNS).optional(),
 		fontSize: z.enum(TILE_FONT_SIZES).optional(),
@@ -435,12 +436,6 @@ export function tileHasBoxedCells(cells: readonly TileCell[]): boolean {
  *  so per-kind schemas reject unknown keys without restating
  *  `.strict()` on each arm.
  *
- *  `order` is the column's legacy/generic absolute fractional sort key
- *  (`lib/doc/order`). `listOrder` and `detailOrder` independently sequence
- *  the Results and Details surfaces, each falling back to `order` when its
- *  surface key is absent. All three are optional (legacy columns predate
- *  them; `order` is backfilled at hydration) and never reach CommCare.
- *
  *  `tile` is the column's placement on the case list's tile grid. It
  *  sits here rather than in `columnCommonSlots` only because
  *  `tileCellSchema` is declared below that object; it is an ordinary
@@ -466,7 +461,7 @@ const columnBase = z
  */
 const plainColumnSchema = columnBase.extend({
 	kind: z.literal("plain"),
-	field: z.string(),
+	field: authoredCasePropertyNameSchema,
 	header: z.string(),
 });
 
@@ -482,7 +477,7 @@ const plainColumnSchema = columnBase.extend({
  */
 const dateColumnSchema = columnBase.extend({
 	kind: z.literal("date"),
-	field: z.string(),
+	field: authoredCasePropertyNameSchema,
 	header: z.string(),
 	pattern: z
 		.string()
@@ -496,7 +491,7 @@ const dateColumnSchema = columnBase.extend({
  */
 const phoneColumnSchema = columnBase.extend({
 	kind: z.literal("phone"),
-	field: z.string(),
+	field: authoredCasePropertyNameSchema,
 	header: z.string(),
 });
 
@@ -504,23 +499,23 @@ const phoneColumnSchema = columnBase.extend({
  * ID-mapping column — renders a lookup table from property value
  * to display label (e.g. region code → human-readable region
  * name). The mapping is authored explicitly; values not in the
- * table render as the raw property value.
+ * table render no mapped text.
  */
 const idMappingEntrySchema = z
 	.object({
-		// Whitespace-free token (or empty during authoring). The wire
+		// Nonempty whitespace-free token. A blank new-row control is local
+		// component state and is never a persisted mapping entry. The wire
 		// emits the entry as `selected(field, '<value>')`; CommCare's
 		// `selected()` is the XPath 1.0 space-tokenized membership
 		// predicate (it splits the property value on whitespace and
 		// checks set membership), so a `value` carrying whitespace
 		// would never match any case row — silent runtime failure.
-		// Reject whitespace at the schema layer where the shape is
-		// constructed; admit empty as the "row added, not yet filled"
-		// state the editor seeds before the user types.
+		// Reject blank/whitespace at the schema layer where the final row is
+		// constructed.
 		value: z
 			.string()
 			.regex(
-				/^\S*$/,
+				/^\S+$/,
 				"ID-mapping value must be a single whitespace-free token — the wire layer matches it via XPath's space-tokenized `selected()` predicate, which splits both sides on whitespace before testing set membership. A value with spaces would never match any property and the cell would silently fall through to the raw property value.",
 			),
 		label: z.string(),
@@ -528,9 +523,11 @@ const idMappingEntrySchema = z
 	.strict();
 const idMappingColumnSchema = columnBase.extend({
 	kind: z.literal("id-mapping"),
-	field: z.string(),
+	field: authoredCasePropertyNameSchema,
 	header: z.string(),
-	// Mapping values must be unique within a column. The wire emitter
+	// The table may be empty: that is the complete "show no mapped labels"
+	// display and emits the same empty-string XPath as any unmatched value.
+	// Rows, when present, must be complete and unique. The wire emitter
 	// builds the cell text by joining one `if(selected(field, '<value>'),
 	// '<label>', '')` arm per entry — duplicate values match the same
 	// row and the cell concatenates every matching arm's label, which
@@ -550,7 +547,7 @@ const idMappingColumnSchema = columnBase.extend({
 
 /**
  * Single image-map entry — pairs a case-property value with the image
- * `AssetId` shown for that value. The image-map analogue of
+ * `MediaAssetId` shown for that value. The image-map analogue of
  * `idMappingEntrySchema`: same whitespace-free `value` token (matched
  * on the wire via XPath's space-tokenized `selected()` predicate), but
  * the cell renders the mapped IMAGE instead of a text label.
@@ -564,18 +561,19 @@ const imageMapEntrySchema = z
 		value: z
 			.string()
 			.regex(
-				/^\S*$/,
+				/^\S+$/,
 				"Image-map value must be a single whitespace-free token — the wire layer matches it via XPath's space-tokenized `selected()` predicate, which splits both sides on whitespace before testing set membership. A value with spaces would never match any property and the cell would render no image.",
 			),
-		assetId: assetIdSchema,
+		assetId: mediaAssetIdSchema,
 	})
 	.strict();
 const imageMapColumnSchema = columnBase.extend({
 	kind: z.literal("image-map"),
-	field: z.string(),
+	field: authoredCasePropertyNameSchema,
 	header: z.string(),
-	// Mapping values must be unique within a column — same rationale as
-	// id-mapping: the wire emits one `if(selected(field, '<value>'), …)`
+	// The table may be empty: that is the complete "show no mapped images"
+	// display. Rows, when present, must have unique values — same rationale
+	// as id-mapping: the wire emits one `if(selected(field, '<value>'), …)`
 	// arm per entry, so two entries sharing a value both match the same
 	// row and the cell concatenates their image paths into one
 	// unrenderable string.
@@ -605,7 +603,7 @@ const imageMapColumnSchema = columnBase.extend({
  */
 const intervalColumnSchema = columnBase.extend({
 	kind: z.literal("interval"),
-	field: z.string(),
+	field: authoredCasePropertyNameSchema,
 	header: z.string(),
 	// Positive integer count of `unit`s. A negative or zero threshold
 	// would flag every non-empty cell in the `flag` arm (the wire
@@ -613,7 +611,7 @@ const intervalColumnSchema = columnBase.extend({
 	// would show "X days ago" with a negative count in the `always`
 	// arm — both shapes are structurally authoring errors masquerading
 	// as working configuration, not legitimate authorings to admit.
-	threshold: z.number().int().positive(),
+	threshold: persistableJsonPositiveIntegerSchema,
 	unit: z.enum(TIME_SINCE_UNITS),
 	display: z.enum(INTERVAL_DISPLAYS),
 	text: z.string(),
@@ -648,10 +646,15 @@ export const columnSchema = z.discriminatedUnion("kind", [
 export type Column = z.infer<typeof columnSchema>;
 export type ColumnKind = Column["kind"];
 
-/** Whether a column contributes to any running-app behavior. Fully off-screen,
- * unsorted legacy definitions are tolerated for recovery but ignored by
- * preview/wire work until an author adds them back to a screen. */
-export function caseListColumnHasRuntimeRole(column: Column): boolean {
+/**
+ * Whether a valid saved column contributes to the emitted/running app.
+ *
+ * Admission must never consult this projection: fully hidden, unsorted
+ * definitions are legitimate reversible authoring state and are validated as
+ * completely as visible definitions. Only compiler/preview/reference walks use
+ * this predicate to decide which already-valid definitions execute.
+ */
+export function caseListColumnIsEmitted(column: Column): boolean {
 	return (
 		column.visibleInList !== false ||
 		column.visibleInDetail !== false ||
@@ -672,8 +675,8 @@ export type IdMappingEntry = z.infer<typeof idMappingEntrySchema>;
 // per-kind config — mirrors the explicit-uuid stance the field
 // schemas take (`{ uuid, id, ... }` on every Field arm).
 //
-// Common optional slots (`sort`, visibility, and per-surface order keys)
-// are passed via a `slots` object. Builders OMIT keys whose values
+// Common optional slots (`sort`, visibility, and tile placement) are passed via
+// a `slots` object. Builders OMIT keys whose values
 // are undefined so the constructed shape round-trips through the
 // schema's strip-mode parse — equality assertions like
 // `expect(parsed).toEqual(input)` would otherwise fail on the
@@ -689,11 +692,9 @@ export interface ColumnCommonSlots {
 	readonly sort?: ColumnSort;
 	readonly visibleInList?: boolean;
 	readonly visibleInDetail?: boolean;
-	readonly listOrder?: string;
-	readonly detailOrder?: string;
 	/** Placement on the case list's tile grid. Independent of the two
-	 *  surface order keys — a cell is where the column sits on the tile,
-	 *  an order key is where it sits in a sequence. */
+	 *  surface membership sequences — a cell is where the column sits on
+	 *  the tile, while the owning config arrays hold sequence. */
 	readonly tile?: TileCell;
 }
 
@@ -710,8 +711,6 @@ function withCommonSlots<T extends Record<string, unknown>>(
 		sort?: ColumnSort;
 		visibleInList?: boolean;
 		visibleInDetail?: boolean;
-		listOrder?: string;
-		detailOrder?: string;
 		tile?: TileCell;
 	} = { ...base };
 	if (slots.sort !== undefined) out.sort = slots.sort;
@@ -719,8 +718,6 @@ function withCommonSlots<T extends Record<string, unknown>>(
 		out.visibleInList = slots.visibleInList;
 	if (slots.visibleInDetail !== undefined)
 		out.visibleInDetail = slots.visibleInDetail;
-	if (slots.listOrder !== undefined) out.listOrder = slots.listOrder;
-	if (slots.detailOrder !== undefined) out.detailOrder = slots.detailOrder;
 	if (slots.tile !== undefined) out.tile = slots.tile;
 	return out;
 }
@@ -810,14 +807,14 @@ export function idMappingEntry(value: string, label: string): IdMappingEntry {
 	return { value, label };
 }
 
-/** Single image-map entry — value-to-image-`AssetId` pair surfaced by
+/** Single image-map entry — value-to-image-`MediaAssetId` pair surfaced by
  *  an image-map column's lookup. Constructing through the matching
  *  builder pins the key order against schema drift. */
 export type ImageMapEntry = z.infer<typeof imageMapEntrySchema>;
 
 /**
  * Constructs an image-map column. `mapping` is the lookup table from
- * raw property value to image `AssetId`; the runtime renders the
+ * raw property value to image `MediaAssetId`; the runtime renders the
  * matched image (no image when no entry matches). Mirrors
  * `idMappingColumn` — same value-keyed lookup shape, image instead of
  * a text label.
@@ -837,7 +834,10 @@ export function imageMapColumn(
 
 /** Constructs a single image-map entry. Routes every entry through one
  *  helper so ad-hoc literals can't drift out of the schema shape. */
-export function imageMapEntry(value: string, assetId: string): ImageMapEntry {
+export function imageMapEntry(
+	value: string,
+	assetId: MediaAssetId,
+): ImageMapEntry {
 	return { value, assetId };
 }
 
@@ -912,11 +912,10 @@ export function calculatedColumn(
 //     wire layer emits the predicate verbatim; the editor surfaces
 //     a `PredicateCardEditor` in this arm.
 //
-// Common slots (`uuid`, `name`, `label`, `type`, `default?`) appear
-// on both arms. The schema keeps `default?` on `date-range` inputs so
-// imported legacy documents can be loaded and repaired, but Nova does not
-// author or emit that combination: one scalar expression cannot represent
-// the widget's required start-and-end pair faithfully.
+// Common identity/name/label slots appear on every arm. Widget shape is a
+// second structural discriminator: scalar widgets may own a scalar default
+// and never range mode; a date-range widget owns explicit range mode and can
+// never carry a scalar default. Partial editor rows live outside this schema.
 
 /**
  * Search-input authoring widget kinds. Single source of truth for
@@ -925,51 +924,44 @@ export function calculatedColumn(
  */
 export const SEARCH_INPUT_TYPES = [
 	"text",
-	"select",
 	"date",
 	"date-range",
 	"barcode",
 ] as const;
 export type SearchInputType = (typeof SEARCH_INPUT_TYPES)[number];
-
-/** Multi-select-contains quantifier — `any` (∃) or `all` (∀). */
-export const MULTI_SELECT_QUANTIFIERS = ["any", "all"] as const;
-export type MultiSelectQuantifier = (typeof MULTI_SELECT_QUANTIFIERS)[number];
+export const SCALAR_SEARCH_INPUT_TYPES = ["text", "date", "barcode"] as const;
+export type ScalarSearchInputType = (typeof SCALAR_SEARCH_INPUT_TYPES)[number];
 
 /**
  * Discriminated union of search-input modes. Each mode targets a
  * specific case-property `data_type` (validator-enforced):
  *
- *   - `exact` — equality match (text/select/date/barcode default).
+ *   - `exact` — equality match (text/date/barcode default).
  *   - `fuzzy` — pg_trgm `%` similarity (text only).
  *   - `starts-with` — pg_trgm-backed prefix match (text only).
  *   - `phonetic` — fuzzystrmatch dmetaphone (text only).
  *   - `fuzzy-date` — date permutation match (text or temporal).
- *   - `range` — between-with-bounds (numeric / date / datetime / time).
- *   - `multi-select-contains` — JSONB `@>` / `?` against a
- *     `multi_select` property; the quantifier picks `any` (∃)
- *     vs `all` (∀).
+ *   - `range` — one paired date-range answer, stored only on the
+ *     date-range Search-input arm.
  */
-const searchInputModeSchema = z.discriminatedUnion("kind", [
+const scalarSearchInputModeSchema = z.discriminatedUnion("kind", [
 	z.object({ kind: z.literal("exact") }).strict(),
 	z.object({ kind: z.literal("fuzzy") }).strict(),
 	z.object({ kind: z.literal("starts-with") }).strict(),
 	z.object({ kind: z.literal("phonetic") }).strict(),
 	z.object({ kind: z.literal("fuzzy-date") }).strict(),
-	z.object({ kind: z.literal("range") }).strict(),
-	z
-		.object({
-			kind: z.literal("multi-select-contains"),
-			quantifier: z.enum(MULTI_SELECT_QUANTIFIERS),
-		})
-		.strict(),
+]);
+const rangeSearchInputModeSchema = z
+	.object({ kind: z.literal("range") })
+	.strict();
+export const searchInputModeSchema = z.union([
+	scalarSearchInputModeSchema,
+	rangeSearchInputModeSchema,
 ]);
 export type SearchInputMode = z.infer<typeof searchInputModeSchema>;
+export type ScalarSearchInputMode = z.infer<typeof scalarSearchInputModeSchema>;
 
-// Common slots present on every SearchInputDef arm. `.strict()`
-// propagates through the `searchInputCommon.extend({...})` chains
-// for `simpleSearchInputSchema` and `advancedSearchInputSchema`,
-// so each arm rejects unknown keys at parse time.
+// Common slots present on every SearchInputDef arm.
 //
 // `name` is constrained to XML element-name vocabulary because the
 // wire layer interpolates it as both an attribute value
@@ -980,7 +972,7 @@ export type SearchInputMode = z.infer<typeof searchInputModeSchema>;
 // the binding interchangeable — an authored name can always be
 // referenced from a predicate without being silently rejected by
 // the predicate's stricter character rules.
-const searchInputCommon = z
+const searchInputBase = z
 	.object({
 		uuid: uuidSchema,
 		name: z
@@ -990,8 +982,6 @@ const searchInputCommon = z
 				"Search input `name` must start with a letter or underscore and contain only letters, digits, or underscores. The name is interpolated both as an XML attribute value on the wire `<prompt>` and as an XPath token in the CSQL `instance('search-input:results')/input/field[@name='…']` reference; characters outside that class break one or both bindings.",
 			),
 		label: z.string(),
-		type: z.enum(SEARCH_INPUT_TYPES),
-		default: valueExpressionSchema.optional(),
 	})
 	.strict();
 
@@ -1004,7 +994,7 @@ const searchInputCommon = z
  * `property` is REQUIRED on this arm — a property-less input is the
  * `advanced` arm by definition.
  */
-const simpleSearchInputSchema = searchInputCommon.extend({
+const simpleSearchInputSlots = {
 	kind: z.literal("simple"),
 	// `property` is constrained to CommCare's case-property identifier
 	// vocabulary — same character class the predicate AST's
@@ -1015,20 +1005,27 @@ const simpleSearchInputSchema = searchInputCommon.extend({
 	// XPath. Keeping the constraint symmetric with the AST's
 	// reference shape closes the SearchInputDef-vs-Term asymmetry the
 	// predicate validator can't catch (the simple arm derives the
-	// predicate at wire-emit, not at validate-time). Empty string is
-	// the "row added, not yet picked" transient editor state —
-	// `searchInputModeMatchesPropertyType`'s
-	// `CASE_LIST_SEARCH_INPUT_UNKNOWN_PROPERTY` surfaces it at
-	// validate-time.
-	property: z
-		.string()
-		.refine((v) => v === "" || CASE_PROPERTY_PATTERN.test(v), {
-			message:
-				"Search input `property` must name a case property — a string starting with a letter and made of letters, digits, underscores, or hyphens. The wire layer interpolates the name verbatim into the XPath fragment built from the input's (property, mode) shape, so characters outside that class would emit malformed XPath.",
-		}),
+	// predicate at wire-emit, not at validate-time).
+	property: authoredCasePropertyNameSchema,
 	via: relationPathSchema.optional(),
-	mode: searchInputModeSchema.optional(),
-});
+};
+
+export const simpleScalarSearchInputSchema = searchInputBase
+	.extend({
+		...simpleSearchInputSlots,
+		type: z.enum(SCALAR_SEARCH_INPUT_TYPES),
+		default: valueExpressionSchema.optional(),
+		mode: scalarSearchInputModeSchema.optional(),
+	})
+	.strict();
+
+export const simpleDateRangeSearchInputSchema = searchInputBase
+	.extend({
+		...simpleSearchInputSlots,
+		type: z.literal("date-range"),
+		mode: rangeSearchInputModeSchema,
+	})
+	.strict();
 
 /**
  * Advanced search input — the `predicate` arm. The slot's body is a
@@ -1036,21 +1033,65 @@ const simpleSearchInputSchema = searchInputCommon.extend({
  * predicate. The editor surfaces a `PredicateCardEditor` against
  * this slot.
  */
-const advancedSearchInputSchema = searchInputCommon.extend({
-	kind: z.literal("advanced"),
-	predicate: predicateSchema,
-});
+export const advancedScalarSearchInputSchema = searchInputBase
+	.extend({
+		kind: z.literal("advanced"),
+		type: z.enum(SCALAR_SEARCH_INPUT_TYPES),
+		default: valueExpressionSchema.optional(),
+		predicate: predicateSchema,
+	})
+	.strict();
 
-export const searchInputDefSchema = z.discriminatedUnion("kind", [
-	simpleSearchInputSchema,
-	advancedSearchInputSchema,
+export const advancedDateRangeSearchInputSchema = searchInputBase
+	.extend({
+		kind: z.literal("advanced"),
+		type: z.literal("date-range"),
+		predicate: predicateSchema,
+	})
+	.strict();
+
+/**
+ * Exact four-arm union over two authoring dimensions:
+ *
+ * - `kind`: simple or advanced;
+ * - widget shape: scalar or date-range.
+ *
+ * This cannot be a Zod `discriminatedUnion("kind", ...)`: each kind appears
+ * in two arms. Keeping the scalar/date-range split structural is what makes a
+ * range default or a scalar range mode unrepresentable.
+ */
+export const searchInputDefSchema = z.union([
+	simpleScalarSearchInputSchema,
+	simpleDateRangeSearchInputSchema,
+	advancedScalarSearchInputSchema,
+	advancedDateRangeSearchInputSchema,
 ]);
-export type SearchInputDef = z.infer<typeof searchInputDefSchema>;
-export type SimpleSearchInputDef = Extract<SearchInputDef, { kind: "simple" }>;
-export type AdvancedSearchInputDef = Extract<
-	SearchInputDef,
-	{ kind: "advanced" }
+export type SimpleScalarSearchInputDef = z.infer<
+	typeof simpleScalarSearchInputSchema
 >;
+export type SimpleDateRangeSearchInputDef = z.infer<
+	typeof simpleDateRangeSearchInputSchema
+>;
+export type AdvancedScalarSearchInputDef = z.infer<
+	typeof advancedScalarSearchInputSchema
+>;
+export type AdvancedDateRangeSearchInputDef = z.infer<
+	typeof advancedDateRangeSearchInputSchema
+>;
+export type SearchInputDef = z.infer<typeof searchInputDefSchema>;
+export type SimpleSearchInputDef =
+	| SimpleScalarSearchInputDef
+	| SimpleDateRangeSearchInputDef;
+export type AdvancedSearchInputDef =
+	| AdvancedScalarSearchInputDef
+	| AdvancedDateRangeSearchInputDef;
+
+/** Scalar prompt seed, absent by construction on both date-range arms. */
+export function searchInputDefault(
+	input: SearchInputDef,
+): ValueExpression | undefined {
+	return "default" in input ? input.default : undefined;
+}
 
 // ── SearchInputMode builders ──────────────────────────────────────
 //
@@ -1101,15 +1142,6 @@ export function rangeMode(): Extract<SearchInputMode, { kind: "range" }> {
 	return { kind: "range" };
 }
 
-/** JSONB `@>` (`all`) / `?` (`any`) against a multi-select
- *  property. Validator gates the property's data type to
- *  `multi_select`; the quantifier picks the membership shape. */
-export function multiSelectContainsMode(
-	quantifier: MultiSelectQuantifier,
-): Extract<SearchInputMode, { kind: "multi-select-contains" }> {
-	return { kind: "multi-select-contains", quantifier };
-}
-
 // ── SearchInputDef builders ───────────────────────────────────────
 //
 // Per-arm constructors. The two arms have distinct required slots —
@@ -1125,22 +1157,24 @@ export function multiSelectContainsMode(
 // The builder treats both as omit so a saved doc that omitted the
 // slot round-trips equal to a freshly-built one.
 
-/** Shared optional slot — both SearchInputDef arms accept a
- *  `default` value expression that seeds the input's initial state
- *  (e.g. `today()` for date-typed inputs). */
+/** Scalar-widget slot that seeds the input's initial state. */
 interface SearchInputCommonSlots {
 	readonly default?: ValueExpression;
 }
 
-interface SimpleSearchInputSlots extends SearchInputCommonSlots {
+interface SimpleScalarSearchInputSlots extends SearchInputCommonSlots {
 	/** Optional relation walk to a destination case type. `selfPath()`
 	 *  is structurally equivalent to absent and the builder omits the
 	 *  key in that case. */
 	readonly via?: RelationPath;
-	/** Optional explicit search mode. When absent, the wire layer
-	 *  picks the per-`type` default (text → exact, date-range → range,
-	 *  etc.). */
-	readonly mode?: SearchInputMode;
+	/** Optional explicit scalar search mode. */
+	readonly mode?: ScalarSearchInputMode;
+}
+
+interface SimpleDateRangeSearchInputSlots {
+	readonly via?: RelationPath;
+	/** The builder writes the sole valid stored mode when omitted. */
+	readonly mode?: Extract<SearchInputMode, { kind: "range" }>;
 }
 
 /**
@@ -1166,18 +1200,43 @@ function withSearchInputCommonSlots<T extends Record<string, unknown>>(
  * stays clean:
  *
  *   - `via === undefined` OR `via.kind === "self"` → omitted.
- *   - `mode === undefined` → omitted.
+ *   - scalar `mode === undefined` → omitted.
+ *   - date-range `mode === undefined` → the sole valid `{ kind: "range" }`.
  *   - `default === undefined` → omitted.
  */
 export function simpleSearchInputDef(
 	uuid: Uuid,
 	name: string,
 	label: string,
+	type: ScalarSearchInputType,
+	property: string,
+	slots?: SimpleScalarSearchInputSlots,
+): SimpleScalarSearchInputDef;
+export function simpleSearchInputDef(
+	uuid: Uuid,
+	name: string,
+	label: string,
+	type: "date-range",
+	property: string,
+	slots?: SimpleDateRangeSearchInputSlots,
+): SimpleDateRangeSearchInputDef;
+export function simpleSearchInputDef(
+	uuid: Uuid,
+	name: string,
+	label: string,
 	type: SearchInputType,
 	property: string,
-	slots: SimpleSearchInputSlots = {},
+	slots?: SimpleScalarSearchInputSlots | SimpleDateRangeSearchInputSlots,
+): SimpleSearchInputDef;
+export function simpleSearchInputDef(
+	uuid: Uuid,
+	name: string,
+	label: string,
+	type: SearchInputType,
+	property: string,
+	slots: SimpleScalarSearchInputSlots | SimpleDateRangeSearchInputSlots = {},
 ): SimpleSearchInputDef {
-	const out: SimpleSearchInputDef = {
+	const out = {
 		uuid,
 		kind: "simple",
 		name,
@@ -1185,10 +1244,17 @@ export function simpleSearchInputDef(
 		type,
 		property,
 	};
-	if (slots.default !== undefined) out.default = slots.default;
-	if (slots.via !== undefined && slots.via.kind !== "self") out.via = slots.via;
-	if (slots.mode !== undefined) out.mode = slots.mode;
-	return out;
+	const candidate: Record<string, unknown> = { ...out };
+	if ("default" in slots && slots.default !== undefined)
+		candidate.default = slots.default;
+	if (slots.via !== undefined && slots.via.kind !== "self")
+		candidate.via = slots.via;
+	if (type === "date-range") {
+		candidate.mode = slots.mode ?? rangeMode();
+	} else if (slots.mode !== undefined) {
+		candidate.mode = slots.mode;
+	}
+	return searchInputDefSchema.parse(candidate) as SimpleSearchInputDef;
 }
 
 /**
@@ -1201,14 +1267,39 @@ export function advancedSearchInputDef(
 	uuid: Uuid,
 	name: string,
 	label: string,
+	type: ScalarSearchInputType,
+	predicate: Predicate,
+	slots?: SearchInputCommonSlots,
+): AdvancedScalarSearchInputDef;
+export function advancedSearchInputDef(
+	uuid: Uuid,
+	name: string,
+	label: string,
+	type: "date-range",
+	predicate: Predicate,
+): AdvancedDateRangeSearchInputDef;
+export function advancedSearchInputDef(
+	uuid: Uuid,
+	name: string,
+	label: string,
+	type: SearchInputType,
+	predicate: Predicate,
+	slots?: SearchInputCommonSlots,
+): AdvancedSearchInputDef;
+export function advancedSearchInputDef(
+	uuid: Uuid,
+	name: string,
+	label: string,
 	type: SearchInputType,
 	predicate: Predicate,
 	slots: SearchInputCommonSlots = {},
 ): AdvancedSearchInputDef {
-	return withSearchInputCommonSlots(
-		{ uuid, kind: "advanced" as const, name, label, type, predicate },
-		slots,
-	);
+	return searchInputDefSchema.parse(
+		withSearchInputCommonSlots(
+			{ uuid, kind: "advanced" as const, name, label, type, predicate },
+			slots,
+		),
+	) as AdvancedSearchInputDef;
 }
 
 // ── Per-type / per-mode applicability ─────────────────────────────
@@ -1222,9 +1313,8 @@ export function advancedSearchInputDef(
 
 /**
  * Modes admitted by each `SearchInputType`. The wire layer's
- * default-mode contract selects the first entry of each tuple when
- * the slot is absent: text → exact, select → exact, date → exact,
- * date-range → range, barcode → exact.
+ * scalar default-mode contract selects the first entry when mode is
+ * absent. A stored date-range arm always carries its sole `range` mode.
  *
  * The order also drives the editor's picker — the first entry is
  * the default; subsequent entries surface as alternatives the
@@ -1233,15 +1323,7 @@ export function advancedSearchInputDef(
 export const APPLICABLE_SEARCH_MODES: Readonly<
 	Record<SearchInputType, readonly SearchInputMode["kind"][]>
 > = {
-	text: [
-		"exact",
-		"fuzzy",
-		"starts-with",
-		"phonetic",
-		"fuzzy-date",
-		"multi-select-contains",
-	],
-	select: ["exact", "multi-select-contains"],
+	text: ["exact", "fuzzy", "starts-with", "phonetic", "fuzzy-date"],
 	date: ["exact"],
 	"date-range": ["range"],
 	barcode: ["exact"],
@@ -1295,13 +1377,8 @@ export const SEARCH_MODE_PROPERTY_TYPES: Readonly<
 	// text. Mirrors the type-checker's `MATCH_PROPERTY_TYPES_FUZZY_DATE`
 	// allow-list at `lib/domain/predicate/typeChecker.ts`.
 	"fuzzy-date": ["text", "single_select", "multi_select", "date", "datetime"],
-	// `range` requires totally-ordered types — numeric or temporal.
+	// `range` is the date-range widget's paired calendar match.
 	range: ["int", "decimal", "date", "datetime", "time"],
-	// `multi-select-contains` admits `multi_select` (the canonical
-	// JSONB membership match) AND `single_select` — the SQL emitter
-	// normalizes a single-select value to a singleton array so the
-	// containment operator's semantics carry over.
-	"multi-select-contains": ["multi_select", "single_select"],
 };
 
 /**
@@ -1312,7 +1389,6 @@ export const SEARCH_MODE_PROPERTY_TYPES: Readonly<
  *
  *   - `text` — admits every type; the input always serializes as a
  *     string and the wire layer handles the cast at evaluation.
- *   - `select` — admits select-typed properties (single + multi).
  *   - `date` / `date-range` — admit calendar-shaped properties
  *     (`date` / `datetime`). `time` is excluded — neither widget
  *     surfaces a time-only picker.
@@ -1327,7 +1403,6 @@ export const SEARCH_INPUT_TYPE_PROPERTY_TYPES: Readonly<
 	Record<SearchInputType, readonly CasePropertyDataType[] | undefined>
 > = {
 	text: undefined,
-	select: ["single_select", "multi_select"],
 	date: ["date", "datetime"],
 	"date-range": ["date", "datetime"],
 	barcode: ["text"],
@@ -1341,19 +1416,12 @@ export const SEARCH_INPUT_TYPE_PROPERTY_TYPES: Readonly<
  * shape.
  *
  *   - `text` → `"text"` — text widget admits any text-typed seed.
- *   - `select` → `"text"` — `typesCompatible(text, single_select)`
- *     and `typesCompatible(text, multi_select)` both hold per the
- *     predicate AST type checker, so a `text`-typed seed coerces
- *     cleanly into a select widget at runtime.
  *   - `date` → `"date"` — calendar widget expects a date-shaped
  *     seed. `typesCompatible` does NOT widen `datetime` to `date`,
  *     so authors needing a datetime seed for a date widget must
  *     coerce explicitly via `dateCoerce(...)`.
  * Date-range is intentionally absent. CommCare's daterange answer is one
- * paired value, while the domain's historical `default` slot holds only one
- * scalar expression. Treating that scalar as From-only made Preview diverge
- * from Core/HQ, so authoring and emission reject the combination until the
- * domain grows a real `{ from, to }` default shape.
+ * paired value, while this contract has no paired-default slot.
  *   - `barcode` → `"text"` — barcode-scanned values surface as
  *     plain strings.
  *
@@ -1365,7 +1433,6 @@ export const SEARCH_INPUT_TYPE_DEFAULT_EXPECTED_TYPES: Readonly<
 	Record<Exclude<SearchInputType, "date-range">, CasePropertyDataType>
 > = {
 	text: "text",
-	select: "text",
 	date: "date",
 	barcode: "text",
 };
@@ -1379,7 +1446,7 @@ export const SEARCH_INPUT_TYPE_DEFAULT_EXPECTED_TYPES: Readonly<
  * may search and what may seed it, while this table describes the actual wire
  * value downstream predicates consume.
  *
- *   - Text, select, and barcode prompts bind strings.
+ *   - Text and barcode prompts bind strings.
  *   - A date prompt binds one calendar date, even when its simple arm targets
  *     a datetime property.
  *   - A date-range prompt binds CCHQ's encoded
@@ -1394,24 +1461,15 @@ export const SEARCH_INPUT_RUNTIME_VALUE_TYPES: Readonly<
 	Record<SearchInputType, CasePropertyDataType>
 > = {
 	text: "text",
-	select: "text",
 	date: "date",
 	"date-range": "text",
 	barcode: "text",
 };
 
 /**
- * The `SearchInputMode["kind"]` arms that can drive a per-input
- * default — i.e. the modes the runtime-bindings / wire-emission
- * pipelines can pick without additional configuration. `"multi-
- * select-contains"` requires a `quantifier` slot that no default-
- * mode table can supply (and no widget defaults to it anyway), so
- * the type excludes it.
+ * The `SearchInputMode["kind"]` arms that can drive a per-input default.
  */
-export type DefaultableModeKind = Exclude<
-	SearchInputMode["kind"],
-	"multi-select-contains"
->;
+export type DefaultableModeKind = SearchInputMode["kind"];
 
 /**
  * Per-`SearchInputType` default search-mode kind. Single source of
@@ -1430,7 +1488,6 @@ export const DEFAULT_SEARCH_MODE_KIND: Readonly<
 	Record<SearchInputType, DefaultableModeKind>
 > = {
 	text: "exact",
-	select: "exact",
 	date: "exact",
 	"date-range": "range",
 	barcode: "exact",
@@ -1445,10 +1502,8 @@ export function effectiveSimpleSearchModeKind(
 
 /**
  * Whether a simple input's widget can collect the value its mode consumes.
- * Range is one indivisible two-date answer on CommCare, so it requires the
- * date-range widget; every single-value mode requires a single-value widget.
- * The domain remains tolerant of legacy mismatches so they can load, while
- * validators, authoring surfaces, Preview, and emitters share this verdict.
+ * The final schema makes incoherence impossible; this remains a useful
+ * type-narrowing assertion for consumers.
  */
 export function simpleSearchInputHasCoherentRangeWidget(
 	input: SimpleSearchInputDef,
@@ -1566,7 +1621,7 @@ export const caseListConfigSchema = z
 		 * slot is a no-op there. The bytes are collected by the
 		 * `mediaRefs.ts` walk under the same `caseListOnly` gate.
 		 */
-		icon: assetIdSchema.optional(),
+		icon: moduleIconRefSchema.optional(),
 		/**
 		 * Audio prompt for the case-list link. Same `caseListOnly`-only
 		 * emission shape as `icon` above (local command `<display>` +
@@ -1574,9 +1629,54 @@ export const caseListConfigSchema = z
 		 * audio only — there is no video slot (unlike a question
 		 * message, which can carry all three).
 		 */
-		audioLabel: assetIdSchema.optional(),
+		audioLabel: mediaAssetIdSchema.optional(),
 	})
-	.strict();
+	.strict()
+	.superRefine((config, ctx) => {
+		const columnUuids = config.columns.map((column) => column.uuid);
+		const columnSet = new Set(columnUuids);
+		if (columnSet.size !== columnUuids.length) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["columns"],
+				message: "Case-list column UUIDs must be unique.",
+			});
+		}
+		const checkOrder = (
+			order: readonly Uuid[],
+			key: "listColumnOrder" | "detailColumnOrder",
+		): void => {
+			const seen = new Set<Uuid>();
+			for (const [index, uuid] of order.entries()) {
+				if (seen.has(uuid)) {
+					ctx.addIssue({
+						code: "custom",
+						path: [key, index],
+						message: `${key} contains a duplicate column UUID.`,
+					});
+				}
+				seen.add(uuid);
+				if (!columnSet.has(uuid)) {
+					ctx.addIssue({
+						code: "custom",
+						path: [key, index],
+						message: `${key} names a UUID that is not a column in this case list.`,
+					});
+				}
+			}
+			for (const uuid of columnUuids) {
+				if (!seen.has(uuid)) {
+					ctx.addIssue({
+						code: "custom",
+						path: [key],
+						message: `${key} must contain every case-list column exactly once.`,
+					});
+				}
+			}
+		};
+		checkOrder(config.listColumnOrder, "listColumnOrder");
+		checkOrder(config.detailColumnOrder, "detailColumnOrder");
+	});
 export type CaseListConfig = z.infer<typeof caseListConfigSchema>;
 
 /**
@@ -1605,9 +1705,9 @@ export function emptyCaseListConfig(): CaseListConfig {
  * the wire emitters, the authoring canvases, the running preview — goes through
  * here so no two of them can order the same screen differently.
  *
- * A column named by the sequence but absent from the set is skipped rather than
- * throwing: the two disagreeing is a state `assembleBlueprint` refuses to
- * persist, so tolerating it here would only hide it.
+ * The final schema proves this permutation. A mismatch here means a caller
+ * bypassed the domain boundary, so the helper asserts instead of silently
+ * dropping, appending, or reordering anything.
  */
 export function orderedColumns(
 	config: CaseListConfig,
@@ -1616,17 +1716,29 @@ export function orderedColumns(
 	const sequence =
 		surface === "list" ? config.listColumnOrder : config.detailColumnOrder;
 	const byUuid = new Map(config.columns.map((column) => [column.uuid, column]));
-	const out: Column[] = [];
-	for (const uuid of sequence) {
-		const column = byUuid.get(uuid);
-		if (column !== undefined) out.push(column);
+	if (
+		byUuid.size !== config.columns.length ||
+		sequence.length !== config.columns.length ||
+		new Set(sequence).size !== sequence.length
+	) {
+		throw new Error(
+			`Invalid ${surface} case-list column permutation reached orderedColumns.`,
+		);
 	}
-	return out;
+	return sequence.map((uuid) => {
+		const column = byUuid.get(uuid);
+		if (column === undefined) {
+			throw new Error(
+				`Invalid ${surface} case-list column permutation reached orderedColumns.`,
+			);
+		}
+		return column;
+	});
 }
 
 // ── CaseSearchConfig ─────────────────────────────────────────────
 //
-// Search-action configuration plus one legacy owner-availability slot:
+// Search-action configuration plus one owner-availability slot:
 //
 //   - The display cluster — the search-screen labels (title /
 //     subtitle / button labels / empty state) and the optional
@@ -1635,8 +1747,8 @@ export function orderedColumns(
 //   - `excludedOwnerIds` — a rare availability rule that evaluates to a
 //     space-separated list of owner ids. It constrains ordinary Results,
 //     Preview, direct suite case-loading, and remote Search alike; its storage
-//     remains here only because CCHQ persists the corresponding legacy wire
-//     expression on CaseSearch.
+//     remains here because CCHQ persists the corresponding wire expression on
+//     CaseSearch.
 //
 /** Friendly Nova defaults shared by authoring, flipbook, and both wire paths. */
 export const DEFAULT_CASE_SEARCH_TITLE = "Search";
@@ -1649,26 +1761,15 @@ export const DEFAULT_CASE_SEARCH_BUTTON_LABEL = "Search";
 // they live on `caseListConfig` as the single source for both
 // screens.
 
-export const caseSearchConfigSchema = z
+export const ordinaryCaseSearchConfigSchema = z
 	.object({
-		/**
-		 * Internal provenance for an owner-availability rule that was authored
-		 * without authoring a Search action. Only `false` is persisted: ordinary
-		 * explicit search keeps the long-standing `{}` marker, while absence still
-		 * means there is no case-search configuration at all. The flag never reaches
-		 * CommCare wire output and is cleared as soon as an input or Search-action
-		 * setting is authored.
-		 */
-		searchActionEnabled: z.literal(false).optional(),
-
-		// Legacy owner-availability slot.
+		// Owner-availability slot.
 		// `excludedOwnerIds` evaluates ONCE, before a case is selected, to a
 		// space-separated list of owner ids whose cases are excluded from every
 		// Results path. It may use literals, session/current-user values, Search
 		// answers, and pure calculations over those values. It cannot read a case
 		// property or relationship because no case row exists in this global
-		// evaluation context. The schema stays tolerant so imported invalid docs
-		// can load and be repaired; `excludedOwnerIdsTypeCheck` gates the contract.
+		// evaluation context. The document-aware gate checks that semantic scope.
 		// Rare in practice; the builder owns it beside Cases available.
 		//
 		// Wire-name continuity: at suite-XML emission time the slot
@@ -1700,20 +1801,45 @@ export const caseSearchConfigSchema = z
 		searchButtonDisplayCondition: predicateSchema.optional(),
 	})
 	.strict();
+
+export const ownerOnlyCaseSearchConfigSchema = z
+	.object({
+		/**
+		 * Private provenance for assigned-case availability without a Search
+		 * action. This is an exact stored arm: it requires the owner expression
+		 * and structurally forbids all ordinary Search screen/action settings.
+		 */
+		searchActionEnabled: z.literal(false),
+		excludedOwnerIds: valueExpressionSchema,
+	})
+	.strict();
+
+export const caseSearchConfigSchema = z.union([
+	ordinaryCaseSearchConfigSchema,
+	ownerOnlyCaseSearchConfigSchema,
+]);
+export type OrdinaryCaseSearchConfig = z.infer<
+	typeof ordinaryCaseSearchConfigSchema
+>;
+export type OwnerOnlyCaseSearchConfig = z.infer<
+	typeof ownerOnlyCaseSearchConfigSchema
+>;
 export type CaseSearchConfig = z.infer<typeof caseSearchConfigSchema>;
 
 /** Whether the optional search-settings bag contains a real authored
- * override. Explicit `undefined` keys can survive legacy/editor objects, so
+ * override. Explicit `undefined` keys can survive editor objects, so
  * `Object.keys(config).length` is not a semantic emptiness check. */
 export function caseSearchConfigHasAuthoredSettings(
 	config: CaseSearchConfig | undefined,
 ): boolean {
+	if (config === undefined) return false;
+	if (isOwnerOnlyCaseSearchConfig(config)) return true;
 	return (
-		config?.excludedOwnerIds !== undefined ||
-		config?.searchScreenTitle !== undefined ||
-		config?.searchScreenSubtitle !== undefined ||
-		config?.searchButtonLabel !== undefined ||
-		config?.searchButtonDisplayCondition !== undefined
+		config.excludedOwnerIds !== undefined ||
+		config.searchScreenTitle !== undefined ||
+		config.searchScreenSubtitle !== undefined ||
+		config.searchButtonLabel !== undefined ||
+		config.searchButtonDisplayCondition !== undefined
 	);
 }
 
@@ -1725,42 +1851,16 @@ export function caseSearchConfigHasAuthoredSettings(
  */
 export function isOwnerOnlyCaseSearchConfig(
 	config: CaseSearchConfig | undefined,
-): boolean {
-	return config?.searchActionEnabled === false;
+): config is OwnerOnlyCaseSearchConfig {
+	return config !== undefined && "searchActionEnabled" in config;
 }
 
-/** Canonicalize a config that carries Nova's explicit private provenance. */
-export function normalizeOwnerOnlyCaseSearchConfig(
-	config: CaseSearchConfig,
-): CaseSearchConfig {
-	if (!isOwnerOnlyCaseSearchConfig(config)) return config;
-	const {
-		searchButtonDisplayCondition: _disabledActionCondition,
-		searchActionEnabled: _currentIntent,
-		...ownerOnly
-	} = config;
-	return { ...ownerOnly, searchActionEnabled: false };
-}
-
-/**
- * Behavior-safe projection understood by a pre-deploy strict schema.
- *
- * This shape is deliberately NOT provenance. An author can legitimately pair
- * an assigned-case rule with a Never action condition, so callers may use this
- * predicate only to determine zero-input runtime behavior. They must retain
- * the raw condition and may not normalize it into Nova's private false bit.
- */
-function isZeroInputOwnerOnlyCompatibilityProjection(
-	config: CaseSearchConfig,
-): boolean {
-	return (
-		config.searchActionEnabled === undefined &&
-		config.excludedOwnerIds !== undefined &&
-		config.searchButtonDisplayCondition?.kind === "match-none" &&
-		config.searchScreenTitle === undefined &&
-		config.searchScreenSubtitle === undefined &&
-		config.searchButtonLabel === undefined
-	);
+/** The ordinary Search-screen/action arm, excluding absence and the private
+ * owner-only availability arm. */
+export function isOrdinaryCaseSearchConfig(
+	config: CaseSearchConfig | undefined,
+): config is OrdinaryCaseSearchConfig {
+	return config !== undefined && !isOwnerOnlyCaseSearchConfig(config);
 }
 
 /**
@@ -1777,10 +1877,10 @@ export function caseSearchConfigAfterFinalInputRemoval(
 	hasCasesAvailableCondition: boolean,
 ): CaseSearchConfig | undefined {
 	if (config === undefined) return undefined;
+	if (isOwnerOnlyCaseSearchConfig(config)) return config;
 	const {
 		searchScreenTitle: _title,
 		searchScreenSubtitle: _subtitle,
-		searchActionEnabled: _previousIntent,
 		...action
 	} = config;
 	const hasSearchActionSetting =
@@ -1811,14 +1911,14 @@ export const moduleSchema = z
 		caseListConfig: caseListConfigSchema.optional(),
 		caseSearchConfig: caseSearchConfigSchema.optional(),
 		/** Image shown on the module's home-screen tile. */
-		icon: assetIdSchema.optional(),
+		icon: moduleIconRefSchema.optional(),
 		/**
 		 * Audio version of the module's home-screen label, played by
 		 * audio-prompt mode — an accessibility affordance for
 		 * low-literacy field workers. Menu affordances carry image +
 		 * audio only; there is no video slot here.
 		 */
-		audioLabel: assetIdSchema.optional(),
+		audioLabel: mediaAssetIdSchema.optional(),
 	})
 	.strict();
 export type Module = z.infer<typeof moduleSchema>;
@@ -1829,40 +1929,21 @@ export type Module = z.infer<typeof moduleSchema>;
  * A stored `caseSearchConfig` normally enables search, including an intentional
  * zero-input action. The internal false marker is the one exception: it records
  * that the shared bag exists only for assigned-case availability. Search inputs
- * also make search unambiguous, so legacy documents that predate the explicit
- * config marker receive Nova's friendly defaults instead of showing search in
- * the builder while silently omitting it from preview/export. A case-list
- * filter by itself does NOT turn on search; it remains the always-on "Cases
- * available" rule.
+ * also make search unambiguous, so a module with inputs and no separate config
+ * receives Nova's friendly defaults. A case-list filter by itself does NOT turn
+ * on search; it remains the always-on "Cases available" rule.
  */
 export function effectiveCaseSearchConfig(
 	module: Pick<Module, "caseListConfig" | "caseSearchConfig">,
-): CaseSearchConfig | undefined {
+): OrdinaryCaseSearchConfig | undefined {
 	const hasInputs = (module.caseListConfig?.searchInputs.length ?? 0) > 0;
-	const storedRaw = module.caseSearchConfig;
-	const stored =
-		storedRaw === undefined
-			? undefined
-			: normalizeOwnerOnlyCaseSearchConfig(storedRaw);
+	const stored = module.caseSearchConfig;
 	if (stored === undefined) return hasInputs ? {} : undefined;
-	// During a rolling deploy, an older strict-schema receiver projects an
-	// owner-only edit as an ordinary Never condition. With no prompts this is
-	// behavior-identical to no Search action, but the raw condition remains
-	// untouched because it may be legitimate authoring. Once an input exists,
-	// the authored/projection ambiguity resolves conservatively in favor of
-	// preserving the condition rather than silently enabling an action the
-	// author may explicitly have hidden.
-	if (!hasInputs && isZeroInputOwnerOnlyCompatibilityProjection(stored)) {
-		return undefined;
-	}
-	if (stored.searchActionEnabled !== false) return stored;
+	if (!isOwnerOnlyCaseSearchConfig(stored)) return stored;
 	if (!hasInputs) return undefined;
-
-	// Inputs are an unambiguous Search surface even for a malformed/imported
-	// document whose internal provenance flag was not cleared by its writer.
-	// Strip the Nova-only flag at this boundary so no wire consumer can emit it.
-	const { searchActionEnabled: _disabled, ...effective } = stored;
-	return effective;
+	throw new Error(
+		"Owner-only case-search provenance reached runtime with Search inputs.",
+	);
 }
 
 export type ModuleKindMetadata = {

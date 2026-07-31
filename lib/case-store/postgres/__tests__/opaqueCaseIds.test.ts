@@ -15,8 +15,8 @@
 import { type Kysely, sql } from "kysely";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { CaseType } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import { runCaseStoreMigrations } from "../../migrate";
-import { retenantAppCasesOn } from "../../retenant";
 import { HeuristicCaseGenerator } from "../../sample/heuristic";
 import { setupPerTestDatabase } from "../../sql/__tests__/perTestDatabase";
 import type { Database } from "../../sql/database";
@@ -24,7 +24,6 @@ import { PostgresCaseStore } from "../store";
 
 const APP_ID = "app-opaque-ids";
 const PROJECT_A = "project-a";
-const PROJECT_B = "project-b";
 
 /** An authored id exercising every URL-significant shape at once. */
 const AUTHORED_ID =
@@ -38,6 +37,10 @@ const dbHandle = setupPerTestDatabase({
 
 beforeEach(async () => {
 	await runCaseStoreMigrations(dbHandle.db);
+	await sql`
+		INSERT INTO apps (id, owner, project_id, app_name, app_name_lower)
+		VALUES (${APP_ID}, 'opaque-actor', ${PROJECT_A}, 'Opaque ids', 'opaque ids')
+	`.execute(dbHandle.db);
 });
 
 function makeStore(projectId: string): PostgresCaseStore {
@@ -52,7 +55,7 @@ function makeStore(projectId: string): PostgresCaseStore {
 
 const PATIENT: CaseType = {
 	name: "patient",
-	properties: [{ name: "name", label: "Name", data_type: "text" }],
+	properties: [{ name: "name", label: proseText("Name"), data_type: "text" }],
 };
 const PATIENT_SCHEMAS: ReadonlyMap<string, CaseType> = new Map([
 	[PATIENT.name, PATIENT],
@@ -132,7 +135,7 @@ describe("opaque case ids — storage end state", () => {
 	});
 });
 
-describe("opaque case ids — CRUD, relations, parking, retenancy", () => {
+describe("opaque case ids — CRUD, relations, and parking", () => {
 	it("carries an authored URL-significant id through create, read, update, and close", async () => {
 		const store = makeStore(PROJECT_A);
 		await seedPatientSchema(store);
@@ -245,30 +248,6 @@ describe("opaque case ids — CRUD, relations, parking, retenancy", () => {
 			SELECT count(*) AS n FROM public.parked_case_values
 		`.execute(dbHandle.db);
 		expect(Number(cascaded.rows[0]?.n)).toBe(0);
-	});
-
-	it("re-tenants authored-id rows", async () => {
-		const store = makeStore(PROJECT_A);
-		await seedPatientSchema(store);
-		await store.insert({
-			appId: APP_ID,
-			row: {
-				case_id: AUTHORED_ID,
-				case_type: "patient",
-				case_name: "Mover",
-				status: "open",
-				properties: { name: "Mover" },
-			},
-		});
-		const moved = await retenantAppCasesOn(
-			dbHandle.db as unknown as Kysely<Database>,
-			{ appId: APP_ID, toProjectId: PROJECT_B },
-		);
-		expect(moved.moved).toBe(1);
-		const row = await sql<{ project_id: string }>`
-			SELECT project_id FROM public.cases WHERE case_id = ${AUTHORED_ID}
-		`.execute(dbHandle.db);
-		expect(row.rows[0]?.project_id).toBe(PROJECT_B);
 	});
 });
 

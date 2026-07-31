@@ -1,14 +1,13 @@
-import { reconciledOptions } from "@/lib/doc/optionIdentity";
 /**
  * SA tool: `editField` — update properties on an existing field.
  *
  * The most complex of the field-edit tools: a single call can carry a
- * kind conversion, an id rename, AND a scalar-property patch. Each of
- * those three concerns produces its own mutation batch with its own
- * stage tag (`convert:M-F`, `rename:M-F`, `edit:M-F`) so the log UI and
- * replay derivations see each lifecycle step distinctly. Both the SA
- * chat factory and the MCP adapter call this through the shared
- * `ToolExecutionContext` interface.
+ * kind conversion, an id change, AND a scalar-property patch. Kind
+ * conversion remains its dedicated mutation; every field property,
+ * including `id` and `caseWrite`, lands in one post-conversion
+ * `updateField` patch so the reducer sees the complete semantic edit
+ * atomically. Both the SA chat factory and the MCP adapter call this
+ * through the shared `ToolExecutionContext` interface.
  *
  * The stages are BUILT sequentially against local candidate docs (a
  * later batch reads the previous batch's result — e.g. a scalar patch
@@ -29,7 +28,7 @@ import { reconciledOptions } from "@/lib/doc/optionIdentity";
  *      before ANY stage builds) → `{ error }`, nothing persisted.
  *   3. Illegal kind conversion (target not in the source kind's
  *      `convertTargets`), or a conversion into a select kind without
- *      the `options` the destination schema requires (they must ride
+ *      the `optionsSource` the destination schema requires (it must ride
  *      the same call — the seed travels on the `convertField` mutation
  *      itself) → `{ error }`, no mutations.
  *   4. A failable conversion (`plan.dataLossRisk`) whose counted
@@ -47,7 +46,6 @@ import { reconciledOptions } from "@/lib/doc/optionIdentity";
  */
 
 import { z } from "zod";
-import { parseXPathForField } from "@/lib/doc/expressionText";
 import { renameFieldIdVerdict } from "@/lib/doc/identifierVerdicts";
 import { planKindConversion } from "@/lib/doc/kindConversionCascade";
 import { findContainingForm } from "@/lib/doc/mutations/helpers";
@@ -59,18 +57,17 @@ import type {
 	Field,
 	FieldKind,
 	FieldPatchFor,
-	SelectOption,
+	SelectOptionsSource,
 	Uuid,
-	XPathExpression,
 } from "@/lib/domain";
-import { convertNeedsOptionSeed, getConvertibleTypes } from "@/lib/domain";
 import {
-	FIELD_REF_HINT,
-	renameFieldMutations,
-	resolveFieldTarget,
-	updateFieldMutations,
-} from "../blueprintHelpers";
-import { unescapeXPath } from "../contentProcessing";
+	convertNeedsOptionSeed,
+	findAuthoredBlueprintIdentity,
+	getConvertibleTypes,
+} from "@/lib/domain";
+import { projectProseTemplate } from "@/lib/domain/prose";
+import { updateFieldMutations } from "../blueprintHelpers";
+import { prepareToolOptionsSource } from "../contentProcessing";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import { editFieldUpdatesSchema } from "../toolSchemas";
 import {
@@ -80,16 +77,18 @@ import {
 	type StagedMutationBatch,
 	toToolErrorResult,
 } from "./common";
+import {
+	fieldAddressSchema,
+	resolveFieldAddress,
+} from "./shared/entityAddresses";
+import type { CreatedOptionIdentity } from "./shared/fieldAssembly";
 import type {
 	MutationSuccess,
 	ToolCallSummary,
 } from "./shared/toolCallSummary";
 
-export const editFieldInputSchema = z
-	.object({
-		moduleIndex: z.number().describe("0-based module index"),
-		formIndex: z.number().describe("0-based form index"),
-		fieldId: z.string().describe(`Field to update — ${FIELD_REF_HINT}`),
+export const editFieldInputSchema = fieldAddressSchema
+	.extend({
 		updates: editFieldUpdatesSchema,
 		confirmConversion: z
 			.boolean()
@@ -108,7 +107,7 @@ export type EditFieldInput = z.infer<typeof editFieldInputSchema>;
  *  the counts state what the conversion would set aside, and the same call
  *  with `confirmConversion: true` proceeds. */
 export type EditFieldResult =
-	| MutationSuccess
+	| (MutationSuccess & { options?: CreatedOptionIdentity[] })
 	| { error: string }
 	| {
 			needsConfirmation: {
@@ -129,10 +128,11 @@ export type EditFieldResult =
 	  };
 
 /**
- * Coerce the scalar-patch portion of an `editField` call into the
- * reducer's field-patch shape. `id` and `kind` changes land via
- * dedicated mutations (`renameField`, `convertField`) earlier in the
- * tool body, so neither appears on this shape.
+ * Coerce the property-patch portion of an `editField` call into the
+ * reducer's field-patch shape. `kind` alone lands via its dedicated
+ * `convertField` mutation. `id` and `caseWrite` remain independent slots:
+ * changing the form-local id never renames a case property, while setting or
+ * clearing `caseWrite` retargets only this writer.
  *
  * Every clearable key in the edit schema is `.nullable().optional()`:
  *   - absent  → leave the current value alone (key omitted from the
@@ -143,76 +143,46 @@ export type EditFieldResult =
  *     round-trips through the event log.
  *   - a value → set the property (key present with the value)
  */
-/** The edit-patch shape minus identity (`id`/`kind` land via dedicated
- *  mutations earlier in the tool body, so neither appears here). */
-type EditUpdatesPatch = Omit<
-	z.infer<typeof editFieldUpdatesSchema>,
-	"id" | "kind"
->;
+/** The edit-patch shape minus only the conversion discriminator. */
+type EditUpdatesPatch = Omit<z.infer<typeof editFieldUpdatesSchema>, "kind">;
 
 function editPatchToFieldPatch(
 	updates: EditUpdatesPatch,
-	parseExpr: (text: string) => XPathExpression,
-	existingOptions: readonly SelectOption[] | undefined,
+	preparedOptionsSource: SelectOptionsSource | undefined,
 ): FieldPatchFor<FieldKind> {
 	const patch: Record<string, unknown> = {};
-	// Plain scalars: SA passes a new value, `null` to clear, or omits to
-	// leave unchanged. A `null` is preserved as `null` (the reducer deletes
-	// the key on it). The XPath-valued scalars get HTML-entity unescape
-	// on the way through — same treatment `applyDefaults` applies on the add
-	// path, so the same SA payload produces the same stored entity through
-	// both tools — and the AST-stored slots (`relevant`, `calculate`,
-	// `default_value`) additionally parse to their stored expression form.
-	const astScalarKeys = new Set([
-		"relevant",
-		"calculate",
-		"default_value",
-		"required",
-	]);
+	// Scalar SA/MCP values already use stored structures. A value sets the
+	// property, `null` clears it, and omission leaves it unchanged. The
+	// projected options source is the one exception, supplied separately after
+	// its identity bridge.
 	const scalarKeys = [
+		"id",
 		"label",
 		"hint",
-		// `help` is plain text (tap-to-expand longer-form guidance), so
-		// it rides the plain-scalar path — no XPath unescape, unlike
-		// `relevant` / `calculate` / `default_value` / `required`. The
-		// media companion `help_media` is set through the dedicated
-		// media tools, never via this text patch.
 		"help",
 		"required",
 		"relevant",
 		"calculate",
 		"default_value",
-		"case_property_on",
+		"caseWrite",
 	] as const;
 	for (const key of scalarKeys) {
 		const value = updates[key];
 		if (value === undefined) continue;
-		if (typeof value === "string" && astScalarKeys.has(key)) {
-			patch[key] = parseExpr(unescapeXPath(value));
-		} else {
-			// A string sets the property; `null` clears it (preserved as
-			// `null` so the clear survives serialization).
-			patch[key] = value;
-		}
+		patch[key] = value;
 	}
-	if (updates.options !== undefined) {
-		// The SA's wholesale replacement is uuid/order-less (identity is off its
-		// wire — `saOptionSchema` omits both). Reconcile against the field's
-		// CURRENT options so surviving values keep their uuid and every option
-		// lands keyed: a uuid-less option committed mid-session is INVISIBLE to
-		// the per-uuid option diff (and `options` sits in the generic-patch
-		// skip-set), so a collaborator's next edit to it would silently never
-		// persist until a reload's backfill. A `null` passes through verbatim
-		// (a clear — on a kind that requires options, the commit gate rejects).
-		patch.options =
-			updates.options === null
-				? null
-				: reconciledOptions(updates.options, existingOptions);
+	if (updates.optionsSource !== undefined) {
+		if (preparedOptionsSource === undefined) {
+			throw new Error("Prepared select-source identity projection is missing.");
+		}
+		// Source replacement is atomic. The one boundary bridge already mapped
+		// every `optionUuid` creation slot before collision/admission.
+		patch.optionsSource = preparedOptionsSource;
 	}
 	// Nested `validate: { expr, msg? }` config. SA passes:
 	//   - object → replace; flatten back to schema's `validate` +
 	//     `validate_msg` keys (msg unset → `null`, which clears it).
-	//     `expr` is XPath, so unescape on the way through.
+	//     both values are already canonical stored structures.
 	//   - null → clear both keys (emitted as `null`).
 	//   - undefined (omitted) → leave unchanged.
 	if (updates.validate !== undefined) {
@@ -220,45 +190,36 @@ function editPatchToFieldPatch(
 			patch.validate = null;
 			patch.validate_msg = null;
 		} else {
-			patch.validate = parseExpr(unescapeXPath(updates.validate.expr));
+			patch.validate = updates.validate.expr;
 			patch.validate_msg = updates.validate.msg ?? null;
 		}
 	}
 	// Nested mode-discriminated `repeat` config. The patch always
 	// overwrites all three flat repeat keys when `repeat` is present: the
 	// new mode determines which mode-specific field is valid, and the
-	// unused field gets `null` so the reducer clears it. `count` and
-	// `ids_query` are XPath expressions — empty-string is treated as "not
-	// set" (matching the add path's truthy-check) and unescaped when
-	// present.
+	// unused field gets `null` so the reducer clears it.
 	const repeat = updates.repeat;
 	if (repeat != null) {
 		patch.repeat_mode = repeat.mode;
-		patch.repeat_count =
-			repeat.mode === "count_bound" && repeat.count.length > 0
-				? parseExpr(unescapeXPath(repeat.count))
-				: null;
+		patch.repeat_count = repeat.mode === "count_bound" ? repeat.count : null;
 		patch.data_source =
-			repeat.mode === "query_bound" && repeat.ids_query.length > 0
-				? { ids_query: parseExpr(unescapeXPath(repeat.ids_query)) }
-				: null;
+			repeat.mode === "query_bound" ? { ids_query: repeat.ids_query } : null;
 	}
 	return patch as FieldPatchFor<FieldKind>;
 }
 
 export const editFieldTool = {
 	description:
-		"Update a field. Pass its current kind to edit in place, or a different kind to convert it. A value sets a property, null REMOVES it, leaving it out keeps it. An id rename propagates every reference automatically. A conversion that would set saved case values aside returns needsConfirmation instead of converting — relay it and re-call with confirmConversion: true once the user agrees.",
+		"Update a field. Pass its current kind to edit in place, or a different kind to convert it. A value sets a property, null REMOVES it, leaving it out keeps it. `id` is the form-local question name used in friendly XPath; changing it keeps UUID-backed references attached and never renames case data. Set `caseWrite` to a complete {caseType, property} pair to retarget this writer, or null to stop this field from writing a case property. A conversion that would set saved case values aside returns needsConfirmation instead of converting — relay it and re-call with confirmConversion: true once the user agrees.",
 	inputSchema: editFieldInputSchema,
 	async execute(
 		input: EditFieldInput,
 		ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<EditFieldResult>> {
-		const { moduleIndex, formIndex, fieldId, updates, confirmConversion } =
-			input;
+		const { updates, confirmConversion } = input;
 		try {
-			const resolved = resolveFieldTarget(doc, moduleIndex, formIndex, fieldId);
+			const resolved = resolveFieldAddress(doc, input);
 			if (!resolved.ok) {
 				return {
 					kind: "mutate" as const,
@@ -267,11 +228,45 @@ export const editFieldTool = {
 					result: { error: resolved.error },
 				};
 			}
-			// `fieldId` may have been the field's uuid — every rename
-			// comparison below is against the SEMANTIC id.
 			const currentId = resolved.field.id;
 
 			const { id: newId, kind: newKind, ...fieldUpdates } = updates;
+			const preparedOptionsSource =
+				fieldUpdates.optionsSource === undefined
+					? undefined
+					: prepareToolOptionsSource(fieldUpdates.optionsSource);
+
+			// Replacement options may preserve identities already owned by this
+			// field, but may not capture another authored object's UUID or repeat
+			// one UUID inside the source. Admission runs on the prepared stored
+			// shape, after the one optionUuid -> uuid bridge and before any
+			// conversion or mutation is planned.
+			if (preparedOptionsSource?.kind === "inline") {
+				const ownOptionUuids = new Set(
+					"optionsSource" in resolved.field &&
+						resolved.field.optionsSource.kind === "inline"
+						? resolved.field.optionsSource.options.map((option) => option.uuid)
+						: [],
+				);
+				const seen = new Set<Uuid>();
+				for (const option of preparedOptionsSource.options) {
+					const existing = findAuthoredBlueprintIdentity(doc, option.uuid);
+					if (
+						seen.has(option.uuid) ||
+						(existing !== undefined && !ownOptionUuids.has(option.uuid))
+					) {
+						return {
+							kind: "mutate" as const,
+							mutations: [],
+							newDoc: doc,
+							result: {
+								error: `Option UUID ${option.uuid} is duplicated in this call or already belongs to another authored object.`,
+							},
+						};
+					}
+					seen.add(option.uuid);
+				}
+			}
 
 			// Candidate doc walks forward through each stage's batch so the
 			// next stage builds against prior changes — locally only; nothing
@@ -288,12 +283,15 @@ export const editFieldTool = {
 			// (sibling scope and id format don't depend on the kind, so
 			// checking against the pre-convert doc is equivalent). The shared
 			// verdict (`lib/doc/identifierVerdicts.ts`) covers XML-name
-			// legality, the reserved `__nova_` prefix, the case-property
-			// length cap, and the peer-aware sibling-conflict scan — the same
-			// rules the UI commit guard applies, with the validator's
+			// legality, the reserved `__nova_` prefix, and the sibling-conflict
+			// scan — the same rules the UI commit guard applies, with the validator's
 			// DUPLICATE_FIELD_ID / INVALID_FIELD_ID rules as backstops.
 			if (newId && newId !== currentId) {
-				const verdict = renameFieldIdVerdict({ doc, fieldUuid, newId });
+				const verdict = renameFieldIdVerdict({
+					doc,
+					fieldUuid,
+					newId,
+				});
 				if (!verdict.ok) {
 					return {
 						kind: "mutate" as const,
@@ -342,34 +340,32 @@ export const editFieldTool = {
 
 				// Converting INTO a select kind from a kind that carries no
 				// options (text → single_select): the destination schema
-				// requires `.min(2)` options, and the only way they can exist
+				// requires a complete source arm, and the only way it can exist
 				// on the converted field is riding the convertField mutation
 				// itself — a post-convert `updateField { options }` can't
 				// help, because the convert would already have no-opped. So
-				// the call's `options` are CONSUMED into the convert (minted
+				// the call's `optionsSource` is CONSUMED into the convert
 				// here, at the batch-building layer) and dropped from the
 				// later scalar-patch stage. Kinds that already carry options
 				// (single ↔ multi) keep the existing behavior: options
-				// transfer verbatim in the reducer, and a same-call `options`
+				// transfer verbatim in the reducer, and a same-call `optionsSource`
 				// patch reconciles uuid identity in the patch stage.
-				let mintOptions: (() => SelectOption[]) | undefined;
+				let selectSource: SelectOptionsSource | undefined;
 				if (convertNeedsOptionSeed(resolved.field, newKind)) {
-					const seedInput = fieldUpdates.options;
-					if (!seedInput || seedInput.length < 2) {
+					if (!preparedOptionsSource) {
 						return {
 							kind: "mutate" as const,
 							mutations: [],
 							newDoc: doc,
 							result: {
-								error: `Converting "${currentId}" from ${fromKind} to ${newKind} needs the option list in the same call — pass \`options\` with at least 2 entries alongside kind="${newKind}".`,
+								error: `Converting "${currentId}" from ${fromKind} to ${newKind} needs a complete choice source in the same call — pass \`optionsSource\` alongside kind="${newKind}".`,
 							},
 						};
 					}
-					const seed = seedInput;
-					mintOptions = () => reconciledOptions(seed, undefined);
+					selectSource = preparedOptionsSource;
 					// Consumed by the convert — the patch stage must not apply
 					// it a second time against the already-seeded options.
-					delete fieldUpdates.options;
+					delete fieldUpdates.optionsSource;
 				}
 
 				// The property-centric plan: a case-bound string-scalar
@@ -377,21 +373,20 @@ export const editFieldTool = {
 				// the same batch and re-declares a stale declared data_type —
 				// one field at a time can never cross the agreement gate. The
 				// plan must see the binding as THIS CALL leaves it: a
-				// same-call `case_property_on` change (retarget or null-clear)
+				// same-call `caseWrite` change (retarget or null-clear)
 				// must not cascade a binding the field is leaving.
-				const nextBinding = fieldUpdates.case_property_on;
-				const planField =
-					nextBinding === undefined
-						? resolved.field
-						: ({
-								...resolved.field,
-								case_property_on: nextBinding ?? undefined,
-							} as Field);
+				const changesCaseWrite = Object.hasOwn(fieldUpdates, "caseWrite");
+				const planField = changesCaseWrite
+					? ({
+							...resolved.field,
+							caseWrite: fieldUpdates.caseWrite ?? undefined,
+						} as Field)
+					: resolved.field;
 				const plan = planKindConversion({
 					doc: workingDoc,
 					field: planField,
 					toKind: newKind,
-					...(mintOptions && { mintOptions }),
+					...(selectSource && { optionsSource: selectSource }),
 				});
 				if (!plan.ok) {
 					const blockerMessage =
@@ -468,10 +463,9 @@ export const editFieldTool = {
 							.map((sample) => JSON.stringify(sample))
 							.join(", ");
 						const fieldLabel =
-							"label" in resolved.field &&
-							typeof resolved.field.label === "string" &&
-							resolved.field.label.length > 0
-								? resolved.field.label
+							"label" in resolved.field && resolved.field.label
+								? projectProseTemplate(resolved.field.label, doc).text ||
+									currentId
 								: currentId;
 						return {
 							kind: "mutate" as const,
@@ -493,8 +487,7 @@ export const editFieldTool = {
 									`Tell the user what would happen; if they agree, repeat this call with confirmConversion: true.`,
 								summary: {
 									location:
-										doc.forms[resolved.formUuid]?.name ??
-										`m${moduleIndex}-f${formIndex}`,
+										doc.forms[resolved.formUuid]?.name ?? resolved.formUuid,
 									subject: fieldLabel,
 									awaitingConsent: true,
 								} satisfies ToolCallSummary,
@@ -505,8 +498,7 @@ export const editFieldTool = {
 
 				stages.push({
 					mutations: convertMuts,
-					doc: afterConvert,
-					stage: `convert:${moduleIndex}-${formIndex}`,
+					stage: `convert:${resolved.formUuid}`,
 				});
 				workingDoc = afterConvert;
 
@@ -532,71 +524,57 @@ export const editFieldTool = {
 				}
 			}
 
-			// Id rename next as its own emitted batch. The `renameField`
-			// reducer handles the full cascade on its own — form-local rewrites,
-			// cross-form hashtag and case-list column rewrites for the renamed
-			// case property, and peer-field renames. The client runs the SAME
-			// reducer against `applyMany`, so the cascade reproduces on the
-			// client without needing a full blueprint snapshot.
-			if (newId && newId !== currentId) {
-				const renameMuts = renameFieldMutations(workingDoc, fieldUuid, newId);
-				if (renameMuts.length > 0) {
-					workingDoc = applyToDoc(workingDoc, renameMuts);
-					stages.push({
-						mutations: renameMuts,
-						doc: workingDoc,
-						stage: `rename:${moduleIndex}-${formIndex}`,
-					});
-				}
-			}
-
-			// Re-read the field record after the convert/rename stages — by
-			// its STABLE uuid, never by id: the just-assigned id could match
-			// another field elsewhere in the form (the sibling-conflict
-			// verdict only scans peers at the field's own level), and a
-			// depth-first id lookup would silently patch that one instead.
+			// Re-read the field record after conversion by its STABLE uuid,
+			// never by id. The one property patch below may change the id, but
+			// address identity remains the uuid throughout.
 			const finalId = newId ?? currentId;
 			const currentField = workingDoc.fields[fieldUuid];
 			if (!currentField) {
-				// The rename stage is candidate-only at this point — nothing
+				// The conversion stage is candidate-only at this point — nothing
 				// has persisted, so the failure reports an untouched doc.
 				return {
 					kind: "mutate" as const,
 					mutations: [],
 					newDoc: doc,
-					result: { error: `Field "${finalId}" not found after rename` },
+					result: { error: `Field "${finalId}" not found after conversion` },
 				};
 			}
 
-			// Remaining scalar-patch keys as a final stage. Convert + rename
-			// are staged candidates above; this covers the leftovers. The reducer
-			// still gates against shape violations via `fieldSchema.safeParse`,
-			// so anything slipping through here that doesn't fit the
-			// (possibly just-converted) kind is logged and no-ops safely.
-			if (Object.keys(fieldUpdates).length > 0) {
-				// Expression text resolves against the doc as the patch will
-				// see it (post-convert/rename stages), scoped to the field's
-				// containing form.
+			// Every property, including an id change and a case destination,
+			// lands in ONE final updateField patch. They remain independent:
+			// id is form-local identity text; caseWrite retargets this writer.
+			const propertyUpdates: EditUpdatesPatch = {
+				...fieldUpdates,
+				...(newId !== undefined &&
+					newId !== currentId && {
+						id: newId,
+					}),
+			};
+			if (Object.keys(propertyUpdates).length > 0) {
 				const patch = editPatchToFieldPatch(
-					fieldUpdates,
-					(text) => parseXPathForField(workingDoc, fieldUuid, text),
-					(currentField as { options?: SelectOption[] }).options,
+					propertyUpdates,
+					preparedOptionsSource,
 				);
 				if (Object.keys(patch).length > 0) {
-					// Declaration chokepoint: a patch RE-TARGETING `case_property_on`
+					// Declaration chokepoint: a patch RE-TARGETING `caseWrite`
 					// to a type absent from the catalog declares it FIRST (a stage of
 					// its own, so the type exists before the field's catalog sync
 					// runs) — the reducer no longer auto-creates the type.
-					const nextType = (patch as { case_property_on?: unknown })
-						.case_property_on;
-					if (typeof nextType === "string" && nextType.length > 0) {
+					const nextWrite = (patch as { caseWrite?: unknown }).caseWrite;
+					const nextType =
+						typeof nextWrite === "object" &&
+						nextWrite !== null &&
+						"caseType" in nextWrite &&
+						typeof nextWrite.caseType === "string"
+							? nextWrite.caseType
+							: undefined;
+					if (nextType !== undefined && nextType.length > 0) {
 						const declMuts = declareCaseTypeMutations(workingDoc, nextType);
 						if (declMuts.length > 0) {
 							workingDoc = applyToDoc(workingDoc, declMuts);
 							stages.push({
 								mutations: declMuts,
-								doc: workingDoc,
-								stage: `edit:${moduleIndex}-${formIndex}`,
+								stage: `edit:${resolved.formUuid}`,
 							});
 						}
 					}
@@ -614,8 +592,7 @@ export const editFieldTool = {
 						workingDoc = applyToDoc(workingDoc, updateMuts);
 						stages.push({
 							mutations: updateMuts,
-							doc: workingDoc,
-							stage: `edit:${moduleIndex}-${formIndex}`,
+							stage: `edit:${resolved.formUuid}`,
 						});
 					}
 				}
@@ -624,7 +601,6 @@ export const editFieldTool = {
 			// Gate the WHOLE edit as one candidate; persist the stage batches
 			// only after it passes. A rejection leaves zero committed prefix —
 			// the agent re-issues the corrected call from the original state.
-			const allMutations = stages.flatMap((s) => s.mutations);
 			const commit = await guardedMutateStages(ctx, doc, stages);
 			if (!commit.ok) {
 				return {
@@ -643,7 +619,8 @@ export const editFieldTool = {
 				.filter(
 					([k, v]) =>
 						v !== undefined &&
-						(k !== "kind" || newKind !== resolved.field.kind),
+						(k !== "kind" || newKind !== resolved.field.kind) &&
+						(k !== "id" || newId !== currentId),
 				)
 				.map(([k, v]) => (v === null ? `${k} (cleared)` : k));
 			const renameNote =
@@ -652,9 +629,11 @@ export const editFieldTool = {
 			// name directly rather than re-traversing `moduleOrder` →
 			// `formOrder` to get back to the same uuid.
 			const formName =
-				workingDoc.forms[resolved.formUuid]?.name ??
-				`m${moduleIndex}-f${formIndex}`;
-			const label = postField && "label" in postField ? postField.label : "";
+				workingDoc.forms[resolved.formUuid]?.name ?? resolved.formUuid;
+			const label =
+				postField && "label" in postField && postField.label
+					? projectProseTemplate(postField.label, workingDoc).text
+					: "";
 			const kind = postField?.kind ?? "unknown";
 			// Report honestly when the call carried only the `kind` discriminator
 			// and no rename — nothing actually changed, so don't claim a change
@@ -665,7 +644,7 @@ export const editFieldTool = {
 					: "No property values changed.";
 			return {
 				kind: "mutate" as const,
-				mutations: allMutations,
+				mutations: commit.mutations,
 				// The SA continues against the guarded writer's committed doc (a
 				// peer's concurrent edit re-applied onto the fresh stored doc merged
 				// in), NOT the tool's local `workingDoc` — every other mutating tool
@@ -674,6 +653,12 @@ export const editFieldTool = {
 				newDoc: commit.newDoc,
 				result: {
 					message: `Successfully updated "${finalId}"${renameNote} in "${formName}". ${changeNote} Current label: "${label}", kind: ${kind}.${conversionNote}`,
+					...(preparedOptionsSource?.kind === "inline" && {
+						options: preparedOptionsSource.options.map((option) => ({
+							uuid: option.uuid,
+							value: option.value,
+						})),
+					}),
 					summary: {
 						location: formName,
 						subject: label || finalId,

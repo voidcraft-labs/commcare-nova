@@ -18,7 +18,7 @@
  * gate, and changing a field's display style would read as broken.
  */
 export function withPreservedIdentity<
-	T extends { uuid?: string; tile?: unknown },
+	T extends { uuid: string; tile?: unknown },
 >(existing: T, next: T): T {
 	return {
 		...next,

@@ -3,6 +3,7 @@
 // input's starting value, and the search-button display condition.
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	and,
 	concat,
@@ -59,7 +60,7 @@ describe("expressionReadsCaseData", () => {
 				concat(
 					term(sessionContext("userid")),
 					term(literal(" ")),
-					term(input("owner_ids")),
+					term(input(testUuid("owner_ids"))),
 				),
 			),
 		).toBe(false);
@@ -78,7 +79,7 @@ describe("predicateReadsCaseData", () => {
 	it("detects the PropertyRef slots on match / within-distance", () => {
 		expect(
 			predicateReadsCaseData(
-				match(prop("patient", "name"), term(literal("amy")), "fuzzy"),
+				match(prop("patient", "case_name"), term(literal("amy")), "fuzzy"),
 			),
 		).toBe(true);
 		expect(

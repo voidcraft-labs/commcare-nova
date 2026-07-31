@@ -7,7 +7,6 @@ import { SingleAssetSlot } from "@/components/builder/media/MediaSlot";
 import { useAppLogo } from "@/lib/doc/hooks/useAppLogo";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useUncarriedLogo } from "@/lib/doc/hooks/useUncarriedLogo";
-import { asAssetId } from "@/lib/domain";
 
 /**
  * App-level appearance: the logo image shown on the web-apps login and
@@ -40,7 +39,7 @@ export function AppAppearanceSection() {
 					kind="image"
 					slotKey="app:logo"
 					ariaLabel="App logo"
-					onChange={(next) => setAppLogo(next ? asAssetId(next) : null)}
+					onChange={(next) => setAppLogo(next ?? null)}
 				/>
 				{uncarriedLogo && <UncarriedLogoNotice />}
 			</div>

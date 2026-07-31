@@ -1,14 +1,15 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { caseOperationWriteValueType } from "@/lib/doc/caseOperationWriteTypes";
-import { asUuid } from "@/lib/doc/types";
 import type { BlueprintDoc, CaseOperation, Form, Uuid } from "@/lib/domain";
 import { formField, literal, term } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 
-const SUBJECT = asUuid("11111111-1111-4111-8111-111111111111");
-const SIBLING = asUuid("22222222-2222-4222-8222-222222222222");
-const ELSEWHERE = asUuid("33333333-3333-4333-8333-333333333333");
-const DATE_FIELD = asUuid("44444444-4444-4444-8444-444444444444");
+const SUBJECT = testUuid("11111111-1111-4111-8111-111111111111");
+const SIBLING = testUuid("22222222-2222-4222-8222-222222222222");
+const ELSEWHERE = testUuid("33333333-3333-4333-8333-333333333333");
+const DATE_FIELD = testUuid("44444444-4444-4444-8444-444444444444");
 
 /**
  * One case type whose properties cover each way a type can already be
@@ -31,11 +32,15 @@ function fixture(): {
 			{
 				name: "patient",
 				properties: [
-					{ name: "declared_date", label: "Declared date", data_type: "date" },
-					{ name: "operation_only", label: "Operation only" },
-					{ name: "two_operations", label: "Two operations" },
-					{ name: "field_written", label: "Field written" },
-					{ name: "written_elsewhere", label: "Written elsewhere" },
+					{
+						name: "declared_date",
+						label: proseText("Declared date"),
+						data_type: "date",
+					},
+					{ name: "operation_only", label: proseText("Operation only") },
+					{ name: "two_operations", label: proseText("Two operations") },
+					{ name: "field_written", label: proseText("Field written") },
+					{ name: "written_elsewhere", label: proseText("Written elsewhere") },
 				],
 			},
 		],
@@ -52,8 +57,11 @@ function fixture(): {
 								uuid: DATE_FIELD,
 								kind: "date",
 								id: "field_written",
-								label: "Field written",
-								case_property_on: "patient",
+								label: proseText("Field written"),
+								caseWrite: {
+									caseType: "patient",
+									property: "field_written",
+								},
 							}),
 						],
 					},

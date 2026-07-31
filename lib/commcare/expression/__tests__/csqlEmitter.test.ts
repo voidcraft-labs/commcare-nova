@@ -23,7 +23,7 @@
 // `concat(...)` argument).
 
 import { describe, expect, it } from "vitest";
-import { asUuid } from "@/lib/doc/types";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	actingUser,
 	arith,
@@ -52,31 +52,73 @@ import {
 	term,
 	today,
 	unowned,
-	unwrapList,
 } from "@/lib/domain/predicate/builders";
 import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
+import { proseText } from "@/lib/domain/prose";
 import type { CsqlSegment } from "../../predicate/csqlSegment";
 import { quoteRuntimeCsqlValue } from "../../predicate/termEmitter";
 import { parser } from "../../xpath/parser";
-import { emitCsqlExpressionSegments } from "../csqlEmitter";
+import { emitCsqlExpressionSegments as emitCsqlExpressionSegmentsRaw } from "../csqlEmitter";
+
+const TEST_INPUT_CONTEXT: TypeContext = {
+	caseTypes: [],
+	knownInputs: [
+		"base_date",
+		"base_datetime",
+		"dob_text",
+		"phone_query",
+		"score",
+		"selected_values",
+		"year",
+	].map((name) => ({
+		uuid: testUuid(name),
+		name,
+		data_type:
+			name === "base_date"
+				? ("date" as const)
+				: name === "base_datetime"
+					? ("datetime" as const)
+					: ("text" as const),
+	})),
+};
+
+function emitCsqlExpressionSegments(
+	expression: Parameters<typeof emitCsqlExpressionSegmentsRaw>[0],
+	context: TypeContext = TEST_INPUT_CONTEXT,
+	runtimeQuoteStyle?: Parameters<typeof emitCsqlExpressionSegmentsRaw>[2],
+) {
+	return emitCsqlExpressionSegmentsRaw(expression, context, runtimeQuoteStyle);
+}
 
 const TEMPORAL_CONTEXT: TypeContext = {
 	caseTypes: [
 		{
 			name: "p",
 			properties: [
-				{ name: "birth_date", label: "Birth date", data_type: "date" },
+				{
+					name: "birth_date",
+					label: proseText("Birth date"),
+					data_type: "date",
+				},
 				{
 					name: "seen_at",
-					label: "Seen at",
+					label: proseText("Seen at"),
 					data_type: "datetime",
 				},
 			],
 		},
 	],
 	knownInputs: [
-		{ name: "base_date", data_type: "date" },
-		{ name: "base_datetime", data_type: "datetime" },
+		{
+			uuid: testUuid("base_date"),
+			name: "base_date",
+			data_type: "date",
+		},
+		{
+			uuid: testUuid("base_datetime"),
+			name: "base_datetime",
+			data_type: "datetime",
+		},
 	],
 };
 
@@ -127,7 +169,7 @@ describe("emitCsqlExpressionSegments — coercion functions", () => {
 	// native function call; raw interpolation turns an ISO date into an
 	// arithmetic AST (`date(2024-01-02)`) and a session id into a Step.
 	it("emits date(<value>) for date-coerce, splicing in a runtime ref segment", () => {
-		const expr = dateCoerce(term(input("dob_text")));
+		const expr = dateCoerce(term(input(testUuid("dob_text"))));
 		const xpath = `instance('search-input:results')/input/field[@name='dob_text']`;
 		expect(emitCsqlExpressionSegments(expr)).toEqual([
 			{ kind: "constant", text: "date(" },
@@ -158,10 +200,10 @@ describe("emitCsqlExpressionSegments — coercion functions", () => {
 
 	it("inlines non-native wrappers as one safely quoted runtime function argument", () => {
 		const dateExpr = dateCoerce(
-			concat(term(input("year")), term(literal("-01-01"))),
+			concat(term(input(testUuid("year"))), term(literal("-01-01"))),
 		);
 		const doubleExpr = double(
-			ifExpr(matchAll(), term(input("score")), term(literal(0))),
+			ifExpr(matchAll(), term(input(testUuid("score"))), term(literal(0))),
 		);
 		const dateSegments = emitCsqlExpressionSegments(dateExpr);
 		const doubleSegments = emitCsqlExpressionSegments(doubleExpr);
@@ -231,7 +273,11 @@ describe("emitCsqlExpressionSegments — date-add", () => {
 	});
 
 	it("quotes a typed runtime date and keeps date-add", () => {
-		const expr = dateAdd(term(input("base_date")), "days", term(literal(7)));
+		const expr = dateAdd(
+			term(input(testUuid("base_date"))),
+			"days",
+			term(literal(7)),
+		);
 		const xpath = `instance('search-input:results')/input/field[@name='base_date']`;
 		expect(emitCsqlExpressionSegments(expr, TEMPORAL_CONTEXT)).toEqual([
 			{ kind: "constant", text: "date-add(" },
@@ -260,12 +306,12 @@ describe("emitCsqlExpressionSegments — date-add", () => {
 
 	it("uses explicit coercion wrappers as a sound standalone discriminator", () => {
 		const dateExpr = dateAdd(
-			dateCoerce(term(input("base_date"))),
+			dateCoerce(term(input(testUuid("base_date")))),
 			"days",
 			term(literal(1)),
 		);
 		const datetimeExpr = dateAdd(
-			datetimeCoerce(term(input("base_datetime"))),
+			datetimeCoerce(term(input(testUuid("base_datetime")))),
 			"hours",
 			term(literal(1)),
 		);
@@ -324,7 +370,7 @@ describe("emitCsqlExpressionSegments — date-add", () => {
 
 	it("rejects an ambiguous input or property when no canonical type context is supplied", () => {
 		const inputExpr = dateAdd(
-			term(input("base_date")),
+			term(input(testUuid("base_date"))),
 			"days",
 			term(literal(1)),
 		);
@@ -333,42 +379,12 @@ describe("emitCsqlExpressionSegments — date-add", () => {
 			"days",
 			term(literal(1)),
 		);
-		expect(() => emitCsqlExpressionSegments(inputExpr)).toThrow(
+		expect(() => emitCsqlExpressionSegmentsRaw(inputExpr)).toThrow(
 			/cannot choose between/i,
 		);
-		expect(() => emitCsqlExpressionSegments(propertyExpr)).toThrow(
+		expect(() => emitCsqlExpressionSegmentsRaw(propertyExpr)).toThrow(
 			/cannot choose between/i,
 		);
-	});
-});
-
-describe("emitCsqlExpressionSegments — unwrap-list", () => {
-	it("emits unwrap-list(<value>) for a property as constant segments", () => {
-		const expr = unwrapList(term(prop("p", "tags")));
-		expect(emitCsqlExpressionSegments(expr)).toEqual([
-			{ kind: "constant", text: "unwrap-list(" },
-			{ kind: "constant", text: "tags" },
-			{ kind: "constant", text: ")" },
-		]);
-	});
-
-	it("single-quotes runtime JSON so its required double quotes remain valid", () => {
-		const expr = unwrapList(term(input("selected_values")));
-		const segments = emitCsqlExpressionSegments(expr);
-		const xpath = `instance('search-input:results')/input/field[@name='selected_values']`;
-		const materialized = materializeSegments(
-			// `quoteRuntimeCsqlValue` is asserted structurally below; this
-			// representative server-side result pins the parser round trip.
-			[{ kind: "constant", text: 'unwrap-list(\'["north","south"]\')' }],
-			new Map(),
-		);
-		expect(materialized).toBe(`unwrap-list('["north","south"]')`);
-		expect(segments).toEqual([
-			{ kind: "constant", text: "unwrap-list(" },
-			...quoteRuntimeCsqlValue(xpath, "single", ["selected_values"]),
-			{ kind: "constant", text: ")" },
-		]);
-		expectCleanCsqlParse(materialized);
 	});
 });
 
@@ -393,9 +409,9 @@ describe("emitCsqlExpressionSegments — term arm structural lifter", () => {
 
 	it("emits a runtime-resolved input as a quoted CSQL scalar", () => {
 		const xpath = `instance('search-input:results')/input/field[@name='phone_query']`;
-		expect(emitCsqlExpressionSegments(term(input("phone_query")))).toEqual(
-			quoteRuntimeCsqlValue(xpath, "double", ["phone_query"]),
-		);
+		expect(
+			emitCsqlExpressionSegments(term(input(testUuid("phone_query")))),
+		).toEqual(quoteRuntimeCsqlValue(xpath, "double", ["phone_query"]));
 	});
 });
 
@@ -454,7 +470,7 @@ describe("emitCsqlExpressionSegments — non-whitelist arms throw", () => {
 	});
 
 	it("throws on a submission-local case-operation id", () => {
-		const expr = idOf(asUuid("11111111-1111-4111-8111-111111111111"));
+		const expr = idOf(testUuid("11111111-1111-4111-8111-111111111111"));
 		expect(() => emitCsqlExpressionSegments(expr)).toThrow(/whitelist/i);
 	});
 

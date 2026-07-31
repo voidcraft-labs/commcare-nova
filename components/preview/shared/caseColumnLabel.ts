@@ -8,11 +8,13 @@
 // own fallback would mean two surfaces naming one column differently.
 
 import { propertyDisplayLabelForName } from "@/components/builder/shared/primitives/propertyDisplay";
+import type { ProseProjector } from "@/lib/doc/hooks/useProseProjection";
 import type { CaseListConfig, CaseProperty } from "@/lib/domain";
 
 export function caseColumnLabel(
 	col: CaseListConfig["columns"][number],
 	caseProperties: readonly CaseProperty[],
+	project: ProseProjector,
 ): string {
 	const authoredHeader = col.header.trim();
 	if (authoredHeader !== "") return authoredHeader;
@@ -20,5 +22,5 @@ export function caseColumnLabel(
 	const field = col.field.trim();
 	return field === ""
 		? "Case information"
-		: propertyDisplayLabelForName(field, caseProperties);
+		: propertyDisplayLabelForName(field, caseProperties, project);
 }

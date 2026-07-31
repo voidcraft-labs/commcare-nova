@@ -16,6 +16,7 @@
 
 import { Client } from "pg";
 import { describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import {
@@ -24,14 +25,15 @@ import {
 	type LookupReferenceTargetSet,
 	normalizeLookupReferenceTargetSet,
 } from "@/lib/doc/lookupReferences";
-import { blankAppMutations } from "@/lib/doc/scaffolds";
-import { asUuid, type LookupOptionsSource, type Uuid } from "@/lib/domain";
+import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
+import type { LookupOptionsSource, Uuid } from "@/lib/domain";
 import {
 	type LookupColumnId,
 	type LookupTableId,
 	lookupColumnIdSchema,
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
+import { proseText } from "@/lib/domain/prose";
 import { applyLookupSchemaGovernanceInTransaction } from "@/lib/lookup/schemaGovernance";
 import { createLookupTable } from "@/lib/lookup/service";
 import type { LookupTableSnapshot } from "@/lib/lookup/types";
@@ -51,11 +53,20 @@ vi.mock("@/lib/db/projectMembership", () => ({
 const {
 	appendSyntheticBatch,
 	commitAppProjectMove,
-	commitGuardedBatch,
+	commitGuardedBatch: commitGuardedBatchOpaque,
 	createApp,
 	loadApp,
 	repairLookupReferenceEdges,
 } = await import("../apps");
+const commitGuardedBatch = (
+	args: Omit<Parameters<typeof commitGuardedBatchOpaque>[0], "mutations"> & {
+		mutations: unknown;
+	},
+) =>
+	commitGuardedBatchOpaque({
+		...args,
+		mutations: admitMutationBatch(args.mutations),
+	});
 const { BlueprintCommitRejectedError } = await import("../commitGuard");
 
 const h = setupAppStateTestDb("authoritative_lookup_writers_");
@@ -140,11 +151,13 @@ async function createTable(
 	);
 }
 
-async function createEmptyApp(projectId = PROJECT_A): Promise<string> {
-	return createApp(ACTOR, projectId, crypto.randomUUID(), {
-		appName: "Writer test",
-		status: "complete",
-	});
+async function createTestApp(projectId = PROJECT_A): Promise<string> {
+	return (
+		await createApp(ACTOR, projectId, crypto.randomUUID(), {
+			name: "Writer test",
+			status: "complete",
+		})
+	).appId;
 }
 
 async function materializeTargets(
@@ -179,6 +192,26 @@ function tableTargets(tableId: LookupTableId): LookupReferenceTargetSet {
 	return normalizeLookupReferenceTargetSet({ tableIds: [tableId] });
 }
 
+function introduceLookupOptions(
+	fieldUuid: Uuid,
+	tableId: LookupTableId,
+	columnId: LookupColumnId,
+) {
+	return [
+		{
+			kind: "convertField" as const,
+			uuid: fieldUuid,
+			toKind: "single_select" as const,
+			optionsSource: {
+				kind: "lookup" as const,
+				tableId,
+				valueColumnId: columnId,
+				labelColumnId: columnId,
+			},
+		},
+	];
+}
+
 interface HistoricalLookupCarrier {
 	readonly appId: string;
 	readonly fieldUuid: Uuid;
@@ -192,9 +225,9 @@ function lookupCarrierFixture(
 ): Omit<HistoricalLookupCarrier, "appId"> & {
 	readonly doc: ReturnType<typeof buildDoc>;
 } {
-	const fieldUuid = asUuid(crypto.randomUUID());
+	const fieldUuid = testUuid(crypto.randomUUID());
 	const optionsSource: LookupOptionsSource = {
-		kind: "lookup-table",
+		kind: "lookup",
 		tableId,
 		valueColumnId: columnId,
 		labelColumnId: columnId,
@@ -213,11 +246,7 @@ function lookupCarrierFixture(
 								uuid: fieldUuid,
 								kind: "single_select",
 								id: "choice",
-								label: "Choice",
-								options: [
-									{ value: "a", label: "A" },
-									{ value: "b", label: "B" },
-								],
+								label: proseText("Choice"),
 								optionsSource,
 							},
 						],
@@ -253,46 +282,114 @@ async function seedHistoricalLookupCarrier(
 }
 
 describe("atomic creation", () => {
-	it("runs the seed callback once and commits the prepared app atomically", async () => {
-		let seedCalls = 0;
-		const appId = await createApp(ACTOR, PROJECT_A, crypto.randomUUID(), {
-			appName: "Blank app",
+	it("returns the exact committed canonical baseline and starter identities", async () => {
+		const receipt = await createApp(ACTOR, PROJECT_A, crypto.randomUUID(), {
+			name: "  Born app  ",
 			status: "complete",
-			seedMutations(doc) {
-				seedCalls += 1;
-				return blankAppMutations(doc);
-			},
 		});
+		const loaded = await loadApp(receipt.appId);
 
-		expect(seedCalls).toBe(1);
-		expect((await loadApp(appId))?.blueprint.moduleOrder).toHaveLength(1);
-		expect(await readTargets(appId)).toEqual(EMPTY_LOOKUP_REFERENCE_TARGETS);
+		expect(receipt.baseSeq).toBe(1);
+		expect(receipt.blueprint.appName).toBe("Born app");
+		expect(loaded?.mutation_seq).toBe(1);
+		expect(loaded?.blueprint).toEqual(receipt.blueprint);
+		expect(receipt.blueprint.moduleOrder).toEqual([receipt.starter.moduleUuid]);
+		expect(receipt.blueprint.formOrder[receipt.starter.moduleUuid]).toEqual([
+			receipt.starter.formUuid,
+		]);
+		expect(receipt.blueprint.fieldOrder[receipt.starter.formUuid]).toEqual([
+			receipt.starter.fieldUuid,
+		]);
+		expect(await readTargets(receipt.appId)).toEqual(
+			EMPTY_LOOKUP_REFERENCE_TARGETS,
+		);
+		const marker = await h
+			.db()
+			.selectFrom("app_changes")
+			.select(["seq", "kind", "mutations", "from_project_id", "to_project_id"])
+			.where("app_id", "=", receipt.appId)
+			.executeTakeFirstOrThrow();
+		expect(marker).toEqual({
+			seq: "1",
+			kind: "fold-baseline",
+			mutations: [],
+			from_project_id: null,
+			to_project_id: null,
+		});
+		const baseline = await h
+			.db()
+			.selectFrom("app_change_fold_baselines")
+			.select(["seq", "project_id", "snapshot", "snapshot_digest"])
+			.where("app_id", "=", receipt.appId)
+			.executeTakeFirstOrThrow();
+		expect(baseline).toEqual({
+			seq: "1",
+			project_id: PROJECT_A,
+			snapshot: receipt.blueprint,
+			snapshot_digest: expect.stringMatching(/^[0-9a-f]{64}$/),
+		});
+		const digestProof = await h.pool().query<{ matches: boolean }>(
+			`
+				SELECT snapshot_digest =
+					nova_app_change_fold_snapshot_digest(snapshot) AS matches
+				FROM app_change_fold_baselines
+				WHERE app_id = $1
+			`,
+			[receipt.appId],
+		);
+		expect(digestProof.rows[0]?.matches).toBe(true);
 	});
 
-	it("rolls back the uncommitted app root when a prepared template is not export-ready", async () => {
-		let appId = "";
-		let seedCalls = 0;
+	it("rolls back root, entities, marker, and baseline when the last genesis insert fails", async () => {
+		const runId = crypto.randomUUID();
+		await h.pool().query(`
+			CREATE FUNCTION reject_genesis_baseline() RETURNS trigger
+			LANGUAGE plpgsql AS $$
+			BEGIN
+				RAISE EXCEPTION 'forced late genesis failure';
+			END
+			$$;
+			CREATE TRIGGER reject_genesis_baseline
+			BEFORE INSERT ON app_change_fold_baselines
+			FOR EACH ROW EXECUTE FUNCTION reject_genesis_baseline();
+		`);
 		await expect(
-			createApp(ACTOR, PROJECT_A, crypto.randomUUID(), {
-				appName: "Invalid template",
+			createApp(ACTOR, PROJECT_A, runId, {
+				name: "Rollback proof",
 				status: "complete",
-				seedMutations(doc) {
-					appId = doc.appId;
-					seedCalls += 1;
-					return [{ kind: "setAppName", name: "Still has no module" }];
-				},
 			}),
-		).rejects.toThrow("must be born export-ready");
+		).rejects.toThrow("forced late genesis failure");
 
-		// No half-created root survives: creation is one transaction, so a
-		// rejected template leaves no row for a later writer to find.
-		expect(seedCalls).toBe(1);
-		expect(await h.readAppRow(appId)).toBeUndefined();
+		const roots = await h
+			.db()
+			.selectFrom("apps")
+			.select("id")
+			.where("run_id", "=", runId)
+			.execute();
+		expect(roots).toEqual([]);
+		const rolledBack = await h.pool().query<{
+			roots: number;
+			entities: number;
+			markers: number;
+			baselines: number;
+		}>(`
+			SELECT
+				(SELECT count(*)::int FROM apps) AS roots,
+				(SELECT count(*)::int FROM blueprint_entities) AS entities,
+				(SELECT count(*)::int FROM app_changes) AS markers,
+				(SELECT count(*)::int FROM app_change_fold_baselines) AS baselines
+		`);
+		expect(rolledBack.rows[0]).toEqual({
+			roots: 0,
+			entities: 0,
+			markers: 0,
+			baselines: 0,
+		});
 	});
 
 	it("replaces stale edges exactly and persists deterministic synthetic mutations", async () => {
 		const table = await createTable(PROJECT_A, "Stale edge");
-		const appId = await createEmptyApp();
+		const appId = await createTestApp();
 		await materializeTargets(appId, PROJECT_A, tableTargets(table.id));
 
 		// The app's blueprint references nothing, so ANY commit must converge the
@@ -323,23 +420,23 @@ describe("atomic creation", () => {
 			},
 		});
 		// A synthetic batch diffs to the minimal mutation set and lands in the
-		// same permanent log every client replays.
+		// permanent server-folded log; live clients reload across it.
 		const stream = await h
 			.db()
-			.selectFrom("accepted_mutations")
+			.selectFrom("app_changes")
 			.select(["kind", "actor_id", "mutations"])
 			.where("app_id", "=", appId)
 			.orderBy("seq", "desc")
 			.executeTakeFirstOrThrow();
 		expect(stream).toMatchObject({
-			kind: "migration",
+			kind: "blueprint-migration",
 			actor_id: "system:writer-matrix",
 			mutations: [{ kind: "setAppName", name: "Synthetic" }],
 		});
 	});
 
 	it("rejects a stale synthetic basis without advancing the sequence", async () => {
-		const appId = await createEmptyApp();
+		const appId = await createTestApp();
 		await commitGuardedBatch({
 			appId,
 			expectedProjectId: PROJECT_A,
@@ -366,11 +463,11 @@ describe("atomic creation", () => {
 				},
 			}),
 		).rejects.toBeInstanceOf(BlueprintCommitRejectedError);
-		expect(await readSeq(appId)).toBe(1);
+		expect(await readSeq(appId)).toBe(2);
 	});
 
 	it("deduplicates a synthetic replay before its stale basis can replace the first result", async () => {
-		const appId = await createEmptyApp();
+		const appId = await createTestApp();
 		const initial = await loadApp(appId);
 		if (!initial) throw new Error("created app disappeared");
 		const batchId = crypto.randomUUID();
@@ -383,7 +480,7 @@ describe("atomic creation", () => {
 		await expect(
 			appendSyntheticBatch({
 				appId,
-				expectedBaseSeq: 0,
+				expectedBaseSeq: initial.mutation_seq,
 				batchId,
 				targetDoc: {
 					...initial.blueprint,
@@ -391,14 +488,14 @@ describe("atomic creation", () => {
 				},
 				authority,
 			}),
-		).resolves.toEqual({ kind: "committed", seq: 1 });
+		).resolves.toEqual({ kind: "committed", seq: 2 });
 
 		await expect(
 			appendSyntheticBatch({
 				appId,
 				// This basis is now stale and this target differs deliberately: the
 				// durable batch latch, not a second diff, owns replay semantics.
-				expectedBaseSeq: 0,
+				expectedBaseSeq: initial.mutation_seq,
 				batchId,
 				targetDoc: {
 					...initial.blueprint,
@@ -406,15 +503,16 @@ describe("atomic creation", () => {
 				},
 				authority,
 			}),
-		).resolves.toEqual({ kind: "deduped", seq: 1 });
+		).resolves.toEqual({ kind: "deduped", seq: 2 });
 
-		expect(await readSeq(appId)).toBe(1);
+		expect(await readSeq(appId)).toBe(2);
 		expect((await loadApp(appId))?.app_name).toBe("First synthetic result");
 		const history = await h
 			.db()
-			.selectFrom("accepted_mutations")
+			.selectFrom("app_changes")
 			.select(["batch_id", "mutations"])
 			.where("app_id", "=", appId)
+			.where("batch_id", "=", batchId)
 			.execute();
 		expect(history).toEqual([
 			{
@@ -425,7 +523,7 @@ describe("atomic creation", () => {
 	});
 
 	it("requires a named system actor and nonblank operator reason at runtime", async () => {
-		const appId = await createEmptyApp();
+		const appId = await createTestApp();
 		const current = await loadApp(appId);
 		if (!current) throw new Error("created app disappeared");
 		const targetDoc = {
@@ -448,7 +546,7 @@ describe("atomic creation", () => {
 			await expect(
 				appendSyntheticBatch({
 					appId,
-					expectedBaseSeq: 0,
+					expectedBaseSeq: current.mutation_seq,
 					targetDoc,
 					authority,
 				}),
@@ -456,15 +554,15 @@ describe("atomic creation", () => {
 				"Synthetic system authority requires a named system actor and reason.",
 			);
 		}
-		// A rejected authority writes nothing at all — no row, no history.
-		expect(await readSeq(appId)).toBe(0);
+		// A rejected authority writes nothing beyond immutable genesis.
+		expect(await readSeq(appId)).toBe(1);
 		const streamRows = await h
 			.db()
-			.selectFrom("accepted_mutations")
+			.selectFrom("app_changes")
 			.select("seq")
 			.where("app_id", "=", appId)
 			.execute();
-		expect(streamRows).toEqual([]);
+		expect(streamRows).toEqual([{ seq: "1" }]);
 	});
 });
 
@@ -518,8 +616,23 @@ describe("lookup materialization versus resource deletion", () => {
 					kind: "updateField",
 					uuid: fieldUuid,
 					targetKind: "single_select",
-					patch: {},
-					optionsSource: null,
+					patch: {
+						optionsSource: {
+							kind: "inline",
+							options: [
+								{
+									uuid: testUuid("inline-option-a"),
+									value: "a",
+									label: proseText("A"),
+								},
+								{
+									uuid: testUuid("inline-option-b"),
+									value: "b",
+									label: proseText("B"),
+								},
+							],
+						},
+					},
 				},
 			],
 			actorUserId: ACTOR,
@@ -529,7 +642,28 @@ describe("lookup materialization versus resource deletion", () => {
 		const repaired = await loadApp(appId);
 		if (!repaired) throw new Error("repaired app disappeared");
 		const repairedDoc = hydratePersistedBlueprint(repaired.blueprint);
-		expect(repairedDoc.fields[fieldUuid]).not.toHaveProperty("optionsSource");
+		const repairedField = repairedDoc.fields[fieldUuid];
+		if (
+			repairedField?.kind !== "single_select" &&
+			repairedField?.kind !== "multi_select"
+		) {
+			throw new Error("repaired field is no longer a select");
+		}
+		expect(repairedField.optionsSource).toEqual({
+			kind: "inline",
+			options: [
+				{
+					uuid: testUuid("inline-option-a"),
+					value: "a",
+					label: proseText("A"),
+				},
+				{
+					uuid: testUuid("inline-option-b"),
+					value: "b",
+					label: proseText("B"),
+				},
+			],
+		});
 		expect(extractLookupReferenceTargets(repairedDoc)).toBe(
 			EMPTY_LOOKUP_REFERENCE_TARGETS,
 		);
@@ -627,11 +761,15 @@ describe("lookup materialization versus resource deletion", () => {
 		}
 	});
 
-	it("lets an admitted resource delete commit first, then rejects waiting historical-carrier materialization", async () => {
+	it("lets an admitted resource delete commit first, then rejects the waiting reference introduction", async () => {
 		const table = await createTable(PROJECT_A, "Serialized delete first");
 		const column = table.columns[0];
 		if (column === undefined) throw new Error("lookup table has no column");
-		const { appId } = await seedHistoricalLookupCarrier(table.id, column.id);
+		const receipt = await createApp(ACTOR, PROJECT_A, crypto.randomUUID(), {
+			name: "Delete-first candidate",
+			status: "complete",
+		});
+		const appId = receipt.appId;
 		await h.pool().query(`
 			CREATE FUNCTION wait_authoritative_delete_race() RETURNS trigger
 			LANGUAGE plpgsql AS $function$
@@ -693,7 +831,11 @@ describe("lookup materialization versus resource deletion", () => {
 				appId,
 				expectedProjectId: PROJECT_A,
 				batchId: crypto.randomUUID(),
-				mutations: [{ kind: "setAppName", name: "Must not land" }],
+				mutations: introduceLookupOptions(
+					receipt.starter.fieldUuid,
+					table.id,
+					column.id,
+				),
 				actorUserId: ACTOR,
 				kind: "autosave",
 			}).then(
@@ -724,10 +866,8 @@ describe("lookup materialization versus resource deletion", () => {
 				message:
 					"One or more lookup tables used by this app are no longer available in its Project. Remove or replace those references, then try again.",
 			});
-			expect(await readSeq(appId)).toBe(0);
-			expect((await loadApp(appId))?.app_name).toBe(
-				"Historical lookup carrier",
-			);
+			expect(await readSeq(appId)).toBe(1);
+			expect((await loadApp(appId))?.app_name).toBe("Delete-first candidate");
 			expect(await readTargets(appId)).toEqual(EMPTY_LOOKUP_REFERENCE_TARGETS);
 			const deletedTable = await h
 				.db()
@@ -759,18 +899,26 @@ describe("lookup materialization versus resource deletion", () => {
 			[MISSING_TABLE_ID, MISSING_COLUMN_ID],
 			[foreign.id, foreignColumn.id],
 		] as const) {
-			const { appId } = await seedHistoricalLookupCarrier(tableId, columnId);
+			const receipt = await createApp(ACTOR, PROJECT_A, crypto.randomUUID(), {
+				name: "Unavailable candidate",
+				status: "complete",
+			});
+			const appId = receipt.appId;
 			const error = await commitGuardedBatch({
 				appId,
 				expectedProjectId: PROJECT_A,
 				batchId: crypto.randomUUID(),
-				mutations: [{ kind: "setAppName", name: "Unavailable" }],
+				mutations: introduceLookupOptions(
+					receipt.starter.fieldUuid,
+					tableId,
+					columnId,
+				),
 				actorUserId: ACTOR,
 				kind: "autosave",
 			}).catch((caught: unknown) => caught);
 			expect(error).toBeInstanceOf(BlueprintCommitRejectedError);
 			errors.push(error as Error);
-			expect(await readSeq(appId)).toBe(0);
+			expect(await readSeq(appId)).toBe(1);
 		}
 		// Identical copy for both: a differing message would confirm that a table
 		// exists in a Project the caller cannot see.
@@ -797,7 +945,6 @@ describe("cross-Project move", () => {
 				expectedFromProjectId: PROJECT_A,
 				actorUserId: ACTOR,
 				assetIdMap: new Map(),
-				attemptedRealIds: new Set(),
 			});
 
 		// A referencing app cannot move: its edges are Project-scoped, and the
@@ -823,8 +970,23 @@ describe("cross-Project move", () => {
 					kind: "updateField",
 					uuid: fieldUuid,
 					targetKind: "single_select",
-					patch: {},
-					optionsSource: null,
+					patch: {
+						optionsSource: {
+							kind: "inline",
+							options: [
+								{
+									uuid: testUuid("inline-option-a"),
+									value: "a",
+									label: proseText("A"),
+								},
+								{
+									uuid: testUuid("inline-option-b"),
+									value: "b",
+									label: proseText("B"),
+								},
+							],
+						},
+					},
 				},
 			],
 			actorUserId: ACTOR,
@@ -864,32 +1026,16 @@ describe("edge repair maintenance writer", () => {
 		expect(await readSeq(appId)).toBe(seqBefore);
 		const history = await h
 			.db()
-			.selectFrom("accepted_mutations")
+			.selectFrom("app_changes")
 			.select("seq")
 			.where("app_id", "=", appId)
 			.execute();
 		expect(history).toEqual([]);
 	});
 
-	it("fails closed on a missing app and on a null-Project app with structural targets", async () => {
+	it("fails closed on a missing app", async () => {
 		await expect(repairLookupReferenceEdges("missing-app")).rejects.toThrow(
 			"app row is unavailable",
 		);
-
-		const table = await createTable(PROJECT_A, "Repair null scope");
-		const column = table.columns[0];
-		if (column === undefined) throw new Error("lookup table has no column");
-		const { appId } = await seedHistoricalLookupCarrier(table.id, column.id);
-		await h.withTransaction((tx) =>
-			tx
-				.updateTable("apps")
-				.set({ project_id: null })
-				.where("id", "=", appId)
-				.execute(),
-		);
-		await expect(repairLookupReferenceEdges(appId)).rejects.toMatchObject({
-			name: "LookupReferenceWriteError",
-			code: "mismatch",
-		});
 	});
 });

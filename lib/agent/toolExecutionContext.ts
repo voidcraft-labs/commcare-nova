@@ -20,21 +20,23 @@
  */
 
 import type { ConversionImpact } from "@/lib/case-store";
+import type { PreparedMutationCandidate } from "@/lib/doc/commitVerdicts";
+import type { AdmittedMutationStages } from "@/lib/doc/mutationAdmission";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, CasePropertyDataType } from "@/lib/domain";
+import type { LookupTableId } from "@/lib/domain/lookupIds";
 import type {
 	ConversationEvent,
 	ConversationPayload,
 	MutationEvent,
 } from "@/lib/log/types";
-import type { MediaAttachExpectation } from "@/lib/media/attachVerdicts";
+import type { LookupDefinitionsSnapshot } from "@/lib/lookup/types";
 
 /**
  * What a mutation-recording commit returns: the event envelopes it logged, plus
  * the fully-hydrated committed doc (the guarded writer's `nextDoc`). The chat SA
  * adopts `committedDoc` as its working doc so it always builds on what actually
- * landed (a concurrent peer edit merged in); MCP coalesces it with the
- * post-mutation doc it already holds on a top-level dedup hit.
+ * landed (including a concurrent peer edit merged in); MCP does the same.
  *
  */
 export interface RecordMutationsResult {
@@ -69,6 +71,20 @@ export interface ToolExecutionContext {
 	readonly runId: string;
 
 	/**
+	 * Exact rows-free Project data definitions. Production chat and MCP
+	 * contexts bind this to the freshly authorized Project scope; synthetic
+	 * carrier-free tests may omit it. Mutating helpers request the union of
+	 * lookup identities present before and after a batch so additions, edits,
+	 * and clears all receive the same external validation context.
+	 */
+	readonly lookupDefinitions?: (
+		tableIds: readonly LookupTableId[],
+	) => Promise<LookupDefinitionsSnapshot>;
+
+	/** Complete rows-free Project data catalog for author-facing read tools. */
+	readonly lookupCatalog?: () => Promise<LookupDefinitionsSnapshot>;
+
+	/**
 	 * Exact chat-run capability for authoritative non-blueprint side effects.
 	 * Absent on MCP, whose request authorization is independent of the chat run
 	 * window. A tool must never reconstruct this from public `runId` attribution.
@@ -95,19 +111,10 @@ export interface ToolExecutionContext {
 	 * promise resolution alone — consult the concrete surface's docstring
 	 * for the actual persistence semantics.
 	 *
-	 * `mediaExpectations` carries the media attach verdict's per-asset
-	 * requirements when the batch attaches asset references (see
-	 * `lib/media/attachVerdicts.ts`). The tool has already run the
-	 * pre-commit verdict; BOTH surfaces then re-apply the per-asset judgment
-	 * to rows read INSIDE the guarded transaction that re-verdicts the batch,
-	 * so a peer deleting the asset between the pre-commit read and the commit
-	 * can't strand a dangling reference (it surfaces here, not at export).
 	 */
 	recordMutations(
-		mutations: Mutation[],
-		doc: BlueprintDoc,
+		prepared: PreparedMutationCandidate,
 		stage?: string,
-		mediaExpectations?: readonly MediaAttachExpectation[],
 	): Promise<RecordMutationsResult>;
 
 	/**
@@ -136,7 +143,8 @@ export interface ToolExecutionContext {
 	 * is the blueprint AFTER that stage applied to the previous one's.
 	 */
 	recordMutationStages(
-		stages: StagedMutationBatch[],
+		prepared: PreparedMutationCandidate,
+		stages: AdmittedMutationStages,
 	): Promise<RecordMutationsResult>;
 
 	/** Persist a conversation event (assistant text/reasoning, tool
@@ -157,9 +165,9 @@ export interface ToolExecutionContext {
 }
 
 /**
- * Render a saga commit's park outcome as the note the tool wrapper
+ * Render a committed row migration's park outcome as the note the tool wrapper
  * appends to its success message (see `consumeParkedNote`). Typed
- * structurally so this leaf imports nothing from the saga layer.
+ * structurally so this leaf imports no storage implementation.
  */
 export function describeParkedOutcome(outcome: {
 	readonly parked: number;
@@ -185,7 +193,6 @@ export function describeParkedOutcome(outcome: {
  * edit (see `recordMutationStages`).
  */
 export interface StagedMutationBatch {
-	mutations: Mutation[];
-	doc: BlueprintDoc;
-	stage?: string;
+	readonly mutations: Mutation[];
+	readonly stage: string;
 }

@@ -1,17 +1,38 @@
 // @vitest-environment happy-dom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+	cleanup,
+	fireEvent,
+	render as rtlRender,
+	screen,
+} from "@testing-library/react";
+import type { ReactElement, ReactNode } from "react";
 import { afterEach, describe, expect, it } from "vitest";
+import { BlueprintDocProvider } from "@/lib/doc/provider";
 import type { CaseType } from "@/lib/domain";
 import { arith, eq, literal, prop, term } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { PredicateWorkbench } from "../PredicateWorkbench";
+
+// The surfaces here spell authored prose against the document; every production
+// mount sits inside the builder's provider. Wrapping at `render` reproduces it
+// and carries through each `rerender`.
+function DocumentProvider({ children }: { readonly children: ReactNode }) {
+	return (
+		<BlueprintDocProvider appId="test-app">{children}</BlueprintDocProvider>
+	);
+}
+
+function render(ui: ReactElement) {
+	return rtlRender(ui, { wrapper: DocumentProvider });
+}
 
 const CASE_TYPES: readonly CaseType[] = [
 	{
 		name: "patient",
 		properties: [
-			{ name: "age", label: "Age", data_type: "int" },
-			{ name: "score", label: "Score", data_type: "int" },
+			{ name: "age", label: proseText("Age"), data_type: "int" },
+			{ name: "score", label: proseText("Score"), data_type: "int" },
 		],
 	},
 ];
@@ -74,6 +95,19 @@ describe("PredicateWorkbench case-search admission", () => {
 		expect(otherCaseInformation.getAttribute("aria-disabled")).not.toBe("true");
 	});
 
+	it("applies case-search admission when the rule also runs on device", () => {
+		renderWorkbench({ target: "on-device-and-case-search" });
+
+		const otherCaseInformation = openValueSource(
+			screen.getByRole("button", { name: "Value source: A value" }),
+		);
+
+		expect(otherCaseInformation.getAttribute("aria-disabled")).toBe("true");
+		expect(otherCaseInformation.textContent).toContain(
+			"This condition already uses case information",
+		);
+	});
+
 	it("catches a case-information source nested inside a calculation", async () => {
 		renderWorkbench({
 			value: eq(
@@ -94,7 +128,7 @@ describe("PredicateWorkbench case-search admission", () => {
 		);
 	});
 
-	it("keeps an imported unsupported source open so the author can replace it", () => {
+	it("does not re-admit an unsupported current source", () => {
 		renderWorkbench({
 			value: eq(prop("patient", "age"), prop("patient", "score")),
 		});
@@ -110,7 +144,7 @@ describe("PredicateWorkbench case-search admission", () => {
 			name: /^A value/,
 		});
 
-		expect(activeSource.getAttribute("aria-disabled")).not.toBe("true");
+		expect(activeSource.getAttribute("aria-disabled")).toBe("true");
 		expect(replacement.getAttribute("aria-disabled")).not.toBe("true");
 	});
 });

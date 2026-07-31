@@ -6,8 +6,8 @@
 // destination of a relation walk). The picker drives every
 // property-shaped slot across the card editor: comparison `left`,
 // match `property`, multi-select-contains `property`,
-// within-distance `property`, between `left`, in `left`, is-null /
-// is-blank `left`, etc.
+// within-distance `property`, between `left`, in `left`, is-blank
+// `left`, etc.
 //
 // Implementation: Nova's shadcn dropdown-menu primitive. Optional filter narrows the
 // shown properties to a subset by data type — comparison cards
@@ -40,11 +40,10 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/shadcn/dropdown-menu";
 import { Input } from "@/components/shadcn/input";
+import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import {
-	authorableCaseProperties,
 	type CaseProperty,
 	type CaseType,
-	canonicalCasePropertyName,
 	effectiveDataType,
 } from "@/lib/domain";
 import { humanizeId } from "@/lib/domain/idSlug";
@@ -78,9 +77,7 @@ interface PropertyPickerProps {
 	 * card. Cards that don't restrict (e.g. `eq`) pass `undefined`.
 	 */
 	readonly filter?: (property: CaseProperty) => boolean;
-	/** Optional whole-rule admission for a concrete property choice. The active
-	 * saved choice remains available for legacy repair even when the oracle
-	 * reports that authoring the same shape from a clean rule is unsupported. */
+	/** Optional whole-rule admission for a concrete property choice. */
 	readonly admit?: (property: CaseProperty) => ExpressionChangeAdmission;
 	/**
 	 * Optional accessibility label override. Defaults to "Case information"
@@ -115,10 +112,8 @@ interface PropertyPickerProps {
  * predicate, and surfaces selection through Nova's shared shadcn
  * dropdown primitive.
  *
- * Renders a friendly unavailable state when `value` names a property
- * that's no longer declared on the case type — keeps the editor
- * non-destructive against doc edits that remove properties out
- * from under a saved predicate.
+ * An unresolved current identity renders as an ephemeral repair state; it is
+ * not added back to the authorable choices.
  */
 export function PropertyPicker({
 	value,
@@ -133,6 +128,7 @@ export function PropertyPicker({
 	footerAction,
 }: PropertyPickerProps) {
 	const ctx = usePredicateEditContext();
+	const projectProse = useProseProjection();
 	const triggerId = useId();
 	const triggerRef = useRef<HTMLButtonElement>(null);
 	const searchInputRef = useRef<HTMLInputElement>(null);
@@ -147,11 +143,11 @@ export function PropertyPicker({
 
 	const properties = useMemo<readonly CaseProperty[]>(() => {
 		if (targetCaseType === undefined) return [];
-		const authorable = authorableCaseProperties(targetCaseType.properties);
-		return filter !== undefined ? authorable.filter(filter) : authorable;
+		return filter !== undefined
+			? targetCaseType.properties.filter(filter)
+			: targetCaseType.properties;
 	}, [targetCaseType, filter]);
-	const selectedName =
-		value === undefined ? undefined : canonicalCasePropertyName(value);
+	const selectedName = value;
 
 	const selectedKnown = useMemo(
 		() =>
@@ -166,18 +162,26 @@ export function PropertyPicker({
 	const selectedDisambiguator =
 		selectedProperty === undefined
 			? undefined
-			: friendlyPropertyDisambiguator(selectedProperty, properties);
+			: friendlyPropertyDisambiguator(
+					selectedProperty,
+					properties,
+					projectProse,
+				);
 	const visibleProperties = useMemo(() => {
 		const normalizedQuery = query.trim().toLocaleLowerCase();
 		if (normalizedQuery === "") return properties;
 
 		return properties.filter((property) => {
-			const disambiguator = friendlyPropertyDisambiguator(property, properties);
+			const disambiguator = friendlyPropertyDisambiguator(
+				property,
+				properties,
+				projectProse,
+			);
 			const searchableText = [
 				property.name,
 				humanizeId(property.name),
 				property.label,
-				propertyDisplayLabel(property),
+				propertyDisplayLabel(property, projectProse),
 				disambiguator,
 				propertyTypeLabel(property),
 				effectiveDataType(property),
@@ -187,7 +191,7 @@ export function PropertyPicker({
 				.toLocaleLowerCase();
 			return searchableText.includes(normalizedQuery);
 		});
-	}, [properties, query]);
+	}, [properties, query, projectProse]);
 
 	const handleSelect = useCallback(
 		(name: string) => {
@@ -221,7 +225,7 @@ export function PropertyPicker({
 			? "Choose information"
 			: selectedProperty === undefined
 				? "Unavailable information"
-				: propertyDisplayLabel(selectedProperty);
+				: propertyDisplayLabel(selectedProperty, projectProse);
 	const accessibleDisplayLabel =
 		selectedDisambiguator === undefined
 			? displayLabel
@@ -338,10 +342,11 @@ export function PropertyPicker({
 								visibleProperties.map((p) => {
 									const isActive = p.name === selectedName;
 									const verdict = admit?.(p) ?? { admitted: true as const };
-									const admitted = isActive || verdict.admitted;
+									const admitted = verdict.admitted;
 									const disambiguator = friendlyPropertyDisambiguator(
 										p,
 										properties,
+										projectProse,
 									);
 									return (
 										<DropdownMenuItem
@@ -366,7 +371,7 @@ export function PropertyPicker({
 											/>
 											<span className="flex-1 text-left min-w-0">
 												<div className="break-words">
-													{propertyDisplayLabel(p)}
+													{propertyDisplayLabel(p, projectProse)}
 												</div>
 												<div
 													className={`text-[12px] leading-4 ${

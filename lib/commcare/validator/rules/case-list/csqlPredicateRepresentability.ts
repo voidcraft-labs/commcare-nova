@@ -112,14 +112,8 @@ interface EffectivePredicateSlot {
 }
 
 function errorsForPredicate(args: EffectivePredicateSlot): ValidationError[] {
-	return (
-		checkCsqlRepresentability(args.predicate)
-			// Strict-null portability is a module-wide wire constraint shared by
-			// every Predicate/ValueExpression slot. Its dedicated rule owns that
-			// single repair; keep the checker issue for direct-emitter defense in
-			// depth without duplicating it in the module validator.
-			.filter((issue) => issue.reason !== "strict-null-not-portable")
-			.map((issue) => buildError(args, issue))
+	return checkCsqlRepresentability(args.predicate).map((issue) =>
+		buildError(args, issue),
 	);
 }
 

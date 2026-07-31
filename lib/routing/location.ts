@@ -8,6 +8,8 @@
  * URL layout (path segments after /build/{appId}/):
  *
  *   []                              → home
+ *   ["project-data"]                → Project data workspace
+ *   ["project-data", tableId]       → one Project data table
  *   [moduleUuid]                    → module
  *   [moduleUuid, "results"]         → case-results authoring
  *   [moduleUuid, "cases", caseId]   → case detail
@@ -26,6 +28,8 @@
  */
 
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
+import { uuidSchema } from "@/lib/domain";
+import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
 import {
 	APP_SETUP_SECTIONS,
 	type AppSetupSection,
@@ -33,8 +37,24 @@ import {
 	type Location,
 } from "@/lib/routing/types";
 
-/** The reserved first path segment the App setup workspace owns. */
+/** The two reserved first path segments, each owned by a configuration
+ *  workspace and each matched before any uuid lookup. */
 const APP_SETUP_SEGMENT = "setup";
+const PROJECT_DATA_SEGMENT = "project-data";
+
+/**
+ * Retired two-segment authoring URLs. They intentionally neither parse nor
+ * redirect: old bookmarks stop resolving under the direct cutover, while
+ * `cases/{caseId}` remains the distinct record deep link.
+ */
+export function isRetiredAuthoringPath(segments: readonly string[]): boolean {
+	return (
+		segments.length === 2 &&
+		(segments[1] === "cases" ||
+			segments[1] === "search-config" ||
+			segments[1] === "detail-config")
+	);
+}
 
 function isAppSetupSection(value: string): value is AppSetupSection {
 	return (APP_SETUP_SECTIONS as readonly string[]).includes(value);
@@ -69,6 +89,10 @@ export function serializePath(loc: Location): string[] {
 			return [];
 		case "app-setup":
 			return [APP_SETUP_SEGMENT, loc.section];
+		case "project-data":
+			return loc.tableId !== undefined
+				? [PROJECT_DATA_SEGMENT, loc.tableId]
+				: [PROJECT_DATA_SEGMENT];
 		case "module":
 			return [loc.moduleUuid];
 		case "cases":
@@ -155,7 +179,9 @@ function findFormForField(
 		let parentUuid: Uuid | undefined;
 		for (const [key, children] of Object.entries(doc.fieldOrder)) {
 			if (children.includes(currentUuid)) {
-				parentUuid = key as Uuid;
+				const parsed = uuidSchema.safeParse(key);
+				if (!parsed.success) return undefined;
+				parentUuid = parsed.data;
 				break;
 			}
 		}
@@ -167,7 +193,10 @@ function findFormForField(
 			/* Now find which module owns this form. */
 			for (const [moduleUuid, formUuids] of Object.entries(doc.formOrder)) {
 				if (formUuids.includes(parentUuid)) {
-					return { formUuid: parentUuid, moduleUuid: moduleUuid as Uuid };
+					const parsed = uuidSchema.safeParse(moduleUuid);
+					return parsed.success
+						? { formUuid: parentUuid, moduleUuid: parsed.data }
+						: undefined;
 				}
 			}
 			return undefined;
@@ -199,12 +228,12 @@ export function parsePathToLocation(
 ): Location {
 	if (segments.length === 0) return { kind: "home" };
 
-	/* `setup` is a reserved literal, matched BEFORE any uuid lookup: a
-	 * module uuid is a branded string with no format constraint, so a
-	 * doc-map lookup first would let an entity named `setup` shadow the
-	 * workspace. A bare `/setup` opens the default section, and a section
-	 * nobody recognizes opens it too — landing on the workspace the URL
-	 * clearly asked for beats bouncing to home. */
+	/* Both workspace segments are reserved literals, matched BEFORE any uuid
+	 * lookup: a doc-map lookup first would otherwise give a malformed imported
+	 * record a chance to shadow a whole workspace. Each also prefers its own
+	 * landing screen over home when the rest of the path is unrecognized —
+	 * landing on the workspace the URL clearly asked for beats discarding the
+	 * whole destination. */
 	if (segments[0] === APP_SETUP_SEGMENT) {
 		const section = segments[1];
 		return {
@@ -215,8 +244,16 @@ export function parsePathToLocation(
 					: DEFAULT_APP_SETUP_SECTION,
 		};
 	}
+	if (segments[0] === PROJECT_DATA_SEGMENT) {
+		const parsedTableId = lookupTableIdSchema.safeParse(segments[1]);
+		return parsedTableId.success
+			? { kind: "project-data", tableId: parsedTableId.data }
+			: { kind: "project-data" };
+	}
 
-	const first = segments[0] as Uuid;
+	const parsedFirst = uuidSchema.safeParse(segments[0]);
+	if (!parsedFirst.success) return { kind: "home" };
+	const first = parsedFirst.data;
 
 	if (segments.length === 1) {
 		/* Single segment — could be a module, form, or field UUID. */
@@ -227,9 +264,11 @@ export function parsePathToLocation(
 			/* Derive the module UUID from the doc's formOrder. */
 			for (const [moduleUuid, formUuids] of Object.entries(doc.formOrder)) {
 				if (formUuids.includes(first)) {
+					const parsedModule = uuidSchema.safeParse(moduleUuid);
+					if (!parsedModule.success) return { kind: "home" };
 					return {
 						kind: "form",
-						moduleUuid: moduleUuid as Uuid,
+						moduleUuid: parsedModule.data,
 						formUuid: first,
 					};
 				}
@@ -263,14 +302,11 @@ export function parsePathToLocation(
 	}
 
 	if (second === "cases") {
-		/* `/cases/{caseId}` remains the running case-record deep link.
-		 * The two-segment `/cases` form is a legacy Results-authoring alias;
-		 * LocationRecoveryEffect replaces it with the canonical `/results`. */
+		/* `/cases/{caseId}` remains the running case-record deep link. The
+		 * retired two-segment `/cases` authoring token does not parse. */
 		if (doc.modules[first] === undefined) return { kind: "home" };
-		if (segments.length === 2) {
-			return { kind: "cases", moduleUuid: first };
-		}
-		/* segments.length >= 3 — the third segment is the caseId,
+		if (segments.length !== 3) return { kind: "home" };
+		/* The third segment is the caseId,
 		 * percent-encoded by `serializePath`. */
 		return {
 			kind: "cases",
@@ -279,16 +315,14 @@ export function parsePathToLocation(
 		};
 	}
 
-	if (second === "search" || second === "search-config") {
-		/* `/search` is canonical; `/search-config` remains a legacy alias.
-		 * The module must exist or the path falls back to home. */
+	if (second === "search") {
+		/* The module must exist or the path falls back to home. */
 		if (doc.modules[first] === undefined) return { kind: "home" };
 		return { kind: "search-config", moduleUuid: first };
 	}
 
-	if (second === "details" || second === "detail-config") {
-		/* `/details` is canonical; `/detail-config` remains a legacy alias.
-		 * This is the third tab of the case workspace. */
+	if (second === "details") {
+		/* This is the third tab of the case workspace. */
 		if (doc.modules[first] === undefined) return { kind: "home" };
 		return { kind: "detail-config", moduleUuid: first };
 	}
@@ -309,12 +343,18 @@ export function parsePathToLocation(
 		if (doc.forms[first] === undefined) return { kind: "home" };
 		for (const [moduleUuid, formUuids] of Object.entries(doc.formOrder)) {
 			if (!formUuids.includes(first)) continue;
-			const operationUuid = segments[2] as Uuid | undefined;
+			const parsedModule = uuidSchema.safeParse(moduleUuid);
+			if (!parsedModule.success) return { kind: "home" };
+			const operationSegment = segments[2];
+			const operationUuid =
+				operationSegment === undefined
+					? undefined
+					: uuidSchema.safeParse(operationSegment);
 			return {
 				kind: "form-operations",
-				moduleUuid: moduleUuid as Uuid,
+				moduleUuid: parsedModule.data,
 				formUuid: first,
-				...(operationUuid !== undefined && { operationUuid }),
+				...(operationUuid?.success && { operationUuid: operationUuid.data }),
 			};
 		}
 		return { kind: "home" };
@@ -330,9 +370,11 @@ export function parsePathToLocation(
 		if (doc.forms[first] !== undefined) {
 			for (const [moduleUuid, formUuids] of Object.entries(doc.formOrder)) {
 				if (formUuids.includes(first)) {
+					const parsedModule = uuidSchema.safeParse(moduleUuid);
+					if (!parsedModule.success) return { kind: "home" };
 					return {
 						kind: "form-condition",
-						moduleUuid: moduleUuid as Uuid,
+						moduleUuid: parsedModule.data,
 						formUuid: first,
 					};
 				}
@@ -342,25 +384,27 @@ export function parsePathToLocation(
 	}
 
 	/* Two-segment path: /build/{id}/{formUuid}/{fieldUuid} */
-	const secondUuid = second as Uuid;
+	const parsedSecond = uuidSchema.safeParse(second);
 
 	if (doc.forms[first] !== undefined) {
 		/* Derive module UUID for the form. */
 		let moduleUuid: Uuid | undefined;
 		for (const [mUuid, formUuids] of Object.entries(doc.formOrder)) {
 			if (formUuids.includes(first)) {
-				moduleUuid = mUuid as Uuid;
+				const parsedModule = uuidSchema.safeParse(mUuid);
+				if (!parsedModule.success) return { kind: "home" };
+				moduleUuid = parsedModule.data;
 				break;
 			}
 		}
 		if (moduleUuid === undefined) return { kind: "home" };
 
-		if (doc.fields[secondUuid] !== undefined) {
+		if (parsedSecond.success && doc.fields[parsedSecond.data] !== undefined) {
 			return {
 				kind: "form",
 				moduleUuid,
 				formUuid: first,
-				selectedUuid: secondUuid,
+				selectedUuid: parsedSecond.data,
 			};
 		}
 		/* Second segment doesn't resolve to a field — show the form
@@ -382,6 +426,13 @@ export function isValidLocation(loc: Location, doc: LocationDoc): boolean {
 		case "app-setup":
 			/* App administration references no blueprint entity, so there is
 			 * nothing for the doc to invalidate. */
+			return true;
+		case "project-data":
+			/* Project data references no blueprint entity either. Its `tableId`
+			 * names a Project lookup table, which lives outside the document
+			 * entirely — the doc cannot prove it exists or that it is gone, so
+			 * validation here would be a guess. The workspace resolves the table
+			 * against the Project and owns the not-found state. */
 			return true;
 		case "module":
 			return doc.modules[loc.moduleUuid] !== undefined;
@@ -435,9 +486,10 @@ export function isValidLocation(loc: Location, doc: LocationDoc): boolean {
  */
 export function recoverLocation(loc: Location, doc: LocationDoc): Location {
 	if (loc.kind === "home") return loc;
-	/* App setup names no entity, so it survives every doc change. This must
-	 * come before the module read below — there is no `moduleUuid` to read. */
-	if (loc.kind === "app-setup") return loc;
+	/* Neither configuration workspace names an entity, so both survive every
+	 * doc change. This must come before the module read below — there is no
+	 * `moduleUuid` on either to read. */
+	if (loc.kind === "app-setup" || loc.kind === "project-data") return loc;
 
 	/* Module uuid is shared by module, cases, and form screens. If the
 	 * module has been deleted, nothing below it can be recovered — the

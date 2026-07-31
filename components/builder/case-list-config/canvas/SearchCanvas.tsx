@@ -18,7 +18,6 @@ import { Icon, type IconifyIcon } from "@iconify/react/offline";
 import tablerAlertCircle from "@iconify-icons/tabler/alert-circle";
 import tablerBarcode from "@iconify-icons/tabler/barcode";
 import tablerCalendar from "@iconify-icons/tabler/calendar";
-import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
 import tablerGripVertical from "@iconify-icons/tabler/grip-vertical";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerSearch from "@iconify-icons/tabler/search";
@@ -34,15 +33,15 @@ import {
 } from "@/components/builder/shared/useReorderableList";
 import { Button } from "@/components/shadcn/button";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
+import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import {
-	authorableCaseProperties,
 	type CaseProperty,
 	type CaseSearchConfig,
 	type CaseType,
-	canonicalCasePropertyName,
 	DEFAULT_CASE_SEARCH_TITLE,
 	isStandardCaseListProperty,
 	type SearchInputDef,
+	searchInputDefault,
 } from "@/lib/domain";
 import type { ValueExpression } from "@/lib/domain/predicate";
 import { PreviewMarkdown } from "@/lib/markdown";
@@ -102,34 +101,35 @@ export function SearchCanvas({
 	searchSettingsHasError = false,
 }: SearchCanvasProps) {
 	const canEdit = useCanEdit();
+	const projectProse = useProseProjection();
 	const containerKey = useId();
 	const [moveAnnouncement, setMoveAnnouncement] = useState("");
 	const panelSelected = selection?.type === "search-panel";
 	const selectedInputUuid = selection?.type === "input" ? selection.uuid : null;
+	const enabledSearchConfig =
+		searchConfig === undefined || "searchActionEnabled" in searchConfig
+			? undefined
+			: searchConfig;
 	const searchEnabled = hasSearchSurface ?? searchInputs.length > 0;
 	const searchActionEnabled =
 		hasSearchAction ??
 		(searchInputs.length > 0 ||
-			(searchConfig !== undefined &&
-				searchConfig.searchActionEnabled !== false));
+			(searchConfig !== undefined && !("searchActionEnabled" in searchConfig)));
 	const properties = useMemo(
 		() =>
-			authorableCaseProperties(
-				caseTypes.find((caseType) => caseType.name === currentCaseType)
-					?.properties ?? [],
-			),
+			caseTypes.find((caseType) => caseType.name === currentCaseType)
+				?.properties ?? [],
 		[caseTypes, currentCaseType],
 	);
 
-	// DISPLAY order (`sort-by-(order, uuid)`), not array position — the render,
-	// the `resolved` parallel array, and the reorder drag's indices all key off
-	// this so an SA/MCP `moveSearchInput` reflects here and a drag computes
-	// correct from/to indices.
+	// Array position is the display sequence. The render, `resolved` parallel
+	// array, and reorder drag indices all key off it, so an SA/MCP
+	// `moveSearchInput` reflects here and a drag computes correct indices.
 	const orderedInputs = useMemo(() => [...searchInputs], [searchInputs]);
 
 	const resolved = useMemo(
-		() => resolveRows(orderedInputs, caseTypes, currentCaseType),
-		[orderedInputs, caseTypes, currentCaseType],
+		() => resolveRows(orderedInputs, caseTypes, currentCaseType, projectProse),
+		[orderedInputs, caseTypes, currentCaseType, projectProse],
 	);
 
 	const { pendingDrop } = useReorderableList<SearchInputDef>({
@@ -171,8 +171,9 @@ export function SearchCanvas({
 		onMoveInput(input.uuid, targetIndex);
 	};
 
-	const title = searchConfig?.searchScreenTitle ?? DEFAULT_CASE_SEARCH_TITLE;
-	const subtitle = searchConfig?.searchScreenSubtitle;
+	const title =
+		enabledSearchConfig?.searchScreenTitle ?? DEFAULT_CASE_SEARCH_TITLE;
+	const subtitle = enabledSearchConfig?.searchScreenSubtitle;
 	const openSearchSettings = () => {
 		if (onConfigureSearchAction !== undefined) onConfigureSearchAction();
 		else onSelect({ type: "search-panel" });
@@ -398,6 +399,7 @@ export function AddSearchFieldControl({
 	readonly onChoose: (property: CaseProperty) => void;
 	readonly disabledReason: string | undefined;
 }) {
+	const projectProse = useProseProjection();
 	const effectiveDisabledReason =
 		disabledReason ??
 		(properties.length === 0
@@ -405,12 +407,10 @@ export function AddSearchFieldControl({
 			: undefined);
 
 	const orderedProperties = useMemo(() => {
-		const indexed = authorableCaseProperties(properties).map(
-			(property, index) => ({ property, index }),
-		);
+		const indexed = properties.map((property, index) => ({ property, index }));
 		indexed.sort((left, right) => {
-			const leftName = canonicalCasePropertyName(left.property.name);
-			const rightName = canonicalCasePropertyName(right.property.name);
+			const leftName = left.property.name;
+			const rightName = right.property.name;
 			if (leftName === "case_name" && rightName !== "case_name") return -1;
 			if (rightName === "case_name" && leftName !== "case_name") return 1;
 			const leftIsSystem = isStandardCaseListProperty(leftName);
@@ -423,13 +423,17 @@ export function AddSearchFieldControl({
 	const choices = useMemo<readonly SearchableChoice<CaseProperty>[]>(
 		() =>
 			orderedProperties.map((property) => {
-				const name = canonicalCasePropertyName(property.name);
+				const name = property.name;
 				return {
 					id: `property:${name}`,
-					label: propertyDisplayLabel(property),
+					label: propertyDisplayLabel(property, projectProse),
 					detail: [
 						propertyTypeLabel(property),
-						friendlyPropertyDisambiguator(property, orderedProperties),
+						friendlyPropertyDisambiguator(
+							property,
+							orderedProperties,
+							projectProse,
+						),
 					]
 						.filter((part): part is string => part !== undefined)
 						.join(" · "),
@@ -442,7 +446,7 @@ export function AddSearchFieldControl({
 					value: property,
 				};
 			}),
-		[orderedProperties],
+		[orderedProperties, projectProse],
 	);
 
 	if (effectiveDisabledReason !== undefined) {
@@ -511,7 +515,7 @@ function InputRow({
 	onMove,
 	onClick,
 }: InputRowProps) {
-	const dflt = defaultDisplayValue(input.default);
+	const dflt = defaultDisplayValue(searchInputDefault(input));
 	const label = input.label || input.name || "Untitled field";
 	const content = (
 		<span className="flex min-w-0 w-full flex-col">
@@ -615,14 +619,6 @@ function AppField({
 					text={defaultText ?? " "}
 					filled={defaultText !== undefined}
 					icon={tablerCalendar}
-				/>
-			);
-		case "select":
-			return (
-				<FieldBox
-					text={defaultText ?? " "}
-					filled={defaultText !== undefined}
-					icon={tablerChevronDown}
 				/>
 			);
 		case "barcode":

@@ -1,72 +1,116 @@
 import { describe, expect, it } from "vitest";
-import {
-	asUuid,
-	type CaseType,
-	fieldKinds,
-	opaqueXPathExpression,
-} from "@/lib/domain";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { xp } from "@/lib/__tests__/docHelpers";
+import { type CaseType, fieldKinds, proseTemplateText } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import {
 	applyDefaults,
-	type FlatField,
 	flatFieldToField,
+	type PreparedFlatField,
+	prepareToolOptionsSource,
 	stripEmpty,
 } from "../contentProcessing";
+import { projectedOptionsSourceSchema } from "../toolSchemaGenerator";
 
 // Fixture: case types model the CommCare case data layer, so their
 // property metadata uses CommCare-flavored `validation` / `validation_msg`.
 // `applyDefaults` is the one place in the agent where the case-type
 // vocabulary meets the field vocabulary: the output field uses domain
-// names (`validate`, `kind`, `case_property_on`).
+// names (`validate`, `kind`, `caseWrite`).
 const testCaseType: CaseType = {
 	name: "patient",
 	properties: [
-		{ name: "case_name", label: "Full Name" },
+		{ name: "case_name", label: proseText("Full Name") },
 		{
 			name: "age",
-			label: "Patient Age",
+			label: proseText("Patient Age"),
 			data_type: "int",
-			required: "true()",
-			validation: ". > 0 and . < 150",
-			validation_msg: "Age must be between 1 and 149",
+			required: xp("true()"),
+			validation: xp(". > 0 and . < 150"),
+			validation_msg: proseText("Age must be between 1 and 149"),
 		},
 		{
 			name: "gender",
-			label: "Gender",
+			label: proseText("Gender"),
 			data_type: "single_select",
 			options: [
-				{ value: "male", label: "Male" },
-				{ value: "female", label: "Female" },
+				{ value: "male", label: proseText("Male") },
+				{ value: "female", label: proseText("Female") },
 			],
 		},
 		{
 			name: "phone",
-			label: "Phone Number",
+			label: proseText("Phone Number"),
 			data_type: "text",
-			hint: "Include country code",
+			hint: proseText("Include country code"),
 		},
 	],
 };
 
+describe("prepareToolOptionsSource", () => {
+	it("maps the machine option projection once, preserving declared identity and source order", () => {
+		const preserved = testUuid("prepared-option-preserved");
+		const result = prepareToolOptionsSource({
+			kind: "inline",
+			options: [
+				{
+					optionUuid: preserved,
+					value: "yes",
+					label: proseText("Yes"),
+				},
+				{ value: "no", label: proseText("No") },
+			],
+		});
+		expect(result.kind).toBe("inline");
+		if (result.kind !== "inline") throw new Error("expected inline source");
+		expect(result.options.map((option) => option.value)).toEqual(["yes", "no"]);
+		expect(result.options[0]?.uuid).toBe(preserved);
+		expect(result.options[1]?.uuid).toMatch(
+			/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+		);
+		expect(result.options.every((option) => !("optionUuid" in option))).toBe(
+			true,
+		);
+	});
+
+	it("passes the canonical lookup arm through without aliases or remapping", () => {
+		const source = projectedOptionsSourceSchema.parse({
+			kind: "lookup",
+			tableId: "018f0000-0000-7000-8000-000000000001",
+			valueColumnId: "018f0000-0000-7000-8000-000000000002",
+			labelColumnId: "018f0000-0000-7000-8000-000000000003",
+		});
+		expect(prepareToolOptionsSource(source)).toBe(source);
+	});
+});
+
 describe("applyDefaults", () => {
 	it("fills in label from case type for sparse field", () => {
 		const result = applyDefaults(
-			{ id: "case_name", kind: "text", case_property_on: "patient" },
+			{
+				id: "full_name",
+				kind: "text",
+				caseWrite: { caseType: "patient", property: "case_name" },
+			},
 			[testCaseType],
 		);
-		expect(result.label).toBe("Full Name");
+		expect(result.label && proseTemplateText(result.label)).toBe("Full Name");
 	});
 
-	it("applies legacy alias metadata to a newly canonical field id", () => {
+	it("applies exact catalog metadata to a case-bound field id", () => {
 		const result = applyDefaults(
-			{ id: "external_id", case_property_on: "patient" },
+			{
+				id: "enrollment_number",
+				caseWrite: { caseType: "patient", property: "external_id" },
+			},
 			[
 				{
 					name: "patient",
 					properties: [
 						{
-							name: "external-id",
-							label: "Enrollment number",
-							hint: "Printed on the card",
+							name: "external_id",
+							label: proseText("Enrollment number"),
+							hint: proseText("Printed on the card"),
 						},
 					],
 				},
@@ -74,8 +118,12 @@ describe("applyDefaults", () => {
 		);
 
 		expect(result.kind).toBe("text");
-		expect(result.label).toBe("Enrollment number");
-		expect(result.hint).toBe("Printed on the card");
+		expect(result.label && proseTemplateText(result.label)).toBe(
+			"Enrollment number",
+		);
+		expect(result.hint && proseTemplateText(result.hint)).toBe(
+			"Printed on the card",
+		);
 	});
 
 	it("preserves explicit label when provided", () => {
@@ -83,12 +131,14 @@ describe("applyDefaults", () => {
 			{
 				id: "case_name",
 				kind: "text",
-				label: "Custom Label",
-				case_property_on: "patient",
+				label: proseText("Custom Label"),
+				caseWrite: { caseType: "patient", property: "case_name" },
 			},
 			[testCaseType],
 		);
-		expect(result.label).toBe("Custom Label");
+		expect(result.label && proseTemplateText(result.label)).toBe(
+			"Custom Label",
+		);
 	});
 
 	it("fills in validate (nested), required, and msg from case-type vocab", () => {
@@ -98,22 +148,38 @@ describe("applyDefaults", () => {
 		// into that nested shape — only when the SA didn't provide its
 		// own validate object.
 		const result = applyDefaults(
-			{ id: "age", kind: "int", case_property_on: "patient" },
+			{
+				id: "reported_age",
+				kind: "int",
+				caseWrite: { caseType: "patient", property: "age" },
+			},
 			[testCaseType],
 		);
-		expect(result.required).toBe("true()");
+		expect(result.required).toEqual(xp("true()"));
 		expect(result.validate).toEqual({
-			expr: ". > 0 and . < 150",
-			msg: "Age must be between 1 and 149",
+			expr: xp(". > 0 and . < 150"),
+			msg: proseText("Age must be between 1 and 149"),
 		});
 	});
 
 	it("fills in options for select properties", () => {
 		const result = applyDefaults(
-			{ id: "gender", kind: "single_select", case_property_on: "patient" },
+			{
+				id: "gender",
+				kind: "single_select",
+				caseWrite: { caseType: "patient", property: "gender" },
+			},
 			[testCaseType],
 		);
-		expect(result.options).toEqual([
+		expect(result.optionsSource?.kind).toBe("inline");
+		expect(
+			result.optionsSource?.kind === "inline"
+				? result.optionsSource.options.map((option) => ({
+						value: option.value,
+						label: proseTemplateText(option.label),
+					}))
+				: [],
+		).toEqual([
 			{ value: "male", label: "Male" },
 			{ value: "female", label: "Female" },
 		]);
@@ -127,10 +193,14 @@ describe("applyDefaults", () => {
 	it("does NOT seed select-only options/label onto a hidden field", () => {
 		const result = applyDefaults(
 			// A hidden computed field writing to the select-typed `gender`.
-			{ id: "gender", kind: "hidden", case_property_on: "patient" },
+			{
+				id: "gender_code",
+				kind: "hidden",
+				caseWrite: { caseType: "patient", property: "gender" },
+			},
 			[testCaseType],
 		);
-		expect(result.options).toBeUndefined();
+		expect(result.optionsSource).toBeUndefined();
 		expect(result.label).toBeUndefined();
 		expect(result.kind).toBe("hidden");
 	});
@@ -140,50 +210,73 @@ describe("applyDefaults", () => {
 			// geopoint has no `validate` slot, so the `age` property's
 			// `validation` must not be seeded — but `required`, which geopoint
 			// DOES declare, still is.
-			{ id: "age", kind: "geopoint", case_property_on: "patient" },
+			{
+				id: "location",
+				kind: "geopoint",
+				caseWrite: { caseType: "patient", property: "age" },
+			},
 			[testCaseType],
 		);
 		expect(result.validate).toBeUndefined();
-		expect(result.required).toBe("true()");
+		expect(result.required).toEqual(xp("true()"));
 	});
 
 	it("treats an explicit empty-string label as unset and seeds from the catalog", () => {
 		// The single-add path doesn't run `stripEmpty`, so an explicit `""`
 		// must still be treated as unset here for single/batch parity.
 		const result = applyDefaults(
-			{ id: "case_name", kind: "text", label: "", case_property_on: "patient" },
+			{
+				id: "case_name",
+				kind: "text",
+				label: proseText(""),
+				caseWrite: { caseType: "patient", property: "case_name" },
+			},
 			[testCaseType],
 		);
-		expect(result.label).toBe("Full Name");
+		expect(result.label && proseTemplateText(result.label)).toBe("Full Name");
 	});
 
 	it("fills in hint from case type", () => {
 		const result = applyDefaults(
-			{ id: "phone", kind: "text", case_property_on: "patient" },
+			{
+				id: "contact_number",
+				kind: "text",
+				caseWrite: { caseType: "patient", property: "phone" },
+			},
 			[testCaseType],
 		);
-		expect(result.hint).toBe("Include country code");
+		expect(result.hint && proseTemplateText(result.hint)).toBe(
+			"Include country code",
+		);
 	});
 
 	it("derives kind from case type data_type", () => {
-		const result = applyDefaults({ id: "age", case_property_on: "patient" }, [
-			testCaseType,
-		]);
+		const result = applyDefaults(
+			{
+				id: "reported_age",
+				caseWrite: { caseType: "patient", property: "age" },
+			},
+			[testCaseType],
+		);
 		expect(result.kind).toBe("int");
 	});
 
-	it("returns field unchanged when no case_property_on", () => {
+	it("returns field unchanged when it has no caseWrite destination", () => {
 		const result = applyDefaults(
-			{ id: "notes", kind: "text", label: "Notes" },
+			{ id: "notes", kind: "text", label: proseText("Notes") },
 			[testCaseType],
 		);
-		expect(result.label).toBe("Notes");
+		expect(result.label && proseTemplateText(result.label)).toBe("Notes");
 		expect(result.hint).toBeUndefined();
 	});
 
 	it("returns field unchanged when case types is null", () => {
 		const result = applyDefaults(
-			{ id: "case_name", kind: "text", case_property_on: "patient" },
+			{
+				id: "full_name",
+				kind: "text",
+				caseWrite: { caseType: "patient", property: "case_name" },
+			},
 			null,
 		);
 		expect(result.label).toBeUndefined();
@@ -191,7 +284,11 @@ describe("applyDefaults", () => {
 
 	it("returns field unchanged when property not found in case type", () => {
 		const result = applyDefaults(
-			{ id: "nonexistent", kind: "text", case_property_on: "patient" },
+			{
+				id: "missing_value",
+				kind: "text",
+				caseWrite: { caseType: "patient", property: "nonexistent" },
+			},
 			[testCaseType],
 		);
 		expect(result.label).toBeUndefined();
@@ -204,22 +301,28 @@ describe("applyDefaults", () => {
 		// and is unescaped in `flatFieldToField` instead — see the
 		// nested-config tests below.
 		const result = applyDefaults(
-			{ id: "x", kind: "text", relevant: ". &gt; 0 &amp;&amp; . &lt; 10" },
+			{ id: "x", kind: "text", relevant: xp(". > 0 && . < 10") },
 			null,
 		);
-		expect(result.relevant).toBe(". > 0 && . < 10");
+		expect(result.relevant).toEqual(xp(". > 0 && . < 10"));
 	});
 
-	it("looks up the correct case type from array by case_property_on", () => {
+	it("looks up the exact case type and property from caseWrite", () => {
 		const otherCaseType: CaseType = {
 			name: "household",
-			properties: [{ name: "case_name", label: "Household ID" }],
+			properties: [{ name: "case_name", label: proseText("Household ID") }],
 		};
 		const result = applyDefaults(
-			{ id: "case_name", kind: "text", case_property_on: "household" },
+			{
+				id: "household_name",
+				kind: "text",
+				caseWrite: { caseType: "household", property: "case_name" },
+			},
 			[testCaseType, otherCaseType],
 		);
-		expect(result.label).toBe("Household ID");
+		expect(result.label && proseTemplateText(result.label)).toBe(
+			"Household ID",
+		);
 	});
 
 	// ── Case preload is structural, not a default_value autoset ──────────
@@ -232,7 +335,11 @@ describe("applyDefaults", () => {
 
 	it("does not seed default_value for a primary case property", () => {
 		const result = applyDefaults(
-			{ id: "age", kind: "int", case_property_on: "patient" },
+			{
+				id: "reported_age",
+				kind: "int",
+				caseWrite: { caseType: "patient", property: "age" },
+			},
 			[testCaseType],
 		);
 		expect(result.default_value).toBeUndefined();
@@ -243,36 +350,47 @@ describe("applyDefaults", () => {
 			{
 				id: "age",
 				kind: "int",
-				case_property_on: "patient",
-				default_value: "today()",
+				caseWrite: { caseType: "patient", property: "age" },
+				default_value: xp("today()"),
 			},
 			[testCaseType],
 		);
-		expect(result.default_value).toBe("today()");
+		expect(result.default_value).toEqual(xp("today()"));
 	});
 });
 
 // A valid SA-authoring payload per kind — the kind the per-kind tool union
 // would accept. `hidden` carries a value but no label; containers take an
 // optional label; selects need ≥2 options; repeat needs a mode.
-function validFlatPayload(kind: string): FlatField {
+function validFlatPayload(kind: string): PreparedFlatField {
 	const p: Record<string, unknown> = { id: `f_${kind}`, kind };
-	if (kind === "hidden") p.calculate = "today()";
+	if (kind === "hidden") p.calculate = xp("today()");
 	else if (kind === "repeat") {
-		p.label = "Items";
+		p.label = proseText("Items");
 		p.repeat = { mode: "user_controlled" };
-	} else if (kind === "group") p.label = "Section";
-	else p.label = "Label";
+	} else if (kind === "group") p.label = proseText("Section");
+	else p.label = proseText("Label");
 	if (kind === "single_select" || kind === "multi_select") {
-		p.options = [
-			{ value: "a", label: "A" },
-			{ value: "b", label: "B" },
-		];
+		p.optionsSource = {
+			kind: "inline",
+			options: [
+				{
+					uuid: testUuid(`option-${kind}-a`),
+					value: "a",
+					label: proseText("A"),
+				},
+				{
+					uuid: testUuid(`option-${kind}-b`),
+					value: "b",
+					label: proseText("B"),
+				},
+			],
+		};
 	}
-	return p as FlatField;
+	return p as PreparedFlatField;
 }
 
-const TEST_UUID = asUuid("00000000-0000-4000-8000-000000000000");
+const TEST_UUID = testUuid("00000000-0000-4000-8000-000000000000");
 
 describe("flatFieldToField — totality + failure reasons", () => {
 	// The totality proof: after the per-kind tool inputs + kind-aware
@@ -281,41 +399,39 @@ describe("flatFieldToField — totality + failure reasons", () => {
 	it("assembles a valid Field for every kind", () => {
 		for (const kind of fieldKinds) {
 			const processed = applyDefaults(stripEmpty(validFlatPayload(kind)), null);
-			const result = flatFieldToField(
-				processed,
-				TEST_UUID,
-				opaqueXPathExpression,
-			);
+			const result = flatFieldToField(processed, TEST_UUID);
 			expect(result.ok, `kind ${kind} did not assemble`).toBe(true);
 		}
 	});
 
 	it("assembles the nested validate + each repeat mode", () => {
-		const cases: FlatField[] = [
+		const cases: PreparedFlatField[] = [
 			{
 				id: "t",
 				kind: "text",
-				label: "T",
-				validate: { expr: ". != ''", msg: "Required" },
-			} as FlatField,
+				label: proseText("T"),
+				validate: {
+					expr: xp(". != ''"),
+					msg: proseText("Required"),
+				},
+			} as unknown as PreparedFlatField,
 			{
 				id: "r1",
 				kind: "repeat",
-				label: "R",
-				repeat: { mode: "count_bound", count: "#form/n" },
-			} as FlatField,
+				label: proseText("R"),
+				repeat: { mode: "count_bound", count: xp("#form/n") },
+			} as unknown as PreparedFlatField,
 			{
 				id: "r2",
 				kind: "repeat",
-				label: "R",
-				repeat: { mode: "query_bound", ids_query: "#form/ids" },
-			} as FlatField,
+				label: proseText("R"),
+				repeat: { mode: "query_bound", ids_query: xp("#form/ids") },
+			} as unknown as PreparedFlatField,
 		];
 		for (const c of cases) {
 			const result = flatFieldToField(
 				applyDefaults(stripEmpty(c), null),
 				TEST_UUID,
-				opaqueXPathExpression,
 			);
 			expect(result.ok, `${c.id} did not assemble`).toBe(true);
 		}
@@ -326,9 +442,13 @@ describe("flatFieldToField — totality + failure reasons", () => {
 		// but a non-tool path could carry it) is filtered out — the field
 		// survives as a plain text field, not dropped wholesale.
 		const result = flatFieldToField(
-			{ id: "t", kind: "text", label: "T", calculate: "today()" } as FlatField,
+			{
+				id: "t",
+				kind: "text",
+				label: proseText("T"),
+				calculate: xp("today()"),
+			} as unknown as PreparedFlatField,
 			TEST_UUID,
-			opaqueXPathExpression,
 		);
 		expect(result.ok).toBe(true);
 		if (result.ok) {
@@ -342,11 +462,19 @@ describe("flatFieldToField — totality + failure reasons", () => {
 			{
 				id: "s",
 				kind: "single_select",
-				label: "S",
-				options: [{ value: "a", label: "A" }],
-			} as FlatField,
+				label: proseText("S"),
+				optionsSource: {
+					kind: "inline",
+					options: [
+						{
+							uuid: testUuid("one-option"),
+							value: "a",
+							label: proseText("A"),
+						},
+					],
+				},
+			} as unknown as PreparedFlatField,
 			TEST_UUID,
-			opaqueXPathExpression,
 		);
 		expect(result.ok).toBe(false);
 		if (!result.ok) {

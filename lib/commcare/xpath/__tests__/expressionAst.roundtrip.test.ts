@@ -1,9 +1,8 @@
 /**
- * The expression round-trip law: `print(parse(s)) === s` BYTE-IDENTICAL
- * for every input string, over an unrenamed doc. This is the
- * migration-safety oracle — a stored expression converts to its AST
- * only because printing that AST provably reproduces the original
- * bytes, so the representation change touches zero wire bytes.
+ * The expression canonicality law: parsing a printed expression reproduces
+ * the identical stored AST. Non-reference text stays byte-identical; identity
+ * leaves use their one canonical projection. Migration separately rejects
+ * legacy noncanonical absolute paths.
  *
  * Three layers:
  *   1. a curated corpus of every reference spelling, whitespace shape,
@@ -15,15 +14,21 @@
  */
 import * as fc from "fast-check";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	fieldPathResolver,
 	printXPath,
+	type XPathExpression,
 	type XPathPrintableDoc,
 	xpathPrintContext,
 } from "@/lib/domain";
 import { parseXPathExpression } from "../expressionAst";
 
-const FORM = "form-1";
+const FORM = testUuid("form-1");
+const AGE = testUuid("f-age");
+const GROUP = testUuid("f-grp");
+const INNER = testUuid("f-inner");
+const NAME = testUuid("f-name");
 
 /** A form with a top-level field, a group with a nested field, and a
  *  sibling-of-group leaf — enough structure for every resolution
@@ -31,25 +36,35 @@ const FORM = "form-1";
 const doc: XPathPrintableDoc = {
 	forms: { [FORM]: {} },
 	fields: {
-		"f-age": { id: "age" },
-		"f-grp": { id: "grp" },
-		"f-inner": { id: "inner" },
-		"f-name": { id: "name" },
+		[AGE]: { id: "age" },
+		[GROUP]: { id: "grp" },
+		[INNER]: { id: "inner" },
+		[NAME]: { id: "name" },
 	},
 	fieldOrder: {
-		[FORM]: ["f-age", "f-grp", "f-name"],
-		"f-grp": ["f-inner"],
+		[FORM]: [AGE, GROUP, NAME],
+		[GROUP]: [INNER],
 	},
 };
 
 const resolve = fieldPathResolver(doc, FORM);
 const printCtx = () => xpathPrintContext(doc);
 
-function roundTrip(source: string): string {
-	return printXPath(
-		parseXPathExpression(source, resolve, () => undefined),
-		printCtx(),
-	);
+function parse(source: string): XPathExpression {
+	return parseXPathExpression(source, resolve, () => undefined);
+}
+
+function print(expression: XPathExpression): string {
+	return printXPath(expression, printCtx());
+}
+
+function canonical(source: string): string {
+	return print(parse(source));
+}
+
+function expectCanonicalLaw(source: string): void {
+	const expression = parse(source);
+	expect(parse(print(expression))).toEqual(expression);
 }
 
 const CORPUS: string[] = [
@@ -69,9 +84,9 @@ const CORPUS: string[] = [
 	"/data/age + /data/grp/inner",
 	"#mother/age",
 	"#mother/age/extra",
-	"#case/age",
-	"#case/parent/age",
-	"#case/case_id",
+	"#patient/age",
+	"#patient/parent/age",
+	"#patient/case_id",
 	"#user/role",
 	"#user/role/extra",
 	"today() - #form/age > 7",
@@ -108,8 +123,13 @@ const CORPUS: string[] = [
 describe("expression round-trip law", () => {
 	it("holds over the curated corpus", () => {
 		for (const source of CORPUS) {
-			expect(roundTrip(source)).toBe(source);
+			expectCanonicalLaw(source);
 		}
+	});
+
+	it("normalizes admitted absolute identities and preserves rejected spelling as text", () => {
+		expect(canonical("//data//age")).toBe("//data//age");
+		expect(canonical("/ data / grp / inner")).toBe("/data/grp/inner");
 	});
 
 	it("holds over grammar-shaped composites", () => {
@@ -118,7 +138,7 @@ describe("expression round-trip law", () => {
 			"#form/grp/inner",
 			"#form/gone",
 			"#mother/age",
-			"#case/age",
+			"#patient/age",
 			"#user/role",
 			"/data/age",
 			"/data/grp/inner",
@@ -169,7 +189,7 @@ describe("expression round-trip law", () => {
 
 		fc.assert(
 			fc.property(composite, (source) => {
-				expect(roundTrip(source)).toBe(source);
+				expectCanonicalLaw(source);
 			}),
 			{ numRuns: 500, seed: 20260611 },
 		);
@@ -178,7 +198,7 @@ describe("expression round-trip law", () => {
 	it("holds over arbitrary strings (opaque passthrough included)", () => {
 		fc.assert(
 			fc.property(fc.string({ maxLength: 80 }), (source) => {
-				expect(roundTrip(source)).toBe(source);
+				expectCanonicalLaw(source);
 			}),
 			{ numRuns: 500, seed: 20260611 },
 		);

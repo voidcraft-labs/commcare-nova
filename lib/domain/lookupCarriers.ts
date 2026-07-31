@@ -1,36 +1,26 @@
 import { z } from "zod";
-import {
-	type LookupColumnId,
-	type LookupTableId,
-	lookupColumnIdSchema,
-	lookupTableIdSchema,
-} from "./lookupIds";
-import { type Predicate, predicateSchema } from "./predicate/types";
+import { lookupColumnIdSchema, lookupTableIdSchema } from "./lookupIds";
+import { predicateSchema } from "./predicate/types";
 
 /**
  * A select whose choices come from one Project lookup table.
  *
  * Stable table/column identities are persisted here; display names and wire
- * tags remain projections of the current lookup definition. Inline select
- * options stay on the field as the rolling-receiver fallback.
+ * tags remain projections of the current lookup definition. The source
+ * discriminant is final: a select has either inline options or this lookup
+ * source, never both.
  */
-export type LookupOptionsSource = {
-	kind: "lookup-table";
-	tableId: LookupTableId;
-	valueColumnId: LookupColumnId;
-	labelColumnId: LookupColumnId;
-	filter?: Predicate;
-};
-
-export const lookupOptionsSourceSchema: z.ZodType<LookupOptionsSource> = z
+export const lookupOptionsSourceSchema = z
 	.object({
-		kind: z.literal("lookup-table"),
+		kind: z.literal("lookup"),
 		tableId: lookupTableIdSchema,
 		valueColumnId: lookupColumnIdSchema,
 		labelColumnId: lookupColumnIdSchema,
 		filter: predicateSchema.optional(),
 	})
 	.strict();
+
+export type LookupOptionsSource = z.infer<typeof lookupOptionsSourceSchema>;
 
 // Keep recursive Predicate payloads behind one stable definition when this
 // carrier appears in generated schemas. Register in place; `.meta()` would

@@ -19,6 +19,7 @@ import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { projectCaseListForHq } from "@/lib/commcare/hqJson/caseList";
 import type { BlueprintDoc, CaseTileLayout, TileCell } from "@/lib/domain";
 import { tileCell } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 
 function tiledDoc(
 	tile: CaseTileLayout | undefined,
@@ -50,8 +51,8 @@ function tiledDoc(
 							f({
 								kind: "text",
 								id: "case_name",
-								label: "Name",
-								case_property_on: "patient",
+								label: proseText("Name"),
+								caseWrite: { caseType: "patient", property: "case_name" },
 							}),
 						],
 					},
@@ -62,8 +63,8 @@ function tiledDoc(
 			{
 				name: "patient",
 				properties: [
-					{ name: "case_name", label: "Name" },
-					{ name: "town", label: "Town" },
+					{ name: "case_name", label: proseText("Name") },
+					{ name: "town", label: proseText("Town") },
 				],
 			},
 		],

@@ -124,6 +124,13 @@ function useLookupPreviewDataResource(): PreviewLookupStatus {
 			) {
 				return { notReady: { kind: "idle" } };
 			}
+			/* A null manifest is an explicit current-page reset, including the
+			 * malformed-frame recovery window. Drop any retained fixture snapshot
+			 * and wait for the authoritative manifest before fetching definitions or
+			 * rows; Preview must never run against stale lookup bytes. */
+			if (manifest === null) {
+				return { notReady: { kind: "loading" } };
+			}
 			const id = appId;
 			const ids = tableIds;
 			return {

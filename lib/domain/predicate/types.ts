@@ -47,7 +47,7 @@
 // Recursive shape note: both unions carry self-recursive arms (`and`
 // / `or` / `not` / `when-input-present` / `exists` / `missing` on the
 // Predicate side; `arith` / `concat` / `if` / `switch` / `count` /
-// `unwrap-list` / `format-date` / `date-add` / `date-coerce` /
+// `table-lookup` / `format-date` / `date-add` / `date-coerce` /
 // `datetime-coerce` / `double` / `coalesce` / `term` on the
 // ValueExpression side, with `if` / `switch` / `count` also crossing
 // into Predicate). Every cycle goes through a
@@ -59,6 +59,10 @@
 // declaration explains why.
 
 import { z } from "zod";
+import {
+	AUTHORED_CASE_PROPERTY_NAME_PATTERN,
+	authoredCasePropertyNameSchema,
+} from "../casePropertyName";
 // Imported from the leaf at `../casePropertyTypes` (not
 // `../blueprint`) to avoid a cycle: `blueprint.ts` imports
 // `moduleSchema`, which imports `predicateSchema` /
@@ -66,6 +70,14 @@ import { z } from "zod";
 // import back into `blueprint.ts` and break module-load order.
 import { casePropertyDataTypeSchema } from "../casePropertyTypes";
 import { COMMCARE_DATE_PATTERN_REGEX } from "../commCareDatePattern";
+import { externalUserPropertyNameSchema } from "../externalUserProperty";
+import {
+	persistableJsonNumberSchema,
+	persistableJsonPositiveNumberSchema,
+} from "../jsonNumber";
+
+export { SESSION_USER_FIELD_PATTERN } from "../externalUserProperty";
+
 import {
 	type LookupColumnId,
 	type LookupTableId,
@@ -128,10 +140,10 @@ export const CASE_TYPE_PATTERN = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
  * (same shape as case types: leading letter, then
  * letters/digits/underscores/hyphens). Hyphens are permitted because
  * existing CommCare deployments routinely store properties with
- * hyphenated names (e.g. `external-id`); the wire emitter treats
+ * hyphenated authored names (for example `follow-up-date`); the wire emitter treats
  * them as opaque identifiers.
  */
-export const CASE_PROPERTY_PATTERN = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
+export const CASE_PROPERTY_PATTERN = AUTHORED_CASE_PROPERTY_NAME_PATTERN;
 
 /**
  * Permitted shape of an XML element name — a search-input name and
@@ -146,14 +158,6 @@ export const CASE_PROPERTY_PATTERN = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
  * `CASE_PROPERTY_REGEX`.
  */
 export const XML_ELEMENT_NAME_PATTERN = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
-
-/**
- * Open worker-data names share the XML-safe leading character above, while
- * HQ's worker-data slug vocabulary also admits hyphens after it. Keep this
- * separate from `XML_ELEMENT_NAME_PATTERN`: search-input names and relation
- * identifiers intentionally retain their narrower authored grammar.
- */
-export const SESSION_USER_FIELD_PATTERN = /^[a-zA-Z_][-a-zA-Z0-9_]*$/;
 
 // ---------- Identifier-field schema helpers ----------
 //
@@ -192,13 +196,6 @@ const xmlElementNameField = (label: string) =>
 			`${label} must start with a letter or underscore and contain only letters, digits, or underscores.`,
 		);
 
-const sessionUserField = z
-	.string()
-	.regex(
-		SESSION_USER_FIELD_PATTERN,
-		"Session-user field must start with a letter or underscore and contain only letters, digits, underscores, or hyphens.",
-	);
-
 /**
  * Builder for a Zod string-with-regex schema constrained to CommCare
  * case-type vocabulary — case-type names and the `throughCaseType` /
@@ -224,12 +221,9 @@ const caseTypeField = (label: string) =>
  * the patterns ever diverge, the change lands in one place per role.
  */
 const casePropertyField = (label: string) =>
-	z
-		.string()
-		.regex(
-			CASE_PROPERTY_PATTERN,
-			`${label} must start with a letter and contain only letters, digits, underscores, or hyphens.`,
-		);
+	authoredCasePropertyNameSchema.describe(
+		`${label} must use Nova's canonical case-property vocabulary.`,
+	);
 
 // ---------- Relation paths (cross-case-type traversal) ----------
 //
@@ -421,7 +415,8 @@ export type PropertyRef = z.infer<typeof propertyRefSchema>;
 
 /**
  * Reference to a value the user typed into a search input on the
- * case-search screen. Resolved at compile time by mapping `name` to the
+ * case-search screen. Resolved at compile time by mapping
+ * `searchInputUuid` to the input's current runtime name and value
  * search input's runtime value (XPath:
  * `instance('search-input:results')/input/field[@name='<name>']`;
  * SQL: a bound parameter). The CCHQ search-input instance is
@@ -430,16 +425,14 @@ export type PropertyRef = z.infer<typeof propertyRefSchema>;
  * and the canonical path is documented at
  * `commcare-hq/docs/case_search_query_language.rst`.
  *
- * `name` is constrained to XML element-name vocabulary (no hyphens) —
- * the wire form `<input>/<field @name='...'>` makes the name surface
- * as an XML attribute value, but downstream code paths that derive
- * structural identifiers from the input name still rely on element-
- * name shape, so the schema rejects hyphens here.
+ * The UUID is the authored identity. The mutable `name` is a wire
+ * projection owned by `SearchInputDef`; renaming a prompt therefore
+ * never rewrites expression trees.
  */
 export const searchInputRefSchema = z
 	.object({
 		kind: z.literal("input"),
-		name: xmlElementNameField("Search input name"),
+		searchInputUuid: uuidSchema,
 	})
 	.strict();
 export type SearchInputRef = z.infer<typeof searchInputRefSchema>;
@@ -564,7 +557,7 @@ export type SessionContextField = (typeof SESSION_CONTEXT_FIELDS)[number];
 export const sessionUserSchema = z
 	.object({
 		kind: z.literal("session-user"),
-		field: sessionUserField,
+		field: externalUserPropertyNameSchema,
 	})
 	.strict();
 export type SessionUserRef = z.infer<typeof sessionUserSchema>;
@@ -657,7 +650,12 @@ export type TableColumnTerm = z.infer<typeof tableColumnTermSchema>;
 export const literalSchema = z
 	.object({
 		kind: z.literal("literal"),
-		value: z.union([z.string(), z.number(), z.boolean(), z.null()]),
+		value: z.union([
+			z.string(),
+			persistableJsonNumberSchema,
+			z.boolean(),
+			z.null(),
+		]),
 		data_type: casePropertyDataTypeSchema.optional(),
 	})
 	.strict();
@@ -688,7 +686,7 @@ export type Term = z.infer<typeof termSchema>;
 // independently of the type checker (which adds the
 // type-compatibility layer).
 //
-// **The 19 arms:**
+// **The 18 arms:**
 //
 //   - `term` — structural lifter for any `Term`. Lets a property /
 //     input / session ref / literal flow through any value slot.
@@ -699,8 +697,9 @@ export type Term = z.infer<typeof termSchema>;
 //     same atomic submission envelope.
 //   - `acting-user` / `unowned` — explicit case-owner values: the
 //     server-resolved submitting identity or CommCare's no-owner sentinel.
-//   - `table-lookup` — identity-bearing lookup-table value selection. S05a
-//     persists and validates the carrier; target lowering remains dormant.
+//   - `table-lookup` — identity-bearing lookup-table value selection. Its
+//     nested row predicate is scoped to that table, and wire emission resolves
+//     the stable table/column UUIDs through the current lookup catalog.
 //   - `date-add` — `date + (interval × quantity)` arithmetic. Wire
 //     emission diverges per dialect: CSQL emits a native named value
 //     function; on-device slots admit date-typed fixed-duration arithmetic
@@ -731,15 +730,6 @@ export type Term = z.infer<typeof termSchema>;
 //     holds. The "value, not predicate" decision lets `count(...) > 2`
 //     compose naturally as `gt(count(...), literal(2))` rather than
 //     a special-case predicate.
-//   - `unwrap-list` — CSQL's `unwrap-list` value function: pull a
-//     JSON-encoded array stored in a property and surface it as a
-//     sequence of values. v1 has no AST consumer for the resulting
-//     sequence type — `multi-select-contains.values` and `in.values`
-//     stay literal-only because the wire targets demand a static
-//     value list — but the arm is part of the persisted-shape
-//     contract, so it lives in the AST today. The CSQL wire emitter
-//     routes it into `selected-any(prop, unwrap-list(...))` at the
-//     wire-emission boundary.
 //   - `format-date` — date / datetime → text via CommCare's
 //     `format-date(date, pattern)`. The pattern slot accepts the
 //     three preset names (`short` / `long` / `iso`) plus an arbitrary
@@ -844,7 +834,7 @@ export type FormatDatePreset = (typeof FORMAT_DATE_PRESETS)[number];
  * Structural lifter: any `Term` becomes a `ValueExpression` of
  * `kind: "term"`. Builders auto-wrap Term-shaped inputs at the
  * call site (see `builders.ts:toValueExpression`), so authors call
- * `eq(prop("name"), literal("Alice"))` and the predicate's
+ * `eq(prop("patient", "case_name"), literal("Alice"))` and the predicate's
  * `left` / `right` slots receive a ValueExpression-of-Term without
  * an explicit wrapper. The arm exists in the schema so the wire
  * emitters and the type checker have a single dispatch shape on
@@ -875,8 +865,8 @@ export const unownedSchema = z.object({ kind: z.literal("unowned") }).strict();
 
 /**
  * Resolve one column from the first canonically ordered row matching `where`.
- * S05a stores and validates this identity-bearing shape; target lowering is
- * deliberately unavailable until S05b.
+ * Storage and validation keep stable table/column identity; Preview and
+ * CommCare lowering resolve the current Project data projection.
  */
 export const tableLookupExpressionSchema = z
 	.object({
@@ -1067,32 +1057,6 @@ const countSchema = z
 	.strict();
 
 /**
- * CSQL's `unwrap-list` value function: pull a JSON-encoded array
- * stored in a property's value and surface it as a sequence of
- * values. The wire form is one of the eight CSQL value functions
- * registered on
- * `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`.
- *
- * v1 has no AST consumer for the resulting sequence type —
- * `in.values` and `multi-select-contains.values` stay literal-only
- * because every wire target demands a static value list. The CSQL
- * emitter routes `unwrap-list` into `selected-any(prop,
- * unwrap-list(...))` at the wire-emission boundary. The type
- * checker stages a `"sequence"` resolved-type sentinel (see
- * `typeChecker.ts`) so the arm has a defined verdict even though
- * no current operator consumes the result; the sentinel lets a
- * future widening of the consuming surface thread the sequence
- * type through without re-wiring the type checker's compatibility
- * table.
- */
-const unwrapListSchema = z
-	.object({
-		kind: z.literal("unwrap-list"),
-		value: z.lazy(() => valueExpressionSchema),
-	})
-	.strict();
-
-/**
  * `format-date(date, pattern)`. The `pattern` union accepts the three
  * preset names (`short` / `long` / `iso`) plus an arbitrary string
  * for advanced patterns. The schema's `union` over `enum` + `string`
@@ -1141,12 +1105,12 @@ const formatDateSchema = z
  * Operand shape: `left` and `right` are `ValueExpression` (not bare
  * `Term`). This is the structural composition primitive that lets
  * arithmetic / conditional expressions drive a comparison —
- * `gt(arith("+", prop("age"), literal(1)), literal(18))` lands at
+ * `gt(arith("+", prop("patient", "age"), literal(1)), literal(18))` lands at
  * the AST without needing an intermediate calc-and-compare
  * scaffolding. Term-shaped operands flow through unchanged: builders
  * auto-wrap `Term` arguments in `{ kind: "term", term: <Term> }` at
  * the call site (see `builders.ts:toValueExpression`), so
- * `eq(prop("name"), literal("Alice"))` constructs the expected
+ * `eq(prop("patient", "case_name"), literal("Alice"))` constructs the expected
  * ValueExpression-of-Term wrapper without any author-visible
  * ceremony.
  */
@@ -1173,10 +1137,7 @@ const comparisonSchema = z
  * the literals in `values`. Right side is restricted to literals (not
  * arbitrary expressions) because the wire targets — an XPath or-of-
  * equalities chain on the case-list side and SQL `IN (...)` on the
- * runtime side — both demand a static value list. `unwrap-list`
- * (CSQL's value-function for sequence sources) does NOT widen this
- * slot: the wire pattern there is `selected-any(prop, unwrap-list(...))`
- * via `multi-select-contains`, not an `in`-semantics expansion.
+ * runtime side — both demand a static value list.
  *
  * `left` is `ValueExpression` so an arithmetic / conditional
  * expression can sit in the membership-test position (`isIn(arith("+",
@@ -1194,9 +1155,8 @@ const comparisonSchema = z
  * degenerate: a list of nothing-but-null collapses on every wire to
  * "the property is absent OR the property is absent OR ...", which
  * is just "the property is absent" duplicated. That's not what `in`
- * means; the canonical authoring shapes for the absence-check intent
- * are `is-null(prop)` (strict-absent, Postgres-only) and
- * `is-blank(prop)` (absent-or-empty, portable to CCHQ). Mixed
+ * means; the canonical authoring shape for the absence-check intent
+ * is `is-blank(prop)` (absent-or-empty and portable to CCHQ). Mixed
  * null + non-null lists are accepted because they encode the
  * meaningful "absent OR equals one of these values" predicate.
  */
@@ -1261,7 +1221,7 @@ const withinDistanceSchema = z
 		kind: z.literal("within-distance"),
 		property: propertyRefSchema,
 		center: z.lazy(() => valueExpressionSchema),
-		distance: z.number().positive(),
+		distance: persistableJsonPositiveNumberSchema,
 		unit: z.enum(DISTANCE_UNITS),
 	})
 	.strict()
@@ -1351,7 +1311,7 @@ export type MultiSelectQuantifier = (typeof MULTI_SELECT_QUANTIFIERS)[number];
  * search-input ref (`term(input("name_search"))`), a session ref, or
  * a derived value expression. The widening matches the operand-
  * widening pattern at every other Predicate operator's value slot
- * (`compare`, `between`, `in`, `is-null`, `is-blank`,
+ * (`compare`, `between`, `in`, `is-blank`,
  * `within-distance`); search inputs driving fuzzy / phonetic /
  * starts-with / fuzzy-date matches at runtime is the load-bearing
  * use case for case-search authoring. The wire target supports
@@ -1374,10 +1334,9 @@ export type MultiSelectQuantifier = (typeof MULTI_SELECT_QUANTIFIERS)[number];
  * `phonetic-match` matches nothing (empty Elasticsearch `match`
  * produces no tokens to score), `fuzzy-date` depends on
  * `date_permutations("")`. None expresses what an author typing
- * `match(prop, "")` intends; the canonical authoring shapes for the
- * absence-check intent are `is-null(prop)` (strict-absent,
- * Postgres-only) and `is-blank(prop)` (absent-or-empty, portable to
- * CCHQ). Runtime values (search-input refs, session refs) that resolve
+ * `match(prop, "")` intends; the canonical authoring shape for the
+ * absence-check intent is `is-blank(prop)` (absent-or-empty and
+ * portable to CCHQ). Runtime values (search-input refs, session refs) that resolve
  * to empty strings at evaluation time pass through the same wire
  * collapse — the foundation does not rewrite them; the wire layer's
  * lossiness is the wire layer's concern.
@@ -1425,8 +1384,7 @@ const matchSchema = z
  * All-null-list rejection: same defense `inSchema.values` carries.
  * Both wire targets collapse an all-null list to a duplicated
  * absence check — the CCHQ wire matches absent / cleared / empty
- * alike — so the canonical authoring shapes for the intent are
- * `is-null(prop)` (strict-absent, Postgres-only) and
+ * alike — so the canonical authoring shape for the intent is
  * `is-blank(prop)` (absent-or-empty, the CCHQ-portable form;
  * emits `prop = ''` on every CCHQ dialect, with the server-side
  * `case_property_query()` short-circuit at
@@ -1470,8 +1428,7 @@ const multiSelectContainsSchema = z
 	// All-null rejection mirrors `inSchema.values`'s defense: both wire
 	// targets collapse an all-null list to a duplicated absence check
 	// — the wire matches absent / cleared / empty alike on CCHQ — so
-	// the canonical authoring shapes for the intent are
-	// `is-null(prop)` (strict-absent, Postgres-only) and
+	// the canonical authoring shape for the intent is
 	// `is-blank(prop)` (absent-or-empty, the CCHQ-portable form;
 	// emits `prop = ''` on every CCHQ dialect).
 	//
@@ -1531,7 +1488,7 @@ const multiSelectContainsSchema = z
 const matchAllSchema = z.object({ kind: z.literal("match-all") }).strict();
 const matchNoneSchema = z.object({ kind: z.literal("match-none") }).strict();
 
-// ---------- Null / blank predicates ----------
+// ---------- Blank predicate ----------
 //
 // CCHQ's wire layer collapses three semantically distinct states —
 // *property never written* / *property written, then cleared* /
@@ -1543,42 +1500,9 @@ const matchNoneSchema = z.object({ kind: z.literal("match-none") }).strict();
 // also matching all three states. (`case_property_missing` is a
 // Python helper at the same file's `case_property_missing` — not a
 // CSQL function authors can write.)
-// The wire conflation is a CCHQ-side accumulation; **Nova's AST and
-// runtime are not bound by it**.
-// Postgres JSONB distinguishes "key absent" from "key present with
-// empty-string value" (`NOT (properties ? 'X')` versus `properties->>'X'
-// = ''`). Nova's runtime is Postgres natively (no in-memory
-// alternative), so the strict three-state distinction is the
-// runtime contract every read path observes. The Predicate AST
-// carries the strict semantic family-wide; per-dialect emitters
-// handle the CCHQ wire conflation.
+// Nova deliberately authors the portable meaning the wire can preserve:
 //
-// Two operators encode the family at this layer:
-//
-//   - `is-null` — **strict.** `left` resolves to absent (key not
-//     present in the JSONB document). Postgres: emits the
-//     presence test (`NOT (properties ? 'X')` for property refs;
-//     equivalent for input / session refs). CCHQ wire:
-//     **unrepresentable** — the wire layer collapses absent /
-//     cleared / empty into one match set, so emitting `is-null`
-//     against any CCHQ target would silently widen the match set
-//     and lose the AST's strictness signal. The representability
-//     checker errors at authoring time; the per-dialect emitters
-//     defensively throw. Same dispatch pattern as `match(mode:
-//     fuzzy)` in case-list-filter context. Filter authoring
-//     surfaces (filter UI, SA tool surface, validator) reach for
-//     `is-blank` instead because "field empty" is the user-facing
-//     intent and `is-blank` emits cleanly on every CCHQ target;
-//     `is-null` is foundation infrastructure for non-filter
-//     surfaces (case-data inspection, audit / admin views,
-//     expression operators that distinguish absent from empty),
-//     where Postgres natively represents strict-absent via the
-//     JSONB presence test. The operator stays in the AST
-//     regardless because the discriminated-union shape is part
-//     of the persisted contract — removing a kind would
-//     invalidate every persisted predicate that used it.
-//
-//   - `is-blank` — **portable.** `left` resolves to absent OR
+//   - `is-blank` — `left` resolves to absent OR
 //     empty-string. Postgres: emits the disjunction
 //     (`(NOT (properties ? 'X')) OR properties->>'X' = ''` for
 //     property refs; equivalent for input / session refs). CCHQ
@@ -1596,33 +1520,24 @@ const matchNoneSchema = z.object({ kind: z.literal("match-none") }).strict();
 //     equality in `if(count(input), real_predicate, match-all())`
 //     so absent inputs short-circuit cleanly.
 //
-// Both schemas accept every Term variant in `left` — property refs,
+// The schema accepts every Term variant in `left` — property refs,
 // search-input refs, both session-ref kinds, and (structurally only)
-// literals. The literal-shaped left is meaningless for both
-// operators (a literal is the value itself; "is the literal 5
+// literals. A literal-shaped left is meaningless (a literal is the
+// value itself; "is the literal 5
 // absent" is ill-formed), but the schema is structural-only and
 // admits the shape. The type-checker rule (in
 // `lib/domain/predicate/typeChecker.ts`) rejects literal-shaped
-// `left` for both operators with a parallel rule shape — the type
-// checker is the right layer for the constraint because it has the
+// `left`; the type checker is the right layer for the constraint because it has the
 // term-discriminator context to surface a semantic-class error.
 
 // `left` is `ValueExpression` (not bare `Term`) so expression-shaped
-// operands (`is-null(arith(prop, literal(0), "div"))` — "is the per-
-// unit ratio undefined?") compose at the AST level. The type
-// checker's literal-rejection rule (a literal is the value itself,
+// operands (`is-blank(arith(prop, literal(0), "div"))`) compose at
+// the AST level. The type checker's literal-rejection rule (a literal is the value itself,
 // not a runtime read whose presence is in question) extends to
 // literal-shaped ValueExpressions via the `term` arm — see
 // `checkAbsenceOperator` in `typeChecker.ts`. Term-shaped operands
 // flow through unchanged: builders auto-wrap Term inputs as
 // ValueExpression-of-Term.
-
-const isNullSchema = z
-	.object({
-		kind: z.literal("is-null"),
-		left: z.lazy(() => valueExpressionSchema),
-	})
-	.strict();
 
 const isBlankSchema = z
 	.object({
@@ -1890,7 +1805,7 @@ const missingSchema = z
  * arms (`and` / `or` / `not` / `when-input-present` / `exists` /
  * `missing` — the cycle goes through their predicate slot) AND to
  * the operand-widened arms (`comparison` / `in` / `within-distance` /
- * `is-null` / `is-blank` / `between` — the cycle goes through their
+ * `is-blank` / `between` — the cycle goes through their
  * `ValueExpression` operands). Adding a field to one of the hand-
  * declared schemas requires a parallel hand-update to the matching
  * arm here. Any required-field drift surfaces as a CI failure (the
@@ -1923,7 +1838,6 @@ export type Predicate =
 			distance: number;
 			unit: DistanceUnit;
 	  }
-	| { kind: "is-null"; left: ValueExpression }
 	| { kind: "is-blank"; left: ValueExpression }
 	| {
 			kind: "between";
@@ -1974,7 +1888,6 @@ export const predicateSchema: z.ZodType<Predicate> = z.discriminatedUnion(
 		multiSelectContainsSchema,
 		matchAllSchema,
 		matchNoneSchema,
-		isNullSchema,
 		isBlankSchema,
 		betweenSchema,
 		andSchema,
@@ -2066,7 +1979,6 @@ export type ValueExpression =
 			fallback: ValueExpression;
 	  }
 	| { kind: "count"; via: RelationPath; where?: Predicate }
-	| { kind: "unwrap-list"; value: ValueExpression }
 	| {
 			kind: "format-date";
 			date: ValueExpression;
@@ -2092,317 +2004,7 @@ export const valueExpressionSchema: z.ZodType<ValueExpression> =
 		ifSchema,
 		switchSchema,
 		countSchema,
-		unwrapListSchema,
 		formatDateSchema,
-	]);
-
-// ---------- Carrier-blind rolling schemas ----------
-//
-// `Predicate` / `ValueExpression` are canonical persisted vocabulary. Once a
-// new arm lands there, every schema that embeds the canonical family accepts
-// that arm recursively. That is correct for BlueprintDoc hydration and current
-// receiver replay, but it is NOT automatically safe for mutation envelopes:
-// an open pre-deploy receiver must be able to parse every established mutation
-// discriminator it sees.
-//
-// S05a therefore keeps a second, structurally narrower family for rolling
-// boundaries. It omits `table-column` and `table-lookup` from the unions
-// themselves, rather than accepting the canonical family and rejecting it via
-// `superRefine`. The structural distinction is load-bearing: generated JSON
-// Schema must omit the dormant discriminators too, so an authoring client
-// cannot discover and emit a payload that an old receiver rejects.
-//
-// Keep this family recursive all the way down. A shallow omit on `Term` or the
-// top-level ValueExpression union would still admit a carrier below `if`,
-// `coalesce`, a comparison operand, `count.where`, or another recursive slot.
-// The doc mutation boundary consumes these schemas; canonical domain schemas
-// continue to accept and preserve the full carrier vocabulary.
-
-export type CarrierBlindTerm = Exclude<Term, TableColumnTerm>;
-
-export type CarrierBlindPredicate =
-	| {
-			kind: ComparisonKind;
-			left: CarrierBlindValueExpression;
-			right: CarrierBlindValueExpression;
-	  }
-	| {
-			kind: "in";
-			left: CarrierBlindValueExpression;
-			values: [Literal, ...Literal[]];
-	  }
-	| {
-			kind: "within-distance";
-			property: PropertyRef;
-			center: CarrierBlindValueExpression;
-			distance: number;
-			unit: DistanceUnit;
-	  }
-	| {
-			kind: "match";
-			property: PropertyRef;
-			value: CarrierBlindValueExpression;
-			mode: MatchMode;
-	  }
-	| {
-			kind: "multi-select-contains";
-			property: PropertyRef;
-			values: [Literal, ...Literal[]];
-			quantifier: MultiSelectQuantifier;
-	  }
-	| { kind: "match-all" }
-	| { kind: "match-none" }
-	| { kind: "is-null"; left: CarrierBlindValueExpression }
-	| { kind: "is-blank"; left: CarrierBlindValueExpression }
-	| {
-			kind: "between";
-			left: CarrierBlindValueExpression;
-			lower?: CarrierBlindValueExpression;
-			upper?: CarrierBlindValueExpression;
-			lowerInclusive: boolean;
-			upperInclusive: boolean;
-	  }
-	| {
-			kind: "and";
-			clauses: [CarrierBlindPredicate, ...CarrierBlindPredicate[]];
-	  }
-	| {
-			kind: "or";
-			clauses: [CarrierBlindPredicate, ...CarrierBlindPredicate[]];
-	  }
-	| { kind: "not"; clause: CarrierBlindPredicate }
-	| {
-			kind: "when-input-present";
-			input: SearchInputRef;
-			clause: CarrierBlindPredicate;
-	  }
-	| {
-			kind: "exists";
-			via: RelationPath;
-			where?: CarrierBlindPredicate;
-	  }
-	| {
-			kind: "missing";
-			via: RelationPath;
-			where?: CarrierBlindPredicate;
-	  };
-
-export type CarrierBlindSwitchCase = {
-	when: Literal;
-	then: CarrierBlindValueExpression;
-};
-
-export type CarrierBlindValueExpression =
-	| { kind: "term"; term: CarrierBlindTerm }
-	| { kind: "today" }
-	| { kind: "now" }
-	| { kind: "id-of"; opUuid: z.infer<typeof uuidSchema> }
-	| { kind: "acting-user" }
-	| { kind: "unowned" }
-	| {
-			kind: "date-add";
-			date: CarrierBlindValueExpression;
-			interval: DateAddInterval;
-			quantity: CarrierBlindValueExpression;
-	  }
-	| { kind: "date-coerce"; value: CarrierBlindValueExpression }
-	| { kind: "datetime-coerce"; value: CarrierBlindValueExpression }
-	| { kind: "double"; value: CarrierBlindValueExpression }
-	| {
-			kind: "arith";
-			op: ArithOp;
-			left: CarrierBlindValueExpression;
-			right: CarrierBlindValueExpression;
-	  }
-	| {
-			kind: "concat";
-			parts: [CarrierBlindValueExpression, ...CarrierBlindValueExpression[]];
-	  }
-	| {
-			kind: "coalesce";
-			values: [CarrierBlindValueExpression, ...CarrierBlindValueExpression[]];
-	  }
-	| {
-			kind: "if";
-			cond: CarrierBlindPredicate;
-			then: CarrierBlindValueExpression;
-			else: CarrierBlindValueExpression;
-	  }
-	| {
-			kind: "switch";
-			on: CarrierBlindValueExpression;
-			cases: [CarrierBlindSwitchCase, ...CarrierBlindSwitchCase[]];
-			fallback: CarrierBlindValueExpression;
-	  }
-	| {
-			kind: "count";
-			via: RelationPath;
-			where?: CarrierBlindPredicate;
-	  }
-	| { kind: "unwrap-list"; value: CarrierBlindValueExpression }
-	| {
-			kind: "format-date";
-			date: CarrierBlindValueExpression;
-			pattern: FormatDatePreset | string;
-	  };
-
-export const carrierBlindTermSchema: z.ZodType<CarrierBlindTerm> =
-	z.discriminatedUnion("kind", [
-		propertyRefSchema,
-		searchInputRefSchema,
-		sessionUserSchema,
-		sessionUserPropertySchema,
-		sessionContextSchema,
-		formFieldRefSchema,
-		literalSchema,
-	]);
-
-const carrierBlindValueExpressionTermSchema = valueExpressionTermSchema.extend({
-	term: carrierBlindTermSchema,
-});
-const carrierBlindDateAddSchema = dateAddSchema.extend({
-	date: z.lazy(() => carrierBlindValueExpressionSchema),
-	quantity: z.lazy(() => carrierBlindValueExpressionSchema),
-});
-const carrierBlindDateCoerceSchema = dateCoerceSchema.extend({
-	value: z.lazy(() => carrierBlindValueExpressionSchema),
-});
-const carrierBlindDatetimeCoerceSchema = datetimeCoerceSchema.extend({
-	value: z.lazy(() => carrierBlindValueExpressionSchema),
-});
-const carrierBlindDoubleSchema = doubleSchema.extend({
-	value: z.lazy(() => carrierBlindValueExpressionSchema),
-});
-const carrierBlindArithSchema = arithSchema.extend({
-	left: z.lazy(() => carrierBlindValueExpressionSchema),
-	right: z.lazy(() => carrierBlindValueExpressionSchema),
-});
-const carrierBlindConcatSchema = concatSchema.extend({
-	parts: z.tuple(
-		[z.lazy(() => carrierBlindValueExpressionSchema)],
-		z.lazy(() => carrierBlindValueExpressionSchema),
-	),
-});
-const carrierBlindCoalesceSchema = coalesceSchema.extend({
-	values: z.tuple(
-		[z.lazy(() => carrierBlindValueExpressionSchema)],
-		z.lazy(() => carrierBlindValueExpressionSchema),
-	),
-});
-const carrierBlindIfSchema = ifSchema.extend({
-	cond: z.lazy(() => carrierBlindPredicateSchema),
-	// biome-ignore lint/suspicious/noThenProperty: same non-callable AST slot as canonical ifSchema.
-	then: z.lazy(() => carrierBlindValueExpressionSchema),
-	else: z.lazy(() => carrierBlindValueExpressionSchema),
-});
-const carrierBlindSwitchCaseSchema = switchCaseSchema.extend({
-	// biome-ignore lint/suspicious/noThenProperty: same non-callable AST slot as canonical switchCaseSchema.
-	then: z.lazy(() => carrierBlindValueExpressionSchema),
-});
-const carrierBlindSwitchSchema = switchSchema.extend({
-	on: z.lazy(() => carrierBlindValueExpressionSchema),
-	cases: z.tuple([carrierBlindSwitchCaseSchema], carrierBlindSwitchCaseSchema),
-	fallback: z.lazy(() => carrierBlindValueExpressionSchema),
-});
-const carrierBlindCountSchema = countSchema.extend({
-	where: z.lazy(() => carrierBlindPredicateSchema).optional(),
-});
-const carrierBlindUnwrapListSchema = unwrapListSchema.extend({
-	value: z.lazy(() => carrierBlindValueExpressionSchema),
-});
-const carrierBlindFormatDateSchema = formatDateSchema.extend({
-	date: z.lazy(() => carrierBlindValueExpressionSchema),
-});
-
-const carrierBlindComparisonSchema = comparisonSchema.extend({
-	left: z.lazy(() => carrierBlindValueExpressionSchema),
-	right: z.lazy(() => carrierBlindValueExpressionSchema),
-});
-const carrierBlindInSchema = inSchema.safeExtend({
-	left: z.lazy(() => carrierBlindValueExpressionSchema),
-});
-const carrierBlindWithinDistanceSchema = withinDistanceSchema.safeExtend({
-	center: z.lazy(() => carrierBlindValueExpressionSchema),
-});
-const carrierBlindMatchSchema = matchSchema.extend({
-	value: z.lazy(() => carrierBlindValueExpressionSchema),
-});
-const carrierBlindIsNullSchema = isNullSchema.extend({
-	left: z.lazy(() => carrierBlindValueExpressionSchema),
-});
-const carrierBlindIsBlankSchema = isBlankSchema.extend({
-	left: z.lazy(() => carrierBlindValueExpressionSchema),
-});
-const carrierBlindBetweenSchema = betweenSchema.safeExtend({
-	left: z.lazy(() => carrierBlindValueExpressionSchema),
-	lower: z.lazy(() => carrierBlindValueExpressionSchema).optional(),
-	upper: z.lazy(() => carrierBlindValueExpressionSchema).optional(),
-});
-const carrierBlindAndSchema = andSchema.extend({
-	clauses: z.tuple(
-		[z.lazy(() => carrierBlindPredicateSchema)],
-		z.lazy(() => carrierBlindPredicateSchema),
-	),
-});
-const carrierBlindOrSchema = orSchema.extend({
-	clauses: z.tuple(
-		[z.lazy(() => carrierBlindPredicateSchema)],
-		z.lazy(() => carrierBlindPredicateSchema),
-	),
-});
-const carrierBlindNotSchema = notSchema.extend({
-	clause: z.lazy(() => carrierBlindPredicateSchema),
-});
-const carrierBlindWhenInputPresentSchema = whenInputPresentSchema.extend({
-	clause: z.lazy(() => carrierBlindPredicateSchema),
-});
-const carrierBlindExistsSchema = existsSchema.extend({
-	where: z.lazy(() => carrierBlindPredicateSchema).optional(),
-});
-const carrierBlindMissingSchema = missingSchema.extend({
-	where: z.lazy(() => carrierBlindPredicateSchema).optional(),
-});
-
-export const carrierBlindPredicateSchema: z.ZodType<CarrierBlindPredicate> =
-	z.discriminatedUnion("kind", [
-		carrierBlindComparisonSchema,
-		carrierBlindInSchema,
-		carrierBlindWithinDistanceSchema,
-		carrierBlindMatchSchema,
-		multiSelectContainsSchema,
-		matchAllSchema,
-		matchNoneSchema,
-		carrierBlindIsNullSchema,
-		carrierBlindIsBlankSchema,
-		carrierBlindBetweenSchema,
-		carrierBlindAndSchema,
-		carrierBlindOrSchema,
-		carrierBlindNotSchema,
-		carrierBlindWhenInputPresentSchema,
-		carrierBlindExistsSchema,
-		carrierBlindMissingSchema,
-	]);
-
-export const carrierBlindValueExpressionSchema: z.ZodType<CarrierBlindValueExpression> =
-	z.discriminatedUnion("kind", [
-		carrierBlindValueExpressionTermSchema,
-		todaySchema,
-		nowSchema,
-		idOfSchema,
-		actingUserSchema,
-		unownedSchema,
-		carrierBlindDateAddSchema,
-		carrierBlindDateCoerceSchema,
-		carrierBlindDatetimeCoerceSchema,
-		carrierBlindDoubleSchema,
-		carrierBlindArithSchema,
-		carrierBlindConcatSchema,
-		carrierBlindCoalesceSchema,
-		carrierBlindIfSchema,
-		carrierBlindSwitchSchema,
-		carrierBlindCountSchema,
-		carrierBlindUnwrapListSchema,
-		carrierBlindFormatDateSchema,
 	]);
 
 // ---------- Drift guard ----------
@@ -2423,7 +2025,7 @@ export const carrierBlindValueExpressionSchema: z.ZodType<CarrierBlindValueExpre
 //   - **ValueExpression-bearing slots** (cross-cycle from Predicate
 //     into ValueExpression operands, and self-cycle on the
 //     ValueExpression side): `left` / `right` on `comparison`,
-//     `left` on `in` / `is-null` / `is-blank` / `between`,
+//     `left` on `in` / `is-blank` / `between`,
 //     `lower` / `upper` on `between`, `center` on
 //     `within-distance`, every value slot on every ValueExpression
 //     arm.
@@ -2465,26 +2067,6 @@ type _TypesEqual<X, Y> =
 		? true
 		: false;
 
-// A new canonical discriminator must make an explicit rolling decision. The
-// carrier-blind family intentionally differs by exactly these two dormant
-// kinds; silently omitting some future unrelated arm would make mutation
-// parsing stricter than intended without a reviewable declaration.
-const _carrierBlindKindDriftGuard: {
-	term: _TypesEqual<
-		CarrierBlindTerm["kind"],
-		Exclude<Term["kind"], "table-column">
-	>;
-	predicate: _TypesEqual<CarrierBlindPredicate["kind"], Predicate["kind"]>;
-	valueExpression: _TypesEqual<
-		CarrierBlindValueExpression["kind"],
-		Exclude<ValueExpression["kind"], "table-lookup">
-	>;
-} = {
-	term: true,
-	predicate: true,
-	valueExpression: true,
-};
-
 // Predicate arms with predicate-bearing recursive slots (the original
 // six). Each strips the recursive slot before comparison so the guard
 // pins the surviving non-recursive surface only.
@@ -2521,7 +2103,6 @@ type _WithinDistanceArm = Omit<
 	Extract<Predicate, { kind: "within-distance" }>,
 	"center"
 >;
-type _IsNullArm = Omit<Extract<Predicate, { kind: "is-null" }>, "left">;
 type _IsBlankArm = Omit<Extract<Predicate, { kind: "is-blank" }>, "left">;
 type _BetweenArm = Omit<
 	Extract<Predicate, { kind: "between" }>,
@@ -2537,7 +2118,6 @@ type _WithinDistanceInferred = Omit<
 	z.infer<typeof withinDistanceSchema>,
 	"center"
 >;
-type _IsNullInferred = Omit<z.infer<typeof isNullSchema>, "left">;
 type _IsBlankInferred = Omit<z.infer<typeof isBlankSchema>, "left">;
 type _BetweenInferred = Omit<
 	z.infer<typeof betweenSchema>,
@@ -2594,10 +2174,6 @@ type _SwitchArm = Omit<
 	"on" | "cases" | "fallback"
 >;
 type _CountArm = Omit<Extract<ValueExpression, { kind: "count" }>, "where">;
-type _UnwrapListArm = Omit<
-	Extract<ValueExpression, { kind: "unwrap-list" }>,
-	"value"
->;
 type _FormatDateArm = Omit<
 	Extract<ValueExpression, { kind: "format-date" }>,
 	"date"
@@ -2635,7 +2211,6 @@ type _SwitchInferred = Omit<
 	"on" | "cases" | "fallback"
 >;
 type _CountInferred = Omit<z.infer<typeof countSchema>, "where">;
-type _UnwrapListInferred = Omit<z.infer<typeof unwrapListSchema>, "value">;
 type _FormatDateInferred = Omit<z.infer<typeof formatDateSchema>, "date">;
 
 // `_driftGuard` is kept as a `const` declaration so the type assertion
@@ -2660,7 +2235,6 @@ const _driftGuard: {
 	comparison: _TypesEqual<_ComparisonArm, _ComparisonInferred>;
 	in: _TypesEqual<_InArm, _InInferred>;
 	withinDistance: _TypesEqual<_WithinDistanceArm, _WithinDistanceInferred>;
-	isNull: _TypesEqual<_IsNullArm, _IsNullInferred>;
 	isBlank: _TypesEqual<_IsBlankArm, _IsBlankInferred>;
 	between: _TypesEqual<_BetweenArm, _BetweenInferred>;
 	// ValueExpression side — every value-bearing arm.
@@ -2684,7 +2258,6 @@ const _driftGuard: {
 	if: _TypesEqual<_IfArm, _IfInferred>;
 	switch: _TypesEqual<_SwitchArm, _SwitchInferred>;
 	count: _TypesEqual<_CountArm, _CountInferred>;
-	unwrapList: _TypesEqual<_UnwrapListArm, _UnwrapListInferred>;
 	formatDate: _TypesEqual<_FormatDateArm, _FormatDateInferred>;
 } = {
 	and: true,
@@ -2696,7 +2269,6 @@ const _driftGuard: {
 	comparison: true,
 	in: true,
 	withinDistance: true,
-	isNull: true,
 	isBlank: true,
 	between: true,
 	valueExpressionTerm: true,
@@ -2716,7 +2288,6 @@ const _driftGuard: {
 	if: true,
 	switch: true,
 	count: true,
-	unwrapList: true,
 	formatDate: true,
 };
 
@@ -2757,10 +2328,3 @@ z.globalRegistry.add(tableLookupExpressionSchema, {
 });
 z.globalRegistry.add(predicateSchema, { id: "Predicate" });
 z.globalRegistry.add(valueExpressionSchema, { id: "ValueExpression" });
-z.globalRegistry.add(carrierBlindTermSchema, { id: "CarrierBlindTerm" });
-z.globalRegistry.add(carrierBlindPredicateSchema, {
-	id: "CarrierBlindPredicate",
-});
-z.globalRegistry.add(carrierBlindValueExpressionSchema, {
-	id: "CarrierBlindValueExpression",
-});

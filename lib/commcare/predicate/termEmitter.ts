@@ -32,6 +32,7 @@
 // next to the code.
 
 import type { LookupTableId } from "@/lib/domain/lookupIds";
+import type { SearchInputDecl } from "@/lib/domain/predicate/typeChecker";
 import type {
 	PropertyRef,
 	RelationStep,
@@ -131,6 +132,8 @@ export type InstanceRoot = "casedb" | "results";
  */
 export interface OnDeviceLookupEmissionContext {
 	readonly naming: LookupWireNaming;
+	/** XForms use the tag as local id; suite expressions use fixture id. */
+	readonly instanceScope: "xform" | "suite";
 	readonly rowScope?: {
 		readonly tableId: LookupTableId;
 		readonly caseAnchor: OnDeviceCaseAnchor;
@@ -149,6 +152,8 @@ export interface OnDeviceTermEmissionContext
 	readonly lookup?: OnDeviceLookupEmissionContext;
 	/** Current saved names for identity-backed custom worker information. */
 	readonly userPropertySlugs?: ReadonlyMap<Uuid, string>;
+	/** Current runtime names for identity-backed search inputs. */
+	readonly searchInputNames?: ReadonlyMap<Uuid, string>;
 }
 
 /** Drop the fixture-row scope when emission leaves the fixture predicate. */
@@ -156,7 +161,13 @@ export function clearLookupRowScope(
 	context: OnDeviceTermEmissionContext,
 ): OnDeviceTermEmissionContext {
 	if (context.lookup?.rowScope === undefined) return context;
-	return { ...context, lookup: { naming: context.lookup.naming } };
+	return {
+		...context,
+		lookup: {
+			naming: context.lookup.naming,
+			instanceScope: context.lookup.instanceScope,
+		},
+	};
 }
 
 /** Default instance root — every on-device emission outside a
@@ -355,7 +366,7 @@ export function emitTerm(
 			return emitOnDevicePropertyRef(term, root);
 		}
 		case "input":
-			return `instance('search-input:results')/input/field[@name='${term.name}']`;
+			return emitSearchInputXPath(term, context);
 		case "session-user":
 			// `field` is constrained to XML element-name vocabulary at
 			// the schema layer (no quoting / escaping required for valid
@@ -551,6 +562,7 @@ export function emitTermSegment(
 	t: Term,
 	context: {
 		readonly userPropertySlugs?: ReadonlyMap<Uuid, string>;
+		readonly knownInputs?: ReadonlyArray<SearchInputDecl>;
 	} = {},
 ): TermEmission {
 	switch (t.kind) {
@@ -559,8 +571,24 @@ export function emitTermSegment(
 		case "input":
 			return {
 				kind: "runtime",
-				xpath: emitSearchInputXPath(t),
-				inputNames: [t.name],
+				xpath: emitSearchInputXPath(t, {
+					searchInputNames: new Map(
+						(context.knownInputs ?? []).map((input) => [
+							input.uuid,
+							input.name,
+						]),
+					),
+				}),
+				inputNames: [
+					resolveSearchInputName(t, {
+						searchInputNames: new Map(
+							(context.knownInputs ?? []).map((input) => [
+								input.uuid,
+								input.name,
+							]),
+						),
+					}),
+				],
 			};
 		case "session-user":
 			return { kind: "runtime", xpath: emitSessionUserXPath(t) };
@@ -586,7 +614,7 @@ export function emitTermSegment(
 			return emitCsqlLiteralSegment(t.value);
 		case "table-column":
 			throw new Error(
-				"emitTermSegment: lookup-table column terms are dormant until fixture emission lands; validation should reject them before CSQL emission.",
+				"emitTermSegment: a lookup-table column term is valid only inside its table-lookup row predicate. It cannot be emitted directly into a case-query CSQL value; validation should reject the escaped table-row term before emission.",
 			);
 		default: {
 			const _exhaustive: never = t;
@@ -647,8 +675,24 @@ export function emitCsqlPropertyRefSegment(
  * vocabulary (no hyphens, no quotes), so direct interpolation is
  * safe.
  */
-export function emitSearchInputXPath(t: SearchInputRef): string {
-	return `instance('search-input:results')/input/field[@name='${t.name}']`;
+export function emitSearchInputXPath(
+	t: SearchInputRef,
+	context: Pick<OnDeviceTermEmissionContext, "searchInputNames"> = {},
+): string {
+	return `instance('search-input:results')/input/field[@name='${resolveSearchInputName(t, context)}']`;
+}
+
+function resolveSearchInputName(
+	t: SearchInputRef,
+	context: Pick<OnDeviceTermEmissionContext, "searchInputNames">,
+): string {
+	const name = context.searchInputNames?.get(t.searchInputUuid);
+	if (name === undefined) {
+		throw new Error(
+			`Search input identity '${t.searchInputUuid}' has no current runtime-name binding.`,
+		);
+	}
+	return name;
 }
 
 /**
@@ -722,9 +766,9 @@ export function wrapTermAsSegmentList(term: TermEmission): CsqlSegment[] {
  * The final wrapper consumes `rejectWhen` before evaluating the query-building
  * concat. This is intentionally not sanitization: removing or replacing quote
  * characters would silently change exact-match semantics. The preferred style
- * defaults to CCHQ's documented double-quoted runtime scalar form; callers
- * interpolating JSON (notably `unwrap-list`) prefer single quotes because JSON
- * necessarily carries double quotes.
+ * defaults to CCHQ's documented double-quoted runtime scalar form. Callers
+ * that interpolate JSON may prefer single quotes because JSON necessarily
+ * carries double quotes.
  */
 export function quoteRuntimeCsqlValue(
 	xpath: string,

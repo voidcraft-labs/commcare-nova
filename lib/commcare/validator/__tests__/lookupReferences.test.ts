@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import {
 	type ExtractedLookupReference,
@@ -6,11 +7,12 @@ import {
 	type LookupReferenceExtractorRegistry,
 	type LookupValidationContext,
 } from "@/lib/doc/lookupReferences";
-import { asUuid, type BlueprintDoc } from "@/lib/domain";
+import type { BlueprintDoc } from "@/lib/domain";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import { literal, matchAll, tableLookup, term } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import type { LookupRevision, LookupTableDefinition } from "@/lib/lookup/types";
-import { errorIdentity, evaluateCommit } from "../gate";
+import { evaluateCommit } from "../gate";
 import { validateLookupReferences } from "../lookupReferences";
 import { runValidation } from "../runner";
 
@@ -21,16 +23,16 @@ const columnId = (suffix: string) =>
 const revision = (value: string) => value as LookupRevision;
 
 const BASE_OCCURRENCE: ExtractedLookupReference = {
-	carrierUuid: asUuid("carrier-1"),
+	carrierUuid: testUuid("carrier-1"),
 	subpath: ["lookup"],
 	tableId: tableId("1"),
 	columnId: columnId("1"),
 	acceptedColumnTypes: ["text"],
 	location: {
 		scope: "field",
-		moduleUuid: asUuid("module-1"),
-		formUuid: asUuid("form-1"),
-		fieldUuid: asUuid("carrier-1"),
+		moduleUuid: testUuid("module-1"),
+		formUuid: testUuid("form-1"),
+		fieldUuid: testUuid("carrier-1"),
 		field: "future.lookup",
 	},
 };
@@ -110,10 +112,12 @@ describe("lookup reference validation", () => {
 			"LOOKUP_CONTEXT_UNAVAILABLE",
 			"LOOKUP_CONTEXT_UNAVAILABLE",
 		]);
-		expect(findings.map(errorIdentity)).toHaveLength(2);
-		expect(new Set(findings.map(errorIdentity)).size).toBe(2);
+		expect(findings.map((finding) => finding.details?.subpath)).toEqual([
+			"/k:lookup",
+			"/k:lookup/k:label",
+		]);
 		expect(findings[0].details).toMatchObject({
-			carrierUuid: "carrier-1",
+			carrierUuid: testUuid("carrier-1"),
 			registrySlot: "future.lookup",
 			tableId: tableId("1"),
 			columnId: columnId("1"),
@@ -175,21 +179,21 @@ describe("lookup reference validation", () => {
 	});
 });
 
-describe("lookup-aware commit delta", () => {
+describe("lookup-aware absolute commit gate", () => {
 	const conditionalRegistry = registry((doc) =>
 		doc.appName.startsWith("Lookup") ? [BASE_OCCURRENCE] : [],
 	);
 
 	function operationCarrierDoc(): BlueprintDoc {
-		const formUuid = asUuid("form-operation-member-identity");
+		const formUuid = testUuid("form-operation-member-identity");
 		const doc = buildDoc({
 			caseTypes: [
 				{
 					name: "patient",
 					properties: [
-						{ name: "plain", label: "Plain" },
-						{ name: "lookup_value", label: "Lookup value" },
-						{ name: "lookup_value_2", label: "Second lookup value" },
+						{ name: "plain", label: proseText("Plain") },
+						{ name: "lookup_value", label: proseText("Lookup value") },
+						{ name: "lookup_value_2", label: proseText("Second lookup value") },
 					],
 				},
 			],
@@ -209,7 +213,7 @@ describe("lookup-aware commit delta", () => {
 		});
 		doc.forms[formUuid].caseOperations = [
 			{
-				uuid: asUuid("operation-member-identity"),
+				uuid: testUuid("operation-member-identity"),
 				id: "update_patient",
 				action: "update",
 				caseType: "patient",
@@ -243,36 +247,33 @@ describe("lookup-aware commit delta", () => {
 		return doc;
 	}
 
-	it("allows unrelated edits beside one existing lookup finding", () => {
+	it("rejects unrelated edits while the complete candidate has a lookup finding", () => {
 		const prevDoc = buildDoc({ appName: "Lookup app" });
 		const nextDoc = { ...prevDoc, appName: "Lookup app renamed" };
 		const context = LOOKUP_CONTEXT_UNAVAILABLE;
 
 		const verdict = evaluateCommit({
-			prevDoc,
 			nextDoc,
-			scope: "full",
 			lookupContext: context,
 			lookupReferenceExtractors: conditionalRegistry,
 		});
-		expect(verdict).toEqual({ ok: true });
+		expect(verdict.ok).toBe(false);
 	});
 
-	it("rejects a newly introduced occurrence under the same exact context", () => {
+	it("returns every gating finding on the complete candidate", () => {
 		const prevDoc = buildDoc({ appName: "Ordinary app" });
 		const nextDoc = { ...prevDoc, appName: "Lookup app" };
 		const context = LOOKUP_CONTEXT_UNAVAILABLE;
 
 		const verdict = evaluateCommit({
-			prevDoc,
 			nextDoc,
-			scope: "full",
 			lookupContext: context,
 			lookupReferenceExtractors: conditionalRegistry,
 		});
 		expect(verdict.ok).toBe(false);
 		if (!verdict.ok) {
-			expect(verdict.introduced.map((finding) => finding.code)).toEqual([
+			expect(verdict.findings.map((finding) => finding.code)).toEqual([
+				"NO_MODULES",
 				"LOOKUP_CONTEXT_UNAVAILABLE",
 			]);
 		}
@@ -290,27 +291,23 @@ describe("lookup-aware commit delta", () => {
 
 		expect(
 			evaluateCommit({
-				prevDoc,
 				nextDoc,
-				scope: "full",
 				lookupContext: LOOKUP_CONTEXT_UNAVAILABLE,
 			}),
-		).toEqual({ ok: true });
+		).toMatchObject({ ok: false });
 
-		const assertIntroducedLookup = (
+		const assertCandidateLookup = (
 			next: BlueprintDoc,
 			expectedSubpath: string,
 		) => {
 			const verdict = evaluateCommit({
-				prevDoc,
 				nextDoc: next,
-				scope: "full",
 				lookupContext: LOOKUP_CONTEXT_UNAVAILABLE,
 			});
 			expect(verdict.ok).toBe(false);
 			if (verdict.ok) throw new Error("expected a rejected lookup addition");
 			expect(
-				verdict.introduced.some(
+				verdict.findings.some(
 					(finding) =>
 						finding.code === "LOOKUP_CONTEXT_UNAVAILABLE" &&
 						finding.details?.subpath === expectedSubpath,
@@ -325,7 +322,7 @@ describe("lookup-aware commit delta", () => {
 			property: "lookup_value_2",
 			value: tableLookup(tableId("30"), columnId("301"), matchAll()),
 		});
-		assertIntroducedLookup(
+		assertCandidateLookup(
 			withWrite,
 			"/k:property/k:lookup_value_2/k:resultColumnId",
 		);
@@ -342,7 +339,7 @@ describe("lookup-aware commit delta", () => {
 			},
 			relationship: "child",
 		});
-		assertIntroducedLookup(
+		assertCandidateLookup(
 			withLink,
 			"/k:identifier/k:lookup_link_2/k:resultColumnId",
 		);

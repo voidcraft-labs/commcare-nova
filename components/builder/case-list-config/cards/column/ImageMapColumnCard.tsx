@@ -19,15 +19,18 @@
 // reason id-mapping uses them: tables are short and authored once.
 
 "use client";
+import { useState } from "react";
 import { INSPECTOR_LABEL_CLS } from "@/components/builder/inspector/inspectorChrome";
 import { SingleAssetSlot } from "@/components/builder/media/MediaSlot";
 import { BlurCommitTextInput } from "@/components/builder/shared/primitives/BlurCommitTextInput";
 import { useStableListIdentity } from "@/components/builder/shared/useStableListIdentity";
+import { Input } from "@/components/shadcn/input";
 import {
 	type Column,
 	type ImageMapEntry,
 	imageMapColumn,
 	imageMapEntry,
+	type MediaAssetId,
 } from "@/lib/domain";
 import type { ColumnEditContext } from "../../columnEditorSchemas";
 import { ColumnFieldRow } from "./ColumnFieldRow";
@@ -53,10 +56,13 @@ export function ImageMapColumnCard({
 }: ImageMapColumnCardProps) {
 	const { rootRef, removeWithFocus } = useMappingRemovalFocus();
 	const rowIdentity = useStableListIdentity(value.mapping);
+	const [adding, setAdding] = useState(false);
+	const [pendingValue, setPendingValue] = useState("");
 	const slots = {
 		sort: value.sort,
 		visibleInList: value.visibleInList,
 		visibleInDetail: value.visibleInDetail,
+		tile: value.tile,
 	};
 	const setField = (next: string) =>
 		onChange(
@@ -71,12 +77,18 @@ export function ImageMapColumnCard({
 			imageMapColumn(value.uuid, value.field, value.header, next, slots),
 		);
 
-	const updateEntry = (index: number, patch: Partial<ImageMapEntry>) => {
+	const updateEntry = (
+		index: number,
+		patch: Partial<ImageMapEntry>,
+	): string | null => {
 		const next = value.mapping.map((entry, entryIndex) =>
 			entryIndex === index ? { ...entry, ...patch } : entry,
 		);
+		const issue = imageMapValueIssue(next[index]?.value ?? "", next, index);
+		if (issue !== null) return issue;
 		rowIdentity.stage(next, { kind: "replace" });
 		setMapping(next);
+		return null;
 	};
 
 	const removeEntry = (index: number) => {
@@ -105,12 +117,14 @@ export function ImageMapColumnCard({
 		setMapping(next);
 	};
 
-	const appendEntry = () => {
-		// Seed an empty row — value blank, no image yet. The row's
-		// `SingleAssetSlot` shows the "+ Image" pill until the author
-		// picks one; the schema's required `assetId` keeps the column
-		// flagged incomplete (via the validity propagator) until then.
-		const next = [...value.mapping, imageMapEntry("", "")];
+	const appendEntry = (assetId: MediaAssetId) => {
+		if (
+			!/^\S+$/.test(pendingValue) ||
+			value.mapping.some((entry) => entry.value === pendingValue)
+		) {
+			return;
+		}
+		const next = [...value.mapping, imageMapEntry(pendingValue, assetId)];
 		rowIdentity.stage(next, {
 			kind: "splice",
 			index: value.mapping.length,
@@ -118,7 +132,17 @@ export function ImageMapColumnCard({
 			insertCount: 1,
 		});
 		setMapping(next);
+		setPendingValue("");
+		setAdding(false);
 	};
+	const pendingValueIssue =
+		pendingValue.length === 0
+			? "Enter the saved value before choosing its image."
+			: /\s/.test(pendingValue)
+				? "Saved values cannot contain spaces."
+				: value.mapping.some((entry) => entry.value === pendingValue)
+					? "That saved value already has an image."
+					: null;
 
 	return (
 		<div className="space-y-4">
@@ -155,7 +179,53 @@ export function ImageMapColumnCard({
 						onMoveDown={() => moveEntry(i, i + 1)}
 					/>
 				))}
-				<AddMappingButton onClick={appendEntry} />
+				{adding ? (
+					<MappingRowShell
+						index={value.mapping.length}
+						isFirst
+						isLast
+						onMoveUp={() => undefined}
+						onMoveDown={() => undefined}
+						onRemove={() => {
+							setPendingValue("");
+							setAdding(false);
+						}}
+					>
+						<div className="grid grid-cols-1 gap-3">
+							<div>
+								<div className={`mb-2 ${INSPECTOR_LABEL_CLS}`}>Saved value</div>
+								<Input
+									type="text"
+									value={pendingValue}
+									onChange={(event) => setPendingValue(event.target.value)}
+									aria-label={`Value ${value.mapping.length + 1} saved value`}
+									autoComplete="off"
+									data-1p-ignore
+								/>
+							</div>
+							<div>
+								<div className={`mb-2 ${INSPECTOR_LABEL_CLS}`}>Image shown</div>
+								{pendingValueIssue === null ? (
+									<SingleAssetSlot
+										value={undefined}
+										onChange={(assetId) => {
+											if (assetId) appendEntry(assetId);
+										}}
+										kind="image"
+										slotKey={`imagemap:${value.uuid}:new`}
+										ariaLabel={`Value ${value.mapping.length + 1} image`}
+									/>
+								) : (
+									<p className="text-[13px] leading-relaxed text-nova-text-muted">
+										{pendingValueIssue}
+									</p>
+								)}
+							</div>
+						</div>
+					</MappingRowShell>
+				) : (
+					<AddMappingButton onClick={() => setAdding(true)} />
+				)}
 			</div>
 		</div>
 	);
@@ -168,7 +238,7 @@ interface MappingRowProps {
 	readonly slotKey: string;
 	readonly isFirst: boolean;
 	readonly isLast: boolean;
-	readonly onUpdate: (patch: Partial<ImageMapEntry>) => void;
+	readonly onUpdate: (patch: Partial<ImageMapEntry>) => string | null;
 	readonly onRemove: () => void;
 	readonly onMoveUp: () => void;
 	readonly onMoveDown: () => void;
@@ -189,6 +259,7 @@ function MappingRow({
 	onMoveUp,
 	onMoveDown,
 }: MappingRowProps) {
+	const [valueIssue, setValueIssue] = useState<string | null>(null);
 	return (
 		<MappingRowShell
 			index={index}
@@ -203,18 +274,23 @@ function MappingRow({
 					<div className={`mb-2 ${INSPECTOR_LABEL_CLS}`}>Saved value</div>
 					<BlurCommitTextInput
 						value={entry.value}
-						onCommit={(next) => onUpdate({ value: next })}
+						onCommit={(next) => setValueIssue(onUpdate({ value: next }))}
 						ariaLabel={`Value ${index + 1} saved value`}
 					/>
+					{valueIssue !== null ? (
+						<p className="mt-1.5 text-[13px] leading-5 text-nova-rose">
+							{valueIssue}
+						</p>
+					) : null}
 				</div>
 				<div>
 					<div className={`mb-2 ${INSPECTOR_LABEL_CLS}`}>Image shown</div>
-					{/* `assetId` is stored as a string; an empty string is the
-					 *  unfilled state (slot shows the "+ Image" pill). Clearing
-					 *  maps `undefined` back to "" so the row stays present. */}
 					<SingleAssetSlot
-						value={entry.assetId || undefined}
-						onChange={(next) => onUpdate({ assetId: next ?? "" })}
+						value={entry.assetId}
+						onChange={(next) => {
+							if (next) onUpdate({ assetId: next });
+							else onRemove();
+						}}
 						kind="image"
 						slotKey={slotKey}
 						ariaLabel={`Value ${index + 1} image`}
@@ -223,4 +299,18 @@ function MappingRow({
 			</div>
 		</MappingRowShell>
 	);
+}
+
+function imageMapValueIssue(
+	candidate: string,
+	entries: readonly ImageMapEntry[],
+	candidateIndex: number,
+): string | null {
+	if (candidate.length === 0) return "Enter a saved value.";
+	if (/\s/.test(candidate)) return "Saved values cannot contain spaces.";
+	return entries.some(
+		(entry, index) => index !== candidateIndex && entry.value === candidate,
+	)
+		? "That saved value already has an image."
+		: null;
 }

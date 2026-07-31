@@ -9,21 +9,24 @@
  *     covered in `lib/log/__tests__`; here we only verify the in-memory
  *     shape adapters will see).
  *   - `recordMutations` is async specifically because it awaits the
- *     blueprint save; a pending `applyBlueprintChange` (which routes
- *     the cross-store saga) must hold the returned promise open.
+ *     blueprint save; a pending `applyBlueprintChange` must hold the
+ *     returned promise open.
  *   - Empty batches short-circuit without touching the writer or the
- *     saga.
+ *     guarded boundary.
  *
  * Both `recordMutations` and `recordMutationStages` now return
  * `{ events, committedDoc }` — the guarded writer's hydrated `nextDoc`.
- * The saga mock resolves `{}` (no `committedDoc`), so `saveBlueprint`
- * coalesces `result.committedDoc ?? doc` to the passed-in post-mutation
- * doc; these tests read `.events` off the result and assert the coalesced
- * `committedDoc` is that doc.
+ * The guarded-boundary mock returns the authoritative committed document;
+ * these tests read both the event envelopes and that returned state.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { applyBlueprintChange } from "@/lib/db/applyBlueprintChange";
+import { prepareMutationCandidate } from "@/lib/doc/commitVerdicts";
+import {
+	admitMutationBatch,
+	admitMutationStages,
+} from "@/lib/doc/mutationAdmission";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
 import type { LogWriter } from "@/lib/log/writer";
@@ -39,16 +42,13 @@ const zeroConversionImpact = async () => ({
 	samples: [],
 });
 
-/* Mock the saga module wholesale so no Postgres client is
+/* Mock the guarded persistence module wholesale so no Postgres client is
  * ever needed. `vi.mock` hoists above imports, so the mock is installed
  * before `../context` resolves `@/lib/db/applyBlueprintChange`.
  * Individual tests tweak the implementation via `mockImplementationOnce`
  * as needed. */
-/* The saga mock resolves a `seq`-only result (a top-level dedup-shape return:
- * no `committedDoc`), so `saveBlueprint` coalesces `result.committedDoc ?? doc`
- * to the passed post-mutation doc — the shape these tests assert on. */
 vi.mock("@/lib/db/applyBlueprintChange", () => ({
-	applyBlueprintChange: vi.fn().mockResolvedValue({ seq: 0 }),
+	applyBlueprintChange: vi.fn(),
 }));
 
 /**
@@ -93,12 +93,39 @@ function mockDoc(): BlueprintDoc {
 	};
 }
 
+function recordProposal(
+	ctx: McpContext,
+	mutations: unknown,
+	doc: BlueprintDoc,
+	stage?: string,
+) {
+	return ctx.recordMutations(
+		prepareMutationCandidate(doc, admitMutationBatch(mutations)),
+		stage,
+	);
+}
+
+function recordStageProposals(
+	ctx: McpContext,
+	doc: BlueprintDoc,
+	stages: unknown,
+) {
+	const admitted = admitMutationStages(stages);
+	return ctx.recordMutationStages(
+		prepareMutationCandidate(doc, admitted.batch),
+		admitted,
+	);
+}
+
 /* Reset the hoisted `applyBlueprintChange` mock between tests so
  * `mockImplementationOnce` chains in one test don't bleed into the
  * next. */
 beforeEach(() => {
 	vi.mocked(applyBlueprintChange).mockReset();
-	vi.mocked(applyBlueprintChange).mockResolvedValue({ seq: 0 });
+	vi.mocked(applyBlueprintChange).mockResolvedValue({
+		seq: 0,
+		committedDoc: mockDoc(),
+	});
 });
 
 describe("McpContext", () => {
@@ -118,7 +145,12 @@ describe("McpContext", () => {
 			{ kind: "setAppName", name: "y" },
 		];
 		const doc = mockDoc();
-		const { events, committedDoc } = await ctx.recordMutations(
+		vi.mocked(applyBlueprintChange).mockResolvedValueOnce({
+			seq: 0,
+			committedDoc: { ...doc, appName: "y" },
+		});
+		const { events, committedDoc } = await recordProposal(
+			ctx,
 			muts,
 			doc,
 			"scaffold",
@@ -128,9 +160,7 @@ describe("McpContext", () => {
 		expect(events[1]?.seq).toBe(1);
 		expect(events.every((e) => e.source === "mcp")).toBe(true);
 		expect(events.every((e) => e.stage === "scaffold")).toBe(true);
-		// The saga mock returns `{}` (no committedDoc → a top-level dedup-shape
-		// return), so `saveBlueprint` coalesces to the passed post-mutation doc.
-		expect(committedDoc).toBe(doc);
+		expect(committedDoc.appName).toBe("y");
 		expect(
 			(logWriter.logEvent as ReturnType<typeof vi.fn>).mock.calls,
 		).toHaveLength(2);
@@ -144,7 +174,11 @@ describe("McpContext", () => {
 		vi.mocked(applyBlueprintChange).mockImplementationOnce(
 			() =>
 				new Promise((r) => {
-					resolveSave = () => r({ seq: 0 });
+					resolveSave = () =>
+						r({
+							seq: 0,
+							committedDoc: { ...mockDoc(), appName: "x" },
+						});
 				}),
 		);
 		const ctx = new McpContext({
@@ -158,11 +192,13 @@ describe("McpContext", () => {
 		});
 
 		let settled = false;
-		const p = ctx
-			.recordMutations([{ kind: "setAppName", name: "x" }], mockDoc())
-			.then(() => {
-				settled = true;
-			});
+		const p = recordProposal(
+			ctx,
+			[{ kind: "setAppName", name: "x" }],
+			mockDoc(),
+		).then(() => {
+			settled = true;
+		});
 		/* Flush microtasks + one macrotask tick — `setImmediate` drains
 		 * more aggressively than `await Promise.resolve()`, which only
 		 * covers a single microtask. If `recordMutations` had fired the
@@ -192,7 +228,7 @@ describe("McpContext", () => {
 			conversionImpact: zeroConversionImpact,
 		});
 		const doc = mockDoc();
-		const result = await ctx.recordMutations([], doc);
+		const result = await recordProposal(ctx, [], doc);
 		expect(result.events).toEqual([]);
 		// The empty-batch short-circuit surfaces the passed doc verbatim as the
 		// current committed state — no save, so nothing to hydrate from.
@@ -216,21 +252,27 @@ describe("McpContext", () => {
 		});
 		const renameMut: Mutation = { kind: "setAppName", name: "renamed" };
 		const patchMut: Mutation = { kind: "setAppName", name: "patched" };
-		const midDoc = { ...mockDoc(), appName: "renamed" };
 		const finalDoc = { ...mockDoc(), appName: "patched" };
+		vi.mocked(applyBlueprintChange).mockResolvedValueOnce({
+			seq: 0,
+			committedDoc: finalDoc,
+		});
 
-		const { events, committedDoc } = await ctx.recordMutationStages([
-			{ mutations: [renameMut], doc: midDoc, stage: "rename:0-0" },
-			{ mutations: [patchMut], doc: finalDoc, stage: "edit:0-0" },
-		]);
+		const { events, committedDoc } = await recordStageProposals(
+			ctx,
+			mockDoc(),
+			[
+				{ mutations: [renameMut], stage: "rename:0-0" },
+				{ mutations: [patchMut], stage: "edit:0-0" },
+			],
+		);
 
 		// ONE transactional save for the whole sequence: the guard carries
 		// the CONCATENATED batch (one fresh-doc re-verdict over the whole
-		// edit) and the prospective snapshot is the FINAL stage's doc.
+		// edit).
 		expect(vi.mocked(applyBlueprintChange)).toHaveBeenCalledTimes(1);
 		const args = vi.mocked(applyBlueprintChange).mock.calls[0]?.[0];
 		expect(args?.guard?.mutations).toEqual([renameMut, patchMut]);
-		expect(args?.prospective?.appName).toBe("patched");
 		// One batchId + kind:'mcp' for the whole staged sequence.
 		expect(args?.batchId).toEqual(expect.any(String));
 		expect(args?.kind).toBe("mcp");
@@ -238,9 +280,9 @@ describe("McpContext", () => {
 		// The envelopes keep each stage's own tag, in order.
 		expect(events.map((e) => e.stage)).toEqual(["rename:0-0", "edit:0-0"]);
 		expect(events.map((e) => e.seq)).toEqual([0, 1]);
-		// The saga mock returns no `committedDoc`, so the stages path coalesces
-		// to the FINAL stage's doc — what the tool continues against.
-		expect(committedDoc).toBe(finalDoc);
+		// The guarded writer's committed document is what the tool continues
+		// against.
+		expect(committedDoc.appName).toBe(finalDoc.appName);
 	});
 
 	it("recordMutationStages logs nothing when the guarded save rejects", async () => {
@@ -259,10 +301,9 @@ describe("McpContext", () => {
 		});
 
 		await expect(
-			ctx.recordMutationStages([
+			recordStageProposals(ctx, mockDoc(), [
 				{
 					mutations: [{ kind: "setAppName", name: "x" }],
-					doc: mockDoc(),
 					stage: "rename:0-0",
 				},
 			]),

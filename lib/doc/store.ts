@@ -54,17 +54,25 @@
 import { create } from "zustand";
 import { devtools, subscribeWithSelector } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
+import { invertCasePropertyRenameMutation } from "@/lib/doc/casePropertyRenames";
 import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
 import {
 	hydratePersistedBlueprint,
 	rebuildFieldParent,
 	toPersistableDoc,
 } from "@/lib/doc/fieldParent";
+import {
+	type AdmittedMutationBatch,
+	admitMutationBatch,
+} from "@/lib/doc/mutationAdmission";
 import { applyMutations } from "@/lib/doc/mutations";
 import { buildReferenceIndex } from "@/lib/doc/referenceIndex";
-import type { BlueprintDoc, Mutation, MutationResult } from "@/lib/doc/types";
+import type { BlueprintDoc, MutationResult } from "@/lib/doc/types";
 import { recordFromEntries } from "@/lib/domain";
-import type { PersistableDoc } from "@/lib/domain/blueprint";
+import {
+	APP_GENESIS_FALLBACK_NAME,
+	type PersistableDoc,
+} from "@/lib/domain/blueprint";
 
 export { rebuildFieldParent };
 
@@ -85,14 +93,10 @@ export type BlueprintDocState = BlueprintDoc & {
 	 * length — a single user edit and a multi-step agent write are each one
 	 * step the author can take back.
 	 *
-	 * Returns an array of reducer results, one per input mutation, same
-	 * order. Most kinds produce `undefined`. `renameField` returns
-	 * `FieldRenameMeta` with the XPath rewrite count. `moveField` returns
-	 * `MoveFieldResult` with cross-level auto-rename info. Callers that
-	 * need metadata destructure the known position; callers that don't
-	 * care ignore the return value.
+	 * Returns one `undefined` entry per input mutation. The positional array is
+	 * retained for batch accounting; reducers expose no side-channel metadata.
 	 */
-	applyMany: (muts: Mutation[]) => MutationResult[];
+	applyMany: (muts: unknown) => MutationResult[];
 	/**
 	 * Commit a gate-validated candidate doc as one undo entry — the
 	 * gated-dispatch twin of `applyMany`, called only by
@@ -100,7 +104,7 @@ export type BlueprintDocState = BlueprintDoc & {
 	 * by the same reducer). See the implementation note for why this
 	 * exists instead of a second `applyMany` run.
 	 */
-	commitDoc: (next: BlueprintDoc, commands?: readonly Mutation[]) => void;
+	commitDoc: (next: BlueprintDoc, commands?: AdmittedMutationBatch) => void;
 	/**
 	 * The commands dispatched since the last take, in order, and clear them.
 	 *
@@ -115,13 +119,26 @@ export type BlueprintDocState = BlueprintDoc & {
 	 * one, and nothing else does. An edit made while an SA run streams is the
 	 * author's and queues normally.
 	 *
-	 * The reconciler takes the queue when it PUTs: from that moment the batch
-	 * is its business, tracked in `sentPending` until the server echoes it.
+	 * The reconciler takes the queue when it PUTs: from that moment each
+	 * original admitted batch is its business, tracked as its own
+	 * `sentPending` segment until the server echoes it. Boundaries are semantic:
+	 * a batch-exclusive command must never be flattened together with its
+	 * predecessor or successor.
 	 */
-	takeCommands: () => Mutation[];
+	takeCommandBatches: () => readonly AdmittedMutationBatch[];
 	/** The queue without clearing it — for deciding whether there is anything
 	 *  to save. */
-	peekCommands: () => readonly Mutation[];
+	peekCommandBatches: () => readonly AdmittedMutationBatch[];
+	/**
+	 * Drop commands that have not left the store and clear local undo/redo.
+	 *
+	 * Used only when an authoritative rejection invalidates an explicit
+	 * semantic command and every causal successor. The reconciler separately
+	 * removes already-sent successor segments during its serialized reload;
+	 * this closes the unsent/history half so no stale inverse or successor can
+	 * be replayed over the fresh server snapshot.
+	 */
+	discardUncommittedCommandState: () => void;
 	/**
 	 * Replace the entire doc from a `PersistableDoc` (the persisted shape that
 	 * omits `fieldParent`).
@@ -175,9 +192,9 @@ export type BlueprintDocState = BlueprintDoc & {
 	endRemoteApply: () => void;
 	/** The batch an `undo()` applies, or `undefined` when the history is empty.
 	 *  Callers verdict it through the commit gate before applying. */
-	undoBatch: () => Mutation[] | undefined;
+	undoBatch: () => AdmittedMutationBatch | undefined;
 	/** The batch a `redo()` applies, or `undefined` when nothing is redoable. */
-	redoBatch: () => Mutation[] | undefined;
+	redoBatch: () => AdmittedMutationBatch | undefined;
 	/** Apply `undoBatch()` through the ordinary write path, so it queues for
 	 *  persistence like any other edit, and move the entry to the redo side. */
 	undo: () => void;
@@ -190,6 +207,15 @@ export type BlueprintDocState = BlueprintDoc & {
 	 *  closure state so the toolbar re-renders when either flips. */
 	canUndo: boolean;
 	canRedo: boolean;
+	/**
+	 * Monotonic authored-command watermark. Usually a command also changes a
+	 * persisted document reference, but a nonempty app-wide rename can be
+	 * Blueprint-byte-identical while still owing saved-row/parked-key work.
+	 * Auto-save includes this bookkeeping value in its subscription so that
+	 * exact semantic command can never be elided by a document-equality
+	 * optimization.
+	 */
+	commandQueueRevision: number;
 	/**
 	 * True for exactly the synchronous window a `beginRemoteApply` bracket
 	 * is open. Read by `useAutoSave` to gate the re-PUT — a server-applied
@@ -211,7 +237,7 @@ export type BlueprintDocState = BlueprintDoc & {
  */
 const EMPTY_DOC: BlueprintDoc = {
 	appId: "",
-	appName: "",
+	appName: APP_GENESIS_FALLBACK_NAME,
 	connectType: null,
 	caseTypes: null,
 	modules: recordFromEntries([]),
@@ -222,6 +248,7 @@ const EMPTY_DOC: BlueprintDoc = {
 	fieldOrder: recordFromEntries([]),
 	fieldParent: recordFromEntries([]),
 };
+const EMPTY_ADMITTED_MUTATIONS = admitMutationBatch([]);
 
 /**
  * Overlay a whole target doc onto the state draft, BLANKING every data key the
@@ -248,7 +275,10 @@ function overlayDoc(draft: Record<string, unknown>, next: object): void {
 		if (!isDocDataKey(key, draft[key])) continue;
 		if (!(key in next)) draft[key] = undefined;
 	}
-	Object.assign(draft, next);
+	for (const [key, value] of Object.entries(next)) {
+		if (!isDocDataKey(key, value)) continue;
+		draft[key] = value;
+	}
 }
 
 /**
@@ -269,6 +299,7 @@ const BOOKKEEPING_KEYS = new Set([
 	"remoteFrameApplyInProgress",
 	"canUndo",
 	"canRedo",
+	"commandQueueRevision",
 ]);
 
 /** How many steps back the author can reach. Bounds a long session's memory;
@@ -319,7 +350,7 @@ export function createBlueprintDocStore() {
 	 * the blueprint and must not serialize. `load` clears it — a hydration
 	 * replaces the document these commands describe.
 	 */
-	let pendingCommands: Mutation[] = [];
+	let pendingCommandBatches: AdmittedMutationBatch[] = [];
 	let birthPauseReleased = false;
 	let pendingStartTracking = false;
 	/**
@@ -330,8 +361,8 @@ export function createBlueprintDocStore() {
 	 * alongside every entry, which is the whole cost of a snapshot stack.
 	 */
 	interface HistoryEntry {
-		readonly forward: readonly Mutation[];
-		readonly inverse: readonly Mutation[];
+		readonly forward: AdmittedMutationBatch;
+		readonly inverse: AdmittedMutationBatch;
 	}
 	let undoStack: HistoryEntry[] = [];
 	let redoStack: HistoryEntry[] = [];
@@ -413,11 +444,10 @@ export function createBlueprintDocStore() {
 	 * queue the instant the document changes; a queue filled afterwards leaves
 	 * every save one edit behind, and a lone edit unsaved entirely.
 	 */
-	function queueForPersistence(mutations: readonly Mutation[]): void {
-		if (replayDepth > 0 || mutations.length === 0) return;
-		for (const mutation of mutations) {
-			pendingCommands.push(structuredClone(mutation));
-		}
+	function queueForPersistence(mutations: AdmittedMutationBatch): boolean {
+		if (replayDepth > 0 || mutations.length === 0) return false;
+		pendingCommandBatches.push(mutations);
+		return true;
 	}
 
 	/**
@@ -430,12 +460,19 @@ export function createBlueprintDocStore() {
 	 */
 	function recordHistoryStep(
 		before: BlueprintDoc,
-		forward: readonly Mutation[],
+		forward: AdmittedMutationBatch,
 	): void {
 		if (forward.length === 0 || suppressionDepth > 0 || applyingHistory) return;
+		const rename =
+			forward.length === 1 && forward[0]?.kind === "renameCaseProperties"
+				? forward[0]
+				: undefined;
 		undoStack.push({
-			forward: structuredClone(forward),
-			inverse: deltaBetween(store.getState(), before),
+			forward,
+			inverse:
+				rename === undefined
+					? deltaBetween(store.getState(), before, forward)
+					: admitMutationBatch([invertCasePropertyRenameMutation(rename)]),
 		});
 		// Bounded so a long session cannot grow the history without limit. The
 		// oldest step drops rather than the newest: an author reaches for the edit
@@ -447,10 +484,17 @@ export function createBlueprintDocStore() {
 	}
 
 	/** The document-to-document delta, which is what an inverse is. */
-	function deltaBetween(from: BlueprintDoc, to: BlueprintDoc): Mutation[] {
-		return diffDocsToMutations(
-			toPersistableDoc(from) as BlueprintDoc,
-			toPersistableDoc(to) as BlueprintDoc,
+	function deltaBetween(
+		from: BlueprintDoc,
+		to: BlueprintDoc,
+		recordedNonRenameForward: AdmittedMutationBatch,
+	): AdmittedMutationBatch {
+		return admitMutationBatch(
+			diffDocsToMutations(
+				toPersistableDoc(from) as BlueprintDoc,
+				toPersistableDoc(to) as BlueprintDoc,
+				{ recordedNonRenameForward },
+			),
 		);
 	}
 
@@ -465,6 +509,7 @@ export function createBlueprintDocStore() {
 					remoteFrameApplyInProgress: false,
 					canUndo: false,
 					canRedo: false,
+					commandQueueRevision: 0,
 
 					// ── Mutation actions ───────────────────────────────────────
 
@@ -476,28 +521,27 @@ export function createBlueprintDocStore() {
 					 * whatever its length: a per-action dispatch, a compound edit,
 					 * and a whole agent write are each one step.
 					 *
-					 * Returns an array of reducer results, one entry per input in
-					 * the same order. Most mutation kinds produce `undefined`; the
-					 * two kinds that produce metadata (`renameField`, `moveField`)
-					 * return `FieldRenameMeta` / `MoveFieldResult`. The `let`
-					 * variable pattern captures the inner return synchronously — by
-					 * the time `set()` returns, `results` has been assigned.
+					 * Returns one `undefined` entry per input in the same order. The
+					 * `let` variable pattern captures the inner return synchronously — by the time
+					 * `set()` returns, `results` has been assigned.
 					 */
-					applyMany: (muts: Mutation[]): MutationResult[] => {
+					applyMany: (muts: unknown): MutationResult[] => {
+						const admitted = admitMutationBatch(muts);
 						const before = store.getState();
-						queueForPersistence(muts);
+						const queued = queueForPersistence(admitted);
 						let results: MutationResult[] = [];
 						set((draft) => {
+							if (queued) draft.commandQueueRevision += 1;
 							// `draft` includes action methods alongside data fields,
 							// but `applyMutations` is typed for `Draft<BlueprintDoc>`.
 							// The extra action fields are structurally harmless — Immer
 							// will not attempt to track the function references.
 							results = applyMutations(
 								draft as unknown as Parameters<typeof applyMutations>[0],
-								muts,
+								admitted,
 							);
 						});
-						recordHistoryStep(before, muts);
+						recordHistoryStep(before, admitted);
 						return results;
 					},
 
@@ -525,27 +569,31 @@ export function createBlueprintDocStore() {
 					 * other writer routes through `applyMany` so the reducer
 					 * stays the one mutation interpreter.
 					 */
-					commitDoc: (next: BlueprintDoc, commands = []): void => {
+					commitDoc: (
+						next: BlueprintDoc,
+						commands = EMPTY_ADMITTED_MUTATIONS,
+					): void => {
 						const before = store.getState();
-						queueForPersistence(commands);
+						const queued = queueForPersistence(commands);
 						set((draft) => {
+							if (queued) draft.commandQueueRevision += 1;
 							overlayDoc(draft as unknown as Record<string, unknown>, next);
 						});
 						recordHistoryStep(before, commands);
 					},
 
-					undoBatch: (): Mutation[] | undefined =>
-						undoStack.at(-1)?.inverse.slice(),
+					undoBatch: (): AdmittedMutationBatch | undefined =>
+						undoStack.at(-1)?.inverse,
 
-					redoBatch: (): Mutation[] | undefined =>
-						redoStack.at(-1)?.forward.slice(),
+					redoBatch: (): AdmittedMutationBatch | undefined =>
+						redoStack.at(-1)?.forward,
 
 					undo: (): void => {
 						const entry = undoStack.pop();
 						if (entry === undefined) return;
 						applyingHistory = true;
 						try {
-							store.getState().applyMany(entry.inverse.slice());
+							store.getState().applyMany(entry.inverse);
 						} finally {
 							applyingHistory = false;
 						}
@@ -558,7 +606,7 @@ export function createBlueprintDocStore() {
 						if (entry === undefined) return;
 						applyingHistory = true;
 						try {
-							store.getState().applyMany(entry.forward.slice());
+							store.getState().applyMany(entry.forward);
 						} finally {
 							applyingHistory = false;
 						}
@@ -568,13 +616,19 @@ export function createBlueprintDocStore() {
 
 					clearHistory,
 
-					takeCommands: (): Mutation[] => {
-						const taken = pendingCommands;
-						pendingCommands = [];
+					takeCommandBatches: (): readonly AdmittedMutationBatch[] => {
+						const taken = Object.freeze([...pendingCommandBatches]);
+						pendingCommandBatches = [];
 						return taken;
 					},
 
-					peekCommands: (): readonly Mutation[] => pendingCommands,
+					peekCommandBatches: (): readonly AdmittedMutationBatch[] =>
+						Object.freeze([...pendingCommandBatches]),
+
+					discardUncommittedCommandState: (): void => {
+						pendingCommandBatches = [];
+						clearHistory();
+					},
 
 					/**
 					 * Hydrate the store from a normalized `BlueprintDoc`.
@@ -603,12 +657,11 @@ export function createBlueprintDocStore() {
 						}
 						// A load replaces the document, so any command still waiting to
 						// persist describes an edit to a document that no longer exists.
-						pendingCommands = [];
-						// The single hydration chokepoint: fieldParent rebuilt +
-						// deterministic option-`uuid` backfill of a legacy doc, on a deep
-						// clone so `doc` is never mutated. Position-seeded, so this client
-						// and the server agree on the same legacy doc and an edit against
-						// it never disagrees on which option it addressed.
+						pendingCommandBatches = [];
+						// The single hydration chokepoint: clone, normalize safe record
+						// prototypes, and rebuild the nonpersisted `fieldParent` index.
+						// Persisted identities and membership arrays are already final;
+						// load never mints, repairs, or reorders authorable state.
 						const hydrated = hydratePersistedBlueprint(doc);
 						set((draft) => {
 							// Overlay EVERY doc field in one pass, blanking data keys the

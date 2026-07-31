@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import type { CasePropertyDataType, PersistableDoc } from "@/lib/domain";
 import { effectiveCaseTypes } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 
 /** Test-local single-property read over the effective view —
  *  `undefined` conflates missing-and-unknown, which is fine for
@@ -49,14 +50,17 @@ describe("effectiveCaseTypes — writer derivation", () => {
 	it("derives a declared-but-untyped property's type from its writer field's kind", () => {
 		const doc = docWith({
 			caseTypes: [
-				{ name: "patient", properties: [{ name: "dob", label: "DOB" }] },
+				{
+					name: "patient",
+					properties: [{ name: "dob", label: proseText("DOB") }],
+				},
 			],
 			fields: [
 				f({
 					kind: "date",
-					id: "dob",
-					label: "DOB",
-					case_property_on: "patient",
+					id: "date_of_birth_question",
+					label: proseText("DOB"),
+					caseWrite: { caseType: "patient", property: "dob" },
 				}),
 			],
 		});
@@ -68,15 +72,17 @@ describe("effectiveCaseTypes — writer derivation", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "dob", label: "DOB", data_type: "text" }],
+					properties: [
+						{ name: "dob", label: proseText("DOB"), data_type: "text" },
+					],
 				},
 			],
 			fields: [
 				f({
 					kind: "date",
 					id: "dob",
-					label: "DOB",
-					case_property_on: "patient",
+					label: proseText("DOB"),
+					caseWrite: { caseType: "patient", property: "dob" },
 				}),
 			],
 		});
@@ -91,7 +97,7 @@ describe("effectiveCaseTypes — writer derivation", () => {
 				f({
 					kind: "hidden",
 					id: "visit_date",
-					case_property_on: "patient",
+					caseWrite: { caseType: "patient", property: "visit_date" },
 					default_value: "today()",
 				}),
 			],
@@ -107,7 +113,7 @@ describe("effectiveCaseTypes — writer derivation", () => {
 				f({
 					kind: "hidden",
 					id: "stamp",
-					case_property_on: "patient",
+					caseWrite: { caseType: "patient", property: "stamp" },
 					default_value: "  now()  ",
 				}),
 			],
@@ -136,8 +142,8 @@ describe("effectiveCaseTypes — writer derivation", () => {
 								f({
 									kind: "date",
 									id: "dob",
-									label: "DOB",
-									case_property_on: "patient",
+									label: proseText("DOB"),
+									caseWrite: { caseType: "patient", property: "dob" },
 								}),
 							],
 						},
@@ -154,7 +160,7 @@ describe("effectiveCaseTypes — writer derivation", () => {
 								f({
 									kind: "hidden",
 									id: "dob",
-									case_property_on: "visit",
+									caseWrite: { caseType: "visit", property: "dob" },
 									default_value: "#patient/dob",
 								}),
 							],
@@ -172,7 +178,7 @@ describe("effectiveCaseTypes — writer derivation", () => {
 				f({
 					kind: "hidden",
 					id: "score",
-					case_property_on: "patient",
+					caseWrite: { caseType: "patient", property: "score" },
 					default_value: "1 + 2",
 				}),
 			],
@@ -191,8 +197,18 @@ describe("effectiveCaseTypes — writer derivation", () => {
 	it("resolves unknown on writer disagreement instead of picking a side", () => {
 		const doc = docWith({
 			fields: [
-				f({ kind: "date", id: "x", label: "X", case_property_on: "patient" }),
-				f({ kind: "int", id: "x", label: "X", case_property_on: "patient" }),
+				f({
+					kind: "date",
+					id: "x",
+					label: proseText("X"),
+					caseWrite: { caseType: "patient", property: "x" },
+				}),
+				f({
+					kind: "int",
+					id: "x",
+					label: proseText("X"),
+					caseWrite: { caseType: "patient", property: "x" },
+				}),
 			],
 		});
 		expect(resolveEffectivePropertyType(doc, "patient", "x")).toBeUndefined();
@@ -217,7 +233,7 @@ describe("effectiveCaseTypes — writer derivation", () => {
 								f({
 									kind: "hidden",
 									id: "p",
-									case_property_on: "a",
+									caseWrite: { caseType: "a", property: "p" },
 									default_value: "#b/p",
 								}),
 							],
@@ -235,7 +251,7 @@ describe("effectiveCaseTypes — writer derivation", () => {
 								f({
 									kind: "hidden",
 									id: "p",
-									case_property_on: "b",
+									caseWrite: { caseType: "b", property: "p" },
 									default_value: "#a/p",
 								}),
 							],
@@ -266,8 +282,8 @@ describe("effectiveCaseTypes — the assembled view", () => {
 				f({
 					kind: "text",
 					id: "n",
-					label: "N",
-					case_property_on: "undeclared_type",
+					label: proseText("N"),
+					caseWrite: { caseType: "undeclared_type", property: "n" },
 				}),
 			],
 		});

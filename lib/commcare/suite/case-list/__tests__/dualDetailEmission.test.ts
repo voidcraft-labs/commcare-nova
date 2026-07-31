@@ -33,11 +33,11 @@
 
 import AdmZip from "adm-zip";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
 import {
-	asUuid,
 	type BlueprintDoc,
 	type CaseListConfig,
 	type CaseSearchConfig,
@@ -48,6 +48,7 @@ import {
 	plainColumn,
 } from "@/lib/domain";
 import { ancestorPath, prop, relationStep, term } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { emitLongDetail } from "../longDetail";
 import { emitShortDetail } from "../shortDetail";
 
@@ -55,9 +56,9 @@ import { emitShortDetail } from "../shortDetail";
 // Test helpers
 // ============================================================
 
-const MODULE_UUID = asUuid("00000000-0000-4000-8000-000000000010");
+const MODULE_UUID = testUuid("00000000-0000-4000-8000-000000000010");
 const COL = (n: number): import("@/lib/domain").Uuid =>
-	asUuid(`00000000-0000-4000-8000-cccc${String(n).padStart(8, "0")}`);
+	testUuid(`00000000-0000-4000-8000-cccc${String(n).padStart(8, "0")}`);
 
 /**
  * Build a minimal `Module` for testing. Both optional configs are
@@ -133,7 +134,7 @@ function buildDoc(args: {
 		name: ct.name,
 		properties: ct.properties.map((p) => ({
 			name: p.name,
-			label: p.name,
+			label: proseText(p.name),
 			...(p.data_type !== undefined && { data_type: p.data_type }),
 			...(p.parent_type !== undefined && { parent_type: p.parent_type }),
 		})),

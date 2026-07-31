@@ -1,86 +1,145 @@
 /**
- * React component for rendering label text with inline reference chips.
+ * Render canonical prose templates as Markdown with structural reference chips.
  *
- * Uses markdown-to-jsx (via shared `previewMarkdownOptions`) with a chip
- * injection renderRule that intercepts text nodes containing `#type/path`
- * hashtag patterns and replaces them with ReferenceChip components directly.
- * Markdown handles all formatting natively; we only touch text nodes that
- * contain refs. The chip rule composes on top of the shared breaksRenderRule
- * via `withChipInjection`.
+ * Literal text is handed to Markdown unchanged, including hashtag-looking
+ * text. Only typed reference parts become chips. The temporary render markers
+ * below exist solely inside this render call; they are never authored, parsed
+ * into domain state, or persisted.
  */
 
 "use client";
 import Markdown, { type MarkdownToJSX, RuleType } from "markdown-to-jsx";
 import { Fragment, type ReactNode, useMemo } from "react";
+import type { ProseReferencePart, ProseTemplate } from "@/lib/domain";
 import { PREVIEW_OPTIONS, withChipInjection } from "@/lib/markdown";
-import { HASHTAG_REF_PATTERN } from "./config";
-import type { ReferenceProvider } from "./provider";
-import { ReferenceChip } from "./ReferenceChip";
+import {
+	type ReferenceProvider,
+	unresolvedReferenceProjection,
+} from "./provider";
+import { ReferenceChip, UnresolvedReferenceChip } from "./ReferenceChip";
 import { useCurrentFormUuid, useReferenceProvider } from "./ReferenceContext";
-import { parseLabelSegments, resolveRefFromExpr } from "./renderLabel";
 
 interface LabelContentProps {
-	/** Raw label text (bare `#type/path` hashtags and markdown). */
-	label: string;
-	/** Engine-resolved label (hashtag refs evaluated to values). Undefined when no refs present. */
+	label: ProseTemplate;
 	resolvedLabel?: string;
-	/** Whether we're in design/edit mode. */
 	isEditMode: boolean;
-	/** Text variant classes (font-size, weight, color) merged onto the
-	 *  `preview-markdown` wrapper. Use `FIELD_STYLES.label` or `.hint`. */
 	className: string;
 }
 
-/**
- * Split a text node on ref patterns and render chips inline. Uses
- * parseLabelSegments (canonical regex split) so the pattern logic lives in one
- * place. `formUuid` scopes form/case resolution to the form the text belongs to
- * (the active form in-editor; the field's owning form in the sidebar);
- * unresolvable refs render as their raw text.
- */
 export function textWithChips(
-	text: string,
+	template: ProseTemplate,
 	provider: ReferenceProvider | null,
 	formUuid?: string,
 ): ReactNode {
-	/* Fast path: skip regex work for the ~95% of labels with no refs. */
-	if (!text.includes("#")) return text;
-	return parseLabelSegments(text).map((seg) => {
-		if (seg.kind === "text") return seg.text;
-		const ref = resolveRefFromExpr(seg.value, provider, formUuid);
-		return ref ? <ReferenceChip key={seg.key} reference={ref} /> : seg.value;
+	return template.parts.map((part, index) => {
+		if (part.kind === "text") {
+			return (
+				// biome-ignore lint/suspicious/noArrayIndexKey: canonical ordered prose parts
+				<Fragment key={index}>{part.text}</Fragment>
+			);
+		}
+		const projected =
+			provider?.projectPart(part, formUuid) ??
+			({
+				ok: false,
+				unresolved: unresolvedReferenceProjection(part),
+			} as const);
+		return projected.ok ? (
+			// biome-ignore lint/suspicious/noArrayIndexKey: canonical ordered prose parts
+			<ReferenceChip key={index} reference={projected.reference} />
+		) : (
+			// biome-ignore lint/suspicious/noArrayIndexKey: canonical ordered prose parts
+			<Fragment key={index}>
+				<UnresolvedReferenceChip unresolved={projected.unresolved} />
+			</Fragment>
+		);
 	});
 }
 
-/**
- * Build a renderRule that intercepts text nodes containing ref patterns and
- * replaces them with ReferenceChip components. Composed on top of the shared
- * preview options (which include breaksRenderRule) via withChipInjection.
- */
-function chipRenderRule(
+interface RenderTemplate {
+	markdown: string;
+	refs: Map<string, ProseReferencePart>;
+}
+
+function makeRenderTemplate(template: ProseTemplate): RenderTemplate {
+	let nonce = 0;
+	let prefix = "";
+	const literal = template.parts
+		.filter((part) => part.kind === "text")
+		.map((part) => part.text)
+		.join("");
+	do {
+		prefix = `\uE000NOVA_REF_${nonce++}_`;
+	} while (literal.includes(prefix));
+
+	const refs = new Map<string, ProseReferencePart>();
+	let markdown = "";
+	let refIndex = 0;
+	for (const part of template.parts) {
+		if (part.kind === "text") {
+			markdown += part.text;
+			continue;
+		}
+		const marker = `${prefix}${refIndex++}\uE001`;
+		refs.set(marker, part);
+		markdown += marker;
+	}
+	return { markdown, refs };
+}
+
+function renderMarkedText(
+	text: string,
+	refs: ReadonlyMap<string, ProseReferencePart>,
+	provider: ReferenceProvider | null,
+	formUuid: string | undefined,
+): ReactNode {
+	if (refs.size === 0) return text;
+	const result: ReactNode[] = [];
+	let cursor = 0;
+	for (const [marker, part] of refs) {
+		const index = text.indexOf(marker, cursor);
+		if (index < 0) continue;
+		if (index > cursor) result.push(text.slice(cursor, index));
+		const projected =
+			provider?.projectPart(part, formUuid) ??
+			({
+				ok: false,
+				unresolved: unresolvedReferenceProjection(part),
+			} as const);
+		result.push(
+			projected.ok ? (
+				<ReferenceChip key={marker} reference={projected.reference} />
+			) : (
+				<UnresolvedReferenceChip
+					key={marker}
+					unresolved={projected.unresolved}
+				/>
+			),
+		);
+		cursor = index + marker.length;
+	}
+	if (cursor < text.length) result.push(text.slice(cursor));
+	return result;
+}
+
+function chipRule(
+	refs: ReadonlyMap<string, ProseReferencePart>,
 	provider: ReferenceProvider | null,
 	formUuid: string | undefined,
 ): NonNullable<MarkdownToJSX.Options["renderRule"]> {
 	return (next, node, _renderChildren, state) => {
-		if (node.type === RuleType.text && HASHTAG_REF_PATTERN.test(node.text)) {
+		if (
+			node.type === RuleType.text &&
+			[...refs.keys()].some((marker) => node.text.includes(marker))
+		) {
 			return (
 				<Fragment key={state.key}>
-					{textWithChips(node.text, provider, formUuid)}
+					{renderMarkedText(node.text, refs, provider, formUuid)}
 				</Fragment>
 			);
 		}
 		return next();
 	};
-}
-
-function useMarkdownOptions(): MarkdownToJSX.Options {
-	const provider = useReferenceProvider();
-	const formUuid = useCurrentFormUuid();
-	return useMemo(
-		() =>
-			withChipInjection(PREVIEW_OPTIONS, chipRenderRule(provider, formUuid)),
-		[provider, formUuid],
-	);
 }
 
 export function LabelContent({
@@ -89,21 +148,30 @@ export function LabelContent({
 	isEditMode,
 	className,
 }: LabelContentProps) {
-	const options = useMarkdownOptions();
+	const provider = useReferenceProvider();
+	const formUuid = useCurrentFormUuid();
+	const rendered = useMemo(() => makeRenderTemplate(label), [label]);
+	const options = useMemo(
+		() =>
+			withChipInjection(
+				PREVIEW_OPTIONS,
+				chipRule(rendered.refs, provider, formUuid),
+			),
+		[rendered, provider, formUuid],
+	);
 	const wrapperCls = `preview-markdown ${className}`;
 
-	/* Preview mode: use engine-resolved values (no chips, just substituted text). */
 	if (!isEditMode && resolvedLabel !== undefined) {
 		return (
 			<div className={wrapperCls}>
-				<Markdown options={options}>{resolvedLabel}</Markdown>
+				<Markdown options={PREVIEW_OPTIONS}>{resolvedLabel}</Markdown>
 			</div>
 		);
 	}
 
 	return (
 		<div className={wrapperCls}>
-			<Markdown options={options}>{label}</Markdown>
+			<Markdown options={options}>{rendered.markdown}</Markdown>
 		</div>
 	);
 }

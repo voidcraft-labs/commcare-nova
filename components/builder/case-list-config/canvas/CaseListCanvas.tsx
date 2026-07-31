@@ -63,7 +63,6 @@ export interface CaseListCanvasProps {
 	readonly onMoveColumn: (uuid: Column["uuid"], toIndex: number) => void;
 	readonly onColumnsChange: (next: readonly Column[]) => void;
 	readonly onShowColumn: (column: Column) => void;
-	readonly onRepairColumn: (column: Column) => void;
 	readonly filterBroken: boolean;
 	readonly excludedOwnerIdsBroken?: boolean;
 	readonly onFilterChange: (next: Predicate | undefined) => CommitOutcome;
@@ -103,7 +102,6 @@ export function CaseListCanvas({
 	onMoveColumn,
 	onColumnsChange,
 	onShowColumn,
-	onRepairColumn,
 	filterBroken,
 	excludedOwnerIdsBroken = false,
 	onFilterChange,
@@ -226,7 +224,6 @@ export function CaseListCanvas({
 								repeatableProperties={repeatableProperties}
 								brokenColumns={resultsBrokenColumns}
 								onShow={onShowColumn}
-								onRepair={onRepairColumn}
 								onCreate={onAddColumn}
 								onCreateCalculated={onAddCalculated}
 								createDisabledReason={addColumnDisabledReason}

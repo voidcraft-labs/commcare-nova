@@ -110,7 +110,7 @@ function outerContext(values: Record<string, string> = {}): EvalContext {
 
 function source(filter?: LookupOptionsSource["filter"]): LookupOptionsSource {
 	return {
-		kind: "lookup-table",
+		kind: "lookup",
 		tableId: TABLE,
 		valueColumnId: COL_CODE,
 		labelColumnId: COL_NAME,

@@ -18,8 +18,9 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import type { BlueprintDoc } from "@/lib/domain";
-import { asAssetId } from "@/lib/domain/multimedia";
+import type { MediaAssetId } from "@/lib/domain/multimedia";
 import {
 	describeMediaExpectationFailures,
 	type MediaAttachExpectation,
@@ -28,7 +29,7 @@ import {
 } from "../attachVerdicts";
 
 interface MockRow {
-	id: string;
+	id: MediaAssetId;
 	project_id: string;
 	status: "pending" | "ready";
 	kind: string;
@@ -36,11 +37,11 @@ interface MockRow {
 }
 
 const { rows, loadAssetsByIdsMock } = vi.hoisted(() => {
-	const rows = new Map<string, MockRow>();
+	const rows = new Map<MediaAssetId, MockRow>();
 	return {
 		rows,
 		loadAssetsByIdsMock: vi.fn(
-			async (ids: readonly string[], projectId: string) =>
+			async (ids: readonly MediaAssetId[], projectId: string) =>
 				[...new Set(ids)]
 					.map((id) => rows.get(id))
 					.filter(
@@ -55,7 +56,10 @@ vi.mock("@/lib/db/mediaAssets", () => ({
 	loadAssetsByIds: loadAssetsByIdsMock,
 }));
 
-function seed(id: string, overrides: Partial<Omit<MockRow, "id">> = {}): void {
+function seed(
+	id: MediaAssetId,
+	overrides: Partial<Omit<MockRow, "id">> = {},
+): void {
 	rows.set(id, {
 		id,
 		project_id: "project-1",
@@ -83,7 +87,7 @@ function emptyDoc(): BlueprintDoc {
 	};
 }
 
-function imageExpectation(assetId: string): MediaAttachExpectation {
+function imageExpectation(assetId: MediaAssetId): MediaAttachExpectation {
 	return { assetId, kind: "image", slot: "the app logo" };
 }
 
@@ -94,11 +98,11 @@ beforeEach(() => {
 
 describe("mediaAttachVerdict", () => {
 	it("passes a ready, owned, kind-matched asset", async () => {
-		seed("a1");
+		seed(testMediaAssetId("a1"));
 		const verdict = await mediaAttachVerdict({
 			projectId: "project-1",
 			doc: emptyDoc(),
-			expectations: [imageExpectation("a1")],
+			expectations: [imageExpectation(testMediaAssetId("a1"))],
 		});
 		expect(verdict).toEqual({ ok: true });
 	});
@@ -107,21 +111,21 @@ describe("mediaAttachVerdict", () => {
 		const verdict = await mediaAttachVerdict({
 			projectId: "project-1",
 			doc: emptyDoc(),
-			expectations: [imageExpectation("a-gone")],
+			expectations: [imageExpectation(testMediaAssetId("a-gone"))],
 		});
 		expect(verdict.ok).toBe(false);
 		if (verdict.ok) return;
-		expect(verdict.error).toContain("a-gone");
+		expect(verdict.error).toContain(testMediaAssetId("a-gone"));
 		expect(verdict.error).toContain("the app logo");
 		expect(verdict.error).toContain("library");
 	});
 
 	it("reads a foreign-Project asset as missing (no cross-tenant leak)", async () => {
-		seed("a-foreign", { project_id: "project-2" });
+		seed(testMediaAssetId("a-foreign"), { project_id: "project-2" });
 		const verdict = await mediaAttachVerdict({
 			projectId: "project-1",
 			doc: emptyDoc(),
-			expectations: [imageExpectation("a-foreign")],
+			expectations: [imageExpectation(testMediaAssetId("a-foreign"))],
 		});
 		expect(verdict.ok).toBe(false);
 		if (verdict.ok) return;
@@ -131,11 +135,11 @@ describe("mediaAttachVerdict", () => {
 	});
 
 	it("fails a pending asset with the still-uploading message", async () => {
-		seed("a-pending", { status: "pending" });
+		seed(testMediaAssetId("a-pending"), { status: "pending" });
 		const verdict = await mediaAttachVerdict({
 			projectId: "project-1",
 			doc: emptyDoc(),
-			expectations: [imageExpectation("a-pending")],
+			expectations: [imageExpectation(testMediaAssetId("a-pending"))],
 		});
 		expect(verdict.ok).toBe(false);
 		if (verdict.ok) return;
@@ -143,11 +147,11 @@ describe("mediaAttachVerdict", () => {
 	});
 
 	it("fails a kind mismatch naming both kinds", async () => {
-		seed("a-audio", { kind: "audio" });
+		seed(testMediaAssetId("a-audio"), { kind: "audio" });
 		const verdict = await mediaAttachVerdict({
 			projectId: "project-1",
 			doc: emptyDoc(),
-			expectations: [imageExpectation("a-audio")],
+			expectations: [imageExpectation(testMediaAssetId("a-audio"))],
 		});
 		expect(verdict.ok).toBe(false);
 		if (verdict.ok) return;
@@ -157,11 +161,11 @@ describe("mediaAttachVerdict", () => {
 
 	it("rejects when the attach would push the byte aggregate past the export ceiling", async () => {
 		// One ready row whose recorded size alone exceeds the 200 MB budget.
-		seed("a-huge", { sizeBytes: 201 * 1024 * 1024 });
+		seed(testMediaAssetId("a-huge"), { sizeBytes: 201 * 1024 * 1024 });
 		const verdict = await mediaAttachVerdict({
 			projectId: "project-1",
 			doc: emptyDoc(),
-			expectations: [imageExpectation("a-huge")],
+			expectations: [imageExpectation(testMediaAssetId("a-huge"))],
 		});
 		expect(verdict.ok).toBe(false);
 		if (verdict.ok) return;
@@ -172,7 +176,7 @@ describe("mediaAttachVerdict", () => {
 	it("rejects when the attach would push the COUNT aggregate past the export ceiling", async () => {
 		const expectations: MediaAttachExpectation[] = [];
 		for (let i = 0; i < 501; i++) {
-			const id = `a-${i}`;
+			const id = testMediaAssetId(`a-${i}`);
 			seed(id);
 			expectations.push(imageExpectation(id));
 		}
@@ -187,16 +191,20 @@ describe("mediaAttachVerdict", () => {
 	});
 
 	it("counts the doc's EXISTING ready refs against the ceiling", async () => {
-		seed("a-existing", { sizeBytes: 150 * 1024 * 1024 });
-		seed("a-new", { sizeBytes: 60 * 1024 * 1024 });
+		seed(testMediaAssetId("a-existing"), { sizeBytes: 150 * 1024 * 1024 });
+		seed(testMediaAssetId("a-new"), { sizeBytes: 60 * 1024 * 1024 });
 		const doc = emptyDoc();
-		doc.logo = asAssetId("a-existing");
+		doc.logo = testMediaAssetId("a-existing");
 		const verdict = await mediaAttachVerdict({
 			projectId: "project-1",
 			doc,
 			// The new ref alone is under budget; existing + new is over.
 			expectations: [
-				{ assetId: "a-new", kind: "image", slot: 'the icon on module "M"' },
+				{
+					assetId: testMediaAssetId("a-new"),
+					kind: "image",
+					slot: 'the icon on module "M"',
+				},
 			],
 		});
 		expect(verdict.ok).toBe(false);
@@ -217,23 +225,30 @@ describe("mediaAttachVerdict", () => {
 
 describe("describeMediaExpectationFailures", () => {
 	it("reports every failed expectation, one line each, and null when all hold", () => {
-		const table = new Map<string, MediaExpectationRow>([
-			["ok", { project_id: "project-1", status: "ready", kind: "image" }],
+		const table = new Map<MediaAssetId, MediaExpectationRow>([
 			[
-				"pending",
+				testMediaAssetId("ok"),
+				{ project_id: "project-1", status: "ready", kind: "image" },
+			],
+			[
+				testMediaAssetId("pending"),
 				{ project_id: "project-1", status: "pending", kind: "image" },
 			],
 			[
-				"wrong-kind",
+				testMediaAssetId("wrong-kind"),
 				{ project_id: "project-1", status: "ready", kind: "video" },
 			],
 		]);
 		const failures = describeMediaExpectationFailures(
 			[
-				{ assetId: "ok", kind: "image", slot: "slot A" },
-				{ assetId: "pending", kind: "image", slot: "slot B" },
-				{ assetId: "wrong-kind", kind: "image", slot: "slot C" },
-				{ assetId: "absent", kind: "image", slot: "slot D" },
+				{ assetId: testMediaAssetId("ok"), kind: "image", slot: "slot A" },
+				{ assetId: testMediaAssetId("pending"), kind: "image", slot: "slot B" },
+				{
+					assetId: testMediaAssetId("wrong-kind"),
+					kind: "image",
+					slot: "slot C",
+				},
+				{ assetId: testMediaAssetId("absent"), kind: "image", slot: "slot D" },
 			],
 			table,
 			"project-1",
@@ -247,7 +262,7 @@ describe("describeMediaExpectationFailures", () => {
 
 		expect(
 			describeMediaExpectationFailures(
-				[{ assetId: "ok", kind: "image", slot: "slot A" }],
+				[{ assetId: testMediaAssetId("ok"), kind: "image", slot: "slot A" }],
 				table,
 				"project-1",
 			),

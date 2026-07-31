@@ -1,17 +1,19 @@
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import AdmZip from "adm-zip";
 import { Parser } from "htmlparser2";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { CCHQ_OPEN_CASE_EXTERNAL_ID_XML } from "@/lib/commcare/__tests__/fixtures/cchqOpenCaseExternalId";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
 	advancedSearchInputDef,
-	asUuid,
 	simpleSearchInputDef,
 	type TileCell,
 	tileCell,
@@ -27,6 +29,7 @@ import {
 	term,
 	whenInput,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 
 // The compiler consumes the domain doc directly — we build the fixture
 // via the shared DSL, expand it to HQ JSON with `expandDoc`, and feed
@@ -47,14 +50,14 @@ const doc = buildDoc({
 						f({
 							kind: "text",
 							id: "case_name",
-							label: "Name",
-							case_property_on: "patient",
+							label: proseText("Name"),
+							caseWrite: { caseType: "patient", property: "case_name" },
 						}),
 						f({
 							kind: "int",
 							id: "age",
-							label: "Age",
-							case_property_on: "patient",
+							label: proseText("Age"),
+							caseWrite: { caseType: "patient", property: "age" },
 						}),
 					],
 				},
@@ -65,10 +68,10 @@ const doc = buildDoc({
 						f({
 							kind: "hidden",
 							id: "total_visits",
-							calculate: "#case/total_visits + 1",
-							case_property_on: "patient",
+							calculate: "#patient/total_visits + 1",
+							caseWrite: { caseType: "patient", property: "total_visits" },
 						}),
-						f({ kind: "text", id: "notes", label: "Notes" }),
+						f({ kind: "text", id: "notes", label: proseText("Notes") }),
 					],
 				},
 			],
@@ -78,9 +81,9 @@ const doc = buildDoc({
 		{
 			name: "patient",
 			properties: [
-				{ name: "case_name", label: "Name" },
-				{ name: "age", label: "Age" },
-				{ name: "total_visits", label: "Total Visits" },
+				{ name: "case_name", label: proseText("Name") },
+				{ name: "age", label: proseText("Age") },
+				{ name: "total_visits", label: proseText("Total Visits") },
 			],
 		},
 	],
@@ -107,7 +110,7 @@ describe("compileCcz", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "status", label: "Status" }],
+					properties: [{ name: "status", label: proseText("Status") }],
 				},
 			],
 		});
@@ -148,7 +151,7 @@ describe("compileCcz", () => {
 		const config = caseListConfig([{ field: "case_name", header: "Name" }]);
 		config.searchInputs = [
 			simpleSearchInputDef(
-				asUuid("00000000-0000-4000-8000-00000000a001"),
+				testUuid("00000000-0000-4000-8000-00000000a001"),
 				"case_name",
 				"Name",
 				"text",
@@ -166,7 +169,9 @@ describe("compileCcz", () => {
 						{
 							name: "Visit",
 							type: "followup",
-							fields: [f({ kind: "text", id: "notes", label: "Notes" })],
+							fields: [
+								f({ kind: "text", id: "notes", label: proseText("Notes") }),
+							],
 						},
 					],
 				},
@@ -174,7 +179,7 @@ describe("compileCcz", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "case_name", label: "Name" }],
+					properties: [{ name: "case_name", label: proseText("Name") }],
 				},
 			],
 		});
@@ -208,7 +213,9 @@ describe("compileCcz", () => {
 						{
 							name: "Visit",
 							type: "followup",
-							fields: [f({ kind: "text", id: "notes", label: "Notes" })],
+							fields: [
+								f({ kind: "text", id: "notes", label: proseText("Notes") }),
+							],
 						},
 					],
 				},
@@ -216,7 +223,7 @@ describe("compileCcz", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "case_name", label: "Name" }],
+					properties: [{ name: "case_name", label: proseText("Name") }],
 				},
 			],
 		});
@@ -239,17 +246,18 @@ describe("compileCcz", () => {
 		const config = caseListConfig([
 			{ field: "last_visit", header: "Last visit" },
 		]);
+		const baseDateInputUuid = testUuid("00000000-0000-4000-8000-00000000a002");
 		config.searchInputs = [
 			advancedSearchInputDef(
-				asUuid("00000000-0000-4000-8000-00000000a002"),
+				baseDateInputUuid,
 				"base_date",
 				"Starting date",
 				"date",
 				whenInput(
-					input("base_date"),
+					input(baseDateInputUuid),
 					eq(
 						prop("patient", "last_visit"),
-						dateAdd(term(input("base_date")), "days", term(literal(7))),
+						dateAdd(term(input(baseDateInputUuid)), "days", term(literal(7))),
 					),
 				),
 			),
@@ -265,7 +273,9 @@ describe("compileCcz", () => {
 						{
 							name: "Visit",
 							type: "followup",
-							fields: [f({ kind: "text", id: "notes", label: "Notes" })],
+							fields: [
+								f({ kind: "text", id: "notes", label: proseText("Notes") }),
+							],
 						},
 					],
 				},
@@ -276,7 +286,7 @@ describe("compileCcz", () => {
 					properties: [
 						{
 							name: "last_visit",
-							label: "Last visit",
+							label: proseText("Last visit"),
 							data_type: "date",
 						},
 					],
@@ -304,21 +314,21 @@ describe("compileCcz", () => {
 		]);
 		config.searchInputs = [
 			simpleSearchInputDef(
-				asUuid("00000000-0000-4000-8000-00000000a003"),
+				testUuid("00000000-0000-4000-8000-00000000a003"),
 				"visit_date",
 				"Visit day",
 				"date",
 				"visit_date",
 			),
 			simpleSearchInputDef(
-				asUuid("00000000-0000-4000-8000-00000000a005"),
+				testUuid("00000000-0000-4000-8000-00000000a005"),
 				"last_seen",
 				"Last seen day",
 				"date",
 				"last_seen",
 			),
 			simpleSearchInputDef(
-				asUuid("00000000-0000-4000-8000-00000000a006"),
+				testUuid("00000000-0000-4000-8000-00000000a006"),
 				"date_opened",
 				"Date opened",
 				"date",
@@ -336,7 +346,9 @@ describe("compileCcz", () => {
 						{
 							name: "Visit",
 							type: "followup",
-							fields: [f({ kind: "text", id: "notes", label: "Notes" })],
+							fields: [
+								f({ kind: "text", id: "notes", label: proseText("Notes") }),
+							],
 						},
 					],
 				},
@@ -347,12 +359,12 @@ describe("compileCcz", () => {
 					properties: [
 						{
 							name: "visit_date",
-							label: "Visit date",
+							label: proseText("Visit date"),
 							data_type: "date",
 						},
 						{
 							name: "last_seen",
-							label: "Last seen",
+							label: proseText("Last seen"),
 							data_type: "datetime",
 						},
 					],
@@ -399,18 +411,19 @@ describe("compileCcz", () => {
 		const config = caseListConfig([
 			{ field: "last_seen", header: "Last seen" },
 		]);
+		const baseDateInputUuid = testUuid("00000000-0000-4000-8000-00000000a004");
 		config.searchInputs = [
 			advancedSearchInputDef(
-				asUuid("00000000-0000-4000-8000-00000000a004"),
+				baseDateInputUuid,
 				"base_date",
 				"Starting date",
 				"date",
 				whenInput(
-					input("base_date"),
+					input(baseDateInputUuid),
 					eq(
 						prop("patient", "last_seen"),
 						dateAdd(
-							datetimeCoerce(term(input("base_date"))),
+							datetimeCoerce(term(input(baseDateInputUuid))),
 							"hours",
 							term(literal(1)),
 						),
@@ -429,7 +442,9 @@ describe("compileCcz", () => {
 						{
 							name: "Visit",
 							type: "followup",
-							fields: [f({ kind: "text", id: "notes", label: "Notes" })],
+							fields: [
+								f({ kind: "text", id: "notes", label: proseText("Notes") }),
+							],
 						},
 					],
 				},
@@ -440,7 +455,7 @@ describe("compileCcz", () => {
 					properties: [
 						{
 							name: "last_seen",
-							label: "Last seen",
+							label: proseText("Last seen"),
 							data_type: "datetime",
 						},
 					],
@@ -648,25 +663,25 @@ describe("compileCcz", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Household name",
-									case_property_on: "household",
+									label: proseText("Household name"),
+									caseWrite: { caseType: "household", property: "case_name" },
 								}),
 								// Child case fields live under a group so the child's
 								// `case_name`-id'd field (required per the
-								// `CHILD_CASE_NO_NAME_FIELD` validator) doesn't collide
+								// `CASE_CREATE_NAME_MISSING` validator) doesn't collide
 								// with the household's `case_name` field at the form
 								// root. Sibling field ids must be unique; cousins in
 								// different containers may share an id.
 								f({
 									kind: "group",
 									id: "child_section",
-									label: "Child",
+									label: proseText("Child"),
 									children: [
 										f({
 											kind: "text",
 											id: "case_name",
-											label: "Child name",
-											case_property_on: "child",
+											label: proseText("Child name"),
+											caseWrite: { caseType: "child", property: "case_name" },
 										}),
 									],
 								}),
@@ -678,11 +693,12 @@ describe("compileCcz", () => {
 			caseTypes: [
 				{
 					name: "household",
-					properties: [{ name: "case_name", label: "Name" }],
+					properties: [{ name: "case_name", label: proseText("Name") }],
 				},
 				{
 					name: "child",
-					properties: [{ name: "case_name", label: "Child" }],
+					parent_type: "household",
+					properties: [{ name: "case_name", label: proseText("Child") }],
 				},
 			],
 		});
@@ -724,7 +740,7 @@ describe("compileCcz", () => {
 	it("emits subcase update binds under <subcase_n>/case/update/<prop>", () => {
 		// The bucket for child case keyed by (case_type, repeat_ancestor)
 		// must include a `case_name`-id'd field — the
-		// `CHILD_CASE_NO_NAME_FIELD` validator rejects child case buckets
+		// `CASE_CREATE_NAME_MISSING` validator rejects child case buckets
 		// without one. Other fields in the bucket become `case_properties`
 		// entries producing the `<update>` element + per-prop binds. The
 		// bind nodeset must match the actual element path
@@ -737,7 +753,7 @@ describe("compileCcz", () => {
 		// XML element name, so this test puts the household name on
 		// `household_name` and dedicates `case_name` to the child case —
 		// the household case_name source comes from the primary's
-		// derived `case_property_on: "household"` on `household_name`.
+		// explicit `caseWrite: household.case_name` on `household_name`.
 		const subDoc = buildDoc({
 			appName: "Subcase Update",
 			modules: [
@@ -752,25 +768,25 @@ describe("compileCcz", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Household name",
-									case_property_on: "household",
+									label: proseText("Household name"),
+									caseWrite: { caseType: "household", property: "case_name" },
 								}),
 								f({
 									kind: "group",
 									id: "child_section",
-									label: "Child",
+									label: proseText("Child"),
 									children: [
 										f({
 											kind: "text",
 											id: "case_name",
-											label: "Child name",
-											case_property_on: "child",
+											label: proseText("Child name"),
+											caseWrite: { caseType: "child", property: "case_name" },
 										}),
 										f({
 											kind: "int",
 											id: "child_age",
-											label: "Child age",
-											case_property_on: "child",
+											label: proseText("Child age"),
+											caseWrite: { caseType: "child", property: "child_age" },
 										}),
 									],
 								}),
@@ -782,13 +798,14 @@ describe("compileCcz", () => {
 			caseTypes: [
 				{
 					name: "household",
-					properties: [{ name: "case_name", label: "Name" }],
+					properties: [{ name: "case_name", label: proseText("Name") }],
 				},
 				{
 					name: "child",
+					parent_type: "household",
 					properties: [
-						{ name: "case_name", label: "Name" },
-						{ name: "child_age", label: "Age" },
+						{ name: "case_name", label: proseText("Name") },
+						{ name: "child_age", label: proseText("Age") },
 					],
 				},
 			],
@@ -869,18 +886,22 @@ describe("compileCcz", () => {
 									condition: "/data/refer = 'yes'",
 									target: {
 										type: "form",
-										moduleUuid: asUuid(moduleUuid),
-										formUuid: asUuid(followupUuid),
+										moduleUuid: testUuid(moduleUuid),
+										formUuid: testUuid(followupUuid),
 									},
 								},
 							],
-							fields: [f({ kind: "text", id: "refer", label: "Refer?" })],
+							fields: [
+								f({ kind: "text", id: "refer", label: proseText("Refer?") }),
+							],
 						},
 						{
 							uuid: followupUuid,
 							name: "Followup",
 							type: "survey",
-							fields: [f({ kind: "text", id: "notes", label: "Notes" })],
+							fields: [
+								f({ kind: "text", id: "notes", label: proseText("Notes") }),
+							],
 						},
 					],
 				},
@@ -1010,6 +1031,8 @@ interface ParsedFormXml {
 	 * inner attributes.
 	 */
 	cases: Array<{ parentPath: string[]; attrs: Record<string, string> }>;
+	/** Element paths below each cx2 `<case>`, in document order. */
+	caseTransactionPaths: string[];
 }
 
 /**
@@ -1030,6 +1053,7 @@ function parseFormXml(xml: string): ParsedFormXml {
 	const setvalues = new Map<string, Record<string, string>>();
 	const setvalueOrder: ParsedFormXml["setvalueOrder"] = [];
 	const cases: ParsedFormXml["cases"] = [];
+	const caseTransactionPaths: string[] = [];
 
 	// Tag name stack — records every open element we're currently
 	// inside so we can determine a `<case>` element's parent path.
@@ -1094,6 +1118,12 @@ function parseFormXml(xml: string): ParsedFormXml {
 						);
 					cases.push({ parentPath, attrs: { ...attribs } });
 				}
+				if (dataInstanceDepth > 0) {
+					const caseIndex = tagStack.lastIndexOf("case");
+					if (caseIndex >= 0 && caseIndex < tagStack.length - 1) {
+						caseTransactionPaths.push(tagStack.slice(caseIndex + 1).join("/"));
+					}
+				}
 			},
 			onclosetag(name) {
 				if (name === "model") modelDepth--;
@@ -1108,7 +1138,7 @@ function parseFormXml(xml: string): ParsedFormXml {
 	parser.write(xml);
 	parser.end();
 
-	return { binds, setvalues, setvalueOrder, cases };
+	return { binds, setvalues, setvalueOrder, cases, caseTransactionPaths };
 }
 
 /**
@@ -1139,6 +1169,95 @@ function readCchqFixture(name: string): string {
 	return readFileSync(join(CCHQ_FIXTURES, name), "utf-8");
 }
 
+describe("external-ID XForm fixture parity", () => {
+	it("pins CCHQ's exact accepted open_case_external_id.xml bytes", () => {
+		const checkedInBytes = Buffer.from(CCHQ_OPEN_CASE_EXTERNAL_ID_XML, "utf8");
+
+		expect(checkedInBytes.byteLength).toBe(3835);
+		expect(createHash("sha256").update(checkedInBytes).digest("hex")).toBe(
+			"ddb54213cb91360c0120745def1437db3c2d554bc59e3934d8cc38f3d8abbfb7",
+		);
+		expect(checkedInBytes.at(-1)).toBe(">".charCodeAt(0));
+
+		if (HAS_CCHQ_FIXTURES) {
+			expect(
+				readFileSync(join(CCHQ_FIXTURES, "open_case_external_id.xml")),
+			).toEqual(checkedInBytes);
+		}
+	});
+
+	/**
+	 * Exact named upstream oracle:
+	 * `FormPreparationV2Test::test_open_case_external_id` /
+	 * `open_case_external_id.xml`.
+	 *
+	 * External ID is an authored ordinary field destination, but CommCare's
+	 * transaction stores it in `<update>` even on create. Nova additionally
+	 * normalizes Core's boundary code units before HQ sees the value.
+	 */
+	it("open_case_external_id.xml — registration external_id is a scalar update", () => {
+		const novaDoc = buildDoc({
+			appName: "External ID parity",
+			modules: [
+				{
+					name: "Cases",
+					caseType: "test_case_type",
+					forms: [
+						{
+							name: "Register",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "case_name",
+									label: proseText("Case name"),
+									caseWrite: {
+										caseType: "test_case_type",
+										property: "case_name",
+									},
+								}),
+								f({
+									kind: "text",
+									id: "question1",
+									label: proseText("External ID"),
+									caseWrite: {
+										caseType: "test_case_type",
+										property: "external_id",
+									},
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [{ name: "test_case_type", properties: [] }],
+		});
+		const novaCcz = compileCcz(expandDoc(novaDoc), "Parity", novaDoc);
+		const nova = parseFormXml(
+			new AdmZip(novaCcz).readAsText("modules-0/forms-0.xml"),
+		);
+		const upstream = parseFormXml(CCHQ_OPEN_CASE_EXTERNAL_ID_XML);
+
+		expect(upstream.caseTransactionPaths).toContain("update/external_id");
+		expect(upstream.caseTransactionPaths).not.toContain("create/external_id");
+		expect(nova.caseTransactionPaths).toContain("update/external_id");
+		expect(nova.caseTransactionPaths).not.toContain("create/external_id");
+
+		const upstreamBind = upstream.binds.get("/data/case/update/external_id");
+		const novaBind = nova.binds.get("/data/case/update/external_id");
+		expect(upstreamBind).toMatchObject({
+			calculate: "/data/question1",
+			relevant: "count(/data/question1) > 0",
+		});
+		expect(novaBind).toMatchObject({
+			calculate:
+				"replace(/data/question1, '^[\\x00-\\x20]+|[\\x00-\\x20]+$', '')",
+			relevant: "count(/data/question1) > 0",
+			constraint: "string-length(.) <= 255",
+		});
+	});
+});
+
 describe.skipIf(!HAS_CCHQ_FIXTURES)("CCHQ fixture parity", () => {
 	/**
 	 * Reference fixture: `open_case.xml` — the canonical CCHQ shape for
@@ -1162,8 +1281,11 @@ describe.skipIf(!HAS_CCHQ_FIXTURES)("CCHQ fixture parity", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "test_case_type",
+									label: proseText("Name"),
+									caseWrite: {
+										caseType: "test_case_type",
+										property: "case_name",
+									},
 								}),
 							],
 						},
@@ -1173,7 +1295,7 @@ describe.skipIf(!HAS_CCHQ_FIXTURES)("CCHQ fixture parity", () => {
 			caseTypes: [
 				{
 					name: "test_case_type",
-					properties: [{ name: "case_name", label: "Name" }],
+					properties: [{ name: "case_name", label: proseText("Name") }],
 				},
 			],
 		});
@@ -1280,8 +1402,11 @@ describe.skipIf(!HAS_CCHQ_FIXTURES)("CCHQ fixture parity", () => {
 								f({
 									kind: "text",
 									id: "question1",
-									label: "Question",
-									case_property_on: "test_case_type",
+									label: proseText("Question"),
+									caseWrite: {
+										caseType: "test_case_type",
+										property: "question1",
+									},
 								}),
 							],
 						},
@@ -1291,7 +1416,7 @@ describe.skipIf(!HAS_CCHQ_FIXTURES)("CCHQ fixture parity", () => {
 			caseTypes: [
 				{
 					name: "test_case_type",
-					properties: [{ name: "question1", label: "Question" }],
+					properties: [{ name: "question1", label: proseText("Question") }],
 				},
 			],
 		});
@@ -1380,26 +1505,26 @@ describe.skipIf(!HAS_CCHQ_FIXTURES)("CCHQ fixture parity", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Household name",
-									case_property_on: "household",
+									label: proseText("Household name"),
+									caseWrite: { caseType: "household", property: "case_name" },
 								}),
 								// Field on a different case type at the data
 								// root (no enclosing repeat) — derives a
 								// root-level subcase. The child bucket needs its
 								// own `case_name` field (per the
-								// `CHILD_CASE_NO_NAME_FIELD` validator), placed
+								// `CASE_CREATE_NAME_MISSING` validator), placed
 								// under a group so the id doesn't collide with
 								// the household's `case_name` at the form root.
 								f({
 									kind: "group",
 									id: "child_section",
-									label: "Child",
+									label: proseText("Child"),
 									children: [
 										f({
 											kind: "text",
 											id: "case_name",
-											label: "Child name",
-											case_property_on: "child",
+											label: proseText("Child name"),
+											caseWrite: { caseType: "child", property: "case_name" },
 										}),
 									],
 								}),
@@ -1411,11 +1536,12 @@ describe.skipIf(!HAS_CCHQ_FIXTURES)("CCHQ fixture parity", () => {
 			caseTypes: [
 				{
 					name: "household",
-					properties: [{ name: "case_name", label: "Name" }],
+					properties: [{ name: "case_name", label: proseText("Name") }],
 				},
 				{
 					name: "child",
-					properties: [{ name: "case_name", label: "Name" }],
+					parent_type: "household",
+					properties: [{ name: "case_name", label: proseText("Name") }],
 				},
 			],
 		});
@@ -1540,8 +1666,11 @@ describe.skipIf(!HAS_CCHQ_FIXTURES)("CCHQ fixture parity", () => {
 								f({
 									kind: "text",
 									id: "question1",
-									label: "Question",
-									case_property_on: "test_case_type",
+									label: proseText("Question"),
+									caseWrite: {
+										caseType: "test_case_type",
+										property: "question1",
+									},
 								}),
 							],
 						},
@@ -1551,7 +1680,7 @@ describe.skipIf(!HAS_CCHQ_FIXTURES)("CCHQ fixture parity", () => {
 			caseTypes: [
 				{
 					name: "test_case_type",
-					properties: [{ name: "question1", label: "Question" }],
+					properties: [{ name: "question1", label: proseText("Question") }],
 				},
 			],
 		});
@@ -1599,7 +1728,7 @@ describe.skipIf(!HAS_CCHQ_FIXTURES)("CCHQ fixture parity", () => {
 		);
 
 		// Build a Nova doc with a root-level subcase whose only field is
-		// `case_name` (required per the `CHILD_CASE_NO_NAME_FIELD`
+		// `case_name` (required per the `CASE_CREATE_NAME_MISSING`
 		// validator), leaving `case_properties` empty — exactly the
 		// empty-properties shape this divergence test needs. The child's
 		// `case_name` field lives under a group so it doesn't collide
@@ -1619,19 +1748,19 @@ describe.skipIf(!HAS_CCHQ_FIXTURES)("CCHQ fixture parity", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Household name",
-									case_property_on: "household",
+									label: proseText("Household name"),
+									caseWrite: { caseType: "household", property: "case_name" },
 								}),
 								f({
 									kind: "group",
 									id: "child_section",
-									label: "Child",
+									label: proseText("Child"),
 									children: [
 										f({
 											kind: "text",
 											id: "case_name",
-											label: "Child name",
-											case_property_on: "child",
+											label: proseText("Child name"),
+											caseWrite: { caseType: "child", property: "case_name" },
 										}),
 									],
 								}),
@@ -1643,11 +1772,12 @@ describe.skipIf(!HAS_CCHQ_FIXTURES)("CCHQ fixture parity", () => {
 			caseTypes: [
 				{
 					name: "household",
-					properties: [{ name: "case_name", label: "Name" }],
+					properties: [{ name: "case_name", label: proseText("Name") }],
 				},
 				{
 					name: "child",
-					properties: [{ name: "case_name", label: "Name" }],
+					parent_type: "household",
+					properties: [{ name: "case_name", label: proseText("Name") }],
 				},
 			],
 		});
@@ -1671,7 +1801,7 @@ describe.skipIf(!HAS_CCHQ_FIXTURES)("CCHQ fixture parity", () => {
 	 * data element) so the bind nodesets resolve against the actual DOM
 	 * path. The validator rule that previously rejected this shape
 	 * (`SUBCASE_IN_REPEAT_NOT_MODELED`) has been deleted; the new rules
-	 * `PRIMARY_CASE_FIELD_IN_REPEAT` + `CHILD_CASE_NO_NAME_FIELD` cover
+	 * `PRIMARY_CASE_FIELD_IN_REPEAT` + `CASE_CREATE_NAME_MISSING` cover
 	 * the still-invalid neighbors.
 	 *
 	 * Per-mode + per-nest coverage lives in
@@ -1698,20 +1828,20 @@ describe.skipIf(!HAS_CCHQ_FIXTURES)("CCHQ fixture parity", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Parent name",
-									case_property_on: "parent",
+									label: proseText("Parent name"),
+									caseWrite: { caseType: "parent", property: "case_name" },
 								}),
 								f({
 									kind: "repeat",
 									id: "children",
-									label: "Children",
+									label: proseText("Children"),
 									repeat_mode: "user_controlled",
 									children: [
 										f({
 											kind: "text",
 											id: "case_name",
-											label: "Child name",
-											case_property_on: "child1",
+											label: proseText("Child name"),
+											caseWrite: { caseType: "child1", property: "case_name" },
 										}),
 									],
 								}),
@@ -1723,11 +1853,12 @@ describe.skipIf(!HAS_CCHQ_FIXTURES)("CCHQ fixture parity", () => {
 			caseTypes: [
 				{
 					name: "parent",
-					properties: [{ name: "case_name", label: "Name" }],
+					properties: [{ name: "case_name", label: proseText("Name") }],
 				},
 				{
 					name: "child1",
-					properties: [{ name: "case_name", label: "Name" }],
+					parent_type: "parent",
+					properties: [{ name: "case_name", label: proseText("Name") }],
 				},
 			],
 		});
@@ -1737,7 +1868,7 @@ describe.skipIf(!HAS_CCHQ_FIXTURES)("CCHQ fixture parity", () => {
 			errors.find(
 				(e) =>
 					e.code === "PRIMARY_CASE_FIELD_IN_REPEAT" ||
-					e.code === "CHILD_CASE_NO_NAME_FIELD",
+					e.code === "CASE_CREATE_NAME_MISSING",
 			),
 		).toBeUndefined();
 
@@ -1786,8 +1917,11 @@ describe.skipIf(!HAS_CCHQ_FIXTURES)("CCHQ fixture parity", () => {
 								f({
 									kind: "text",
 									id: "question1",
-									label: "Question",
-									case_property_on: "test_case_type",
+									label: proseText("Question"),
+									caseWrite: {
+										caseType: "test_case_type",
+										property: "question1",
+									},
 								}),
 							],
 						},
@@ -1797,7 +1931,7 @@ describe.skipIf(!HAS_CCHQ_FIXTURES)("CCHQ fixture parity", () => {
 			caseTypes: [
 				{
 					name: "test_case_type",
-					properties: [{ name: "question1", label: "Question" }],
+					properties: [{ name: "question1", label: proseText("Question") }],
 				},
 			],
 		});
@@ -1849,8 +1983,11 @@ describe.skipIf(!HAS_CCHQ_FIXTURES)("CCHQ fixture parity", () => {
 								f({
 									kind: "text",
 									id: "question1",
-									label: "Question",
-									case_property_on: "test_case_type",
+									label: proseText("Question"),
+									caseWrite: {
+										caseType: "test_case_type",
+										property: "question1",
+									},
 									default_value: "'manual-default'",
 								}),
 							],
@@ -1861,7 +1998,7 @@ describe.skipIf(!HAS_CCHQ_FIXTURES)("CCHQ fixture parity", () => {
 			caseTypes: [
 				{
 					name: "test_case_type",
-					properties: [{ name: "question1", label: "Question" }],
+					properties: [{ name: "question1", label: proseText("Question") }],
 				},
 			],
 		});
@@ -1903,7 +2040,7 @@ describe.skipIf(!HAS_CCHQ_FIXTURES)("CCHQ fixture parity", () => {
 	 *   (`<bind nodeset="/data/case/attachment/<prop>" relevant="count(
 	 *   <qPath>) = 1"/>` + `<bind nodeset=".../@src" calculate="<qPath>"/>`).
 	 *   Nova does not emit case attachments today — the `mediaCaseProperty`
-	 *   validator rejects media-kind fields with `case_property_on`, so this
+	 *   validator rejects media-kind fields with `caseWrite`, so this
 	 *   shape is unreachable in a valid doc. Supporting it is a separate
 	 *   feature (lift the rejection + emit on both pipelines + CCZ media
 	 *   bundling), NOT a lockstep gap.
@@ -2081,7 +2218,9 @@ describe.skipIf(!HAS_CCHQ_SUITE_FIXTURES)("CCHQ suite-fixture parity", () => {
 						{
 							name: "Visit",
 							type: "followup",
-							fields: [f({ kind: "text", id: "notes", label: "Notes" })],
+							fields: [
+								f({ kind: "text", id: "notes", label: proseText("Notes") }),
+							],
 						},
 					],
 				},
@@ -2089,7 +2228,7 @@ describe.skipIf(!HAS_CCHQ_SUITE_FIXTURES)("CCHQ suite-fixture parity", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "case_name", label: "Name" }],
+					properties: [{ name: "case_name", label: proseText("Name") }],
 				},
 			],
 		});
@@ -2363,7 +2502,9 @@ describe.skipIf(!HAS_CCHQ_SUITE_FIXTURES)("CCHQ case-tile parity", () => {
 						{
 							name: "Visit",
 							type: "followup",
-							fields: [f({ kind: "text", id: "notes", label: "Notes" })],
+							fields: [
+								f({ kind: "text", id: "notes", label: proseText("Notes") }),
+							],
 						},
 					],
 				},
@@ -2372,8 +2513,8 @@ describe.skipIf(!HAS_CCHQ_SUITE_FIXTURES)("CCHQ case-tile parity", () => {
 				{
 					name: "child",
 					properties: [
-						{ name: "case_name", label: "Name" },
-						{ name: "town", label: "Town" },
+						{ name: "case_name", label: proseText("Name") },
+						{ name: "town", label: proseText("Town") },
 					],
 				},
 			],

@@ -30,8 +30,14 @@ import { PeerBadge, usePeerEditingColor } from "@/components/builder/PeerBadge";
 import { type FieldPath, fpath } from "@/lib/doc/fieldPath";
 import { useField } from "@/lib/doc/hooks/useEntity";
 import { useOrderedFields } from "@/lib/doc/hooks/useOrderedFields";
+import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import type { SearchResult } from "@/lib/doc/hooks/useSearchFilter";
-import { fieldRegistry, type Uuid } from "@/lib/domain";
+import {
+	fieldRegistry,
+	type ProseTemplate,
+	proseTemplateIsEmpty,
+	type Uuid,
+} from "@/lib/domain";
 import { textWithChips } from "@/lib/references/LabelContent";
 import { useReferenceProvider } from "@/lib/references/ReferenceContext";
 import { useIsFieldSelected } from "@/lib/routing/hooks";
@@ -77,6 +83,11 @@ export const FieldRow = memo(function FieldRow({
 	/** Shared provider — resolves label chips against this row's own form. */
 	const provider = useReferenceProvider();
 
+	/** Stand-in when the row renders outside a `ReferenceProviderWrapper`: the
+	 *  document still spells every reference, it just skips the provider's
+	 *  form-scope narrowing. */
+	const projectProse = useProseProjection();
+
 	/** The hue of a peer whose selection IS this field, or null — drives the
 	 *  live "editing this" ring. Called unconditionally (before the guard). */
 	const editingColor = usePeerEditingColor(uuid);
@@ -97,13 +108,23 @@ export const FieldRow = memo(function FieldRow({
 	// label = transparent group). The `in` narrowing alone leaves `string |
 	// undefined`, so coerce `undefined` to "" — the tree row still renders
 	// for those kinds with the id-only display path below.
-	const fieldLabel = "label" in field && field.label ? field.label : "";
+	const fieldTemplate =
+		"label" in field && !proseTemplateIsEmpty(field.label)
+			? (field.label as ProseTemplate)
+			: undefined;
+	const fieldLabel = fieldTemplate
+		? (provider?.projectTemplate(fieldTemplate, formUuid).text ??
+			projectProse(fieldTemplate))
+		: "";
 	const showIdMatch = !!(idIndices && fieldLabel);
 	const textIndices = labelIndices ?? (!fieldLabel ? idIndices : undefined);
 	const displayText = fieldLabel || field.id;
-	const chipContent = !textIndices
-		? textWithChips(displayText, provider, formUuid)
-		: null;
+	const chipContent =
+		!textIndices && fieldTemplate
+			? textWithChips(fieldTemplate, provider, formUuid)
+			: !textIndices
+				? field.id
+				: null;
 
 	return (
 		<motion.li

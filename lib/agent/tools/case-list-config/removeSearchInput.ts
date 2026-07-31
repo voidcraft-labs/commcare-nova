@@ -8,32 +8,30 @@
  *
  * Three exit branches:
  *
- *   1. Module index out of range → `{ error }`, no mutations.
+ *   1. Module UUID address does not resolve → `{ error }`, no mutations.
  *   2. Search-input uuid not present → `{ error }`, no mutations.
  *   3. Success → `{ message, uuid, remaining }` plus the persisted
  *      mutation, tagged `module:M:caseList:searchInput:remove`.
  */
 
-import { z } from "zod";
+import type { z } from "zod";
 import { asUuid, type BlueprintDoc, type Uuid } from "@/lib/domain";
-import {
-	removeSearchInputMutation,
-	resolveModuleUuid,
-} from "../../blueprintHelpers";
+import { removeSearchInputMutation } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import {
 	guardedMutate,
 	type MutatingToolResult,
 	toToolErrorResult,
 } from "../common";
+import {
+	moduleAddressSchema,
+	resolveModuleAddress,
+} from "../shared/entityAddresses";
 import type { ToolCallSummary } from "../shared/toolCallSummary";
-import { moduleNotFoundResult, uuidInputSchema } from "./shared";
+import { uuidInputSchema } from "./shared";
 
-export const removeSearchInputInputSchema = z
-	.object({
-		moduleIndex: z
-			.number()
-			.describe("0-based module index whose case list search input to remove"),
+export const removeSearchInputInputSchema = moduleAddressSchema
+	.extend({
 		searchInputUuid: uuidInputSchema.describe(
 			"Uuid of the search input to remove. Look at getModule's projection or run searchBlueprint to surface the current uuids.",
 		),
@@ -64,23 +62,19 @@ export const removeSearchInputTool = {
 		ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<RemoveSearchInputResult>> {
-		const { moduleIndex, searchInputUuid: rawSearchInputUuid } = input;
+		const { searchInputUuid: rawSearchInputUuid } = input;
 		const searchInputUuid = asUuid(rawSearchInputUuid);
 		try {
-			const moduleUuid = resolveModuleUuid(doc, moduleIndex);
-			if (!moduleUuid)
-				return moduleNotFoundResult<RemoveSearchInputSuccess>(
-					doc,
-					moduleIndex,
-					"remove a search input",
-				);
-			const mod = doc.modules[moduleUuid];
-			if (!mod)
-				return moduleNotFoundResult<RemoveSearchInputSuccess>(
-					doc,
-					moduleIndex,
-					"remove a search input",
-				);
+			const address = resolveModuleAddress(doc, input);
+			if (!address.ok) {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					newDoc: doc,
+					result: { error: address.error },
+				};
+			}
+			const { moduleUuid, module: mod } = address;
 
 			const result = removeSearchInputMutation(mod, searchInputUuid);
 			if ("error" in result) {
@@ -96,7 +90,7 @@ export const removeSearchInputTool = {
 				ctx,
 				doc,
 				result.mutations,
-				`module:${moduleIndex}:caseList:searchInput:remove`,
+				`module:${moduleUuid}:caseList:searchInput:remove`,
 			);
 			if (!commit.ok) {
 				return {
@@ -112,7 +106,7 @@ export const removeSearchInputTool = {
 				newDoc.modules[moduleUuid]?.caseListConfig?.searchInputs.length ?? 0;
 			return {
 				kind: "mutate" as const,
-				mutations: result.mutations,
+				mutations: commit.mutations,
 				newDoc,
 				result: {
 					message: `Removed search input ${searchInputUuid} on module "${mod.name}". ${remaining} search input${remaining === 1 ? "" : "s"} remain.`,

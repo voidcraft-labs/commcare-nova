@@ -4,9 +4,9 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { rowMatchesFilterText } from "@/components/preview/shared/listFilter";
 import {
-	asUuid,
 	calculatedColumn,
 	dateColumn,
 	idMappingColumn,
@@ -18,6 +18,8 @@ import {
 	plainColumn,
 } from "@/lib/domain";
 import { prop, term } from "@/lib/domain/predicate";
+import { projectProseTemplate, proseText } from "@/lib/domain/prose";
+import type { XPathPrintableDoc } from "@/lib/domain/xpath/print";
 import type { CaseRowWithCalculated } from "@/lib/preview/engine/caseDataBindingTypes";
 import {
 	type ColumnDisplayContext,
@@ -30,12 +32,16 @@ import {
 } from "../columnCellRenderer";
 
 const originalTimeZone = process.env.TZ;
-const COLUMN_UUID = asUuid("00000000-0000-4000-8000-000000000001");
+const COLUMN_UUID = testUuid("00000000-0000-4000-8000-000000000001");
 const TODAY = new Date("2026-07-17T12:00:00.000Z");
+const EMPTY_DOC: XPathPrintableDoc = { fields: {}, forms: {}, fieldOrder: {} };
 const EMPTY_CONTEXT: ColumnDisplayContext = {
 	calculatedTemporalTypes: new Map(),
 	caseProperties: [],
 	today: TODAY,
+	// These fixtures label their options with literal prose, so an empty
+	// document resolves everything they reference (nothing).
+	projectProse: (template) => projectProseTemplate(template, EMPTY_DOC).text,
 };
 
 describe("case-list Preview cell formatting", () => {
@@ -52,18 +58,25 @@ describe("case-list Preview cell formatting", () => {
 	});
 
 	describe("date columns", () => {
-		it("renders every semantic preset with its supported CommCare pattern", () => {
-			expect(formatDateForPreview("2026-07-14", "short")).toEqual({
+		it("renders every preset's exact stored CommCare pattern", () => {
+			expect(formatDateForPreview("2026-07-14", "%m/%d/%Y")).toEqual({
 				kind: "value",
 				text: "07/14/2026",
 			});
-			expect(formatDateForPreview("2026-07-14", "long")).toEqual({
+			expect(formatDateForPreview("2026-07-14", "%B %e, %Y")).toEqual({
 				kind: "value",
 				text: "July 14, 2026",
 			});
-			expect(formatDateForPreview("2026-07-14", "iso")).toEqual({
+			expect(formatDateForPreview("2026-07-14", "%Y-%m-%d")).toEqual({
 				kind: "value",
 				text: "2026-07-14",
+			});
+		});
+
+		it("treats preset-like literal text as exact column bytes", () => {
+			expect(formatDateForPreview("2026-07-14", "short")).toEqual({
+				kind: "value",
+				text: "short",
 			});
 		});
 
@@ -84,17 +97,11 @@ describe("case-list Preview cell formatting", () => {
 			).toEqual({ kind: "value", text: "2026-07-13 18:30" });
 		});
 
-		it("uses an explained raw-value fallback for invalid data or a legacy style", () => {
+		it("uses an explained raw-value fallback for invalid case data", () => {
 			expect(formatDateForPreview("2026-02-31", "%Y-%m-%d")).toEqual({
 				kind: "fallback",
 				text: "2026-02-31",
 				message: "Showing the original value because it isn’t a valid date",
-			});
-			expect(formatDateForPreview("2026-07-14", "%Q")).toEqual({
-				kind: "fallback",
-				text: "2026-07-14",
-				message:
-					"Showing the original value because Preview can’t use this saved date style",
 			});
 		});
 	});
@@ -120,7 +127,7 @@ describe("case-list Preview cell formatting", () => {
 		it("uses the exact 30.4375-day month divisor and threshold replacement", () => {
 			const withinThreshold = intervalColumn(
 				COLUMN_UUID,
-				"opened_on",
+				"date_opened",
 				"Months open",
 				3,
 				"months",
@@ -279,7 +286,7 @@ describe("case-list Preview cell formatting", () => {
 					properties: [
 						{
 							name: "date_opened",
-							label: "Date opened",
+							label: proseText("Date opened"),
 							data_type: "date" as const,
 						},
 					],
@@ -320,11 +327,11 @@ describe("case-list Preview cell formatting", () => {
 			caseProperties: [
 				{
 					name: "tags",
-					label: "Tags",
+					label: proseText("Tags"),
 					data_type: "multi_select" as const,
 					options: [
-						{ value: "vip", label: "VIP" },
-						{ value: "follow_up", label: "Needs follow-up" },
+						{ value: "vip", label: proseText("VIP") },
+						{ value: "follow_up", label: proseText("Needs follow-up") },
 					],
 				},
 			],
@@ -341,19 +348,19 @@ describe("case-list Preview cell formatting", () => {
 
 	it("keeps Quick Filter aligned with every semantic cell format", () => {
 		const status = idMappingColumn(
-			asUuid("00000000-0000-4000-8000-000000000002"),
+			testUuid("00000000-0000-4000-8000-000000000002"),
 			"status_code",
 			"Status",
 			[idMappingEntry("active", "Active"), idMappingEntry("urgent", "Urgent")],
 		);
 		const visit = dateColumn(
-			asUuid("00000000-0000-4000-8000-000000000003"),
+			testUuid("00000000-0000-4000-8000-000000000003"),
 			"visit_date",
 			"Visit date",
-			"long",
+			"%B %e, %Y",
 		);
 		const followUp = intervalColumn(
-			asUuid("00000000-0000-4000-8000-000000000004"),
+			testUuid("00000000-0000-4000-8000-000000000004"),
 			"visit_date",
 			"Follow-up",
 			1,
@@ -362,7 +369,7 @@ describe("case-list Preview cell formatting", () => {
 			"Follow-up due",
 		);
 		const ready = calculatedColumn(
-			asUuid("00000000-0000-4000-8000-000000000005"),
+			testUuid("00000000-0000-4000-8000-000000000005"),
 			"Ready",
 			{ kind: "term", term: { kind: "literal", value: true } },
 		);
@@ -392,8 +399,8 @@ describe("case-list Preview cell formatting", () => {
 
 	it("uses the first selected image mapping as its alt and filter text", () => {
 		const column = imageMapColumn(COLUMN_UUID, "badge", "Badge", [
-			imageMapEntry("primary", "asset-primary"),
-			imageMapEntry("secondary", "asset-secondary"),
+			imageMapEntry("primary", testMediaAssetId("asset-primary")),
+			imageMapEntry("secondary", testMediaAssetId("asset-secondary")),
 		]);
 		const row = makeRow({ badge: ["secondary", "primary"] });
 		const context: ColumnDisplayContext = {
@@ -401,11 +408,11 @@ describe("case-list Preview cell formatting", () => {
 			caseProperties: [
 				{
 					name: "badge",
-					label: "Badge",
+					label: proseText("Badge"),
 					data_type: "single_select",
 					options: [
-						{ value: "primary", label: "Primary alert" },
-						{ value: "secondary", label: "Secondary alert" },
+						{ value: "primary", label: proseText("Primary alert") },
+						{ value: "secondary", label: proseText("Secondary alert") },
 					],
 				},
 			],
@@ -424,7 +431,7 @@ describe("case-list Preview cell formatting", () => {
 	it("opens malformed-value guidance from a real keyboard and touch target", async () => {
 		render(
 			renderColumnCell(
-				dateColumn(COLUMN_UUID, "visit", "Visit", "long"),
+				dateColumn(COLUMN_UUID, "visit", "Visit", "%B %e, %Y"),
 				makeRow({ visit: "not-a-date" }),
 				EMPTY_CONTEXT,
 			) as ReactElement,

@@ -40,12 +40,11 @@ import { isPathExpression } from "@/lib/commcare/xform/pathExpression";
  * as a `jr:count` reference, `false` when it must be hoisted into a hidden
  * node first.
  *
- * `expr` is the ALREADY-hashtag-expanded count string (the emitter calls
- * `expandHashtags` first). A parse error returns `false` — an unparseable
- * count is never a valid path, and hoisting is the safe direction (a
- * false-negative classification merely adds an extra hidden node; a
- * false-positive emits a `jr:count` JavaRosa rejects, which is the exact bug
- * this guards).
+ * `expr` is the count string after the emitter's form-context reference
+ * projection. A parse error returns `false` — an unparseable count is never a
+ * valid path, and hoisting is the safe direction (a false-negative
+ * classification merely adds an extra hidden node; a false-positive emits a
+ * `jr:count` JavaRosa rejects, which is the exact bug this guards).
  */
 export function isCountReferencePath(expr: string): boolean {
 	return isPathExpression(expr);

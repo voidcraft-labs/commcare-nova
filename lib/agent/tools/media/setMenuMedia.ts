@@ -16,10 +16,8 @@
  * Both slots are set per item; each is required-and-nullable so the SA
  * states intent explicitly (an asset id or built-in slug sets the slot,
  * `null` clears it). To touch only one slot, read the other's current
- * value — `getModule` surfaces every tile's stored `icon` /
- * `audio_label`, `getForm` a form's — and pass it back verbatim
- * (`resolveIconInput` round-trips a stored `nova-icon:<slug>` ref
- * unchanged).
+ * value — `getModule` surfaces each built-in icon as its accepted catalog slug
+ * and uploaded slots as UUIDs — and pass that authoring value back.
  *
  * The batch is all-or-nothing (`commitMediaBatch`): every item must
  * resolve (module / form exists) and every set slot must pass the
@@ -33,24 +31,25 @@
  */
 
 import { z } from "zod";
-import type { Mutation } from "@/lib/doc/types";
 import {
-	type AssetId,
 	type BlueprintDoc,
 	FORM_ICON_SLUGS,
 	MODULE_ICON_SLUGS,
 } from "@/lib/domain";
 import {
-	resolveFormUuid,
-	resolveModuleUuid,
 	setFormMediaMutations,
 	setModuleMediaMutations,
 } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { type MutatingToolResult, toToolErrorResult } from "../common";
+import {
+	formAddressSchema,
+	moduleAddressSchema,
+	resolveFormAddress,
+	resolveModuleAddress,
+} from "../shared/entityAddresses";
 import type { MutationSuccess } from "../shared/toolCallSummary";
 import {
-	brandAssetSlot,
 	commitMediaBatch,
 	nullableAssetSlot,
 	nullableIconSlot,
@@ -59,10 +58,9 @@ import {
 	slotExpectation,
 } from "./shared";
 
-const moduleMenuItemSchema = z
-	.object({
+const moduleMenuItemSchema = moduleAddressSchema
+	.extend({
 		target: z.literal("module").describe("A module's home-screen tile"),
-		moduleIndex: z.number().describe("0-based module index"),
 		icon: nullableIconSlot(
 			MODULE_ICON_SLUGS,
 			"The image on the module's home-screen tile. Pass a built-in icon slug " +
@@ -77,11 +75,9 @@ const moduleMenuItemSchema = z
 	})
 	.strict();
 
-const formMenuItemSchema = z
-	.object({
+const formMenuItemSchema = formAddressSchema
+	.extend({
 		target: z.literal("form").describe("A form's menu tile"),
-		moduleIndex: z.number().describe("0-based module index"),
-		formIndex: z.number().describe("0-based form index within the module"),
 		icon: nullableIconSlot(
 			FORM_ICON_SLUGS,
 			"The image on the form's menu tile. Pass a built-in icon slug (one of " +
@@ -130,68 +126,66 @@ export const setMenuMediaTool = {
 			// Resolve every item before writing anything, collecting every
 			// failure — `commitMediaBatch` reports them as one all-or-nothing
 			// error. The two arms differ only in target resolution, the
-			// mutation builder, and the carrier phrase; `resolveTile` carries
-			// the shared shape.
+			// mutation builder, and the carrier phrase.
 			const resolved: ResolvedMediaBatchItem[] = [];
 			const failures: string[] = [];
-			const resolveTile = (
-				item: SetMenuMediaInput["items"][number],
-				carrierPhrase: string,
-				buildMutations: (
-					icon: AssetId | null,
-					audioLabel: AssetId | null,
-				) => Mutation[],
-			): ResolvedMediaBatchItem => {
-				const icon = resolveIconInput(
-					item.icon,
-					`the icon on ${carrierPhrase}`,
-				);
-				return {
-					mutations: buildMutations(icon.icon, brandAssetSlot(item.audioLabel)),
-					expectations: [
-						...icon.expectations,
-						...slotExpectation(
-							item.audioLabel,
-							"audio",
-							`the audio label on ${carrierPhrase}`,
-						),
-					],
-					line: `${carrierPhrase}: icon ${describeSlot(item.icon)}, audio label ${describeSlot(item.audioLabel)}`,
-				};
-			};
 			for (const [i, item] of items.entries()) {
 				if (item.target === "module") {
-					const moduleUuid = resolveModuleUuid(doc, item.moduleIndex);
-					const mod = moduleUuid ? doc.modules[moduleUuid] : undefined;
-					if (!mod) {
-						failures.push(
-							`items[${i}]: found no module at index ${item.moduleIndex}. Look at getModule's projection for valid indices.`,
-						);
+					const address = resolveModuleAddress(doc, item);
+					if (!address.ok) {
+						failures.push(`items[${i}]: ${address.error}`);
 						continue;
 					}
-					resolved.push(
-						resolveTile(item, `module "${mod.name}"`, (icon, audioLabel) =>
-							setModuleMediaMutations(mod.uuid, icon, audioLabel),
-						),
+					const mod = address.module;
+					const carrierPhrase = `module "${mod.name}"`;
+					const icon = resolveIconInput(
+						item.icon,
+						`the icon on ${carrierPhrase}`,
 					);
+					resolved.push({
+						mutations: setModuleMediaMutations(
+							mod.uuid,
+							icon.icon,
+							item.audioLabel,
+						),
+						expectations: [
+							...icon.expectations,
+							...slotExpectation(
+								item.audioLabel,
+								"audio",
+								`the audio label on ${carrierPhrase}`,
+							),
+						],
+						line: `${carrierPhrase}: icon ${describeSlot(item.icon)}, audio label ${describeSlot(item.audioLabel)}`,
+					});
 				} else {
-					const formUuid = resolveFormUuid(
-						doc,
-						item.moduleIndex,
-						item.formIndex,
-					);
-					const form = formUuid ? doc.forms[formUuid] : undefined;
-					if (!form) {
-						failures.push(
-							`items[${i}]: found no form at m${item.moduleIndex}-f${item.formIndex}. Run getModule to see the module's forms and their indices.`,
-						);
+					const address = resolveFormAddress(doc, item);
+					if (!address.ok) {
+						failures.push(`items[${i}]: ${address.error}`);
 						continue;
 					}
-					resolved.push(
-						resolveTile(item, `form "${form.name}"`, (icon, audioLabel) =>
-							setFormMediaMutations(form.uuid, icon, audioLabel),
-						),
+					const form = address.form;
+					const carrierPhrase = `form "${form.name}"`;
+					const icon = resolveIconInput(
+						item.icon,
+						`the icon on ${carrierPhrase}`,
 					);
+					resolved.push({
+						mutations: setFormMediaMutations(
+							form.uuid,
+							icon.icon,
+							item.audioLabel,
+						),
+						expectations: [
+							...icon.expectations,
+							...slotExpectation(
+								item.audioLabel,
+								"audio",
+								`the audio label on ${carrierPhrase}`,
+							),
+						],
+						line: `${carrierPhrase}: icon ${describeSlot(item.icon)}, audio label ${describeSlot(item.audioLabel)}`,
+					});
 				}
 			}
 

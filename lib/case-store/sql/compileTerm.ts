@@ -40,7 +40,7 @@
 
 import type { AliasableExpression, Kysely } from "kysely";
 import { expressionBuilder } from "kysely";
-import type { CasePropertyDataType, CaseType } from "@/lib/domain";
+import type { CasePropertyDataType, CaseType, Uuid } from "@/lib/domain";
 import {
 	compilerBugMessage,
 	typeCheckerBypassMessage,
@@ -98,8 +98,8 @@ type RuntimeBindingValue = TermBindingValue | FormFieldBindingValue;
  * must thread runtime values before calling the term compiler.
  */
 export interface TermBindings {
-	/** Search-input values keyed by input name. */
-	searchInputs?: ReadonlyMap<string, TermBindingValue>;
+	/** Search-input values keyed by immutable authored identity. */
+	searchInputs?: ReadonlyMap<Uuid, TermBindingValue>;
 
 	/**
 	 * Open-namespace user-data fields. Read from the session's
@@ -223,9 +223,9 @@ export function compileTerm(
 			return compileLiteral(term);
 		case "input":
 			return compileBoundRef(
-				term.name,
+				term.searchInputUuid,
 				ctx.bindings.searchInputs,
-				`search input '${term.name}'`,
+				`search input '${term.searchInputUuid}'`,
 			);
 		case "session-user":
 			return compileBoundRef(
@@ -704,9 +704,9 @@ function lookupDataType(
  * Missing bindings throw rather than fall back to `NULL` —
  * silently emitting `NULL` would flip the predicate's truth value.
  */
-export function compileBoundRef(
-	key: string,
-	bindings: ReadonlyMap<string, RuntimeBindingValue> | undefined,
+export function compileBoundRef<Key extends string>(
+	key: Key,
+	bindings: ReadonlyMap<Key, RuntimeBindingValue> | undefined,
 	descriptor: string,
 	missingFallback?: RuntimeBindingValue,
 ): AliasableExpression<unknown> {

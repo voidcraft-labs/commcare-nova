@@ -1,5 +1,6 @@
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f, withUserSequences } from "@/lib/__tests__/docHelpers";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
@@ -8,13 +9,14 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation } from "@/lib/doc/types";
 import { removeUserPropertyPlan } from "@/lib/doc/userMutations";
-import { asUuid, type BlueprintDoc } from "@/lib/domain";
+import type { BlueprintDoc } from "@/lib/domain";
 import { eq, literal, sessionUserProperty } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 
-const PROPERTY_A = asUuid("__proto__");
-const PROPERTY_B = asUuid("constructor");
-const TYPE = asUuid("toString");
-const PERSONA = asUuid("hasOwnProperty");
+const PROPERTY_A = testUuid("__proto__");
+const PROPERTY_B = testUuid("constructor");
+const TYPE = testUuid("toString");
+const PERSONA = testUuid("hasOwnProperty");
 
 function ownRecord<T>(
 	entries: ReadonlyArray<readonly [string, T]>,
@@ -70,13 +72,12 @@ function valueUpdate(
 	uuid: string,
 	propertyUuid: string,
 	value: string | null,
-	fallbackValues: Record<string, string> | null,
 ): Mutation {
 	return {
 		kind,
-		uuid: asUuid(uuid),
-		patch: { values: fallbackValues },
-		valuePatch: { userPropertyUuid: asUuid(propertyUuid), value },
+		uuid: testUuid(uuid),
+		patch: {},
+		valuePatch: { userPropertyUuid: testUuid(propertyUuid), value },
 	} as Mutation;
 }
 
@@ -84,7 +85,7 @@ describe("user collection mutations", () => {
 	it.each(["2fa_region", "-area"])(
 		"refuses the XML-unsafe slug %s at the shared commit gate",
 		(slug) => {
-			const propertyUuid = asUuid(`property-${slug}`);
+			const propertyUuid = testUuid(`property-${slug}`);
 			const verdict = mutationCommitVerdict(
 				buildDoc(),
 				[
@@ -102,8 +103,8 @@ describe("user collection mutations", () => {
 
 			expect(verdict.ok).toBe(false);
 			if (verdict.ok) throw new Error("invalid slug unexpectedly passed");
-			expect(verdict.introduced.map((finding) => finding.code)).toContain(
-				"USER_PROPERTY_SLUG_INVALID",
+			expect(verdict.findings.map((finding) => finding.code)).toContain(
+				"MUTATION_WIRE_CANONICALITY_INVALID",
 			);
 		},
 	);
@@ -148,13 +149,7 @@ describe("user collection mutations", () => {
 				uuid: PROPERTY_A,
 				patch: { label: "Own prototype" },
 			},
-			valueUpdate(
-				"updateUserType",
-				TYPE,
-				PROPERTY_A,
-				"south",
-				ownRecord([[PROPERTY_A, "south"]]),
-			),
+			valueUpdate("updateUserType", TYPE, PROPERTY_A, "south"),
 		]);
 		expect(updated.userProperties?.[PROPERTY_A]?.label).toBe("Own prototype");
 		expect(updated.userTypes?.[TYPE]?.values?.[PROPERTY_A]).toBe("south");
@@ -172,26 +167,8 @@ describe("user collection mutations", () => {
 
 	it("merges concurrent writes to different value keys in either order", () => {
 		const base = userDoc();
-		const left = valueUpdate(
-			"updateUserType",
-			TYPE,
-			PROPERTY_A,
-			"left",
-			ownRecord([
-				[PROPERTY_A, "left"],
-				[PROPERTY_B, "community"],
-			]),
-		);
-		const right = valueUpdate(
-			"updateUserType",
-			TYPE,
-			PROPERTY_B,
-			"right",
-			ownRecord([
-				[PROPERTY_A, "north"],
-				[PROPERTY_B, "right"],
-			]),
-		);
+		const left = valueUpdate("updateUserType", TYPE, PROPERTY_A, "left");
+		const right = valueUpdate("updateUserType", TYPE, PROPERTY_B, "right");
 
 		const leftThenRight = fold(base, [left], [right]);
 		const rightThenLeft = fold(base, [right], [left]);
@@ -224,16 +201,7 @@ describe("user collection mutations", () => {
 			),
 		).toBe(true);
 
-		const peer = valueUpdate(
-			"updateUserType",
-			TYPE,
-			PROPERTY_B,
-			"peer edit",
-			ownRecord([
-				[PROPERTY_A, "north"],
-				[PROPERTY_B, "peer edit"],
-			]),
-		);
+		const peer = valueUpdate("updateUserType", TYPE, PROPERTY_B, "peer edit");
 		const removalThenPeer = fold(base, removal, [peer]);
 		const peerThenRemoval = fold(base, [peer], removal);
 		expect(removalThenPeer.userTypes?.[TYPE]?.values).toEqual(
@@ -243,7 +211,7 @@ describe("user collection mutations", () => {
 	});
 
 	it("refuses removal before cleanup when XPath or Predicate ASTs keep the identity", () => {
-		const propertyUuid = asUuid("worker-region");
+		const propertyUuid = testUuid("worker-region");
 		const doc = buildDoc({
 			modules: [
 				{
@@ -260,7 +228,7 @@ describe("user collection mutations", () => {
 								f({
 									kind: "text",
 									id: "notes",
-									label: "Notes",
+									label: proseText("Notes"),
 								}),
 							],
 						},
@@ -309,7 +277,7 @@ describe("user collection mutations", () => {
 	});
 
 	it("reports distinct relevant and required slots on the same field", () => {
-		const propertyUuid = asUuid("worker-region");
+		const propertyUuid = testUuid("worker-region");
 		const doc = buildDoc({
 			modules: [
 				{
@@ -322,7 +290,7 @@ describe("user collection mutations", () => {
 								f({
 									kind: "text",
 									id: "notes",
-									label: "Notes",
+									label: proseText("Notes"),
 								}),
 							],
 						},
@@ -369,8 +337,8 @@ describe("user collection diff", () => {
 			...before,
 			userTypes: ownRecord([
 				[
-					asUuid("constructor"),
-					{ uuid: asUuid("constructor"), name: "Constructor role" },
+					testUuid("constructor"),
+					{ uuid: testUuid("constructor"), name: "Constructor role" },
 				],
 			]),
 		});
@@ -379,11 +347,11 @@ describe("user collection diff", () => {
 			{
 				after: null,
 				kind: "addUserType",
-				userType: { uuid: asUuid("constructor"), name: "Constructor role" },
+				userType: { uuid: testUuid("constructor"), name: "Constructor role" },
 			},
 		]);
 		expect(diffDocsToMutations(after, before)).toEqual([
-			{ kind: "removeUserType", uuid: asUuid("constructor") },
+			{ kind: "removeUserType", uuid: testUuid("constructor") },
 		]);
 	});
 

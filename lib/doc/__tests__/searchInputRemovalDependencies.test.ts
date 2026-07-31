@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import { searchInputRemovalDependencies } from "@/lib/doc/searchInputMutations";
 import {
 	advancedSearchInputDef,
-	asUuid,
 	type CaseListConfig,
 	type CaseSearchConfig,
 	calculatedColumn,
@@ -18,8 +18,8 @@ import {
 	whenInput,
 } from "@/lib/domain/predicate";
 
-const targetUuid = asUuid("00000000-0000-4000-8000-000000000011");
-const siblingUuid = asUuid("00000000-0000-4000-8000-000000000012");
+const targetUuid = testUuid("00000000-0000-4000-8000-000000000011");
+const siblingUuid = testUuid("00000000-0000-4000-8000-000000000012");
 
 describe("searchInputRemovalDependencies", () => {
 	it("groups every deterministic occurrence by its friendly source", () => {
@@ -36,22 +36,22 @@ describe("searchInputRemovalDependencies", () => {
 			"External ID",
 			"text",
 			whenInput(
-				input("case_name"),
-				eq(prop("client", "external_id"), input("case_name")),
+				input(targetUuid),
+				eq(prop("client", "external_id"), input(targetUuid)),
 			),
 		);
 		const config: CaseListConfig = resolveCaseListConfig({
 			columns: [],
 			searchInputs: [target, sibling],
 			filter: whenInput(
-				input("case_name"),
-				eq(prop("client", "case_name"), input("case_name")),
+				input(targetUuid),
+				eq(prop("client", "case_name"), input(targetUuid)),
 			),
 		});
 		const searchConfig: CaseSearchConfig = {
 			excludedOwnerIds: concat(
-				term(input("case_name")),
-				term(input("case_name")),
+				term(input(targetUuid)),
+				term(input(targetUuid)),
 			),
 		};
 
@@ -106,7 +106,7 @@ describe("searchInputRemovalDependencies", () => {
 				"text",
 				"external_id",
 			),
-			default: term(input("case_name")),
+			default: term(input(targetUuid)),
 		};
 		const config: CaseListConfig = resolveCaseListConfig({
 			columns: [],
@@ -114,8 +114,8 @@ describe("searchInputRemovalDependencies", () => {
 		});
 		const searchConfig: CaseSearchConfig = {
 			searchButtonDisplayCondition: whenInput(
-				input("case_name"),
-				eq(prop("client", "case_name"), input("case_name")),
+				input(targetUuid),
+				eq(prop("client", "case_name"), input(targetUuid)),
 			),
 		};
 
@@ -145,7 +145,7 @@ describe("searchInputRemovalDependencies", () => {
 		// pending — and the rename path keeps such refs coherent, so the
 		// removal review must see them too. Without this arm the dialog
 		// reports "zero uses" and the removal strands the formula.
-		const columnUuid = asUuid("00000000-0000-4000-8000-000000000021");
+		const columnUuid = testUuid("00000000-0000-4000-8000-000000000021");
 		const target = simpleSearchInputDef(
 			targetUuid,
 			"case_name",
@@ -155,7 +155,7 @@ describe("searchInputRemovalDependencies", () => {
 		);
 		const config: CaseListConfig = resolveCaseListConfig({
 			columns: [
-				calculatedColumn(columnUuid, "Match note", term(input("case_name"))),
+				calculatedColumn(columnUuid, "Match note", term(input(targetUuid))),
 			],
 			searchInputs: [target],
 		});
@@ -181,7 +181,7 @@ describe("searchInputRemovalDependencies", () => {
 				"text",
 				"case_name",
 			),
-			default: term(input("case_name")),
+			default: term(input(targetUuid)),
 		};
 		const config: CaseListConfig = resolveCaseListConfig({
 			columns: [],

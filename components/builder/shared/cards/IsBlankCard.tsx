@@ -5,15 +5,19 @@
 // dialect.
 
 "use client";
-import { canonicalCasePropertyName } from "@/lib/domain";
 import {
 	absenceSubjectConstraint,
 	isBlank,
 	type Predicate,
 	prop,
 	sessionContext,
+	tableColumn,
 } from "@/lib/domain/predicate";
-import { caseDataInScope, type PredicateEditContext } from "../editorSchemas";
+import {
+	caseDataInScope,
+	type PredicateEditContext,
+	tableRowInScope,
+} from "../editorSchemas";
 import { appendSlot, type EditorPath } from "../path";
 import { ExpressionPicker } from "../primitives/ExpressionPicker";
 import { PredicateVerbMenu } from "./PredicateVerbMenu";
@@ -21,13 +25,22 @@ import { PredicateVerbMenu } from "./PredicateVerbMenu";
 export function isBlankDefault(
 	ctx: PredicateEditContext,
 ): Extract<Predicate, { kind: "is-blank" }> {
+	if (tableRowInScope(ctx)) {
+		const column = ctx.tableScope?.columns[0];
+		if (ctx.tableScope === undefined || column === undefined) {
+			throw new Error(
+				"A table-row blank condition requires one active-table column.",
+			);
+		}
+		return isBlank(tableColumn(ctx.tableScope.tableId, column.id));
+	}
 	// A global slot reads no case. Seed a REAL always-present session
 	// value (never an invented user-data field name); the author swaps
 	// the subject to their own current-user field from the picker.
 	if (!caseDataInScope(ctx)) return isBlank(sessionContext("username"));
 	const ct = ctx.caseTypes.find((c) => c.name === ctx.currentCaseType);
 	const property = ct?.properties[0];
-	const propName = canonicalCasePropertyName(property?.name ?? "");
+	const propName = property?.name ?? "";
 	return isBlank(prop(ctx.currentCaseType, propName));
 }
 

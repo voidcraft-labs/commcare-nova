@@ -29,7 +29,6 @@ import tablerCheck from "@iconify-icons/tabler/check";
 import tablerCheckbox from "@iconify-icons/tabler/checkbox";
 import tablerChecks from "@iconify-icons/tabler/checks";
 import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
-import tablerCircleDashed from "@iconify-icons/tabler/circle-dashed";
 import tablerCircleOff from "@iconify-icons/tabler/circle-off";
 import tablerEar from "@iconify-icons/tabler/ear";
 import tablerEqual from "@iconify-icons/tabler/equal";
@@ -88,7 +87,6 @@ import {
 	useResolvedType,
 } from "../editorContext";
 import {
-	isAuthorablePredicateKind,
 	type PredicateEditContext,
 	predicateCardSchemas,
 	predicateUnavailableReason,
@@ -127,7 +125,7 @@ export interface VerbEntry {
 	/**
 	 * Subject-type gate — whether the subject (left operand) of the
 	 * CURRENT condition can support this verb. Absent for verbs every
-	 * subject supports (`eq` / `neq` / `in` / `is-null` / `is-blank`,
+	 * subject supports (`eq` / `neq` / `in` / `is-blank`,
 	 * the contains / near shapes whose builder re-anchors a valid
 	 * property, and the structure shapes). When present and the gate
 	 * fails, the verb is disabled with `disabledReason` — so changing
@@ -179,7 +177,6 @@ export function subjectOf(value: Predicate): ValueExpression | undefined {
 		case "lte":
 		case "in":
 		case "between":
-		case "is-null":
 		case "is-blank":
 			return value.left;
 		case "match":
@@ -509,7 +506,7 @@ export function reseedMatchValue(
 }
 
 export function buildWithSubjectLeft(
-	kind: "in" | "between" | "is-null" | "is-blank",
+	kind: "in" | "between" | "is-blank",
 	value: Predicate,
 	ctx: PredicateEditContext,
 ): Predicate {
@@ -558,7 +555,7 @@ export function buildWithSubjectLeft(
 			upperInclusive: carried?.upperInclusive ?? b.upperInclusive,
 		});
 	}
-	// is-null / is-blank carry only the subject — any read can be absent.
+	// is-blank carries only the subject — any read can be blank.
 	return { ...fallback, left: subject };
 }
 
@@ -813,15 +810,6 @@ function buildVerbEntries(): readonly VerbEntry[] {
 			disabledReason:
 				"Choose case information or another value that can change while the app runs",
 		},
-		{
-			id: "is-null",
-			label: "was never recorded",
-			icon: tablerCircleDashed,
-			description: "The value was never recorded; an empty value still counts",
-			schemaKind: "is-null",
-			isCurrent: (p) => p.kind === "is-null",
-			build: (p, ctx) => buildWithSubjectLeft("is-null", p, ctx),
-		},
 	);
 	return entries;
 }
@@ -959,11 +947,10 @@ export function currentVerbLabel(value: Predicate): string {
 }
 
 /**
- * Whether a verb entry is offerable for the CURRENT predicate — the
- * exact admission the menu renders against. A verb is admitted when it
- * is the current verb (legacy-open backstop), or when both its
- * case-type applicability (`schemaKind.applicable`) AND its subject-type
- * gate pass. Exported so the glue-fuzz can drive every admitted build
+ * Whether a verb entry is offerable for the current predicate — the
+ * exact admission the menu renders against. Both its case-type
+ * applicability (`schemaKind.applicable`) and its subject-type gate
+ * must pass. Exported so the glue-fuzz can drive every admitted build
  * the way the menu would.
  */
 export function verbEntryAdmitted(
@@ -972,8 +959,6 @@ export function verbEntryAdmitted(
 	subjectType: ResolvedType | undefined,
 	editCtx: PredicateEditContext,
 ): boolean {
-	if (entry.isCurrent(value)) return true;
-	if (!isAuthorablePredicateKind(entry.schemaKind)) return false;
 	const subject = subjectOf(value);
 	// Sentence verbs build from the current subject. Their admission must not
 	// depend on an unrelated direct property in the origin case type: a valid
@@ -1084,9 +1069,6 @@ export function PredicateVerbMenu({
 
 	const renderEntry = (entry: VerbEntry) => {
 		const isCurrent = entry.isCurrent(value);
-		// The current verb's own row is never disabled for admission
-		// reasons (legacy-open backstop) — `verbEntryAdmitted` exempts it,
-		// and only the no-op `isCurrent` disable applies to it.
 		const admitted = verbEntryAdmitted(entry, value, subjectType, editCtx);
 		// Re-derive the gate pieces only to phrase the disabled reason.
 		const subject = subjectOf(value);
@@ -1187,11 +1169,7 @@ export function PredicateVerbMenu({
 						style={{ minWidth: "17rem", maxHeight: 380 }}
 					>
 						<DropdownMenuPopup className="max-h-[min(23.75rem,var(--available-height))] min-w-0">
-							{VERB_ENTRIES.filter(
-								(entry) =>
-									entry.isCurrent(value) ||
-									isAuthorablePredicateKind(entry.schemaKind),
-							).map(renderEntry)}
+							{VERB_ENTRIES.map(renderEntry)}
 							{additionalEntries.length > 0 && (
 								<>
 									<div
@@ -1200,13 +1178,7 @@ export function PredicateVerbMenu({
 									>
 										{additionalEntriesLabel}
 									</div>
-									{additionalEntries
-										.filter(
-											(entry) =>
-												entry.isCurrent(value) ||
-												isAuthorablePredicateKind(entry.schemaKind),
-										)
-										.map(renderEntry)}
+									{additionalEntries.map(renderEntry)}
 								</>
 							)}
 						</DropdownMenuPopup>

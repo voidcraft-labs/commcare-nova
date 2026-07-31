@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { asAssetId } from "@/lib/domain/multimedia";
+import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import type { ResolvedMediaAsset } from "../assetWirePath";
 import { buildMediaSuiteXml } from "../mediaSuiteXml";
 
@@ -12,7 +12,7 @@ function asset(
 	kind: ResolvedMediaAsset["kind"],
 ): ResolvedMediaAsset {
 	return {
-		assetId: asAssetId(`asset-${hash}`),
+		assetId: testMediaAssetId(`asset-${hash}`),
 		wirePath: `commcare/${hash}${extension}`,
 		kind,
 		mimeType: "image/png",

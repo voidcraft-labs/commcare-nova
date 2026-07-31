@@ -36,7 +36,7 @@ import {
 	sql,
 } from "kysely";
 import { describe, expect, it } from "vitest";
-import { asUuid } from "@/lib/doc/types";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import type { CaseType } from "@/lib/domain";
 import {
 	actingUser,
@@ -65,9 +65,9 @@ import {
 	term,
 	today,
 	unowned,
-	unwrapList,
 } from "@/lib/domain/predicate/builders";
 import type { ArithOp, DateAddInterval } from "@/lib/domain/predicate/types";
+import { proseText } from "@/lib/domain/prose";
 import {
 	compileExpression,
 	type ExpressionCompileContext,
@@ -104,12 +104,12 @@ const PATIENT_SCHEMA: CaseType = {
 	name: "patient",
 	parent_type: "household",
 	properties: [
-		{ name: "nickname", label: "Nickname", data_type: "text" },
-		{ name: "age", label: "Age", data_type: "int" },
-		{ name: "bmi", label: "BMI", data_type: "decimal" },
-		{ name: "dob", label: "DOB", data_type: "date" },
-		{ name: "registered_at", label: "When", data_type: "datetime" },
-		{ name: "tags", label: "Tags", data_type: "multi_select" },
+		{ name: "nickname", label: proseText("Nickname"), data_type: "text" },
+		{ name: "age", label: proseText("Age"), data_type: "int" },
+		{ name: "bmi", label: proseText("BMI"), data_type: "decimal" },
+		{ name: "dob", label: proseText("DOB"), data_type: "date" },
+		{ name: "registered_at", label: proseText("When"), data_type: "datetime" },
+		{ name: "tags", label: proseText("Tags"), data_type: "multi_select" },
 	],
 };
 
@@ -118,7 +118,7 @@ const PATIENT_SCHEMA: CaseType = {
 // resolved against `PATIENT_SCHEMA.parent_type`.
 const HOUSEHOLD_SCHEMA: CaseType = {
 	name: "household",
-	properties: [{ name: "size", label: "Size", data_type: "int" }],
+	properties: [{ name: "size", label: proseText("Size"), data_type: "int" }],
 };
 
 const CASE_TYPE_SCHEMAS = new Map<string, CaseType>([
@@ -199,7 +199,7 @@ describe("compileExpression — term arm", () => {
 	});
 
 	it("binds a multi-select form answer as JSONB rather than a Postgres array", () => {
-		const fieldUuid = asUuid("44444444-4444-4444-8444-444444444444");
+		const fieldUuid = testUuid("44444444-4444-4444-8444-444444444444");
 		const compiled = compileExpression_(
 			compileExpression(
 				term(formField(fieldUuid)),
@@ -271,7 +271,7 @@ describe("compileExpression — case-operation owner values", () => {
 });
 
 describe("compileExpression — case-operation id", () => {
-	const operationUuid = asUuid("11111111-1111-4111-8111-111111111111");
+	const operationUuid = testUuid("11111111-1111-4111-8111-111111111111");
 
 	it("resolves an earlier create id from the operationIds binding map", () => {
 		const compiled = compileExpression_(
@@ -886,29 +886,6 @@ describe("compileExpression — format-date arm", () => {
 		expect(compiled.parameters).toEqual(
 			expect.arrayContaining(["YYYY", "MS", "dow", "epoch", "%"]),
 		);
-	});
-});
-
-// ---------------------------------------------------------------
-// `unwrap-list` — defensive throw (no SQL-side consumer)
-// ---------------------------------------------------------------
-//
-// `unwrap-list` resolves to the type checker's `_sequence`
-// sentinel; no AST operator on the Predicate side or the
-// Expression side consumes a sequence (`in.values` and
-// `multi-select-contains.values` stay
-// literal-only). The CSQL hoist pass routes the arm into
-// `selected-any(prop, unwrap-list(...))` at the wire-emission
-// boundary; that path does not flow through the SQL compiler.
-// Reaching this arm in `compileExpression` is an invariant
-// violation, so the compiler throws with a descriptive error
-// rather than emit ambiguous SQL.
-
-describe("compileExpression — unwrap-list arm", () => {
-	it("throws because no AST consumer wires unwrap-list to a SQL value position", () => {
-		expect(() =>
-			compileExpression(unwrapList(term(prop("patient", "tags"))), makeCtx()),
-		).toThrow(/unwrap-list/i);
 	});
 });
 

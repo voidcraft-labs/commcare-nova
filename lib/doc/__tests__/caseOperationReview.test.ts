@@ -19,6 +19,7 @@
 //      under a heading that says removal is blocked.
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import {
 	moveCaseOperationMutation,
@@ -30,20 +31,20 @@ import {
 	caseOperationMoveVerdicts,
 	caseOperationRemovalBlockers,
 } from "@/lib/doc/caseOperationReview";
-import { asUuid } from "@/lib/doc/types";
+
 import type { BlueprintDoc, CaseOperation, Form, Uuid } from "@/lib/domain";
 import { orderedCaseOperations } from "@/lib/domain";
 import { eq, idOf, literal, term } from "@/lib/domain/predicate";
 
-const CREATE = asUuid("11111111-1111-4111-8111-111111111111");
-const SECOND = asUuid("22222222-2222-4222-8222-222222222222");
-const CONSUMER = asUuid("33333333-3333-4333-8333-333333333333");
-const RETYPE = asUuid("55555555-5555-4555-8555-555555555555");
-const LATER = asUuid("66666666-6666-4666-8666-666666666666");
+const CREATE = testUuid("11111111-1111-4111-8111-111111111111");
+const SECOND = testUuid("22222222-2222-4222-8222-222222222222");
+const CONSUMER = testUuid("33333333-3333-4333-8333-333333333333");
+const RETYPE = testUuid("55555555-5555-4555-8555-555555555555");
+const LATER = testUuid("66666666-6666-4666-8666-666666666666");
 
 function form(operations: readonly CaseOperation[]): Form {
 	return {
-		uuid: asUuid("44444444-4444-4444-8444-444444444444"),
+		uuid: testUuid("44444444-4444-4444-8444-444444444444"),
 		id: "visit",
 		name: "Visit",
 		type: "followup",
@@ -342,7 +343,7 @@ describe("caseOperationMoveVerdicts", () => {
 		]);
 		expect(caseOperationMoveVerdicts(doc, formUuid, SECOND).size).toBe(0);
 		expect(
-			caseOperationMoveVerdicts(doc, asUuid("no-such-form" as string), CREATE)
+			caseOperationMoveVerdicts(doc, testUuid("no-such-form" as string), CREATE)
 				.size,
 		).toBe(0);
 	});
@@ -436,7 +437,7 @@ describe("caseOperationRemovalBlockers", () => {
 		expect(
 			caseOperationRemovalBlockers(
 				doc,
-				asUuid("no-such-form" as string),
+				testUuid("no-such-form" as string),
 				CREATE,
 			),
 		).toEqual([]);

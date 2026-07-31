@@ -20,10 +20,10 @@ reads row state inside the locking transaction.
 shared Project-membership advisory gate and exact `auth_member` row, while
 `apps.ts::loadAppInTransaction` assembles `blueprint_entities` on that same
 transaction. The returned Project, role, `canEdit`, blueprint, and `baseSeq`
-therefore belong to one serial winner. `GET /api/apps/[id]` keeps
-`mutation_seq` as a rolling-client alias for `baseSeq`; new code must not
-reintroduce separate app-row, entity, membership, or cursor reads for this
-surface.
+therefore belong to one serial winner. `GET /api/apps/[id]` returns exactly
+`{ projectId, role, canEdit, blueprint, baseSeq }`; the client rejects unknown
+keys. Do not reintroduce aliases or separate app-row, entity, membership, or
+cursor reads for this surface.
 
 **There is no blueprint blob.** An app is its `apps` row (scalars +
 denormalized list fields + the run lease and credit marker as nullable column
@@ -42,34 +42,71 @@ exactly the doc it did before they existed.
 arrays round-trip via the stored `ordinal`), `diffBlueprints` (the minimal
 row-set a commit changed — diffed per entity by content, NOT by mutation
 targets, because reducer side effects like a rename's prose cascade touch
-entities the batch never named). `apps.app_name` stores the TRUE (possibly
-empty) name; list projections apply the `UNTITLED_APP_NAME` display fallback.
+entities the batch never named). `apps.app_name` stores the blueprint name,
+which the schema keeps non-blank, so projections read it directly.
 
-**`accepted_mutations` is permanent history.** Every committed blueprint batch
-appends one row — no TTL, no prune. It is the realtime catch-up stream AND the
-app's durable edit history: folding every batch from an app's first seq
-reproduces its entity rows (an app whose history was seeded from a snapshot
-starts at that snapshot's seq, not seq 1). A `migration` row tells live clients
-to reload, but it still stores the deterministic mutations when the blueprint
-changed; an empty migration batch is reserved for an atomic non-blueprint
-change such as a Project-only move, never a fake whole-document replacement.
+**Persisted Blueprint JSON enters JavaScript as exact text.** `pg`'s default
+JSONB decoder is never allowed to parse `apps.case_types`,
+`blueprint_entities.data`, replayable `app_changes.mutations`, or
+`app_change_fold_baselines.snapshot`: every ordinary reader selects each carrier
+as `::text` and enters through `persistedJson.ts` before strict
+schema/assembler admission. That parser builds null-prototype objects,
+preserves prototype-shaped own keys, rejects duplicate keys, and admits only
+PostgreSQL's canonical plain-decimal JSONB spelling that round-trips uniquely
+to one finite JavaScript number. Scale aliases, exponent spellings, rounding
+aliases, nonfinite overflow, nonzero-to-zero underflow, negative zero, and
+integral values outside the safe-integer range fail closed. Domain authoring
+uses the matching shared numeric predicate, so ordinary writes cannot create a
+carrier the loader rejects. `apps.mutation_seq` and durable mutation `seq`
+cross through `safePersistedSequence`; the head cannot advance beyond
+`Number.MAX_SAFE_INTEGER`. Do not select these carriers as parsed JSON or use
+raw `Number(...)` coercion at a sequence boundary.
+
+App lifecycle status is the exact closed set `generating | complete | error`
+and every row-to-view path parses it rather than casting arbitrary database
+text. Soft deletion is only the independent `deleted_at` /
+`recoverable_until` pair; there is no `"deleted"` status arm or compatibility
+projection.
+
+**`app_changes` is permanent history.** It is the durable edit log and realtime
+catch-up source; there is no TTL or prune. Its closed kind set is `autosave`,
+`mcp`, `chat`, `blueprint-migration`, `fold-baseline`, and `project-move`.
+The first four carry a nonempty exactly admitted mutation batch and null
+Project-move columns. `fold-baseline` carries exactly `[]`, null move columns,
+and one matching immutable `app_change_fold_baselines` row whose snapshot,
+digest, Project, sequence, root, and entity freshness are proved in the same
+transaction. `project-move` carries `[]` or the nonempty media-remap batch and
+requires distinct nonblank source and destination Project ids. Runtime never
+updates or deletes either table. Its grants differ: `app_changes` is append-only
+runtime DML (`SELECT, INSERT`), while `app_change_fold_baselines` is a control
+table the runtime may only read. That is load-bearing — `createApp` reaches its
+genesis baseline through the `SECURITY DEFINER` routine
+`nova_insert_app_change_genesis_fold_baseline`, and a direct runtime insert
+fails with `42501`.
+
+App creation writes the complete canonical starter, exact lookup/media
+projections, a Project-bearing sequence-one baseline, and one attributed
+`fold-baseline` change atomically. A canonical fold begins with the greatest
+baseline and its Project, applies subsequent Project moves with exact
+source/destination continuity, strictly reduces every mutation-bearing row,
+and must end at both the persisted entity projection and `apps.project_id`.
+Lookup admission checks only that final folded document against the final
+Project's current definition snapshot. The browser collaboration wire accepts
+only `autosave | mcp | chat`; the presence of any other kind in a validated
+suffix forces fresh authorization and a whole-app reload before ordinary
+frames from that suffix are consumed.
+
 System repair/migration writers use a named `system:<task>` actor; user-driven
-synthetic writes retain the actual user id. `UNIQUE (app_id, batch_id)` is the idempotency latch (the guarded
-commit reads it under the app row lock; a concurrent same-batch retry that
-races past the read is caught by the constraint and converges on the deduped
-result). A blueprint-shape migration must either migrate the STORED MUTATIONS
-alongside the entity rows, or MOVE THE FOLD HORIZON by appending one
-`kind: "migration"` batch per app — historical folds otherwise stop reproducing
-state, and a live client whose stream cursor predates the change replays
-old-vocabulary payloads into a new reducer. The sequence-is-array-position
-cutover took the second route deliberately (see its migration's header): a
-fractional order key only means anything against the sibling keys of its own
-moment, so rewriting one in place would take a per-app fold through a reducer
-that still understands both vocabularies — the parallel machinery that change
-existed to delete. Its marker carries EMPTY mutations because the document did
-not change, only where its sequence is written down. Folds for every app
-therefore start at that marker, exactly as an app seeded from a snapshot starts
-at the snapshot's seq.
+synthetic writes retain the actual user id. `UNIQUE (app_id, batch_id)` is the
+idempotency latch (the guarded commit reads it under the app row lock; a
+concurrent same-batch retry that races past the read is caught by the constraint
+and converges on the deduped result). A blueprint-shape migration converts every replayable app change; no runtime
+reader accepts an alternate stored dialect. Advancing the fold horizon is not a
+route a future migration can simply take: the admit routine
+`nova_admit_app_change_fold_baseline_insert` accepts exactly two identities —
+the frozen `fold-baseline:canonical-identity-foundation` marker and the
+sequence-one `genesis:<app_id>` — so writing a new baseline needs new DDL, by
+design.
 
 **Realtime pokes ride LISTEN/NOTIFY.** `writeCommittedBatch` calls
 `pg_notify('nova_app_stream', {appId, seq})` INSIDE the commit transaction
@@ -108,16 +145,19 @@ materializer seam: after the app row is locked, it takes exact Project-scoped
 table locks `FOR KEY SHARE` in lexical UUID order, reads stored targets app-wide
 without a Project filter, and replaces complete sets child-delete/parent-delete
 then parent-insert/child-insert. Empty replacement can clear stale source-Project
-edges; a null-Project app cannot gain a nonempty set, and missing/foreign targets
-share one opaque error.
+edges; missing/foreign targets share one opaque error.
 
 `apps.ts` is the authoritative protocol. Every `createApp`,
 `commitGuardedBatch`, `appendSyntheticBatch`, and `commitAppProjectMove`
 transaction declares lookup writer v1 from the shared runtime manifest. Creation prepares
-the template exactly once outside the retryable transaction, then takes the
+the mandatory canonical name + survey/module/form/field genesis exactly once
+outside the retryable transaction, then takes the
 shared Project-membership advisory gate, authorizes, inserts the root,
-locks/reads lookup definitions, evaluates, checks template
-export readiness, replaces edges, and inserts entity rows atomically. Ordinary
+locks/reads lookup definitions, evaluates the absolute verdict, checks full
+export readiness, admits media references, replaces exact edges, and inserts
+entity rows, the sequence-one `fold-baseline` change, and immutable baseline
+atomically. It returns the exact committed blueprint, base sequence, and starter
+UUIDs; callers neither seed nor reconstruct birth state. Ordinary
 commits lock the app, compare the caller's required `expectedProjectId`, check
 the dedup latch, take the shared membership gate,
 lock and authorize the actor's exact `auth_member` row in the SAME transaction,
@@ -129,6 +169,31 @@ Nova-language `BlueprintCommitRejectedError`; operational SQL errors are not
 misreported as user fixes. `applyBlueprintChange` treats caller-supplied
 whole-doc projections as advisory and derives schema work from the guarded
 deterministic mutations.
+
+**Every app belongs to exactly one Project.** `apps.project_id` is `NOT NULL`
+and has the validated
+`apps_project_id_auth_organization_fk` to `auth_organization(id)` with
+RESTRICT update/delete actions. The Nova auth-app migration ledger installs
+that FK plus `app_changes_from_project_id_auth_organization_fk`,
+`app_changes_to_project_id_auth_organization_fk`, and
+`app_change_fold_baselines_project_id_auth_organization_fk`, all with RESTRICT
+update/delete actions, because Better Auth creates `auth_organization` after
+the case-store ledger runs. Runtime types and APIs carry `project_id: string`;
+missing-app reads use an explicit not-found result and never overload a
+nullable Project. Authorization is Project membership only—`apps.owner` is
+creation provenance and never an owner-only access fallback.
+
+That auth-app migration is an exact locked cutover. It inventories every
+Project-bearing column on `apps`, `app_changes`, and
+`app_change_fold_baselines`, `auth_organization.id`, their
+types/defaults/nullability/indexes, and the complete set of local or referencing
+constraints whose key touches one of those columns—including names, local and
+referenced relations/columns, actions, validation, and deferrability—before
+reading the orphan census and before its first write. The only writable state
+is the exact pristine set with all four named Project FKs absent. The exact
+final set reruns read-only; an alternate-name duplicate, alternate action,
+`NOT VALID`/deferrable variant, partial catalog, extra constraint/index, blank
+Project, or missing Better Auth Project blocks. Its `down` is forward-only.
 
 `appendSyntheticBatch` requires an exact expected sequence and explicit user or
 named-system authority. After locking fresh state it diffs to the requested
@@ -144,7 +209,8 @@ owner retention, rejects deleted apps, classifies runs only through
 `runLeaseState`, and requires structural/stored lookup targets to match exactly
 and both be empty. The final transaction locks threads and destination assets,
 remaps blueprint and canonical transcript attachment ids, re-tenants all cases,
-purges presence, flips `project_id`, appends one attributed migration batch, and
+purges presence, flips `project_id`, appends one attributed `project-move`
+change, and
 emits app/presence notifications atomically. Media byte copies are the only
 non-destructive pre-transaction work. Exact same-Project recovery instead locks
 the app, derives its fresh Project, and repairs only case tenancy: no migration
@@ -164,16 +230,39 @@ Migration is a one-way member of runtime solely to maintain runtime-owned
 `nova_case_runtime.cases`; runtime cannot inherit migration. Runtime gets
 `CREATE` only in that isolated case schema for concurrent index DDL.
 
+`runtimeDatabaseProbe.ts` is the production post-migration proof for this
+boundary. On the migration connection it `SET LOCAL ROLE`s to runtime, strictly
+assembles every app's exact text carriers through the same persisted JSON
+decoder with no sample cap, reruns the complete empty-batch mutation gate, and
+proves incremental-vs-rebuilt local reference-index equality plus
+structural-vs-stored Project lookup-edge equality even when the gate reports
+findings. It then strictly loads a gate-clean candidate through
+`loadAppInTransaction`, reauthorizes a real editable Project member, and sends a
+no-op name batch through the real guarded writer inside one transaction. Its
+content-free report carries actual parser, gate, and reference-index finding
+counts; its intentional rollback must leave both the app sequence and stream
+unchanged.
+`commitGuardedBatchInTransaction` is the narrow seam for that probe: ordinary
+callers use `commitGuardedBatch`, while an externally-owned transaction neither
+retries nor emits post-commit side effects.
+
+The dedicated canonical-identity audit login is separate from runtime,
+migration, cleanup, and operators. It owns a pool-one `audit` workload, no
+parent role, and only schema `USAGE` plus `SELECT` on the frozen scanner's exact
+public/runtime relation inventory. Privilege convergence rejects every extra
+table read, DML, sequence, routine, database/schema `CREATE`, or missing exact
+read. The immutable image entrypoint additionally makes its only session
+read-only before opening the scanner's transaction.
+
 Run claim/reserve, paused-run reacquire, soft-delete, and restore use that same
 app-row-first membership protocol; no route preflight decides their admission.
-Migration-bearing blueprint saves use
-`withAuthorizedAppEditSideEffect`: one non-retrying transaction and one physical
-connection lock the app, compare the caller's Project snapshot, freshly authorize,
-then run every sorted case-schema/data Phase A. The transaction commits as a unit;
-only afterward do concurrent-index Phase B completions run, followed by a separately
-fresh `commitGuardedBatch`. An admission denial or Phase-A/outer-commit failure
-therefore has nothing to compensate; a Phase-B or blueprint-commit failure
-compensates the already-durable reports.
+Explicit `renameCaseProperties` saves compose their dedicated case-schema/data
+Phase A through the guarded writer's `beforeWrite` seam. Fresh Blueprint
+admission, Project authorization, all live and parked row collision checks and
+moves, Blueprint persistence, and the accepted event share one app-locked
+transaction. Any correctness-bearing failure rolls the whole transaction back.
+Only concurrent-index Phase B runs after commit; it is idempotent derived work
+tracked by durable convergence state.
 
 
 Run generation is holder identity. `runLeaseState` derives it: edit is
@@ -184,7 +273,7 @@ nonce is the per-claim generation. Every holder-touching path uses
 `(mode, runId, nonce)` identity: generating creation, build/edit claim,
 reservation, paused reacquisition, same-holder blueprint commits,
 heartbeats/pause writes, and terminal/failure/reaper/recovery writes.
-Complete/template creation does not use identity because it creates no holder.
+Complete creation does not use holder identity because it creates no holder.
 Every build claim also stamps root `run_id` before emitting any mutation, so a
 later no-mutation successor remains the durable latest-claim identity after
 reap.
@@ -268,10 +357,11 @@ never rewrite: a stale tab or a late finalize can add turns, not erase them,
 and an askQuestions continuation lands as ONE merged message. For a shared
 message id, stored `metadata.attachments` is authoritative even when an incoming
 version wins the parts tiebreak; a stale source-Project history therefore cannot
-restore asset ids the move already remapped. Every newly persisted canonical
-attachment is admitted in that same app/thread transaction: its current Project
-and ready status are rechecked under an asset `FOR SHARE` lock and its reverse
-reference is inserted before the message write. Chat admission passes its expected
+restore asset ids the move already remapped. Every thread writer derives the
+complete canonical post-merge attachment set together with the authored
+Blueprint media set, locks all referenced assets sorted `FOR SHARE`, validates
+same Project/readiness/kind, and replaces the app's exact reverse projection
+before the message write. Chat admission passes its expected
 Project to turn/upsert and bail-history writers, which stop if the app moved
 before they acquired the app lock. The finalize
 retires the live marker ONLY while it still names its own run's stream (the
@@ -462,16 +552,17 @@ edit holder; a replacement or reap is a clean no-op.
 `commitGuardedBatch` is the one blueprint write every surface shares (chat,
 MCP, auto-save, the cross-Project move): lock the app row → dedup latch read
 → reject when the row no longer matches the caller's required
-`expectedProjectId` → reauth against the fresh row (owner fallback for
-null-Project apps) → assemble + hydrate the fresh doc →
-`batchTargetsMissing` → re-run verdict → literal `seq + 1` → entity-row diff
-write + the permanent stream row + the in-commit NOTIFY. The per-commit edit
+`expectedProjectId` → reauth against the fresh Project membership row →
+assemble + hydrate the fresh doc →
+`mutationTargetsInvalid` → re-run verdict → literal `seq + 1` → entity-row diff
+write + the permanent app-change row + the in-commit NOTIFY. The per-commit edit
 lease refresh rides the same transaction when the committing run owns the
-lock. Before any blueprint write, it computes newly introduced real media refs,
-locks their rows sorted `FOR SHARE`, rechecks Project/readiness plus explicit
-slot expectations, and inserts exact `media_asset_refs` edges in that SAME
-transaction. Atomic creation and `appendSyntheticBatch` apply the identical
-admission rule; post-commit `syncMediaReferences` is legacy/backfill help only.
+lock. Every app or thread writer derives the complete poststate media projection
+from all authored Blueprint references plus canonical thread attachments,
+locks the referenced asset rows sorted `FOR SHARE`, verifies same Project,
+`ready`, and exact media kind, then deletes and reinserts the app's exact
+`media_asset_refs` rows in that SAME transaction. Atomic creation,
+`appendSyntheticBatch`, and Project move apply the identical rule.
 
 **Form attachments are a separate lane from `media_assets`, on purpose.**
 `formAttachments.ts` holds the files a worker attaches while filling in a form:
@@ -525,6 +616,17 @@ failure. After winning, the owner prewarms its second connection with a bounded
 retry so Kysely reuses that admitted session; a stuck reservation fails the
 Job.
 
+`captureCleanupSchemaProbe.ts` is the cleanup image's strict post-migration
+proof. Under the cleanup login it compares the ordered
+`form_attachments` column/type/nullability inventory to the checked-in final
+contract, then executes zero-row `SELECT`/`UPDATE`/`DELETE` statements and
+intentionally rolls the transaction back. `scripts/cleanup-form-attachments.ts
+--probe-schema` runs only that proof, bundled into the image as
+`capture-cleanup.cjs`. Cloud Build verifies the scheduler's preexisting state
+was not changed by the Job update. It does NOT require the scheduler to be
+paused: pausing is the maintenance-cutover prestate, and on an ordinary deploy
+the scheduler is ENABLED while the probe runs.
+
 GCS lifecycle remains the traffic-independent
 backstop for ordinary staged/browser-abandoned source bytes, but cannot
 atomically distinguish DB acceptance; accepted durability therefore requires
@@ -558,16 +660,16 @@ can strand capture evidence in the source tenant.
 `mediaDeletion.ts` takes the shared membership gate, freshly proves Project
 `edit`, locks the asset `FOR UPDATE`, then re-walks every persisted carrier
 (including soft-deleted app rows)
-without taking app locks and deletes metadata only when the result is empty.
+named by that asset's exact `media_asset_refs` candidates without taking app
+locks, and deletes metadata only when the result is empty.
 Each app root, its normalized blueprint entities, and thread messages come from
 one correlated SQL statement snapshot, so an atomic carrier relocation cannot
 fall between separate READ COMMITTED reads.
-Until `media_reference_index_state.audited_complete_at` is stamped by an audited
-backfill, it scans every persisted app in the asset Project; afterward the exact
-index may narrow candidates. This lock conflicts with the introduced-ref share
-lock, so attach/delete has two safe winner orders. Object cleanup is post-commit
-and serialized with every publisher by the canonical extension-independent
-Project/hash content session lock.
+The exact whole-app projection is the candidate authority; there is no
+completion marker or full-Project fallback scan. This lock conflicts with the
+writer's asset share lock, so attach/delete has two safe winner orders. Object
+cleanup is post-commit and serialized with every publisher by the canonical
+extension-independent Project/hash content session lock.
 
 ## Period leaf
 

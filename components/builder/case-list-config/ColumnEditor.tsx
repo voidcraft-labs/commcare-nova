@@ -38,6 +38,7 @@ import {
 	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from "@/components/shadcn/dropdown-menu";
+import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import type { CaseType, Column, ColumnKind, UserProperty } from "@/lib/domain";
 import {
 	calculatedColumn,
@@ -53,6 +54,7 @@ import { propertyDisplayLabel } from "../shared/primitives/propertyDisplay";
 import {
 	type ColumnCardSchema,
 	type ColumnEditContext,
+	canSeedColumnKind,
 	columnCardSchemaList,
 	columnCardSchemas,
 	resolveColumnProperty,
@@ -88,10 +90,8 @@ interface ColumnEditorProps {
 	readonly currentCaseType: string;
 	readonly userProperties?: readonly UserProperty[];
 	/**
-	 * Surfaces the boolean validity verdict to the parent on
-	 * every onChange. The parent gates its save affordance on
-	 * this. The editor does not gate the onChange itself —
-	 * invalid edits flow through so the user can keep authoring.
+	 * Reports whether the supplied field/display pair satisfies the
+	 * same admission predicate as the kind and property pickers.
 	 */
 	readonly onValidityChange?: (valid: boolean) => void;
 }
@@ -107,6 +107,7 @@ export function ColumnEditor({
 	userProperties = [],
 	onValidityChange,
 }: ColumnEditorProps) {
+	const projectProse = useProseProjection();
 	const ctx = useMemo<ColumnEditContext>(
 		() => ({ caseTypes, currentCaseType, userProperties }),
 		[caseTypes, currentCaseType, userProperties],
@@ -124,7 +125,7 @@ export function ColumnEditor({
 		if (schema.applicableForProperty(property)) return [] as const;
 		const information =
 			property !== undefined
-				? propertyDisplayLabel(property)
+				? propertyDisplayLabel(property, projectProse)
 				: "This information";
 		const guidance =
 			value.kind === "phone"
@@ -133,7 +134,7 @@ export function ColumnEditor({
 		return [
 			`${information} can’t use ${schema.label.toLowerCase()} formatting. ${guidance}`,
 		] as const;
-	}, [ctx, value]);
+	}, [ctx, value, projectProse]);
 
 	// Standardized parent-validity propagation — fires on mount + on
 	// every transition. The helper ref-stashes the callback so a
@@ -190,7 +191,7 @@ export function ColumnEditor({
 
 /**
  * Map a kind to the field-and-header-preserving rebuild for the
- * target kind. The five non-calc kinds carry `field: string`, so a
+ * target kind. The six non-calc kinds carry `field: string`, so a
  * kind swap among them ALWAYS preserves the field verbatim — non-
  * twin transitions reset the kind-specific extras (date pattern,
  * threshold, mapping table) to the target schema's defaults.
@@ -200,8 +201,8 @@ export function ColumnEditor({
  * schema's default-value factory; swapping TO calc drops the
  * field entirely. Header is preserved on every transition. The
  * column's `uuid` and optional common slots (`sort`, visibility,
- * and each surface order) thread through verbatim —
- * they're identity / surface-visibility shape, not kind-specific.
+ * and tile presentation) thread through verbatim — they're
+ * identity / surface-presentation shape, not kind-specific.
  *
  * Exported as part of the module's tested surface — the
  * transformation is the contract (the emitted Column shape), so the
@@ -211,58 +212,63 @@ export function preservedColumnSwap(
 	currentValue: Column,
 	targetKind: ColumnKind,
 	ctx: ColumnEditContext,
-): Column {
+): Column | undefined {
 	const { uuid, header } = currentValue;
 	const slots = {
 		sort: currentValue.sort,
 		visibleInList: currentValue.visibleInList,
 		visibleInDetail: currentValue.visibleInDetail,
+		tile: currentValue.tile,
 	};
-	// Field source: the current value's field if the source has one;
-	// otherwise the target schema's default-picked field.
-	const sourceField = "field" in currentValue ? currentValue.field : "";
+	if (targetKind === "calculated") {
+		// Twin: source is already calculated → preserve the
+		// expression verbatim. Non-twin sources seed an empty-
+		// string literal expression — the same shape the schema's
+		// `defaultValue` factory uses, kept inline here so a kind
+		// swap doesn't pull a fresh uuid via the factory.
+		const expression =
+			currentValue.kind === "calculated"
+				? currentValue.expression
+				: term(literal(""));
+		return calculatedColumn(uuid, header, expression, slots);
+	}
+
+	const targetSchema = columnCardSchemas[targetKind];
+	let targetField: string | undefined;
+	if (currentValue.kind !== "calculated") {
+		const sourceProperty = resolveColumnProperty(ctx, currentValue.field);
+		if (
+			sourceProperty === undefined ||
+			!targetSchema.applicableForProperty(sourceProperty)
+		) {
+			return undefined;
+		}
+		targetField = currentValue.field;
+	} else {
+		targetField = targetSchema.defaultValue(ctx)?.field;
+	}
+	if (targetField === undefined) return undefined;
 
 	switch (targetKind) {
 		case "plain":
-			return plainColumn(
-				uuid,
-				sourceField || pickFieldFromTarget(ctx, "plain"),
-				header,
-				slots,
-			);
+			return plainColumn(uuid, targetField, header, slots);
 		case "phone":
-			return phoneColumn(
-				uuid,
-				sourceField || pickFieldFromTarget(ctx, "phone"),
-				header,
-				slots,
-			);
+			return phoneColumn(uuid, targetField, header, slots);
 		case "date": {
 			// Twin: source is already a date column → preserve the
 			// pattern verbatim. Otherwise fall back to the target
 			// schema's default pattern.
 			const seed = columnCardSchemas.date.defaultValue(ctx);
+			if (seed === undefined) return undefined;
 			const pattern =
 				currentValue.kind === "date" ? currentValue.pattern : seed.pattern;
-			return dateColumn(
-				uuid,
-				sourceField || seed.field,
-				header,
-				pattern,
-				slots,
-			);
+			return dateColumn(uuid, targetField, header, pattern, slots);
 		}
 		case "id-mapping": {
 			// Twin: source is already id-mapping → preserve the table.
 			const mapping =
 				currentValue.kind === "id-mapping" ? currentValue.mapping : [];
-			return idMappingColumn(
-				uuid,
-				sourceField || pickFieldFromTarget(ctx, "id-mapping"),
-				header,
-				mapping,
-				slots,
-			);
+			return idMappingColumn(uuid, targetField, header, mapping, slots);
 		}
 		case "image-map": {
 			// Twin: source is already image-map → preserve the value→image
@@ -271,13 +277,7 @@ export function preservedColumnSwap(
 			// starts empty rather than mis-mapping labels onto images.
 			const mapping =
 				currentValue.kind === "image-map" ? currentValue.mapping : [];
-			return imageMapColumn(
-				uuid,
-				sourceField || pickFieldFromTarget(ctx, "image-map"),
-				header,
-				mapping,
-				slots,
-			);
+			return imageMapColumn(uuid, targetField, header, mapping, slots);
 		}
 		case "interval": {
 			// Twin: source is already interval → preserve every
@@ -285,6 +285,7 @@ export function preservedColumnSwap(
 			// Non-twin sources seed the extras from the target schema's
 			// default factory.
 			const seed = columnCardSchemas.interval.defaultValue(ctx);
+			if (seed === undefined) return undefined;
 			if (currentValue.kind === "interval") {
 				return intervalColumn(
 					uuid,
@@ -299,7 +300,7 @@ export function preservedColumnSwap(
 			}
 			return intervalColumn(
 				uuid,
-				sourceField || seed.field,
+				targetField,
 				header,
 				seed.threshold,
 				seed.unit,
@@ -308,31 +309,7 @@ export function preservedColumnSwap(
 				slots,
 			);
 		}
-		case "calculated": {
-			// Twin: source is already calculated → preserve the
-			// expression verbatim. Non-twin sources seed an empty-
-			// string literal expression — the same shape the schema's
-			// `defaultValue` factory uses, kept inline here so a kind
-			// swap doesn't pull a fresh uuid via the factory.
-			const expression =
-				currentValue.kind === "calculated"
-					? currentValue.expression
-					: term(literal(""));
-			return calculatedColumn(uuid, header, expression, slots);
-		}
 	}
-}
-
-/** Pick the target schema's default field for a non-calc kind. The
- *  default factory mints a uuid we don't want here (the kind swap
- *  preserves the source's uuid), so the helper invokes the factory
- *  and discards everything but the field. */
-function pickFieldFromTarget(
-	ctx: ColumnEditContext,
-	target: Exclude<ColumnKind, "calculated">,
-): string {
-	const seed = columnCardSchemas[target].defaultValue(ctx);
-	return seed.field;
 }
 
 /**
@@ -374,14 +351,17 @@ function KindPicker({
 	const currentKind = currentValue.kind;
 	const currentSchema = columnCardSchemas[currentKind];
 
-	const nextFor = (targetKind: ColumnKind): Column => {
+	const nextFor = (targetKind: ColumnKind): Column | undefined => {
 		const draft = draftsByKindRef.current.get(targetKind);
-		if (draft === undefined) {
-			return preservedColumnSwap(currentValue, targetKind, ctx);
+		if (draft !== undefined) {
+			const restored = restoreColumnDraft(draft, currentValue);
+			if (columnAdmittedForContext(restored, ctx)) return restored;
 		}
-		return restoreColumnDraft(draft, currentValue);
+		return preservedColumnSwap(currentValue, targetKind, ctx);
 	};
 	const replaceWith = <K extends ColumnKind>(schema: ColumnCardSchema<K>) => {
+		const next = nextFor(schema.kind);
+		if (next === undefined) return;
 		const consequence = columnKindChangeConsequence(
 			currentValue,
 			schema.kind,
@@ -391,7 +371,7 @@ function KindPicker({
 			setPendingKind(schema.kind);
 			return;
 		}
-		onChange(nextFor(schema.kind));
+		onChange(next);
 	};
 	const pendingSchema =
 		pendingKind === null ? null : columnCardSchemas[pendingKind];
@@ -430,14 +410,10 @@ function KindPicker({
 				>
 					{columnCardSchemaList.map((s) => {
 						const isCurrent = s.kind === currentKind;
-						// Calculated source has no property; every target kind
-						// stays at full opacity. Otherwise consult the
-						// per-target schema's applicability predicate against
-						// the current property.
 						const isApplicable =
 							currentValue.kind === "calculated"
-								? true
-								: s.applicableForProperty(property);
+								? canSeedColumnKind(ctx, s.kind)
+								: property !== undefined && s.applicableForProperty(property);
 						return (
 							<DropdownMenuItem
 								key={s.kind}
@@ -508,7 +484,9 @@ function KindPicker({
 							variant="destructive"
 							onClick={() => {
 								if (pendingKind === null) return;
-								onChange(nextFor(pendingKind));
+								const next = nextFor(pendingKind);
+								if (next === undefined) return;
+								onChange(next);
 								setPendingKind(null);
 							}}
 						>
@@ -531,7 +509,22 @@ function restoreColumnDraft(draft: Column, current: Column): Column {
 		sort: current.sort,
 		visibleInList: current.visibleInList,
 		visibleInDetail: current.visibleInDetail,
+		tile: current.tile,
 	} as Column;
+}
+
+/** A retained display draft is reusable only while its source still exists
+ * and remains compatible with that display kind. */
+function columnAdmittedForContext(
+	column: Column,
+	ctx: ColumnEditContext,
+): boolean {
+	if (column.kind === "calculated") return true;
+	const property = resolveColumnProperty(ctx, column.field);
+	return (
+		property !== undefined &&
+		columnCardSchemas[column.kind].applicableForProperty(property)
+	);
 }
 
 /** Explain only changes that discard meaningful authored work. Ordinary
@@ -552,6 +545,7 @@ function columnKindChangeConsequence(
 			return null;
 		case "date": {
 			const seed = columnCardSchemas.date.defaultValue(ctx);
+			if (seed === undefined) return null;
 			return current.pattern === seed.pattern
 				? null
 				: "The custom date format will be removed";
@@ -566,6 +560,7 @@ function columnKindChangeConsequence(
 				: "The value images will be removed";
 		case "interval": {
 			const seed = columnCardSchemas.interval.defaultValue(ctx);
+			if (seed === undefined) return null;
 			const customized =
 				current.threshold !== seed.threshold ||
 				current.unit !== seed.unit ||
@@ -575,6 +570,7 @@ function columnKindChangeConsequence(
 		}
 		case "calculated": {
 			const seed = columnCardSchemas.calculated.defaultValue(ctx);
+			if (seed === undefined) return null;
 			return JSON.stringify(current.expression) ===
 				JSON.stringify(seed.expression)
 				? null

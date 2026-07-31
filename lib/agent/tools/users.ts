@@ -18,7 +18,9 @@ import {
 	removeUserPropertyPlan,
 	removeUserTypePlan,
 	updatePersonaMutations,
+	updatePersonaValueMutations,
 	updateUserTypeMutations,
+	updateUserTypeValueMutations,
 } from "@/lib/doc/userMutations";
 import {
 	asUuid,
@@ -79,16 +81,25 @@ const valuesInputSchema = z
 		}
 	})
 	.describe(
-		"On update, this array is the COMPLETE replacement for the saved values: include every value to retain. Omit the field to keep all current values, or pass null to clear them all.",
+		"Initial UUID-addressed values for a newly created role or persona.",
 	);
 
 type ValuesInput = z.infer<typeof valuesInputSchema>;
 
-const updateValuesInputSchema = valuesInputSchema
-	.nullable()
+const valuePatchInputSchema = z
+	.object({
+		userPropertyUuid: uuidSchema.describe(
+			"Stable uuid of the one worker-information property to change.",
+		),
+		value: z
+			.string()
+			.nullable()
+			.describe("New value, or null to clear this one property."),
+	})
+	.strict()
 	.optional()
 	.describe(
-		"COMPLETE replacement for the saved values: include every value to retain. Omit this field to keep all current values, or pass null to clear them all.",
+		"One UUID-addressed value edit. Omit to leave all values unchanged; use a null value to clear only the named property.",
 	);
 
 function valuesRecord(
@@ -98,12 +109,6 @@ function valuesRecord(
 	return Object.fromEntries(
 		entries.map((entry) => [entry.userPropertyUuid, entry.value]),
 	);
-}
-
-function updatedValues(
-	entries: ValuesInput | null | undefined,
-): UserDataValues | null | undefined {
-	return entries === null ? null : valuesRecord(entries);
 }
 
 const acceptedValuesSchema = z
@@ -190,7 +195,7 @@ export const updateUserTypeInputSchema = z
 		uuid: uuidSchema,
 		name: z.string().min(1).optional(),
 		description: z.string().min(1).nullable().optional(),
-		values: updateValuesInputSchema,
+		valuePatch: valuePatchInputSchema,
 	})
 	.strict();
 
@@ -208,7 +213,7 @@ export const updatePersonaInputSchema = z
 		name: z.string().min(1).optional(),
 		description: z.string().min(1).nullable().optional(),
 		userTypeUuid: uuidSchema.nullable().optional(),
-		values: updateValuesInputSchema,
+		valuePatch: valuePatchInputSchema,
 	})
 	.strict();
 
@@ -245,7 +250,7 @@ async function commit(
 	}
 	return {
 		kind: "mutate",
-		mutations,
+		mutations: outcome.mutations,
 		newDoc: outcome.newDoc,
 		result: { message, summary },
 	};
@@ -290,7 +295,7 @@ export const addUserPropertiesTool = {
 			}
 			return {
 				kind: "mutate",
-				mutations,
+				mutations: outcome.mutations,
 				newDoc: outcome.newDoc,
 				result: {
 					message: `Added ${uuids.length} worker-information ${uuids.length === 1 ? "property" : "properties"}. Stable uuids: ${uuids.join(", ")}.`,
@@ -430,7 +435,7 @@ export const addUserTypesTool = {
 			}
 			return {
 				kind: "mutate",
-				mutations,
+				mutations: outcome.mutations,
 				newDoc: outcome.newDoc,
 				result: {
 					message: `Added ${uuids.length} ${uuids.length === 1 ? "role" : "roles"}. Stable uuids: ${uuids.join(", ")}.`,
@@ -446,7 +451,7 @@ export const addUserTypesTool = {
 
 export const updateUserTypeTool = {
 	description:
-		"Update one role by stable uuid. A provided values array is the COMPLETE replacement, so include every value to retain; omit to keep all values, and null clears them.",
+		"Update one role by stable uuid. valuePatch changes or clears one UUID-addressed worker-information value; omission leaves every value unchanged.",
 	inputSchema: updateUserTypeInputSchema,
 	async execute(
 		input: z.infer<typeof updateUserTypeInputSchema>,
@@ -468,11 +473,19 @@ export const updateUserTypeTool = {
 				...(input.description !== undefined && {
 					description: input.description,
 				}),
-				...(input.values !== undefined && {
-					values: updatedValues(input.values),
-				}),
 			};
-			if (Object.keys(patch).length === 0) {
+			const mutations = updateUserTypeMutations(doc, input.uuid, patch);
+			if (input.valuePatch !== undefined) {
+				mutations.push(
+					...updateUserTypeValueMutations(
+						doc,
+						input.uuid,
+						input.valuePatch.userPropertyUuid,
+						input.valuePatch.value ?? undefined,
+					),
+				);
+			}
+			if (mutations.length === 0) {
 				return {
 					kind: "mutate",
 					mutations: [],
@@ -483,7 +496,7 @@ export const updateUserTypeTool = {
 			return await commit(
 				ctx,
 				doc,
-				updateUserTypeMutations(doc, input.uuid, patch),
+				mutations,
 				"users:role:update",
 				`Updated role "${current.name}".`,
 				{ subject: current.name },
@@ -581,7 +594,7 @@ export const addPersonasTool = {
 			}
 			return {
 				kind: "mutate",
-				mutations,
+				mutations: outcome.mutations,
 				newDoc: outcome.newDoc,
 				result: {
 					message: `Added ${uuids.length} ${uuids.length === 1 ? "persona" : "personas"}. Stable uuids: ${uuids.join(", ")}.`,
@@ -597,7 +610,7 @@ export const addPersonasTool = {
 
 export const updatePersonaTool = {
 	description:
-		"Update one Preview persona by stable uuid. A provided values array is the COMPLETE replacement, so include every override to retain; omit to keep all overrides, and null clears them.",
+		"Update one Preview persona by stable uuid. valuePatch changes or clears one UUID-addressed override; omission leaves every override unchanged.",
 	inputSchema: updatePersonaInputSchema,
 	async execute(
 		input: z.infer<typeof updatePersonaInputSchema>,
@@ -622,11 +635,19 @@ export const updatePersonaTool = {
 				...(input.userTypeUuid !== undefined && {
 					userTypeUuid: input.userTypeUuid,
 				}),
-				...(input.values !== undefined && {
-					values: updatedValues(input.values),
-				}),
 			};
-			if (Object.keys(patch).length === 0) {
+			const mutations = updatePersonaMutations(doc, input.uuid, patch);
+			if (input.valuePatch !== undefined) {
+				mutations.push(
+					...updatePersonaValueMutations(
+						doc,
+						input.uuid,
+						input.valuePatch.userPropertyUuid,
+						input.valuePatch.value ?? undefined,
+					),
+				);
+			}
+			if (mutations.length === 0) {
 				return {
 					kind: "mutate",
 					mutations: [],
@@ -637,7 +658,7 @@ export const updatePersonaTool = {
 			return await commit(
 				ctx,
 				doc,
-				updatePersonaMutations(doc, input.uuid, patch),
+				mutations,
 				"users:persona:update",
 				`Updated persona "${current.name}".`,
 				{ subject: current.name },

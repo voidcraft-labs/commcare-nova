@@ -7,12 +7,13 @@
 // and `fallback` slots stay structurally fixed.
 
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { useState } from "react";
+import { type ComponentProps, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import {
 	focusElement,
 	settleBaseUiTransitions,
 } from "@/__tests__/helpers/baseUiInteractions";
+import { BlueprintDocProvider } from "@/lib/doc/provider";
 import type { CaseType } from "@/lib/domain";
 import {
 	type CheckError,
@@ -26,13 +27,26 @@ import {
 	term,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
-import { ExpressionCardEditor } from "../../../ExpressionCardEditor";
+import { proseText } from "@/lib/domain/prose";
+import { ExpressionCardEditor as ProductionExpressionCardEditor } from "../../../ExpressionCardEditor";
+
+// The card spells the discriminator's authored label against the document;
+// every production mount sits inside the builder's provider.
+function ExpressionCardEditor(
+	props: ComponentProps<typeof ProductionExpressionCardEditor>,
+) {
+	return (
+		<BlueprintDocProvider appId="test-app">
+			<ProductionExpressionCardEditor {...props} />
+		</BlueprintDocProvider>
+	);
+}
 
 const PATIENT: CaseType = {
 	name: "patient",
 	properties: [
-		{ name: "risk", label: "Risk", data_type: "text" },
-		{ name: "score", label: "Score", data_type: "int" },
+		{ name: "risk", label: proseText("Risk"), data_type: "text" },
+		{ name: "score", label: proseText("Score"), data_type: "int" },
 	],
 };
 
@@ -248,7 +262,9 @@ describe("SwitchCard — `when` literal preserves data_type qualifier", () => {
 				caseTypes={[
 					{
 						name: "patient",
-						properties: [{ name: "risk", label: "Risk", data_type: "date" }],
+						properties: [
+							{ name: "risk", label: proseText("Risk"), data_type: "date" },
+						],
 					},
 				]}
 				currentCaseType="patient"
@@ -283,7 +299,9 @@ describe("SwitchCard — `when` literal preserves data_type qualifier", () => {
 				caseTypes={[
 					{
 						name: "patient",
-						properties: [{ name: "risk", label: "Risk", data_type: "date" }],
+						properties: [
+							{ name: "risk", label: proseText("Risk"), data_type: "date" },
+						],
 					},
 				]}
 				currentCaseType="patient"

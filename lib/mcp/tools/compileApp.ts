@@ -60,10 +60,9 @@ export const COMPILE_EXPORT_MODE_BY_FORMAT = {
  * One read suffices: `loadAppBlueprint` returns `{ doc, app, access }`
  * so the hydrated blueprint, authorized Project scope, and denormalized
  * `app_name` (the ccz profile manifest + the json media bundle's filename)
- * come from the same load. `app.app_name` is non-empty by invariant —
- * `denormalize` writes `UNTITLED_APP_NAME` when the in-doc `appName` is
- * blank — so this tool threads it straight into `compileCcz` /
- * `buildHqJsonExportArchive` without a defensive fallback.
+ * come from the same load. `app.app_name` is non-blank by schema, so this
+ * tool threads it straight into `compileCcz` / `buildHqJsonExportArchive`
+ * without a defensive fallback.
  */
 export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 	server.registerTool(

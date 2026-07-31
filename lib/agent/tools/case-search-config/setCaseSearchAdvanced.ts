@@ -8,27 +8,30 @@
  * Every slot is required-and-nullable on the SA boundary: `null` clears,
  * non-null sets. The tool computes a whole editor projection so the display
  * cluster round-trips byte-identically, then `updateModuleMutations` splits
- * it into fresh-state per-slot writes; its whole-config payload is only the
- * rolling-deploy fallback.
+ * it into final fresh-state per-slot writes.
  *
- * Two exit branches: module-index-out-of-range returns `{ error }`
+ * Two exit branches: an invalid module UUID returns `{ error }`
  * with no mutations; success returns `{ message, advancedSlotsSet }`
  * with the persisted mutation tagged `module:M:caseSearch:advanced`.
  */
 
-import { z } from "zod";
-import type { BlueprintDoc, CaseSearchConfig } from "@/lib/domain";
+import type { z } from "zod";
 import {
-	resolveModuleUuid,
-	updateModuleMutations,
-} from "../../blueprintHelpers";
+	type BlueprintDoc,
+	type CaseSearchConfig,
+	isOwnerOnlyCaseSearchConfig,
+} from "@/lib/domain";
+import { updateModuleMutations } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import {
 	guardedMutate,
 	type MutatingToolResult,
 	toToolErrorResult,
 } from "../common";
-import { moduleNotFoundResult } from "../shared/moduleNotFoundResult";
+import {
+	moduleAddressSchema,
+	resolveModuleAddress,
+} from "../shared/entityAddresses";
 import type { ToolCallSummary } from "../shared/toolCallSummary";
 import {
 	ADVANCED_SLOT_NAMES,
@@ -36,20 +39,12 @@ import {
 	applyClusterPatch,
 	collapseUnauthoredCaseSearchConfig,
 	pickDisplayCluster,
-	pickSearchActionIntent,
 	setCaseSearchAdvancedBodySchema,
 	slotsSetByInput,
 	snapshotCaseSearchConfig,
 } from "./shared";
 
-export const setCaseSearchAdvancedInputSchema = z
-	.object({
-		moduleIndex: z
-			.number()
-			.describe(
-				"0-based module index whose case-search advanced cluster to set",
-			),
-	})
+export const setCaseSearchAdvancedInputSchema = moduleAddressSchema
 	.extend(setCaseSearchAdvancedBodySchema.shape)
 	.strict();
 
@@ -82,22 +77,17 @@ export const setCaseSearchAdvancedTool = {
 		ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<SetCaseSearchAdvancedResult>> {
-		const { moduleIndex } = input;
 		try {
-			const moduleUuid = resolveModuleUuid(doc, moduleIndex);
-			if (!moduleUuid)
-				return moduleNotFoundResult<SetCaseSearchAdvancedSuccess>(
-					doc,
-					moduleIndex,
-					"set the case-search advanced cluster",
-				);
-			const mod = doc.modules[moduleUuid];
-			if (!mod)
-				return moduleNotFoundResult<SetCaseSearchAdvancedSuccess>(
-					doc,
-					moduleIndex,
-					"set the case-search advanced cluster",
-				);
+			const address = resolveModuleAddress(doc, input);
+			if (!address.ok) {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					newDoc: doc,
+					result: { error: address.error },
+				};
+			}
+			const { moduleUuid, module: mod } = address;
 
 			// Preserve the display cluster, layer the advanced patch on
 			// top. Both halves key off the same slot tuples; partition
@@ -105,21 +95,31 @@ export const setCaseSearchAdvancedTool = {
 			// compile time.
 			const existing = snapshotCaseSearchConfig(mod);
 			const advancedPatch = applyClusterPatch(input, ADVANCED_SLOT_NAMES);
+			const clearingOwnerOnly =
+				existing !== undefined &&
+				"searchActionEnabled" in existing &&
+				advancedPatch.excludedOwnerIds === undefined;
 			const addingFirstOwnerRule =
 				existing === undefined &&
 				(mod.caseListConfig?.searchInputs.length ?? 0) === 0 &&
 				advancedPatch.excludedOwnerIds !== undefined;
-			const nextConfigCandidate: CaseSearchConfig = {
-				...pickDisplayCluster(existing),
-				...(addingFirstOwnerRule
-					? { searchActionEnabled: false as const }
-					: pickSearchActionIntent(existing)),
-				...advancedPatch,
-			};
-			const nextConfig = collapseUnauthoredCaseSearchConfig(
-				existing,
-				nextConfigCandidate,
-			);
+			const keepOwnerOnly =
+				advancedPatch.excludedOwnerIds !== undefined &&
+				(addingFirstOwnerRule ||
+					(existing !== undefined && isOwnerOnlyCaseSearchConfig(existing)));
+			const nextExcludedOwnerIds = advancedPatch.excludedOwnerIds;
+			const nextConfigCandidate: CaseSearchConfig = keepOwnerOnly
+				? {
+						searchActionEnabled: false,
+						excludedOwnerIds: nextExcludedOwnerIds,
+					}
+				: {
+						...pickDisplayCluster(existing),
+						...advancedPatch,
+					};
+			const nextConfig = clearingOwnerOnly
+				? undefined
+				: collapseUnauthoredCaseSearchConfig(existing, nextConfigCandidate);
 
 			const mutations = updateModuleMutations(mod, {
 				caseSearchConfig: nextConfig ?? null,
@@ -128,7 +128,7 @@ export const setCaseSearchAdvancedTool = {
 				ctx,
 				doc,
 				mutations,
-				`module:${moduleIndex}:caseSearch:advanced`,
+				`module:${moduleUuid}:caseSearch:advanced`,
 			);
 			if (!commit.ok) {
 				return {
@@ -146,13 +146,13 @@ export const setCaseSearchAdvancedTool = {
 
 			return {
 				kind: "mutate" as const,
-				mutations,
+				mutations: commit.mutations,
 				newDoc,
 				result: {
 					message:
 						advancedSlotsSet.length === 0
-							? `Cleared every case-search advanced slot on module "${mod.name}" (index ${moduleIndex}).`
-							: `Set case-search advanced on module "${mod.name}" (index ${moduleIndex}): ${advancedSlotsSet.join(", ")}.`,
+							? `Cleared every case-search advanced slot on module "${mod.name}" (${moduleUuid}).`
+							: `Set case-search advanced on module "${mod.name}" (${moduleUuid}): ${advancedSlotsSet.join(", ")}.`,
 					advancedSlotsSet,
 					summary: { location: mod.name },
 				},

@@ -32,5 +32,5 @@ definitions snapshot cannot prove: select-source option validity over complete
 tables (`LOOKUP_SELECT_SOURCE_*`) and the aggregate 10,000-row / 100,000-cell
 / 16 MiB embedded-fixture budget (`LOOKUP_FIXTURE_EXPORT_TOO_LARGE`). All are
 `environment`-class: rows change outside the document, so they never gate a
-commit. Do not rely on the delta-based commit finding here: an export is
-zero-tolerance and needs its own selected-target verdict.
+commit. Export therefore needs its own selected-target verdict over those
+current external rows in addition to the absolute document commit gate.

@@ -1,13 +1,15 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import type { LookupTypeIndex } from "@/lib/commcare/validator/lookupTypeContext";
 import { validateCaseOperations } from "@/lib/commcare/validator/rules/caseOperations";
-import { asUuid } from "@/lib/doc/types";
 import {
 	type BlueprintDoc,
 	CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE,
 	CASE_OPERATION_PROPERTY_FORMAT_MESSAGE,
 	type CaseOperation,
+	deriveCaseWriteInventory,
+	FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES,
 	type Form,
 	type Uuid,
 } from "@/lib/domain";
@@ -23,7 +25,6 @@ import {
 	idOf,
 	ifExpr,
 	isBlank,
-	isNull,
 	literal,
 	match,
 	prop,
@@ -31,25 +32,25 @@ import {
 	tableLookup,
 	term,
 	today,
-	unwrapList,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import type { ValidationErrorCode } from "../errors";
 
-const CREATE = asUuid("11111111-1111-4111-8111-111111111111");
-const SECOND = asUuid("22222222-2222-4222-8222-222222222222");
-const THIRD = asUuid("33333333-3333-4333-8333-333333333333");
-const TEXT = asUuid("44444444-4444-4444-8444-444444444444");
-const NUMBER = asUuid("55555555-5555-4555-8555-555555555555");
-const REPEAT_A = asUuid("66666666-6666-4666-8666-666666666666");
-const REPEAT_A_TEXT = asUuid("77777777-7777-4777-8777-777777777777");
-const REPEAT_B = asUuid("88888888-8888-4888-8888-888888888888");
-const REPEAT_B_TEXT = asUuid("99999999-9999-4999-8999-999999999999");
-const HIDDEN_ID = asUuid("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
-const MULTI = asUuid("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
-const REPEAT_CHILD = asUuid("cccccccc-cccc-4ccc-8ccc-cccccccccccc");
-const REPEAT_CHILD_TEXT = asUuid("dddddddd-dddd-4ddd-8ddd-dddddddddddd");
-const REPEAT_SIBLING = asUuid("eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee");
-const REPEAT_SIBLING_TEXT = asUuid("ffffffff-ffff-4fff-8fff-ffffffffffff");
+const CREATE = testUuid("11111111-1111-4111-8111-111111111111");
+const SECOND = testUuid("22222222-2222-4222-8222-222222222222");
+const THIRD = testUuid("33333333-3333-4333-8333-333333333333");
+const TEXT = testUuid("44444444-4444-4444-8444-444444444444");
+const NUMBER = testUuid("55555555-5555-4555-8555-555555555555");
+const REPEAT_A = testUuid("66666666-6666-4666-8666-666666666666");
+const REPEAT_A_TEXT = testUuid("77777777-7777-4777-8777-777777777777");
+const REPEAT_B = testUuid("88888888-8888-4888-8888-888888888888");
+const REPEAT_B_TEXT = testUuid("99999999-9999-4999-8999-999999999999");
+const HIDDEN_ID = testUuid("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+const MULTI = testUuid("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
+const REPEAT_CHILD = testUuid("cccccccc-cccc-4ccc-8ccc-cccccccccccc");
+const REPEAT_CHILD_TEXT = testUuid("dddddddd-dddd-4ddd-8ddd-dddddddddddd");
+const REPEAT_SIBLING = testUuid("eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee");
+const REPEAT_SIBLING_TEXT = testUuid("ffffffff-ffff-4fff-8fff-ffffffffffff");
 const LOOKUP_TABLE = "00000000-0000-7000-8000-0000000000a1" as LookupTableId;
 const LOOKUP_COLUMN = "10000000-0000-7000-8000-0000000000a1" as LookupColumnId;
 const LOOKUP_TYPES: LookupTypeIndex = new Map([
@@ -74,7 +75,6 @@ function fixture(
 		"owner_id",
 		"location_id",
 		"hq_user_id",
-		"external_id",
 		"category",
 		"state",
 	];
@@ -83,31 +83,36 @@ function fixture(
 			{
 				name: "patient",
 				properties: [
-					{ name: "nickname", label: "Nickname", data_type: "text" },
-					{ name: "score", label: "Score", data_type: "int" },
-					{ name: "weight", label: "Weight", data_type: "decimal" },
-					{ name: "tags", label: "Tags", data_type: "multi_select" },
-					{ name: "mixed", label: "Mixed" },
-					{ name: "not-wire-safe", label: "Not wire safe" },
+					{ name: "nickname", label: proseText("Nickname"), data_type: "text" },
+					{ name: "score", label: proseText("Score"), data_type: "int" },
+					{ name: "weight", label: proseText("Weight"), data_type: "decimal" },
+					{ name: "tags", label: proseText("Tags"), data_type: "multi_select" },
+					{ name: "mixed", label: proseText("Mixed") },
+					{ name: "not-wire-safe", label: proseText("Not wire safe") },
 					...reservedProperties.map((name) => ({ name, label: name })),
 				],
 			},
 			{
 				name: "visit",
-				properties: [{ name: "source_id", label: "Source ID" }],
+				parent_type: "patient",
+				properties: [{ name: "source_id", label: proseText("Source ID") }],
 			},
 			{
 				name: "lead",
-				properties: [{ name: "legacy", label: "Legacy" }],
+				properties: [{ name: "legacy", label: proseText("Legacy") }],
 			},
 			{
 				name: "lead_copy",
-				properties: [{ name: "legacy", label: "Legacy" }],
+				properties: [{ name: "legacy", label: proseText("Legacy") }],
 			},
 			{
 				name: "client",
 				properties: [
-					{ name: "enrolled", label: "Enrolled", required: "true()" },
+					{
+						name: "enrolled",
+						label: proseText("Enrolled"),
+						required: "true()",
+					},
 				],
 			},
 			{ name: "commcare-user", properties: [] },
@@ -123,8 +128,18 @@ function fixture(
 						name: "Edit",
 						type: formType,
 						fields: [
-							f({ uuid: TEXT, kind: "text", id: "text", label: "Text" }),
-							f({ uuid: NUMBER, kind: "int", id: "number", label: "Number" }),
+							f({
+								uuid: TEXT,
+								kind: "text",
+								id: "text",
+								label: proseText("Text"),
+							}),
+							f({
+								uuid: NUMBER,
+								kind: "int",
+								id: "number",
+								label: proseText("Number"),
+							}),
 							f({
 								uuid: HIDDEN_ID,
 								kind: "hidden",
@@ -135,7 +150,7 @@ function fixture(
 								uuid: MULTI,
 								kind: "multi_select",
 								id: "choices",
-								label: "Choices",
+								label: proseText("Choices"),
 								options: [
 									{ value: "a", label: "A" },
 									{ value: "b", label: "B" },
@@ -145,14 +160,14 @@ function fixture(
 								uuid: REPEAT_A,
 								kind: "repeat",
 								id: "rows_a",
-								label: "Rows A",
+								label: proseText("Rows A"),
 								repeat_mode: "user_controlled",
 								children: [
 									f({
 										uuid: REPEAT_A_TEXT,
 										kind: "text",
 										id: "row_a_text",
-										label: "Row A text",
+										label: proseText("Row A text"),
 									}),
 								],
 							}),
@@ -160,14 +175,14 @@ function fixture(
 								uuid: REPEAT_B,
 								kind: "repeat",
 								id: "rows_b",
-								label: "Rows B",
+								label: proseText("Rows B"),
 								repeat_mode: "user_controlled",
 								children: [
 									f({
 										uuid: REPEAT_B_TEXT,
 										kind: "text",
 										id: "row_b_text",
-										label: "Row B text",
+										label: proseText("Row B text"),
 									}),
 								],
 							}),
@@ -193,42 +208,47 @@ function nestedRepeatFixture(): Fixture {
 						name: "Edit",
 						type: "followup",
 						fields: [
-							f({ uuid: TEXT, kind: "text", id: "root", label: "Root" }),
+							f({
+								uuid: TEXT,
+								kind: "text",
+								id: "root",
+								label: proseText("Root"),
+							}),
 							f({
 								uuid: REPEAT_A,
 								kind: "repeat",
 								id: "outer",
-								label: "Outer",
+								label: proseText("Outer"),
 								children: [
 									f({
 										uuid: REPEAT_A_TEXT,
 										kind: "text",
 										id: "outer_text",
-										label: "Outer text",
+										label: proseText("Outer text"),
 									}),
 									f({
 										uuid: REPEAT_B,
 										kind: "repeat",
 										id: "inner",
-										label: "Inner",
+										label: proseText("Inner"),
 										children: [
 											f({
 												uuid: REPEAT_B_TEXT,
 												kind: "text",
 												id: "inner_text",
-												label: "Inner text",
+												label: proseText("Inner text"),
 											}),
 											f({
 												uuid: REPEAT_CHILD,
 												kind: "repeat",
 												id: "child",
-												label: "Child",
+												label: proseText("Child"),
 												children: [
 													f({
 														uuid: REPEAT_CHILD_TEXT,
 														kind: "text",
 														id: "child_text",
-														label: "Child text",
+														label: proseText("Child text"),
 													}),
 												],
 											}),
@@ -238,13 +258,13 @@ function nestedRepeatFixture(): Fixture {
 										uuid: REPEAT_SIBLING,
 										kind: "repeat",
 										id: "sibling",
-										label: "Sibling",
+										label: proseText("Sibling"),
 										children: [
 											f({
 												uuid: REPEAT_SIBLING_TEXT,
 												kind: "text",
 												id: "sibling_text",
-												label: "Sibling text",
+												label: proseText("Sibling text"),
 											}),
 										],
 									}),
@@ -312,13 +332,14 @@ function mapFieldToCaseType(
 	fieldUuid: Uuid,
 	id: string,
 	caseType: string,
+	property: string = id,
 ): void {
 	const field = doc.fields[fieldUuid] as unknown as {
 		id: string;
-		case_property_on?: string;
+		caseWrite?: { caseType: string; property: string };
 	};
 	field.id = id;
-	field.case_property_on = caseType;
+	field.caseWrite = { caseType, property };
 }
 
 describe("case-operation on-device portability", () => {
@@ -359,15 +380,6 @@ describe("case-operation on-device portability", () => {
 					},
 				],
 			}),
-		]);
-	});
-
-	// Unlike the match modes, the emitter cannot catch this one: it emits
-	// `<term> = ''` for `is-null` and `is-blank` alike, so the dry-run
-	// succeeds and the wire quietly answers a different question.
-	it("rejects a strict missing-value check the wire cannot express", () => {
-		expectCode("CASE_OPERATION_EXPRESSION_TYPE", [
-			update({ condition: isNull(term(prop("patient", "nickname"))) }),
 		]);
 	});
 
@@ -571,18 +583,6 @@ describe("case-operation activation and identity", () => {
 });
 
 describe("case-operation action, catalog, and reserved vocabulary", () => {
-	it("rejects facets that do not belong to the selected action", () => {
-		expectCode("CASE_OPERATION_INVALID_FACETS", [
-			create({ target: { kind: "session" } }),
-		]);
-		expectCode("CASE_OPERATION_INVALID_FACETS", [
-			update({ target: { kind: "new" }, name: term(literal("No")) }),
-		]);
-		expectCode("CASE_OPERATION_INVALID_FACETS", [
-			update({ action: "close", owner: term(literal("owner")) }),
-		]);
-	});
-
 	it("rejects unknown and platform-owned case types", () => {
 		expectCode("CASE_OPERATION_UNKNOWN_CASE_TYPE", [
 			update({ caseType: "missing" }),
@@ -625,7 +625,7 @@ describe("case-operation action, catalog, and reserved vocabulary", () => {
 		]);
 	});
 
-	it("rejects undeclared, duplicate, malformed, and every reserved property write", () => {
+	it("rejects undeclared, duplicate, malformed, and every forbidden property write", () => {
 		expectCode("CASE_OPERATION_UNKNOWN_PROPERTY", [
 			update({ writes: [{ property: "missing", value: term(literal("x")) }] }),
 		]);
@@ -642,23 +642,32 @@ describe("case-operation action, catalog, and reserved vocabulary", () => {
 				writes: [{ property: "not-wire-safe", value: term(literal("x")) }],
 			}),
 		]);
-		for (const property of [
-			"case_id",
-			"case_name",
-			"case_type",
-			"date_modified",
-			"date_opened",
-			"owner_id",
-			"location_id",
-			"hq_user_id",
-			"external_id",
-			"category",
-			"state",
-		]) {
+		for (const property of FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES) {
 			expectCode("CASE_OPERATION_RESERVED_PROPERTY", [
 				update({ writes: [{ property, value: term(literal("x")) }] }),
 			]);
 		}
+	});
+
+	it("admits external_id through the generic write slot without a catalog declaration", () => {
+		const built = fixture();
+		(built.doc.forms[built.formUuid] as Form).caseOperations = [
+			update({
+				writes: [
+					{
+						property: "external_id",
+						value: term(literal("patient-123")),
+					},
+				],
+			}),
+		];
+		const codes = validateCaseOperations(
+			built.doc,
+			built.formUuid,
+			built.moduleUuid,
+		).map((error) => error.code);
+		expect(codes).not.toContain("CASE_OPERATION_UNKNOWN_PROPERTY");
+		expect(codes).not.toContain("CASE_OPERATION_RESERVED_PROPERTY");
 	});
 
 	it("admits only wire-portable retypes after destination requirements are met", () => {
@@ -857,6 +866,39 @@ describe("case-operation target and dependency safety", () => {
 		);
 	});
 
+	it("rejects blank calculated case ids for operation and link targets", () => {
+		expectCode("CASE_OPERATION_TARGET_INVALID", [
+			update({
+				target: { kind: "expression", expr: term(literal(" \t\r\n")) },
+			}),
+		]);
+		expectCode("CASE_OPERATION_TARGET_INVALID", [
+			update({
+				links: [
+					{
+						identifier: "parent",
+						targetType: "patient",
+						target: {
+							kind: "expression",
+							expr: term(literal("\v\f")),
+						},
+						relationship: "child",
+					},
+				],
+			}),
+		]);
+		expect(
+			codesFor([
+				update({
+					target: {
+						kind: "expression",
+						expr: term(literal(` ${"x".repeat(300)} `)),
+					},
+				}),
+			]),
+		).not.toContain("CASE_OPERATION_TARGET_INVALID");
+	});
+
 	it("tracks retypes across later operations on the same known target", () => {
 		const transitionedCreate: CaseOperation[] = [
 			create(),
@@ -992,6 +1034,44 @@ describe("case-operation target and dependency safety", () => {
 				(error) => error.code === "CASE_OPERATION_TARGET_TYPE_MISMATCH",
 			)?.message,
 		).toContain("ordinary form action's session target");
+
+		const primaryName = fixture();
+		mapFieldToCaseType(
+			primaryName.doc,
+			TEXT,
+			"friendly_name",
+			"patient",
+			"case_name",
+		);
+		(primaryName.doc.forms[primaryName.formUuid] as Form).caseOperations = [
+			update({ retype: "visit" }),
+		];
+		const primaryNameModule = primaryName.doc.modules[primaryName.moduleUuid];
+		if (primaryNameModule === undefined) {
+			throw new Error("fixture module is missing");
+		}
+		const primaryNameInventory = deriveCaseWriteInventory(
+			primaryName.doc,
+			primaryName.formUuid,
+			primaryNameModule,
+			(primaryName.doc.forms[primaryName.formUuid] as Form).type,
+		);
+		expect(primaryNameInventory.writers).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					fieldId: "friendly_name",
+					caseType: "patient",
+					property: "case_name",
+				}),
+			]),
+		);
+		expect(
+			validateCaseOperations(
+				primaryName.doc,
+				primaryName.formUuid,
+				primaryName.moduleUuid,
+			).map((error) => error.code),
+		).toContain("CASE_OPERATION_TARGET_TYPE_MISMATCH");
 
 		const runtimeAlias = fixture();
 		mapFieldToCaseType(runtimeAlias.doc, TEXT, "nickname", "patient");
@@ -1404,11 +1484,6 @@ describe("case-operation links and on-device totality", () => {
 		expectCode("CASE_OPERATION_EXPRESSION_TYPE", [
 			update({
 				owner: dateAdd(today(), "months", term(literal(1))),
-			}),
-		]);
-		expectCode("CASE_OPERATION_EXPRESSION_TYPE", [
-			update({
-				owner: unwrapList(term(prop("patient", "nickname"))),
 			}),
 		]);
 		expectCode("CASE_OPERATION_EXPRESSION_TYPE", [

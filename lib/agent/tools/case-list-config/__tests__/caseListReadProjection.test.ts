@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { summarizeBlueprint } from "@/lib/agent/summarizeBlueprint";
-import { asUuid, plainColumn, tileCell } from "@/lib/domain";
+import { plainColumn, tileCell } from "@/lib/domain";
 import { getModuleTool } from "../../getModule";
 import { MOD_A, makeCaseListFixture } from "./fixtures";
 
-const A = asUuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
-const B = asUuid("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
-const C = asUuid("cccccccc-cccc-cccc-cccc-cccccccccccc");
+const A = testUuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+const B = testUuid("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
+const C = testUuid("cccccccc-cccc-cccc-cccc-cccccccccccc");
 
 function independentlyArrangedFixture() {
 	const fixture = makeCaseListFixture();
@@ -45,23 +46,52 @@ function independentlyArrangedFixture() {
 describe("case-list read projections", () => {
 	it("getModule exposes the exact independent visible screen sequences", async () => {
 		const { doc, ctx } = independentlyArrangedFixture();
-		const result = await getModuleTool.execute({ moduleIndex: 0 }, ctx, doc);
+		const result = await getModuleTool.execute({ moduleUuid: MOD_A }, ctx, doc);
 		if ("error" in result.data) throw new Error(result.data.error);
 
 		expect(result.data.results_column_order).toEqual([B, A]);
 		expect(result.data.details_column_order).toEqual([A, C]);
 	});
 
-	it("summary describes Results and Details as compositions, not hidden columns", () => {
-		const { doc } = independentlyArrangedFixture();
+	it("summary preserves dormant definitions separately from screen compositions", () => {
+		const base = independentlyArrangedFixture();
+		const dormant = plainColumn(
+			testUuid("dddddddd-dddd-dddd-dddd-dddddddddddd"),
+			"external_id",
+			"External ID",
+			{ visibleInList: false, visibleInDetail: false },
+		);
+		const config = base.doc.modules[MOD_A]?.caseListConfig;
+		if (config === undefined) throw new Error("fixture config missing");
+		const doc = {
+			...base.doc,
+			modules: {
+				...base.doc.modules,
+				[MOD_A]: {
+					...base.doc.modules[MOD_A],
+					caseListConfig: {
+						...config,
+						columns: [...config.columns, dormant],
+						listColumnOrder: [...config.listColumnOrder, dormant.uuid],
+						detailColumnOrder: [...config.detailColumnOrder, dormant.uuid],
+					},
+				},
+			},
+		};
 		const summary = summarizeBlueprint(doc);
 		const results = summary.indexOf("      results:");
 		const details = summary.indexOf("      details:");
+		const saved = summary.indexOf("      saved_off_screen:");
 
 		expect(results).toBeGreaterThan(-1);
 		expect(details).toBeGreaterThan(results);
+		expect(saved).toBeGreaterThan(details);
 		expect(summary.slice(results, details)).toMatch(/Phone[\s\S]*Patient/);
-		expect(summary.slice(details)).toMatch(/Patient[\s\S]*Date of birth/);
+		expect(summary.slice(details, saved)).toMatch(
+			/Patient[\s\S]*Date of birth/,
+		);
+		expect(summary.slice(saved)).toContain(String(dormant.uuid));
+		expect(summary.slice(saved)).toContain("External ID");
 		expect(summary).not.toContain("[list:");
 		expect(summary).not.toContain("      columns:");
 	});
@@ -100,7 +130,7 @@ describe("case-list read projections", () => {
 		};
 
 		const result = await getModuleTool.execute(
-			{ moduleIndex: 0 },
+			{ moduleUuid: MOD_A },
 			fixture.ctx,
 			fixture.doc,
 		);

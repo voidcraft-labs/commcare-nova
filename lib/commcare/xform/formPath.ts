@@ -26,6 +26,7 @@
  * reference with no predicates or function calls.
  */
 
+import type { Field } from "@/lib/domain";
 import { XML_ELEMENT_NAME_REGEX } from "../constants";
 
 /** One step in a `FormPath`. Element steps descend; attribute steps terminate. */
@@ -243,4 +244,14 @@ export class FormPath {
 			);
 		}
 	}
+}
+
+/** Resolve the child-container path for a generic field-tree walk. */
+export function descendFormPathIntoField(
+	field: Field,
+	ownPath: FormPath,
+): FormPath {
+	return field.kind === "repeat" && field.repeat_mode === "query_bound"
+		? ownPath.queryBoundIteration()
+		: ownPath;
 }

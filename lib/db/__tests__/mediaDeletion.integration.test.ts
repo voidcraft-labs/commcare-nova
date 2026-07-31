@@ -12,12 +12,24 @@
 import { Client } from "pg";
 import { describe, expect, it } from "vitest";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import type { Mutation } from "@/lib/doc/types";
-import { asAssetId } from "@/lib/domain/multimedia";
+import { asMediaAssetId, type MediaAssetId } from "@/lib/domain/multimedia";
 import { setupAppStateTestDb } from "./appStateTestDb";
 import { createPerTestAppDb } from "./perTestAppDb";
 
-const { commitGuardedBatch, loadApp } = await import("../apps");
+const { commitGuardedBatch: commitGuardedBatchOpaque, loadApp } = await import(
+	"../apps"
+);
+const commitGuardedBatch = (
+	args: Omit<Parameters<typeof commitGuardedBatchOpaque>[0], "mutations"> & {
+		mutations: unknown;
+	},
+) =>
+	commitGuardedBatchOpaque({
+		...args,
+		mutations: admitMutationBatch(args.mutations),
+	});
 const { BlueprintCommitRejectedError } = await import("../commitGuard");
 const {
 	deletePendingAssetForActor,
@@ -31,7 +43,9 @@ const PROJECT = "media-project";
 const ACTOR = "media-owner";
 const h = setupAppStateTestDb("media_delete_");
 
-async function seedReadyAsset(id = crypto.randomUUID()): Promise<string> {
+async function seedReadyAsset(
+	id: MediaAssetId = asMediaAssetId(crypto.randomUUID()),
+): Promise<MediaAssetId> {
 	await h
 		.db()
 		.insertInto("media_assets")
@@ -56,7 +70,29 @@ async function seedReadyAsset(id = crypto.randomUUID()): Promise<string> {
 	return id;
 }
 
-async function seedPendingAsset(id = crypto.randomUUID()): Promise<string> {
+async function seedExactLogoReference(
+	appId: string,
+	assetId: MediaAssetId,
+): Promise<void> {
+	await h
+		.db()
+		.transaction()
+		.execute(async (tx) => {
+			await tx
+				.updateTable("apps")
+				.set({ logo: assetId })
+				.where("id", "=", appId)
+				.execute();
+			await tx
+				.insertInto("media_asset_refs")
+				.values({ project_id: PROJECT, app_id: appId, asset_id: assetId })
+				.execute();
+		});
+}
+
+async function seedPendingAsset(
+	id: MediaAssetId = asMediaAssetId(crypto.randomUUID()),
+): Promise<MediaAssetId> {
 	await h
 		.db()
 		.insertInto("media_assets")
@@ -81,8 +117,10 @@ async function seedPendingAsset(id = crypto.randomUUID()): Promise<string> {
 	return id;
 }
 
-async function seedExtractingDocumentAsset(id = crypto.randomUUID()): Promise<{
-	id: string;
+async function seedExtractingDocumentAsset(
+	id: MediaAssetId = asMediaAssetId(crypto.randomUUID()),
+): Promise<{
+	id: MediaAssetId;
 	claim: { version: number; model: string; extractedAt: number };
 }> {
 	const claim = {
@@ -119,20 +157,17 @@ async function seedExtractingDocumentAsset(id = crypto.randomUUID()): Promise<{
 	return { id, claim };
 }
 
-async function seedApp(): Promise<{
-	appId: string;
-	doc: ReturnType<typeof buildDoc>;
-}> {
-	const doc = buildDoc({ appName: "Media race" });
-	const appId = await h.seedAppWithBlueprint(doc, {
+async function seedApp(): Promise<{ appId: string }> {
+	const appId = await h.seedApp({
+		app_name: "Media race",
 		owner: ACTOR,
-		projectId: PROJECT,
+		project_id: PROJECT,
 	});
-	return { appId, doc: { ...doc, appId } };
+	return { appId };
 }
 
-function attachLogo(assetId: string): Mutation[] {
-	return [{ kind: "setAppLogo", logo: asAssetId(assetId) }];
+function attachLogo(assetId: MediaAssetId): Mutation[] {
+	return [{ kind: "setAppLogo", logo: assetId }];
 }
 
 async function waitForBlockedLocks(
@@ -181,7 +216,7 @@ describe("transactional media deletion", () => {
 
 		const publication = publishPendingAssetForActor(
 			{
-				assetId: asAssetId(assetId),
+				assetId: asMediaAssetId(assetId),
 				actorUserId: ACTOR,
 				expectedProjectId: PROJECT,
 				gcsObjectKey: finalKey,
@@ -196,7 +231,7 @@ describe("transactional media deletion", () => {
 		try {
 			await waitForBlockedLocks(gate, 1);
 			rejection = deletePendingAssetForActor({
-				assetId: asAssetId(assetId),
+				assetId: asMediaAssetId(assetId),
 				actorUserId: ACTOR,
 				expectedProjectId: PROJECT,
 			});
@@ -230,16 +265,10 @@ describe("transactional media deletion", () => {
 		).toEqual({ status: "ready", gcs_object_key: finalKey });
 	}, 15_000);
 
-	it("full-scans persisted carriers while the reverse-index marker is incomplete", async () => {
+	it("queries exact edges and re-walks persisted carriers for descriptions", async () => {
 		const { appId } = await seedApp();
 		const assetId = await seedReadyAsset();
-		// Simulate a legacy/pre-backfill persisted carrier with no reverse edge.
-		await h
-			.db()
-			.updateTable("apps")
-			.set({ logo: assetId })
-			.where("id", "=", appId)
-			.execute();
+		await seedExactLogoReference(appId, assetId);
 
 		const result = await deleteMediaAssetForActor({
 			assetId,
@@ -263,15 +292,12 @@ describe("transactional media deletion", () => {
 	it("keeps media carried by a recoverable soft-deleted app so restore stays exact", async () => {
 		const { appId } = await seedApp();
 		const assetId = await seedReadyAsset();
-		// Simulate a recoverable app deleted before the reverse-index backfill. Its
-		// blueprint is still the exact state restore will revive, so that dormant
-		// carrier remains authoritative even though ordinary app lists hide it.
+		await seedExactLogoReference(appId, assetId);
 		await h
 			.db()
 			.updateTable("apps")
 			.set({
-				logo: assetId,
-				status: "deleted",
+				status: "error",
 				deleted_at: new Date(),
 				recoverable_until: new Date(Date.now() + 24 * 60 * 60_000),
 			})
@@ -300,6 +326,7 @@ describe("transactional media deletion", () => {
 	it("keeps media carried by a persisted tombstone until its restore lifecycle is purged", async () => {
 		const { appId } = await seedApp();
 		const assetId = await seedReadyAsset();
+		await seedExactLogoReference(appId, assetId);
 		// App rows currently persist past their displayed recovery deadline, and
 		// restore does not yet own an audited deadline/purge fence. Treat the row
 		// as authoritative until that lifecycle removes it, or deletion could make
@@ -308,8 +335,7 @@ describe("transactional media deletion", () => {
 			.db()
 			.updateTable("apps")
 			.set({
-				logo: assetId,
-				status: "deleted",
+				status: "error",
 				deleted_at: new Date(Date.now() - 48 * 60 * 60_000),
 				recoverable_until: new Date(Date.now() - 24 * 60 * 60_000),
 			})
@@ -352,7 +378,7 @@ describe("transactional media deletion", () => {
 
 		const publication = publishClaimedAssetExtract(
 			{
-				assetId: asAssetId(asset.id),
+				assetId: asMediaAssetId(asset.id),
 				claim: asset.claim,
 				extract: {
 					status: "ready",
@@ -434,7 +460,7 @@ describe("transactional media deletion", () => {
 			await deletionExecuted;
 			publication = publishClaimedAssetExtract(
 				{
-					assetId: asAssetId(asset.id),
+					assetId: asMediaAssetId(asset.id),
 					claim: asset.claim,
 					extract: {
 						status: "ready",
@@ -479,13 +505,25 @@ describe("transactional media deletion", () => {
 		const assetId = await seedReadyAsset();
 		const doc = buildDoc({
 			appName: "Carrier relocation",
-			modules: [{ uuid: "module-1", name: "Households", forms: [] }],
+			modules: [
+				{
+					uuid: "module-1",
+					name: "Households",
+					forms: [
+						{
+							name: "Survey",
+							type: "survey",
+							fields: [{ kind: "text", id: "question" }],
+						},
+					],
+				},
+			],
 		});
 		const moduleUuid = doc.moduleOrder[0];
 		if (moduleUuid === undefined) throw new Error("module fixture missing");
 		const module = doc.modules[moduleUuid];
 		if (module === undefined) throw new Error("module fixture missing");
-		module.icon = asAssetId(assetId);
+		module.icon = asMediaAssetId(assetId);
 		const appId = await h.seedAppWithBlueprint(doc, {
 			owner: ACTOR,
 			projectId: PROJECT,
@@ -506,7 +544,7 @@ describe("transactional media deletion", () => {
 			END
 			$$;
 			CREATE TRIGGER test_pause_carrier_relocation_trigger
-				BEFORE INSERT ON accepted_mutations
+				BEFORE INSERT ON app_changes
 				FOR EACH ROW EXECUTE FUNCTION test_pause_carrier_relocation();
 		`);
 
@@ -521,7 +559,7 @@ describe("transactional media deletion", () => {
 					icon: null,
 					audioLabel: null,
 				},
-				{ kind: "setAppLogo", logo: asAssetId(assetId) },
+				{ kind: "setAppLogo", logo: asMediaAssetId(assetId) },
 			],
 			actorUserId: ACTOR,
 			kind: "autosave",
@@ -571,6 +609,113 @@ describe("transactional media deletion", () => {
 		).toEqual({ id: assetId });
 	}, 15_000);
 
+	it("does not raise a false projection failure when the last carrier and edge are removed together", async () => {
+		const assetId = await seedReadyAsset();
+		const doc = buildDoc({
+			appName: "Carrier removal",
+			modules: [
+				{
+					uuid: "module-1",
+					name: "Households",
+					forms: [
+						{
+							name: "Survey",
+							type: "survey",
+							fields: [{ kind: "text", id: "question" }],
+						},
+					],
+				},
+			],
+		});
+		const moduleUuid = doc.moduleOrder[0];
+		if (moduleUuid === undefined) throw new Error("module fixture missing");
+		const module = doc.modules[moduleUuid];
+		if (module === undefined) throw new Error("module fixture missing");
+		module.icon = assetId;
+		const appId = await h.seedAppWithBlueprint(doc, {
+			owner: ACTOR,
+			projectId: PROJECT,
+		});
+
+		const gateKey = 8_273_642;
+		const gate = new Client({ connectionString: h.uri() });
+		const contender = createPerTestAppDb(h.uri());
+		await gate.connect();
+		await gate.query("SELECT pg_advisory_lock($1)", [gateKey]);
+		await gate.query(`
+			CREATE FUNCTION test_pause_last_carrier_removal() RETURNS trigger
+			LANGUAGE plpgsql AS $$
+			BEGIN
+				LOCK TABLE blueprint_entities IN ACCESS EXCLUSIVE MODE;
+				PERFORM pg_advisory_xact_lock(${gateKey});
+				RETURN NEW;
+			END
+			$$;
+			CREATE TRIGGER test_pause_last_carrier_removal_trigger
+				BEFORE INSERT ON app_changes
+				FOR EACH ROW EXECUTE FUNCTION test_pause_last_carrier_removal();
+		`);
+
+		const removal = commitGuardedBatch({
+			appId,
+			expectedProjectId: PROJECT,
+			batchId: crypto.randomUUID(),
+			mutations: [
+				{
+					kind: "setModuleMedia",
+					uuid: moduleUuid,
+					icon: null,
+					audioLabel: null,
+				},
+			],
+			actorUserId: ACTOR,
+			kind: "autosave",
+		});
+		let gateHeld = true;
+		let deletion: Promise<
+			Awaited<ReturnType<typeof deleteMediaAssetMetadataInTransaction>>
+		> | null = null;
+		try {
+			// The writer has removed its edge in its uncommitted transaction and
+			// holds the carrier relation. A split delete scan can read the old edge,
+			// wake after commit, then read the new carrier-free state and report a
+			// false invariant failure. One edge-rooted statement sees one snapshot.
+			await waitForBlockedLocks(gate, 1);
+			deletion = contender.appDb.transaction().execute((tx) =>
+				deleteMediaAssetMetadataInTransaction(tx, {
+					assetId,
+					actorUserId: ACTOR,
+					expectedProjectId: PROJECT,
+				}),
+			);
+			await waitForBlockedLocks(gate, 2);
+			await gate.query("SELECT pg_advisory_unlock($1)", [gateKey]);
+			gateHeld = false;
+
+			await expect(removal).resolves.toMatchObject({ seq: 1 });
+			const firstDelete = await deletion;
+			expect(["deleted", "referenced"]).toContain(firstDelete.kind);
+			if (firstDelete.kind === "referenced") {
+				await expect(
+					deleteMediaAssetForActor({
+						assetId,
+						actorUserId: ACTOR,
+						expectedProjectId: PROJECT,
+					}),
+				).resolves.toMatchObject({ kind: "deleted" });
+			}
+		} finally {
+			if (gateHeld) {
+				await gate
+					.query("SELECT pg_advisory_unlock($1)", [gateKey])
+					.catch(() => {});
+			}
+			await Promise.allSettled([removal, ...(deletion ? [deletion] : [])]);
+			await gate.end().catch(() => {});
+			await contender.destroy();
+		}
+	}, 15_000);
+
 	it("attach winner commits its carrier and exact edge before delete re-walks", async () => {
 		const { appId } = await seedApp();
 		const assetId = await seedReadyAsset();
@@ -588,7 +733,7 @@ describe("transactional media deletion", () => {
 				END
 				$$;
 				CREATE TRIGGER test_pause_media_attach_trigger
-				BEFORE INSERT ON accepted_mutations
+				BEFORE INSERT ON app_changes
 				FOR EACH ROW EXECUTE FUNCTION test_pause_media_attach();
 			`);
 
@@ -634,11 +779,15 @@ describe("transactional media deletion", () => {
 			await h
 				.db()
 				.selectFrom("media_asset_refs")
-				.select(["asset_id", "app_id"])
+				.select(["project_id", "asset_id", "app_id"])
 				.where("asset_id", "=", assetId)
 				.where("app_id", "=", appId)
 				.executeTakeFirst(),
-		).toEqual({ asset_id: assetId, app_id: appId });
+		).toEqual({
+			project_id: PROJECT,
+			asset_id: assetId,
+			app_id: appId,
+		});
 	}, 15_000);
 
 	it("delete winner commits first and the waiting attach rejects the missing asset", async () => {

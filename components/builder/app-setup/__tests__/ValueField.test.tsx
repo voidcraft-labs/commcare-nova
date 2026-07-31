@@ -3,11 +3,12 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { settleBaseUiTransitions } from "@/__tests__/helpers/baseUiInteractions";
-import { asUuid, type UserProperty } from "@/lib/domain";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import type { UserProperty } from "@/lib/domain";
 import { ValueField } from "../ValueField";
 
 const PROPERTY: UserProperty = {
-	uuid: asUuid("property"),
+	uuid: testUuid("property"),
 	slug: "region",
 	label: "Region",
 };

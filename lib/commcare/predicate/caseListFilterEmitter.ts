@@ -33,7 +33,7 @@
 //     comparison operators; operands are `ValueExpression` and route
 //     through the on-device value-expression emitter, which handles
 //     every arm of the union (term, arith, conditional, etc.).
-//   - `is-blank` / `is-null`: both emit `<term> = ''`. CCHQ wire
+//   - `is-blank`: emits `<term> = ''`. CCHQ wire
 //     collapses absent / cleared / empty alike on every dialect; the
 //     equality form is the closest CCHQ shape for both operators.
 //     The Postgres runtime preserves the AST distinction natively.
@@ -180,9 +180,21 @@ export function emitCaseListFilter(
 	termContext: OnDeviceTermEmissionContext = {},
 ): string {
 	const resolvedTermContext =
-		termContext.userPropertySlugs === undefined &&
-		context.userPropertySlugs !== undefined
-			? { ...termContext, userPropertySlugs: context.userPropertySlugs }
+		termContext.userPropertySlugs === undefined ||
+		termContext.searchInputNames === undefined
+			? {
+					...termContext,
+					...(termContext.userPropertySlugs === undefined &&
+						context.userPropertySlugs !== undefined && {
+							userPropertySlugs: context.userPropertySlugs,
+						}),
+					...(termContext.searchInputNames === undefined &&
+						context.knownInputs !== undefined && {
+							searchInputNames: new Map(
+								context.knownInputs.map((input) => [input.uuid, input.name]),
+							),
+						}),
+				}
 			: termContext;
 	return emitPredicate(
 		normalizeRelationEvaluationScopes(predicate, context),
@@ -298,12 +310,6 @@ function emitPredicate(
 		case "when-input-present":
 			return emitWhenInputPresent(p, root, context, anchor, termContext);
 		case "is-blank":
-		case "is-null":
-			// Both the absent-or-empty operator and the strict-absent
-			// operator emit as `<term> = ''`. The CCHQ wire collapses
-			// absent / cleared / empty alike, and the equality form is
-			// the closest available CCHQ shape for both. The AST
-			// distinction is preserved at the Postgres runtime.
 			return `${emitOnDeviceExpression(p.left, root, context, anchor, termContext)} = ''`;
 		case "within-distance":
 			return emitOnDeviceWithinDistance(p, root, context, anchor, termContext);

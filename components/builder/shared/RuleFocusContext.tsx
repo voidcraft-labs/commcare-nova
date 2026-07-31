@@ -132,8 +132,6 @@ export function expressionFocusTitle(value: ValueExpression): string {
 			return "Value chosen by matching";
 		case "count":
 			return "Count of related cases";
-		case "unwrap-list":
-			return "Saved selections";
 		case "format-date":
 			return "Formatted date";
 		case "table-lookup":
@@ -177,8 +175,6 @@ export function expressionFocusDescription(value: ValueExpression): string {
 			return value.where === undefined
 				? "Counts every case on the chosen connection"
 				: "Counts connected cases that match a condition";
-		case "unwrap-list":
-			return "Reads several saved selections from one value";
 		case "format-date":
 			return "Writes a date in the chosen style";
 		case "table-lookup":
@@ -216,8 +212,6 @@ export function predicateFocusTitle(value: Predicate): string {
 			return "Is any of";
 		case "between":
 			return "Is between";
-		case "is-null":
-			return "Was never recorded";
 		case "is-blank":
 			return "Is blank";
 		case "match":
@@ -246,8 +240,8 @@ export function predicateFocusDescription(
 		case "not":
 			return "Excludes cases when the condition inside matches";
 		case "when-input-present":
-			return value.input.name
-				? `Applies after ${searchInputDisplayLabel(value.input.name, knownInputs)} has an answer`
+			return value.input.searchInputUuid
+				? `Applies after ${searchInputDisplayLabel(value.input.searchInputUuid, knownInputs)} has an answer`
 				: "Applies after the chosen search field has an answer";
 		case "exists":
 			return value.where === undefined
@@ -268,8 +262,6 @@ export function predicateFocusDescription(
 			return `${value.values.length} ${value.values.length === 1 ? "choice" : "choices"}`;
 		case "between":
 			return "Checks whether a value falls inside a range";
-		case "is-null":
-			return "Checks whether a value was never recorded";
 		case "is-blank":
 			return "Checks whether a value is empty or missing";
 		case "match":

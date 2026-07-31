@@ -1,10 +1,16 @@
 # Deployment infrastructure
 
-Nova has one deployment path: Cloud Build constructs one image, applies the
-media-bucket policy, runs the blocking migration Cloud Run Job, configures the
-capture-cleanup Job and Scheduler, then deploys that image directly to the
-Cloud Run service. Do not add traffic controllers, candidate services, rollout
-accounts, compatibility paths, or deploy-time maintenance gates.
+Nova has one deployment path: Cloud Build constructs and pushes one image,
+resolves that pushed tag once to its complete `repository@sha256` identity,
+then passes only that immutable reference to the media-policy Job, blocking
+migration Job, capture-cleanup Job, and direct service deployment. Do not add
+traffic controllers, candidate services, rollout accounts, compatibility
+paths, or deploy-time maintenance gates.
+Each Job execution first reads the reconciled Job generation, proves its sole
+container image is that exact digest, submits `jobs:run` with the Job `etag`,
+and proves the resulting immutable Execution snapshot and every task succeeded.
+This generation fence prevents overlapping builds from changing a shared Job
+between its update and execution.
 
 `provision-deployment-identities.sh` is plan-only unless passed `--apply`. It
 reconciles these permanent identities:
@@ -21,6 +27,10 @@ reconciles these permanent identities:
   `form_attachments`; in GCS it receives object get/create/delete restricted to
   staged captures and Project durable-capture prefixes.
 - `nova-capture-scheduler` may invoke only the capture-cleanup Cloud Run Job.
+- `nova-audit` is the pool-one canonical-identity scanner login. It has no
+  parent role, DML, DDL, sequence, or routine authority; privilege convergence
+  grants only schema `USAGE` plus `SELECT` on the frozen scanner's exact
+  relation inventory.
 - `commcare-nova` serves the application with ordinary application DML, but no
   fixed-schema ownership or public-schema DDL.
 
@@ -49,13 +59,15 @@ Every non-local database process declares one final workload:
 - `service`: pool 3 plus one dedicated LISTEN connection per serving instance.
 - `migration`: pool 1.
 - `capture-cleanup`: pool 2 (advisory-lock session plus work session).
+- `audit`: pool 1.
 - `operator`: pool 1.
 
 Cloud Run's service and revision maxima are both four. PostgreSQL direct-login
-limits are the hard cluster boundary: runtime 16, migration 1, cleanup 3.
+limits are the hard cluster boundary: runtime 16, migration 1, cleanup 3,
+audit 1.
 Migration inherits runtime table privileges but its sessions count against its
-own role; cleanup inherits no application role. The limits total 20 against
-`max_connections=25`, leaving two ordinary slots plus PostgreSQL's three
+own role; cleanup and audit inherit no application role. The limits total 21
+against `max_connections=25`, leaving one ordinary slot plus PostgreSQL's three
 superuser-reserved slots. Unknown or absent production workloads fail before
 connecting.
 
@@ -73,7 +85,7 @@ temporary `BUILT_IN` administrator because `CREATE EXTENSION` and
 `ALTER ROLE ... CONNECTION LIMIT` require `cloudsqlsuperuser`, authority the
 permanent migration identity deliberately lacks. In one bounded transaction it:
 
-- applies the runtime/migration/cleanup limits 16/1/3;
+- applies the runtime/migration/cleanup/audit limits 16/1/3/1;
 - creates `pg_trgm`, `fuzzystrmatch`, `postgis`, and `pgaudit`;
 - makes migration the database owner;
 - transfers non-permanent ownership to migration and removes the temporary
@@ -82,9 +94,25 @@ permanent migration identity deliberately lacks. In one bounded transaction it:
   `postgres` role or migration, with no dependency or ACL residue belonging to
   a non-permanent principal.
 
+Before either dry-run or apply, Cloud SQL's PG18 membership API must give that
+temporary administrator direct MEMBER plus SET access to migration, runtime,
+cleanup, audit, and the legacy source owner when present. The bootstrap audits
+all four permanent identities as direct non-superuser LOGIN roles and refuses
+to alter a role it cannot fully inspect or `SET ROLE` to.
+
 Delete the temporary administrator through Cloud SQL only after that audit
 succeeds. Subsequent deploys use only the permanent identities and the ordinary
 migration Job.
+
+`scripts/rollout/deploy-cloud-run.py` is the permanent service policy. It
+rejects mutable images and traffic tags, requires the exact candidate to own
+100% of both desired and observed traffic, and permits revision GC only for
+untagged zero-traffic revisions. A maintenance run keeps a `try/finally`
+recovery arm live until terminal success; every failure detaches ingress,
+restores manual zero, runs the exact-image migration Job's runtime-session
+fence, pauses cleanup, and re-verifies the complete maintenance posture. Every
+recovery action is attempted even if an earlier action fails; errors are
+aggregated without replacing the original deployment failure.
 
 The Cloud Build trigger switch is safe only after its service account has all
 listed grants. A custom trigger identity overrides any `serviceAccount` field

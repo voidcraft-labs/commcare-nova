@@ -13,7 +13,11 @@
 
 import { emitOnDeviceExpression } from "@/lib/commcare/expression/onDeviceEmitter";
 import { emitCaseListFilter } from "@/lib/commcare/predicate";
-import { ownRecordValue, type SearchInputDef } from "@/lib/domain";
+import {
+	ownRecordValue,
+	type SearchInputDef,
+	searchInputDefault,
+} from "@/lib/domain";
 import type {
 	Predicate,
 	SessionContextField,
@@ -102,7 +106,7 @@ export function evaluatePreviewSearchPredicate(
 	const bound = bindSearchInputValuesInPredicate(
 		predicate,
 		expressionValues,
-		new Set(searchInputs.map((input) => input.name)),
+		new Set(searchInputs.map((input) => input.uuid)),
 		searchInputs,
 	);
 	const folded =
@@ -177,10 +181,8 @@ export function sessionInstancePathValue(
  * instance, so sibling defaults do not feed one another. Preview mirrors that
  * lifecycle by evaluating each expression with an empty input bag.
  *
- * Date-range inputs deliberately stay empty. Their historical scalar default
- * slot cannot represent the paired start/end value CommCare requires; the
- * authoring gate asks legacy documents to remove it and Preview must never
- * invent a From-only interpretation.
+ * Date-range inputs stay empty because their final schema has no scalar
+ * default slot.
  */
 export function resolveSearchInputDefaults(
 	searchInputs: readonly SearchInputDef[],
@@ -189,17 +191,18 @@ export function resolveSearchInputDefaults(
 ): SearchInputValues {
 	const values = new Map<string, string>();
 	for (const input of [...searchInputs]) {
-		if (input.default === undefined || input.type === "date-range") continue;
+		const inputDefault = searchInputDefault(input);
+		if (inputDefault === undefined) continue;
 		/* A default whose carriers the held snapshot doesn't COVER (not
 		 * loaded yet, or a valid edit the stale-while-revalidate snapshot
 		 * predates) contributes nothing THIS resolution; the run-state
 		 * reconciler updates untouched prompts when the covering snapshot
 		 * lands and the defaults revision moves. */
-		if (!expressionLookupsCovered(input.default, lookupData)) {
+		if (!expressionLookupsCovered(inputDefault, lookupData)) {
 			continue;
 		}
 		const value = evaluatePreviewSearchExpression(
-			input.default,
+			inputDefault,
 			session,
 			undefined,
 			undefined,

@@ -14,7 +14,7 @@
 import { Autocomplete } from "@base-ui/react/autocomplete";
 import { Icon } from "@iconify/react/offline";
 import { useCallback, useMemo } from "react";
-import { type FieldKind, fieldRegistry } from "@/lib/domain";
+import { type FieldKind, fieldRegistry, type Uuid } from "@/lib/domain";
 import {
 	collectFieldEntries,
 	type FieldEntrySource,
@@ -30,12 +30,19 @@ import {
 
 /** A flattened field entry for the autocomplete list. */
 export interface FieldEntry {
+	/** Stable field identity committed when this exact row is selected. */
+	uuid: Uuid;
 	/** Bare field ID (e.g. "confirm_close"). */
 	id: string;
 	/** Full path for nested fields (e.g. "group1/confirm_close"). */
 	path: string;
 	/** Human-readable label. */
 	label: string;
+	/** Structured owning-document projection. A false arm must remain visibly
+	 *  marked for repair and its stored identity must never render. */
+	labelProjection: ReturnType<
+		typeof collectFieldEntries
+	>[number]["labelProjection"];
 	/** Field kind (text, single_select, etc.) — drives the icon. */
 	kind: FieldKind;
 }
@@ -54,7 +61,7 @@ export interface FieldEntry {
  */
 export function buildFieldEntries(
 	src: FieldEntrySource,
-	parentUuid: string,
+	parentUuid: Uuid,
 	typeFilter?: ReadonlySet<FieldKind>,
 ): FieldEntry[] {
 	const raw = collectFieldEntries(src, parentUuid);
@@ -62,11 +69,13 @@ export function buildFieldEntries(
 	return raw
 		.filter((e) => filter.has(e.kind))
 		.map((e) => ({
+			uuid: e.uuid,
 			id: e.path.includes("/")
 				? e.path.slice(e.path.lastIndexOf("/") + 1)
 				: (e.path as string),
 			path: e.path as string,
 			label: e.label,
+			labelProjection: e.labelProjection,
 			kind: e.kind,
 		}));
 }
@@ -79,11 +88,11 @@ interface FieldPickerProps {
 	source: FieldEntrySource;
 	/** Uuid of the container whose fields are pickable (form uuid or
 	 *  group/repeat uuid). */
-	parentUuid: string;
-	/** Current field ID value. */
-	value: string;
-	/** Called with the bare field ID when a field is selected from the list. */
-	onChange: (id: string) => void;
+	parentUuid: Uuid;
+	/** Current field identity, or null while a local draft has no selection. */
+	value: Uuid | null;
+	/** Called with the exact stable identity of the selected row. */
+	onChange: (uuid: Uuid) => void;
 	/** Label text shown above the input. */
 	label: string;
 	/** Optional kind filter — defaults to `VALUE_PRODUCING_TYPES`. */
@@ -112,6 +121,7 @@ export function FieldPicker({
 		() => buildFieldEntries(source, parentUuid, typeFilter),
 		[source, parentUuid, typeFilter],
 	);
+	const current = fields.find((field) => field.uuid === value);
 
 	/** Match against both ID and label so typing either narrows results. */
 	const filterField = useCallback((item: FieldEntry, query: string) => {
@@ -121,16 +131,6 @@ export function FieldPicker({
 		);
 	}, []);
 
-	/** Only persist when the user actually selects an item. */
-	const handleValueChange = useCallback(
-		(val: string, details: { reason: string }) => {
-			if (details.reason === "item-press") {
-				onChange(val ?? "");
-			}
-		},
-		[onChange],
-	);
-
 	return (
 		<div>
 			<span className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-0.5 flex items-center gap-0.5">
@@ -138,10 +138,10 @@ export function FieldPicker({
 				{required && <span className="text-nova-rose ml-0.5">*</span>}
 			</span>
 			<Autocomplete.Root
+				key={value ?? "unselected"}
 				items={fields}
 				filter={filterField}
-				defaultValue={value}
-				onValueChange={handleValueChange}
+				defaultValue={current?.id ?? ""}
 				itemToStringValue={(item) => item.id}
 				openOnInputClick
 			>
@@ -172,8 +172,9 @@ export function FieldPicker({
 								<Autocomplete.Collection>
 									{(field: FieldEntry) => (
 										<Autocomplete.Item
-											key={field.path}
+											key={field.uuid}
 											value={field}
+											onClick={() => onChange(field.uuid)}
 											className={`${MENU_ITEM_BASE} text-nova-text cursor-pointer data-[highlighted]:bg-white/[0.06] first:rounded-t-xl last:rounded-b-xl`}
 										>
 											<Icon
@@ -182,7 +183,9 @@ export function FieldPicker({
 												height="14"
 												className="text-nova-text-muted shrink-0"
 											/>
-											{field.kind === "hidden" || field.label === field.path ? (
+											{field.labelProjection.ok &&
+											(field.kind === "hidden" ||
+												field.label === field.path) ? (
 												<span className="font-mono text-xs text-nova-text truncate">
 													{field.id}
 												</span>
@@ -191,6 +194,11 @@ export function FieldPicker({
 													<span className="text-xs text-nova-text truncate">
 														{field.label}
 													</span>
+													{!field.labelProjection.ok && (
+														<span className="text-[10px] text-nova-text-muted">
+															Reference needs repair
+														</span>
+													)}
 													<span className="font-mono text-[10px] text-nova-text-muted truncate ml-auto">
 														{field.id}
 													</span>

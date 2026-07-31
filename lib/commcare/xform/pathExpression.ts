@@ -58,9 +58,9 @@
  * trailing path separator builds an `XPathFilterExpr`, not an `XPathPathExpr`.
  *
  * `HashtagRef` is deliberately absent from the path allowlist: every caller
- * runs `expandHashtags` BEFORE classifying, so `#form/x` has already become
- * `/data/x` (a `Child`) by the time this code sees it. Listing a node that
- * can never appear would be dead defense.
+ * runs the form-context projection before classifying, so `#form/x` has
+ * already become `/data/x` (a `Child`) by the time this code sees it. Listing
+ * a node that can never appear would be dead defense.
  */
 
 import type { SyntaxNode, Tree } from "@lezer/common";
@@ -147,8 +147,8 @@ function parseCleanTree(expr: string): Tree | null {
  * hoist (the `jr:count` emitter) a false-negative merely adds an extra hidden
  * node, whereas a false-positive emits markup JavaRosa rejects.
  *
- * `expr` must be ALREADY hashtag-expanded (callers run `expandHashtags`
- * first) — `HashtagRef` is intentionally not in the path allowlist.
+ * `expr` must be ALREADY projected by the form-context hashtag resolver —
+ * `HashtagRef` is intentionally not in the path allowlist.
  */
 export function isPathExpression(expr: string): boolean {
 	const tree = parseCleanTree(expr);

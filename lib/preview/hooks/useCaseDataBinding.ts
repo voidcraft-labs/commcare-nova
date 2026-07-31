@@ -285,7 +285,7 @@ export function useCases(args: {
 			: { kind: "loading" };
 	const queryConstraintSource =
 		state.kind === "rows" || state.kind === "empty"
-			? (state.constraintSource ?? "unknown")
+			? state.constraintSource
 			: "unconstrained";
 	return {
 		state,

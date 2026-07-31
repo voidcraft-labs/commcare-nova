@@ -73,7 +73,6 @@ import {
 } from "../editorContext";
 import {
 	globalPlaceholderTruth,
-	isAuthorablePredicateKind,
 	type PredicateCardSchema,
 	type PredicateEditContext,
 	predicateCardSchemaList,
@@ -640,31 +639,29 @@ function AddClauseMenu({ onAdd }: AddClauseMenuProps) {
 					style={{ minWidth: "18rem", maxHeight: 320 }}
 				>
 					<DropdownMenuPopup className="max-h-80 min-w-0">
-						{predicateCardSchemaList
-							.filter((s) => isAuthorablePredicateKind(s.kind))
-							.map((s) => {
-								const isApplicable = s.applicable(editCtx);
-								return (
-									<DropdownMenuItem
-										key={s.kind}
-										onClick={() => onAdd(s)}
-										disabled={!isApplicable}
-									>
-										<Icon
-											icon={s.icon}
-											width="14"
-											height="14"
-											className="text-nova-text-muted"
-										/>
-										<span className="flex-1 text-left min-w-0">
-											<div className="break-words">{s.label}</div>
-											<div className="break-words text-xs text-nova-text-muted">
-												{s.description}
-											</div>
-										</span>
-									</DropdownMenuItem>
-								);
-							})}
+						{predicateCardSchemaList.map((s) => {
+							const isApplicable = s.applicable(editCtx);
+							return (
+								<DropdownMenuItem
+									key={s.kind}
+									onClick={() => onAdd(s)}
+									disabled={!isApplicable}
+								>
+									<Icon
+										icon={s.icon}
+										width="14"
+										height="14"
+										className="text-nova-text-muted"
+									/>
+									<span className="flex-1 text-left min-w-0">
+										<div className="break-words">{s.label}</div>
+										<div className="break-words text-xs text-nova-text-muted">
+											{s.description}
+										</div>
+									</span>
+								</DropdownMenuItem>
+							);
+						})}
 					</DropdownMenuPopup>
 				</DropdownMenuPositioner>
 			</DropdownMenuPortal>

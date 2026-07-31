@@ -1,4 +1,5 @@
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { proseText } from "@/lib/domain/prose";
 /**
  * Tests for `mediaKindMatches` — every referenced asset's MIME kind
  * matches the carrier slot's expected kind.
@@ -11,7 +12,7 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { runValidation } from "../../../runner";
-import { makeAssetRecord, makeManifest } from "./fixtures";
+import { makeAssetRecord, makeManifest, mediaId } from "./fixtures";
 
 const CODE = "MEDIA_KIND_MISMATCH" as const;
 
@@ -20,7 +21,10 @@ describe("mediaKindMatches", () => {
 		const doc = buildDoc({
 			appName: "T",
 			caseTypes: [
-				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
 			],
 			modules: [
 				{
@@ -34,9 +38,9 @@ describe("mediaKindMatches", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
-									label_media: { image: "audio-asset" },
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
+									label_media: { image: mediaId("audio-asset") },
 								}),
 							],
 						},
@@ -67,7 +71,10 @@ describe("mediaKindMatches", () => {
 		const doc = buildDoc({
 			appName: "T",
 			caseTypes: [
-				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
 			],
 			modules: [
 				{
@@ -81,10 +88,10 @@ describe("mediaKindMatches", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
-									help: "Here's how",
-									help_media: { audio: "image-asset" },
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
+									help: proseText("Here's how"),
+									help_media: { audio: mediaId("image-asset") },
 								}),
 							],
 						},
@@ -112,7 +119,10 @@ describe("mediaKindMatches", () => {
 		const doc = buildDoc({
 			appName: "T",
 			caseTypes: [
-				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
 			],
 			modules: [
 				{
@@ -126,9 +136,9 @@ describe("mediaKindMatches", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
-									label_media: { video: "image-asset" },
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
+									label_media: { video: mediaId("image-asset") },
 								}),
 							],
 						},
@@ -156,7 +166,10 @@ describe("mediaKindMatches", () => {
 		const doc = buildDoc({
 			appName: "T",
 			caseTypes: [
-				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
 			],
 			modules: [
 				{
@@ -170,8 +183,8 @@ describe("mediaKindMatches", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},
@@ -180,7 +193,8 @@ describe("mediaKindMatches", () => {
 			],
 		});
 		const moduleUuid = doc.moduleOrder[0];
-		doc.modules[moduleUuid].icon = "audio-asset";
+		const audioAsset = mediaId("audio-asset");
+		doc.modules[moduleUuid].icon = audioAsset;
 		const manifest = makeManifest([
 			makeAssetRecord("audio-asset", {
 				kind: "audio",
@@ -201,7 +215,10 @@ describe("mediaKindMatches", () => {
 		const doc = buildDoc({
 			appName: "T",
 			caseTypes: [
-				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
 			],
 			modules: [
 				{
@@ -215,8 +232,8 @@ describe("mediaKindMatches", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
 								}),
 							],
 						},
@@ -225,7 +242,8 @@ describe("mediaKindMatches", () => {
 			],
 		});
 		const moduleUuid = doc.moduleOrder[0];
-		doc.modules[moduleUuid].audioLabel = "image-asset";
+		const imageAsset = mediaId("image-asset");
+		doc.modules[moduleUuid].audioLabel = imageAsset;
 		const manifest = makeManifest([
 			makeAssetRecord("image-asset", {
 				kind: "image",
@@ -246,7 +264,10 @@ describe("mediaKindMatches", () => {
 		const doc = buildDoc({
 			appName: "T",
 			caseTypes: [
-				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
 			],
 			modules: [
 				{
@@ -260,11 +281,11 @@ describe("mediaKindMatches", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
-									label_media: { image: "good-image" },
-									help: "Here's how",
-									help_media: { audio: "good-audio" },
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
+									label_media: { image: mediaId("good-image") },
+									help: proseText("Here's how"),
+									help_media: { audio: mediaId("good-audio") },
 								}),
 							],
 						},

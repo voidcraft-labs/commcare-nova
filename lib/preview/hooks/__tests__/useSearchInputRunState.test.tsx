@@ -2,11 +2,8 @@
 
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import {
-	asUuid,
-	type SearchInputDef,
-	simpleSearchInputDef,
-} from "@/lib/domain";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { type SearchInputDef, simpleSearchInputDef } from "@/lib/domain";
 import { dateLiteral, literal, term } from "@/lib/domain/predicate";
 import {
 	previewAsMe,
@@ -14,7 +11,7 @@ import {
 } from "@/lib/preview/engine/identity";
 import { useSearchInputRunState } from "../useSearchInputRunState";
 
-const INPUT_UUID = asUuid("00000000-0000-4000-8000-000000000201");
+const INPUT_UUID = testUuid("00000000-0000-4000-8000-000000000201");
 const SESSION = previewSessionValues(
 	previewAsMe({
 		id: "worker-1",

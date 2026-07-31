@@ -21,16 +21,19 @@
  */
 
 import type { LanguageModelUsage, UIMessageChunk } from "ai";
-import type { Kysely } from "kysely";
+import type { Insertable, Kysely } from "kysely";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GenerationContext } from "@/lib/agent";
 import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
+import { canonicalTestBlueprint } from "@/lib/db/__tests__/appStateTestDb";
 import {
 	createPerTestAppDb,
 	type PerTestAppDb,
 } from "@/lib/db/__tests__/perTestAppDb";
+import { decomposeBlueprint } from "@/lib/db/blueprintRows";
 import { __setAppDbForTests, type AppDatabase } from "@/lib/db/pg";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
 
 const {
 	resolveOpenAIKeyMock,
@@ -363,21 +366,32 @@ async function chunkRows(streamId: string) {
 		.execute();
 }
 
-async function seedSerializeWaitEdit() {
+async function seedCanonicalApp(args: {
+	id: string;
+	name: string;
+	overrides?: Partial<Insertable<AppDatabase["apps"]>>;
+}): Promise<void> {
+	const persisted = toPersistableDoc(
+		canonicalTestBlueprint(args.id, args.name),
+	);
+	const formCount = persisted.moduleOrder.reduce(
+		(sum, moduleUuid) => sum + (persisted.formOrder[moduleUuid]?.length ?? 0),
+		0,
+	);
 	await appDb.transaction().execute(async (tx) => {
 		await tx
 			.insertInto("apps")
 			.values({
-				id: WAIT_APP,
+				id: args.id,
 				owner: USER,
 				project_id: PROJECT,
-				app_name: "Waited edit app",
-				app_name_lower: "waited edit app",
-				connect_type: null,
+				app_name: persisted.appName,
+				app_name_lower: persisted.appName.toLowerCase(),
+				connect_type: persisted.connectType,
 				case_types: null,
 				logo: null,
-				module_count: 0,
-				form_count: 0,
+				module_count: persisted.moduleOrder.length,
+				form_count: formCount,
 				mutation_seq: 0,
 				status: "complete",
 				awaiting_input: false,
@@ -385,6 +399,7 @@ async function seedSerializeWaitEdit() {
 				deleted_at: null,
 				recoverable_until: null,
 				run_id: null,
+				run_holder_nonce: null,
 				res_period: null,
 				res_reserved: null,
 				res_settled: null,
@@ -393,9 +408,27 @@ async function seedSerializeWaitEdit() {
 				lock_run_id: null,
 				lock_actor_user_id: null,
 				lock_expire_at: null,
+				...args.overrides,
 			})
 			.execute();
+		await tx
+			.insertInto("blueprint_entities")
+			.values(
+				decomposeBlueprint(persisted).map((row) => ({
+					app_id: args.id,
+					uuid: row.uuid,
+					kind: row.kind,
+					parent_uuid: row.parent_uuid,
+					ordinal: row.ordinal,
+					data: JSON.stringify(row.data),
+				})),
+			)
+			.execute();
 	});
+}
+
+async function seedSerializeWaitEdit() {
+	await seedCanonicalApp({ id: WAIT_APP, name: "Waited edit app" });
 
 	const { loadApp, RunConflictError } = await import("@/lib/db/apps");
 	const app = await loadApp(WAIT_APP);
@@ -605,7 +638,17 @@ describe("mid-run client disconnect", () => {
 			projectId: PROJECT,
 			role: "editor",
 			canEdit: true,
-			baseSeq: 0,
+			baseSeq: 1,
+			blueprint: {
+				appId: app.id,
+				appName: "Untitled",
+				moduleOrder: [expect.any(String)],
+			},
+			starter: {
+				moduleUuid: expect.any(String),
+				formUuid: expect.any(String),
+				fieldUuid: expect.any(String),
+			},
 		});
 		const deltas = logged
 			.filter((c) => c.type === "text-delta")
@@ -766,37 +809,22 @@ describe("pause-stamp ownership admission", () => {
 
 describe("free-continuation resume admission", () => {
 	it("fails closed on an unexpected re-acquire error without touching the holder or its credits", async () => {
-		await appDb.transaction().execute(async (tx) => {
-			await tx
-				.insertInto("apps")
-				.values({
-					id: RESUME_APP,
-					owner: USER,
-					project_id: PROJECT,
-					app_name: "Paused app",
-					app_name_lower: "paused app",
-					connect_type: null,
-					case_types: null,
-					logo: null,
-					module_count: 1,
-					form_count: 0,
-					mutation_seq: 0,
-					status: "complete",
-					awaiting_input: true,
-					error_type: null,
-					deleted_at: null,
-					recoverable_until: null,
-					run_id: RESUME_RUN,
-					res_period: RESERVATION_PERIOD,
-					res_reserved: 5,
-					res_settled: false,
-					res_user_id: USER,
-					res_run_id: RESUME_RUN,
-					lock_run_id: RESUME_RUN,
-					lock_actor_user_id: USER,
-					lock_expire_at: new Date(Date.now() + 60_000),
-				})
-				.execute();
+		await seedCanonicalApp({
+			id: RESUME_APP,
+			name: "Paused app",
+			overrides: {
+				awaiting_input: true,
+				run_id: RESUME_RUN,
+				run_holder_nonce: REPLACEMENT_NONCE,
+				res_period: RESERVATION_PERIOD,
+				res_reserved: 5,
+				res_settled: false,
+				res_user_id: USER,
+				res_run_id: RESUME_RUN,
+				lock_run_id: RESUME_RUN,
+				lock_actor_user_id: USER,
+				lock_expire_at: new Date(Date.now() + 60_000),
+			},
 		});
 		await appDb
 			.insertInto("credit_months")

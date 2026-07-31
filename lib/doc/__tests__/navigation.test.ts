@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	flattenFieldRefs,
 	getCrossLevelFieldMoveTargets,
 	getFieldMoveTargets,
 } from "@/lib/doc/navigation";
 import type { BlueprintDoc, Field, Uuid } from "@/lib/domain";
-import { asUuid } from "@/lib/domain";
 
 /**
  * Build a minimal `BlueprintDoc` from a flat list of field descriptors.
@@ -24,17 +24,12 @@ interface FieldDesc {
 	kind: string;
 	parentUuid: Uuid;
 	childrenOrder?: Uuid[];
-	/** Fractional order key. Absent → display order falls back to array
-	 *  position (`bySortKey` treats both-absent as equal). Present → display
-	 *  order is `sort-by-(order, uuid)`, which a reorder can diverge from the
-	 *  membership array. */
-	order?: string;
 }
 
 function buildDoc(formUuid: Uuid, descs: FieldDesc[]): BlueprintDoc {
 	const fields: Record<string, Field> = {};
 	const fieldOrder: Record<string, Uuid[]> = {};
-	const fieldParent: Record<Uuid, Uuid | null> = {};
+	const fieldParent: Record<Uuid, Uuid> = {};
 
 	// Accumulate the form's root-level order separately from container orders.
 	const rootOrder: Uuid[] = [];
@@ -46,7 +41,6 @@ function buildDoc(formUuid: Uuid, descs: FieldDesc[]): BlueprintDoc {
 			uuid: d.uuid,
 			id: d.id,
 			kind: d.kind,
-			...(d.order !== undefined && { order: d.order }),
 		} as unknown as Field;
 		fieldParent[d.uuid] = d.parentUuid;
 
@@ -90,14 +84,14 @@ function buildDoc(formUuid: Uuid, descs: FieldDesc[]): BlueprintDoc {
 }
 
 // ── Fixed UUIDs so test assertions are easy to read ───────────────────
-const FORM = asUuid("form-uuid");
-const Q1 = asUuid("q1-uuid");
-const GRP = asUuid("grp-uuid");
-const CHILD1 = asUuid("child1-uuid");
-const CHILD2 = asUuid("child2-uuid");
-const CHILD3 = asUuid("child3-uuid");
-const Q2 = asUuid("q2-uuid");
-const Q3 = asUuid("q3-uuid");
+const FORM = testUuid("form-uuid");
+const Q1 = testUuid("q1-uuid");
+const GRP = testUuid("grp-uuid");
+const CHILD1 = testUuid("child1-uuid");
+const CHILD2 = testUuid("child2-uuid");
+const CHILD3 = testUuid("child3-uuid");
+const Q2 = testUuid("q2-uuid");
+const Q3 = testUuid("q3-uuid");
 
 // A tree with a group in the middle and three children:
 //   q1 (text)
@@ -132,7 +126,7 @@ describe("flattenFieldRefs", () => {
 	});
 
 	it("skips hidden fields", () => {
-		const HID = asUuid("hidden-uuid");
+		const HID = testUuid("hidden-uuid");
 		const doc = buildDoc(FORM, [
 			{ uuid: Q1, id: "q1", kind: "text", parentUuid: FORM },
 			{ uuid: HID, id: "h1", kind: "hidden", parentUuid: FORM },
@@ -144,7 +138,7 @@ describe("flattenFieldRefs", () => {
 
 	it("returns empty array for unknown form uuid", () => {
 		const doc = flatTree();
-		expect(flattenFieldRefs(doc, asUuid("missing"))).toEqual([]);
+		expect(flattenFieldRefs(doc, testUuid("missing"))).toEqual([]);
 	});
 
 	it("carries the correct parent uuid for each entry", () => {
@@ -257,7 +251,7 @@ describe("getFieldMoveTargets", () => {
 
 	it("returns both undefined for unknown uuid", () => {
 		const doc = flatTree();
-		expect(getFieldMoveTargets(doc, asUuid("nope"))).toEqual({
+		expect(getFieldMoveTargets(doc, testUuid("nope"))).toEqual({
 			beforeUuid: undefined,
 			afterUuid: undefined,
 		});
@@ -306,7 +300,7 @@ describe("getCrossLevelFieldMoveTargets", () => {
 
 	it("indents down into an empty container without a beforeUuid", () => {
 		// Edge case: empty container as next sibling → append by omitting beforeUuid.
-		const EMPTY = asUuid("empty-grp-uuid");
+		const EMPTY = testUuid("empty-grp-uuid");
 		const doc = buildDoc(FORM, [
 			{ uuid: Q1, id: "q1", kind: "text", parentUuid: FORM },
 			{
@@ -340,10 +334,10 @@ describe("getCrossLevelFieldMoveTargets", () => {
 
 	it("outdents from a deeply-nested container into its immediate parent", () => {
 		// outer -> before, inner (repeat) -> deep
-		const OUTER = asUuid("outer-uuid");
-		const BEFORE = asUuid("before-uuid");
-		const INNER = asUuid("inner-uuid");
-		const DEEP = asUuid("deep-uuid");
+		const OUTER = testUuid("outer-uuid");
+		const BEFORE = testUuid("before-uuid");
+		const INNER = testUuid("inner-uuid");
+		const DEEP = testUuid("deep-uuid");
 		const doc = buildDoc(FORM, [
 			{
 				uuid: OUTER,
@@ -371,8 +365,8 @@ describe("getCrossLevelFieldMoveTargets", () => {
 	});
 
 	it("treats repeat containers identically to groups for indent", () => {
-		const REP = asUuid("rep-uuid");
-		const R1 = asUuid("r1-uuid");
+		const REP = testUuid("rep-uuid");
+		const R1 = testUuid("r1-uuid");
 		const doc = buildDoc(FORM, [
 			{ uuid: Q1, id: "q1", kind: "text", parentUuid: FORM },
 			{

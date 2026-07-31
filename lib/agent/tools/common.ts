@@ -12,17 +12,32 @@ import {
 	AppProjectChangedError,
 	BlueprintCommitRejectedError,
 	CommitReauthError,
+	MutationBatchIdCollisionError,
 	RunHolderLostError,
 } from "@/lib/db/commitGuard";
 import {
-	describeIntroducedErrors,
+	describeCommitFindings,
+	evaluatePreparedMutationCandidate,
 	mutationCommitVerdict,
+	mutationWireCanonicalityRejection,
+	prepareMutationCandidate,
 } from "@/lib/doc/commitVerdicts";
-import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import {
+	extractLookupReferenceTargets,
+	LOOKUP_CONTEXT_UNAVAILABLE,
+	type LookupValidationContext,
+	unionLookupReferenceTargetSets,
+} from "@/lib/doc/lookupReferences";
+import {
+	type AdmittedMutationBatch,
+	type AdmittedMutationStages,
+	admitMutationBatch,
+	admitMutationStages,
+	MutationWireCanonicalityError,
+} from "@/lib/doc/mutationAdmission";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
-import type { MediaAttachExpectation } from "@/lib/media/attachVerdicts";
 import type {
 	StagedMutationBatch,
 	ToolExecutionContext,
@@ -40,10 +55,11 @@ export type { StagedMutationBatch };
  *
  * No-op on empty batches — returns the input doc by reference.
  */
-export function applyToDoc(doc: BlueprintDoc, muts: Mutation[]): BlueprintDoc {
-	if (muts.length === 0) return doc;
+export function applyToDoc(doc: BlueprintDoc, muts: unknown): BlueprintDoc {
+	const admitted = admitMutationBatch(muts);
+	if (admitted.length === 0) return doc;
 	return produce(doc, (draft) => {
-		applyMutations(draft, muts);
+		applyMutations(draft, admitted);
 	});
 }
 
@@ -52,12 +68,46 @@ export function applyToDoc(doc: BlueprintDoc, muts: Mutation[]): BlueprintDoc {
  * passed the validity gate AND was persisted; `newDoc` is the doc the
  * tool continues against. `ok: false` means the gate rejected the batch
  * — nothing was written — and `error` is the person-to-person message
- * (one line per introduced finding) the tool returns in its `{ error }`
+ * (one line per candidate finding) the tool returns in its `{ error }`
  * envelope so the agent self-corrects in its loop.
  */
 export type GuardedMutateOutcome =
-	| { ok: true; newDoc: BlueprintDoc }
+	| {
+			ok: true;
+			newDoc: BlueprintDoc;
+			mutations: AdmittedMutationBatch;
+	  }
 	| { ok: false; error: string };
+
+/**
+ * The Project definitions this batch's verdict needs.
+ *
+ * The commit gate is absolute, not a delta: a lookup occurrence it cannot
+ * check is a soundness finding, and a soundness finding rejects. So handing it
+ * an unavailable context whenever the doc holds ANY lookup carrier would refuse
+ * every mutating call on that app — not just the ones touching lookups. The
+ * targets are unioned across the before and after docs so an addition, an edit,
+ * and a clear all resolve against the same snapshot.
+ */
+async function lookupContextForCandidate(
+	ctx: ToolExecutionContext,
+	prevDoc: BlueprintDoc,
+	nextDoc: BlueprintDoc,
+): Promise<LookupValidationContext> {
+	const targets = unionLookupReferenceTargetSets(
+		extractLookupReferenceTargets(prevDoc),
+		extractLookupReferenceTargets(nextDoc),
+	);
+	if (targets.tableIds.length === 0) return LOOKUP_CONTEXT_UNAVAILABLE;
+	if (ctx.lookupDefinitions === undefined) return LOOKUP_CONTEXT_UNAVAILABLE;
+	const snapshot = await ctx.lookupDefinitions(targets.tableIds);
+	return {
+		kind: "available",
+		projectId: snapshot.projectId,
+		projectRevision: snapshot.projectRevision,
+		definitions: snapshot.definitions,
+	};
+}
 
 /**
  * The one write path for every mutating shared tool: gate the batch
@@ -74,32 +124,22 @@ export type GuardedMutateOutcome =
  * `applyToDoc` + `ctx.recordMutations` themselves — a direct write would
  * skip the gate. (`applyToDoc` stays exported for non-commit candidate
  * computation, e.g. `editField`'s convert pre-check.)
- *
- * `mediaExpectations` rides through to `ctx.recordMutations` when the
- * batch attaches media references: the media tools have already run the
- * pre-commit asset verdict (`mediaAttachVerdict`), and BOTH surfaces then
- * re-apply the per-asset judgment inside the guarded transaction that
- * re-verdicts the batch (see `toolExecutionContext.ts`).
  */
 export async function guardedMutate(
 	ctx: ToolExecutionContext,
 	prevDoc: BlueprintDoc,
-	mutations: Mutation[],
+	mutations: unknown,
 	stage?: string,
-	mediaExpectations?: readonly MediaAttachExpectation[],
 ): Promise<GuardedMutateOutcome> {
-	// S02b has no constructible lookup carriers. Keep this advisory tool-layer
-	// verdict explicit about lacking a definition snapshot; the authoritative
-	// writer always reloads fresh Project definitions before it commits.
 	const verdict = mutationCommitVerdict(
 		prevDoc,
 		mutations,
-		LOOKUP_CONTEXT_UNAVAILABLE,
+		await lookupContextForCandidate(ctx, prevDoc, prevDoc),
 	);
 	if (!verdict.ok) {
-		return { ok: false, error: describeIntroducedErrors(verdict.introduced) };
+		return { ok: false, error: describeCommitFindings(verdict.findings) };
 	}
-	if (mutations.length > 0) {
+	if (verdict.mutations.length > 0) {
 		/* The guarded commit re-applies onto the FRESH stored doc, so its
 		 * `committedDoc` may carry a peer's concurrent edit merged in — the SA
 		 * continues against THAT, not the tool's pre-commit `nextDoc`. A
@@ -107,15 +147,18 @@ export async function guardedMutate(
 		 * authoritative commit conflict throws `BlueprintCommitRejectedError`,
 		 * which is NOT caught here — it propagates to `wrapMutating`, which
 		 * reloads fresh. */
-		const { committedDoc } = await ctx.recordMutations(
-			mutations,
-			verdict.nextDoc,
-			stage,
-			mediaExpectations,
-		);
-		return { ok: true, newDoc: committedDoc };
+		const { committedDoc } = await ctx.recordMutations(verdict.prepared, stage);
+		return {
+			ok: true,
+			newDoc: committedDoc,
+			mutations: verdict.mutations,
+		};
 	}
-	return { ok: true, newDoc: verdict.nextDoc };
+	return {
+		ok: true,
+		newDoc: verdict.nextDoc,
+		mutations: verdict.mutations,
+	};
 }
 
 /**
@@ -138,23 +181,35 @@ export async function guardedMutate(
 export async function guardedMutateStages(
 	ctx: ToolExecutionContext,
 	prevDoc: BlueprintDoc,
-	stages: StagedMutationBatch[],
+	stages: unknown,
 ): Promise<GuardedMutateOutcome> {
-	const all = stages.flatMap((s) => s.mutations);
-	const verdict = mutationCommitVerdict(
-		prevDoc,
-		all,
-		LOOKUP_CONTEXT_UNAVAILABLE,
+	let admitted: AdmittedMutationStages;
+	try {
+		admitted = admitMutationStages(stages);
+	} catch (error) {
+		if (!(error instanceof MutationWireCanonicalityError)) throw error;
+		const rejected = mutationWireCanonicalityRejection(prevDoc, error);
+		if (rejected.ok) throw new Error("Canonicality rejection was accepted");
+		return {
+			ok: false,
+			error: describeCommitFindings(rejected.findings),
+		};
+	}
+	const prepared = prepareMutationCandidate(prevDoc, admitted.batch);
+	const verdict = evaluatePreparedMutationCandidate(
+		prepared,
+		await lookupContextForCandidate(ctx, prevDoc, prepared.nextDoc),
 	);
 	if (!verdict.ok) {
-		return { ok: false, error: describeIntroducedErrors(verdict.introduced) };
+		return { ok: false, error: describeCommitFindings(verdict.findings) };
 	}
-	const nonEmpty = stages.filter((s) => s.mutations.length > 0);
-	if (nonEmpty.length === 0) return { ok: true, newDoc: prevDoc };
+	if (admitted.batch.length === 0) {
+		return { ok: true, newDoc: prevDoc, mutations: admitted.batch };
+	}
 	// The SA continues against the writer's committed doc (a peer edit merged
 	// in), not the tool's final-stage doc.
-	const { committedDoc } = await ctx.recordMutationStages(nonEmpty);
-	return { ok: true, newDoc: committedDoc };
+	const { committedDoc } = await ctx.recordMutationStages(prepared, admitted);
+	return { ok: true, newDoc: committedDoc, mutations: admitted.batch };
 }
 
 /**
@@ -180,7 +235,7 @@ export async function guardedMutateStages(
  */
 export interface MutatingToolResult<R> {
 	kind: "mutate";
-	mutations: Mutation[];
+	mutations: readonly Mutation[];
 	newDoc: BlueprintDoc;
 	result: R;
 }
@@ -238,7 +293,13 @@ export function toToolErrorResult(
 		err instanceof AppProjectChangedError ||
 		err instanceof BlueprintCommitRejectedError ||
 		err instanceof CommitReauthError ||
-		err instanceof RunHolderLostError
+		err instanceof RunHolderLostError ||
+		// A batch id is server-minted, so reusing one for different content is an
+		// internal protocol failure rather than anything the model did. Returning
+		// the ordinary `{ error }` envelope would hand it a message it reads as
+		// retryable and invite it to remint the id and call again — turning one
+		// broken write into a loop. Re-thrown so the run aborts instead.
+		err instanceof MutationBatchIdCollisionError
 	) {
 		throw err;
 	}

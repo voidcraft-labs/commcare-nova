@@ -25,7 +25,6 @@ import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useUserProperties } from "@/lib/doc/hooks/useUserCollections";
 import { userPropertySlugVerdict } from "@/lib/doc/identifierVerdicts";
-import type { Uuid } from "@/lib/doc/types";
 import type { RemoveUserPropertyPlan } from "@/lib/doc/userMutations";
 import { BUILT_IN_USER_PROPERTIES, type UserProperty } from "@/lib/domain";
 import { useCanEdit } from "@/lib/session/hooks";
@@ -151,7 +150,7 @@ function PropertyRow({
 				messages: ["You no longer have edit access."],
 			};
 		}
-		return mutations.inline.updateUserProperty(property.uuid as Uuid, patch);
+		return mutations.inline.updateUserProperty(property.uuid, patch);
 	};
 
 	const validateSlug = (slug: string) => {
@@ -308,13 +307,11 @@ function PropertyRow({
 										onClick={() => {
 											if (!sessionApi.getState().canEdit) return;
 											const outcome = mutations.inline.removeUserProperty(
-												property.uuid as Uuid,
+												property.uuid,
 											);
 											if (!outcome.ok) {
 												setRemovalPlan(
-													mutations.inspectUserPropertyRemoval(
-														property.uuid as Uuid,
-													),
+													mutations.inspectUserPropertyRemoval(property.uuid),
 												);
 												setRemovalError(outcome.messages.join(" "));
 												return;
@@ -348,7 +345,7 @@ function PropertyRow({
 							onClick={() => {
 								setRemovalError(undefined);
 								setRemovalPlan(
-									mutations.inspectUserPropertyRemoval(property.uuid as Uuid),
+									mutations.inspectUserPropertyRemoval(property.uuid),
 								);
 							}}
 							className="h-11 self-start px-2.5 text-[13px] text-nova-rose hover:bg-nova-rose/[0.1] hover:text-nova-rose"

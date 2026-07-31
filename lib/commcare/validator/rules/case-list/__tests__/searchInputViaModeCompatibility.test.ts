@@ -1,12 +1,10 @@
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
  * Tests for `searchInputViaModeCompatibility`. The rule rejects
  * simple-arm `(mode, via, name vs property)` combinations no CCHQ
  * wire shape carries faithfully:
  *
- *   - `multi-select-contains` on every simple-arm input (CCHQ's
- *     prompt slot defaults to full-string exact match, so token
- *     containment silently mismatches regardless of via).
  *   - `range` on simple-arm inputs whose `via` is non-self (CCHQ's
  *     daterange widget binds one encoded start/end pair, but a prompt carries
  *     no relation-walk metadata;
@@ -21,7 +19,6 @@ import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import {
 	advancedSearchInputDef,
-	asUuid,
 	plainColumn,
 	simpleSearchInputDef,
 } from "@/lib/domain";
@@ -31,7 +28,6 @@ import {
 	literal,
 	prop,
 	relationStep,
-	subcasePath,
 } from "@/lib/domain/predicate";
 import { runValidation } from "../../../runner";
 
@@ -76,172 +72,12 @@ const standardForm = {
 			kind: "text" as const,
 			id: "case_name",
 			label: "Name",
-			case_property_on: "patient",
+			caseWrite: { caseType: "patient", property: "case_name" },
 		}),
 	],
 };
 
 describe("searchInputViaModeCompatibility", () => {
-	it("rejects range mode paired with a one-date widget", () => {
-		const doc = buildDoc({
-			appName: "T",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: {
-						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("c-1")],
-						detailColumnOrder: [asUuid("c-1")],
-						searchInputs: [
-							simpleSearchInputDef(
-								asUuid("si-date-range-mode"),
-								"visit_date",
-								"Visit date",
-								"date",
-								"visit_date",
-								{ mode: { kind: "range" } },
-							),
-						],
-					},
-					forms: [standardForm],
-				},
-			],
-			caseTypes,
-		});
-
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(error) => error.code === CODE,
-		);
-		expect(hits).toHaveLength(1);
-		expect(hits[0].details).toMatchObject({
-			inputType: "date",
-			modeKind: "range",
-			reason: "range-needs-date-range-widget",
-		});
-	});
-
-	it("rejects a date-range widget paired with a one-value mode", () => {
-		const doc = buildDoc({
-			appName: "T",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: {
-						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("c-1")],
-						detailColumnOrder: [asUuid("c-1")],
-						searchInputs: [
-							simpleSearchInputDef(
-								asUuid("si-range-exact-mode"),
-								"visit_date",
-								"Visit date",
-								"date-range",
-								"visit_date",
-								{ mode: { kind: "exact" } },
-							),
-						],
-					},
-					forms: [standardForm],
-				},
-			],
-			caseTypes,
-		});
-
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(error) => error.code === CODE,
-		);
-		expect(hits).toHaveLength(1);
-		expect(hits[0].details).toMatchObject({
-			inputType: "date-range",
-			modeKind: "exact",
-			reason: "date-range-needs-range-mode",
-		});
-	});
-
-	it("fires for `multi-select-contains` mode on a non-self via", () => {
-		const doc = buildDoc({
-			appName: "T",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: {
-						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("c-1")],
-						detailColumnOrder: [asUuid("c-1")],
-						searchInputs: [
-							simpleSearchInputDef(
-								asUuid("si-1"),
-								"child_tags",
-								"Child tags",
-								"select",
-								"tags",
-								{
-									via: subcasePath("child"),
-									mode: { kind: "multi-select-contains", quantifier: "any" },
-								},
-							),
-						],
-					},
-					forms: [standardForm],
-				},
-			],
-			caseTypes,
-		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(e) => e.code === CODE,
-		);
-		expect(hits).toHaveLength(1);
-		expect(hits[0].message).toContain("child_tags");
-		expect(hits[0].message).toContain("multi-select-contains");
-		// Error directs to the advanced-arm `selected(...)` shape.
-		expect(hits[0].message).toContain("selected(");
-	});
-
-	it("fires for `multi-select-contains` mode on a self-walk input", () => {
-		// Self-walk `multi-select-contains` mismatches at CCHQ's
-		// runtime: the prompt slot binds a single literal string and
-		// the default `case_property_query` does full-string exact
-		// match — "green" never matches a property storing
-		// "red green blue".
-		const doc = buildDoc({
-			appName: "T",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: {
-						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("c-1")],
-						detailColumnOrder: [asUuid("c-1")],
-						searchInputs: [
-							simpleSearchInputDef(
-								asUuid("si-self-multi"),
-								"tag_pick",
-								"Tags",
-								"select",
-								"tags",
-								{
-									mode: { kind: "multi-select-contains", quantifier: "any" },
-								},
-							),
-						],
-					},
-					forms: [standardForm],
-				},
-			],
-			caseTypes,
-		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(e) => e.code === CODE,
-		);
-		expect(hits).toHaveLength(1);
-		expect(hits[0].message).toContain("tag_pick");
-		expect(hits[0].message).toContain("multi-select-contains");
-	});
-
 	it("fires for `range` mode on a non-self via (date-range default)", () => {
 		const doc = buildDoc({
 			appName: "T",
@@ -250,12 +86,12 @@ describe("searchInputViaModeCompatibility", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("c-1")],
-						detailColumnOrder: [asUuid("c-1")],
+						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [testUuid("c-1")],
+						detailColumnOrder: [testUuid("c-1")],
 						searchInputs: [
 							simpleSearchInputDef(
-								asUuid("si-2"),
+								testUuid("si-2"),
 								"visit_window",
 								"Visit window",
 								"date-range",
@@ -287,12 +123,12 @@ describe("searchInputViaModeCompatibility", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("c-1")],
-						detailColumnOrder: [asUuid("c-1")],
+						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [testUuid("c-1")],
+						detailColumnOrder: [testUuid("c-1")],
 						searchInputs: [
 							simpleSearchInputDef(
-								asUuid("si-exact"),
+								testUuid("si-exact"),
 								"parent_name",
 								"Parent name",
 								"text",
@@ -300,7 +136,7 @@ describe("searchInputViaModeCompatibility", () => {
 								{ via: ancestorPath(relationStep("parent")) },
 							),
 							simpleSearchInputDef(
-								asUuid("si-fuzzy"),
+								testUuid("si-fuzzy"),
 								"parent_name_fuzzy",
 								"Parent fuzzy",
 								"text",
@@ -311,7 +147,7 @@ describe("searchInputViaModeCompatibility", () => {
 								},
 							),
 							simpleSearchInputDef(
-								asUuid("si-starts"),
+								testUuid("si-starts"),
 								"parent_name_starts",
 								"Parent starts",
 								"text",
@@ -322,7 +158,7 @@ describe("searchInputViaModeCompatibility", () => {
 								},
 							),
 							simpleSearchInputDef(
-								asUuid("si-phon"),
+								testUuid("si-phon"),
 								"parent_name_phon",
 								"Parent phonetic",
 								"text",
@@ -333,7 +169,7 @@ describe("searchInputViaModeCompatibility", () => {
 								},
 							),
 							simpleSearchInputDef(
-								asUuid("si-fdate"),
+								testUuid("si-fdate"),
 								"parent_visit",
 								"Parent visit",
 								"date",
@@ -372,12 +208,12 @@ describe("searchInputViaModeCompatibility", () => {
 					name: "Mod",
 					caseType: "household",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("c-1")],
-						detailColumnOrder: [asUuid("c-1")],
+						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [testUuid("c-1")],
+						detailColumnOrder: [testUuid("c-1")],
 						searchInputs: [
 							simpleSearchInputDef(
-								asUuid("si-r"),
+								testUuid("si-r"),
 								"visit_date",
 								"Visit",
 								"date-range",
@@ -394,7 +230,7 @@ describe("searchInputViaModeCompatibility", () => {
 									kind: "text" as const,
 									id: "case_name",
 									label: "Name",
-									case_property_on: "household",
+									caseWrite: { caseType: "household", property: "case_name" },
 								}),
 							],
 						},
@@ -403,40 +239,6 @@ describe("searchInputViaModeCompatibility", () => {
 			],
 			caseTypes,
 		});
-		expect(
-			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
-				(e) => e.code === CODE,
-			),
-		).toBe(false);
-	});
-
-	it("admits a legacy date-opened target when its prompt name is canonical", () => {
-		const doc = buildDoc({
-			appName: "T",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "household",
-					caseListOnly: true,
-					caseListConfig: {
-						columns: [plainColumn(asUuid("c-legacy"), "case_name", "Name")],
-						listColumnOrder: [asUuid("c-legacy")],
-						detailColumnOrder: [asUuid("c-legacy")],
-						searchInputs: [
-							simpleSearchInputDef(
-								asUuid("si-legacy-range"),
-								"date_opened",
-								"Date opened",
-								"date-range",
-								"date-opened",
-							),
-						],
-					},
-				},
-			],
-			caseTypes,
-		});
-
 		expect(
 			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
 				(e) => e.code === CODE,
@@ -458,12 +260,12 @@ describe("searchInputViaModeCompatibility", () => {
 					name: "Mod",
 					caseType: "household",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("c-1")],
-						detailColumnOrder: [asUuid("c-1")],
+						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [testUuid("c-1")],
+						detailColumnOrder: [testUuid("c-1")],
 						searchInputs: [
 							simpleSearchInputDef(
-								asUuid("si-range-mismatch"),
+								testUuid("si-range-mismatch"),
 								"window",
 								"Window",
 								"date-range",
@@ -480,7 +282,7 @@ describe("searchInputViaModeCompatibility", () => {
 									kind: "text" as const,
 									id: "case_name",
 									label: "Name",
-									case_property_on: "household",
+									caseWrite: { caseType: "household", property: "case_name" },
 								}),
 							],
 						},
@@ -506,12 +308,12 @@ describe("searchInputViaModeCompatibility", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("c-1")],
-						detailColumnOrder: [asUuid("c-1")],
+						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [testUuid("c-1")],
+						detailColumnOrder: [testUuid("c-1")],
 						searchInputs: [
 							advancedSearchInputDef(
-								asUuid("si-adv"),
+								testUuid("si-adv"),
 								"adv",
 								"Adv",
 								"text",

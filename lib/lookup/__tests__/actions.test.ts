@@ -7,11 +7,40 @@ const mocks = vi.hoisted(() => {
 	class MockAppAccessError extends Error {
 		readonly name = "AppAccessError";
 	}
+	class MockGovernanceError extends Error {
+		readonly name = "LookupSchemaGovernanceError";
+		constructor(
+			readonly code: string,
+			message: string,
+			readonly options: {
+				blockingAppIds?: readonly string[];
+				incompatibleRowIds?: readonly string[];
+				currentRevisions?: unknown;
+			} = {},
+		) {
+			super(message);
+		}
+		get blockingAppIds() {
+			return this.options.blockingAppIds;
+		}
+		get incompatibleRowIds() {
+			return this.options.incompatibleRowIds;
+		}
+		get currentRevisions() {
+			return this.options.currentRevisions;
+		}
+	}
 	return {
 		AppAccessError: MockAppAccessError,
+		LookupSchemaGovernanceError: MockGovernanceError,
 		getSession: vi.fn(),
 		resolveProjectAccess: vi.fn(),
 		logError: vi.fn(),
+		logWarn: vi.fn(),
+		getAppDb: vi.fn(),
+		readLookupReferencingApps: vi.fn(),
+		applyLookupSchemaGovernance: vi.fn(),
+		getLookupDefinitions: vi.fn(),
 		getLookupManifest: vi.fn(),
 		getLookupTable: vi.fn(),
 		createLookupTable: vi.fn(),
@@ -33,8 +62,19 @@ vi.mock("@/lib/db/appAccess", () => ({
 	AppAccessError: mocks.AppAccessError,
 	resolveProjectAccess: mocks.resolveProjectAccess,
 }));
-vi.mock("@/lib/logger", () => ({ log: { error: mocks.logError } }));
+vi.mock("@/lib/db/pg", () => ({ getAppDb: mocks.getAppDb }));
+vi.mock("@/lib/db/lookupReferenceEdges", () => ({
+	readLookupReferencingApps: mocks.readLookupReferencingApps,
+}));
+vi.mock("@/lib/logger", () => ({
+	log: { error: mocks.logError, warn: mocks.logWarn },
+}));
+vi.mock("../schemaGovernance", () => ({
+	LookupSchemaGovernanceError: mocks.LookupSchemaGovernanceError,
+	applyLookupSchemaGovernance: mocks.applyLookupSchemaGovernance,
+}));
 vi.mock("../service", () => ({
+	getLookupDefinitions: mocks.getLookupDefinitions,
 	getLookupManifest: mocks.getLookupManifest,
 	getLookupTable: mocks.getLookupTable,
 	createLookupTable: mocks.createLookupTable,
@@ -67,6 +107,16 @@ beforeEach(() => {
 		projectId: "project-1",
 		role: "editor",
 		actorUserId: "user-1",
+	});
+	mocks.getAppDb.mockResolvedValue({});
+	mocks.readLookupReferencingApps.mockResolvedValue([]);
+	mocks.applyLookupSchemaGovernance.mockResolvedValue({
+		kind: "delete-table",
+		tableId: TABLE_ID,
+		projectRevision: "2",
+		deletedColumnCount: 1,
+		deletedRowCount: 2,
+		freedBytes: 10,
 	});
 	for (const mock of [
 		mocks.updateLookupTableName,
@@ -131,7 +181,7 @@ describe("lookup Server Actions", () => {
 		expect(result).toEqual({ success: true, value: manifest });
 	});
 
-	it("runtime-parses a table identity before calling the read service", async () => {
+	it("rejects a noncanonical table identity before calling the read service", async () => {
 		const table = { id: TABLE_ID };
 		mocks.getLookupTable.mockResolvedValue(table);
 
@@ -140,15 +190,68 @@ describe("lookup Server Actions", () => {
 			TABLE_ID.toUpperCase(),
 		);
 
-		expect(mocks.getLookupTable).toHaveBeenCalledWith(
+		expect(mocks.getLookupTable).not.toHaveBeenCalled();
+		expect(result).toEqual({
+			success: false,
+			code: "invalid_input",
+			message: expect.any(String),
+			details: [
+				{
+					code: "invalid_input",
+					message: "Expected a canonical lowercase UUIDv7 identifier.",
+				},
+			],
+			totalDetailCount: 1,
+		});
+	});
+
+	it("reads one definition without fetching table rows", async () => {
+		const snapshot = {
+			projectId: "project-1",
+			projectRevision: "3",
+			definitions: [],
+		};
+		mocks.getLookupDefinitions.mockResolvedValue(snapshot);
+
+		const result = await actions.getLookupDefinitionAction(
+			"project-1",
+			TABLE_ID,
+		);
+
+		expect(mocks.getLookupDefinitions).toHaveBeenCalledWith(
 			{
 				projectId: "project-1",
 				actorId: "user-1",
 				role: "editor",
 			},
-			TABLE_ID,
+			[TABLE_ID],
 		);
-		expect(result).toEqual({ success: true, value: table });
+		expect(mocks.getLookupTable).not.toHaveBeenCalled();
+		expect(result).toEqual({ success: true, value: snapshot });
+	});
+
+	it("queries referencing apps in the authorized Project with view capability", async () => {
+		const named = [{ appId: "app-1", appName: "Households", deleted: false }];
+		mocks.readLookupReferencingApps.mockResolvedValue(named);
+		const db = {};
+		mocks.getAppDb.mockResolvedValue(db);
+
+		const result = await actions.getLookupReferencingAppsAction("project-1", {
+			tableId: TABLE_ID,
+			columnId: COLUMN_ID,
+		});
+
+		expect(mocks.resolveProjectAccess).toHaveBeenCalledWith(
+			"user-1",
+			"project-1",
+			"view",
+		);
+		expect(mocks.readLookupReferencingApps).toHaveBeenCalledWith(db, {
+			projectId: "project-1",
+			tableId: TABLE_ID,
+			columnId: COLUMN_ID,
+		});
+		expect(result).toEqual({ success: true, value: named });
 	});
 
 	it("requires edit for additive schema and row creation, returning minted ids", async () => {
@@ -208,6 +311,186 @@ describe("lookup Server Actions", () => {
 		expect(
 			mocks.resolveProjectAccess.mock.calls.map((call) => call[2]),
 		).toEqual(["delete", "delete", "edit"]);
+	});
+
+	it("maps delete-table, remove-column, and retype-column through the delete gate", async () => {
+		await actions.deleteLookupTableAction("project-1", {
+			tableId: TABLE_ID,
+			expectedTableRevision: "1",
+		});
+		await actions.removeLookupColumnAction("project-1", {
+			tableId: TABLE_ID,
+			columnId: COLUMN_ID,
+			expectedTableRevision: "1",
+		});
+		await actions.retypeLookupColumnAction("project-1", {
+			tableId: TABLE_ID,
+			columnId: COLUMN_ID,
+			expectedTableRevision: "1",
+			dataType: "int",
+		});
+
+		expect(
+			mocks.resolveProjectAccess.mock.calls.map((call) => call[2]),
+		).toEqual(["delete", "delete", "delete"]);
+		expect(mocks.applyLookupSchemaGovernance).toHaveBeenNthCalledWith(
+			1,
+			expect.objectContaining({ projectId: "project-1" }),
+			{
+				kind: "delete-table",
+				tableId: TABLE_ID,
+				expectedTableRevision: "1",
+			},
+		);
+		expect(mocks.applyLookupSchemaGovernance).toHaveBeenNthCalledWith(
+			2,
+			expect.anything(),
+			{
+				kind: "remove-column",
+				tableId: TABLE_ID,
+				columnId: COLUMN_ID,
+				expectedTableRevision: "1",
+			},
+		);
+		expect(mocks.applyLookupSchemaGovernance).toHaveBeenNthCalledWith(
+			3,
+			expect.anything(),
+			{
+				kind: "retype-column",
+				tableId: TABLE_ID,
+				columnId: COLUMN_ID,
+				expectedTableRevision: "1",
+				dataType: "int",
+			},
+		);
+	});
+
+	it("keeps governance membership and capability denials opaque", async () => {
+		mocks.resolveProjectAccess.mockRejectedValue(
+			new mocks.AppAccessError("insufficient_role"),
+		);
+
+		const result = await actions.deleteLookupTableAction("foreign-project", {
+			tableId: TABLE_ID,
+			expectedTableRevision: "1",
+		});
+
+		expect(result).toEqual({
+			success: false,
+			code: "not_found",
+			message: "Lookup table not found.",
+		});
+		expect(mocks.applyLookupSchemaGovernance).not.toHaveBeenCalled();
+	});
+
+	it("names referenced apps including their trash state", async () => {
+		const chain = {
+			selectFrom: vi.fn(),
+			where: vi.fn(),
+			select: vi.fn(),
+			orderBy: vi.fn(),
+			execute: vi.fn().mockResolvedValue([
+				{
+					id: "app-1",
+					app_name: "Old register",
+					deleted_at: new Date("2026-01-01T00:00:00Z"),
+				},
+			]),
+		};
+		for (const method of [
+			"selectFrom",
+			"where",
+			"select",
+			"orderBy",
+		] as const) {
+			chain[method].mockReturnValue(chain);
+		}
+		mocks.getAppDb.mockResolvedValue(chain);
+		mocks.applyLookupSchemaGovernance.mockRejectedValue(
+			new mocks.LookupSchemaGovernanceError(
+				"referenced",
+				"An app still uses this table.",
+				{ blockingAppIds: ["app-1"] },
+			),
+		);
+
+		const result = await actions.deleteLookupTableAction("project-1", {
+			tableId: TABLE_ID,
+			expectedTableRevision: "1",
+		});
+
+		expect(result).toMatchObject({
+			success: false,
+			code: "referenced",
+			blockingApps: [
+				{ appId: "app-1", appName: "Old register", deleted: true },
+			],
+		});
+	});
+
+	it("preserves governance conflict revisions", async () => {
+		mocks.applyLookupSchemaGovernance.mockRejectedValue(
+			new mocks.LookupSchemaGovernanceError("conflict", "The table changed.", {
+				currentRevisions: {
+					definitionRevision: "4",
+					rowsRevision: "5",
+					tableRevision: "5",
+				},
+			}),
+		);
+
+		const result = await actions.removeLookupColumnAction("project-1", {
+			tableId: TABLE_ID,
+			columnId: COLUMN_ID,
+			expectedTableRevision: "3",
+		});
+
+		expect(result).toMatchObject({
+			success: false,
+			code: "conflict",
+			currentRevisions: { tableRevision: "5" },
+		});
+	});
+
+	it("contains reference-query failures without claiming an empty result", async () => {
+		const fault = new Error("reference query failed");
+		mocks.readLookupReferencingApps.mockRejectedValue(fault);
+
+		const result = await actions.getLookupReferencingAppsAction("project-1", {
+			tableId: TABLE_ID,
+		});
+
+		expect(result).toMatchObject({ success: false, code: "internal_error" });
+		expect(mocks.logError).toHaveBeenCalledWith(
+			"[lookup/action] unhandled",
+			fault,
+		);
+	});
+
+	it("keeps a referenced refusal when naming blockers fails", async () => {
+		mocks.getAppDb.mockRejectedValue(new Error("naming query failed"));
+		mocks.applyLookupSchemaGovernance.mockRejectedValue(
+			new mocks.LookupSchemaGovernanceError(
+				"referenced",
+				"An app still uses this table.",
+				{ blockingAppIds: ["app-1"] },
+			),
+		);
+
+		const result = await actions.deleteLookupTableAction("project-1", {
+			tableId: TABLE_ID,
+			expectedTableRevision: "1",
+		});
+
+		expect(result).toEqual({
+			success: false,
+			code: "referenced",
+			message: "An app still uses this table.",
+		});
+		expect(mocks.logWarn).toHaveBeenCalledWith(
+			"[lookup/governance] could not name blocking apps",
+			{ err: "naming query failed" },
+		);
 	});
 
 	it("runtime-parses revisions and UUIDs instead of trusting TypeScript", async () => {

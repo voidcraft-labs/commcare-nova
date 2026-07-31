@@ -9,9 +9,9 @@ import {
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { settleBaseUiTransitions } from "@/__tests__/helpers/baseUiInteractions";
+import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import { TooltipProvider } from "@/components/shadcn/tooltip";
 import { ICON_CATALOG } from "@/lib/domain/builtinIcons";
-import { asAssetId } from "@/lib/domain/multimedia";
 import { BuilderSessionContext } from "@/lib/session/provider";
 import { createBuilderSessionStore } from "@/lib/session/store";
 import { MediaPickerDialog } from "../MediaPickerDialog";
@@ -83,7 +83,7 @@ describe("MediaPickerDialog", () => {
 
 	it("keeps preview and delete visible and clickable when hover isn't available", async () => {
 		mocks.assets.push({
-			id: asAssetId("asset-1"),
+			id: testMediaAssetId("asset-1"),
 			contentHash: "hash-1",
 			mimeType: "image/png",
 			kind: "image",
@@ -134,7 +134,7 @@ describe("MediaPickerDialog", () => {
 
 	it("keeps the library preview-only for a Project viewer", () => {
 		mocks.assets.push({
-			id: asAssetId("asset-viewer"),
+			id: testMediaAssetId("asset-viewer"),
 			contentHash: "hash-viewer",
 			mimeType: "image/png",
 			kind: "image",
@@ -166,7 +166,7 @@ describe("MediaPickerDialog", () => {
 
 	it("rechecks the live session capability before deleting", async () => {
 		mocks.assets.push({
-			id: asAssetId("asset-stale-delete"),
+			id: testMediaAssetId("asset-stale-delete"),
 			contentHash: "hash-stale-delete",
 			mimeType: "image/png",
 			kind: "image",
@@ -217,7 +217,7 @@ describe("MediaPickerDialog", () => {
 		const documentTitle =
 			"Community maternal and child health referral plan for every district";
 		mocks.assets.push({
-			id: asAssetId("asset-long-name"),
+			id: testMediaAssetId("asset-long-name"),
 			contentHash: "hash-long-name",
 			mimeType:
 				"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -278,7 +278,7 @@ describe("MediaPickerDialog", () => {
 
 	it("sends name search to the authoritative paginated library request", async () => {
 		const olderMatch: MediaAssetView = {
-			id: asAssetId("older-match"),
+			id: testMediaAssetId("older-match"),
 			contentHash: "hash-older",
 			mimeType: "image/png",
 			kind: "image",

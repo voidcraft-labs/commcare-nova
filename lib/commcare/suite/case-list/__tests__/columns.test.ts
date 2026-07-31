@@ -19,19 +19,21 @@
 //      keyed under the column's uuid.
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import {
-	asUuid,
 	type Column,
 	calculatedColumn,
 	dateColumn,
 	idMappingColumn,
 	idMappingEntry,
 	intervalColumn,
+	ProseProjectionError,
 	phoneColumn,
 	plainColumn,
 	type Uuid,
 } from "@/lib/domain";
 import { literal, prop, term } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { emitColumnField } from "../columns";
 import type { ResolvedSortDirective } from "../sortKeys";
 import type { CaseListEmitContext } from "../types";
@@ -41,12 +43,12 @@ import type { CaseListEmitContext } from "../types";
 // ============================================================
 
 const COL_UUIDS = {
-	a: asUuid("00000000-0000-4000-8000-cccc00000001"),
-	b: asUuid("00000000-0000-4000-8000-cccc00000002"),
-	c: asUuid("00000000-0000-4000-8000-cccc00000003"),
-	d: asUuid("00000000-0000-4000-8000-cccc00000004"),
-	e: asUuid("00000000-0000-4000-8000-cccc00000005"),
-	f: asUuid("00000000-0000-4000-8000-cccc00000006"),
+	a: testUuid("00000000-0000-4000-8000-cccc00000001"),
+	b: testUuid("00000000-0000-4000-8000-cccc00000002"),
+	c: testUuid("00000000-0000-4000-8000-cccc00000003"),
+	d: testUuid("00000000-0000-4000-8000-cccc00000004"),
+	e: testUuid("00000000-0000-4000-8000-cccc00000005"),
+	f: testUuid("00000000-0000-4000-8000-cccc00000006"),
 } as const;
 
 /**
@@ -60,6 +62,7 @@ const emptyCtx: CaseListEmitContext = {
 	detailKind: "short",
 	target: "case",
 	caseProperties: [],
+	proseDoc: { fields: {}, forms: {}, fieldOrder: {} },
 };
 
 /** Build a single-entry sort map keyed under a column's uuid. */
@@ -106,11 +109,11 @@ describe("emitColumnField — plain", () => {
 			caseProperties: [
 				{
 					name: "priority",
-					label: "Priority",
+					label: proseText("Priority"),
 					data_type: "single_select",
 					options: [
-						{ value: "routine", label: "Routine" },
-						{ value: "urgent", label: "Urgent" },
+						{ value: "routine", label: proseText("Routine") },
+						{ value: "urgent", label: proseText("Urgent") },
 					],
 				},
 			],
@@ -126,6 +129,38 @@ describe("emitColumnField — plain", () => {
 		);
 	});
 
+	it("fails closed when a select label's authored identity is unresolved", () => {
+		const missingPropertyUuid = testUuid("missing-worker-property");
+		const col = plainColumn(COL_UUIDS.a, "priority", "Priority");
+		const ctx: CaseListEmitContext = {
+			...emptyCtx,
+			caseProperties: [
+				{
+					name: "priority",
+					label: proseText("Priority"),
+					data_type: "single_select",
+					options: [
+						{
+							value: "urgent",
+							label: {
+								parts: [
+									{
+										kind: "user-property-ref",
+										userPropertyUuid: missingPropertyUuid,
+									},
+								],
+							},
+						},
+					],
+				},
+			],
+		};
+
+		expect(() => emitColumnField({ column: col, position: 1, ctx })).toThrow(
+			ProseProjectionError,
+		);
+	});
+
 	it("labels a multi-word single-select value exactly, never by token prefix", () => {
 		const col = plainColumn(COL_UUIDS.a, "region", "Region");
 		const ctx: CaseListEmitContext = {
@@ -133,11 +168,11 @@ describe("emitColumnField — plain", () => {
 			caseProperties: [
 				{
 					name: "region",
-					label: "Region",
+					label: proseText("Region"),
 					data_type: "single_select",
 					options: [
-						{ value: "north", label: "North" },
-						{ value: "north region", label: "North Region" },
+						{ value: "north", label: proseText("North") },
+						{ value: "north region", label: proseText("North Region") },
 					],
 				},
 			],
@@ -159,11 +194,11 @@ describe("emitColumnField — plain", () => {
 			caseProperties: [
 				{
 					name: "tags",
-					label: "Tags",
+					label: proseText("Tags"),
 					data_type: "multi_select",
 					options: [
-						{ value: "vip", label: "VIP" },
-						{ value: "follow.up", label: "Needs follow-up" },
+						{ value: "vip", label: proseText("VIP") },
+						{ value: "follow.up", label: proseText("Needs follow-up") },
 					],
 				},
 			],
@@ -193,23 +228,23 @@ describe("emitColumnField — plain", () => {
 });
 
 describe("emitColumnField — date", () => {
-	it("lowers a semantic preset to the same supported pattern as Preview", () => {
-		const col = dateColumn(COL_UUIDS.a, "opened_on", "Opened", "long");
+	it("preserves the stored concrete CommCare pattern", () => {
+		const col = dateColumn(COL_UUIDS.a, "date_opened", "Opened", "%B %e, %Y");
 		const out = emitColumnField({ column: col, position: 1, ctx: emptyCtx });
 		expect(out.xml).toContain(
-			"format-date(date(opened_on), &apos;%B %e, %Y&apos;)",
+			"format-date(date(date_opened), &apos;%B %e, %Y&apos;)",
 		);
 	});
 
 	it("wraps the property in CCHQ's empty-string-guarded format-date shape", () => {
-		const col = dateColumn(COL_UUIDS.a, "opened_on", "Opened", "%d/%m/%Y");
+		const col = dateColumn(COL_UUIDS.a, "date_opened", "Opened", "%d/%m/%Y");
 		const out = emitColumnField({ column: col, position: 1, ctx: emptyCtx });
 		// CCHQ's date-format wire shape: per
 		// `detail_screen.py::Date`, `if({xpath} = '', '', format-date(date({xpath}), 'pattern'))`.
 		// XPath single-quote literals round-trip through the serializer
 		// as `&apos;` inside the double-quoted attribute value.
 		expect(out.xml).toContain(
-			"if(opened_on = &apos;&apos;, &apos;&apos;, format-date(date(opened_on), &apos;%d/%m/%Y&apos;))",
+			"if(date_opened = &apos;&apos;, &apos;&apos;, format-date(date(date_opened), &apos;%d/%m/%Y&apos;))",
 		);
 	});
 
@@ -217,7 +252,12 @@ describe("emitColumnField — date", () => {
 		// `'em%dpattern` would break the `format-date(date(...), '<pattern>')`
 		// shape if the helper interpolated naively; the concat-fallback
 		// shape preserves the literal.
-		const col = dateColumn(COL_UUIDS.a, "opened_on", "Opened", "'em%dpattern");
+		const col = dateColumn(
+			COL_UUIDS.a,
+			"date_opened",
+			"Opened",
+			"'em%dpattern",
+		);
 		const out = emitColumnField({ column: col, position: 1, ctx: emptyCtx });
 		expect(out.xml).toContain("concat(");
 		// The concat-fallback's literal-quote separator is `"'"` which
@@ -272,7 +312,7 @@ describe("emitColumnField — interval (display: always)", () => {
 	it("uses 30.4375 (365.25/12) as the divisor for months-unit columns", () => {
 		const col = intervalColumn(
 			COL_UUIDS.a,
-			"opened_on",
+			"date_opened",
 			"Months open",
 			3,
 			"months",
@@ -281,8 +321,8 @@ describe("emitColumnField — interval (display: always)", () => {
 		);
 		const out = emitColumnField({ column: col, position: 1, ctx: emptyCtx });
 		// Divisor for months = 365.25 / 12 = 30.4375; threshold = 3 * 30.4375 = 91.3125.
-		expect(out.xml).toContain("(today() - date(opened_on)) div 30.4375");
-		expect(out.xml).toContain("today() - date(opened_on) &gt; 91.3125");
+		expect(out.xml).toContain("(today() - date(date_opened)) div 30.4375");
+		expect(out.xml).toContain("today() - date(date_opened) &gt; 91.3125");
 	});
 
 	it("uses 1 as the divisor for days-unit columns", () => {
@@ -453,6 +493,7 @@ describe("emitColumnField — calculated", () => {
 			detailKind: "short",
 			target: "case",
 			caseProperties: [],
+			proseDoc: emptyCtx.proseDoc,
 			sortByUuid: singleSort(calc.uuid, {
 				kind: "calculated",
 				order: 1,
@@ -504,6 +545,7 @@ describe("emitColumnField — sort integration", () => {
 			detailKind: "short",
 			target: "case",
 			caseProperties: [],
+			proseDoc: emptyCtx.proseDoc,
 			sortByUuid: singleSort(col.uuid, {
 				kind: "property",
 				order: 1,
@@ -527,36 +569,38 @@ describe("emitColumnField — sort integration", () => {
 		// lexicographic ordering matches calendar order. The directive
 		// builder writes the raw property into `directive.xpath`; the
 		// emitter passes it through verbatim.
-		const col = dateColumn(COL_UUIDS.a, "opened_on", "Opened", "%d/%m/%Y");
+		const col = dateColumn(COL_UUIDS.a, "date_opened", "Opened", "%d/%m/%Y");
 		const ctx: CaseListEmitContext = {
 			moduleIndex: 0,
 			detailKind: "short",
 			target: "case",
 			caseProperties: [],
+			proseDoc: emptyCtx.proseDoc,
 			sortByUuid: singleSort(col.uuid, {
 				kind: "property",
 				order: 1,
 				direction: "desc",
 				type: "date",
-				xpath: "opened_on",
+				xpath: "date_opened",
 			}),
 		};
 		const out = emitColumnField({ column: col, position: 1, ctx });
 		// Display xpath is the wrapped format-date shape; sort xpath
 		// is the bare property.
 		const sortMatches = out.xml.match(/<sort[\s\S]*?<\/sort>/);
-		expect(sortMatches?.[0]).toContain('<xpath function="opened_on"/>');
+		expect(sortMatches?.[0]).toContain('<xpath function="date_opened"/>');
 		expect(sortMatches?.[0]).not.toContain("format-date");
 	});
 
 	it("does not attach a sort block when the column's uuid has no directive in ctx.sortByUuid", () => {
 		const col = plainColumn(COL_UUIDS.a, "full_name", "Name");
-		const otherUuid = asUuid("00000000-0000-4000-8000-cccc99999999");
+		const otherUuid = testUuid("00000000-0000-4000-8000-cccc99999999");
 		const ctx: CaseListEmitContext = {
 			moduleIndex: 0,
 			detailKind: "short",
 			target: "case",
 			caseProperties: [],
+			proseDoc: emptyCtx.proseDoc,
 			sortByUuid: singleSort(otherUuid, {
 				kind: "property",
 				order: 1,

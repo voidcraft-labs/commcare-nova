@@ -60,20 +60,18 @@ function walkFieldRefs(
 	parentUuid: Uuid,
 	refs: FieldRef[],
 ): void {
-	// DISPLAY order (`sort-by-(order, uuid)`), not `fieldOrder` array position —
-	// Tab/Shift-Tab navigation and delete-neighbor selection must land on the
-	// visually-adjacent field. (Its two sibling walks already sort; this one
-	// was missed.)
+	// `fieldOrder` is the display sequence, so Tab/Shift-Tab navigation and
+	// delete-neighbor selection land on the visually adjacent field.
 	const order = orderedFieldUuids(doc, parentUuid);
 	for (const uuid of order) {
 		const field = doc.fields[uuid];
 		if (!field) continue;
 		if (field.kind === "hidden") continue;
-		refs.push({ uuid: uuid as Uuid, parentUuid });
+		refs.push({ uuid, parentUuid });
 		// Containers (group/repeat) have an order entry; leaf fields don't —
 		// a keyed EXISTENCE check, not a positional read.
 		if (doc.fieldOrder[uuid] !== undefined) {
-			walkFieldRefs(doc, uuid as Uuid, refs);
+			walkFieldRefs(doc, uuid, refs);
 		}
 	}
 }
@@ -114,16 +112,14 @@ export function getFieldMoveTargets(
 ): { beforeUuid: Uuid | undefined; afterUuid: Uuid | undefined } {
 	const parentUuid = doc.fieldParent[fieldUuid];
 	if (!parentUuid) return { beforeUuid: undefined, afterUuid: undefined };
-	// DISPLAY order (`sort-by-(order, uuid)`), not `fieldOrder` array position —
-	// the arrow keys / inspector move buttons must target the visually-adjacent
-	// sibling, which after a reorder differs from the array neighbor.
+	// `fieldOrder` is the display sequence, so arrow keys and inspector move
+	// buttons target the adjacent array member.
 	const siblings = orderedFieldUuids(doc, parentUuid);
 	const idx = siblings.indexOf(fieldUuid);
 	if (idx === -1) return { beforeUuid: undefined, afterUuid: undefined };
 	return {
-		beforeUuid: idx > 0 ? (siblings[idx - 1] as Uuid) : undefined,
-		afterUuid:
-			idx < siblings.length - 1 ? (siblings[idx + 1] as Uuid) : undefined,
+		beforeUuid: idx > 0 ? siblings[idx - 1] : undefined,
+		afterUuid: idx < siblings.length - 1 ? siblings[idx + 1] : undefined,
 	};
 }
 
@@ -154,8 +150,7 @@ export function getCrossLevelFieldMoveTargets(
 } {
 	const parentUuid = doc.fieldParent[fieldUuid];
 	if (!parentUuid) return { up: undefined, down: undefined };
-	// DISPLAY order (`sort-by-(order, uuid)`), not array position — the
-	// indent/outdent neighbors are the visually-adjacent siblings.
+	// Membership-array neighbors are the visually adjacent siblings.
 	const siblings = orderedFieldUuids(doc, parentUuid);
 	const idx = siblings.indexOf(fieldUuid);
 	if (idx === -1) return { up: undefined, down: undefined };
@@ -180,7 +175,8 @@ export function getCrossLevelFieldMoveTargets(
 			direction: "out",
 		};
 	} else if (idx > 0) {
-		const prevUuid = siblings[idx - 1] as Uuid;
+		const prevUuid = siblings[idx - 1];
+		if (prevUuid === undefined) return { up, down };
 		const prev = doc.fields[prevUuid];
 		if (prev && isContainer(prev)) {
 			up = { toParentUuid: prevUuid, direction: "into" };
@@ -196,12 +192,11 @@ export function getCrossLevelFieldMoveTargets(
 			direction: "out",
 		};
 	} else if (idx < siblings.length - 1) {
-		const nextUuid = siblings[idx + 1] as Uuid;
+		const nextUuid = siblings[idx + 1];
+		if (nextUuid === undefined) return { up, down };
 		const next = doc.fields[nextUuid];
 		if (next && isContainer(next)) {
-			const firstChild = orderedFieldUuids(doc, nextUuid)[0] as
-				| Uuid
-				| undefined;
+			const firstChild = orderedFieldUuids(doc, nextUuid)[0];
 			down = {
 				toParentUuid: nextUuid,
 				// Land as the first child (before any existing head). When the

@@ -10,7 +10,9 @@ import {
 import type { ComponentProps } from "react";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { BlueprintDocProvider } from "@/lib/doc/provider";
 import type { CaptureField } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import type { FieldState } from "@/lib/preview/engine/types";
 import { AttachmentField as ProductionAttachmentField } from "../AttachmentField";
 import {
@@ -68,15 +70,21 @@ function AttachmentField({
 	if (props.entryKey !== undefined && props.appId !== undefined) {
 		installTestAuthority(props.entryKey);
 	}
+	// The control spells its accessible name's prose against the document, the
+	// way every production render reaches it (through `InteractiveFormRenderer`
+	// inside the builder's provider). These fixtures carry literal labels, so an
+	// empty document resolves everything they reference.
 	return (
-		<ProductionAttachmentField
-			{...props}
-			attachmentSlotKey={
-				props.attachmentSlotKey ?? props.path ?? props.field.uuid
-			}
-			onChangeAt={onChangeAt ?? ((_path, value) => onChange(value))}
-			onBlurAt={onBlurAt ?? (() => onBlur())}
-		/>
+		<BlueprintDocProvider appId="app-1">
+			<ProductionAttachmentField
+				{...props}
+				attachmentSlotKey={
+					props.attachmentSlotKey ?? props.path ?? props.field.uuid
+				}
+				onChangeAt={onChangeAt ?? ((_path, value) => onChange(value))}
+				onBlurAt={onBlurAt ?? (() => onBlur())}
+			/>
+		</BlueprintDocProvider>
 	);
 }
 
@@ -120,13 +128,13 @@ const FIELD = {
 	uuid: "22222222-2222-4222-8222-222222222222",
 	id: "photo",
 	kind: "image",
-	label: "Photo",
+	label: proseText("Photo"),
 } as CaptureField;
 const SECOND_FIELD = {
 	...FIELD,
 	uuid: "33333333-3333-4333-8333-333333333333",
 	id: "consent",
-	label: "Signed consent",
+	label: proseText("Signed consent"),
 } as CaptureField;
 const SIGNATURE_FIELD = {
 	...SECOND_FIELD,
@@ -390,16 +398,18 @@ describe("AttachmentField", () => {
 		stageAttachmentMock.mockReturnValue(confirmed.promise);
 		const onChange = vi.fn();
 		render(
-			<ProductionAttachmentField
-				field={FIELD}
-				state={EMPTY_STATE}
-				path="/data/photo"
-				appId="app-1"
-				entryKey={entryKey}
-				attachmentSlotKey="photo:controller-rotation"
-				onChangeAt={(_path, value) => onChange(value)}
-				onBlurAt={vi.fn()}
-			/>,
+			<BlueprintDocProvider appId="app-1">
+				<ProductionAttachmentField
+					field={FIELD}
+					state={EMPTY_STATE}
+					path="/data/photo"
+					appId="app-1"
+					entryKey={entryKey}
+					attachmentSlotKey="photo:controller-rotation"
+					onChangeAt={(_path, value) => onChange(value)}
+					onBlurAt={vi.fn()}
+				/>
+			</BlueprintDocProvider>,
 		);
 		fireEvent.change(screen.getByLabelText(/Photo.*Attach file/i), {
 			target: {

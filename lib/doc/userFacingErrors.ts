@@ -29,7 +29,7 @@
  *     export it" tails — the user knows why they were stopped.
  *
  * The split, by audience:
- *   - SA / MCP tools, server logs, `describeIntroducedErrors` → the
+ *   - SA / MCP tools, server logs, `describeCommitFindings` → the
  *     verbose `ValidationError.message` (unchanged).
  *   - The builder commit gate, the Connect mode switch, and the
  *     export/upload failure surfaces → `userFacingError` here.
@@ -123,8 +123,24 @@ const USER_MESSAGE_BY_CODE: Partial<
 		`The Connect ID ${q(det(e, "connectId", ""))} is already used by another form. Give this one a different ID, or change the other form's first.`,
 	CONNECT_NO_PARTICIPATING_FORMS: () =>
 		"You've turned Connect on for the app, but no form is using it yet. Set up Connect on at least one form, or turn it off for the app.",
+	CONNECT_MODE_MISMATCH: (e) =>
+		`${q(formName(e))}'s Connect setup doesn't match the app's Connect mode. Configure the app's complete Connect setup together.`,
 	BLUEPRINT_ENTITY_UUID_DUPLICATE: () =>
 		"Two parts of this app share the same internal identity. Retry the change so Nova can keep them distinct.",
+	BLUEPRINT_TOPOLOGY_INVALID: () =>
+		"Part of this app is no longer attached where it belongs. Reload the app and try the change again.",
+	MUTATION_IDENTITY_COLLISION: () =>
+		"That change tried to reuse one part of the app as another. Retry the change so Nova can keep them distinct.",
+	MUTATION_SEQUENCE_ANCHOR_INVALID: () =>
+		"That change was placed next to something that has moved or disappeared. Reload the app and try again.",
+	MUTATION_TARGET_INVALID: () =>
+		"That change refers to something that has moved, changed type, or disappeared. Reload the app and try again.",
+	MUTATION_CASE_PROPERTY_RENAME_INVALID: () =>
+		"That field-name change conflicts with another case-property change in the same save. Reload the app and make one unambiguous change.",
+	MUTATION_WIRE_CANONICALITY_INVALID: () =>
+		"That change was not represented exactly enough to save safely. Retry it so Nova can preserve every value as authored.",
+	CASE_PROPERTY_REFERENCE_INVALID: (e) =>
+		`${q(det(e, "caseType", "A case type"))}.${det(e, "property", "property")}'s ${det(e, "slot", "default")} setting contains a reference that isn't available there. Replace it with case, worker, or fixed information that exists in every form using this property.`,
 
 	// ── Worker information, roles, personas ──────────────────────────
 	// The rule's own message already carries the specific reason (an illegal
@@ -385,8 +401,6 @@ const USER_MESSAGE_BY_CODE: Partial<
 				return `${subject} uses a related-case count as the comparison value. Put the child-case count first, then compare it with a fixed number or a search answer.`;
 			case "unsupported-related-count":
 				return `${subject} can only count child cases here. Choose a child relationship, or rewrite the condition without a related-case count.`;
-			case "strict-null-not-portable":
-				return `${subject} checks whether information was never recorded, but case search can only check whether it's blank. Use “is blank” instead.`;
 			case "self-relation-not-queryable":
 				return `${subject} uses “this case” as a relationship. Choose a parent or child relationship, or remove the related-case condition.`;
 			case "csql-string-not-quotable":
@@ -407,8 +421,6 @@ const USER_MESSAGE_BY_CODE: Partial<
 	// ── Case-search config ───────────────────────────────────────────
 	CASE_SEARCH_CONFIG_REQUIRES_CASE_TYPE: (e) =>
 		`${q(modName(e))} has a search set up but no case type, so there's nothing for it to look through. Pick the kind of case it should find, like "patient" or "household".`,
-	CASE_SEARCH_CONFIG_NO_SEARCHABLE_SURFACE: (e) =>
-		`Search for ${q(modName(e))} has nothing to narrow yet. Add a search field, or narrow Cases available.`,
 	CASE_SEARCH_EXCLUDED_OWNER_IDS_CASE_DATA_UNAVAILABLE: (e) =>
 		`The assigned cases setting on ${q(modName(e))} tries to read a case before one has been selected. Replace it with Show in Results or Hide from Results.`,
 	CASE_SEARCH_EXCLUDED_OWNER_IDS_TYPE_ERROR: (e) =>
@@ -421,24 +433,22 @@ const USER_MESSAGE_BY_CODE: Partial<
 	// ── Form-level ───────────────────────────────────────────────────
 	EMPTY_FORM: (e) =>
 		`${q(formName(e))} doesn't have any fields yet. Add at least one.`,
-	NO_CASE_NAME_FIELD: (e) =>
-		`${q(formName(e))} creates cases, but nothing's giving them a name. Add a field with the ID "case_name".`,
-	CASE_NAME_FIELD_MISSING: (e) =>
-		`${q(formName(e))} needs a field named "case_name" to name its cases, but there isn't one. Add it, or rename an existing field to "case_name".`,
+	CASE_WRITE_NO_CASE_ACTION: (e) =>
+		`${q(fieldName(e))} in ${q(formName(e))} is set to save case data, but this form doesn't create, open, or close a case. Remove that case destination, or move the field to a case form.`,
+	CASE_WRITE_NOT_DIRECT_CHILD: (e) =>
+		`${q(fieldName(e))} in ${q(formName(e))} saves to ${q(det(e, "caseType", "a case type"))}, but this form can save only to its main case or one of that case's direct children. Choose one of those destinations, or clear the case destination.`,
+	CASE_WRITE_DUPLICATE_PROPERTY: (e) =>
+		`In ${q(formName(e))}, several fields save to ${q(det(e, "property", "the same case property"))} in one case action and would overwrite each other. Keep one writer, or point the others somewhere else.`,
+	CASE_CREATE_NAME_MISSING: (e) =>
+		`${q(formName(e))} creates ${q(det(e, "caseType", "case"))} cases, but nothing gives them a name. Add one field whose case destination property is "case_name".`,
+	CASE_CREATE_NAME_DUPLICATE: (e) =>
+		`${q(formName(e))} has more than one field naming the same new ${q(det(e, "caseType", "case"))} case. Keep one "case_name" writer and change or clear the others.`,
 	RESERVED_CASE_PROPERTY: (e) =>
 		`${q(formName(e))} has a field that saves to ${q(det(e, "reservedName", "a reserved name"))}, which is a reserved name. Have it save somewhere else.`,
-	CASE_PROPERTY_MISSING_FIELD: (e) =>
-		`${q(formName(e))} still saves a value from a field that's no longer there. Remove that, or add the field back.`,
 	MEDIA_CASE_PROPERTY: (e) =>
 		`${q(formName(e))} is trying to save an attachment question to the case. Photos, audio, video, signatures, and files can't be saved as case data, so don't have that field save to the case.`,
 	FORM_TOO_MANY_ATTACHMENTS: (e) =>
 		`${q(formName(e))} asks for ${det(e, "captureCount", "too many")} attachments, and CommCare accepts at most ${MAX_FORM_ATTACHMENTS} per submitted form — a worker who answered them all couldn't submit. Split this into more than one form, or remove some attachment questions.`,
-	CASE_PRELOAD_MISSING_FIELD: (e) =>
-		`${q(formName(e))} loads a saved value into a field that isn't there. Add the field back, or remove that load.`,
-	CASE_PRELOAD_RESERVED: (e) =>
-		`${q(formName(e))} loads a value into a reserved property name. Use a custom property instead.`,
-	DUPLICATE_CASE_PROPERTY: (e) =>
-		`In ${q(formName(e))}, two fields save to ${q(det(e, "property", "the same case property"))} and would overwrite each other. Rename one of them, or point it somewhere else.`,
 	CLOSE_CONDITION_WRONG_TYPE: (e) =>
 		`${q(formName(e))} has a close condition but isn't a close form. Make it a close form, or drop the condition.`,
 	CLOSE_FORM_NO_CASE_TYPE: (e) =>
@@ -449,8 +459,6 @@ const USER_MESSAGE_BY_CODE: Partial<
 		`${q(formName(e))}'s close condition points at a field that isn't in the form. Point it at one that is.`,
 	INVALID_POST_SUBMIT: (e) =>
 		`${q(formName(e))}'s After Submit setting isn't one of the options. Pick one.`,
-	POST_SUBMIT_PARENT_MODULE_UNSUPPORTED: (e) =>
-		`${q(formName(e))} is set to go to its parent module after submitting, but it doesn't have one. Pick a different spot to land.`,
 	POST_SUBMIT_MODULE_CASE_LIST_ONLY: (e) =>
 		`${q(formName(e))} is set to head back to its module after submitting, but that module has no form list to land on. Send people to "Previous Screen" or "App Home" instead.`,
 	FORM_LINK_EMPTY: (e) =>
@@ -461,16 +469,10 @@ const USER_MESSAGE_BY_CODE: Partial<
 		`A follow-on link in ${q(formName(e))} points to a form or module that's gone. Update it.`,
 	FORM_LINK_SELF_REFERENCE: (e) =>
 		`A follow-on link in ${q(formName(e))} points back to the same form. Send it somewhere else.`,
-	CONNECT_ID_MISSING: (e) =>
-		`The Connect ${det(e, "connectKind", "")} in ${q(formName(e))} needs an ID. Give it one — unique across the app, 50 characters or fewer.`,
 	CONNECT_ID_TOO_LONG: (e) =>
 		`The Connect ID ${q(det(e, "connectId", ""))} in ${q(formName(e))} is too long. Keep it to 50 characters or fewer.`,
 	CONNECT_ID_INVALID_FORMAT: (e) =>
 		`The Connect ID ${q(det(e, "connectId", ""))} in ${q(formName(e))} won't work. Use letters, numbers, and underscores, starting with a letter.`,
-	CONNECT_MISSING_LEARN: (e) =>
-		`${q(formName(e))} is set up for Connect but has no Learn Module or Assessment turned on. Turn on at least one.`,
-	CONNECT_MISSING_DELIVER: (e) =>
-		`${q(formName(e))} is set up for Connect but has no Deliver Unit or Task turned on. Turn on at least one.`,
 	CONNECT_EMPTY_XPATH: (e) =>
 		`A Connect setting on ${q(formName(e))} was left blank. Fill it in, or remove that piece.`,
 	CONNECT_UNQUOTED_XPATH: (e) =>
@@ -527,19 +529,13 @@ const USER_MESSAGE_BY_CODE: Partial<
 		const f = det(e, "fieldId", "a field");
 		return `In ${q(formName(e))}, ${q(f)} is inside a repeating section but saves to the form's main case — which a repeat can't do. Move it out of the repeat, or save it to a child case instead.`;
 	},
-	CHILD_CASE_NO_NAME_FIELD: (e) => {
-		const ct = det(e, "caseType", "");
-		return ct
-			? `${q(formName(e))} creates ${q(ct)} cases but nothing's giving them a name. Add a field with the ID "case_name" that saves to ${q(ct)}.`
-			: `${q(formName(e))} creates child cases but nothing's giving them a name. Add a field with the ID "case_name" that saves to that case type.`;
-	},
 
 	// ── Field-level ──────────────────────────────────────────────────
 	SELECT_NO_OPTIONS: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} is a multiple-choice field with no choices yet. Add at least one.`,
 	SELECT_TOO_FEW_OPTIONS: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} is a multiple-choice field with only one choice. Add another so there's something to pick between.`,
-	CASE_PROPERTY_ON_UNKNOWN_TYPE: (e) =>
+	CASE_WRITE_UNKNOWN_TYPE: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} saves to the ${q(det(e, "caseType", "case type"))} case type, but no case type by that name exists. Add that case type, or point the field at one that does.`,
 	HIDDEN_NO_VALUE: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} is hidden but has no value, so it'll always stay blank. Give it a default or a calculated value.`,
@@ -646,7 +642,7 @@ export function userFacingErrors(errors: readonly ValidationError[]): string[] {
 /**
  * The line a picker or menu shows beside a choice it will not offer.
  *
- * Not `describeIntroducedErrors`: that is the commit-REJECTION report,
+ * Not `describeCommitFindings`: that is the commit-REJECTION report,
  * past tense about an attempt, framed with "nothing was changed", and
  * multi-line. A withheld choice was never attempted — the question is
  * asked while the item is still being drawn — so that frame describes
@@ -659,9 +655,9 @@ export function userFacingErrors(errors: readonly ValidationError[]): string[] {
  * disabled choice and the refusal it spares the author agree.
  */
 export function offeredChoiceRefusal(
-	introduced: readonly ValidationError[],
+	findings: readonly ValidationError[],
 ): string {
-	const first = introduced[0];
+	const first = findings[0];
 	return first === undefined
 		? "This choice isn't available here."
 		: userFacingError(first);

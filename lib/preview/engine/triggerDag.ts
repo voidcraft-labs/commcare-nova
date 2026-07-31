@@ -1,13 +1,15 @@
 import {
+	expressionInspectionSource,
 	expressionSource,
 	type Field,
+	fieldProseTemplate,
 	type XPathPrintableDoc,
 } from "@/lib/domain";
 import { walkTerms } from "@/lib/domain/predicate";
 import { extractPathRefs } from "../xpath/dependencies";
 import type { FieldTreeNode } from "./fieldTree";
 import { stripIndices } from "./instancePaths";
-import { parseBareHashtags } from "./labelRefs";
+import { proseReferenceExpressions } from "./labelRefs";
 
 type ExpressionType =
 	| "relevant"
@@ -80,12 +82,16 @@ export class TriggerDag {
 	 *  reference by uuid rather than printed path. Rebuilt alongside the
 	 *  nodes by `build` / `reportCycles`. */
 	private fieldPaths = new Map<string, string>();
+	/** Validation cycle scans must remain total over dangling references so the
+	 * owning deep rule can report them. Runtime DAG construction stays strict. */
+	private inspectionMode = false;
 
 	/** Build the DAG from a field tree. `doc` is the surface the
 	 *  tree's fields live on (the engine's input slice / the
 	 *  validator's blueprint). */
 	build(tree: FieldTreeNode[], doc: XPathPrintableDoc, prefix = "/data"): void {
 		this.doc = doc;
+		this.inspectionMode = false;
 		this.nodes.clear();
 		this.dependedOnBy.clear();
 		this.repeatPaths.clear();
@@ -232,29 +238,40 @@ export class TriggerDag {
 
 	private registerExpressions(path: string, f: Field): void {
 		const expressions: { type: ExpressionType; expr: string }[] = [];
+		const readExpression = this.inspectionMode
+			? expressionInspectionSource
+			: expressionSource;
 
 		// The XPath-bearing slots (relevant/calculate/required/validate)
 		// and the prose slots (label/hint) live on different Field
 		// variants — `expressionSource` reads each through the union so a
 		// slot a variant doesn't declare reads as `undefined`.
-		const relevant = expressionSource(f, "relevant", this.doc);
+		const relevant = readExpression(f, "relevant", this.doc);
 		if (relevant) expressions.push({ type: "relevant", expr: relevant });
-		const calculate = expressionSource(f, "calculate", this.doc);
+		const calculate = readExpression(f, "calculate", this.doc);
 		if (calculate) expressions.push({ type: "calculate", expr: calculate });
-		const required = expressionSource(f, "required", this.doc);
+		const required = readExpression(f, "required", this.doc);
 		if (required && required !== "true()" && required !== "false()") {
 			expressions.push({ type: "required", expr: required });
 		}
-		const validate = expressionSource(f, "validate", this.doc);
+		const validate = readExpression(f, "validate", this.doc);
 		if (validate) expressions.push({ type: "validation", expr: validate });
 
 		// Collect all XPath expressions that create dependency edges
 		const allDepExprs = expressions.map((e) => e.expr);
 
-		// Scan label and hint for bare hashtag refs (#form/x, #case/x, #user/x)
-		const allLabelRefs = parseBareHashtags(
-			expressionSource(f, "label", this.doc) ?? "",
-		).concat(parseBareHashtags(expressionSource(f, "hint", this.doc) ?? ""));
+		// Project typed label/hint atoms to their dependency expressions.
+		const allLabelRefs = proseReferenceExpressions(
+			fieldProseTemplate(f, "label"),
+			this.doc,
+			this.inspectionMode ? "inspection" : "strict",
+		).concat(
+			proseReferenceExpressions(
+				fieldProseTemplate(f, "hint"),
+				this.doc,
+				this.inspectionMode ? "inspection" : "strict",
+			),
+		);
 		if (allLabelRefs.length > 0) {
 			expressions.push({ type: "output", expr: "" });
 			for (const ref of allLabelRefs) allDepExprs.push(ref);
@@ -268,7 +285,7 @@ export class TriggerDag {
 		// prompt-rebuild re-filter of its embedded fixture.
 		if (
 			(f.kind === "single_select" || f.kind === "multi_select") &&
-			f.optionsSource !== undefined
+			f.optionsSource.kind === "lookup"
 		) {
 			expressions.push({ type: "choices", expr: "" });
 			if (f.optionsSource.filter !== undefined) {
@@ -371,10 +388,12 @@ export class TriggerDag {
 		const savedDeps = this.dependedOnBy;
 		const savedRepeats = this.repeatPaths;
 		const savedFieldPaths = this.fieldPaths;
+		const savedInspectionMode = this.inspectionMode;
 		this.nodes = nodes;
 		this.dependedOnBy = dependedOnBy;
 		this.repeatPaths = new Set();
 		try {
+			this.inspectionMode = true;
 			this.fieldPaths = collectFieldPaths(tree, prefix);
 			this.collectExpressions(tree, prefix);
 			this.collectValidationOnlyDependencies(tree, prefix);
@@ -383,6 +402,7 @@ export class TriggerDag {
 			this.dependedOnBy = savedDeps;
 			this.repeatPaths = savedRepeats;
 			this.fieldPaths = savedFieldPaths;
+			this.inspectionMode = savedInspectionMode;
 		}
 
 		const WHITE = 0,

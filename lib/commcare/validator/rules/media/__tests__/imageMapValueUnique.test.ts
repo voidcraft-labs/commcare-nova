@@ -1,3 +1,4 @@
+import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
  * Tests for `imageMapValueUnique` — within one image-map column, every
@@ -16,7 +17,7 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import { asUuid, imageMapEntry } from "@/lib/domain";
+import { imageMapEntry } from "@/lib/domain";
 import { runValidation } from "../../../runner";
 
 const CODE = "CASE_LIST_IMAGE_MAP_DUPLICATE_VALUE" as const;
@@ -29,7 +30,7 @@ const standardForm = {
 			kind: "text" as const,
 			id: "case_name",
 			label: "Name",
-			case_property_on: "patient",
+			caseWrite: { caseType: "patient", property: "case_name" },
 		}),
 	],
 };
@@ -57,17 +58,17 @@ describe("imageMapValueUnique", () => {
 						columns: [
 							{
 								kind: "image-map",
-								uuid: asUuid("col-1"),
+								uuid: testUuid("col-1"),
 								field: "region",
 								header: "Region",
 								mapping: [
-									imageMapEntry("N", "asset-n"),
-									imageMapEntry("N", "asset-n-dup"),
+									imageMapEntry("N", testMediaAssetId("asset-n")),
+									imageMapEntry("N", testMediaAssetId("asset-n-dup")),
 								],
 							},
 						],
-						listColumnOrder: [asUuid("col-1")],
-						detailColumnOrder: [asUuid("col-1")],
+						listColumnOrder: [testUuid("col-1")],
+						detailColumnOrder: [testUuid("col-1")],
 						searchInputs: [],
 					},
 					forms: [standardForm],
@@ -98,17 +99,17 @@ describe("imageMapValueUnique", () => {
 						columns: [
 							{
 								kind: "image-map",
-								uuid: asUuid("col-1"),
+								uuid: testUuid("col-1"),
 								field: "region",
 								header: "Region",
 								mapping: [
-									imageMapEntry("N", "asset-n"),
-									imageMapEntry("S", "asset-s"),
+									imageMapEntry("N", testMediaAssetId("asset-n")),
+									imageMapEntry("S", testMediaAssetId("asset-s")),
 								],
 							},
 						],
-						listColumnOrder: [asUuid("col-1")],
-						detailColumnOrder: [asUuid("col-1")],
+						listColumnOrder: [testUuid("col-1")],
+						detailColumnOrder: [testUuid("col-1")],
 						searchInputs: [],
 					},
 					forms: [standardForm],
@@ -133,17 +134,17 @@ describe("imageMapValueUnique", () => {
 						columns: [
 							{
 								kind: "image-map",
-								uuid: asUuid("col-region"),
+								uuid: testUuid("col-region"),
 								field: "region",
 								header: "Region",
-								mapping: [imageMapEntry("N", "asset-r-n")],
+								mapping: [imageMapEntry("N", testMediaAssetId("asset-r-n"))],
 							},
 							{
 								kind: "image-map",
-								uuid: asUuid("col-color"),
+								uuid: testUuid("col-color"),
 								field: "color",
 								header: "Color",
-								mapping: [imageMapEntry("N", "asset-c-n")],
+								mapping: [imageMapEntry("N", testMediaAssetId("asset-c-n"))],
 							},
 						],
 						searchInputs: [],

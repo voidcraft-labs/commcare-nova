@@ -35,6 +35,15 @@ export interface PerTestDatabaseHandle {
 export interface PerTestDatabaseOptions {
 	/** Postgres identifier rules: alphanumeric + underscore, lowercase, no leading digit. */
 	databaseNamePrefix: string;
+	/**
+	 * Explicitly identify this isolated database as the local migration target.
+	 *
+	 * Exact migrations fail closed when production database-role identities are
+	 * absent. Tests that run those migrations must opt into the same local
+	 * authority used by `npm run dev`; merely running under Vitest is not
+	 * authority to bypass a production invariant.
+	 */
+	establishLocalMigrationAuthority?: true;
 }
 
 const REQUIRED_EXTENSIONS = ["pg_trgm", "fuzzystrmatch", "postgis"] as const;
@@ -56,16 +65,22 @@ export function setupPerTestDatabase(
 		uri: string;
 		db: Kysely<unknown>;
 		pool: Pool;
+		previousLocalDatabaseUrl: string | undefined;
 	} | null = null;
 
 	beforeEach(async () => {
 		const created = await createIsolatedDatabase(options.databaseNamePrefix);
 		const built = buildIsolatedDb(created.uri);
+		const previousLocalDatabaseUrl = process.env.NOVA_DB_LOCAL_URL;
+		if (options.establishLocalMigrationAuthority === true) {
+			process.env.NOVA_DB_LOCAL_URL = created.uri;
+		}
 		active = {
 			databaseName: created.databaseName,
 			uri: created.uri,
 			db: built.db,
 			pool: built.pool,
+			previousLocalDatabaseUrl,
 		};
 	});
 
@@ -81,7 +96,17 @@ export function setupPerTestDatabase(
 		try {
 			await captured.db.destroy();
 		} finally {
-			await dropIsolatedDatabase(captured.databaseName);
+			try {
+				await dropIsolatedDatabase(captured.databaseName);
+			} finally {
+				if (options.establishLocalMigrationAuthority === true) {
+					if (captured.previousLocalDatabaseUrl === undefined) {
+						delete process.env.NOVA_DB_LOCAL_URL;
+					} else {
+						process.env.NOVA_DB_LOCAL_URL = captured.previousLocalDatabaseUrl;
+					}
+				}
+			}
 		}
 	});
 

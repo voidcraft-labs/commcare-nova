@@ -8,6 +8,7 @@
 // absent `metadata` is a valid attachment-free message, not a schema violation).
 
 import { describe, expect, it } from "vitest";
+import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import type { AttachmentRef, NovaUIMessage } from "../attachmentRefs";
 import {
 	MAX_ATTACHMENTS_PER_MESSAGE,
@@ -19,7 +20,7 @@ import { validateChatMessages } from "../validateMessages";
 /** A valid image attachment ref, overridable per test. */
 function ref(over: Partial<AttachmentRef> = {}): AttachmentRef {
 	return {
-		assetId: "11111111-1111-1111-1111-111111111111",
+		assetId: testMediaAssetId("chat-attachment"),
 		kind: "image",
 		filename: "diagram.png",
 		mimeType: "image/png",
@@ -61,6 +62,18 @@ describe("validateChatMessages", () => {
 		const result = validateChatMessages(messages);
 		expect(result.ok).toBe(true);
 		if (result.ok) expect(result.messages).toBe(messages);
+	});
+
+	it("rejects malformed message and metadata containers", () => {
+		expect(validateChatMessages([null]).ok).toBe(false);
+		expect(validateChatMessages([{ ...userMsg(), metadata: null }]).ok).toBe(
+			false,
+		);
+		expect(
+			validateChatMessages([
+				{ ...userMsg(), metadata: { attachments: { assetId: "hidden" } } },
+			]).ok,
+		).toBe(false);
 	});
 
 	it("passes a message carrying valid attachment refs", () => {
@@ -111,7 +124,24 @@ describe("validateChatMessages", () => {
 
 	it("rejects an attachment ref missing a required field", () => {
 		// assetId is required + non-empty; an empty one is a malformed ref.
-		const result = validateChatMessages([userMsg([ref({ assetId: "" })])]);
+		const result = validateChatMessages([
+			{
+				...userMsg(),
+				metadata: { attachments: [{ ...ref(), assetId: "" }] },
+			},
+		]);
+		expect(result.ok).toBe(false);
+	});
+
+	it("rejects a noncanonical attachment ref with unknown keys", () => {
+		const result = validateChatMessages([
+			{
+				...userMsg(),
+				metadata: {
+					attachments: [{ ...ref(), temporaryUrl: "blob:stale-client" }],
+				},
+			},
+		]);
 		expect(result.ok).toBe(false);
 	});
 
@@ -122,4 +152,16 @@ describe("validateChatMessages", () => {
 		]);
 		expect(result.ok).toBe(false);
 	});
+
+	it.each(["audio", "video"] as const)(
+		"rejects a crafted %s attachment before generation",
+		(kind) => {
+			const result = validateChatMessages([
+				// biome-ignore lint/suspicious/noExplicitAny: deliberate request forgery
+				userMsg([ref({ kind: kind as any })]),
+			]);
+			expect(result.ok).toBe(false);
+			if (!result.ok) expect(result.error).toContain("invalid metadata");
+		},
+	);
 });

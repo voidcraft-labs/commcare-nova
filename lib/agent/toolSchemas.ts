@@ -12,6 +12,12 @@
 
 import { generateToolSchemas } from "./toolSchemaGenerator";
 
+export {
+	type ProjectedOptionsSource,
+	projectedOptionsSourceSchema,
+	projectedSelectOptionSchema,
+} from "./toolSchemaGenerator";
+
 const generated = generateToolSchemas();
 
 /** Per-item shape inside `z.array(...)` for the `addFields` tool — one

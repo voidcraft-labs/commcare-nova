@@ -22,12 +22,15 @@ import {
 	predicateCardSchemas,
 } from "@/components/builder/shared/editorSchemas";
 import type { Predicate, ValueExpression } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 
 const GLOBAL_CTX: PredicateEditContext = {
 	caseTypes: [
 		{
 			name: "patient",
-			properties: [{ name: "status", label: "Status", data_type: "text" }],
+			properties: [
+				{ name: "status", label: proseText("Status"), data_type: "text" },
+			],
 		},
 	],
 	currentCaseType: "patient",

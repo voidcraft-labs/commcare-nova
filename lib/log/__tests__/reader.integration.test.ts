@@ -1,11 +1,10 @@
 /**
  * Integration tests for the event-log reader, against a real Postgres (the
  * per-test-database harness). Seeds `events` rows directly, then exercises the
- * reader's contract: `readEvents` filters by `(app_id, run_id)` and orders by
- * `(ts, seq)` and drops-but-counts a drifted payload; `readLatestRunId` reads
- * the newest run off the `run_id` COLUMN (never the payload); and
- * `decodeEventsLenient` isolates an unparseable row from the valid ones around
- * it.
+ * reader's contract: `readEvents` filters by `(app_id, run_id)`, orders by
+ * `(ts, seq)`, and rejects the complete page when one payload is invalid;
+ * `readLatestRunId` reads the newest run off the `run_id` COLUMN (never the
+ * payload); and `decodeEvents` never manufactures partial history.
  *
  * `readRunSummary` is a thin delegate to `lib/db/runSummary.ts::loadRunSummary`
  * — its behavior is covered by that module's own tests, not duplicated here.
@@ -15,7 +14,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
-import { decodeEventsLenient, readEvents, readLatestRunId } from "../reader";
+import { decodeEvents, readEvents, readLatestRunId } from "../reader";
 import type { Event } from "../types";
 
 const h = setupAppStateTestDb("log_reader_");
@@ -65,24 +64,19 @@ describe("readEvents", () => {
 		await insertEvent(mutationEvent(1, 10, "r1"));
 		await insertEvent(mutationEvent(0, 10, "r2"));
 
-		const { events, skipped } = await readEvents(APP, "r1");
-
-		expect(skipped).toBe(0);
+		const events = await readEvents(APP, "r1");
 		expect(events.map((e) => e.seq)).toEqual([0, 1, 2]);
 		expect(events.every((e) => e.runId === "r1")).toBe(true);
 	});
 
-	it("returns empty events + zero skipped for a run with no rows", async () => {
-		expect(await readEvents(APP, "no-such-run")).toEqual({
-			events: [],
-			skipped: 0,
-		});
+	it("returns an empty page for a run with no rows", async () => {
+		expect(await readEvents(APP, "no-such-run")).toEqual([]);
 	});
 
-	it("drops an unparseable payload and counts it, keeping the valid rows", async () => {
+	it("rejects the complete page when one payload is unparseable", async () => {
 		await insertEvent(mutationEvent(0, 10, "r1"));
-		/* Envelope columns valid, but the jsonb payload fails `eventSchema`
-		 * (unknown `kind`) — the forward-version / schema-drift case. */
+		/* Envelope columns are valid, but the jsonb payload fails
+		 * `eventSchema` (unknown `kind`). */
 		await insertEvent(mutationEvent(1, 11, "r1"), {
 			kind: "bogus-future-kind",
 			runId: "r1",
@@ -92,10 +86,7 @@ describe("readEvents", () => {
 		});
 		await insertEvent(mutationEvent(2, 12, "r1"));
 
-		const { events, skipped } = await readEvents(APP, "r1");
-
-		expect(skipped).toBe(1);
-		expect(events.map((e) => e.seq)).toEqual([0, 2]);
+		await expect(readEvents(APP, "r1")).rejects.toThrow();
 	});
 });
 
@@ -128,31 +119,20 @@ describe("readLatestRunId", () => {
 	});
 });
 
-describe("decodeEventsLenient", () => {
+describe("decodeEvents", () => {
 	/**
-	 * The core resilience contract: a raw payload that fails `eventSchema`
-	 * (forward-version / schema drift) is dropped and counted, while the valid
-	 * payloads around it still decode.
+	 * One invalid raw payload invalidates the complete ordered page. Returning
+	 * the valid neighbors would invent a partial event sequence.
 	 */
-	it("drops payloads that fail the schema and keeps the valid ones", () => {
+	it("rejects a page containing any invalid payload", () => {
 		const good = mutationEvent(0, 1, "r");
-		const { events, skipped, sample } = decodeEventsLenient([
-			good,
-			{ kind: "attachment-prep-but-wrong-shape" },
-			good,
-			42,
-		]);
-		expect(events).toEqual([good, good]);
-		expect(skipped).toBe(2);
-		expect(typeof sample).toBe("string");
+		expect(() =>
+			decodeEvents([good, { kind: "attachment-prep-but-wrong-shape" }, good]),
+		).toThrow();
 	});
 
-	it("returns zero skipped for an all-valid page", () => {
+	it("returns an all-valid page exactly", () => {
 		const good = mutationEvent(0, 1, "r");
-		expect(decodeEventsLenient([good, good])).toEqual({
-			events: [good, good],
-			skipped: 0,
-			sample: undefined,
-		});
+		expect(decodeEvents([good, good])).toEqual([good, good]);
 	});
 });

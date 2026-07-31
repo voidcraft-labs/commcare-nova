@@ -1,13 +1,13 @@
 // components/builder/case-list-config/cards/column/ColumnFieldRow.tsx
 //
-// Shared "field + header" row used by the field-bearing column
-// cards (`plain`, `date`, `phone`, `id-mapping`, `interval`). The
-// `calculated` arm has no `field` slot — the expression is the
-// source — so it skips this row and renders header + expression
-// directly. Factoring the field/header pair keeps the per-card
-// body focused on the kind-specific extras (date pattern,
-// threshold, mapping table) rather than re-implementing the same
-// two inputs five times.
+// Shared "field + header" row used by the six field-bearing column
+// cards (`plain`, `date`, `phone`, `id-mapping`, `image-map`,
+// `interval`). The `calculated` arm has no `field` slot — the
+// expression is the source — so it skips this row and renders
+// header + expression directly. Factoring the field/header pair
+// keeps the per-card body focused on the kind-specific extras (date
+// pattern, threshold, mapping table) rather than re-implementing
+// the same two inputs six times.
 //
 // Wraps:
 //   - Property picker (`PropertyPicker`) constrained by the kind's
@@ -35,11 +35,11 @@ import { BlurCommitTextInput } from "@/components/builder/shared/primitives/Blur
 import { InlineError } from "@/components/builder/shared/primitives/CardShell";
 import { PropertyPicker } from "@/components/builder/shared/primitives/PropertyPicker";
 import { propertyDisplayLabelForName } from "@/components/builder/shared/primitives/propertyDisplay";
+import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import type { CaseProperty } from "@/lib/domain";
 
 interface ColumnFieldRowProps {
-	/** The column's selected case-property name. Empty string when
-	 *  unset; the picker surfaces a placeholder in that case. */
+	/** The column's selected, declared case-property name. */
 	readonly field: string;
 	/** Fired when the user picks a property from the dropdown. */
 	readonly onFieldChange: (next: string) => void;
@@ -74,10 +74,15 @@ export function ColumnFieldRow({
 }: ColumnFieldRowProps) {
 	const fieldInvalid = errors !== undefined && errors.length > 0;
 	const { caseTypes, currentCaseType } = usePredicateEditContext();
+	const projectProse = useProseProjection();
 	const properties =
 		caseTypes.find((caseType) => caseType.name === currentCaseType)
 			?.properties ?? [];
-	const inheritedHeader = propertyDisplayLabelForName(field, properties);
+	const inheritedHeader = propertyDisplayLabelForName(
+		field,
+		properties,
+		projectProse,
+	);
 	const usesInheritedHeader = header.trim() === "";
 	return (
 		<div className="space-y-4 [&_button]:!text-[14px] [&_input]:!text-[14px]">

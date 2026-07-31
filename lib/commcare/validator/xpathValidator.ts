@@ -47,13 +47,8 @@ export interface XPathError {
 	/**
 	 * For `INVALID_REF`: how the failing reference is STORED in the
 	 * slot's expression AST, when the deep walk could classify it.
-	 * Drives the runner's repair prose — these two shapes need a
+	 * Drives the runner's repair prose because this shape needs a
 	 * different fix than a typo:
-	 *
-	 *   - `"raw-text"` — the slot holds the reference as plain text (a
-	 *     migrated legacy leaf that never re-resolved), so it doesn't
-	 *     follow its field through renames; re-committing the
-	 *     expression is the repair.
 	 *   - `"dangling-identity"` — the slot tracks a field directly and
 	 *     that field no longer exists; the printed text shows an
 	 *     internal id, not a path a person can look up.
@@ -61,7 +56,7 @@ export interface XPathError {
 	 * Set by `validateBlueprintDeep`'s slot walk — `validateXPath`
 	 * itself sees only printed text and never sets it.
 	 */
-	storedRef?: "raw-text" | "dangling-identity";
+	storedRef?: "dangling-identity";
 	/**
 	 * For `INVALID_REF` on a `/data/...` path: the existing field path(s)
 	 * whose leaf id matches the unknown reference's leaf — the classic
@@ -149,9 +144,10 @@ export function validateXPath(
 			}
 
 			// Phase 2b: Hashtag reference validation (#<type>/prop). The
-			// namespace is the token between `#` and the first `/`. `#form/`,
-			// `#user/`, and the transitional `#case/` are resolved by the wire,
-			// not case-type refs — `checkCaseHashtag` skips them; everything else
+			// namespace is the token between `#` and the first `/`. `#form/`
+			// and `#user/` are resolved by the wire rather than as case-type refs;
+			// `checkCaseHashtag` skips them. Every other namespace, including the
+			// forbidden raw authored `#case/`, must name a readable case type.
 			// names a case type. In an XPath expression a hashtag is a deliberate
 			// reference, so the strict `surface: "xpath"` rule applies (an
 			// unreachable namespace IS an error) — unlike the lenient prose rule.
@@ -282,8 +278,8 @@ function suggestPathsByLeaf(ref: string, validPaths: Set<string>): string[] {
  *   - In an XPATH expression a hashtag is a deliberate reference, so an
  *     unreachable namespace is a real error (`surface: "xpath"`).
  *   - In PROSE the emitter (`xform/builder.ts::buildLabelNodes`) lowers a
- *     hashtag to `<output>` ONLY when it resolves (`#form/`, `#user/`, the
- *     transitional `#case/`, or a REACHABLE case type) and leaves everything
+ *     hashtag to `<output>` ONLY when it resolves (`#form/`, `#user/`, or a
+ *     REACHABLE case type) and leaves everything
  *     else — innocent prose (`#N/A`, `#priority/high`), a typo'd type
  *     (`#mothre/code`), a child-type write target (`#child/name`) — as literal
  *     text with NO error. So in prose we flag a case ref ONLY when its
@@ -292,9 +288,9 @@ function suggestPathsByLeaf(ref: string, validPaths: Set<string>): string[] {
  *     prose, matching the emitter's leniency (`surface: "prose"`).
  *
  * `ns` / `rest` are the namespace and property path either side of the first
- * `/`. `#form/`, `#user/`, and the transitional `#case/` are resolved by the
- * wire before any per-type lookup (`RESOLVED_REFERENCE_NAMESPACES`), so they're
- * never rejected as an unknown case type. Returns the rejection message, or
+ * `/`. `#form/` and `#user/` are resolved by the wire before any per-type
+ * lookup (`RESOLVED_REFERENCE_NAMESPACES`), so they are never rejected as an
+ * unknown case type. Returns the rejection message, or
  * `undefined` when accepted (the caller owns the error `code` + `position`).
  *
  * Survey forms get an empty accept map (`caseRefAcceptMap`), so on a survey no

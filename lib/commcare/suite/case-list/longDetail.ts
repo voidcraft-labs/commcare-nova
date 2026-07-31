@@ -37,7 +37,7 @@
 //     `commcare-hq/corehq/apps/app_manager/tests/data/suite/normal-suite.xml::<detail id="m0_case_long">`'s
 //     phone field.
 //
-// Fields walk independent Details order (`detailOrder ?? order`, then uuid),
+// Fields walk the config's exact Details UUID permutation,
 // so rearranging Results cannot disturb the confirmation screen. Position
 // counter convention: the 1-based position passed to the per-column header-
 // locale composer is the column's index in the complete Details-ordered source
@@ -146,6 +146,7 @@ export function buildLongDetail(args: {
 		detailKind: "long",
 		target,
 		caseProperties,
+		proseDoc: args.doc,
 		caseTypes: effectiveCaseTypes(args.doc),
 		currentCaseType: mod.caseType,
 		userPropertySlugs: userPropertySlugsByUuid(args.doc),
@@ -156,7 +157,7 @@ export function buildLongDetail(args: {
 	const fields: Element[] = [];
 	const strings: Record<string, string> = {};
 
-	// Walk every column in Details order (`detailOrder ?? order`, then uuid),
+	// Walk every column in the config's exact Details UUID permutation,
 	// independently of Results. Position is 1-based against the complete long-
 	// detail sequence, including fields hidden from this surface, because CCHQ's
 	// header-locale suffix keys off the column's position in that array.

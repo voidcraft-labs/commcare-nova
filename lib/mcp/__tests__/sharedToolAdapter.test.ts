@@ -24,28 +24,23 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import type { ToolExecutionContext } from "@/lib/agent/toolExecutionContext";
 import type { MutatingToolResult } from "@/lib/agent/tools/common";
+import { configureConnectTool } from "@/lib/agent/tools/configureConnect";
+import { editFieldTool } from "@/lib/agent/tools/editField";
 import { AppAccessError, resolveAppAccess } from "@/lib/db/appAccess";
 import { loadApp } from "@/lib/db/apps";
 import type { AppDoc } from "@/lib/db/types";
-import type { Mutation } from "@/lib/doc/types";
-import type {
-	BlueprintDoc,
-	LookupColumnId,
-	LookupTableId,
-	Uuid,
-} from "@/lib/domain";
-import { asUuid, calculatedColumn, plainColumn } from "@/lib/domain";
 import {
-	concat,
-	eq,
-	literal,
-	tableColumn,
-	tableLookup,
-	term,
-} from "@/lib/domain/predicate";
+	type PreparedMutationCandidate,
+	prepareMutationCandidate,
+} from "@/lib/doc/commitVerdicts";
+import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
+import type { Mutation } from "@/lib/doc/types";
+import type { BlueprintDoc, Uuid } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import {
 	projectResult,
 	registerSharedTool,
@@ -125,20 +120,45 @@ function mockBlueprintWithForm(): {
 	modUuid: Uuid;
 	formUuid: Uuid;
 } {
-	const modUuid = asUuid("44444444-4444-4444-4444-444444444444");
-	const formUuid = asUuid("55555555-5555-5555-5555-555555555555");
+	const modUuid = testUuid("44444444-4444-4444-4444-444444444444");
+	const formUuid = testUuid("55555555-5555-5555-5555-555555555555");
+	const columnUuid = testUuid("77777777-7777-4777-8777-777777777777");
 	return {
 		blueprint: {
 			appId: "a1",
 			appName: "Test",
 			connectType: null,
-			caseTypes: null,
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{
+							name: "case_name",
+							label: proseText("Name"),
+							data_type: "text",
+						},
+					],
+				},
+			],
 			modules: {
 				[modUuid]: {
 					uuid: modUuid,
 					id: "patients",
 					name: "Patients",
 					caseType: "patient",
+					caseListConfig: {
+						columns: [
+							{
+								uuid: columnUuid,
+								kind: "plain",
+								field: "case_name",
+								header: "Name",
+							},
+						],
+						listColumnOrder: [columnUuid],
+						detailColumnOrder: [columnUuid],
+						searchInputs: [],
+					},
 				},
 			},
 			forms: {
@@ -157,6 +177,64 @@ function mockBlueprintWithForm(): {
 		modUuid,
 		formUuid,
 	};
+}
+
+/** Valid adapter fixture with one editable patient field and one exact child. */
+function caseWriteAdapterBlueprint(): BlueprintDoc {
+	return buildDoc({
+		appName: "Case-write MCP parity",
+		caseTypes: [
+			{
+				name: "household",
+				properties: [{ name: "case_name", label: proseText("Name") }],
+			},
+			{
+				name: "patient",
+				parent_type: "household",
+				properties: [{ name: "case_name", label: proseText("Name") }],
+			},
+			{
+				name: "sibling",
+				parent_type: "household",
+				properties: [{ name: "case_name", label: proseText("Name") }],
+			},
+			{
+				name: "child",
+				parent_type: "patient",
+				properties: [{ name: "case_name", label: proseText("Name") }],
+			},
+		],
+		modules: [
+			{
+				name: "Patients",
+				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						name: "Follow up",
+						type: "followup",
+						fields: [f({ kind: "text", id: "friendly_name" })],
+					},
+				],
+			},
+			...["sibling", "child"].map((caseType) => ({
+				name: `${caseType} cases`,
+				caseType,
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						name: `${caseType} notes`,
+						type: "survey" as const,
+						fields: [f({ kind: "text", id: `${caseType}_notes` })],
+					},
+				],
+			})),
+		],
+	});
 }
 
 /** Baseline tool context used by every test. */
@@ -186,7 +264,7 @@ function latestFlushSpy(): ReturnType<typeof vi.fn> {
 function buildLoadedApp(overrides: Partial<AppDoc> = {}): AppDoc {
 	return {
 		owner: "u1",
-		project_id: null,
+		project_id: "project-1",
 		app_name: "Test",
 		blueprint: mockBlueprint() as unknown as BlueprintDoc,
 		mutation_seq: 0,
@@ -253,6 +331,90 @@ describe("registerSharedTool — read tools", () => {
 	});
 });
 
+describe("registerSharedTool — exact refined input schema", () => {
+	it("lists configure_connect with its top-level and nested relational checks intact", () => {
+		const { server, registeredConfig } = makeFakeServer();
+		registerSharedTool(
+			server,
+			"configure_connect",
+			configureConnectTool,
+			toolCtx,
+			"edit",
+		);
+
+		const schema = (
+			registeredConfig() as { inputSchema: z.ZodType<Record<string, unknown>> }
+		).inputSchema;
+		expect(
+			schema.safeParse({
+				app_id: "a1",
+				mode: "learn",
+			}).success,
+		).toBe(false);
+		expect(
+			schema.safeParse({
+				app_id: "a1",
+				mode: null,
+				participants: [],
+			}).success,
+		).toBe(false);
+
+		const formUuid = testUuid("configure-connect-duplicate-form");
+		expect(
+			schema.safeParse({
+				app_id: "a1",
+				mode: "learn",
+				participants: [
+					{
+						formUuid,
+						connect: {
+							learn_module: {
+								id: "intro",
+								name: "Intro",
+								description: "First",
+								time_estimate: 5,
+							},
+						},
+					},
+					{
+						formUuid,
+						connect: {
+							assessment: { id: "assessment" },
+						},
+					},
+				],
+			}).success,
+		).toBe(false);
+	});
+
+	it("rejects an invalid actual call at the registered MCP schema before app loading or tool execution", async () => {
+		const { server, capture, registeredConfig } = makeFakeServer();
+		registerSharedTool(
+			server,
+			"configure_connect",
+			configureConnectTool,
+			toolCtx,
+			"edit",
+		);
+
+		const schema = (
+			registeredConfig() as { inputSchema: z.ZodType<Record<string, unknown>> }
+		).inputSchema;
+		const registeredHandler = capture();
+		/* `McpServer.registerTool` parses through the registered schema before
+		 * invoking its callback. Reproduce that exact boundary here rather than
+		 * calling the captured callback directly (the general fake deliberately
+		 * leaves parsing to individual tests). */
+		const invokeAsSdk = async (args: Record<string, unknown>) =>
+			registeredHandler(schema.parse(args), {});
+
+		await expect(
+			invokeAsSdk({ app_id: "a1", mode: "deliver" }),
+		).rejects.toBeInstanceOf(z.ZodError);
+		expect(loadApp).not.toHaveBeenCalled();
+	});
+});
+
 describe("registerSharedTool — mutating tools", () => {
 	it("extracts result.result and does NOT re-persist mutations", async () => {
 		/* The fake mutating tool records whether the adapter called
@@ -271,7 +433,10 @@ describe("registerSharedTool — mutating tools", () => {
 			async execute(_input, ctx: ToolExecutionContext, doc: BlueprintDoc) {
 				/* Simulate what every shared mutating tool does: call
 				 * recordMutations inside its own body. */
-				await ctx.recordMutations([mut], doc, "stage:x");
+				await ctx.recordMutations(
+					prepareMutationCandidate(doc, admitMutationBatch([mut])),
+					"stage:x",
+				);
 				toolSawRecordMutations = true;
 				const result: MutatingToolResult<{ ok: true }> = {
 					kind: "mutate",
@@ -291,9 +456,9 @@ describe("registerSharedTool — mutating tools", () => {
 		const originalRecord = McpContext.prototype.recordMutations;
 		McpContext.prototype.recordMutations = vi
 			.fn()
-			.mockImplementation(async (muts: Mutation[]) => {
-				recordedByAdapter.push(muts);
-				return [];
+			.mockImplementation(async (prepared: PreparedMutationCandidate) => {
+				recordedByAdapter.push([...prepared.mutations]);
+				return { events: [], committedDoc: prepared.nextDoc };
 			});
 
 		try {
@@ -321,6 +486,77 @@ describe("registerSharedTool — mutating tools", () => {
 			McpContext.prototype.recordMutations = originalRecord;
 		}
 	});
+
+	it.each([
+		{ destination: "child", accepted: true },
+		{ destination: "sibling", accepted: false },
+	])(
+		"preserves the shared case-write membership verdict for $destination through the real MCP adapter",
+		async ({ destination, accepted }) => {
+			const doc = caseWriteAdapterBlueprint();
+			const { fieldParent: _derived, ...persisted } = doc;
+			vi.mocked(loadApp).mockResolvedValueOnce(
+				buildLoadedApp({
+					app_name: doc.appName,
+					blueprint: persisted as unknown as BlueprintDoc,
+				}),
+			);
+			const moduleUuid = doc.moduleOrder[0];
+			const formUuid = doc.formOrder[moduleUuid][0];
+			const fieldUuid = doc.fieldOrder[formUuid][0];
+			const { McpContext } = await import("../context");
+			const originalRecordStages = McpContext.prototype.recordMutationStages;
+			McpContext.prototype.recordMutationStages = vi
+				.fn()
+				.mockImplementation(async (prepared: PreparedMutationCandidate) => ({
+					events: [],
+					committedDoc: prepared.nextDoc,
+				}));
+
+			try {
+				const { server, capture } = makeFakeServer();
+				registerSharedTool(
+					server,
+					"edit_field",
+					editFieldTool,
+					toolCtx,
+					"edit",
+				);
+				const out = (await capture()(
+					{
+						app_id: doc.appId,
+						moduleUuid,
+						formUuid,
+						fieldUuid,
+						updates: {
+							kind: "text",
+							caseWrite: {
+								caseType: destination,
+								property: "case_name",
+							},
+						},
+					},
+					{},
+				)) as {
+					content: Array<{ type: "text"; text: string }>;
+				};
+				const payload = JSON.parse(out.content[0]?.text ?? "null") as unknown;
+				if (accepted) {
+					expect(typeof payload).toBe("string");
+					expect(
+						McpContext.prototype.recordMutationStages,
+					).toHaveBeenCalledTimes(1);
+				} else {
+					expect(payload).toMatchObject({ error: expect.any(String) });
+					expect(
+						McpContext.prototype.recordMutationStages,
+					).not.toHaveBeenCalled();
+				}
+			} finally {
+				McpContext.prototype.recordMutationStages = originalRecordStages;
+			}
+		},
+	);
 });
 
 describe("registerSharedTool — ownership failure", () => {
@@ -480,280 +716,7 @@ describe("registerSharedTool — real read tool integration (searchBlueprint)", 
 	});
 });
 
-describe("registerSharedTool — dormant lookup read projection", () => {
-	it("keeps a real getModule MCP result carrier-blind without touching persisted input", async () => {
-		const { blueprint, modUuid } = mockBlueprintWithForm();
-		const table = "018f3e8a-7b2c-7def-8abc-1234567890ab" as LookupTableId;
-		const valueColumn =
-			"018f3e8a-7b2c-7def-8abc-1234567890ad" as LookupColumnId;
-		const labelColumn =
-			"018f3e8a-7b2c-7def-8abc-1234567890ae" as LookupColumnId;
-		const where = eq(tableColumn(table, labelColumn), literal("enabled"));
-		const lookup = concat(
-			term(literal("prefix:")),
-			tableLookup(table, valueColumn, where),
-		);
-		const safeColumn = asUuid("71111111-1111-4111-8111-111111111111");
-		const dormantColumn = asUuid("72222222-2222-4222-8222-222222222222");
-
-		blueprint.modules[modUuid] = {
-			...blueprint.modules[modUuid],
-			caseListConfig: resolveCaseListConfig({
-				columns: [
-					plainColumn(safeColumn, "name", "Name"),
-					calculatedColumn(dormantColumn, "Lookup result", lookup),
-				],
-				filter: eq(lookup, literal("active")),
-				searchInputs: [],
-			}),
-			caseSearchConfig: {
-				searchScreenTitle: "Find people",
-				excludedOwnerIds: lookup,
-			},
-		};
-		const persistedBefore = JSON.stringify(blueprint);
-		vi.mocked(loadApp).mockResolvedValueOnce(
-			buildLoadedApp({ blueprint: blueprint as unknown as BlueprintDoc }),
-		);
-
-		const { getModuleTool } = await import("@/lib/agent/tools/getModule");
-		const { server, capture } = makeFakeServer();
-		registerSharedTool(server, "get_module", getModuleTool, toolCtx, "view");
-
-		const out = (await capture()({ app_id: "a1", moduleIndex: 0 }, {})) as {
-			content: Array<{ type: "text"; text: string }>;
-		};
-		const wireText = out.content[0]?.text ?? "{}";
-		const payload = JSON.parse(wireText) as {
-			case_list_config: {
-				columns: Array<{ uuid: string; header: string }>;
-				filter?: unknown;
-			};
-			results_column_order: string[];
-			case_search_config: Record<string, unknown>;
-		};
-
-		expect(wireText).not.toContain("table-column");
-		expect(wireText).not.toContain("table-lookup");
-		expect(wireText).not.toContain("optionsSource");
-		expect(payload.case_list_config.columns).toEqual([
-			expect.objectContaining({ uuid: safeColumn, header: "Name" }),
-		]);
-		expect(payload.case_list_config.filter).toBeUndefined();
-		expect(payload.results_column_order).toEqual([safeColumn]);
-		expect(payload.case_search_config).toEqual({
-			searchScreenTitle: "Find people",
-		});
-		expect(JSON.stringify(blueprint)).toBe(persistedBefore);
-	});
-
-	it("projects a dormant case operation as wholly unavailable through the real getForm MCP path", async () => {
-		const { blueprint, formUuid } = mockBlueprintWithForm();
-		const table = "018f3e8a-7b2c-7def-8abc-1234567890ab" as LookupTableId;
-		const valueColumn =
-			"018f3e8a-7b2c-7def-8abc-1234567890ad" as LookupColumnId;
-		const labelColumn =
-			"018f3e8a-7b2c-7def-8abc-1234567890ae" as LookupColumnId;
-		const lookup = tableLookup(
-			table,
-			valueColumn,
-			eq(tableColumn(table, labelColumn), literal("enabled")),
-		);
-		blueprint.forms[formUuid] = {
-			...blueprint.forms[formUuid],
-			caseOperations: [
-				{
-					uuid: asUuid("73333333-3333-4333-8333-333333333333"),
-					id: "link_household",
-					action: "update",
-					caseType: "patient",
-					target: { kind: "session" },
-					links: [
-						{
-							identifier: "safe_null",
-							targetType: "household",
-							target: null,
-							relationship: "child",
-						},
-						{
-							identifier: "dormant_expression",
-							targetType: "household",
-							target: { kind: "expression", expr: lookup },
-							relationship: "extension",
-						},
-					],
-				},
-			],
-		};
-		const persistedBefore = JSON.stringify(blueprint);
-		vi.mocked(loadApp).mockResolvedValueOnce(
-			buildLoadedApp({ blueprint: blueprint as unknown as BlueprintDoc }),
-		);
-
-		const { getFormTool } = await import("@/lib/agent/tools/getForm");
-		const { server, capture } = makeFakeServer();
-		registerSharedTool(server, "get_form", getFormTool, toolCtx, "view");
-
-		const out = (await capture()(
-			{ app_id: "a1", moduleIndex: 0, formIndex: 0 },
-			{},
-		)) as {
-			content: Array<{ type: "text"; text: string }>;
-		};
-		const wireText = out.content[0]?.text ?? "{}";
-		const payload = JSON.parse(wireText) as {
-			form: {
-				caseOperations?: Array<{
-					id: string;
-					action: string;
-					caseType: string;
-					unavailable?: unknown;
-				}>;
-			};
-		};
-
-		expect(wireText).not.toContain("table-column");
-		expect(wireText).not.toContain("table-lookup");
-		expect(wireText).not.toContain("optionsSource");
-		expect(payload.form.caseOperations?.[0]).toEqual({
-			id: "link_household",
-			action: "update",
-			caseType: "patient",
-			unavailable: {
-				kind: "lookup-table-logic",
-				reason:
-					"This case change uses lookup-table logic that Nova preserves but cannot safely edit from this surface.",
-			},
-		});
-		expect(JSON.stringify(blueprint)).toBe(persistedBefore);
-	});
-});
-
 describe("registerSharedTool — real mutating tool integration (addFields)", () => {
-	it("refuses dormant case-operation update/removal through MCP while allowing an identity-only move", async () => {
-		const { blueprint, modUuid, formUuid } = mockBlueprintWithForm();
-		const table = "018f3e8a-7b2c-7def-8abc-1234567890ab" as LookupTableId;
-		const valueColumn =
-			"018f3e8a-7b2c-7def-8abc-1234567890ad" as LookupColumnId;
-		const labelColumn =
-			"018f3e8a-7b2c-7def-8abc-1234567890ae" as LookupColumnId;
-		blueprint.caseTypes = [{ name: "patient", properties: [] }];
-		blueprint.forms[formUuid] = {
-			...blueprint.forms[formUuid],
-			type: "followup",
-			caseOperations: [
-				{
-					uuid: asUuid("73333333-3333-4333-8333-333333333333"),
-					id: "dormant_update",
-					action: "update",
-					caseType: "patient",
-					target: { kind: "session" },
-					condition: eq(
-						tableLookup(
-							table,
-							valueColumn,
-							eq(tableColumn(table, labelColumn), literal("enabled")),
-						),
-						literal("yes"),
-					),
-				},
-				{
-					uuid: asUuid("74444444-4444-4444-8444-444444444444"),
-					id: "safe_peer",
-					action: "update",
-					caseType: "patient",
-					target: { kind: "session" },
-				},
-			],
-		};
-		const persistedBefore = JSON.stringify(blueprint);
-		const loaded = buildLoadedApp({
-			blueprint: blueprint as unknown as BlueprintDoc,
-		});
-		vi.mocked(loadApp).mockResolvedValue(loaded);
-
-		const { updateCaseOperationTool } = await import(
-			"@/lib/agent/tools/case-operations/updateCaseOperation"
-		);
-		const { removeCaseOperationTool } = await import(
-			"@/lib/agent/tools/case-operations/removeCaseOperation"
-		);
-		const { moveCaseOperationTool } = await import(
-			"@/lib/agent/tools/case-operations/moveCaseOperation"
-		);
-		const { McpContext } = await import("../context");
-		const originalRecord = McpContext.prototype.recordMutations;
-		const recordSpy = vi.fn(async (_muts: unknown, doc: unknown) => ({
-			events: [],
-			committedDoc: doc,
-		}));
-		McpContext.prototype.recordMutations =
-			recordSpy as unknown as typeof originalRecord;
-
-		const invoke = async (
-			name: string,
-			tool: SharedToolModule,
-			payload: Record<string, unknown>,
-		): Promise<Record<string, unknown>> => {
-			const { server, capture } = makeFakeServer();
-			registerSharedTool(server, name, tool, toolCtx, "edit");
-			const out = (await capture()({ app_id: "a1", ...payload }, {})) as {
-				content: Array<{ type: "text"; text: string }>;
-			};
-			return JSON.parse(out.content[0]?.text ?? "{}") as Record<
-				string,
-				unknown
-			>;
-		};
-
-		try {
-			const update = await invoke(
-				"update_case_operation",
-				updateCaseOperationTool,
-				{
-					moduleUuid: modUuid,
-					formUuid,
-					operationId: "dormant_update",
-					operation: {
-						id: "renamed_update",
-						action: "update",
-						caseType: "patient",
-						target: { kind: "session" },
-					},
-				},
-			);
-			expect(update.error).toContain(
-				"uses lookup-table logic that Nova preserves but cannot safely edit from this surface",
-			);
-
-			const remove = await invoke(
-				"remove_case_operation",
-				removeCaseOperationTool,
-				{
-					moduleUuid: modUuid,
-					formUuid,
-					operationId: "dormant_update",
-				},
-			);
-			expect(remove.error).toContain(
-				"uses lookup-table logic that Nova preserves but cannot safely edit from this surface",
-			);
-			expect(recordSpy).not.toHaveBeenCalled();
-
-			const move = await invoke("move_case_operation", moveCaseOperationTool, {
-				moduleUuid: modUuid,
-				formUuid,
-				operationId: "dormant_update",
-				index: 1,
-			});
-			expect(move).toMatchObject({ index: 1 });
-			expect(recordSpy).toHaveBeenCalledTimes(1);
-			expect(JSON.stringify(blueprint)).toBe(persistedBefore);
-		} finally {
-			McpContext.prototype.recordMutations = originalRecord;
-		}
-	});
-
 	it("projects MutatingToolResult → result on the error branch and does not re-persist", async () => {
 		/* Covers the projection + error-shape contract on a real
 		 * mutating tool, not the double-persistence invariant per se:
@@ -775,9 +738,9 @@ describe("registerSharedTool — real mutating tool integration (addFields)", ()
 		// The guarded writer returns `{ events, committedDoc }`; echo the passed
 		// post-mutation doc as the committed doc for the happy path (the
 		// gate-rejection cases never invoke this spy).
-		const recordSpy = vi.fn(async (_muts: unknown, doc: unknown) => ({
+		const recordSpy = vi.fn(async (prepared: PreparedMutationCandidate) => ({
 			events: [],
-			committedDoc: doc,
+			committedDoc: prepared.nextDoc,
 		}));
 		McpContext.prototype.recordMutations =
 			recordSpy as unknown as typeof originalRecord;
@@ -789,9 +752,15 @@ describe("registerSharedTool — real mutating tool integration (addFields)", ()
 			const out = (await capture()(
 				{
 					app_id: "a1",
-					moduleIndex: 0,
-					formIndex: 0,
-					fields: [{ id: "q1", kind: "text", label: "Q1" }],
+					moduleUuid: testUuid("missing-module"),
+					formUuid: testUuid("missing-form"),
+					fields: [
+						{
+							id: "q1",
+							kind: "text",
+							caseWrite: { caseType: "patient", property: "case_name" },
+						},
+					],
 				},
 				{},
 			)) as { content: Array<{ type: "text"; text: string }> };
@@ -821,10 +790,10 @@ describe("registerSharedTool — real mutating tool integration (addFields)", ()
 		 * one-module-one-form fixture. `fieldParent` is deliberately
 		 * absent — the adapter's `loadAppBlueprint` rebuilds it on the
 		 * way in. */
-		const { blueprint } = mockBlueprintWithForm();
+		const { blueprint, modUuid, formUuid } = mockBlueprintWithForm();
 		vi.mocked(loadApp).mockResolvedValueOnce({
 			owner: "u1",
-			project_id: null,
+			project_id: "project-1",
 			app_name: blueprint.appName,
 			blueprint: blueprint as unknown as BlueprintDoc,
 			mutation_seq: 0,
@@ -849,9 +818,9 @@ describe("registerSharedTool — real mutating tool integration (addFields)", ()
 		// The guarded writer returns `{ events, committedDoc }`; echo the passed
 		// post-mutation doc as the committed doc for the happy path (the
 		// gate-rejection cases never invoke this spy).
-		const recordSpy = vi.fn(async (_muts: unknown, doc: unknown) => ({
+		const recordSpy = vi.fn(async (prepared: PreparedMutationCandidate) => ({
 			events: [],
-			committedDoc: doc,
+			committedDoc: prepared.nextDoc,
 		}));
 		McpContext.prototype.recordMutations =
 			recordSpy as unknown as typeof originalRecord;
@@ -859,22 +828,71 @@ describe("registerSharedTool — real mutating tool integration (addFields)", ()
 		try {
 			const { server, capture } = makeFakeServer();
 			registerSharedTool(server, "add_fields", addFieldsTool, toolCtx, "edit");
+			const fieldUuid = testUuid("mcp-receipt-select");
+			const optionUuids = [
+				testUuid("mcp-receipt-option-yes"),
+				testUuid("mcp-receipt-option-no"),
+			];
 
 			const out = (await capture()(
 				{
 					app_id: "a1",
-					moduleIndex: 0,
-					formIndex: 0,
-					fields: [{ id: "q1", kind: "text", label: "Q1" }],
+					moduleUuid: modUuid,
+					formUuid,
+					fields: [
+						{
+							id: "q1",
+							kind: "text",
+							caseWrite: { caseType: "patient", property: "case_name" },
+						},
+						{
+							fieldUuid,
+							id: "answer",
+							kind: "single_select",
+							label: proseText("Answer"),
+							optionsSource: {
+								kind: "inline",
+								options: [
+									{
+										optionUuid: optionUuids[0],
+										value: "yes",
+										label: proseText("Yes"),
+									},
+									{
+										optionUuid: optionUuids[1],
+										value: "no",
+										label: proseText("No"),
+									},
+								],
+							},
+						},
+					],
 				},
 				{},
 			)) as { content: Array<{ type: "text"; text: string }> };
 
-			/* Payload is the unwrapped `.result` — a human-readable
-			 * success string from the real tool. JSON.stringify of a
-			 * plain string round-trips to the quoted form. */
-			const text = out.content[0]?.text ?? "";
-			expect(text.startsWith('"Successfully added 1 field')).toBe(true);
+			/* The adapter drops only the UI summary. Structural identities remain
+			 * in the unwrapped result so an MCP client can continue without a
+			 * reread. */
+			const payload = JSON.parse(out.content[0]?.text ?? "{}") as {
+				message: string;
+				fields: Array<{
+					uuid: string;
+					id: string;
+					options: Array<{ uuid: string; value: string }>;
+				}>;
+				summary?: unknown;
+			};
+			expect(payload.message).toContain("Successfully added 2 fields");
+			expect(payload.summary).toBeUndefined();
+			expect(payload.fields[1]).toEqual({
+				uuid: fieldUuid,
+				id: "answer",
+				options: [
+					{ uuid: optionUuids[0], value: "yes" },
+					{ uuid: optionUuids[1], value: "no" },
+				],
+			});
 
 			/* The core contract: exactly one `recordMutations` call,
 			 * made by the tool body. If the adapter ever re-persisted,
@@ -897,13 +915,13 @@ describe("registerSharedTool — real mutating tool integration (addFields)", ()
 		/* One-module-one-form fixture seeded with an existing `age`
 		 * field so the incoming duplicate has a sibling to collide
 		 * with. */
-		const { blueprint, formUuid } = mockBlueprintWithForm();
-		const existingUuid = asUuid("66666666-6666-6666-6666-666666666666");
+		const { blueprint, modUuid, formUuid } = mockBlueprintWithForm();
+		const existingUuid = testUuid("66666666-6666-6666-6666-666666666666");
 		blueprint.fields[existingUuid] = {
 			uuid: existingUuid,
 			id: "age",
 			kind: "int",
-			label: "Age",
+			label: proseText("Age"),
 		} as BlueprintDoc["fields"][Uuid];
 		blueprint.fieldOrder[formUuid] = [existingUuid];
 		vi.mocked(loadApp).mockResolvedValueOnce(
@@ -915,9 +933,9 @@ describe("registerSharedTool — real mutating tool integration (addFields)", ()
 		// The guarded writer returns `{ events, committedDoc }`; echo the passed
 		// post-mutation doc as the committed doc for the happy path (the
 		// gate-rejection cases never invoke this spy).
-		const recordSpy = vi.fn(async (_muts: unknown, doc: unknown) => ({
+		const recordSpy = vi.fn(async (prepared: PreparedMutationCandidate) => ({
 			events: [],
-			committedDoc: doc,
+			committedDoc: prepared.nextDoc,
 		}));
 		McpContext.prototype.recordMutations =
 			recordSpy as unknown as typeof originalRecord;
@@ -929,9 +947,9 @@ describe("registerSharedTool — real mutating tool integration (addFields)", ()
 			const out = (await capture()(
 				{
 					app_id: "a1",
-					moduleIndex: 0,
-					formIndex: 0,
-					fields: [{ id: "age", kind: "text", label: "Age again" }],
+					moduleUuid: modUuid,
+					formUuid,
+					fields: [{ id: "age", kind: "text", label: proseText("Age again") }],
 				},
 				{},
 			)) as { content: Array<{ type: "text"; text: string }> };

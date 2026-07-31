@@ -3,13 +3,15 @@
 import {
 	cleanup,
 	fireEvent,
-	render,
+	render as rtlRender,
 	screen,
 	waitFor,
 	within,
 } from "@testing-library/react";
-import { useState } from "react";
+import { type ReactElement, type ReactNode, useState } from "react";
 import { afterEach, describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { BlueprintDocProvider } from "@/lib/doc/provider";
 import type { CaseType } from "@/lib/domain";
 import {
 	eq,
@@ -19,12 +21,28 @@ import {
 	prop,
 	whenInput,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { PredicateWorkbench } from "../PredicateWorkbench";
+
+// The surfaces here spell authored prose against the document; every production
+// mount sits inside the builder's provider. Wrapping at `render` reproduces it
+// and carries through each `rerender`.
+function DocumentProvider({ children }: { readonly children: ReactNode }) {
+	return (
+		<BlueprintDocProvider appId="test-app">{children}</BlueprintDocProvider>
+	);
+}
+
+function render(ui: ReactElement) {
+	return rtlRender(ui, { wrapper: DocumentProvider });
+}
 
 const CASE_TYPES: readonly CaseType[] = [
 	{
 		name: "patient",
-		properties: [{ name: "region", label: "Region", data_type: "text" }],
+		properties: [
+			{ name: "region", label: proseText("Region"), data_type: "text" },
+		],
 	},
 ];
 
@@ -41,7 +59,12 @@ function ControlledWorkbench({ initial }: { readonly initial: Predicate }) {
 				caseTypes={CASE_TYPES}
 				currentCaseType="patient"
 				knownInputs={[
-					{ name: "query", label: "Client search", data_type: "text" },
+					{
+						uuid: testUuid("query"),
+						name: "query",
+						label: "Client search",
+						data_type: "text",
+					},
 				]}
 			/>
 		</>
@@ -119,7 +142,11 @@ describe("PredicateWorkbench special-condition authoring", () => {
 	);
 
 	it("authors a special condition inside a recursive wrapper", async () => {
-		render(<ControlledWorkbench initial={whenInput(input("query"), NORTH)} />);
+		render(
+			<ControlledWorkbench
+				initial={whenInput(input(testUuid("query")), NORTH)}
+			/>,
+		);
 		const originalTrigger = screen.getByRole("button", {
 			name: "Condition is",
 		});

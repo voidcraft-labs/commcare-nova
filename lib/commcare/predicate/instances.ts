@@ -24,12 +24,12 @@
 //   - `session-user` and `session-context` → `commcaresession` (CCHQ
 //     exposes the bound user + framework metadata on this instance).
 //   - `literal` → no instance (literals carry no runtime resolution).
-//   - `table-column` and the `table-lookup` expression node →
-//     `item-list:<tag>` resolved from the validated lookup naming; the
-//     paired src is `jr://fixture/item-list:<tag>`.
+//   - `table-column` and the `table-lookup` expression node → the current
+//     table tag in XForms or `item-list:<tag>` in suite XML; both declarations
+//     use `jr://fixture/item-list:<tag>` as their source.
 //
 // The `jr://` source URLs that pair with each id are CCHQ's
-// canonical vocabulary; `instanceSourceFor` maps the accumulated id
+// canonical vocabulary; `instanceSourceFor` maps the scoped accumulated id
 // to the `<instance src="...">` value the wire layer emits.
 
 import type { LookupTableId } from "@/lib/domain/lookupIds";
@@ -42,27 +42,23 @@ import {
 	walkPredicateExpressionNodes,
 	walkTerms,
 } from "@/lib/domain/predicate";
-import {
-	LOOKUP_FIXTURE_ID_PREFIX,
-	type LookupWireNaming,
-	lookupFixtureInstanceSrc,
-} from "../lookup/naming";
+import { type LookupWireNaming, lookupFixtureSrc } from "../lookup/naming";
 
 /**
  * Map a CCHQ wire instance id to its `jr://` source URL. The single
  * source of truth across every suite-XML surface that emits
  * `<instance id="..." src="...">` declarations (the
  * `<remote-request>` orchestrator, the case-loading `<entry>`
- * derivation, future `<query>`-scoped slots). Lookup fixtures use the
- * open `item-list:<tag>` scheme, whose `jr://fixture/...` source must
- * end with the exact fixture id. Other unknown ids throw — the AST
+ * derivation, future `<query>`-scoped slots). Lookup naming distinguishes an
+ * XForm-local tag from a suite fixture id; both map to a source ending in the
+ * exact fixture id. Other unknown ids throw — the AST
  * walker and the suite-XML emitters share the same closed id set, so
  * an unexpected id always indicates an upstream bug.
  */
-export function instanceSourceFor(instanceId: string): string {
-	if (instanceId.startsWith(LOOKUP_FIXTURE_ID_PREFIX)) {
-		return lookupFixtureInstanceSrc(instanceId);
-	}
+export function instanceSourceFor(
+	instanceId: string,
+	lookup?: LookupWireNaming,
+): string {
 	switch (instanceId) {
 		case "casedb":
 			return "jr://instance/casedb";
@@ -74,18 +70,25 @@ export function instanceSourceFor(instanceId: string): string {
 			return "jr://instance/remote/results:inline";
 		case "search-input:results":
 			return "jr://instance/search-input/results";
-		default:
+		default: {
+			const table = lookup?.tables.find(
+				(candidate) =>
+					candidate.xformInstanceId === instanceId ||
+					candidate.fixtureId === instanceId,
+			);
+			if (table !== undefined) return lookupFixtureSrc(table.fixtureId);
 			throw new Error(
 				`Unknown instance id '${instanceId}' reached the suite-XML instance source helper. ` +
 					"The instance accumulator surfaced an id with no known jr:// source — verify the accumulator and this helper agree on the closed id set.",
 			);
+		}
 	}
 }
 
 /**
  * Collect every CCHQ wire instance id reachable from a Predicate.
- * The returned set is the union of per-Term instance refs plus one
- * `item-list:<tag>` id per referenced lookup table; an empty
+ * The returned set is the union of per-Term instance refs plus one scoped
+ * lookup instance id per referenced table; an empty
  * predicate (or one composed entirely of literals) returns the empty
  * set. Lookup carriers resolve through `lookup` naming — a carrier
  * reaching a surface with no naming is a wiring bug, because only the
@@ -95,12 +98,15 @@ export function instanceSourceFor(instanceId: string): string {
 export function collectPredicateInstances(
 	predicate: Predicate,
 	lookup?: LookupWireNaming,
+	instanceScope: "xform" | "suite" = "suite",
 ): Set<string> {
 	const instances = new Set<string>();
 	walkPredicateExpressionNodes(predicate, (node) =>
-		addTableLookupInstance(node, instances, lookup),
+		addTableLookupInstance(node, instances, lookup, instanceScope),
 	);
-	walkTerms(predicate, (term) => addTermInstance(term, instances, lookup));
+	walkTerms(predicate, (term) =>
+		addTermInstance(term, instances, lookup, instanceScope),
+	);
 	return instances;
 }
 
@@ -112,13 +118,14 @@ export function collectPredicateInstances(
 export function collectExpressionInstances(
 	expression: ValueExpression,
 	lookup?: LookupWireNaming,
+	instanceScope: "xform" | "suite" = "suite",
 ): Set<string> {
 	const instances = new Set<string>();
 	walkExpressionNodes(expression, (node) =>
-		addTableLookupInstance(node, instances, lookup),
+		addTableLookupInstance(node, instances, lookup, instanceScope),
 	);
 	walkExpressionTerms(expression, (term) =>
-		addTermInstance(term, instances, lookup),
+		addTermInstance(term, instances, lookup, instanceScope),
 	);
 	return instances;
 }
@@ -126,28 +133,32 @@ export function collectExpressionInstances(
 function lookupInstanceId(
 	tableId: LookupTableId,
 	lookup: LookupWireNaming | undefined,
+	instanceScope: "xform" | "suite",
 ): string {
 	if (lookup === undefined) {
 		throw new Error(
 			"collectAstInstances: a lookup carrier reached suite instance collection with no lookup wire naming. The local-CCZ compile boundary supplies naming; every other surface should reject lookup carriers before instance collection.",
 		);
 	}
-	return lookup.tableFor(tableId).instanceId;
+	const table = lookup.tableFor(tableId);
+	return instanceScope === "xform" ? table.xformInstanceId : table.fixtureId;
 }
 
 function addTableLookupInstance(
 	expression: ValueExpression,
 	instances: Set<string>,
 	lookup: LookupWireNaming | undefined,
+	instanceScope: "xform" | "suite",
 ): void {
 	if (expression.kind !== "table-lookup") return;
-	instances.add(lookupInstanceId(expression.tableId, lookup));
+	instances.add(lookupInstanceId(expression.tableId, lookup, instanceScope));
 }
 
 function addTermInstance(
 	term: Term,
 	instances: Set<string>,
 	lookup: LookupWireNaming | undefined,
+	instanceScope: "xform" | "suite",
 ): void {
 	switch (term.kind) {
 		case "prop":
@@ -165,7 +176,7 @@ function addTermInstance(
 		case "field":
 			return;
 		case "table-column":
-			instances.add(lookupInstanceId(term.tableId, lookup));
+			instances.add(lookupInstanceId(term.tableId, lookup, instanceScope));
 			return;
 		default: {
 			const _exhaustive: never = term;

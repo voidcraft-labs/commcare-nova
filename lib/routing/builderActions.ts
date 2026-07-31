@@ -15,7 +15,7 @@ import { flushSync } from "react-dom";
 import { useScrollIntoView } from "@/components/builder/contexts/ScrollRegistryContext";
 import { useProjectToast } from "@/lib/collab/useProjectToast";
 import {
-	describeIntroducedErrors,
+	describeCommitFindings,
 	mutationCommitVerdict,
 } from "@/lib/doc/commitVerdicts";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
@@ -73,11 +73,11 @@ export function undoRedoGateVerdict(
 ): { ok: true } | { ok: false; message: string } {
 	const verdict = mutationCommitVerdict(
 		displayed,
-		[...batch],
+		batch,
 		LOOKUP_CONTEXT_UNAVAILABLE,
 	);
 	if (verdict.ok) return { ok: true };
-	return { ok: false, message: describeIntroducedErrors(verdict.introduced) };
+	return { ok: false, message: describeCommitFindings(verdict.findings) };
 }
 
 export function useUndoRedo(): { undo: () => void; redo: () => void } {

@@ -11,7 +11,7 @@
  * mount the full provider in each mode and assert the flag transitions.
  */
 
-import { cleanup, renderHook } from "@testing-library/react";
+import { cleanup, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import {
 	afterAll,
@@ -23,6 +23,7 @@ import {
 	vi,
 } from "vitest";
 import { BuilderProvider } from "@/components/builder/BuilderProvider";
+import { useBuilderLookupCatalog } from "@/components/builder/lookup/BuilderLookupCatalogProvider";
 import type { BlueprintDoc } from "@/lib/doc/types";
 import { useCanEdit, useIsLoading } from "@/lib/session/hooks";
 
@@ -43,6 +44,17 @@ vi.mock("@/lib/auth/hooks/useAuth", () => ({
 		signIn: () => {},
 		signOut: () => {},
 	}),
+}));
+
+vi.mock("@/lib/lookup/actions", () => ({
+	getAllLookupDefinitionsAction: vi.fn(async (projectId: string) => ({
+		success: true,
+		value: {
+			projectId,
+			projectRevision: "0",
+			definitions: [],
+		},
+	})),
 }));
 
 /* happy-dom DEFINES `EventSource` (jsdom does not), so `ReconcilerProvider`'s
@@ -123,7 +135,7 @@ describe("BuilderProvider — fresh build", () => {
 		expect(result.current).toEqual({ loading: false, canEdit: false });
 	});
 
-	it("seeds a dormant new build with the active Project's viewer capability", () => {
+	it("seeds a dormant new build with the active Project's viewer capability", async () => {
 		function wrapper({ children }: { children: ReactNode }) {
 			return (
 				<BuilderProvider
@@ -141,10 +153,19 @@ describe("BuilderProvider — fresh build", () => {
 		}
 
 		const { result } = renderHook(
-			() => ({ loading: useIsLoading(), canEdit: useCanEdit() }),
+			() => ({
+				loading: useIsLoading(),
+				canEdit: useCanEdit(),
+				lookupKind: useBuilderLookupCatalog().kind,
+			}),
 			{ wrapper },
 		);
 
-		expect(result.current).toEqual({ loading: false, canEdit: false });
+		await waitFor(() => expect(result.current.lookupKind).toBe("ready"));
+		expect(result.current).toEqual({
+			loading: false,
+			canEdit: false,
+			lookupKind: "ready",
+		});
 	});
 });

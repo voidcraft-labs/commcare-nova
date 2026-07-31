@@ -3,15 +3,16 @@
 import {
 	act,
 	fireEvent,
-	render,
+	render as rtlRender,
 	screen,
 	waitFor,
 	within,
 } from "@testing-library/react";
-import { useState } from "react";
+import { type ReactElement, type ReactNode, useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { BlueprintDocProvider } from "@/lib/doc/provider";
 import {
-	asUuid,
 	type CaseListConfig,
 	type CaseType,
 	type Column,
@@ -19,8 +20,22 @@ import {
 	emptyCaseListConfig,
 } from "@/lib/domain";
 import { prop, term } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { CaseOrderingComposer } from "../SortPriorityStack";
 import { resolveSortedColumns } from "../sortPriority";
+
+// The surfaces here spell authored prose against the document; every production
+// mount sits inside the builder's provider. Wrapping at `render` reproduces it
+// and carries through each `rerender`.
+function DocumentProvider({ children }: { readonly children: ReactNode }) {
+	return (
+		<BlueprintDocProvider appId="test-app">{children}</BlueprintDocProvider>
+	);
+}
+
+function render(ui: ReactElement) {
+	return rtlRender(ui, { wrapper: DocumentProvider });
+}
 
 const session = vi.hoisted(() => ({ canEdit: true }));
 
@@ -31,9 +46,9 @@ vi.mock("@/lib/session/hooks", () => ({
 const PATIENT: CaseType = {
 	name: "patient",
 	properties: [
-		{ name: "case_name", label: "Patient name", data_type: "text" },
-		{ name: "dob", label: "Date of birth", data_type: "date" },
-		{ name: "age", label: "Age", data_type: "int" },
+		{ name: "case_name", label: proseText("Patient name"), data_type: "text" },
+		{ name: "dob", label: proseText("Date of birth"), data_type: "date" },
+		{ name: "age", label: proseText("Age"), data_type: "int" },
 	],
 };
 
@@ -44,7 +59,7 @@ function column(
 	sort?: Column["sort"],
 ): Column {
 	return {
-		uuid: asUuid(`00000000-0000-4000-8000-${uuidSuffix.padStart(12, "0")}`),
+		uuid: testUuid(`00000000-0000-4000-8000-${uuidSuffix.padStart(12, "0")}`),
 		kind: "plain",
 		field,
 		header,
@@ -399,7 +414,7 @@ describe("CaseOrderingComposer", () => {
 	it("uses the calculated result type for friendly directions", () => {
 		const score = {
 			...calculatedColumn(
-				asUuid("00000000-0000-4000-8000-000000000090"),
+				testUuid("00000000-0000-4000-8000-000000000090"),
 				"Risk score",
 				term(prop("patient", "age")),
 			),
@@ -407,7 +422,7 @@ describe("CaseOrderingComposer", () => {
 		};
 		const nextVisit = {
 			...calculatedColumn(
-				asUuid("00000000-0000-4000-8000-000000000091"),
+				testUuid("00000000-0000-4000-8000-000000000091"),
 				"Calculated visit date",
 				term(prop("patient", "dob")),
 			),
@@ -432,22 +447,30 @@ describe("CaseOrderingComposer", () => {
 		expect(screen.queryByText("A to Z")).toBeNull();
 	});
 
-	it("uses canonical fallback labels for legacy default-order fields", () => {
-		const legacyCaseType: CaseType = {
-			name: "legacy_patient",
+	it("uses friendly fallback labels for standard default-order fields", () => {
+		const caseType: CaseType = {
+			name: "patient",
 			properties: [
-				{ name: "case_name", label: "case_name", data_type: "text" },
-				{ name: "external_id", label: "external_id", data_type: "text" },
-				{ name: "date_opened", label: "date_opened", data_type: "datetime" },
+				{ name: "case_name", label: proseText("case_name"), data_type: "text" },
+				{
+					name: "external_id",
+					label: proseText("external_id"),
+					data_type: "text",
+				},
+				{
+					name: "date_opened",
+					label: proseText("date_opened"),
+					data_type: "datetime",
+				},
 			],
 		};
-		const legacyColumns = [
-			column("101", "name", "", { direction: "asc", priority: 0 }),
-			column("102", "external-id", "", {
+		const columns = [
+			column("101", "case_name", "", { direction: "asc", priority: 0 }),
+			column("102", "external_id", "", {
 				direction: "asc",
 				priority: 1,
 			}),
-			column("103", "date-opened", "", {
+			column("103", "date_opened", "", {
 				direction: "desc",
 				priority: 2,
 			}),
@@ -455,9 +478,9 @@ describe("CaseOrderingComposer", () => {
 
 		render(
 			<CaseOrderingComposer
-				value={legacyColumns}
-				config={configOf(legacyColumns)}
-				caseType={legacyCaseType}
+				value={columns}
+				config={configOf(columns)}
+				caseType={caseType}
 				onChange={() => {}}
 			/>,
 		);

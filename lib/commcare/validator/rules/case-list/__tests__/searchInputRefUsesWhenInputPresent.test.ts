@@ -1,3 +1,4 @@
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
  * Tests for `searchInputRefUsesWhenInputPresent`. The rule walks the
@@ -13,7 +14,6 @@ import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import {
 	advancedSearchInputDef,
-	asUuid,
 	plainColumn,
 	simpleSearchInputDef,
 } from "@/lib/domain";
@@ -25,6 +25,7 @@ import {
 	prop,
 	whenInput,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { runValidation } from "../../../runner";
 
 const CODE = "CASE_LIST_BARE_SEARCH_INPUT_REF" as const;
@@ -36,8 +37,8 @@ const standardForm = {
 		f({
 			kind: "text" as const,
 			id: "case_name",
-			label: "Name",
-			case_property_on: "patient",
+			label: proseText("Name"),
+			caseWrite: { caseType: "patient", property: "case_name" },
 		}),
 	],
 };
@@ -46,13 +47,18 @@ const standardCaseTypes = [
 	{
 		name: "patient",
 		properties: [
-			{ name: "case_name", label: "Name", data_type: "text" as const },
+			{
+				name: "case_name",
+				label: proseText("Name"),
+				data_type: "text" as const,
+			},
 		],
 	},
 ];
 
 describe("searchInputRefUsesWhenInputPresent", () => {
 	it("fires when caseListConfig.filter has a bare input ref", () => {
+		const nameInputUuid = testUuid("si-1");
 		const doc = buildDoc({
 			appName: "T",
 			modules: [
@@ -60,13 +66,13 @@ describe("searchInputRefUsesWhenInputPresent", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("col-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("col-1")],
-						detailColumnOrder: [asUuid("col-1")],
-						filter: eq(prop("patient", "case_name"), input("name_q")),
+						columns: [plainColumn(testUuid("col-1"), "case_name", "Name")],
+						listColumnOrder: [testUuid("col-1")],
+						detailColumnOrder: [testUuid("col-1")],
+						filter: eq(prop("patient", "case_name"), input(nameInputUuid)),
 						searchInputs: [
 							simpleSearchInputDef(
-								asUuid("si-1"),
+								nameInputUuid,
 								"name_q",
 								"Name",
 								"text",
@@ -91,6 +97,7 @@ describe("searchInputRefUsesWhenInputPresent", () => {
 	});
 
 	it("is silent when the same ref is wrapped in whenInput against the right name", () => {
+		const nameInputUuid = testUuid("si-1");
 		const doc = buildDoc({
 			appName: "T",
 			modules: [
@@ -98,16 +105,16 @@ describe("searchInputRefUsesWhenInputPresent", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("col-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("col-1")],
-						detailColumnOrder: [asUuid("col-1")],
+						columns: [plainColumn(testUuid("col-1"), "case_name", "Name")],
+						listColumnOrder: [testUuid("col-1")],
+						detailColumnOrder: [testUuid("col-1")],
 						filter: whenInput(
-							input("name_q"),
-							eq(prop("patient", "case_name"), input("name_q")),
+							input(nameInputUuid),
+							eq(prop("patient", "case_name"), input(nameInputUuid)),
 						),
 						searchInputs: [
 							simpleSearchInputDef(
-								asUuid("si-1"),
+								nameInputUuid,
 								"name_q",
 								"Name",
 								"text",
@@ -130,6 +137,8 @@ describe("searchInputRefUsesWhenInputPresent", () => {
 		// The envelope only gates the named trigger — a different input
 		// ref inside the clause is structurally just as bare as if no
 		// envelope existed at all.
+		const nameInputUuid = testUuid("si-1");
+		const otherInputUuid = testUuid("si-2");
 		const doc = buildDoc({
 			appName: "T",
 			modules: [
@@ -137,23 +146,23 @@ describe("searchInputRefUsesWhenInputPresent", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("col-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("col-1")],
-						detailColumnOrder: [asUuid("col-1")],
+						columns: [plainColumn(testUuid("col-1"), "case_name", "Name")],
+						listColumnOrder: [testUuid("col-1")],
+						detailColumnOrder: [testUuid("col-1")],
 						filter: whenInput(
-							input("name_q"),
-							eq(prop("patient", "case_name"), input("other_q")),
+							input(nameInputUuid),
+							eq(prop("patient", "case_name"), input(otherInputUuid)),
 						),
 						searchInputs: [
 							simpleSearchInputDef(
-								asUuid("si-1"),
+								nameInputUuid,
 								"name_q",
 								"Name",
 								"text",
 								"case_name",
 							),
 							simpleSearchInputDef(
-								asUuid("si-2"),
+								otherInputUuid,
 								"other_q",
 								"Other",
 								"text",
@@ -178,6 +187,7 @@ describe("searchInputRefUsesWhenInputPresent", () => {
 		// SearchInputRef but it's the gate, not a bare consumer. The rule
 		// must skip it explicitly so we don't report the gate as if it
 		// were a bare ref.
+		const nameInputUuid = testUuid("si-1");
 		const doc = buildDoc({
 			appName: "T",
 			modules: [
@@ -185,17 +195,17 @@ describe("searchInputRefUsesWhenInputPresent", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("col-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("col-1")],
-						detailColumnOrder: [asUuid("col-1")],
+						columns: [plainColumn(testUuid("col-1"), "case_name", "Name")],
+						listColumnOrder: [testUuid("col-1")],
+						detailColumnOrder: [testUuid("col-1")],
 						filter: whenInput(
-							input("name_q"),
+							input(nameInputUuid),
 							// Body has NO input refs — just a property equality.
 							eq(prop("patient", "case_name"), literal("Alice")),
 						),
 						searchInputs: [
 							simpleSearchInputDef(
-								asUuid("si-1"),
+								nameInputUuid,
 								"name_q",
 								"Name",
 								"text",
@@ -215,6 +225,7 @@ describe("searchInputRefUsesWhenInputPresent", () => {
 	});
 
 	it("fires inside advanced-arm search input predicate when ref is bare", () => {
+		const advancedInputUuid = testUuid("si-adv");
 		const doc = buildDoc({
 			appName: "T",
 			modules: [
@@ -222,16 +233,16 @@ describe("searchInputRefUsesWhenInputPresent", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("col-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("col-1")],
-						detailColumnOrder: [asUuid("col-1")],
+						columns: [plainColumn(testUuid("col-1"), "case_name", "Name")],
+						listColumnOrder: [testUuid("col-1")],
+						detailColumnOrder: [testUuid("col-1")],
 						searchInputs: [
 							advancedSearchInputDef(
-								asUuid("si-adv"),
+								advancedInputUuid,
 								"adv",
 								"Advanced",
 								"text",
-								eq(prop("patient", "case_name"), input("adv")),
+								eq(prop("patient", "case_name"), input(advancedInputUuid)),
 							),
 						],
 					},
@@ -256,12 +267,12 @@ describe("searchInputRefUsesWhenInputPresent", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("col-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("col-1")],
-						detailColumnOrder: [asUuid("col-1")],
+						columns: [plainColumn(testUuid("col-1"), "case_name", "Name")],
+						listColumnOrder: [testUuid("col-1")],
+						detailColumnOrder: [testUuid("col-1")],
 						searchInputs: [
 							advancedSearchInputDef(
-								asUuid("si-adv"),
+								testUuid("si-adv"),
 								"adv",
 								"Advanced",
 								"text",
@@ -288,23 +299,23 @@ describe("searchInputRefUsesWhenInputPresent", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("col-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("col-1")],
-						detailColumnOrder: [asUuid("col-1")],
+						columns: [plainColumn(testUuid("col-1"), "case_name", "Name")],
+						listColumnOrder: [testUuid("col-1")],
+						detailColumnOrder: [testUuid("col-1")],
 						filter: and(
-							eq(prop("patient", "case_name"), input("first_q")),
-							eq(prop("patient", "case_name"), input("second_q")),
+							eq(prop("patient", "case_name"), input(testUuid("first_q"))),
+							eq(prop("patient", "case_name"), input(testUuid("second_q"))),
 						),
 						searchInputs: [
 							simpleSearchInputDef(
-								asUuid("si-1"),
+								testUuid("si-1"),
 								"first_q",
 								"First",
 								"text",
 								"case_name",
 							),
 							simpleSearchInputDef(
-								asUuid("si-2"),
+								testUuid("si-2"),
 								"second_q",
 								"Second",
 								"text",
@@ -336,19 +347,19 @@ describe("searchInputRefUsesWhenInputPresent", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("c-1")],
-						detailColumnOrder: [asUuid("c-1")],
+						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [testUuid("c-1")],
+						detailColumnOrder: [testUuid("c-1")],
 						searchInputs: [
 							{
 								...simpleSearchInputDef(
-									asUuid("si-1"),
+									testUuid("si-1"),
 									"primary_q",
 									"Primary",
 									"text",
 									"case_name",
 								),
-								default: { kind: "term", term: input("primary_q") },
+								default: { kind: "term", term: input(testUuid("primary_q")) },
 							},
 						],
 					},
@@ -375,19 +386,19 @@ describe("searchInputRefUsesWhenInputPresent", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [
-							plainColumn(asUuid("c-1"), "case_name", "Name"),
+							plainColumn(testUuid("c-1"), "case_name", "Name"),
 							{
 								kind: "calculated",
-								uuid: asUuid("c-2"),
+								uuid: testUuid("c-2"),
 								header: "Echo",
-								expression: { kind: "term", term: input("query") },
+								expression: { kind: "term", term: input(testUuid("query")) },
 							},
 						],
-						listColumnOrder: [asUuid("c-1")],
-						detailColumnOrder: [asUuid("c-1")],
+						listColumnOrder: [testUuid("c-1"), testUuid("c-2")],
+						detailColumnOrder: [testUuid("c-1"), testUuid("c-2")],
 						searchInputs: [
 							simpleSearchInputDef(
-								asUuid("si-1"),
+								testUuid("si-1"),
 								"query",
 								"Query",
 								"text",
@@ -417,12 +428,12 @@ describe("searchInputRefUsesWhenInputPresent", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("c-1")],
-						detailColumnOrder: [asUuid("c-1")],
+						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [testUuid("c-1")],
+						detailColumnOrder: [testUuid("c-1")],
 						searchInputs: [
 							simpleSearchInputDef(
-								asUuid("si-1"),
+								testUuid("si-1"),
 								"query",
 								"Query",
 								"text",
@@ -432,7 +443,7 @@ describe("searchInputRefUsesWhenInputPresent", () => {
 					},
 					caseSearchConfig: {
 						searchButtonDisplayCondition: whenInput(
-							input("query"),
+							input(testUuid("query")),
 							eq(prop("patient", "case_name"), literal("Alice")),
 						),
 					},
@@ -458,12 +469,12 @@ describe("searchInputRefUsesWhenInputPresent", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("c-1")],
-						detailColumnOrder: [asUuid("c-1")],
+						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [testUuid("c-1")],
+						detailColumnOrder: [testUuid("c-1")],
 						searchInputs: [
 							simpleSearchInputDef(
-								asUuid("si-1"),
+								testUuid("si-1"),
 								"owner_q",
 								"Owner",
 								"text",
@@ -472,7 +483,10 @@ describe("searchInputRefUsesWhenInputPresent", () => {
 						],
 					},
 					caseSearchConfig: {
-						excludedOwnerIds: { kind: "term", term: input("owner_q") },
+						excludedOwnerIds: {
+							kind: "term",
+							term: input(testUuid("owner_q")),
+						},
 					},
 					forms: [standardForm],
 				},

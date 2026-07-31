@@ -12,6 +12,8 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { xp } from "@/lib/__tests__/docHelpers";
+import { proseText } from "@/lib/domain/prose";
 import {
 	caseTypeRecordSchema,
 	cleanCaseTypeRecord,
@@ -21,7 +23,7 @@ import {
 
 const validRecord = {
 	name: "patient",
-	properties: [{ name: "case_name", label: "Full name" }],
+	properties: [{ name: "case_name", label: proseText("Full name") }],
 };
 
 describe("caseTypeRecordSchema", () => {
@@ -45,7 +47,7 @@ describe("caseTypeRecordSchema", () => {
 			properties: [
 				{
 					name: "case_name",
-					label: "Client name",
+					label: proseText("Client name"),
 					data_type: null,
 					hint: null,
 					required: null,
@@ -73,7 +75,7 @@ describe("caseTypeRecordSchema", () => {
 			relationship: "child",
 		});
 		expect(result.success).toBe(false);
-		expect(result.error?.issues[0]?.message).toContain("null");
+		expect(result.error?.issues[0]?.message).toContain("pass null");
 	});
 
 	it("rejects an empty properties array", () => {
@@ -91,7 +93,7 @@ describe("caseTypeRecordSchema", () => {
 		] as const) {
 			const result = caseTypeRecordSchema.safeParse({
 				...validRecord,
-				properties: [{ name: "age", label: "Age", ...overrides }],
+				properties: [{ name: "age", label: proseText("Age"), ...overrides }],
 			});
 			expect(result.success).toBe(false);
 		}
@@ -101,7 +103,11 @@ describe("caseTypeRecordSchema", () => {
 		const result = caseTypeRecordSchema.safeParse({
 			...validRecord,
 			properties: [
-				{ name: "age", label: "Age", validation_msg: "Must be 0-150" },
+				{
+					name: "age",
+					label: proseText("Age"),
+					validation_msg: proseText("Must be 0-150"),
+				},
 			],
 		});
 		expect(result.success).toBe(false);
@@ -114,14 +120,14 @@ describe("caseTypeRecordSchema", () => {
 			properties: [
 				{
 					name: "age",
-					label: "Age",
+					label: proseText("Age"),
 					data_type: "int",
-					options: [{ value: "unused", label: "unused" }],
+					options: [{ value: "unused", label: proseText("unused") }],
 				},
 			],
 		});
 		expect(result.success).toBe(false);
-		expect(result.error?.issues[0]?.message).toContain("null");
+		expect(result.error?.issues[0]?.message).toContain("Pass null for options");
 	});
 
 	it("accepts options on a select property", () => {
@@ -130,11 +136,11 @@ describe("caseTypeRecordSchema", () => {
 			properties: [
 				{
 					name: "status",
-					label: "Status",
+					label: proseText("Status"),
 					data_type: "single_select",
 					options: [
-						{ value: "open", label: "Open" },
-						{ value: "closed", label: "Closed" },
+						{ value: "open", label: proseText("Open") },
+						{ value: "closed", label: proseText("Closed") },
 					],
 				},
 			],
@@ -152,10 +158,10 @@ describe("cleanCaseTypeRecord", () => {
 			properties: [
 				{
 					name: "age",
-					label: "Age",
+					label: proseText("Age"),
 					data_type: "int",
 					hint: null,
-					required: "true()",
+					required: xp("true()"),
 					validation: null,
 					validation_msg: null,
 					options: null,
@@ -166,37 +172,41 @@ describe("cleanCaseTypeRecord", () => {
 		expect(clean).toEqual({
 			name: "client",
 			properties: [
-				{ name: "age", label: "Age", data_type: "int", required: "true()" },
+				{
+					name: "age",
+					label: proseText("Age"),
+					data_type: "int",
+					required: xp("true()"),
+				},
 			],
 		});
 		expect("parent_type" in clean).toBe(false);
 		expect("hint" in clean.properties[0]).toBe(false);
 	});
 
-	it.each([
-		["name", "case_name"],
-		["external-id", "external_id"],
-		["date-opened", "date_opened"],
-	])("canonicalizes legacy catalog property %s to %s", (legacy, canonical) => {
-		const parsed = caseTypeRecordSchema.parse({
-			name: "client",
-			properties: [{ name: legacy, label: "Value" }],
-		});
-		expect(cleanCaseTypeRecord(parsed).properties[0]?.name).toBe(canonical);
-	});
+	it.each(["name", "external-id", "date-opened"])(
+		"rejects the retired catalog property spelling %s",
+		(name) => {
+			const parsed = caseTypeRecordSchema.safeParse({
+				name: "client",
+				properties: [{ name, label: proseText("Value") }],
+			});
+			expect(parsed.success).toBe(false);
+		},
+	);
 
-	it("rejects two catalog entries that collapse to one canonical property", () => {
+	it("rejects exact duplicate catalog properties", () => {
 		const result = caseTypeRecordSchema.safeParse({
 			name: "client",
 			properties: [
-				{ name: "case_name", label: "Case name" },
-				{ name: "name", label: "Name" },
+				{ name: "case_name", label: proseText("Case name") },
+				{ name: "case_name", label: proseText("Name") },
 			],
 		});
 		expect(result.success).toBe(false);
-		if (result.success) throw new Error("expected canonical collision");
+		if (result.success) throw new Error("expected duplicate rejection");
 		expect(result.error.issues[0]?.message).toContain(
-			'canonical name "case_name"',
+			'property "case_name" more than once',
 		);
 	});
 });
@@ -238,7 +248,9 @@ describe("connectFormConfigSchema", () => {
 			task: null,
 		});
 		expect(result.success).toBe(false);
-		expect(result.error?.issues[0]?.message).toContain("null");
+		expect(result.error?.issues[0]?.message).toContain(
+			"empty Connect participant",
+		);
 	});
 
 	it("rejects blank strings inside sub-configs", () => {

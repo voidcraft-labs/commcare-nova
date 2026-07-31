@@ -1,9 +1,11 @@
+import { asUuid } from "@/lib/domain";
 // @vitest-environment happy-dom
 
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
+import { proseText } from "@/lib/domain/prose";
 import { DEFAULT_RUNTIME_STATE } from "@/lib/preview/engine/engineController";
 import type { FieldState } from "@/lib/preview/engine/types";
 import { FormLayoutProvider } from "../FormLayoutContext";
@@ -83,7 +85,7 @@ describe("InteractiveFormRenderer repeated-field accessibility", () => {
 								f({
 									kind: "repeat",
 									id: "visits",
-									label: "Visits",
+									label: proseText("Visits"),
 									children: [
 										f({
 											kind: "text",
@@ -131,7 +133,7 @@ describe("InteractiveFormRenderer repeated-field accessibility", () => {
 								f({
 									kind: "repeat",
 									id: "visits",
-									label: "Visits",
+									label: proseText("Visits"),
 									children: [
 										f({
 											kind: "int",
@@ -147,19 +149,49 @@ describe("InteractiveFormRenderer repeated-field accessibility", () => {
 											kind: "single_select",
 											id: "visit_outcome",
 											label: SINGLE_SELECT_QUESTION,
-											options: [
-												{ value: "completed", label: "Completed" },
-												{ value: "referred", label: "Referred" },
-											],
+											optionsSource: {
+												kind: "inline",
+												options: [
+													{
+														uuid: asUuid(
+															"e5613cee-bae7-4f63-ae37-1fe9018c24b0",
+														),
+														value: "completed",
+														label: "Completed",
+													},
+													{
+														uuid: asUuid(
+															"85b4f614-cb2c-49db-aa34-8aeccc3a7b33",
+														),
+														value: "referred",
+														label: "Referred",
+													},
+												],
+											},
 										}),
 										f({
 											kind: "multi_select",
 											id: "symptoms",
 											label: MULTI_SELECT_QUESTION,
-											options: [
-												{ value: "cough", label: "Cough" },
-												{ value: "fever", label: "Fever" },
-											],
+											optionsSource: {
+												kind: "inline",
+												options: [
+													{
+														uuid: asUuid(
+															"a4fed596-c808-447e-a8a2-49d1d53bd8fb",
+														),
+														value: "cough",
+														label: "Cough",
+													},
+													{
+														uuid: asUuid(
+															"9b39b5cc-c91a-46aa-a1f2-82a2b9183c82",
+														),
+														value: "fever",
+														label: "Fever",
+													},
+												],
+											},
 										}),
 										f({
 											kind: "geopoint",

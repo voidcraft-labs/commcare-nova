@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { asUuid } from "@/lib/doc/types";
+import { testUuid } from "@/__tests__/helpers/uuid";
+
 import type { LookupColumnId, LookupTableId } from "@/lib/domain";
 import {
 	actingUser,
@@ -24,7 +25,6 @@ import {
 	input,
 	isBlank,
 	isIn,
-	isNull,
 	literal,
 	match,
 	matchAll,
@@ -47,7 +47,6 @@ import {
 	term,
 	today,
 	unowned,
-	unwrapList,
 	whenInput,
 	within,
 } from "@/lib/domain/predicate";
@@ -63,7 +62,7 @@ const VALUE_COLUMN = "018f3e8a-7b2c-7def-8abc-1234567890ad" as LookupColumnId;
 const FILTER_COLUMN = "018f3e8a-7b2c-7def-8abc-1234567890ae" as LookupColumnId;
 
 describe("checkCsqlRepresentability", () => {
-	it("rejects a dormant table lookup without checking its row filter as a case query", () => {
+	it("accepts a table lookup without treating its row filter as a case query", () => {
 		expect(
 			checkCsqlRepresentability(
 				eq(
@@ -75,18 +74,11 @@ describe("checkCsqlRepresentability", () => {
 					),
 				),
 			),
-		).toEqual([
-			{
-				reason: "lookup-table-not-active",
-				path: ["right"],
-				message:
-					"Lookup-table expressions are not active in case search yet. Remove this lookup until lookup fixture emission is available.",
-			},
-		]);
+		).toEqual([]);
 	});
 
 	it("rejects form-submission identity leaves from remote case search", () => {
-		const uuid = asUuid("11111111-1111-4111-8111-111111111111");
+		const uuid = testUuid("11111111-1111-4111-8111-111111111111");
 		for (const value of [
 			term(formField(uuid)),
 			idOf(uuid),
@@ -103,7 +95,7 @@ describe("checkCsqlRepresentability", () => {
 
 	it.each([
 		["literal term", term(literal("x"))],
-		["search input term", term(input("query"))],
+		["search input term", term(input(testUuid("query")))],
 		["session term", term(sessionContext("userid"))],
 		["today", today()],
 		["now", now()],
@@ -113,17 +105,19 @@ describe("checkCsqlRepresentability", () => {
 		["double", double(term(literal("2")))],
 		["arith", arith("+", term(literal(1)), term(literal(2)))],
 		["concat", concat(term(literal("a")), term(literal("b")))],
-		["coalesce", coalesce(term(input("q")), term(literal("fallback")))],
+		[
+			"coalesce",
+			coalesce(term(input(testUuid("q"))), term(literal("fallback"))),
+		],
 		["if", ifExpr(matchAll(), term(literal("yes")), term(literal("no")))],
 		[
 			"switch",
 			switchExpr(
-				term(input("q")),
+				term(input(testUuid("q"))),
 				[switchCase(literal("a"), term(literal("A")))],
 				term(literal("other")),
 			),
 		],
-		["unwrap-list", unwrapList(term(literal('["a"]')))],
 		["format-date", formatDate(today(), "iso")],
 	] as const)(
 		"accepts a pure %s expression on the value side",
@@ -139,11 +133,14 @@ describe("checkCsqlRepresentability", () => {
 			isIn(field("status"), literal("open"), literal("pending")),
 			between(field("age"), { lower: literal(18), upper: literal(65) }),
 			isBlank(field("nickname")),
-			match(field("name"), input("query"), "fuzzy"),
+			match(field("name"), input(testUuid("query")), "fuzzy"),
 			multiSelectAny(field("tags"), literal("vip")),
-			within(field("location"), input("center"), 5, "miles"),
+			within(field("location"), input(testUuid("center")), 5, "miles"),
 			or(matchAll(), not(matchNone())),
-			whenInput(input("query"), eq(field("name"), input("query"))),
+			whenInput(
+				input(testUuid("query")),
+				eq(field("name"), input(testUuid("query"))),
+			),
 			exists(
 				ancestorPath(relationStep("parent")),
 				eq(field("status"), literal("active")),
@@ -187,7 +184,7 @@ describe("checkCsqlRepresentability", () => {
 			checkCsqlRepresentability(
 				eq(
 					field("due_date"),
-					dateAdd(today(), "years", double(term(input("years")))),
+					dateAdd(today(), "years", double(term(input(testUuid("years"))))),
 				),
 			),
 		).toEqual([]);
@@ -219,7 +216,7 @@ describe("checkCsqlRepresentability", () => {
 		}
 		expect(
 			checkCsqlRepresentability(
-				gt(children, double(term(input("minimum_children")))),
+				gt(children, double(term(input(testUuid("minimum_children"))))),
 			),
 		).toEqual([]);
 		expect(checkCsqlRepresentability(gt(children, literal(-0)))).toEqual([]);
@@ -247,7 +244,7 @@ describe("checkCsqlRepresentability", () => {
 		}
 		expect(
 			checkCsqlRepresentability(
-				eq(prop(PATIENT, "status", parent), input("status")),
+				eq(prop(PATIENT, "status", parent), input(testUuid("status"))),
 			),
 		).toEqual([]);
 	});
@@ -309,7 +306,7 @@ describe("checkCsqlRepresentability", () => {
 	});
 
 	it("rejects a reachable fixed bad branch while ignoring a statically dead one", () => {
-		const dynamicCondition = eq(input("flag"), literal("yes"));
+		const dynamicCondition = eq(input(testUuid("flag")), literal("yes"));
 		const bad = term(literal(`it's "quoted"`));
 		const safe = term(literal("safe"));
 		const reachable = checkCsqlRepresentability(
@@ -333,7 +330,7 @@ describe("checkCsqlRepresentability", () => {
 
 	it("does not inspect an unreachable coalesce fallback after a guaranteed non-empty value", () => {
 		const value = coalesce(
-			concat(term(literal("prefix:")), term(input("query"))),
+			concat(term(literal("prefix:")), term(input(testUuid("query")))),
 			term(literal(`it's "quoted"`)),
 		);
 
@@ -346,7 +343,7 @@ describe("checkCsqlRepresentability", () => {
 
 	it("allows dynamic branches whose individual outputs each use only one quote style", () => {
 		const value = ifExpr(
-			eq(input("flag"), literal("yes")),
+			eq(input(testUuid("flag")), literal("yes")),
 			term(literal("'")),
 			term(literal('"')),
 		);
@@ -361,7 +358,7 @@ describe("checkCsqlRepresentability", () => {
 	it("rejects quote kinds guaranteed across different dynamic branches plus a fixed suffix", () => {
 		const value = concat(
 			ifExpr(
-				eq(input("flag"), literal("yes")),
+				eq(input(testUuid("flag")), literal("yes")),
 				term(literal("'a")),
 				term(literal("'b")),
 			),
@@ -459,13 +456,8 @@ describe("checkCsqlRepresentability", () => {
 			reason: "related-count-on-value-side",
 		},
 		{
-			name: "strict null",
-			predicate: isNull(field("nickname")),
-			reason: "strict-null-not-portable",
-		},
-		{
 			name: "blank test without a property subject",
-			predicate: isBlank(input("query")),
+			predicate: isBlank(input(testUuid("query"))),
 			reason: "comparison-needs-case-property",
 		},
 		{

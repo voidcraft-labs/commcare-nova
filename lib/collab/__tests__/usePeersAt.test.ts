@@ -6,16 +6,17 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { hashColor, type Peer } from "@/lib/collab/presence";
 import { groupPeersByEntity, peerTarget } from "@/lib/collab/usePeersAt";
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
-import { asUuid } from "@/lib/doc/types";
+
 import { recoverLocation } from "@/lib/routing/location";
 import type { Location } from "@/lib/routing/types";
 
-const MOD = asUuid("mod-1");
-const FORM = asUuid("form-1");
-const FIELD = asUuid("field-1");
+const MOD = testUuid("mod-1");
+const FORM = testUuid("form-1");
+const FIELD = testUuid("field-1");
 
 /** A peer at a given location; identity + color derive from `userId`. */
 function peer(userId: string, location: Location): Peer {

@@ -28,7 +28,8 @@ import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { useContext } from "react";
 import { assert, describe, expect, it, vi } from "vitest";
-import { resolveDocExpressions } from "@/lib/__tests__/docHelpers";
+import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
+import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import {
 	useBlueprintDoc,
 	useBlueprintDocShallow,
@@ -47,23 +48,23 @@ import {
 	BlueprintDocProvider,
 	type BlueprintDocStore,
 } from "@/lib/doc/provider";
-import type { BlueprintDoc } from "@/lib/doc/types";
-import { asUuid, type Uuid } from "@/lib/doc/types";
-import { asAssetId, type FieldKind } from "@/lib/domain";
+import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
+import type { FieldKind } from "@/lib/domain";
+import { printProseTemplate, proseText } from "@/lib/domain/prose";
 import { toastStore } from "@/lib/ui/toastStore";
 
 // ── Fixed UUIDs ────────────────────────────────────────────────────────
 // Declared here (not inside the fixture) so tests can reference them
 // without extracting from store state.
 
-const MOD1 = asUuid("module-1-uuid");
-const FORM1 = asUuid("form-1-uuid");
-const FORM2 = asUuid("form-2-uuid");
-const Q_A = asUuid("q-a-0000-0000-0000-000000000000");
-const Q_B = asUuid("q-b-0000-0000-0000-000000000000");
-const Q_G = asUuid("q-g-0000-0000-0000-000000000000");
-const Q_C = asUuid("q-c-0000-0000-0000-000000000000");
-const Q_X = asUuid("q-x-0000-0000-0000-000000000000");
+const MOD1 = testUuid("module-1-uuid");
+const FORM1 = testUuid("form-1-uuid");
+const FORM2 = testUuid("form-2-uuid");
+const Q_A = testUuid("q-a-0000-0000-0000-000000000000");
+const Q_B = testUuid("q-b-0000-0000-0000-000000000000");
+const Q_G = testUuid("q-g-0000-0000-0000-000000000000");
+const Q_C = testUuid("q-c-0000-0000-0000-000000000000");
+const Q_X = testUuid("q-x-0000-0000-0000-000000000000");
 
 /**
  * Normalized `BlueprintDoc` fixture. One module, two forms:
@@ -92,31 +93,31 @@ const bp: BlueprintDoc = {
 			uuid: Q_A,
 			id: "a",
 			kind: "text",
-			label: "A",
+			label: proseText("A"),
 		} as BlueprintDoc["fields"][typeof Q_A],
 		[Q_B]: {
 			uuid: Q_B,
 			id: "b",
 			kind: "text",
-			label: "B",
+			label: proseText("B"),
 		} as BlueprintDoc["fields"][typeof Q_B],
 		[Q_G]: {
 			uuid: Q_G,
 			id: "grp",
 			kind: "group",
-			label: "Group",
+			label: proseText("Group"),
 		} as BlueprintDoc["fields"][typeof Q_G],
 		[Q_C]: {
 			uuid: Q_C,
 			id: "c",
 			kind: "text",
-			label: "C",
+			label: proseText("C"),
 		} as BlueprintDoc["fields"][typeof Q_C],
 		[Q_X]: {
 			uuid: Q_X,
 			id: "x",
 			kind: "text",
-			label: "X",
+			label: proseText("X"),
 		} as BlueprintDoc["fields"][typeof Q_X],
 	},
 	moduleOrder: [MOD1],
@@ -139,6 +140,33 @@ function wrapper({ children }: { children: ReactNode }) {
 	);
 }
 
+const connectBp: BlueprintDoc = {
+	...bp,
+	connectType: "learn",
+	forms: {
+		...bp.forms,
+		[FORM1]: {
+			...bp.forms[FORM1],
+			connect: {
+				learn_module: {
+					id: "intro",
+					name: "Introduction",
+					description: "Initial content",
+					time_estimate: 5,
+				},
+			},
+		},
+	},
+};
+
+function connectWrapper({ children }: { children: ReactNode }) {
+	return (
+		<BlueprintDocProvider appId="t" initialDoc={connectBp}>
+			{children}
+		</BlueprintDocProvider>
+	);
+}
+
 /**
  * `useOrderedFields` returns uuids only (perf — unrelated field edits
  * would force a re-render if the whole `fields` map were selected). Tests
@@ -149,11 +177,7 @@ function wrapper({ children }: { children: ReactNode }) {
  * re-render loop that plain `useStore` would cause, since the selector
  * allocates a fresh array on every call.
  */
-function useMaterialize(uuids: readonly Uuid[]): Array<{
-	uuid: Uuid;
-	id: string;
-	label?: string;
-}> {
+function useMaterialize(uuids: readonly Uuid[]) {
 	return useBlueprintDocShallow((s) =>
 		uuids
 			.map((u) => s.fields[u])
@@ -242,22 +266,67 @@ describe("useBlueprintMutations", () => {
 		});
 
 		act(() => {
-			result.current.mutations.updateField(Q_A, "text", { label: "Renamed" });
+			result.current.mutations.updateField(Q_A, "text", {
+				label: proseText("Renamed"),
+			});
 		});
 
 		// Cast to a loose variant-agnostic shape to read `label` — the domain
 		// `Field` union includes variants (hidden) that omit label at the
 		// type level, even though the reducer merges it unconditionally.
 		const renamed = result.current.children.find((q) => q.id === "a") as
-			| { label?: string }
+			| { label?: ReturnType<typeof proseText> }
 			| undefined;
-		expect(renamed?.label).toBe("Renamed");
+		const store = result.current.store;
+		if (!renamed?.label || !store) {
+			throw new Error("expected renamed field label and initialized store");
+		}
+		expect(printProseTemplate(renamed.label, store.getState())).toBe("Renamed");
+	});
+
+	it("normalizes an explicit undefined field clear to JSON-stable null", () => {
+		const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
+			wrapper,
+		});
+		const store = result.current.store;
+		assert(store);
+
+		act(() => {
+			result.current.mutations.updateField(Q_A, "text", {
+				hint: proseText("Temporary hint"),
+			});
+		});
+		store.getState().takeCommandBatches();
+
+		act(() => {
+			result.current.mutations.updateField(Q_A, "text", {
+				hint: undefined,
+			});
+		});
+
+		expect(
+			(store.getState().fields[Q_A] as { hint?: unknown }).hint,
+		).toBeUndefined();
+		const commands = store.getState().peekCommandBatches();
+		expect(commands).toEqual([
+			[
+				{
+					kind: "updateField",
+					uuid: Q_A,
+					targetKind: "text",
+					patch: { hint: null },
+				},
+			],
+		]);
+		expect(JSON.parse(JSON.stringify(commands))).toEqual(commands);
 	});
 
 	it("renameQuestion rewrites the id in order", () => {
 		const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
 			wrapper,
 		});
+		const store = result.current.store;
+		assert(store);
 
 		act(() => {
 			result.current.mutations.renameField(Q_A, "alpha");
@@ -266,6 +335,16 @@ describe("useBlueprintMutations", () => {
 		const ids = result.current.children.map((q) => q.id);
 		expect(ids).toContain("alpha");
 		expect(ids).not.toContain("a");
+		expect(store.getState().peekCommandBatches()).toEqual([
+			[
+				{
+					kind: "updateField",
+					uuid: Q_A,
+					targetKind: "text",
+					patch: { id: "alpha" },
+				},
+			],
+		]);
 	});
 
 	it("removeField drops the field from order", () => {
@@ -305,7 +384,7 @@ describe("useBlueprintMutations", () => {
 			returned = result.current.mutations.addField(formUuid, {
 				id: "d",
 				kind: "text",
-				label: "D",
+				label: proseText("D"),
 			});
 		});
 
@@ -326,7 +405,7 @@ describe("useBlueprintMutations", () => {
 			result.current.mutations.addField(Q_G, {
 				id: "c2",
 				kind: "text",
-				label: "C2",
+				label: proseText("C2"),
 			});
 		});
 
@@ -343,7 +422,7 @@ describe("useBlueprintMutations", () => {
 			const formUuid = getFormUuid(result.current.store);
 			result.current.mutations.addField(
 				formUuid,
-				{ id: "a2", kind: "text", label: "A2" },
+				{ id: "a2", kind: "text", label: proseText("A2") },
 				{ afterUuid: Q_A },
 			);
 		});
@@ -359,7 +438,7 @@ describe("useBlueprintMutations", () => {
 			const formUuid = getFormUuid(result.current.store);
 			result.current.mutations.addField(
 				formUuid,
-				{ id: "a3", kind: "text", label: "A3" },
+				{ id: "a3", kind: "text", label: proseText("A3") },
 				{ beforeUuid: Q_B },
 			);
 		});
@@ -446,31 +525,48 @@ describe("useBlueprintMutations", () => {
 		expect(result.current.children.map((q) => q.id)).toEqual(["a", "b", "grp"]);
 	});
 
-	it("renameQuestion returns conflict: true when a peer's sibling id clashes", () => {
-		// Regression guard: two forms declare the same case property via
-		// matching (id, case_property_on) pairs — these are peers, both
-		// renamed atomically when either is renamed. A peer's own form
-		// already contains a sibling with the target id. The cascade would
-		// silently create a duplicate sibling id unless the conflict check
-		// scans peer parents too.
-		const CP_M = asUuid("cp-mod-uuid");
-		const CP_F1 = asUuid("cp-form-1-uuid");
-		const CP_F2 = asUuid("cp-form-2-uuid");
-		const CP_PRIMARY = asUuid("cp-primary-uuid");
-		const CP_PEER = asUuid("cp-peer-uuid");
-		const CP_BLOCKER = asUuid("cp-blocker-uuid");
+	it("renameQuestion is local even when another writer saves to the same property", () => {
+		// Two fields in separate forms may save to the same case property.
+		// Renaming one field id changes only its friendly form path; it must not
+		// rename the peer or inspect the peer's sibling scope.
+		const CP_M = testUuid("cp-mod-uuid");
+		const CP_F1 = testUuid("cp-form-1-uuid");
+		const CP_F2 = testUuid("cp-form-2-uuid");
+		const CP_PRIMARY = testUuid("cp-primary-uuid");
+		const CP_PEER = testUuid("cp-peer-uuid");
+		const CP_BLOCKER = testUuid("cp-blocker-uuid");
+		const CP_COLUMN = testUuid("cp-column-uuid");
 
 		const peerDoc: BlueprintDoc = {
 			appId: "t",
 			appName: "Test",
 			connectType: null,
-			caseTypes: null,
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{ name: "age", label: proseText("Age") },
+						{ name: "age_new", label: proseText("Age new") },
+					],
+				},
+			],
 			modules: {
 				[CP_M]: {
 					uuid: CP_M,
 					id: "cp_m",
 					name: "CPM",
 					caseType: "patient",
+					caseListConfig: resolveCaseListConfig({
+						columns: [
+							{
+								uuid: CP_COLUMN,
+								kind: "plain",
+								field: "age",
+								header: "Age",
+							},
+						],
+						searchInputs: [],
+					}),
 				},
 			},
 			forms: {
@@ -478,30 +574,28 @@ describe("useBlueprintMutations", () => {
 				[CP_F2]: { uuid: CP_F2, id: "cp_f2", name: "F2", type: "followup" },
 			},
 			fields: {
-				// Primary and peer share (id="age", case_property_on="patient").
-				// Renaming either cascades to rename both.
+				// Primary and peer share the same independent caseWrite pair.
 				[CP_PRIMARY]: {
 					uuid: CP_PRIMARY,
 					id: "age",
 					kind: "text",
-					label: "Age",
-					case_property_on: "patient",
+					label: proseText("Age"),
+					caseWrite: { caseType: "patient", property: "age" },
 				} as BlueprintDoc["fields"][typeof CP_PRIMARY],
 				[CP_PEER]: {
 					uuid: CP_PEER,
 					id: "age",
 					kind: "text",
-					label: "Age",
-					case_property_on: "patient",
+					label: proseText("Age"),
+					caseWrite: { caseType: "patient", property: "age" },
 				} as BlueprintDoc["fields"][typeof CP_PEER],
-				// Blocker: lives in F2 alongside the peer. If we try to rename
-				// the primary → "age_new", the peer in F2 would also become
-				// "age_new" — colliding with this existing sibling.
+				// This sibling blocks only a local rename of CP_PEER, not the
+				// unrelated primary field in F1.
 				[CP_BLOCKER]: {
 					uuid: CP_BLOCKER,
 					id: "age_new",
 					kind: "text",
-					label: "Existing",
+					label: proseText("Existing"),
 				} as BlueprintDoc["fields"][typeof CP_BLOCKER],
 			},
 			moduleOrder: [CP_M],
@@ -539,19 +633,19 @@ describe("useBlueprintMutations", () => {
 			);
 		});
 
-		expect(captured.value?.conflict).toBe(true);
+		expect(captured.value).toEqual({});
 
-		// Store should be unchanged — no peer renamed, no dup sibling created.
+		// Only the selected field's local id changes.
 		const state = result.current.store?.getState();
 		assert(state);
-		expect(state.fields[CP_PRIMARY]?.id).toBe("age");
+		expect(state.fields[CP_PRIMARY]?.id).toBe("age_new");
 		expect(state.fields[CP_PEER]?.id).toBe("age");
 		expect(state.fields[CP_BLOCKER]?.id).toBe("age_new");
 	});
 
-	// ── updateApp undo atomicity ──────────────────────────────────────────
+	// ── updateApp undo ────────────────────────────────────────────────────
 
-	it("updateApp with both fields produces a single undo entry", () => {
+	it("updateApp renames the app in a single undo entry", () => {
 		const { result } = renderHook(() => useMutationsWithStore(), { wrapper });
 
 		// The provider releases the birth pause (startTracking=true default);
@@ -561,15 +655,12 @@ describe("useBlueprintMutations", () => {
 		});
 
 		act(() => {
-			/* `null` (Connect off) so the batch introduces nothing — enabling
-			 * Connect would rightly bounce on the fixture's block-less forms. */
 			result.current.mutations.updateApp({
 				app_name: "Combo",
-				connect_type: null,
 			});
 		});
 
-		// ONE step: a single undo takes back the whole combined patch.
+		// ONE step: a single undo takes back the rename.
 		expect(result.current.store?.getState().canUndo).toBe(true);
 		act(() => {
 			result.current.store?.getState().undo();
@@ -591,7 +682,7 @@ describe("useBlueprintMutations", () => {
 			assert(s);
 			const moduleUuid = s.moduleOrder[0];
 			returned = result.current.mutations.addForm(moduleUuid, {
-				uuid: "form-3-uuid",
+				uuid: testUuid("form-3-uuid"),
 				id: "f2",
 				name: "F2",
 				type: "survey",
@@ -602,7 +693,7 @@ describe("useBlueprintMutations", () => {
 		expect(returned.messages.length).toBeGreaterThan(0);
 		const s = result.current.store?.getState();
 		assert(s);
-		expect(s.forms[asUuid("form-3-uuid")]).toBeUndefined();
+		expect(s.forms[testUuid("form-3-uuid")]).toBeUndefined();
 	});
 
 	it("applyMany lands a new form together with its first field in one gated batch", () => {
@@ -619,7 +710,7 @@ describe("useBlueprintMutations", () => {
 					kind: "addForm",
 					moduleUuid,
 					form: {
-						uuid: asUuid("form-3-uuid"),
+						uuid: testUuid("form-3-uuid"),
 						id: "f2",
 						name: "F2",
 						type: "survey",
@@ -627,12 +718,12 @@ describe("useBlueprintMutations", () => {
 				},
 				{
 					kind: "addField",
-					parentUuid: asUuid("form-3-uuid"),
+					parentUuid: testUuid("form-3-uuid"),
 					field: {
-						uuid: asUuid("q-n-0000-0000-0000-000000000000"),
+						uuid: testUuid("q-n-0000-0000-0000-000000000000"),
 						id: "note",
 						kind: "text",
-						label: "Note",
+						label: proseText("Note"),
 					} as never,
 				},
 			]);
@@ -640,8 +731,8 @@ describe("useBlueprintMutations", () => {
 
 		const s = result.current.store?.getState();
 		assert(s);
-		expect(s.forms[asUuid("form-3-uuid")]).toBeDefined();
-		expect(s.forms[asUuid("form-3-uuid")].name).toBe("F2");
+		expect(s.forms[testUuid("form-3-uuid")]).toBeDefined();
+		expect(s.forms[testUuid("form-3-uuid")].name).toBe("F2");
 	});
 
 	// ── addModule returns uuid ────────────────────────────────────────────
@@ -684,6 +775,143 @@ describe("useBlueprintMutations", () => {
 		const s = result.current.store?.getState();
 		const formUuid = getFormUuid(result.current.store);
 		expect(s?.forms[formUuid].name).toBe("Renamed Form");
+		expect(s?.peekCommandBatches()).toEqual([
+			[
+				{
+					kind: "renameForm",
+					uuid: formUuid,
+					newId: "Renamed Form",
+				},
+			],
+		]);
+	});
+
+	it("normalizes an explicit undefined form clear to JSON-stable null", () => {
+		const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
+			wrapper,
+		});
+		const store = result.current.store;
+		assert(store);
+		const formUuid = getFormUuid(store);
+
+		act(() => {
+			result.current.mutations.updateForm(formUuid, {
+				purpose: "Temporary purpose",
+			});
+		});
+		store.getState().takeCommandBatches();
+
+		act(() => {
+			result.current.mutations.updateForm(formUuid, {
+				purpose: undefined,
+			});
+		});
+
+		expect(store.getState().forms[formUuid].purpose).toBeUndefined();
+		const commands = store.getState().peekCommandBatches();
+		expect(commands).toEqual([
+			[
+				{
+					kind: "updateForm",
+					uuid: formUuid,
+					patch: { purpose: null },
+				},
+			],
+		]);
+		expect(JSON.parse(JSON.stringify(commands))).toEqual(commands);
+	});
+
+	it("confines Connect membership outside generic form add/update and permits only explicit existing-participant refinement", () => {
+		const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
+			wrapper: connectWrapper,
+		});
+		const store = result.current.store;
+		assert(store);
+		const initialParticipant = store.getState().forms[FORM1].connect;
+
+		let addOutcome: AddCommitOutcome | undefined;
+		let addParticipantOutcome:
+			| ReturnType<typeof result.current.mutations.inline.updateForm>
+			| undefined;
+		let removeParticipantOutcome:
+			| ReturnType<typeof result.current.mutations.inline.updateForm>
+			| undefined;
+		act(() => {
+			/* Casts model a stale bundle or untyped JavaScript caller. The public
+			 * TypeScript signatures omit these slots; the runtime boundary must
+			 * still refuse them before the absolute gate can accept a valid
+			 * participant-bearing candidate. */
+			addOutcome = result.current.mutations.inline.addForm(MOD1, {
+				id: "alternate",
+				name: "Alternate",
+				type: "survey",
+				connect: initialParticipant,
+			} as never);
+			addParticipantOutcome = result.current.mutations.inline.updateForm(
+				FORM2,
+				{ connect: initialParticipant } as never,
+			);
+			removeParticipantOutcome = result.current.mutations.inline.updateForm(
+				FORM1,
+				{ connect: null } as never,
+			);
+		});
+
+		for (const outcome of [
+			addOutcome,
+			addParticipantOutcome,
+			removeParticipantOutcome,
+		]) {
+			expect(outcome?.ok).toBe(false);
+			if (outcome?.ok === false) {
+				expect(outcome.messages[0]).toContain("app-wide Connect");
+			}
+		}
+		expect(store.getState().forms[FORM1].connect).toEqual(initialParticipant);
+		expect(store.getState().forms[FORM2].connect).toBeUndefined();
+		expect(store.getState().formOrder[MOD1]).toEqual([FORM1, FORM2]);
+
+		let refineOutcome:
+			| ReturnType<typeof result.current.mutations.inline.refineFormConnect>
+			| undefined;
+		act(() => {
+			refineOutcome = result.current.mutations.inline.refineFormConnect(FORM1, {
+				learn_module: {
+					id: "intro",
+					name: "Introduction",
+					description: "Refined content",
+					time_estimate: 9,
+				},
+			});
+		});
+		expect(refineOutcome).toEqual({ ok: true });
+		expect(
+			(
+				store.getState().forms[FORM1].connect as {
+					learn_module?: { description: string; time_estimate: number };
+				}
+			).learn_module,
+		).toMatchObject({
+			description: "Refined content",
+			time_estimate: 9,
+		});
+
+		let nonparticipantRefine: typeof refineOutcome;
+		act(() => {
+			nonparticipantRefine = result.current.mutations.inline.refineFormConnect(
+				FORM2,
+				{
+					learn_module: {
+						id: "other",
+						name: "Other",
+						description: "Should not land",
+						time_estimate: 5,
+					},
+				},
+			);
+		});
+		expect(nonparticipantRefine?.ok).toBe(false);
+		expect(store.getState().forms[FORM2].connect).toBeUndefined();
 	});
 
 	it("setFormMedia sets and clears form media through explicit nulls", () => {
@@ -694,29 +922,29 @@ describe("useBlueprintMutations", () => {
 		const formUuid = getFormUuid(result.current.store);
 		act(() => {
 			result.current.mutations.setFormMedia(formUuid, {
-				icon: asAssetId("image-asset"),
-				audioLabel: asAssetId("audio-asset"),
+				icon: testMediaAssetId("image-asset"),
+				audioLabel: testMediaAssetId("audio-asset"),
 			});
 		});
 		expect(result.current.store?.getState().forms[formUuid]).toMatchObject({
-			icon: "image-asset",
-			audioLabel: "audio-asset",
+			icon: testMediaAssetId("image-asset"),
+			audioLabel: testMediaAssetId("audio-asset"),
 		});
 
 		act(() => {
 			result.current.mutations.setFormMedia(formUuid, {
 				icon: null,
-				audioLabel: asAssetId("audio-asset"),
+				audioLabel: testMediaAssetId("audio-asset"),
 			});
 		});
 		const form = result.current.store?.getState().forms[formUuid];
 		expect(form?.icon).toBeUndefined();
-		expect(form?.audioLabel).toBe("audio-asset");
+		expect(form?.audioLabel).toBe(testMediaAssetId("audio-asset"));
 	});
 
 	it("setModuleMedia sets and clears module media through explicit nulls", () => {
 		// Mirrors `setFormMedia`: the dedicated `setModuleMedia` kind carries
-		// an explicit `AssetId | null` per slot so a clear survives JSON over
+		// an explicit `MediaAssetId | null` per slot so a clear survives JSON over
 		// the SSE wire (a generic `updateModule` patch would encode the clear
 		// as `{ key: undefined }`, which `JSON.stringify` drops). The reducer
 		// maps `null → undefined`, so a cleared slot drops off the module.
@@ -727,13 +955,13 @@ describe("useBlueprintMutations", () => {
 		// Set both slots.
 		act(() => {
 			result.current.mutations.setModuleMedia(MOD1, {
-				icon: asAssetId("image-asset"),
-				audioLabel: asAssetId("audio-asset"),
+				icon: testMediaAssetId("image-asset"),
+				audioLabel: testMediaAssetId("audio-asset"),
 			});
 		});
 		expect(result.current.store?.getState().modules[MOD1]).toMatchObject({
-			icon: "image-asset",
-			audioLabel: "audio-asset",
+			icon: testMediaAssetId("image-asset"),
+			audioLabel: testMediaAssetId("audio-asset"),
 		});
 
 		// Clear only the icon (null) and keep the audio — proves per-slot
@@ -741,18 +969,18 @@ describe("useBlueprintMutations", () => {
 		act(() => {
 			result.current.mutations.setModuleMedia(MOD1, {
 				icon: null,
-				audioLabel: asAssetId("audio-asset"),
+				audioLabel: testMediaAssetId("audio-asset"),
 			});
 		});
 		const mod = result.current.store?.getState().modules[MOD1];
 		expect(mod?.icon).toBeUndefined();
-		expect(mod?.audioLabel).toBe("audio-asset");
+		expect(mod?.audioLabel).toBe(testMediaAssetId("audio-asset"));
 	});
 
 	it("setAppLogo sets and clears the app logo through an explicit null", () => {
 		// The doc's `logo` slot is `.optional()` (no stored `null`), so a
 		// clear must DROP the key — the `setAppLogo` payload carries an
-		// explicit `AssetId | null` and the reducer maps `null → undefined`.
+		// explicit `MediaAssetId | null` and the reducer maps `null → undefined`.
 		// Unlike the entity-scoped media mutations, `setAppLogo` takes no
 		// uuid (the logo is a single app-level slot), so there is no
 		// unresolved-uuid guard to exercise.
@@ -761,9 +989,11 @@ describe("useBlueprintMutations", () => {
 		});
 
 		act(() => {
-			result.current.mutations.setAppLogo(asAssetId("logo-asset"));
+			result.current.mutations.setAppLogo(testMediaAssetId("logo-asset"));
 		});
-		expect(result.current.store?.getState().logo).toBe("logo-asset");
+		expect(result.current.store?.getState().logo).toBe(
+			testMediaAssetId("logo-asset"),
+		);
 
 		act(() => {
 			result.current.mutations.setAppLogo(null);
@@ -857,35 +1087,31 @@ describe("useBlueprintMutations", () => {
 		expect(s?.modules[moduleUuid]).toBeDefined();
 	});
 
-	// ── setCaseTypes ──────────────────────────────────────────────────────
+	// ── Granular case-type catalog ────────────────────────────────────────
 
-	it("setCaseTypes replaces the app-level case types array", () => {
+	it("commitMany creates and retires catalog records without a whole-catalog setter", () => {
 		const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
 			wrapper,
 		});
 
-		const nextTypes = [
-			{ name: "patient", properties: [] },
-			{ name: "visit", properties: [] },
-		];
-
 		act(() => {
-			result.current.mutations.setCaseTypes(nextTypes);
+			result.current.mutations.commitMany([
+				{ kind: "declareCaseType", caseType: "patient" },
+				{ kind: "declareCaseType", caseType: "visit" },
+			]);
 		});
 
 		const s = result.current.store?.getState();
-		expect(s?.caseTypes).toEqual(nextTypes);
-	});
-
-	it("setCaseTypes with null clears the app-level case types", () => {
-		const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
-			wrapper,
-		});
-
+		expect(s?.caseTypes).toEqual([
+			{ name: "patient", properties: [] },
+			{ name: "visit", properties: [] },
+		]);
 		act(() => {
-			result.current.mutations.setCaseTypes(null);
+			result.current.mutations.commitMany([
+				{ kind: "retireCaseType", caseType: "patient" },
+				{ kind: "retireCaseType", caseType: "visit" },
+			]);
 		});
-
 		expect(result.current.store?.getState().caseTypes).toBeNull();
 	});
 
@@ -898,13 +1124,24 @@ describe("useBlueprintMutations", () => {
 
 		// Seed case types with a property to update.
 		act(() => {
-			result.current.mutations.setCaseTypes([
+			result.current.mutations.commitMany([
 				{
-					name: "person",
-					properties: [
-						{ name: "dob", label: "Date of Birth", data_type: "text" },
-						{ name: "age", label: "Age", data_type: "int" },
-					],
+					kind: "declareCaseType",
+					caseType: "person",
+				},
+				{
+					kind: "addCaseProperty",
+					caseType: "person",
+					property: {
+						name: "dob",
+						label: proseText("Date of Birth"),
+						data_type: "text",
+					},
+				},
+				{
+					kind: "addCaseProperty",
+					caseType: "person",
+					property: { name: "age", label: proseText("Age"), data_type: "int" },
 				},
 			]);
 		});
@@ -930,10 +1167,19 @@ describe("useBlueprintMutations", () => {
 		});
 
 		act(() => {
-			result.current.mutations.setCaseTypes([
+			result.current.mutations.commitMany([
 				{
-					name: "person",
-					properties: [{ name: "dob", label: "DOB", data_type: "text" }],
+					kind: "declareCaseType",
+					caseType: "person",
+				},
+				{
+					kind: "addCaseProperty",
+					caseType: "person",
+					property: {
+						name: "dob",
+						label: proseText("DOB"),
+						data_type: "text",
+					},
 				},
 			]);
 		});
@@ -952,7 +1198,9 @@ describe("useBlueprintMutations", () => {
 		expect(s?.caseTypes).toEqual([
 			{
 				name: "person",
-				properties: [{ name: "dob", label: "DOB", data_type: "text" }],
+				properties: [
+					{ name: "dob", label: proseText("DOB"), data_type: "text" },
+				],
 			},
 		]);
 	});
@@ -963,10 +1211,19 @@ describe("useBlueprintMutations", () => {
 		});
 
 		act(() => {
-			result.current.mutations.setCaseTypes([
+			result.current.mutations.commitMany([
 				{
-					name: "person",
-					properties: [{ name: "dob", label: "DOB", data_type: "text" }],
+					kind: "declareCaseType",
+					caseType: "person",
+				},
+				{
+					kind: "addCaseProperty",
+					caseType: "person",
+					property: {
+						name: "dob",
+						label: proseText("DOB"),
+						data_type: "text",
+					},
 				},
 			]);
 		});
@@ -975,7 +1232,7 @@ describe("useBlueprintMutations", () => {
 		expect(() => {
 			act(() => {
 				result.current.mutations.updateCaseProperty("person", "nonexistent", {
-					label: "Nope",
+					label: proseText("Nope"),
 				});
 			});
 		}).not.toThrow();
@@ -985,7 +1242,9 @@ describe("useBlueprintMutations", () => {
 		expect(s?.caseTypes).toEqual([
 			{
 				name: "person",
-				properties: [{ name: "dob", label: "DOB", data_type: "text" }],
+				properties: [
+					{ name: "dob", label: proseText("DOB"), data_type: "text" },
+				],
 			},
 		]);
 	});
@@ -1020,12 +1279,13 @@ describe("useBlueprintMutations", () => {
 		expect(result.current.store?.getState().canUndo).toBe(false);
 	});
 
-	// ── moveField result metadata ────────────────────────────────────────
+	// ── moveField collision admission ───────────────────────────────────
 
-	it("moveField returns MoveFieldResult with renamed on cross-parent dedup", () => {
+	it("moveField rejects a destination sibling-id collision without renaming", () => {
 		// Use the fixture that has form F0 with [a, b, grp > [c]].
 		// Add a field with id "a" inside the group, then move Q_A into the
-		// group — it should dedup to "a_2".
+		// group. The move preserves local field id, so admission rejects the
+		// collision instead of inventing a new id.
 		const { result } = renderHook(() => useMutationsFormsAndGroupChildren(), {
 			wrapper,
 		});
@@ -1035,7 +1295,7 @@ describe("useBlueprintMutations", () => {
 			result.current.mutations.addField(Q_G, {
 				id: "a",
 				kind: "text",
-				label: "duplicate-a",
+				label: proseText("duplicate-a"),
 			});
 		});
 
@@ -1049,76 +1309,9 @@ describe("useBlueprintMutations", () => {
 		});
 
 		expect(captured.value).toBeDefined();
-		expect(captured.value?.renamed).toBeDefined();
-		expect(captured.value?.renamed?.oldId).toBe("a");
-		expect(captured.value?.renamed?.newId).toBe("a_2");
-		expect(typeof captured.value?.renamed?.xpathFieldsRewritten).toBe("number");
-	});
-
-	// ── renameQuestion xpathFieldsRewritten ──────────────────────────────
-
-	it("renameQuestion returns the reducer's rewrite metadata", () => {
-		// The dep's calculate is an identity-leaf AST — a rename rewrites
-		// NOTHING (the new name arrives at print), so the surfaced count is
-		// zero. The metadata channel itself is what this pins.
-		const MOD4 = asUuid("module-4-uuid");
-		const FORM3 = asUuid("form-3-uuid");
-		const Q_SRC = asUuid("q-src-0000-0000-0000-000000000000");
-		const Q_DEP = asUuid("q-dep-0000-0000-0000-000000000000");
-		const bpWithRefs: BlueprintDoc = {
-			appId: "t",
-			appName: "Refs",
-			connectType: null,
-			caseTypes: null,
-			modules: { [MOD4]: { uuid: MOD4, id: "m", name: "M" } },
-			forms: { [FORM3]: { uuid: FORM3, id: "f", name: "F", type: "survey" } },
-			fields: {
-				[Q_SRC]: {
-					uuid: Q_SRC,
-					id: "source",
-					kind: "text",
-					label: "Source",
-				} as BlueprintDoc["fields"][typeof Q_SRC],
-				// `calculate` lives on the hidden kind only — the rewrite pass
-				// walks the registry's per-kind slot projection, so the fixture
-				// puts the expression where the schema actually declares it.
-				[Q_DEP]: {
-					uuid: Q_DEP,
-					id: "dep",
-					kind: "hidden",
-					calculate: "/data/source + 1",
-				} as unknown as BlueprintDoc["fields"][typeof Q_DEP],
-			},
-			moduleOrder: [MOD4],
-			formOrder: { [MOD4]: [FORM3] },
-			fieldOrder: { [FORM3]: [Q_SRC, Q_DEP] },
-			fieldParent: {},
-		};
-		const refWrapper = ({ children }: { children: ReactNode }) => (
-			<BlueprintDocProvider
-				appId="t"
-				initialDoc={resolveDocExpressions(bpWithRefs)}
-			>
-				{children}
-			</BlueprintDocProvider>
-		);
-
-		const { result } = renderHook(() => useBlueprintMutations(), {
-			wrapper: refWrapper,
-		});
-
-		const captured: {
-			value?: ReturnType<typeof result.current.renameField>;
-		} = {};
-		act(() => {
-			captured.value = result.current.renameField(
-				asUuid("q-src-0000-0000-0000-000000000000"),
-				"primary",
-			);
-		});
-
-		expect(captured.value).toBeDefined();
-		expect(captured.value?.xpathFieldsRewritten).toBe(0);
+		expect(captured.value?.ok).toBe(false);
+		expect(result.current.store?.getState().fields[Q_A].id).toBe("a");
+		expect(result.current.store?.getState().fieldParent[Q_A]).toBe(FORM1);
 	});
 
 	// ── moveField — extra options ─────────────────────────────────────────
@@ -1207,7 +1400,10 @@ describe("useBlueprintMutations", () => {
 			const converted = result.current.store?.getState().fields[Q_A];
 			expect(converted?.kind).toBe("single_select");
 			const options =
-				converted && "options" in converted ? converted.options : [];
+				converted?.kind === "single_select" &&
+				converted.optionsSource.kind === "inline"
+					? converted.optionsSource.options
+					: [];
 			expect(options.map((o) => o.value)).toEqual(["option_1", "option_2"]);
 			for (const opt of options) {
 				expect(opt.uuid).toBeTruthy();
@@ -1278,7 +1474,7 @@ describe("useBlueprintMutations", () => {
 			expect(() => {
 				act(() => {
 					result.current.mutations.convertField(
-						asUuid("bogus-uuid-convert"),
+						testUuid("bogus-uuid-convert"),
 						"secret" as FieldKind,
 					);
 				});
@@ -1302,7 +1498,7 @@ describe("useBlueprintMutations", () => {
 					"[useBlueprintMutations.convertField] unresolved uuid",
 				),
 				expect.objectContaining({
-					uuid: "bogus-uuid-convert",
+					uuid: testUuid("bogus-uuid-convert"),
 					toKind: "secret",
 				}),
 			);
@@ -1323,27 +1519,30 @@ describe("useBlueprintMutations", () => {
 		expect(() => {
 			act(() => {
 				// Bogus uuids should all silently no-op.
-				result.current.mutations.updateField(asUuid("bogus-uuid"), "text", {
-					label: "x",
+				result.current.mutations.updateField(testUuid("bogus-uuid"), "text", {
+					label: proseText("x"),
 				});
-				result.current.mutations.removeField(asUuid("bogus-uuid"));
-				result.current.mutations.renameField(asUuid("bogus-uuid"), "also_nope");
-				result.current.mutations.moveField(asUuid("bogus-uuid"), {});
-				result.current.mutations.duplicateField(asUuid("bogus-uuid"));
-				result.current.mutations.addField(asUuid("bogus-parent"), {
+				result.current.mutations.removeField(testUuid("bogus-uuid"));
+				result.current.mutations.renameField(
+					testUuid("bogus-uuid"),
+					"also_nope",
+				);
+				result.current.mutations.moveField(testUuid("bogus-uuid"), {});
+				result.current.mutations.duplicateField(testUuid("bogus-uuid"));
+				result.current.mutations.addField(testUuid("bogus-parent"), {
 					id: "should_not_exist",
 					kind: "text",
-					label: "Nope",
+					label: proseText("Nope"),
 				});
-				result.current.mutations.updateForm(asUuid("bogus-uuid"), {
+				result.current.mutations.updateForm(testUuid("bogus-uuid"), {
 					name: "nope",
 				});
-				result.current.mutations.removeForm(asUuid("bogus-uuid"));
-				result.current.mutations.updateModule(asUuid("bogus-uuid"), {
+				result.current.mutations.removeForm(testUuid("bogus-uuid"));
+				result.current.mutations.updateModule(testUuid("bogus-uuid"), {
 					name: "nope",
 				});
-				result.current.mutations.removeModule(asUuid("bogus-uuid"));
-				result.current.mutations.addForm(asUuid("bogus-module"), {
+				result.current.mutations.removeModule(testUuid("bogus-uuid"));
+				result.current.mutations.addForm(testUuid("bogus-module"), {
 					uuid: "form-6-uuid",
 					id: "nope",
 					name: "nope",
@@ -1367,7 +1566,7 @@ describe("useBlueprintMutations", () => {
 // returns its no-op shape, and the rejection surfaces as an error toast.
 
 describe("useBlueprintMutations — commit gate", () => {
-	it("rejects an edit that would introduce a finding: store untouched, no-op return, error toast", () => {
+	it("rejects an edit whose complete candidate has a finding: store untouched, no-op return, error toast", () => {
 		toastStore.clear();
 		const { result } = renderHook(() => useMutationsWithStore(), {
 			wrapper: wrapper,
@@ -1377,10 +1576,10 @@ describe("useBlueprintMutations — commit gate", () => {
 		act(() => {
 			const s = result.current.store?.getState();
 			assert(s);
-			// An empty survey form on a complete app introduces EMPTY_FORM —
-			// the ratchet rejects it.
+			// The resulting candidate has an empty survey form, so the absolute
+			// gate rejects its EMPTY_FORM finding.
 			returned = result.current.mutations.addForm(s.moduleOrder[0], {
-				uuid: "form-gated-uuid",
+				uuid: testUuid("form-gated-uuid"),
 				id: "gated",
 				name: "Gated",
 				type: "survey",
@@ -1392,7 +1591,7 @@ describe("useBlueprintMutations — commit gate", () => {
 		assert(!returned.ok);
 		expect(returned.messages[0]).toContain("doesn't have any fields");
 		const s = result.current.store?.getState();
-		expect(s?.forms[asUuid("form-gated-uuid")]).toBeUndefined();
+		expect(s?.forms[testUuid("form-gated-uuid")]).toBeUndefined();
 		// The rejection surfaced person-to-person, not silently — each
 		// finding rides the toast's structured lines.
 		const toast = toastStore.toasts.at(-1);
@@ -1413,7 +1612,7 @@ describe("useBlueprintMutations — commit gate", () => {
 			const s = result.current.store?.getState();
 			assert(s);
 			returned = result.current.mutations.inline.addForm(s.moduleOrder[0], {
-				uuid: "form-gated-inline-uuid",
+				uuid: testUuid("form-gated-inline-uuid"),
 				id: "gated_inline",
 				name: "Gated Inline",
 				type: "survey",
@@ -1425,7 +1624,7 @@ describe("useBlueprintMutations — commit gate", () => {
 		assert(!returned.ok);
 		expect(returned.messages[0]).toContain("doesn't have any fields");
 		const s = result.current.store?.getState();
-		expect(s?.forms[asUuid("form-gated-inline-uuid")]).toBeUndefined();
+		expect(s?.forms[testUuid("form-gated-inline-uuid")]).toBeUndefined();
 		// …and the toast stays quiet: one rejection, one presentation.
 		expect(toastStore.toasts).toHaveLength(0);
 	});

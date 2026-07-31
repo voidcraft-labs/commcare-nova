@@ -85,9 +85,9 @@
 // Operand-side ValueExpression dispatch:
 //
 //   - `term` arms unwrap to terms via the shared term emitter.
-//   - The eight CSQL value-function whitelist arms (`today`, `now`,
+//   - The seven CSQL value-function whitelist arms (`today`, `now`,
 //     `date-coerce`, `datetime-coerce`, `double`, `date-add`,
-//     `unwrap-list`, plus the `term` lifter) emit through the value-
+//     plus the `term` lifter) emit through the value-
 //     expression emitter at `lib/commcare/expression/csqlEmitter.ts`
 //     so the result is CSQL the server parses natively.
 //   - `count` with `via.kind === "subcase"` in comparison-LHS slot
@@ -105,7 +105,7 @@
 
 import { normalizeRelationEvaluationScopes } from "@/lib/domain/predicate/normalizeRelationEvaluationScopes";
 import { normalizeRelationPropertyReads } from "@/lib/domain/predicate/normalizeRelationReads";
-import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
+import type { TypeContext as DomainTypeContext } from "@/lib/domain/predicate/typeChecker";
 import type {
 	ComparisonKind,
 	Predicate,
@@ -117,6 +117,7 @@ import {
 	isNativeCsqlValueExpression,
 } from "../expression/csqlEmitter";
 import { emitOnDeviceExpression } from "../expression/onDeviceEmitter";
+import type { LookupWireNaming } from "../lookup/naming";
 import { normalizeCsqlPredicate } from "./csqlRepresentability";
 import {
 	type CsqlSegment,
@@ -147,6 +148,10 @@ import {
 	serializeAncestorPath,
 	wrapTermAsSegmentList,
 } from "./termEmitter";
+
+interface TypeContext extends DomainTypeContext {
+	readonly lookupNaming?: LookupWireNaming;
+}
 
 /**
  * Output of the CSQL emission pipeline. `wrapper` is the on-device
@@ -425,16 +430,11 @@ function emitPredicateSegments(
 		case "between":
 			return emitBetweenSegments(p, typeContext);
 		case "is-blank":
-		case "is-null":
-			// Both emit as `<term> = ''` on CSQL — the server-side
+			// Emits as `<term> = ''` on CSQL — the server-side
 			// `case_property_query()` short-circuits to
 			// `case_property_missing()` semantics at
 			// `commcare-hq/corehq/apps/es/case_search.py::case_property_query`,
-			// matching absent / cleared / empty alike. The strict-
-			// absent intent of `is-null` is faithfully expressed as the
-			// closest CSQL form (the same wire that `is-blank` uses);
-			// runtime-strict semantics live on the Postgres target and
-			// don't surface on CCHQ's wire dialect.
+			// matching absent / cleared / empty alike.
 			return emitAbsenceSegments(p, typeContext);
 		case "match":
 			return emitMatchSegments(p, typeContext);
@@ -484,7 +484,11 @@ function emitWhenInputPresentSegments(
 	p: Extract<Predicate, { kind: "when-input-present" }>,
 	typeContext?: TypeContext,
 ): CsqlSegment[] {
-	const triggerXPath = emitSearchInputXPath(p.input);
+	const triggerXPath = emitSearchInputXPath(p.input, {
+		searchInputNames: new Map(
+			(typeContext?.knownInputs ?? []).map((input) => [input.uuid, input.name]),
+		),
+	});
 	const innerSegments = emitPredicateSegments(p.clause, 0, typeContext);
 	const inner = buildConcatExpression(innerSegments);
 	const conditionalXPath = `if(count(${triggerXPath}), ${inner.query}, 'match-all()')`;
@@ -530,7 +534,7 @@ function emitComparisonSegments(
 		typeContext,
 	);
 	const rightSegs = isSubcaseCountAnchor(p.left)
-		? emitSubcaseCountBoundSegments(p.right)
+		? emitSubcaseCountBoundSegments(p.right, typeContext)
 		: emitOperandSegments(p.right, "value", typeContext);
 	const op = COMPARISON_OPS[p.kind];
 	return [...leftSegs, { kind: "constant", text: ` ${op} ` }, ...rightSegs];
@@ -548,8 +552,12 @@ function isSubcaseCountAnchor(expression: ValueExpression): boolean {
  */
 function emitSubcaseCountBoundSegments(
 	expression: ValueExpression,
+	typeContext?: TypeContext,
 ): CsqlSegment[] {
-	const classification = classifySubcaseCountBound(expression);
+	const classification = classifySubcaseCountBound(
+		expression,
+		typeContext?.knownInputs,
+	);
 	if (classification.kind === "static-valid") {
 		return [{ kind: "constant", text: formatNumeric(classification.value) }];
 	}
@@ -600,8 +608,8 @@ function emitSubcaseCountBoundSegments(
  *      `wrapTermAsSegmentList` helper so a runtime-resolved term
  *      interpolates as a CSQL double-quoted value.
  *   4. CSQL value-function whitelist arm (`today`, `now`,
- *      `date-coerce`, `datetime-coerce`, `double`, `date-add`,
- *      `unwrap-list`) — delegates to the value-expression emitter at
+ *      `date-coerce`, `datetime-coerce`, `double`, `date-add`) —
+ *      delegates to the value-expression emitter at
  *      `lib/commcare/expression/csqlEmitter.ts`. The wire form is
  *      the function-call result which CCHQ's grammar accepts as a
  *      value directly.
@@ -660,7 +668,7 @@ function emitOperandSegments(
 	}
 	if (isNativeCsqlValueExpression(expr)) {
 		// Whitelist arms (`today`, `now`, `date-coerce`,
-		// `datetime-coerce`, `double`, `date-add`, `unwrap-list`)
+		// `datetime-coerce`, `double`, `date-add`)
 		// delegate to the value-expression emitter for native CSQL.
 		return emitCsqlExpressionSegments(expr, typeContext);
 	}
@@ -695,9 +703,25 @@ function inlineAsRuntimeOperand(
 	expr: ValueExpression,
 	typeContext?: TypeContext,
 ): CsqlSegment[] {
-	const xpath = emitOnDeviceExpression(expr, undefined, typeContext ?? {});
+	const xpath = emitOnDeviceExpression(
+		expr,
+		undefined,
+		typeContext ?? {},
+		undefined,
+		typeContext?.lookupNaming === undefined
+			? {}
+			: {
+					lookup: {
+						naming: typeContext.lookupNaming,
+						instanceScope: "suite",
+					},
+				},
+	);
 	return quoteRuntimeCsqlValue(xpath, "double", [
-		...collectRuntimeCsqlStringExpressionInputNames(expr),
+		...collectRuntimeCsqlStringExpressionInputNames(
+			expr,
+			typeContext?.knownInputs,
+		),
 	]);
 }
 
@@ -849,18 +873,14 @@ function emitBetweenSegments(
 }
 
 /**
- * Emit `is-blank` / `is-null` as `<term> = ''`. CCHQ's server-side
+ * Emit `is-blank` as `<term> = ''`. CCHQ's server-side
  * `case_property_query()` at
  * `commcare-hq/corehq/apps/es/case_search.py::case_property_query`
  * short-circuits `value == ''` to `case_property_missing()` semantics,
- * matching absent / cleared / empty alike on every CSQL emission. The
- * two predicate kinds map to the same wire form because CSQL has no
- * mechanism for distinguishing strict-absent from cleared from empty
- * — `is-null`'s strict-absent semantic surfaces only on the Postgres
- * target where JSONB key presence is observable.
+ * matching absent / cleared / empty alike on every CSQL emission.
  */
 function emitAbsenceSegments(
-	p: Extract<Predicate, { kind: "is-blank" | "is-null" }>,
+	p: Extract<Predicate, { kind: "is-blank" }>,
 	typeContext?: TypeContext,
 ): CsqlSegment[] {
 	const left = emitComparisonOperandSegments(p.left, typeContext);
@@ -1082,7 +1102,13 @@ function emitGeopointCenterSegments(
 		typeContext ?? {},
 	);
 	const normalized = normalizeOnDeviceGeopoint(rawCenter);
-	const inputNames = [...collectGeopointCenterInputNames(center)].sort();
+	const inputNames = [...collectGeopointCenterInputNames(center)]
+		.map(
+			(uuid) =>
+				typeContext?.knownInputs.find((input) => input.uuid === uuid)?.name,
+		)
+		.filter((name): name is string => name !== undefined)
+		.sort();
 	return [
 		{
 			kind: "runtime",

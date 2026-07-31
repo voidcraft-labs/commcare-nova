@@ -267,9 +267,9 @@ describe("CommCare XPath Parser", () => {
 		const cases = [
 			"#form/field",
 			"#form/group/field",
-			"#case/type/prop",
-			"#form/field = #case/property",
-			"#form/field     =    #case/property",
+			"#patient/type/prop",
+			"#form/field = #patient/property",
+			"#form/field     =    #patient/property",
 			"/data/filtered[@id = #form/field]",
 			"-some-function(#form/field)",
 		];
@@ -285,16 +285,16 @@ describe("CommCare XPath Parser", () => {
 	// --------------- Combined CommCare expressions ---------------
 	describe("commcare combined", () => {
 		const cases = [
-			"#case/age > 18 and #form/gender = 'male'",
+			"#patient/age > 18 and #form/gender = 'male'",
 			"count(instance('casedb')/casedb/case)",
 			". = 'yes' or . = 'no'",
-			"if(#case/status = 'active', 'Open', 'Closed')",
+			"if(#patient/status = 'active', 'Open', 'Closed')",
 			"/data/registration/name",
-			"today() - date(#case/dob)",
+			"today() - date(#patient/dob)",
 			"$var + 1",
-			"concat(#case/first_name, ' ', #case/last_name)",
+			"concat(#patient/first_name, ' ', #patient/last_name)",
 			"selected(#form/symptoms, 'fever')",
-			'#case/dob != ""',
+			'#patient/dob != ""',
 		];
 		it.each(cases)("parses %s", (expr) => {
 			expect(parsesClean(expr)).toBe(true);

@@ -119,10 +119,10 @@ describe("lookup manifest stream frames", () => {
 		).toBeNull();
 	});
 
-	it("retains the latest valid manifest for immediate late-subscriber replay", () => {
+	it("signals malformed current pages instead of silently retaining stale data", () => {
 		const broker = createLookupManifestBroker();
-		broker.dispatch(JSON.stringify(MANIFEST));
-		broker.dispatch("not json");
+		expect(broker.dispatch(JSON.stringify(MANIFEST))).toBe(true);
+		expect(broker.dispatch("not json")).toBe(false);
 
 		const late = vi.fn<(manifest: LookupManifest | null) => void>();
 		broker.subscribe(late);
@@ -134,7 +134,7 @@ describe("lookup manifest stream frames", () => {
 		const broker = createLookupManifestBroker();
 		const current = vi.fn<(manifest: LookupManifest | null) => void>();
 		broker.subscribe(current);
-		broker.dispatch(JSON.stringify(MANIFEST));
+		expect(broker.dispatch(JSON.stringify(MANIFEST))).toBe(true);
 
 		const lower = {
 			projectId: MANIFEST.projectId,
@@ -146,8 +146,8 @@ describe("lookup manifest stream frames", () => {
 			projectRevision: "18",
 			tables: [],
 		};
-		broker.dispatch(JSON.stringify(lower));
-		broker.dispatch(JSON.stringify(foreign));
+		expect(broker.dispatch(JSON.stringify(lower))).toBe(false);
+		expect(broker.dispatch(JSON.stringify(foreign))).toBe(false);
 		expect(current).toHaveBeenCalledOnce();
 
 		const equal = {
@@ -160,13 +160,22 @@ describe("lookup manifest stream frames", () => {
 			projectRevision: "18",
 			tables: [],
 		};
-		broker.dispatch(JSON.stringify(equal));
-		broker.dispatch(JSON.stringify(newer));
-		expect(current).toHaveBeenCalledTimes(3);
+		expect(broker.dispatch(JSON.stringify(equal))).toBe(false);
+		expect(broker.dispatch(JSON.stringify(newer))).toBe(true);
+		expect(current).toHaveBeenCalledTimes(2);
 
 		const late = vi.fn<(manifest: LookupManifest | null) => void>();
 		broker.subscribe(late);
 		expect(late).toHaveBeenCalledWith(newer);
+	});
+
+	it("accepts an identical equal-revision refetch without duplicate fanout", () => {
+		const broker = createLookupManifestBroker();
+		const current = vi.fn<(manifest: LookupManifest | null) => void>();
+		broker.subscribe(current);
+		expect(broker.install(MANIFEST)).toBe(true);
+		expect(broker.install(MANIFEST)).toBe(true);
+		expect(current).toHaveBeenCalledExactlyOnceWith(MANIFEST);
 	});
 
 	it("clears subscribers and permits a new Project lineage after reset", () => {
@@ -212,12 +221,12 @@ describe("lookup manifest stream frames", () => {
 		unsubscribeFailing();
 		broker.dispatch(JSON.stringify(MANIFEST));
 		expect(failing).toHaveBeenCalledOnce();
-		expect(healthy).toHaveBeenCalledTimes(2);
+		expect(healthy).toHaveBeenCalledOnce();
 
 		unsubscribeHealthy();
 		unsubscribeHealthy();
 		broker.dispatch(JSON.stringify(MANIFEST));
-		expect(healthy).toHaveBeenCalledTimes(2);
+		expect(healthy).toHaveBeenCalledOnce();
 	});
 
 	it("notifies every subscriber then propagates a tenant-boundary reset failure", () => {

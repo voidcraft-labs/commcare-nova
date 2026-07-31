@@ -8,6 +8,7 @@ import { log } from "@/lib/logger";
 import { LOOKUP_MAX_CSV_BYTES } from "@/lib/lookup/constants";
 import { parseLookupCsv, validateLookupCsv } from "@/lib/lookup/csv";
 import { LookupError, lookupFailure } from "@/lib/lookup/errors";
+import { formatLookupBytes } from "@/lib/lookup/format";
 import {
 	hasUnpairedUtf16Surrogate,
 	lookupRevisionSchema,
@@ -33,6 +34,16 @@ const projectIdSchema = z
 		(value) => !hasUnpairedUtf16Surrogate(value),
 		"Project id contains invalid Unicode.",
 	);
+
+/** The size the request declared, when it declared one. Mirrors
+ *  `declaredBodyTooLarge`'s duplicate-header handling so the number reported
+ *  is the number that was judged. */
+function declaredBodyBytes(req: NextRequest): number | undefined {
+	const declared = Number(
+		req.headers.get("content-length")?.split(",")[0]?.trim(),
+	);
+	return Number.isFinite(declared) && declared >= 0 ? declared : undefined;
+}
 
 function acceptsCsv(contentType: string | null): boolean {
 	if (!contentType) return false;
@@ -81,15 +92,28 @@ function invalidInput(error: ZodError): LookupFailure<"invalid_input"> {
 	};
 }
 
-function csvTooLarge(): LookupFailure<"invalid_csv"> {
+/**
+ * `measuredBytes` is the size actually seen — the declared `Content-Length` on
+ * the pre-buffer rejection, the buffered length afterwards. Naming it is what
+ * separates "your file is 12.4 MB, the limit is 8 MB" from a generic refusal
+ * the author cannot act on. It is absent only when a chunked request declared
+ * no length at all, and the sentence says so rather than inventing a number.
+ */
+function csvTooLarge(measuredBytes?: number): LookupFailure<"invalid_csv"> {
+	const limit = formatLookupBytes(LOOKUP_MAX_CSV_BYTES);
+	const measured =
+		measuredBytes === undefined ? undefined : formatLookupBytes(measuredBytes);
 	return {
 		success: false,
 		code: "invalid_csv",
-		message: `CSV exceeds the ${LOOKUP_MAX_CSV_BYTES}-byte request limit.`,
+		message:
+			measured === undefined
+				? `That CSV is over the ${limit} limit for one import.`
+				: `That CSV is ${measured}, which is over the ${limit} limit for one import.`,
 		details: [
 			{
 				code: "csv_too_large",
-				message: `Choose a CSV no larger than ${LOOKUP_MAX_CSV_BYTES} bytes.`,
+				message: `Split it into smaller files, or remove some rows, so each import is at most ${limit}.`,
 			},
 		],
 		totalDetailCount: 1,
@@ -101,7 +125,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
 	/* Reject a declared oversize before touching the body or any database. The
 	 * post-buffer check below remains authoritative for chunked/misdeclared input. */
 	if (declaredBodyTooLarge(req, LOOKUP_MAX_CSV_BYTES)) {
-		return failureResponse(csvTooLarge(), 413);
+		return failureResponse(csvTooLarge(declaredBodyBytes(req)), 413);
 	}
 
 	try {
@@ -163,7 +187,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
 		const bytes = new Uint8Array(await req.arrayBuffer());
 		if (bytes.byteLength > LOOKUP_MAX_CSV_BYTES) {
-			return failureResponse(csvTooLarge(), 413);
+			return failureResponse(csvTooLarge(bytes.byteLength), 413);
 		}
 		const parsed = parseLookupCsv(bytes);
 		if (!parsed.success) return failureResponse(parsed);

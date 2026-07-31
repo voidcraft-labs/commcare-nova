@@ -16,9 +16,10 @@ import { renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { useRef } from "react";
 import { describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
 import type { BlueprintDoc } from "@/lib/doc/types";
-import { asUuid } from "@/lib/doc/types";
+
 import type { FormRow } from "../rowModel";
 import { useDragIntent } from "../useDragIntent";
 
@@ -40,8 +41,8 @@ vi.mock("@/lib/session/hooks", () => ({
 
 // ── Fixture ────────────────────────────────────────────────────────────
 
-const MODULE_UUID = asUuid("module-1-0000-0000-0000-000000000000");
-const FORM_UUID = asUuid("form-1-0000-0000-0000-000000000001");
+const MODULE_UUID = testUuid("module-1-0000-0000-0000-000000000000");
+const FORM_UUID = testUuid("form-1-0000-0000-0000-000000000001");
 
 const TEST_DOC: BlueprintDoc = {
 	appId: "app-drag-intent",

@@ -36,17 +36,25 @@
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import {
+	readToolLookupCatalog,
+	readToolLookupDefinitions,
+} from "@/lib/agent/lookupContext";
 import type {
 	ConversionImpactFn,
 	RecordMutationsResult,
-	StagedMutationBatch,
 	ToolExecutionContext,
 } from "@/lib/agent/toolExecutionContext";
 import { describeParkedOutcome } from "@/lib/agent/toolExecutionContext";
 import { withSchemaContext } from "@/lib/case-store";
 import { applyBlueprintChange } from "@/lib/db/applyBlueprintChange";
-import { toPersistableDoc } from "@/lib/doc/fieldParent";
-import type { Mutation } from "@/lib/doc/types";
+import type { PreparedMutationCandidate } from "@/lib/doc/commitVerdicts";
+import {
+	type AdmittedMutationBatch,
+	type AdmittedMutationStages,
+	admittedMutationSlice,
+	encodeAdmittedMutationEnvelope,
+} from "@/lib/doc/mutationAdmission";
 import type { BlueprintDoc } from "@/lib/domain";
 import type {
 	ConversationEvent,
@@ -55,7 +63,6 @@ import type {
 } from "@/lib/log/types";
 import { LogWriter } from "@/lib/log/writer";
 import { log } from "@/lib/logger";
-import type { MediaAttachExpectation } from "@/lib/media/attachVerdicts";
 import { createProgressEmitter, type ProgressEmitter } from "./progress";
 import type { ToolContext } from "./types";
 
@@ -73,6 +80,8 @@ export interface McpContextOptions {
 	userId: string;
 	/** Project captured by the adapter's authorized app load. */
 	projectId: string;
+	/** Fresh Better Auth Project role from that same authorized load. */
+	projectRole?: string;
 	/** Run id — derived by the adapter from the app doc's current state. */
 	runId: string;
 	/** Event-log sink. Always constructed with `source: "mcp"` by the adapter. */
@@ -89,6 +98,7 @@ export class McpContext implements ToolExecutionContext {
 	readonly appId: string;
 	readonly userId: string;
 	readonly projectId: string;
+	readonly projectRole: string;
 	readonly runId: string;
 	readonly logWriter: LogWriter;
 	readonly progress: ProgressEmitter;
@@ -109,11 +119,32 @@ export class McpContext implements ToolExecutionContext {
 		this.appId = opts.appId;
 		this.userId = opts.userId;
 		this.projectId = opts.projectId;
+		this.projectRole = opts.projectRole ?? "viewer";
 		this.runId = opts.runId;
 		this.logWriter = opts.logWriter;
 		this.progress = opts.progress;
 		this.conversionImpact = opts.conversionImpact;
 	}
+
+	readonly lookupDefinitions: NonNullable<
+		ToolExecutionContext["lookupDefinitions"]
+	> = (tableIds) =>
+		readToolLookupDefinitions(
+			{
+				projectId: this.projectId,
+				actorId: this.userId,
+				role: this.projectRole,
+			},
+			tableIds,
+		);
+
+	readonly lookupCatalog: NonNullable<ToolExecutionContext["lookupCatalog"]> =
+		() =>
+			readToolLookupCatalog({
+				projectId: this.projectId,
+				actorId: this.userId,
+				role: this.projectRole,
+			});
 
 	/** See {@link ToolExecutionContext.conversionImpact} — injected at
 	 * construction (`McpContextOptions.conversionImpact`). */
@@ -142,22 +173,18 @@ export class McpContext implements ToolExecutionContext {
 	 *   to inspect the sequence that was just persisted.
 	 */
 	async recordMutations(
-		mutations: Mutation[],
-		doc: BlueprintDoc,
+		prepared: PreparedMutationCandidate,
 		stage?: string,
-		mediaExpectations?: readonly MediaAttachExpectation[],
 	): Promise<RecordMutationsResult> {
-		if (mutations.length === 0) return { events: [], committedDoc: doc };
+		if (prepared.mutations.length === 0) {
+			return { events: [], committedDoc: prepared.nextDoc };
+		}
 		/* Persist FIRST, log second: the guarded transactional commit can
 		 * still reject (or throw on a transport fault), and an event log
 		 * that recorded a batch the blueprint never absorbed would make a
 		 * replay diverge from the persisted doc. */
-		const committedDoc = await this.saveBlueprint(
-			doc,
-			mutations,
-			mediaExpectations,
-		);
-		const events = this.buildEnvelopes(mutations, stage);
+		const committedDoc = await this.saveBlueprint(prepared);
+		const events = this.buildEnvelopes(prepared.mutations, stage);
 		for (const e of events) this.logWriter.logEvent(e);
 		return { events, committedDoc };
 	}
@@ -183,22 +210,15 @@ export class McpContext implements ToolExecutionContext {
 	 * ordering as `recordMutations`.
 	 */
 	async recordMutationStages(
-		stages: StagedMutationBatch[],
+		prepared: PreparedMutationCandidate,
+		stages: AdmittedMutationStages,
 	): Promise<RecordMutationsResult> {
-		const nonEmpty = stages.filter((s) => s.mutations.length > 0);
-		if (nonEmpty.length === 0) {
-			// Nothing to commit — the last stage's doc is the current state.
-			const current = stages[stages.length - 1]?.doc;
-			if (current === undefined) {
-				throw new Error("recordMutationStages called with no stages");
-			}
-			return { events: [], committedDoc: current };
+		if (stages.batch.length === 0) {
+			return { events: [], committedDoc: prepared.nextDoc };
 		}
-		const finalDoc = nonEmpty[nonEmpty.length - 1].doc;
-		const allMutations = nonEmpty.flatMap((s) => s.mutations);
-		const committedDoc = await this.saveBlueprint(finalDoc, allMutations);
-		const events = nonEmpty.flatMap((s) =>
-			this.buildEnvelopes(s.mutations, s.stage),
+		const committedDoc = await this.saveBlueprint(prepared);
+		const events = stages.slices.flatMap((slice) =>
+			this.buildEnvelopes(admittedMutationSlice(stages, slice), slice.stage),
 		);
 		for (const e of events) this.logWriter.logEvent(e);
 		return { events, committedDoc };
@@ -207,23 +227,26 @@ export class McpContext implements ToolExecutionContext {
 	/** Build the `MutationEvent` envelopes for one batch under one stage
 	 *  tag, allocating from the per-request `seq` counter. */
 	private buildEnvelopes(
-		mutations: Mutation[],
+		mutations: AdmittedMutationBatch,
 		stage?: string,
 	): MutationEvent[] {
-		return mutations.map((mutation) => ({
-			kind: "mutation",
-			runId: this.runId,
-			ts: Date.now(),
-			seq: this.seq++,
-			actor: "agent",
-			/* Inline `source: "mcp"` so the envelope satisfies the schema
-			 * at the type level — `LogWriter.logEvent` overwrites this
-			 * with its constructor-provided source on the way to the
-			 * sink, so the persisted value can never drift. */
-			source: "mcp",
-			...(stage !== undefined && { stage }),
-			mutation,
-		}));
+		return mutations.map(
+			(mutation) =>
+				encodeAdmittedMutationEnvelope({
+					kind: "mutation",
+					runId: this.runId,
+					ts: Date.now(),
+					seq: this.seq++,
+					actor: "agent",
+					/* Inline `source: "mcp"` so the envelope satisfies the schema
+					 * at the type level — `LogWriter.logEvent` overwrites this
+					 * with its constructor-provided source on the way to the
+					 * sink, so the persisted value can never drift. */
+					source: "mcp",
+					...(stage !== undefined && { stage }),
+					mutation,
+				}).value as unknown as MutationEvent,
+		);
 	}
 
 	/**
@@ -256,63 +279,57 @@ export class McpContext implements ToolExecutionContext {
 	}
 
 	/**
-	 * Persist the blueprint snapshot along with the current
-	 * run id. `toPersistableDoc` strips the derived `fieldParent` index;
-	 * see the class-level fail-closed contract for why this is awaited.
+	 * Persist the mutation batch along with the current run id. See the
+	 * class-level fail-closed contract for why this is awaited.
 	 *
-	 * Routes through the cross-store saga so a property-surface
-	 * mutation in this MCP tool call (rename / retype / option add)
-	 * syncs the Postgres `case_type_schemas` row before the blueprint
-	 * commits. Pure non-case-type edits fast-path through the saga
-	 * without touching the case store. See
-	 * `lib/db/applyBlueprintChange.ts` for the compensation contract.
+	 * Routes through the guarded schema boundary. An explicit
+	 * `renameCaseProperties` command commits Blueprint, schema, live rows,
+	 * parked rows, and accepted history in one physical transaction. Other
+	 * schema changes materialize from the committed document; pure
+	 * non-case-type edits do not touch the case store.
 	 *
 	 * Writing `run_id` on every mutation is load-bearing for the
 	 * sliding-window derivation in `lib/mcp/runId.ts` — the next MCP
 	 * tool call reads `app.run_id` + `app.updated_at` to decide whether
-	 * to continue this run or start a new one. The saga threads the
+	 * to continue this run or start a new one. The guarded writer threads the
 	 * `runId` into `commitGuardedBatch` → `writeCommittedSnapshot`, so
 	 * the run id persists alongside the blueprint.
 	 */
 	private async saveBlueprint(
-		doc: BlueprintDoc,
-		mutations: Mutation[],
-		mediaExpectations?: readonly MediaAttachExpectation[],
+		prepared: PreparedMutationCandidate,
 	): Promise<BlueprintDoc> {
+		const mutations = prepared.mutations;
 		const result = await applyBlueprintChange({
 			appId: this.appId,
 			userId: this.userId,
 			expectedProjectId: this.projectId,
-			prospective: toPersistableDoc(doc),
 			runId: this.runId,
 			batchId: crypto.randomUUID(),
 			kind: "mcp",
-			/* Guarded commit: the saga's guarded commit re-reads the stored
+			/* Guarded commit: the persistence boundary re-reads the stored
 			 * blueprint, re-applies this batch, and re-runs the validity
 			 * verdict inside a transaction — two concurrent gate-approved
 			 * batches serialize instead of last-writer-wins, and a batch the
 			 * fresh doc rejects throws (the tool returns its `{ error }`
-			 * envelope) rather than erasing the concurrent commit. A media
-			 * attach's per-asset expectations re-verify inside the SAME
-			 * transaction (the asset rows join its read set), so an asset
-			 * delete racing the attach serializes against this commit. */
-			guard: { mutations, ...(mediaExpectations && { mediaExpectations }) },
+			 * envelope) rather than erasing the concurrent commit. The writer
+			 * derives the complete prospective document and transactionally
+			 * locks and validates every live media reference, so an asset
+			 * delete racing any attach serializes against this commit. */
+			guard: { mutations },
 		});
-		/* `committedDoc` is absent only on a TOP-LEVEL dedup hit (a client retry
-		 * of an already-committed batch); the doc the tool passed in IS that
-		 * committed state, so coalesce to it. A commit whose row migration
-		 * PARKED saved case values surfaces the outcome so the tool result
+		/* A commit whose row migration PARKED saved case values surfaces the
+		 * outcome so the tool result
 		 * tells the client — a park must never be invisible to the caller
 		 * that caused it (this boundary has no toast). */
 		if (result.migration !== undefined && result.migration.parked > 0) {
 			this._parkedNote = describeParkedOutcome(result.migration);
-			log.warn("[mcp] saga commit parked case values", {
+			log.warn("[mcp] commit parked case values", {
 				appId: this.appId,
 				parked: result.migration.parked,
 				failureReasons: result.migration.failureReasons,
 			});
 		}
-		return result.committedDoc ?? doc;
+		return result.committedDoc;
 	}
 
 	/** See `ToolExecutionContext.consumeParkedNote`. */
@@ -375,6 +392,7 @@ export function initMcpCall(
 	ctx: ToolContext,
 	appId: string,
 	projectId: string,
+	projectRole: string,
 	runId: string,
 	extra: McpCallExtra | undefined,
 ): InitMcpCallResult {
@@ -385,6 +403,7 @@ export function initMcpCall(
 		appId,
 		userId: ctx.userId,
 		projectId,
+		projectRole,
 		runId,
 		logWriter,
 		progress,

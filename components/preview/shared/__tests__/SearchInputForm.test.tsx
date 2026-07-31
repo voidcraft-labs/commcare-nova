@@ -39,13 +39,10 @@ import {
 	type Mock,
 	vi,
 } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import type { CaseType } from "@/lib/domain";
-import {
-	advancedSearchInputDef,
-	asUuid,
-	simpleSearchInputDef,
-} from "@/lib/domain";
-import { matchAll } from "@/lib/domain/predicate";
+import { simpleSearchInputDef } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import {
 	DATE_RANGE_ORDER_MESSAGE,
 	DATE_RANGE_PAIR_REQUIRED_MESSAGE,
@@ -103,12 +100,10 @@ const ORIGINAL_SRC_OBJECT = Object.getOwnPropertyDescriptor(
 
 // ── Fixtures ────────────────────────────────────────────────────────
 
-const UUID_NAME = asUuid("00000000-0000-0000-0000-000000000001");
-const UUID_STATUS = asUuid("00000000-0000-0000-0000-000000000002");
-const UUID_DOB = asUuid("00000000-0000-0000-0000-000000000003");
-const UUID_REG_RANGE = asUuid("00000000-0000-0000-0000-000000000004");
-const UUID_BARCODE = asUuid("00000000-0000-0000-0000-000000000005");
-const UUID_ADV_SELECT = asUuid("00000000-0000-0000-0000-000000000006");
+const UUID_NAME = testUuid("00000000-0000-0000-0000-000000000001");
+const UUID_DOB = testUuid("00000000-0000-0000-0000-000000000003");
+const UUID_REG_RANGE = testUuid("00000000-0000-0000-0000-000000000004");
+const UUID_BARCODE = testUuid("00000000-0000-0000-0000-000000000005");
 
 const READABLE_DATE_FORMAT_OPTIONS: Intl.DateTimeFormatOptions = {
 	day: "numeric",
@@ -129,20 +124,19 @@ function readableDate(year: number, monthIndex: number, day: number): string {
 const PATIENT_CASE_TYPE: CaseType = {
 	name: "patient",
 	properties: [
-		{ name: "name", label: "Name", data_type: "text" },
-		{ name: "case_name", label: "Case name", data_type: "text" },
+		{ name: "case_name", label: proseText("Case name"), data_type: "text" },
 		{
 			name: "status",
-			label: "Status",
+			label: proseText("Status"),
 			data_type: "single_select",
 			options: [
-				{ value: "active", label: "Active" },
-				{ value: "closed", label: "Closed" },
+				{ value: "active", label: proseText("Active") },
+				{ value: "closed", label: proseText("Closed") },
 			],
 		},
-		{ name: "dob", label: "Date of birth", data_type: "date" },
-		{ name: "reg_at", label: "Registered at", data_type: "date" },
-		{ name: "barcode", label: "Barcode", data_type: "text" },
+		{ name: "dob", label: proseText("Date of birth"), data_type: "date" },
+		{ name: "reg_at", label: proseText("Registered at"), data_type: "date" },
+		{ name: "barcode", label: proseText("Barcode"), data_type: "text" },
 	],
 };
 
@@ -312,7 +306,7 @@ describe("widget dispatch", () => {
 	it("renders a text input for `type: text` inputs", () => {
 		renderForm({
 			searchInputs: [
-				simpleSearchInputDef(UUID_NAME, "name", "Name", "text", "name"),
+				simpleSearchInputDef(UUID_NAME, "name", "Name", "text", "case_name"),
 			],
 		});
 		const input = screen.getByLabelText("Name");
@@ -556,240 +550,13 @@ describe("barcode scanning", () => {
 	});
 });
 
-// ── Select-arm coverage ────────────────────────────────────────────
-
-describe("select dispatch", () => {
-	it("renders Select options from the resolved property's declared options", () => {
-		renderForm({
-			searchInputs: [
-				simpleSearchInputDef(
-					UUID_STATUS,
-					"status",
-					"Status",
-					"select",
-					"status",
-				),
-			],
-		});
-		// shadcn Select trigger is a Base UI button with combobox
-		// semantics. Click it to open the popup; options mount under
-		// role="option" once visible.
-		const trigger = screen.getByRole("combobox", { name: "Status" });
-		fireEvent.click(trigger);
-		const options = screen.getAllByRole("option");
-		const optionLabels = options.map((opt) => opt.textContent?.trim());
-		expect(optionLabels).toContain("Active");
-		expect(optionLabels).toContain("Closed");
-	});
-
-	it("clears only this select through Any and preserves sibling answers", async () => {
-		const { onChange } = renderForm({
-			searchInputs: [
-				simpleSearchInputDef(UUID_NAME, "name", "Name", "text", "name"),
-				simpleSearchInputDef(
-					UUID_STATUS,
-					"status",
-					"Status",
-					"select",
-					"status",
-				),
-			],
-			value: new Map([
-				["name", "Alice"],
-				["status", "active"],
-			]),
-		});
-
-		fireEvent.click(screen.getByRole("combobox", { name: "Status" }));
-		const anyOption = screen.getByRole("option", { name: "Any" });
-		// Base UI starts an option press on pointer-down; click alone does not
-		// exercise the value-change path in happy-dom.
-		fireEvent.pointerDown(anyOption, { pointerType: "mouse" });
-		fireEvent.click(anyOption);
-		await act(async () => vi.advanceTimersByTime(300));
-
-		expect(lastEmission(onChange)).toEqual({ name: "Alice" });
-		expect(
-			screen.getByRole("combobox", { name: "Status" }).textContent,
-		).toContain("Any");
-		expect(screen.queryByText("Choose an option")).toBeNull();
-	});
-
-	it("disambiguates the Any default from an authored option with the same label", () => {
-		const caseType: CaseType = {
-			...PATIENT_CASE_TYPE,
-			properties: PATIENT_CASE_TYPE.properties.map((property) =>
-				property.name === "status"
-					? {
-							...property,
-							options: [
-								{ value: "any", label: "Any" },
-								{ value: "closed", label: "Closed" },
-							],
-						}
-					: property,
-			),
-		};
-		renderForm({
-			searchInputs: [
-				simpleSearchInputDef(
-					UUID_STATUS,
-					"status",
-					"Status",
-					"select",
-					"status",
-				),
-			],
-			caseType,
-		});
-
-		const trigger = screen.getByRole("combobox", { name: "Status" });
-		expect(trigger.textContent).toContain("Any status");
-		fireEvent.click(trigger);
-		expect(screen.getByRole("option", { name: "Any status" })).toBeDefined();
-		expect(screen.getByRole("option", { name: "Any" })).toBeDefined();
-	});
-
-	it("keeps long spaced and unbroken option labels legible in a narrow pane", () => {
-		const longSpacedLabel =
-			"Needs an in-person follow-up with the community health team this month";
-		const longUnbrokenLabel =
-			"ExtremelyLongImportedChoiceWithoutAnyNaturalWordBreaksForTheNarrowSearchPane";
-		const caseType: CaseType = {
-			...PATIENT_CASE_TYPE,
-			properties: PATIENT_CASE_TYPE.properties.map((property) =>
-				property.name === "status"
-					? {
-							...property,
-							options: [
-								{ value: "follow_up", label: longSpacedLabel },
-								{ value: "imported", label: longUnbrokenLabel },
-							],
-						}
-					: property,
-			),
-		};
-		const { rerender } = renderForm({
-			searchInputs: [
-				simpleSearchInputDef(
-					UUID_STATUS,
-					"status",
-					"Status",
-					"select",
-					"status",
-				),
-			],
-			caseType,
-			value: new Map([["status", "follow_up"]]),
-		});
-
-		const trigger = screen.getByRole("combobox", { name: "Status" });
-		expect(trigger.textContent).toContain(longSpacedLabel);
-		expect(trigger.className).toContain("whitespace-normal");
-		expect(trigger.className).toContain("line-clamp-none");
-		expect(trigger.className).toContain("[overflow-wrap:anywhere]");
-		expect(trigger.className).not.toContain("line-clamp-1");
-		expect(trigger.className).not.toContain("data-[size=default]:h-8");
-		rerender(new Map([["status", "imported"]]));
-		expect(trigger.textContent).toContain(longUnbrokenLabel);
-		fireEvent.click(trigger);
-
-		const content = document.querySelector<HTMLElement>(
-			'[data-slot="select-content"]',
-		);
-		expect(content?.className).toContain("max-w-(--available-width)");
-		expect(content?.className).toContain(
-			"min-w-[min(9rem,var(--available-width))]",
-		);
-		for (const label of [longSpacedLabel, longUnbrokenLabel]) {
-			const option = screen.getByRole("option", { name: label });
-			const itemText = option.querySelector<HTMLElement>(
-				'[data-slot="select-item-text"]',
-			);
-			expect(itemText?.className).toContain("min-w-0");
-			expect(itemText?.className).toContain("whitespace-normal");
-			expect(itemText?.className).toContain("break-words");
-			expect(itemText?.className).toContain("[overflow-wrap:anywhere]");
-		}
-	});
-
-	it("falls back to a text input on advanced-arm `type: select` inputs", () => {
-		// Advanced-arm inputs reference a predicate AST whose option-
-		// source property is structurally ambiguous — Nova can't infer
-		// "the property providing the options" from a free-form
-		// predicate. The widget falls back to a text input so the user
-		// can still enter values; surfacing a select would lie about
-		// where the options come from.
-		renderForm({
-			searchInputs: [
-				advancedSearchInputDef(
-					UUID_ADV_SELECT,
-					"status_adv",
-					"Status (advanced)",
-					"select",
-					matchAll(),
-				),
-			],
-		});
-		const input = screen.getByLabelText("Status (advanced)");
-		expect((input as HTMLInputElement).tagName).toBe("INPUT");
-		expect((input as HTMLInputElement).type).toBe("text");
-		expect(
-			screen.queryByRole("combobox", { name: "Status (advanced)" }),
-		).toBeNull();
-	});
-
-	it("falls back to a text input when the targeted property is missing on the case type", () => {
-		// Defends against blueprint state where a search input outlives
-		// its property (rename / delete without a sync sweep). Surfacing
-		// an empty Select would be a UX dead-end; the text fallback
-		// keeps the input usable until the blueprint is corrected.
-		renderForm({
-			searchInputs: [
-				simpleSearchInputDef(
-					UUID_STATUS,
-					"orphan",
-					"Orphan",
-					"select",
-					"nonexistent_property",
-				),
-			],
-		});
-		const input = screen.getByLabelText("Orphan");
-		expect((input as HTMLInputElement).tagName).toBe("INPUT");
-		expect((input as HTMLInputElement).type).toBe("text");
-	});
-
-	it("falls back to a text input when caseType is undefined", () => {
-		// A module mid-rename / mid-blueprint-load may not have a
-		// resolved CaseType yet. The fallback ensures the form
-		// renders something usable rather than crashing or showing
-		// an empty Select.
-		renderForm({
-			searchInputs: [
-				simpleSearchInputDef(
-					UUID_STATUS,
-					"status",
-					"Status",
-					"select",
-					"status",
-				),
-			],
-			caseType: NO_CASE_TYPE,
-		});
-		const input = screen.getByLabelText("Status");
-		expect((input as HTMLInputElement).tagName).toBe("INPUT");
-		expect((input as HTMLInputElement).type).toBe("text");
-	});
-});
-
 // ── Debounce contract ──────────────────────────────────────────────
 
 describe("debounced onChange emission", () => {
 	it("fires onChange once per type-burst after 300 ms", () => {
 		const { onChange } = renderForm({
 			searchInputs: [
-				simpleSearchInputDef(UUID_NAME, "name", "Name", "text", "name"),
+				simpleSearchInputDef(UUID_NAME, "name", "Name", "text", "case_name"),
 			],
 		});
 		const input = screen.getByLabelText("Name") as HTMLInputElement;
@@ -817,7 +584,7 @@ describe("debounced onChange emission", () => {
 		// scheduling when the incoming `value` matches.
 		const { onChange, rerender } = renderForm({
 			searchInputs: [
-				simpleSearchInputDef(UUID_NAME, "name", "Name", "text", "name"),
+				simpleSearchInputDef(UUID_NAME, "name", "Name", "text", "case_name"),
 			],
 		});
 		const input = screen.getByLabelText("Name") as HTMLInputElement;
@@ -848,7 +615,7 @@ describe("debounced onChange emission", () => {
 		// update would echo back as a synthetic 300 ms emission.
 		const { onChange, rerender } = renderForm({
 			searchInputs: [
-				simpleSearchInputDef(UUID_NAME, "name", "Name", "text", "name"),
+				simpleSearchInputDef(UUID_NAME, "name", "Name", "text", "case_name"),
 			],
 		});
 		rerender(new Map([["name", "Carol"]]));
@@ -865,7 +632,7 @@ describe("debounced onChange emission", () => {
 		const initial: SearchInputValues = new Map([["name", "Bob"]]);
 		const { onChange } = renderForm({
 			searchInputs: [
-				simpleSearchInputDef(UUID_NAME, "name", "Name", "text", "name"),
+				simpleSearchInputDef(UUID_NAME, "name", "Name", "text", "case_name"),
 			],
 			value: initial,
 		});
@@ -886,7 +653,7 @@ describe("controlled `value` prop flow", () => {
 	it("propagates parent value changes through to the rendered text input", () => {
 		const { rerender } = renderForm({
 			searchInputs: [
-				simpleSearchInputDef(UUID_NAME, "name", "Name", "text", "name"),
+				simpleSearchInputDef(UUID_NAME, "name", "Name", "text", "case_name"),
 			],
 		});
 		const input = screen.getByLabelText("Name") as HTMLInputElement;
@@ -1143,7 +910,7 @@ describe("multi-input composition", () => {
 	it("renders one widget per input and emits a single map carrying every set value", () => {
 		const { onChange } = renderForm({
 			searchInputs: [
-				simpleSearchInputDef(UUID_NAME, "name", "Name", "text", "name"),
+				simpleSearchInputDef(UUID_NAME, "name", "Name", "text", "case_name"),
 				simpleSearchInputDef(UUID_DOB, "dob", "Date of birth", "date", "dob"),
 			],
 		});
@@ -1177,13 +944,13 @@ describe("multi-input composition", () => {
 		// check that each labelled input is a distinct DOM node.
 		renderForm({
 			searchInputs: [
-				simpleSearchInputDef(UUID_NAME, "name", "Name", "text", "name"),
+				simpleSearchInputDef(UUID_NAME, "name", "Name", "text", "case_name"),
 				simpleSearchInputDef(
 					UUID_BARCODE,
 					"barcode",
 					"Barcode",
 					"text",
-					"name",
+					"barcode",
 				),
 			],
 		});
@@ -1394,7 +1161,7 @@ describe("layout", () => {
 	it("places the form under a single landmark region for screen-reader navigation", () => {
 		const { container } = renderForm({
 			searchInputs: [
-				simpleSearchInputDef(UUID_NAME, "name", "Name", "text", "name"),
+				simpleSearchInputDef(UUID_NAME, "name", "Name", "text", "case_name"),
 			],
 		});
 		// HTML5 `<search>` is the canonical landmark for filter / search

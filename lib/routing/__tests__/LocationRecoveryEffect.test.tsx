@@ -16,11 +16,12 @@
 import { render, waitFor } from "@testing-library/react";
 import { act } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { LocationRecoveryEffect } from "@/components/builder/LocationRecoveryEffect";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
-import { asUuid } from "@/lib/doc/types";
+import { proseText } from "@/lib/domain/prose";
 
 const replaceStateSpy = vi.spyOn(window.history, "replaceState");
 const pathname = "/build/app-1";
@@ -87,13 +88,13 @@ function makeStore() {
 									uuid: "q-a-0000-0000-0000-000000000000",
 									kind: "text",
 									id: "a",
-									label: "A",
+									label: proseText("A"),
 								}),
 								f({
 									uuid: "q-b-0000-0000-0000-000000000000",
 									kind: "text",
 									id: "b",
-									label: "B",
+									label: proseText("B"),
 								}),
 							],
 						},
@@ -123,7 +124,7 @@ describe("LocationRecoveryEffect", () => {
 	it("no-op when URL is already valid (form + valid selection)", () => {
 		const store = makeStore();
 		/* Flat URL: single field UUID — parser derives the parent form. */
-		mockSegments.current = ["q-a-0000-0000-0000-000000000000"];
+		mockSegments.current = [testUuid("q-a-0000-0000-0000-000000000000")];
 
 		renderEffect(store);
 
@@ -139,26 +140,16 @@ describe("LocationRecoveryEffect", () => {
 		expect(replaceStateSpy).not.toHaveBeenCalled();
 	});
 
-	it.each([
-		["cases", "results"],
-		["search-config", "search"],
-		["detail-config", "details"],
-	] as const)(
-		"canonicalizes the legacy /%s authoring alias to /%s",
-		async (legacySegment, canonicalSegment) => {
+	it.each(["cases", "search-config", "detail-config"] as const)(
+		"does not parse or redirect the retired /%s authoring token",
+		(retiredSegment) => {
 			const store = makeStore();
 			const moduleUuid = store.getState().moduleOrder[0];
-			mockSegments.current = [moduleUuid, legacySegment];
+			mockSegments.current = [moduleUuid, retiredSegment];
 
 			renderEffect(store);
 
-			await waitFor(() => {
-				expect(replaceStateSpy).toHaveBeenCalledWith(
-					null,
-					"",
-					`${pathname}/${moduleUuid}/${canonicalSegment}`,
-				);
-			});
+			expect(replaceStateSpy).not.toHaveBeenCalled();
 		},
 	);
 
@@ -226,7 +217,7 @@ describe("LocationRecoveryEffect", () => {
 		act(() => {
 			store
 				.getState()
-				.applyMany([{ kind: "removeModule", uuid: asUuid(moduleUuid) }]);
+				.applyMany([{ kind: "removeModule", uuid: testUuid(moduleUuid) }]);
 		});
 
 		/* Force rerender with the updated store. */

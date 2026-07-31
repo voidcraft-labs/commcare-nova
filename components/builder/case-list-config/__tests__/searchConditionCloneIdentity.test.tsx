@@ -1,15 +1,22 @@
 // @vitest-environment happy-dom
 
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render as rtlRender, screen } from "@testing-library/react";
 import { produce } from "immer";
-import { type ReactNode, StrictMode, useLayoutEffect, useState } from "react";
+import {
+	type ReactElement,
+	type ReactNode,
+	StrictMode,
+	useLayoutEffect,
+	useState,
+} from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { applyMutations } from "@/lib/doc/mutations";
+import { BlueprintDocProvider } from "@/lib/doc/provider";
 import type { Mutation } from "@/lib/doc/types";
 import {
 	advancedSearchInputDef,
-	asUuid,
 	type BlueprintDoc,
 	type CaseType,
 	type SearchInputDef,
@@ -22,22 +29,36 @@ import {
 	lt,
 	prop,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import {
 	CaseListWorkspaceCanvas,
 	CaseListWorkspaceProvider,
 	useCaseListWorkspace,
 } from "../CaseListConfigWorkspace";
 
-const MODULE_UUID = asUuid("00000000-0000-4000-8000-000000000001");
-const INPUT_UUID = asUuid("00000000-0000-4000-8000-000000000011");
+// The surfaces here spell authored prose against the document; every production
+// mount sits inside the builder's provider. Wrapping at `render` reproduces it
+// and carries through each `rerender`.
+function DocumentProvider({ children }: { readonly children: ReactNode }) {
+	return (
+		<BlueprintDocProvider appId="test-app">{children}</BlueprintDocProvider>
+	);
+}
+
+function render(ui: ReactElement) {
+	return rtlRender(ui, { wrapper: DocumentProvider });
+}
+
+const MODULE_UUID = testUuid("00000000-0000-4000-8000-000000000001");
+const INPUT_UUID = testUuid("00000000-0000-4000-8000-000000000011");
 
 const CASE_TYPES: readonly CaseType[] = [
 	{
 		name: "client",
 		properties: [
-			{ name: "case_name", label: "Client name", data_type: "text" },
-			{ name: "dob", label: "Date of birth", data_type: "date" },
-			{ name: "region", label: "Region", data_type: "text" },
+			{ name: "case_name", label: proseText("Client name"), data_type: "text" },
+			{ name: "dob", label: proseText("Date of birth"), data_type: "date" },
+			{ name: "region", label: proseText("Region"), data_type: "text" },
 		],
 	},
 ];
@@ -191,8 +212,11 @@ function makeDoc(): BlueprintDoc {
 							f({
 								kind: "text",
 								id: "case_name",
-								label: "Client name",
-								case_property_on: "client",
+								label: proseText("Client name"),
+								caseWrite: {
+									caseType: "client",
+									property: "case_name",
+								},
 							}),
 						],
 					},
@@ -215,7 +239,7 @@ function HarnessInspector() {
 function CaseListConfigWorkspace({
 	moduleUuid,
 }: {
-	moduleUuid: ReturnType<typeof asUuid>;
+	moduleUuid: ReturnType<typeof testUuid>;
 	tab: "search";
 }) {
 	harness.moduleUuid = moduleUuid;

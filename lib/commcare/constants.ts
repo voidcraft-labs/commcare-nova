@@ -6,8 +6,9 @@ import { MAX_SUBMITTED_CAPTURE_COUNT } from "@/lib/domain/captureFormats";
 /**
  * Case property names that HQ rejects in update_case / case_preload blocks.
  * Matches commcare-hq/corehq/apps/app_manager/static/app_manager/json/case-reserved-words.json
- * (38 entries), plus `name` and
- * `owner_id` which HQ also rejects in update blocks.
+ * (38 entries), plus `owner_id` which HQ also rejects in update blocks.
+ * CCHQ's alternate standard-property spellings are rejected by the domain
+ * schema and deliberately do not survive as a live compatibility table here.
  */
 export const RESERVED_CASE_PROPERTIES: ReadonlySet<string> = new Set([
 	// From case-reserved-words.json
@@ -25,11 +26,9 @@ export const RESERVED_CASE_PROPERTIES: ReadonlySet<string> = new Set([
 	"computed_modified_on_",
 	"date",
 	"date_modified",
-	"date-opened",
 	"date_opened",
 	"doc_type",
 	"domain",
-	"external-id",
 	"index",
 	"indices",
 	"initial_processing_complete",
@@ -50,7 +49,6 @@ export const RESERVED_CASE_PROPERTIES: ReadonlySet<string> = new Set([
 	"xform_id",
 	"xform_ids",
 	// Additional — HQ rejects these in update blocks
-	"name",
 	"owner_id",
 ]);
 

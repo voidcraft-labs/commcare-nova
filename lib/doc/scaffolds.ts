@@ -20,23 +20,29 @@ import { anchorForIndex } from "@/lib/doc/mutations/sequence";
 import {
 	asUuid,
 	type BlueprintDoc,
+	CASE_SCALAR_PROPERTY_NAMES,
 	type CaseListConfig,
 	type CaseOperation,
 	type Field,
 	type Form,
 	type FormType,
-	fieldCasePropertyOn,
+	fieldCaseWrite,
 	formTypeLabels,
 	humanizeId,
 	type Module,
 	plainColumn,
+	proseText,
 	type TextField,
 	type Uuid,
 	uniqueSlug,
 } from "@/lib/domain";
-import { addModuleMutation, updateModuleMutation } from "./addModuleMutation";
+import { addModuleMutation } from "./addModuleMutation";
 import type { CaseTypeRetirement } from "./caseTypeRetirement";
 import { orderedFormUuids, orderedModuleUuids } from "./fieldWalk";
+import {
+	type ModuleAuthoringPatch,
+	modulePatchMutations,
+} from "./modulePatchMutations";
 import type { Mutation } from "./types";
 
 /** The module a new one inserted at `index` (default append) should follow —
@@ -66,7 +72,7 @@ export function formAfterAtIndex(
  * The case-type DECLARATION chokepoint. A field writing to a case type absent
  * from the catalog prepends a granular `declareCaseType` — the reducer no
  * longer auto-creates the type on a field write (that would clobber a
- * concurrent declaration), so EVERY `case_property_on`-setting surface (the SA
+ * concurrent declaration), so EVERY `caseWrite`-setting surface (the SA
  * add/edit assembly, the MCP field handlers via the shared tools, and the
  * builder's add/edit gestures) routes through this. A no-op when the field
  * writes no case or its type is already declared.
@@ -75,9 +81,9 @@ export function declareCaseTypeForField(
 	doc: BlueprintDoc,
 	field: Field,
 ): Mutation[] {
-	const caseType = fieldCasePropertyOn(field);
-	if (caseType === undefined) return [];
-	return declareCaseTypeMutations(doc, caseType);
+	const write = fieldCaseWrite(field);
+	if (write === undefined) return [];
+	return declareCaseTypeMutations(doc, write.caseType);
 }
 
 /** Header for the `Name` column a new case module is born with. `case_name` is
@@ -88,9 +94,7 @@ const NAME_COLUMN_HEADER = "Name";
 
 /** The canonical starter case-list column — a plain `case_name`/"Name" column.
  *  Born WITH an `order` key (the first-member seed `keyBetween(null, null)`) so
- *  it sorts correctly the moment a keyed column is added beside it — the
- *  `store.load` backfill is a legacy safety net, not a substitute for minting
- *  the key at construction. */
+ *  it sorts correctly the moment a keyed column is added beside it. */
 function nameColumn(uuid: Uuid) {
 	return {
 		...plainColumn(uuid, "case_name", NAME_COLUMN_HEADER),
@@ -141,13 +145,15 @@ function textField(id: string, label: string, caseType?: string): TextField {
 		kind: "text",
 		uuid: asUuid(crypto.randomUUID()),
 		id,
-		label,
-		...(caseType !== undefined && { case_property_on: caseType }),
+		label: proseText(label),
+		...(caseType !== undefined && {
+			caseWrite: { caseType, property: id },
+		}),
 	};
 }
 
 /** The field a registration form is born with: just the `case_name` writer
- *  (`NO_CASE_NAME_FIELD`). A name-only case create is valid across the whole
+ *  (`CASE_CREATE_NAME_MISSING`). A name-only case create is valid across the whole
  *  wire (verified against commcare-hq / commcare-core / formplayer), so no
  *  extra "saved property" field is forced. */
 function registrationFields(caseType: string | undefined): TextField[] {
@@ -212,6 +218,7 @@ export function caseOperationCatalogMutations(
 	const destination = operation.retype ?? operation.caseType;
 	const properties = declared.get(destination) as Set<string>;
 	for (const write of operation.writes ?? []) {
+		if (CASE_SCALAR_PROPERTY_NAMES.has(write.property)) continue;
 		if (properties.has(write.property)) continue;
 		properties.add(write.property);
 		mutations.push({
@@ -219,7 +226,7 @@ export function caseOperationCatalogMutations(
 			caseType: destination,
 			property: {
 				name: write.property,
-				label: humanizeId(write.property),
+				label: proseText(humanizeId(write.property)),
 			},
 		});
 	}
@@ -302,7 +309,12 @@ export function caseListModuleMutations(
 export function surveyModuleMutations(
 	doc: BlueprintDoc,
 	{ name, index }: { name?: string; index?: number } = {},
-): { mutations: Mutation[]; moduleUuid: Uuid; formUuid: Uuid } {
+): {
+	mutations: Mutation[];
+	moduleUuid: Uuid;
+	formUuid: Uuid;
+	fieldUuid: Uuid;
+} {
 	const moduleUuid = asUuid(crypto.randomUUID());
 	const moduleName = name ?? "Survey";
 	const module: Module = {
@@ -327,43 +339,54 @@ export function surveyModuleMutations(
 		],
 		moduleUuid,
 		formUuid,
+		fieldUuid: field.uuid,
 	};
 }
 
-// ── Creation templates ───────────────────────────────────────────────
-// What an app can be BORN holding, as opposed to what the builder adds to a
-// live one. Fed to `createApp`'s `seedMutations`, which gates the batch and
-// then refuses to create anything that isn't export-ready.
+// ── Canonical app genesis ────────────────────────────────────────────
+
+import { APP_GENESIS_FALLBACK_NAME } from "@/lib/domain/blueprint";
+
+export { APP_GENESIS_FALLBACK_NAME };
 
 /**
- * The app name a blank app is born with.
+ * The one shape every persisted app is born with: a real non-blank name plus
+ * one survey module, one survey form, and one text question.
  *
- * Deliberately NOT `UNTITLED_APP_NAME` (`lib/db/apps.ts`), which is the DISPLAY
- * fallback `denormalize` writes into the summary row when the in-doc name is
- * blank. This is a real, persisted `blueprint.appName`: a blank app has no SA
- * run to name it, and `EMPTY_APP_NAME` blocks export until something does. The
- * two strings coincide today; they are not the same concept, and collapsing
- * them would silently un-name every blank app.
+ * This is genesis, not an optional template: `createApp` admits this entire
+ * construction batch, persists its result as the immutable sequence-1
+ * Project-bearing sequence-one baseline and attributed `fold-baseline` app
+ * change.
+ * The construction mutations are never replay history. Returning the three
+ * UUIDs lets every caller continue from identity without rediscovering the
+ * starter through mutable names or order.
+ *
+ * A case type instead of none would oblige case-list columns on top. A bare
+ * module would fail `NO_FORMS_OR_CASE_LIST`, and a bare form would fail
+ * `EMPTY_FORM`, so this is the smallest export-ready survey.
  */
-export const BLANK_APP_NAME = "Untitled";
-
-/**
- * The blank app's contents — one survey module with one survey form (one text
- * question). Reuses `surveyModuleMutations`, so the blank app IS the builder's
- * "add survey module" shape.
- *
- * Paired with `BLANK_APP_NAME`, this is the smallest EXPORT-ready app, the bar
- * an app hand-built with no SA run behind it has to clear the moment it exists.
- * The form is what clears it: a module with no forms and no case list is a
- * hard, build-blocking error in CommCare (`NO_FORMS_OR_CASE_LIST`), so a bare
- * module is NOT exportable however tempting its simplicity. One module also
- * satisfies `docHasData`, without which the builder would bounce the user back
- * to the centered chat they just chose to skip.
- *
- * A case type instead of none would oblige case-list columns on top.
- */
-export function blankAppMutations(doc: BlueprintDoc): Mutation[] {
-	return surveyModuleMutations(doc).mutations;
+export function canonicalAppGenesis(
+	doc: BlueprintDoc,
+	requestedName?: string,
+): {
+	mutations: Mutation[];
+	moduleUuid: Uuid;
+	formUuid: Uuid;
+	fieldUuid: Uuid;
+} {
+	const starter = surveyModuleMutations(doc);
+	return {
+		mutations: [
+			{
+				kind: "setAppName",
+				name: requestedName?.trim() || APP_GENESIS_FALLBACK_NAME,
+			},
+			...starter.mutations,
+		],
+		moduleUuid: starter.moduleUuid,
+		formUuid: starter.formUuid,
+		fieldUuid: starter.fieldUuid,
+	};
 }
 
 /**
@@ -405,18 +428,18 @@ export function formScaffoldMutations(
 	// reducer no longer auto-mints the type, and `mod.caseType` can be ABSENT
 	// from the catalog (dropped from the data model, or a retire-vs-add race) —
 	// so a registration form's `case_name` writer would otherwise trip
-	// `CASE_PROPERTY_ON_UNKNOWN_TYPE` and the form would silently not be created.
-	// The same declare chokepoint every sibling case_property_on surface routes
-	// through; idempotent (a no-op) when the type is already present.
+	// `CASE_WRITE_UNKNOWN_TYPE` and the form would silently not be created.
+	// The same declare chokepoint every sibling caseWrite surface routes through;
+	// idempotent (a no-op) when the type is already present.
 	for (const field of fields) {
 		mutations.push(...declareCaseTypeForField(doc, field));
 	}
 	if (mod.caseListOnly) {
-		const patch: Partial<Omit<Module, "uuid">> = { caseListOnly: false };
+		const patch: ModuleAuthoringPatch = { caseListOnly: false };
 		if ((mod.caseListConfig?.columns.length ?? 0) === 0) {
 			patch.caseListConfig = caseListConfigWithName(mod.caseListConfig);
 		}
-		mutations.push(updateModuleMutation(moduleUuid, patch));
+		mutations.push(...modulePatchMutations(mod, patch));
 	}
 	const after = anchorForIndex(doc.formOrder[moduleUuid] ?? [], index);
 	mutations.push({
@@ -461,7 +484,7 @@ export function caseTypeSetPatch(
 	mod: Module,
 	hasForms: boolean,
 	caseType: string,
-): Partial<Omit<Module, "uuid">> {
+): ModuleAuthoringPatch {
 	if (!hasForms)
 		return {
 			caseType,
@@ -485,7 +508,7 @@ export function caseTypeSetPatch(
  * flag off. (Clears travel as `undefined` per the `updateModule` convention;
  * the wholesale snapshot save strips them, so absence is the cleared state.)
  */
-export function caseTypeClearPatch(): Partial<Omit<Module, "uuid">> {
+export function caseTypeClearPatch(): ModuleAuthoringPatch {
 	return {
 		caseType: undefined,
 		caseListOnly: undefined,

@@ -13,9 +13,11 @@
 
 import type { ModelMessage } from "ai";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { xp } from "@/lib/__tests__/docHelpers";
 import type { BlueprintDoc } from "@/lib/domain";
-import { asUuid } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
+
 import {
 	buildAppStateMessage,
 	buildSolutionsArchitectPrompt,
@@ -27,9 +29,9 @@ import {
  *  distinctive names the assertions can spot in (or prove absent from)
  *  rendered output. */
 function fixtureDoc(appName: string, moduleName: string): BlueprintDoc {
-	const modUuid = asUuid("11111111-1111-1111-1111-111111111111");
-	const formUuid = asUuid("22222222-2222-2222-2222-222222222222");
-	const fieldUuid = asUuid("33333333-3333-3333-3333-333333333333");
+	const modUuid = testUuid("11111111-1111-1111-1111-111111111111");
+	const formUuid = testUuid("22222222-2222-2222-2222-222222222222");
+	const fieldUuid = testUuid("33333333-3333-3333-3333-333333333333");
 	return {
 		appId: "a-edit",
 		appName,
@@ -56,7 +58,7 @@ function fixtureDoc(appName: string, moduleName: string): BlueprintDoc {
 				uuid: fieldUuid,
 				id: "patient_name",
 				kind: "text",
-				label: "Patient Name",
+				label: proseText("Patient Name"),
 				required: xp("true()"),
 			},
 		},
@@ -67,7 +69,7 @@ function fixtureDoc(appName: string, moduleName: string): BlueprintDoc {
 	};
 }
 
-/** The degenerate doc `createApp` writes before generation starts. */
+/** Defensive in-memory empty shape; persisted `createApp` never writes this. */
 function fixtureEmptyDoc(): BlueprintDoc {
 	return {
 		appId: "a-empty",
@@ -104,7 +106,8 @@ describe("buildSolutionsArchitectPrompt", () => {
 		);
 		expect(sp).toContain("addUserProperties");
 		expect(sp).toContain("userPropertyUuid");
-		expect(sp).toContain("omission keeps a slot and null clears it");
+		expect(sp).toContain("valuePatch");
+		expect(sp).toContain("changes exactly one UUID-addressed value");
 		expect(sp).toContain("Removing a persona preserves");
 	});
 
@@ -124,6 +127,11 @@ describe("buildSolutionsArchitectPrompt", () => {
 			buildSolutionsArchitectPrompt(fixtureEmptyDoc()),
 		]) {
 			expect(sp).toContain("Initial Build");
+			expect(sp).toContain("canonical survey starter");
+			expect(sp).toContain("Never reconstruct the starter or guess its UUIDs");
+			expect(sp).toContain(
+				"remove the starter only after its replacement has landed",
+			);
 			expect(sp).not.toContain("Editing Mode");
 		}
 	});

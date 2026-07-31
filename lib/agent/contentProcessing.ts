@@ -4,13 +4,13 @@
  * Both `addFields` (batch) and `addField` (single) walk this pipeline
  * before emitting `addField` mutations:
  *
- *   1. **`stripEmpty`** — batch-only. Normalizes the in-batch `parentId`
+ *   1. **`stripEmpty`** — batch-only. Normalizes the in-batch `parentUuid`
  *      (absent → `null`, the "insert at form level" sentinel the batch
  *      handler reads) and defensively collapses any empty string / empty
  *      array the SA sends to absence. The single-field `addField` path has
  *      no in-batch parent to resolve and skips this step.
- *   2. **`applyDefaults`** — both surfaces. XPath HTML-entity unescape and
- *      case-type property defaulting (seed `kind` / `label` / `hint` /
+ *   2. **`applyDefaults`** — both surfaces. Case-type property defaulting
+ *      (seed `kind` / `label` / `hint` /
  *      `required` / `validate` / `options` from the catalog wherever the
  *      payload left them unset). Case preload is NOT seeded here — it's
  *      emitted structurally at the wire layer (`xform/caseBlocks.ts`).
@@ -19,7 +19,7 @@
  *      returning a tagged success/reason result.
  *
  * Vocabulary is domain-side (`kind`, `validate`, `validate_msg`,
- * `case_property_on`); there is no CommCare → domain translation inside
+ * `caseWrite`); there is no CommCare → domain translation inside
  * the agent. The one boundary translation this file does is
  * case-type → field: case-type property metadata uses CommCare-flavored
  * `validation` / `validation_msg` (case-type properties describe the
@@ -31,18 +31,20 @@ import type {
 	CaseType,
 	Field,
 	FieldKind,
+	SelectOptionsSource,
 	Uuid,
-	XPathExpression,
 } from "@/lib/domain";
 import {
-	authorableCaseProperties,
-	canonicalCasePropertyName,
 	fieldKindDeclaresKey,
 	fieldKinds,
 	fieldSchema,
+	isProseTemplate,
 	pickFieldKeysForKind,
+	proseTemplateIsEmpty,
+	uuidSchema,
 } from "@/lib/domain";
 import { log } from "@/lib/logger";
+import type { ProjectedOptionsSource } from "./toolSchemaGenerator";
 import type { addFieldsItemSchema } from "./toolSchemas";
 
 /** Narrow a possibly-unknown kind string to a `FieldKind` before asking the
@@ -63,48 +65,12 @@ function isUnset(value: unknown): boolean {
 		value === undefined ||
 		value === null ||
 		value === "" ||
+		(isProseTemplate(value) && proseTemplateIsEmpty(value)) ||
 		(Array.isArray(value) && value.length === 0)
 	);
 }
 
 type CaseTypes = CaseType[] | null;
-
-// ── XPath utilities ──────────────────────────────────────────────────
-
-/**
- * XPath-valued fields on the flat input shape. LLMs occasionally emit
- * HTML-escaped XPath operators (`&gt;` instead of `>`), which XForm
- * parsers reject; `unescapeXPath` undoes that mangling on every XPath
- * key before defaults are merged.
- */
-const XPATH_FIELDS = [
-	"relevant",
-	"calculate",
-	"default_value",
-	"required",
-] as const;
-
-/**
- * Reverse HTML-entity escaping that LLMs sometimes apply to XPath
- * expressions (`&gt;` → `>`, `&apos;` → `'`, etc.). Applied to every
- * XPath-shaped value we accept from the SA — both top-level XPath
- * fields (via `XPATH_FIELDS` in `applyDefaults`) and nested-config
- * XPath fields (validate.expr, repeat.count, repeat.ids_query, both in
- * `flatFieldToField` and `editPatchToFieldPatch`). Without this step
- * mangled entities slip through Zod (`z.string()` accepts anything),
- * land in the stored entity, and only fail at FormPlayer when the XPath
- * parser chokes on `&amp;gt;`.
- */
-export function unescapeXPath(s: string): string {
-	// Decode &amp; LAST: an already-escaped entity like `&amp;gt;` must resolve
-	// to the literal text "&gt;", not be double-unescaped down to ">".
-	return s
-		.replace(/&gt;/g, ">")
-		.replace(/&lt;/g, "<")
-		.replace(/&quot;/g, '"')
-		.replace(/&apos;/g, "'")
-		.replace(/&amp;/g, "&");
-}
 
 // ── Flat input shape ─────────────────────────────────────────────────
 
@@ -114,11 +80,54 @@ export function unescapeXPath(s: string): string {
  * the `addFields` tool item (`addFieldsItemSchema`): the tool input and
  * the processing shape are one, so a validated item flows through
  * `stripEmpty` / `applyDefaults` / `flatFieldToField` with no bridge.
- * `parentId` is an optional semantic field id (omitted = "insert at the
- * form's top level"); the handler resolves a present value to a UUID when
- * building the `addField` mutation.
+ * `parentUuid` is an optional stable container identity (omitted = "insert at
+ * the form's top level").
  */
 export type FlatField = z.infer<typeof addFieldsItemSchema>;
+
+/** Add-tool field shape after every authorable option has its final UUID. */
+export type PreparedFlatField = Omit<FlatField, "optionsSource"> & {
+	optionsSource?: SelectOptionsSource | null;
+};
+
+/**
+ * Convert the one machine-authored select-source projection to persisted
+ * domain state. This is the sole `optionUuid` -> `uuid` bridge: callers invoke
+ * it once before collision/admission checks and carry the returned object
+ * through mutation assembly unchanged.
+ */
+export function prepareToolOptionsSource(
+	source: ProjectedOptionsSource,
+): SelectOptionsSource {
+	if (source.kind === "lookup") return source;
+	return {
+		kind: "inline",
+		options: source.options.map(({ optionUuid, ...option }) => ({
+			...option,
+			uuid: optionUuid ?? uuidSchema.parse(crypto.randomUUID()),
+		})),
+	};
+}
+
+/**
+ * Establish the stored select-source shape at the tool boundary.
+ *
+ * `optionUuid` is the machine-facing creation/address slot; the document stores
+ * that identity as `uuid`. A missing creation UUID is minted once here, before
+ * collision checks and field assembly.
+ */
+export function prepareFlatFieldIdentities(
+	field: FlatField,
+): PreparedFlatField {
+	const source = field.optionsSource;
+	if (source == null || source.kind === "lookup") {
+		return field as PreparedFlatField;
+	}
+	return {
+		...field,
+		optionsSource: prepareToolOptionsSource(source),
+	};
+}
 
 // ── Sentinel collapse ────────────────────────────────────────────────
 
@@ -129,9 +138,9 @@ export type FlatField = z.infer<typeof addFieldsItemSchema>;
  *   - empty string → drop
  *   - empty array  → drop
  *
- * `parentId` is special-cased: missing or empty becomes `null` (rather
+ * `parentUuid` is special-cased: missing becomes `null` (rather
  * than just being dropped) so the downstream "no parent = form level"
- * logic reads an explicit value. The SA usually omits `parentId`, which
+ * logic reads an explicit value. The SA usually omits `parentUuid`, which
  * lands here as `undefined` → `null`.
  *
  * Batch-path only — the `addFields` tool runs its input through this
@@ -142,8 +151,8 @@ export type FlatField = z.infer<typeof addFieldsItemSchema>;
  * `Partial<FlatField>` because any non-required key may be absent after
  * the collapse.
  */
-export function stripEmpty(q: FlatField): Partial<FlatField> & {
-	parentId?: string | null;
+export function stripEmpty(q: PreparedFlatField): Partial<PreparedFlatField> & {
+	parentUuid?: Uuid | null;
 } {
 	const result: Record<string, unknown> = {};
 	for (const [k, v] of Object.entries(q)) {
@@ -152,24 +161,17 @@ export function stripEmpty(q: FlatField): Partial<FlatField> & {
 		if (Array.isArray(v) && v.length === 0) continue;
 		result[k] = v;
 	}
-	if (result.parentId === undefined) result.parentId = null;
-	return result as Partial<FlatField> & { parentId?: string | null };
+	if (result.parentUuid === undefined) result.parentUuid = null;
+	return result as Partial<PreparedFlatField> & {
+		parentUuid?: Uuid | null;
+	};
 }
 
 // ── Data-model defaults ──────────────────────────────────────────────
 
 /**
- * Apply case-type defaults to a flat field and sanitize XPath strings.
- *
- * Two things happen here:
- *
- *   1. **XPath unescape.** Every XPath-valued field is run through
- *      `unescapeXPath` to undo any HTML entity encoding the LLM may
- *      have emitted — a frequent cause of otherwise-subtle XForm
- *      parse failures.
- *
- *   2. **Case-type defaulting.** When `case_property_on` is set, the
- *      matching case type's property metadata seeds any unset keys on
+ * Apply case-type defaults to a flat field. When `caseWrite` is set, its
+ *      matching case type and property metadata seed any unset keys on
  *      the field:
  *        - `kind` from `property.data_type` (defaulting to "text")
  *        - `label`, `hint`, `required`, `options` verbatim
@@ -185,22 +187,15 @@ export function stripEmpty(q: FlatField): Partial<FlatField> & {
  * second channel for the same effect; the structural preload owns it.
  */
 export function applyDefaults<E extends object = object>(
-	q: Partial<FlatField> & E,
+	q: Partial<PreparedFlatField> & E,
 	caseTypes: CaseTypes,
-): Partial<FlatField> & E {
+): Partial<PreparedFlatField> & E {
 	const result = { ...q };
 
-	for (const f of XPATH_FIELDS) {
-		const val = result[f];
-		if (typeof val === "string") {
-			result[f] = unescapeXPath(val);
-		}
-	}
-
-	if (result.case_property_on && caseTypes) {
-		const ct = caseTypes.find((c) => c.name === result.case_property_on);
-		const prop = authorableCaseProperties(ct?.properties ?? []).find(
-			(p) => p.name === canonicalCasePropertyName(result.id ?? ""),
+	if (result.caseWrite && caseTypes) {
+		const ct = caseTypes.find((c) => c.name === result.caseWrite?.caseType);
+		const prop = ct?.properties.find(
+			(p) => p.name === result.caseWrite?.property,
 		);
 		if (prop) {
 			// Seed the kind first — every other default depends on knowing it.
@@ -242,8 +237,14 @@ export function applyDefaults<E extends object = object>(
 					...(prop.validation_msg && { msg: prop.validation_msg }),
 				};
 			}
-			if (declares("options") && isUnset(result.options)) {
-				result.options = prop.options;
+			if (declares("optionsSource") && isUnset(result.optionsSource)) {
+				const options = prop.options?.map((option) => ({
+					...option,
+					uuid: uuidSchema.parse(crypto.randomUUID()),
+				}));
+				if (options !== undefined) {
+					result.optionsSource = { kind: "inline", options };
+				}
 			}
 		}
 	}
@@ -304,7 +305,7 @@ function describeFieldFailure(
  * Build a validated domain `Field` from an add-path flat payload.
  *
  * Two steps: reshape the SA-authoring shape into the domain shape (nested
- * `validate`/`repeat` → flat keys, XPath-entity unescape), then validate.
+ * `validate`/`repeat` → flat keys), then validate.
  * Before validating we FILTER the candidate to the kind's schema-declared
  * keys via `pickFieldKeysForKind` — the same projection `reconcileFieldForKind`
  * and the `updateField` reducer use. The per-kind schemas are `.strict()`,
@@ -325,58 +326,34 @@ function describeFieldFailure(
  * form the shared add-path pipeline both `addFields` and `addField` walk.
  */
 export function flatFieldToField(
-	q: Partial<FlatField>,
+	q: Partial<PreparedFlatField>,
 	uuid: Uuid,
-	parseExpr: (text: string) => XPathExpression,
 ): FlatFieldResult {
 	const candidate: Record<string, unknown> = {
 		kind: q.kind,
 		uuid,
 		id: q.id,
-		...(typeof q.label === "string" &&
-			q.label.length > 0 && {
-				label: q.label,
-			}),
-		...(typeof q.hint === "string" && q.hint.length > 0 && { hint: q.hint }),
-		...(typeof q.required === "string" &&
-			q.required.length > 0 && {
-				required: parseExpr(q.required),
-			}),
-		...(typeof q.relevant === "string" &&
-			q.relevant.length > 0 && {
-				relevant: parseExpr(q.relevant),
-			}),
+		...(q.label !== undefined && q.label !== null && { label: q.label }),
+		...(q.hint !== undefined && q.hint !== null && { hint: q.hint }),
+		...(q.required !== undefined &&
+			q.required !== null && { required: q.required }),
+		...(q.relevant !== undefined &&
+			q.relevant !== null && { relevant: q.relevant }),
 		// Nested validate config: SA passes `validate: { expr, msg? }`;
-		// the schema stores `validate` (string) + `validate_msg`
-		// (optional string). Reshape here, unescaping XPath HTML
-		// entities on the expression — same mangling risk as the other
-		// XPath fields, just inlined since `validate.expr` isn't a
-		// top-level FlatField key.
-		...(q.validate &&
-			typeof q.validate.expr === "string" &&
-			q.validate.expr.length > 0 && {
-				validate: parseExpr(unescapeXPath(q.validate.expr)),
-				...(typeof q.validate.msg === "string" &&
-					q.validate.msg.length > 0 && {
-						validate_msg: q.validate.msg,
-					}),
+		// the schema stores `validate` + `validate_msg`. Both are already
+		// canonical structures at the SA/MCP boundary.
+		...(q.validate && {
+			validate: q.validate.expr,
+			...(q.validate.msg !== undefined && {
+				validate_msg: q.validate.msg,
 			}),
-		...(typeof q.calculate === "string" &&
-			q.calculate.length > 0 && {
-				calculate: parseExpr(q.calculate),
-			}),
-		...(typeof q.default_value === "string" &&
-			q.default_value.length > 0 && {
-				default_value: parseExpr(q.default_value),
-			}),
-		...(Array.isArray(q.options) &&
-			q.options.length > 0 && {
-				options: q.options,
-			}),
-		...(typeof q.case_property_on === "string" &&
-			q.case_property_on.length > 0 && {
-				case_property_on: q.case_property_on,
-			}),
+		}),
+		...(q.calculate !== undefined &&
+			q.calculate !== null && { calculate: q.calculate }),
+		...(q.default_value !== undefined &&
+			q.default_value !== null && { default_value: q.default_value }),
+		...(q.optionsSource != null && { optionsSource: q.optionsSource }),
+		...(q.caseWrite != null && { caseWrite: q.caseWrite }),
 		// Nested repeat config: the SA's `repeat` is discriminated on `mode`
 		// (`count` exists only on count_bound, `ids_query` only on
 		// query_bound); the domain schema discriminates over `repeat_mode`
@@ -390,16 +367,14 @@ export function flatFieldToField(
 		...(q.kind === "repeat" &&
 			q.repeat && {
 				repeat_mode: q.repeat.mode,
-				...(q.repeat.mode === "count_bound" &&
-					q.repeat.count.length > 0 && {
-						repeat_count: parseExpr(unescapeXPath(q.repeat.count)),
-					}),
-				...(q.repeat.mode === "query_bound" &&
-					q.repeat.ids_query.length > 0 && {
-						data_source: {
-							ids_query: parseExpr(unescapeXPath(q.repeat.ids_query)),
-						},
-					}),
+				...(q.repeat.mode === "count_bound" && {
+					repeat_count: q.repeat.count,
+				}),
+				...(q.repeat.mode === "query_bound" && {
+					data_source: {
+						ids_query: q.repeat.ids_query,
+					},
+				}),
 			}),
 	};
 	// Filter to the kind's declared keys before the strict parse, so a stray

@@ -19,13 +19,14 @@ import { describe, expect, it } from "vitest";
 import { focusElement } from "@/__tests__/helpers/baseUiInteractions";
 import type { CaseType } from "@/lib/domain";
 import { concat, literal, term } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { ExpressionCardEditor } from "../../../ExpressionCardEditor";
 
 const PATIENT: CaseType = {
 	name: "patient",
 	properties: [
-		{ name: "first", label: "First", data_type: "text" },
-		{ name: "last", label: "Last", data_type: "text" },
+		{ name: "first", label: proseText("First"), data_type: "text" },
+		{ name: "last", label: proseText("Last"), data_type: "text" },
 	],
 };
 

@@ -7,9 +7,9 @@
 // emitters use (raw comparisons — an absent value string-unpacks to
 // "" and numeric-coerces to NaN; no presence guards), so preview and
 // device can't diverge; the one preview-specific arm is the
-// self-property leaf, printed as a `#case/<prop>` hashtag the
-// evaluation context resolves against the selected row's projection
-// (the identical projection the form engine's case reads use).
+// self-property leaf, printed to a private `#case/<prop>` evaluation token the
+// local context resolves against the selected row's projection. This is not
+// Nova authoring text; the typed Predicate remains the only stored input.
 //
 // Three-valued visibility: `shown` / `hidden` are evaluated results;
 // `pending` means the condition folds over lookup data the builder
@@ -125,9 +125,9 @@ function conditionVisibility(
 	return toBoolean(evaluate(emitted, ctx)) ? "shown" : "hidden";
 }
 
-/** Session paths resolve from the preview identity; `#case/<prop>`
- *  hashtags resolve from the selected row's projection with absent
- *  reading blank — the device's missing-property semantic. */
+/** Session paths resolve from the preview identity; the private self-property
+ * token resolves from the selected row's projection with absent reading blank
+ * — the device's missing-property semantic. */
 function navigationEvalContext(
 	session: PreviewSearchSessionValues,
 	caseProjection: ReadonlyMap<string, string> | undefined,

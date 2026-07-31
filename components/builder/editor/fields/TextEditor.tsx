@@ -1,14 +1,18 @@
 "use client";
 import { useCallback } from "react";
-import { EditableText } from "@/components/builder/EditableText";
-import type { Field } from "@/lib/domain";
+import { RefLabelInput } from "@/components/builder/RefLabelInput";
+import {
+	EMPTY_PROSE_TEMPLATE,
+	type Field,
+	type ProseTemplate,
+} from "@/lib/domain";
 import type {
 	FieldEditorComponentProps,
-	OptionalStringKeys,
+	OptionalProseTemplateKeys,
 } from "@/lib/domain/kinds";
 
 /**
- * TextEditor — declarative editor for plain-string field keys.
+ * TextEditor — declarative editor for structural prose-template field keys.
  *
  * Adapts the shared EditableText commit/blur UX to the
  * FieldEditorComponent contract:
@@ -41,14 +45,18 @@ import type {
  * undo/redo focus hints — which encode the focused field key — land
  * back on this editor when the property is restored.
  */
-export function TextEditor<F extends Field, K extends OptionalStringKeys<F>>(
-	props: FieldEditorComponentProps<F, K>,
-) {
+export function TextEditor<
+	F extends Field,
+	K extends OptionalProseTemplateKeys<F>,
+>(props: FieldEditorComponentProps<F, K>) {
 	const { value, onChange, label, autoFocus, keyName } = props;
-	const current = typeof value === "string" ? value : "";
+	const current =
+		value && typeof value === "object" && "parts" in value
+			? (value as ProseTemplate)
+			: EMPTY_PROSE_TEMPLATE;
 
 	const handleSave = useCallback(
-		(next: string) => {
+		(next: ProseTemplate) => {
 			// Forward the gated outcome — a refused commit keeps the draft in
 			// the input and surfaces the finding inline (useCommitField).
 			return onChange(next as F[K]);
@@ -64,7 +72,7 @@ export function TextEditor<F extends Field, K extends OptionalStringKeys<F>>(
 	}, [onChange, value]);
 
 	return (
-		<EditableText
+		<RefLabelInput
 			label={label}
 			dataFieldId={keyName}
 			value={current}

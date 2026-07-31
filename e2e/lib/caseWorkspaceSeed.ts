@@ -23,10 +23,24 @@ import {
 	startsWithMode,
 	tileCell,
 } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import { buildUrl } from "@/lib/routing/location";
 
 export const CASE_WORKSPACE_SEED = {
 	appName: "Visual QA — Patient workspace",
+	/** The Project data table the smoke path binds a select to. Its name and
+	 *  column labels are asserted verbatim, so they are fixed here. */
+	lookupTableName: "Referral destinations",
+	lookupTableTag: "referral_destinations",
+	lookupValueColumnLabel: "Code",
+	lookupLabelColumnLabel: "Destination",
+	lookupTimeColumnLabel: "Opening time",
+	lookupDatetimeColumnLabel: "Last verified",
+	/** A deliberately empty table proves columns and their settings do not
+	 * disappear merely because there are no row cells to render. */
+	emptyLookupTableName: "Referral tiers",
+	emptyLookupTableTag: "referral_tiers",
+	emptyLookupColumnLabel: "Tier",
 	moduleName: "Patients",
 	moduleUuid: asUuid("7b4e2c91-5a68-4d3f-8c72-1e9a6b5d4f30"),
 	caseType: "patient",
@@ -61,6 +75,12 @@ export const CASE_WORKSPACE_SEED = {
 			lastVisit: asUuid("9b6d2f47-5a13-4e80-8c26-7f4a1d9e5c30"),
 			phoneNumber: asUuid("3e8b5d29-7c14-4a60-9f37-1b5e8a2c6d40"),
 		},
+		selectFieldUuid: asUuid("2f9c4b78-1d63-4e25-a840-7c3b6e1f5d90"),
+		/* Every field the `record_visit` form authors, in render order. A test
+		 * asserting how many rows the canvas draws reads this rather than a
+		 * literal, so adding a field here can never leave a stale count behind
+		 * in a spec that never mentions the field. */
+		formFieldIds: ["visit_note", "referred_to", "visit_started", "next_dose"],
 	},
 	caseCount: 8,
 } as const;
@@ -83,30 +103,30 @@ export function buildCaseWorkspaceBlueprint(appId: string): BlueprintDoc {
 			{
 				name: ids.caseType,
 				properties: [
-					{ name: "village", label: "Village", data_type: "text" },
+					{ name: "village", label: proseText("Village"), data_type: "text" },
 					{
 						name: "last_visit",
-						label: "Last visit",
+						label: proseText("Last visit"),
 						data_type: "date",
 					},
 					{
 						name: "care_priority",
-						label: "Care priority",
+						label: proseText("Care priority"),
 						data_type: "text",
 						options: [
-							{ value: "routine", label: "Routine" },
-							{ value: "priority", label: "Priority" },
-							{ value: "urgent", label: "Urgent" },
+							{ value: "routine", label: proseText("Routine") },
+							{ value: "priority", label: proseText("Priority") },
+							{ value: "urgent", label: proseText("Urgent") },
 						],
 					},
 					{
 						name: "phone_number",
-						label: "Phone number",
+						label: proseText("Phone number"),
 						data_type: "text",
 					},
 					{
 						name: "date_of_birth",
-						label: "Date of birth",
+						label: proseText("Date of birth"),
 						data_type: "date",
 					},
 				],
@@ -326,8 +346,33 @@ export function buildCaseWorkspaceBlueprint(appId: string): BlueprintDoc {
 							f({
 								kind: "text",
 								id: "visit_note",
-								label: "Visit note",
-								case_property_on: ids.caseType,
+								label: proseText("Visit note"),
+								caseWrite: { caseType: ids.caseType, property: "visit_note" },
+							}),
+							/* The binding target for the Project data smoke path. It ships
+							 * with typed-in options precisely because those are what the
+							 * asymmetric switch keeps as the fallback — the smoke proves a
+							 * table can be bound over them and that they come back. */
+							f({
+								uuid: ids.tile.selectFieldUuid,
+								kind: "single_select",
+								id: "referred_to",
+								label: "Referred to",
+								optionsSource: {
+									kind: "inline",
+									options: [
+										{
+											uuid: asUuid("c3becee8-294f-4477-a8aa-868f0634bb6f"),
+											value: "clinic",
+											label: "Clinic",
+										},
+										{
+											uuid: asUuid("91de4f27-6304-4442-a5af-b171071d9051"),
+											value: "hospital",
+											label: "Hospital",
+										},
+									],
+								},
 							}),
 							// The two answers whose stored shape a native browser
 							// input cannot render: a datetime carries a zone
@@ -337,14 +382,17 @@ export function buildCaseWorkspaceBlueprint(appId: string): BlueprintDoc {
 							f({
 								kind: "datetime",
 								id: "visit_started",
-								label: "Visit started",
-								case_property_on: ids.caseType,
+								label: proseText("Visit started"),
+								caseWrite: {
+									caseType: ids.caseType,
+									property: "visit_started",
+								},
 							}),
 							f({
 								kind: "time",
 								id: "next_dose",
-								label: "Next dose",
-								case_property_on: ids.caseType,
+								label: proseText("Next dose"),
+								caseWrite: { caseType: ids.caseType, property: "next_dose" },
 							}),
 						],
 					},
@@ -504,6 +552,11 @@ export interface CaseWorkspaceRoutes {
 	readonly tileResults: string;
 	/** The follow-up form that carries the module's persistent tile. */
 	readonly tileForm: string;
+	/** The Project data workspace's table list. */
+	readonly projectData: string;
+	/** That form with its select field selected, so the options-source editor
+	 *  is what the inspector rail is showing. */
+	readonly selectField: string;
 }
 
 /** Build canonical relative paths through the production route serializer. */
@@ -531,6 +584,13 @@ export function caseWorkspaceRoutes(
 			kind: "form",
 			moduleUuid: CASE_WORKSPACE_SEED.tile.moduleUuid,
 			formUuid: CASE_WORKSPACE_SEED.tile.formUuid,
+		}),
+		projectData: buildUrl(basePath, { kind: "project-data" }),
+		selectField: buildUrl(basePath, {
+			kind: "form",
+			moduleUuid: CASE_WORKSPACE_SEED.tile.moduleUuid,
+			formUuid: CASE_WORKSPACE_SEED.tile.formUuid,
+			selectedUuid: CASE_WORKSPACE_SEED.tile.selectFieldUuid,
 		}),
 	};
 }
