@@ -970,7 +970,15 @@ function requirePreCanonicalRepairBoundary(
 		);
 	}
 	if (state === "drift") {
-		throw new Error("Canonical identity repair prestate is mixed or drifted.");
+		throw new Error(
+			[
+				"This database is part-way through the canonical identity repair, so it is not safe to start it.",
+				"",
+				"The repair expects one of three things: every app it changes still in its original shape, every one of them already repaired, or none of them present at all. This database is a mix.",
+				"",
+				"On a developer machine that usually means a copy of production data sitting alongside local work. Recreate the database and migrate again.",
+			].join("\n"),
+		);
 	}
 }
 
@@ -1669,7 +1677,13 @@ export async function runFrozenCanonicalIdentityRepairInTransaction<DB>(
 		const inspection = await inspectFrozenRepairState(tx, before);
 		if (inspection.state === "drift") {
 			throw new Error(
-				"Canonical identity repair prestate is mixed or drifted.",
+				[
+					"This database is part-way through the canonical identity repair, so it is not safe to start it.",
+					"",
+					`Apps with no Project: ${inspection.invalidProjectApps.length}. The repair expects either exactly the one it was cut for, or none at all.`,
+					"",
+					"It also expects every app it changes to be in its original shape, or every one already repaired, or none of them present. On a developer machine a mix usually means a copy of production data sitting alongside local work — recreate the database and migrate again.",
+				].join("\n"),
 			);
 		}
 		if (inspection.state === "absent") {
