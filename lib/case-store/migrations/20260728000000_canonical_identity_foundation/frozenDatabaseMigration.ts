@@ -74,7 +74,7 @@ const HORIZON_ACTOR_ID = "system:canonical-identity-foundation";
 /**
  * The production advisory scan is far below these limits. They are a hard stop,
  * not a sizing guess: a larger quiescent database must be rehearsed and these
- * reviewed bounds changed before a 1,020-second migration Job is allowed to
+ * reviewed bounds changed before a 3,000-second migration Job is allowed to
  * begin its rewrite.
  */
 const MAX_APP_COUNT = 10_000;
@@ -386,6 +386,29 @@ const FROZEN_UUID_SQL_IDENTITY_CONVERSION_DIGEST =
 const FROZEN_UUID_SQL_IDENTITY_STRUCTURAL_DIGEST =
 	"3bb842078df6a916496cd8517720c85e985c7be40a4e0d71d32f11bf2acad4a6";
 
+/**
+ * Where `cases` lives is a deployment choice, not a property of this cutover.
+ * `resolveFrozenCasesSchema` accepts `public` or `nova_case_runtime`, and only
+ * production's privilege convergence moves it out of `public`, so a database
+ * built purely from migrations keeps it there.
+ *
+ * The constraint closure below captures any constraint that references a target
+ * relation, whichever schema it lives in, and records the schema it came from.
+ * The tenancy foreign key `cases_project_app_tenant_fk` therefore arrives
+ * carrying that deployment choice. Folding it back to `public` — and restoring
+ * the catalog's own name ordering afterwards, because the digest is
+ * order-sensitive — keeps this a statement about shape rather than about where
+ * an operator put the relation.
+ */
+function frozenCasesSchemaInvariantConstraint(
+	constraint: FrozenSqlConstraint,
+): FrozenSqlConstraint {
+	return constraint.table_name === "cases" &&
+		constraint.schema_name === "nova_case_runtime"
+		? { ...constraint, schema_name: "public" }
+		: constraint;
+}
+
 function frozenSqlIdentityStructuralSchema(
 	schema: FrozenSqlIdentitySchema,
 ): FrozenSqlIdentitySchema {
@@ -398,7 +421,23 @@ function frozenSqlIdentityStructuralSchema(
 				...column
 			}) => column,
 		),
-		constraints: schema.constraints,
+		constraints: schema.constraints
+			.map(frozenCasesSchemaInvariantConstraint)
+			.sort(
+				(left, right) =>
+					Buffer.compare(
+						Buffer.from(left.schema_name, "utf8"),
+						Buffer.from(right.schema_name, "utf8"),
+					) ||
+					Buffer.compare(
+						Buffer.from(left.table_name, "utf8"),
+						Buffer.from(right.table_name, "utf8"),
+					) ||
+					Buffer.compare(
+						Buffer.from(left.constraint_name, "utf8"),
+						Buffer.from(right.constraint_name, "utf8"),
+					),
+			),
 		indexes: schema.indexes.map(({ owner: _owner, ...index }) => index),
 		triggers: schema.triggers.map(
 			({
@@ -664,16 +703,27 @@ async function createFrozenMigrationCutoverPlan(input: {
 		pathDigest: string;
 		contentDigest: string;
 	}> = [];
+	/* Read each Project's lookup context once. Inside this transaction the
+	 * context is fixed, and reading it per app instead of per Project cost one
+	 * round trip per app against a database with far more apps than Projects. */
+	const contextByProject = new Map<
+		string,
+		Awaited<ReturnType<typeof readFrozenProjectLookupContext>>
+	>();
 	for (const app of input.currentRows.apps) {
 		const plan = planByApp.get(app.id);
 		requireInvariant(
 			plan !== undefined,
 			"the frozen CutoverPlan lost one app candidate",
 		);
-		const lookupContext = await readFrozenProjectLookupContext(
-			input.tx,
-			app.project_id,
-		);
+		let lookupContext = contextByProject.get(app.project_id);
+		if (lookupContext === undefined) {
+			lookupContext = await readFrozenProjectLookupContext(
+				input.tx,
+				app.project_id,
+			);
+			contextByProject.set(app.project_id, lookupContext);
+		}
 		const projectDigest = canonicalIdentityDigest(app.project_id);
 		lookupContexts.set(projectDigest, {
 			projectDigest,
@@ -4710,6 +4760,10 @@ async function assertAlreadyAppliedState(db: Kysely<unknown>): Promise<void> {
 			rows: rowsByApp.get(app.id) ?? [],
 		});
 		appliedPlans.push(plan);
+		/* Why this app was carried rather than proved, so the snapshot
+		 * comparison below can say what went wrong instead of only that the
+		 * digests differ. */
+		let carriedReason: string | null = null;
 		try {
 			requireInvariant(
 				plan.findings.length === 0 && plan.beforeDigest === plan.afterDigest,
@@ -4738,9 +4792,8 @@ async function assertAlreadyAppliedState(db: Kysely<unknown>): Promise<void> {
 				lookupContext,
 			);
 		} catch (error) {
-			console.error(
-				`[cutover-skipped-app] ${app.id}: ${String(error).split("\n")[0]}`,
-			);
+			carriedReason = String(error).split("\n")[0];
+			console.error(`[cutover-skipped-app] ${app.id}: ${carriedReason}`);
 		}
 		const expectedSnapshot = frozenPersistableSnapshot(app, plan);
 		const expectedDigest = (
@@ -4752,7 +4805,9 @@ async function assertAlreadyAppliedState(db: Kysely<unknown>): Promise<void> {
 		).rows[0]?.digest;
 		requireInvariant(
 			expectedDigest === baseline.current_snapshot_digest,
-			`app ${canonicalIdentityDigest(app.id)} current rows do not equal the frozen assembled snapshot`,
+			carriedReason === null
+				? `app ${canonicalIdentityDigest(app.id)} current rows do not equal the frozen assembled snapshot`
+				: `app ${canonicalIdentityDigest(app.id)} current rows do not equal the frozen assembled snapshot, and it was carried past its own canonicality proof earlier: ${carriedReason}`,
 		);
 		const suffix = suffixByApp.get(app.id) ?? [];
 		if (suffix.length === 0) {
@@ -5529,9 +5584,21 @@ export async function runFrozenCanonicalIdentityMigration(
 		seq: string;
 		row_text: string;
 	}>`
-				SELECT app_id, seq::text, to_jsonb(accepted_mutations)::text AS row_text
-				FROM accepted_mutations
-				ORDER BY app_id, seq
+				SELECT
+					current.app_id,
+					current.seq::text,
+					to_jsonb(current)::text AS row_text
+				FROM accepted_mutations current
+				JOIN jsonb_to_recordset(${JSON.stringify(
+					currentRows.apps.map((row) => ({
+						app_id: row.id,
+						mutation_seq: String(row.mutation_seq),
+					})),
+				)}::jsonb)
+					AS prior(app_id text, mutation_seq bigint)
+				  ON prior.app_id = current.app_id
+				 AND current.seq <= prior.mutation_seq
+				ORDER BY current.app_id, current.seq
 			`.execute(tx);
 	// This is deliberately the first schema/data write. Every legacy carrier,
 	// complete candidate, capacity bound, and pristine prestate has already
@@ -5832,7 +5899,12 @@ export async function runFrozenCanonicalIdentityMigration(
 				FROM apps
 				JOIN expected_app ON expected_app.id = apps.id
 				WHERE apps.mutation_seq = expected_app.mutation_seq
-				  AND apps.case_types::text = expected_app.case_types::text
+				  -- apps.case_types is nullable and 60 production apps hold SQL
+				  -- NULL, which = answers with NULL rather than true. Plain
+				  -- equality silently drops every one of them from the match count
+				  -- and reports the cutover as having lost rows it wrote correctly.
+				  AND apps.case_types::text
+				        IS NOT DISTINCT FROM expected_app.case_types::text
 			) AS matched_apps,
 			(SELECT count(*)::text FROM blueprint_entities) AS entity_count,
 			(

@@ -1161,8 +1161,40 @@ export function compareFrozenStorageOccurrences(
 				`Canonical identity occurrence ${entry.id} did not preserve exact content.`,
 			);
 		}
+		/* The reverse media index is DROPPED and rebuilt from the authored
+		 * Blueprint and the canonical thread attachments, so its rows differ from
+		 * whatever the previous index held whenever that index had drifted — a
+		 * stale edge is precisely what the rebuild exists to correct, and nothing
+		 * clears edges when an app is soft-deleted or an asset is removed.
+		 * Demanding the rebuild equal what it replaced asserts the old index was
+		 * already correct, which is a claim about the prestate rather than about
+		 * this migration. The rebuilt rows are proved exactly by
+		 * `assertFrozenMediaReferenceRows`, row for row against the recomputed
+		 * edge set, and every edge is proved ready, same-Project, and of the
+		 * authored slot kind before insertion. The other DDL carriers only have a
+		 * column type converted, so their content is genuinely unchanged and they
+		 * keep the equality. */
+		const isRebuiltMediaReferenceIndex =
+			entry.id === "media_asset_refs.identity";
+		if (isRebuiltMediaReferenceIndex && entry.digest !== next.digest) {
+			console.error(
+				`[media-index-rebuilt] ${entry.id}: ${entry.rowCount} stored edge(s) replaced by ${next.rowCount} recomputed edge(s)`,
+			);
+		}
+		/* The generated standard-property indexes are DROPPED by this migration
+		 * on purpose — the scalars they indexed move out of the document and into
+		 * their own columns, so the expressions they were built on stop existing.
+		 * `assertFrozenGeneratedIndexResult` proves the surviving set equals the
+		 * source set minus exactly the indexes the drop pass reported, and
+		 * `assertNoFrozenStandardPropertyIndexes` proves none is left. Requiring
+		 * the carrier digest to be unchanged contradicts the deletion this
+		 * migration exists to perform. */
+		const isDroppedStandardPropertyIndexes =
+			entry.id === "case-property-indexes.standard-properties";
 		if (
 			entry.disposition === "DDL" &&
+			!isRebuiltMediaReferenceIndex &&
+			!isDroppedStandardPropertyIndexes &&
 			source[
 				FROZEN_STORAGE_OCCURRENCES.find(
 					(occurrence) => occurrence.id === entry.id,
