@@ -24,5 +24,8 @@ describe("migration entrypoint importability", () => {
 			"This module cannot be imported from a Client Component module",
 		);
 		expect(output).not.toContain("server-only");
-	});
+		/* Spawns npm, which spawns tsx, which resolves the whole migration
+		 * module graph — seconds of real work, not vitest's default 5s budget
+		 * for an in-process assertion. A loaded CI runner exceeds that. */
+	}, 60_000);
 });
