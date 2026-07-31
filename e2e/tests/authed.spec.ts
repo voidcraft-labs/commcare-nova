@@ -318,14 +318,15 @@ test.describe("authenticated builder", () => {
 		await page.waitForURL(new RegExp(`/build/${seed.openAppId}`));
 
 		// A born-valid canonical starter opens in the builder with chat available
-		// for refinement. Assert the builder chrome (Account menu) AND the page
-		// content (the chat composer) mounted — the latter proves we rendered the
-		// page, not the error boundary.
-		await expect(
-			page.getByRole("button", { name: "Account menu" }),
-		).toBeVisible({ timeout: 20_000 });
+		// for refinement. The chat composer carries the arrival wait: it is the
+		// first thing that is unique to THIS route, whereas the account menu is
+		// shared chrome that the page we just left also rendered, so waiting on
+		// the menu can be satisfied before the builder has mounted at all.
 		await expect(
 			page.getByRole("button", { name: "Attach a file" }),
+		).toBeVisible({ timeout: 20_000 });
+		await expect(
+			page.getByRole("button", { name: "Account menu" }),
 		).toBeVisible();
 		// Authed, not bounced to the landing page.
 		await expect(
