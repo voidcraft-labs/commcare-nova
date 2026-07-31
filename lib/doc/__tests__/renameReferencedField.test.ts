@@ -63,7 +63,7 @@ function docWithCloseConditionOn(fieldUuid: typeof FIELD) {
 						type: "close",
 						closeCondition: {
 							field: fieldUuid,
-							operator: "equals",
+							operator: "=",
 							answer: "yes",
 						},
 						fields: [
