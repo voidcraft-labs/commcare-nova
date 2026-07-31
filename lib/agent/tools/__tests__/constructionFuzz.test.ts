@@ -1690,6 +1690,12 @@ function tallyRetirementArms(
 	}
 }
 
+/* NOT `describe.concurrent`. The two properties share module-level state —
+ * run concurrently, the standard-app property fails at run 53 on a
+ * `removeCaseListColumn` counterexample that passes sequentially. Splitting
+ * them into separate files would isolate that, but both would then import this
+ * file's ~1,690 lines of scaffolding, and import already dominates this
+ * suite's wall clock. Sequential with a real timeout is the cheaper answer. */
 describe("construction fuzz — a tool-grown doc carries zero findings", () => {
 	it("standard app: every accepted sequence from birth keeps the doc finding-free", async () => {
 		const tally = newCommitTally();
@@ -1814,5 +1820,5 @@ describe("construction fuzz — a tool-grown doc carries zero findings", () => {
 			{ numRuns: 45, seed: 20260610 },
 		);
 		assertCommitFloor(tally, "connect run");
-	});
+	}, 30_000);
 });
