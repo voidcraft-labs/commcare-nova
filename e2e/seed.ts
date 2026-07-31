@@ -250,6 +250,16 @@ async function clearSeedAuthRows(pool: Pool): Promise<void> {
 		(SELECT id FROM auth_organization WHERE slug = ANY($1))`,
 		[orgSlugs],
 	);
+	/* Apps are children of their Project. `apps_project_id_auth_organization_fk`
+	 * is RESTRICT, so an app left over from an earlier run blocks its Project's
+	 * delete — which is what a second local run on the persistent compose volume
+	 * does. A fresh CI volume never has one, so this only ever bites a developer
+	 * running the suite twice. Everything the app owns falls with it. */
+	await pool.query(
+		`DELETE FROM apps WHERE project_id IN
+		(SELECT id FROM auth_organization WHERE slug = ANY($1))`,
+		[orgSlugs],
+	);
 	await pool.query(`DELETE FROM auth_organization WHERE slug = ANY($1)`, [
 		orgSlugs,
 	]);
