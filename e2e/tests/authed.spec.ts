@@ -1999,25 +1999,29 @@ test.describe("authenticated builder", () => {
 			).toBeVisible();
 		});
 
-		await test.step("a persisted lookup-bearing change opens but remains safely read-only", async () => {
+		await test.step("a persisted lookup-bearing change opens and stays editable", async () => {
 			await page.getByRole("button", { name: "All case changes" }).click();
 			await page
 				.locator(
 					`[data-case-operation-select="${CASE_CHANGES_SEED.operations.tableLookup}"]`,
 				)
 				.click();
-			const notes = page
-				.getByRole("note")
-				.filter({ hasText: "uses lookup-table logic" });
-			await expect(notes).toHaveCount(2);
+			/* Reading a data table is ordinary expression vocabulary, not a
+			 * reason to withdraw the editor: `planCaseOperationUpdate` states
+			 * that no operation becomes read-only merely because one expression
+			 * contains lookup-table logic. So there is no read-only note, and
+			 * both pickers stay live. */
+			await expect(
+				page.getByRole("note").filter({ hasText: "lookup-table logic" }),
+			).toHaveCount(0);
 			await expect(
 				page.getByRole("button", { name: "Kind of case: Patient" }),
-			).toBeDisabled();
+			).toBeEnabled();
 			await expect(
 				page.getByRole("button", {
 					name: "Which case: The case this form opened",
 				}),
-			).toBeDisabled();
+			).toBeEnabled();
 
 			await page.getByRole("button", { name: "All case changes" }).click();
 			await expect(
