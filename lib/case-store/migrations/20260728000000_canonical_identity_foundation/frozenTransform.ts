@@ -381,8 +381,15 @@ function formatUuid(bytes: Buffer): string {
  * Genuine RFC 9562 UUIDv5: SHA-1(namespace bytes || exact UTF-8 name), first
  * 128 bits, version and variant bits stamped. Kept local so a dependency
  * upgrade can never change this historical mapping.
+ *
+ * SHA-1 is not a security choice here — RFC 9562 DEFINES version 5 as SHA-1,
+ * so any other digest would produce different identities and break the exact
+ * legacy-option mapping this cutover replays. Nothing is authenticated,
+ * signed, or kept secret: the input is a legacy identity string that is
+ * already public in the document, and the output is a name.
  */
 export function legacyOptionUuidV5(legacyIdentity: string): string {
+	// codeql[js/weak-cryptographic-algorithm]
 	const digest = createHash("sha1")
 		.update(uuidBytes(LEGACY_OPTION_UUID_NAMESPACE))
 		.update(Buffer.from(legacyIdentity, "utf8"))
