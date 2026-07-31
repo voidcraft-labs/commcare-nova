@@ -359,8 +359,14 @@ export function OptionsSourceEditor<
 							>
 								<SelectValue placeholder="Choose a column">
 									{(selected) =>
-										table.columns.find((column) => column.id === selected)
-											?.label ?? "A column that is no longer available"
+										/* A render function replaces the placeholder entirely, so
+										 * the unchosen case has to be handled here: a column
+										 * nobody has picked yet is not a column that went
+										 * missing. */
+										selected === null || selected === undefined
+											? "Choose a column"
+											: (table.columns.find((column) => column.id === selected)
+													?.label ?? "A column that is no longer available")
 									}
 								</SelectValue>
 							</SelectTrigger>
@@ -404,8 +410,14 @@ export function OptionsSourceEditor<
 							>
 								<SelectValue placeholder="Choose a column">
 									{(selected) =>
-										table.columns.find((column) => column.id === selected)
-											?.label ?? "A column that is no longer available"
+										/* A render function replaces the placeholder entirely, so
+										 * the unchosen case has to be handled here: a column
+										 * nobody has picked yet is not a column that went
+										 * missing. */
+										selected === null || selected === undefined
+											? "Choose a column"
+											: (table.columns.find((column) => column.id === selected)
+													?.label ?? "A column that is no longer available")
 									}
 								</SelectValue>
 							</SelectTrigger>

@@ -1764,7 +1764,9 @@ test.describe("authenticated builder", () => {
 			);
 			const idInput = page.locator('[data-field-id="id"] input:visible');
 			await expect(idInput).toHaveValue("first_name", { timeout: 20_000 });
-			await waitForSavedMutation('"newId":"given_name"', async () => {
+			/* A field id rename is `updateField` with `patch.id` — `newId` belongs
+			 * to renameModule/renameForm, which name a different entity. */
+			await waitForSavedMutation('"id":"given_name"', async () => {
 				await idInput.fill("given_name");
 				await idInput.press("Enter");
 			});
