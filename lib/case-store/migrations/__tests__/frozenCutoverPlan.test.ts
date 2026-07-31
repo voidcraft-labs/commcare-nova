@@ -151,20 +151,34 @@ describe("frozen canonical-identity CutoverPlan", () => {
 		});
 	});
 
-	it("requires lock inventory, full quiescence, and reviewed capacity", () => {
+	it("requires lock inventory and reviewed capacity, but not an idle service", () => {
 		const plan = createFrozenCutoverPlan(cutoverInput());
 		expect(plan.lockMode).toBe("SHARE ROW EXCLUSIVE");
 		expect(plan.capacity.withinReviewedBounds).toBe(true);
 
+		/* Someone having a builder tab open is not a reason to refuse the
+		 * cutover. The lock mode above is what protects it; requiring these to be
+		 * zero would only be satisfiable by taking the service down. The counts
+		 * are still recorded in the plan. */
+		const busy = createFrozenCutoverPlan({
+			...cutoverInput(),
+			leaseState: {
+				...cutoverInput().leaseState,
+				presenceSessions: "1",
+				unterminatedChunks: "17",
+			},
+		});
+		expect(busy.leaseState.presenceSessions).toBe("1");
+		expect(busy.leaseState.unterminatedChunks).toBe("17");
+
+		// A malformed counter is still a refusal — that is a broken read, not a
+		// busy service.
 		expect(() =>
 			createFrozenCutoverPlan({
 				...cutoverInput(),
-				leaseState: {
-					...cutoverInput().leaseState,
-					presenceSessions: "1",
-				},
+				leaseState: { ...cutoverInput().leaseState, presenceSessions: "-1" },
 			}),
-		).toThrow(/not quiescent/);
+		).toThrow();
 		expect(() =>
 			createFrozenCutoverPlan({
 				...cutoverInput(),

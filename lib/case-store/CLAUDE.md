@@ -804,11 +804,22 @@ column/type/nullability contract and zero-row read/update/delete authority in
 an intentional rollback; the build also proves updating the Job did not change
 the scheduler's recorded enabled/paused state.
 
-The first schema split and the canonical-identity conversion are maintenance
-cutovers, not rolling migrations. Their transaction may make the old revision
-unable to serve before the new one starts. Unit 18's binding runbook keeps
-ingress detached and the service at manual zero, then
-`scripts/rollout/deploy-cloud-run.py` deploys the exact immutable
+The first schema split is a maintenance cutover, not a rolling migration: its
+transaction may make the old revision unable to serve before the new one
+starts.
+
+The canonical-identity conversion is NOT one. It runs its forensic repair
+inside the same migration transaction as its transform, holding
+`SHARE ROW EXCLUSIVE` over every occurrence table plus `SELECT ... FOR UPDATE`
+over `apps`. Those locks are the protection; a concurrent writer blocks on them
+or fails against them, and a request already in flight against the old shape
+may error. It records lease, stream-chunk, and presence counts but requires
+none of them to be zero — that requirement would only be satisfiable by taking
+the service down, and `unterminatedChunks` alone counts every non-final chat
+chunk inside its 24-hour retention. `block-current` rows remain a hard stop.
+
+For a cutover that does need the posture, `scripts/rollout/deploy-cloud-run.py`
+deploys the exact immutable
 `repository@sha256` image without a scaling override, proves the candidate
 Ready at 100% desired and observed traffic with no tag while manual zero is
 preserved, and only afterward performs a separate scaling-only return to

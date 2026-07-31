@@ -1654,7 +1654,8 @@ export function resolveTermType(
 				errors.push({
 					path,
 					code: "unknown-search-input",
-					message: `Unknown search input '${term.searchInputUuid}'.`,
+					message:
+						"This rule reads a Search field that is no longer on this case list. Pick a field that still exists, or remove the rule.",
 				});
 				return undefined;
 			}
@@ -1735,7 +1736,7 @@ export function resolveTermType(
 					message:
 						scope === undefined
 							? "A lookup column is available only inside its table's filter."
-							: `Lookup column '${term.columnId}' belongs to table '${term.tableId}', not the active table '${scope.tableId}'.`,
+							: "This rule reads a column from a different data table than the one it filters. A row rule can only read its own table's columns.",
 				});
 				return undefined;
 			}
@@ -1744,7 +1745,8 @@ export function resolveTermType(
 				errors.push({
 					path,
 					code: "unknown-lookup-column",
-					message: `Lookup column '${term.columnId}' is not available on table '${term.tableId}'.`,
+					message:
+						"This rule reads a column its data table does not have. The column may have been removed, or the rule may point at the wrong table.",
 				});
 				return undefined;
 			}
@@ -1918,7 +1920,8 @@ export function checkExpression(
 				errors.push({
 					path: [...lookupPath, "tableId"],
 					code: "unknown-lookup-table",
-					message: `Lookup table '${expr.tableId}' is not available in this expression context.`,
+					message:
+						"This expression reads a Project data table that is not available here. It may have been deleted, or it may belong to another Project.",
 				});
 				return undefined;
 			}
@@ -1927,7 +1930,8 @@ export function checkExpression(
 				errors.push({
 					path: [...lookupPath, "resultColumnId"],
 					code: "unknown-lookup-column",
-					message: `Lookup result column '${expr.resultColumnId}' is not available on table '${expr.tableId}'.`,
+					message:
+						"The column this lookup returns is not on the table it reads. The column may have been removed, or the lookup may point at the wrong table.",
 				});
 			}
 			walk(

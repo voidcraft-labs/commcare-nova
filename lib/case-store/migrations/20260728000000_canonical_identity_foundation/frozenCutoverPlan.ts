@@ -713,26 +713,21 @@ export function createFrozenCutoverPlan(
 	if (locked && input.lockRelations.length === 0) {
 		throw new Error("Frozen cutover locked plan has no relation inventory.");
 	}
-	if (
-		locked &&
-		(exactNonnegative(
-			input.leaseState.appLeaseBlockers,
-			"app lease blockers",
-		) !== EXACT_ZERO ||
-			exactNonnegative(
-				input.leaseState.activeThreadHolders,
-				"thread holders",
-			) !== EXACT_ZERO ||
-			exactNonnegative(
-				input.leaseState.unterminatedChunks,
-				"unterminated chunks",
-			) !== EXACT_ZERO ||
-			exactNonnegative(
-				input.leaseState.presenceSessions,
-				"presence sessions",
-			) !== EXACT_ZERO)
-	) {
-		throw new Error("Frozen cutover locked plan is not quiescent.");
+	/* The lease counters are recorded in the plan, never required to be zero.
+	 * They say who happened to be mid-request, which the table locks this
+	 * transaction already holds make irrelevant — a concurrent writer blocks on
+	 * those or fails against them. Requiring zero would mean requiring an
+	 * outage: `unterminatedChunks` counts every non-final chat chunk within its
+	 * 24-hour retention, so any chat run that day would block the deploy, and
+	 * `presenceSessions` counts every open builder tab. They are still parsed
+	 * here so a malformed counter is caught rather than carried into the plan. */
+	for (const [value, label] of [
+		[input.leaseState.appLeaseBlockers, "app lease blockers"],
+		[input.leaseState.activeThreadHolders, "thread holders"],
+		[input.leaseState.unterminatedChunks, "unterminated chunks"],
+		[input.leaseState.presenceSessions, "presence sessions"],
+	] as const) {
+		exactNonnegative(value, label);
 	}
 	const projectDigests = input.lookupContexts.map(
 		(context) => context.projectDigest,

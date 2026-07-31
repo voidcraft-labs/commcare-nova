@@ -97,6 +97,15 @@ export const setFieldOptionsSourceTool = {
 				field.kind,
 				source,
 			);
+			/* Name the table the way the author does. The catalog is already in
+			 * scope, and a UUID in a message the SA relays to a person is a
+			 * string nobody can act on. */
+			const tableName =
+				source.kind === "lookup"
+					? ((await ctx.lookupCatalog?.())?.definitions.find(
+							(table) => table.id === source.tableId,
+						)?.name ?? "the selected table")
+					: undefined;
 			const commit = await guardedMutate(ctx, doc, [mutation], "field:options");
 			if (!commit.ok) {
 				return {
@@ -117,7 +126,7 @@ export const setFieldOptionsSourceTool = {
 					message:
 						source.kind === "inline"
 							? `Set "${field.id}" to ${source.options.length} inline choices.`
-							: `Set "${field.id}" to Project data table ${source.tableId}.`,
+							: `Set "${field.id}" to the ${tableName} data table.`,
 					summary: { subject: field.id },
 				},
 			};

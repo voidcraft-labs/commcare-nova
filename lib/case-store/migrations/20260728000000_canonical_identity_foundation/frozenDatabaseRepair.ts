@@ -1599,22 +1599,29 @@ export async function applyCanonicalIdentityFoundationRepairInTransaction<DB>(
 }
 
 /**
- * Own the complete frozen transaction boundary. Operator scripts supply only
- * the database handle and the explicit apply/dry-run decision.
- */
-/**
  * The repair body, against a caller-owned transaction.
  *
  * The migration runs this before its own work inside Kysely's migration
  * transaction — one deploy does the repair and the cutover together, so there
  * is no operator step needing write authority the deploy identity already has,
  * and no window in which the repair has landed but the migration has not.
+ *
+ * It sets its own statement guards rather than trusting the caller to: this
+ * takes `SHARE ROW EXCLUSIVE` over every occurrence table, and without a
+ * `lock_timeout` a single long-lived writer would make it queue forever while
+ * every later writer queues behind it. `FROZEN_CUTOVER_LIMITS` declares these
+ * as the reviewed bounds.
  */
 export async function runFrozenCanonicalIdentityRepairInTransaction<DB>(
 	tx: DbTx<DB>,
 	options: { readonly apply: boolean },
 ): Promise<FrozenCanonicalIdentityRepairReport> {
 	{
+		await sql`SET LOCAL lock_timeout = '15s'`.execute(tx);
+		await sql`SET LOCAL statement_timeout = '960s'`.execute(tx);
+		await sql`
+			SET LOCAL idle_in_transaction_session_timeout = '990s'
+		`.execute(tx);
 		requirePreCanonicalRepairBoundary(
 			await inspectFrozenCanonicalRepairBoundary(tx),
 		);
@@ -1762,6 +1769,10 @@ export async function runFrozenCanonicalIdentityRepairInTransaction<DB>(
 	}
 }
 
+/**
+ * Own the complete transaction boundary. Operator scripts supply only the
+ * database handle and the explicit apply/dry-run decision.
+ */
 export async function runFrozenCanonicalIdentityRepair<DB>(
 	db: Kysely<DB>,
 	options: { readonly apply: boolean },
@@ -1770,14 +1781,10 @@ export async function runFrozenCanonicalIdentityRepair<DB>(
 		return await db
 			.transaction()
 			.setIsolationLevel("serializable")
-			.execute(async (tx) => {
-				await sql`SET LOCAL lock_timeout = '15s'`.execute(tx);
-				await sql`SET LOCAL statement_timeout = '960s'`.execute(tx);
-				await sql`
-					SET LOCAL idle_in_transaction_session_timeout = '990s'
-				`.execute(tx);
-				return await runFrozenCanonicalIdentityRepairInTransaction(tx, options);
-			});
+			.execute(
+				async (tx) =>
+					await runFrozenCanonicalIdentityRepairInTransaction(tx, options),
+			);
 	} catch (error) {
 		if (error instanceof FrozenRepairDryRunRollback) return error.report;
 		throw error;
