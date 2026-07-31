@@ -1807,11 +1807,20 @@ function validateEntityReference(
 		const formUuid = owningFormUuid(ctx, row);
 		const target = ctx.rowsByUuid.get(value);
 		const operationReference = path.endsWith(".opUuid");
+		/* A persona names the role it inherits from. That role is a root-level
+		 * `user_type`, and a persona is itself root-level, so it has no owning
+		 * form — the field-in-the-same-form rule below cannot express this and
+		 * would refuse every app that uses personas. */
+		const userTypeReference = path.endsWith(".userTypeUuid");
 		if (operationReference) {
 			if (
 				formUuid === undefined ||
 				!(ctx.operationUuidsByForm.get(formUuid)?.has(value) ?? false)
 			) {
+				finding(ctx, "unresolved-reference", path, value);
+			}
+		} else if (userTypeReference) {
+			if (target?.kind !== "user_type") {
 				finding(ctx, "unresolved-reference", path, value);
 			}
 		} else if (
