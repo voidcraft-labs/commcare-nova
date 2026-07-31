@@ -193,6 +193,7 @@ steps:
           --command=node \
           --args=migrate.cjs \
           --tasks=1 --parallelism=1 \
+          --memory=4Gi --cpu=2 \
           --max-retries=0 \
           --task-timeout=1020
         python3 scripts/rollout/deploy-cloud-run.py \
