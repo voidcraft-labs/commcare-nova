@@ -56,6 +56,7 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { compilerBugMessage } from "@/lib/domain/predicate/errors";
+import type { ProseTemplate } from "@/lib/domain/prose";
 import type { SubmissionMutation } from "./caseDataBindingTypes";
 import type { FieldTreeNode } from "./fieldTree";
 import { buildFieldTree } from "./fieldTree";
@@ -288,8 +289,8 @@ function classifyChange(
 		required?: unknown;
 		validate?: unknown;
 		default_value?: unknown;
-		label?: string;
-		hint?: string;
+		label?: ProseTemplate;
+		hint?: ProseTemplate;
 	};
 	const prev = previous as Field & {
 		calculate?: unknown;
@@ -297,8 +298,8 @@ function classifyChange(
 		required?: unknown;
 		validate?: unknown;
 		default_value?: unknown;
-		label?: string;
-		hint?: string;
+		label?: ProseTemplate;
+		hint?: ProseTemplate;
 	};
 
 	if (
@@ -329,11 +330,15 @@ function classifyChange(
 	const labelChanged = cur.label !== prev.label;
 	const hintChanged = cur.hint !== prev.hint;
 	if (labelChanged || hintChanged) {
-		const hasRefs =
-			(cur.label?.includes("#") ?? false) ||
-			(prev.label?.includes("#") ?? false) ||
-			(cur.hint?.includes("#") ?? false) ||
-			(prev.hint?.includes("#") ?? false);
+		/* A reference is a typed part, not a `#` in the text. Scanning for the
+		 * character both threw — a `ProseTemplate` has no `.includes` — and
+		 * asked the wrong question: a label reading "Ward #3" carries no
+		 * reference, while one carrying a `field-ref` part may contain no `#`
+		 * at all. */
+		const hasRefs = [cur.label, prev.label, cur.hint, prev.hint].some(
+			(template) =>
+				template?.parts.some((part) => part.kind !== "text") ?? false,
+		);
 		if (hasRefs) return "label_refs";
 	}
 
