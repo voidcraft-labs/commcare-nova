@@ -15,7 +15,10 @@ import {
 } from "./caseOperationOrder";
 import { mutationCommitVerdict } from "./commitVerdicts";
 import { deepEqual } from "./deepEqual";
-import { LOOKUP_CONTEXT_UNAVAILABLE } from "./lookupReferences";
+import {
+	LOOKUP_CONTEXT_UNAVAILABLE,
+	type LookupValidationContext,
+} from "./lookupReferences";
 import { sequenceMovesTo, spliceAfter } from "./mutations/sequence";
 import { caseOperationCatalogMutations } from "./scaffolds";
 import type { Mutation } from "./types";
@@ -694,8 +697,11 @@ export function caseOperationEditVerdict(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
 	operation: CaseOperation,
+	lookupContext: LookupValidationContext = LOOKUP_CONTEXT_UNAVAILABLE,
 ): CaseOperationEditVerdict {
-	const cacheKey = `${formUuid}\u0000${JSON.stringify(operation)}`;
+	/* The context is part of the answer, so it is part of the key: the same
+	 * operation verdicts differently once the Project's definitions arrive. */
+	const cacheKey = `${formUuid}\u0000${lookupContextCacheKey(lookupContext)}\u0000${JSON.stringify(operation)}`;
 	let perCandidate = EDIT_VERDICT_CACHE.get(doc);
 	if (perCandidate === undefined) {
 		perCandidate = new Map();
@@ -703,15 +709,30 @@ export function caseOperationEditVerdict(
 	}
 	const cached = perCandidate.get(cacheKey);
 	if (cached !== undefined) return cached;
-	const verdict = computeCaseOperationEditVerdict(doc, formUuid, operation);
+	const verdict = computeCaseOperationEditVerdict(
+		doc,
+		formUuid,
+		operation,
+		lookupContext,
+	);
 	perCandidate.set(cacheKey, verdict);
 	return verdict;
+}
+
+/** Distinguishes an unavailable context from each available snapshot, so a
+ *  cached "cannot check the lookup" verdict is never reused after the
+ *  definitions load. */
+function lookupContextCacheKey(context: LookupValidationContext): string {
+	return context.kind === "available"
+		? `${context.projectId}\u0000${context.projectRevision}`
+		: "unavailable";
 }
 
 function computeCaseOperationEditVerdict(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
 	operation: CaseOperation,
+	lookupContext: LookupValidationContext,
 ): CaseOperationEditVerdict {
 	const exists =
 		doc.forms[formUuid]?.caseOperations?.some(
@@ -729,7 +750,7 @@ function computeCaseOperationEditVerdict(
 	const verdict = mutationCommitVerdict(
 		doc,
 		[...plan.mutations],
-		LOOKUP_CONTEXT_UNAVAILABLE,
+		lookupContext,
 	);
 	return verdict.ok
 		? { ok: true }
@@ -752,6 +773,7 @@ export function caseOperationAddVerdict(
 	formUuid: Uuid,
 	operation: CaseOperation,
 	index?: number,
+	lookupContext: LookupValidationContext = LOOKUP_CONTEXT_UNAVAILABLE,
 ): CaseOperationEditVerdict {
 	const form = doc.forms[formUuid];
 	if (form === undefined) {
@@ -774,7 +796,7 @@ export function caseOperationAddVerdict(
 	const verdict = mutationCommitVerdict(
 		doc,
 		addCaseOperationMutations(doc, formUuid, operation, index),
-		LOOKUP_CONTEXT_UNAVAILABLE,
+		lookupContext,
 	);
 	return verdict.ok
 		? { ok: true }

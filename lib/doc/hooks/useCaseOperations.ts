@@ -22,6 +22,7 @@
 "use client";
 
 import { useCallback, useMemo } from "react";
+import { useLookupCommitState } from "@/lib/doc/lookupCommitContext";
 import {
 	type CaseOperation,
 	type CasePropertyDataType,
@@ -162,15 +163,22 @@ export function useCaseOperations(formUuid: Uuid): CaseOperationsView {
 		(uuid: Uuid) => removeCaseOperationMutation(doc, formUuid, uuid),
 		[doc, formUuid],
 	);
+	/* The builder already holds the Project's definitions; hand them to the
+	 * verdict. Without them every occurrence a lookup carrier produces is
+	 * unverifiable, which is a soundness finding, which refuses the edit — so
+	 * an operation that reads a data table could never be retargeted at all,
+	 * and the picker would disable every choice with "lookup data hasn't
+	 * finished reconnecting" that nothing would ever resolve. */
+	const { lookupContext } = useLookupCommitState();
 	const editVerdict = useCallback(
 		(operation: CaseOperation) =>
-			caseOperationEditVerdict(doc, formUuid, operation),
-		[doc, formUuid],
+			caseOperationEditVerdict(doc, formUuid, operation, lookupContext),
+		[doc, formUuid, lookupContext],
 	);
 	const addVerdict = useCallback(
 		(operation: CaseOperation, index?: number) =>
-			caseOperationAddVerdict(doc, formUuid, operation, index),
-		[doc, formUuid],
+			caseOperationAddVerdict(doc, formUuid, operation, index, lookupContext),
+		[doc, formUuid, lookupContext],
 	);
 
 	const writeValueType = useCallback(
