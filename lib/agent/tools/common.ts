@@ -22,7 +22,12 @@ import {
 	mutationWireCanonicalityRejection,
 	prepareMutationCandidate,
 } from "@/lib/doc/commitVerdicts";
-import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import {
+	extractLookupReferenceTargets,
+	LOOKUP_CONTEXT_UNAVAILABLE,
+	type LookupValidationContext,
+	unionLookupReferenceTargetSets,
+} from "@/lib/doc/lookupReferences";
 import {
 	type AdmittedMutationBatch,
 	type AdmittedMutationStages,
@@ -75,6 +80,36 @@ export type GuardedMutateOutcome =
 	| { ok: false; error: string };
 
 /**
+ * The Project definitions this batch's verdict needs.
+ *
+ * The commit gate is absolute, not a delta: a lookup occurrence it cannot
+ * check is a soundness finding, and a soundness finding rejects. So handing it
+ * an unavailable context whenever the doc holds ANY lookup carrier would refuse
+ * every mutating call on that app — not just the ones touching lookups. The
+ * targets are unioned across the before and after docs so an addition, an edit,
+ * and a clear all resolve against the same snapshot.
+ */
+async function lookupContextForCandidate(
+	ctx: ToolExecutionContext,
+	prevDoc: BlueprintDoc,
+	nextDoc: BlueprintDoc,
+): Promise<LookupValidationContext> {
+	const targets = unionLookupReferenceTargetSets(
+		extractLookupReferenceTargets(prevDoc),
+		extractLookupReferenceTargets(nextDoc),
+	);
+	if (targets.tableIds.length === 0) return LOOKUP_CONTEXT_UNAVAILABLE;
+	if (ctx.lookupDefinitions === undefined) return LOOKUP_CONTEXT_UNAVAILABLE;
+	const snapshot = await ctx.lookupDefinitions(targets.tableIds);
+	return {
+		kind: "available",
+		projectId: snapshot.projectId,
+		projectRevision: snapshot.projectRevision,
+		definitions: snapshot.definitions,
+	};
+}
+
+/**
  * The one write path for every mutating shared tool: gate the batch
  * through the validity verdict, then persist via `ctx.recordMutations`.
  *
@@ -96,13 +131,10 @@ export async function guardedMutate(
 	mutations: unknown,
 	stage?: string,
 ): Promise<GuardedMutateOutcome> {
-	// S02b has no constructible lookup carriers. Keep this advisory tool-layer
-	// verdict explicit about lacking a definition snapshot; the authoritative
-	// writer always reloads fresh Project definitions before it commits.
 	const verdict = mutationCommitVerdict(
 		prevDoc,
 		mutations,
-		LOOKUP_CONTEXT_UNAVAILABLE,
+		await lookupContextForCandidate(ctx, prevDoc, prevDoc),
 	);
 	if (!verdict.ok) {
 		return { ok: false, error: describeCommitFindings(verdict.findings) };
@@ -166,7 +198,7 @@ export async function guardedMutateStages(
 	const prepared = prepareMutationCandidate(prevDoc, admitted.batch);
 	const verdict = evaluatePreparedMutationCandidate(
 		prepared,
-		LOOKUP_CONTEXT_UNAVAILABLE,
+		await lookupContextForCandidate(ctx, prevDoc, prepared.nextDoc),
 	);
 	if (!verdict.ok) {
 		return { ok: false, error: describeCommitFindings(verdict.findings) };

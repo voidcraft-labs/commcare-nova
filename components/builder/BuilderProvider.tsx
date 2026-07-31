@@ -32,6 +32,7 @@ import { EditGuardProvider } from "@/components/builder/contexts/EditGuardContex
 import { ScrollRegistryProvider } from "@/components/builder/contexts/ScrollRegistryContext";
 import { LocationRecoveryEffect } from "@/components/builder/LocationRecoveryEffect";
 import { BuilderLookupCatalogProvider } from "@/components/builder/lookup/BuilderLookupCatalogProvider";
+import { ProjectDataWorkspaceProvider } from "@/components/builder/project-data/ProjectDataWorkspaceProvider";
 import { PresenceProvider } from "@/lib/collab/PresenceProvider";
 import { ReconcilerProvider } from "@/lib/collab/ReconcilerProvider";
 import {
@@ -144,14 +145,22 @@ function BuilderProviderInner({
 		<ScrollRegistryProvider>
 			<EditGuardProvider>
 				<CaseListWorkspaceProvider>
-					<BuilderFormEngineProvider>
-						<SyncBridge />
-						<LocationRecoveryEffect />
-						<PreviewLookupDataProvider>
-							{initialDoc ? <LoadAppHydrator /> : null}
-							{children}
-						</PreviewLookupDataProvider>
-					</BuilderFormEngineProvider>
+					{/* The single Project data controller. Distinct from
+					 *  `BuilderLookupCatalogProvider` above, which supplies the
+					 *  field picker its rows-free catalog: this one owns the
+					 *  workspace's reads, drafts, and conflict state, and every
+					 *  consumer falls back to an idle state without it — so a
+					 *  missing mount is a permanent spinner, not a crash. */}
+					<ProjectDataWorkspaceProvider>
+						<BuilderFormEngineProvider>
+							<SyncBridge />
+							<LocationRecoveryEffect />
+							<PreviewLookupDataProvider>
+								{initialDoc ? <LoadAppHydrator /> : null}
+								{children}
+							</PreviewLookupDataProvider>
+						</BuilderFormEngineProvider>
+					</ProjectDataWorkspaceProvider>
 				</CaseListWorkspaceProvider>
 			</EditGuardProvider>
 		</ScrollRegistryProvider>
