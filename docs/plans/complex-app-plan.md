@@ -408,11 +408,18 @@ reader, reducer, writer, UI, Preview, SA/MCP surface, and emitter rejects it.
 Runtime code and documentation do not call a supported shape "legacy" — an old
 shape is either consumed once, there, or it is refused.
 
-Applying that migration to production is a maintenance cutover, not an ordinary
-merge — it closes public ingress, fences the database ACL, and runs a forensic
-repair that transaction rollback cannot undo once committed. The procedure lives
-in [`docs/runbooks/canonical-identity-cutover.md`](../runbooks/canonical-identity-cutover.md)
-and that file is deleted once the cutover has run.
+The forensic repair that precedes the transform runs inside the same migration
+transaction, so an ordinary deploy applies the whole cutover: the deploy identity
+already holds the write authority the repair needs, and no interval exists where
+the repair has landed and the transform has not. Both hold a
+`SHARE ROW EXCLUSIVE` lock over every occurrence table plus `SELECT ... FOR
+UPDATE` over `apps`, which is what makes the transaction safe; a concurrent
+writer blocks on that lock or fails against it, and a request already in flight
+against the old shape may error. Lease, stream-chunk, and presence counts are
+recorded but are deliberately not preconditions — they describe who happened to
+be mid-request, and gating on them would buy nothing except the requirement to
+take the service down first. `block-current` rows remain a hard stop, because
+those are data the migration genuinely cannot transform.
 
 ### Lookup tables
 
