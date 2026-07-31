@@ -653,8 +653,19 @@ def _candidate_revision_fact(
     )
     if not revision_ready:
         fail("The exact candidate revision is not Ready.")
+    # Cloud Run reports `imageDigest` as the complete pinned reference
+    # (`repository@sha256:...`), while the immutable build digest is the bare
+    # `sha256:...`. Comparing them directly can never match, so the digest is
+    # taken from the reference and the repository is proved separately by the
+    # complete-reference check below. A value with no `@` is compared as-is
+    # rather than assumed to be a reference.
     reported_digest = (value.get("status") or {}).get("imageDigest")
-    if reported_digest != expected_digest:
+    reported_digest_only = (
+        reported_digest.rpartition("@")[2]
+        if isinstance(reported_digest, str) and "@" in reported_digest
+        else reported_digest
+    )
+    if reported_digest_only != expected_digest:
         fail(
             "The candidate revision image digest differs from the immutable "
             f"build digest: expected {expected_digest}, got {reported_digest!r}."
