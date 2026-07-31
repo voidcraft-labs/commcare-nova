@@ -508,9 +508,17 @@ def _assert_exact_execution_succeeded(
     expected_job: str,
     expected_image: str,
 ) -> dict[str, Any]:
-    if execution.get("job") != expected_job:
+    # Bind the execution to its Job through its own resource name, which is
+    # fully qualified and unambiguous. The `job` field carries only the short
+    # name, so comparing it against a `projects/.../jobs/...` path never
+    # matches and rejects every execution, including successful ones.
+    execution_name = execution.get("name")
+    if not isinstance(execution_name, str) or not execution_name.startswith(
+        f"{expected_job}/executions/"
+    ):
         raise TerminalDeploymentPolicyError(
-            "Cloud Run execution belongs to the wrong Job."
+            "Cloud Run execution belongs to the wrong Job: "
+            f"expected an execution of {expected_job!r}, got {execution_name!r}."
         )
     images = _all_image_values(execution)
     if images != [expected_image]:
@@ -1138,7 +1146,10 @@ def _policy_self_test() -> None:
         _assert_exact_execution_succeeded(
             {
                 "name": execution_name,
-                "job": job_name,
+                # The real Cloud Run v2 API returns the SHORT job name here, not
+                # the resource path. The fixture said otherwise, so this assertion
+                # proved only that the code agreed with itself.
+                "job": "migrate",
                 "taskCount": 1,
                 "succeededCount": 1,
                 "failedCount": 0,
