@@ -104,9 +104,9 @@ export function searchBlueprint(
 		 * SA searches when looking up a case-property reference or a
 		 * search-input handle. Each column carries `header` + (for
 		 * non-calc kinds) `field`; calc columns carry only `header`,
-		 * so the search shape branches on `kind`. The match's `uuid`
-		 * is the entry's own uuid; the owning module is surfaced as
-		 * `containerUuid` so the caller has both handles. */
+		 * so the search shape branches on `kind`. A column match
+		 * carries `columnUuid` and a search-input match `searchInputUuid`,
+		 * each alongside the owning `moduleUuid`. */
 		const config = mod.caseListConfig;
 		for (const col of config?.columns ?? []) {
 			const headerMatch = col.header.toLowerCase().includes(q);

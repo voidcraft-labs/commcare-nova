@@ -316,6 +316,10 @@ export const updateFormTool = {
 					`post_submit → "${formAfter.postSubmit ?? "form-type default"}"`,
 				);
 			if (connect !== undefined) formChanges.push("connect updated");
+			if (displayCondition === null)
+				formChanges.push("display condition removed (always shown)");
+			else if (displayCondition !== undefined)
+				formChanges.push("display condition updated");
 			return {
 				kind: "mutate" as const,
 				mutations: commit.mutations,

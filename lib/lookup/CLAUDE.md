@@ -47,10 +47,10 @@ are canonical nonnegative decimal strings within signed-int64 range on every
 application wire. Never convert one through `Number`, serialize native `bigint`,
 or compare revision strings lexically.
 
-Table deletion, column removal, and column retype are IMPLEMENTED but not yet
-reachable: `applyLookupSchemaGovernance` has no caller outside its own tests, and
-`actions.ts` exports none of the three. They leave package-private scope when the
-Project data workspace ships their blocker/impact confirmation UX. Established
+Table deletion, column removal, and column retype are reachable:
+`actions.ts` exports `deleteLookupTableAction`, `removeLookupColumnAction`, and
+`retypeLookupColumnAction`, and the Project data workspace's confirmation dialog
+calls them after naming the apps a destructive change would block. Established
 table-tag and column-wire-name changes plus those destructive schema actions
 require the existing `delete` capability; row operations and non-identity edits
 require `edit`; reads require `view`.
@@ -65,8 +65,8 @@ extracted edge sets in their own transaction; the immutable production
 registry covers every lookup carrier. Both are app-state tables, not Project
 lookup resources, and must not be exposed through this package's table/row APIs.
 
-`schemaGovernance.ts` is the server-only transaction authority the confirmation
-UX will call; nothing reaches it today. It reuses `writerTransaction.ts`, the same
+`schemaGovernance.ts` is the server-only transaction authority those three
+actions call. It reuses `writerTransaction.ts`, the same
 Project-state/table lock and revision helpers as every lookup writer. Its
 wrapper and transaction core require the scope's `delete` capability before
 taking a lock and collapse an insufficient role to the same not-found shape as

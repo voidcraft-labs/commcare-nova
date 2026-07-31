@@ -22,10 +22,10 @@
  * `nova-icon:<slug>` identities never leak into the tool protocol. One read
  * covers every tile of the module, matching the batch shape.
  *
- * `display_condition` carries the module's typed condition. Only the builder
- * authors one, so without this read the SA would edit a module blind to the
- * fact that a condition governs whether it appears at all — `getForm` has
- * always carried the form's, and this is the module's half.
+ * `display_condition` carries the module's typed condition — the read half of
+ * the slot `updateModule` writes. Without it the SA would edit a module blind
+ * to a rule governing whether the module appears at all, and would overwrite
+ * one it had never been shown.
  */
 
 import type { z } from "zod";
@@ -95,7 +95,8 @@ export type GetModuleResult =
 			audio_label: MediaAssetId | null;
 			display_condition: Predicate | null;
 			case_list_config: CaseListConfig | null;
-			/** Visible field uuids in the exact order each screen renders them. */
+			/** Visible case-list COLUMN uuids, in the order each screen renders them.
+			 *  A column's `field` is its case property and is a different identity. */
 			results_column_order: Uuid[];
 			details_column_order: Uuid[];
 			case_search_config: CaseSearchConfig | null;

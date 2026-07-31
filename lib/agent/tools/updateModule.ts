@@ -105,7 +105,7 @@ export type UpdateModuleResult =
 
 export const updateModuleTool = {
 	description:
-		"Update a module's display name and/or its case type. Set case_type before adding registration/followup/close forms to a module created without one.",
+		"Update a module's display name, case type, and/or its display condition. Set case_type before adding registration/followup/close forms to a module created without one.",
 	inputSchema: updateModuleInputSchema,
 	async execute(
 		input: UpdateModuleInput,
@@ -127,7 +127,7 @@ export const updateModuleTool = {
 					newDoc: doc,
 					result: {
 						error:
-							"Nothing to update — no slot was given. Pass `name` and/or `case_type` (`case_list_columns` only seeds columns alongside `case_type`, it never updates on its own).",
+							"Nothing to update — no slot was given. Pass `name`, `case_type`, and/or `displayCondition` (`case_list_columns` only seeds columns alongside `case_type`, it never updates on its own).",
 					},
 				};
 			}
