@@ -47,6 +47,16 @@ export type CsqlSegment =
 			readonly kind: "runtime";
 			readonly xpath: string;
 			/**
+			 * The raw on-device value XPath this segment quotes into the CSQL
+			 * text with a delimiter chosen at runtime. Present only on segments
+			 * produced by `quoteRuntimeCsqlValue`'s double-preferred choose form.
+			 * The clause wrap layer uses it to restructure a clause whose ONLY
+			 * runtime interpolation is this one string value into the flat
+			 * quote cascade (`if(contains(v, '"'), …)`) instead of nesting the
+			 * delimiter choice inside a `concat(...)` argument.
+			 */
+			readonly stringValueXPath?: string;
+			/**
 			 * On-device XPath condition that makes this interpolation impossible
 			 * to represent as a CSQL value without changing its bytes. The final
 			 * wrapper lifts every such condition ahead of the whole CSQL fragment,
@@ -80,6 +90,30 @@ export interface RuntimeCsqlRejection {
 	readonly condition: string;
 	readonly kind: RuntimeCsqlRejectionKind;
 	readonly inputNames?: readonly string[];
+}
+
+/**
+ * Deduplicate rejection obligations on their complete identity — kind,
+ * condition, and blamed prompts. One authored input referenced twice in a
+ * clause (or across sibling clauses) produces byte-identical obligations;
+ * collapsing them keeps prompt validation from emitting the same `<validation>`
+ * test twice. Both the per-clause wrap layer and the multi-clause
+ * `_xpath_query` composer run this same collapse so the two levels cannot
+ * disagree about obligation identity.
+ */
+export function dedupeRuntimeRejections(
+	rejections: Iterable<RuntimeCsqlRejection>,
+): RuntimeCsqlRejection[] {
+	const byKey = new Map<string, RuntimeCsqlRejection>();
+	for (const rejection of rejections) {
+		// NUL separators: prompt names and conditions cannot contain \u0000,
+		// so the composite key cannot collide across the three components.
+		byKey.set(
+			`${rejection.kind}\u0000${rejection.condition}\u0000${rejection.inputNames?.join("\u0000") ?? ""}`,
+			rejection,
+		);
+	}
+	return [...byKey.values()];
 }
 
 /**

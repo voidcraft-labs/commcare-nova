@@ -672,39 +672,36 @@ describe("case-search integration — suite XML wire emission", () => {
 		expect(strings).toContain("case_search.m0.inputs=Find a patient");
 	});
 
-	it("emits the AND-composed _xpath_query carrying both the filter and the advanced-arm predicate", () => {
-		// CCHQ's `<data key="_xpath_query">` accepts at most one
-		// element per `<query>`. Multiple authored predicates
-		// (filter + every advanced-arm predicate) AND-compose at the
-		// AST level before the CSQL emitter walks the result.
+	it("emits the filter, derived simple-arm, and advanced-arm predicates as sibling _xpath_query elements", () => {
+		// One `<data key="_xpath_query">` element per composed clause.
+		// The server AND-composes every value it receives under the key
+		// (`commcare-hq/corehq/apps/case_search/utils.py::_apply_filter`
+		// loops the multi-term criteria into one ES filter each), so the
+		// three authored sources emit as three independent, readable
+		// expressions instead of one fused mega-expression.
 		const doc = buildSearchBlueprint();
 		const suite = compileSuiteXml(doc);
 		const matches = suite.match(/<data key="_xpath_query"/g) ?? [];
-		expect(matches.length).toBe(1);
-		// Slice the `_xpath_query` element body so the assertions
-		// below scope to the element's contents, not the full suite.
-		// Other surfaces in the suite (`<post>` regions, other
-		// `<query>` data slots) carry their own ` and ` tokens;
-		// checking the suite-level XML would not pin the AND on
-		// this element.
-		const xpathOpenIdx = suite.indexOf('<data key="_xpath_query"');
-		const xpathCloseIdx = suite.indexOf("/>", xpathOpenIdx);
-		if (xpathOpenIdx === -1 || xpathCloseIdx === -1) {
-			throw new Error(
-				'Expected one self-closing `<data key="_xpath_query"/>` element ' +
-					"in the compiled suite XML; check that searchSession's " +
-					"composeXPathQueryEmission ran on this fixture.",
-			);
-		}
-		const xpathBlock = suite.slice(xpathOpenIdx, xpathCloseIdx);
-		// The two predicate fragments AND-compose via CSQL's ` and `
-		// operator (space-padded) per
-		// `lib/commcare/predicate/csqlEmitter.ts::emitLogicalSegments`.
-		// XPath single-quote literals round-trip as `&apos;` inside
-		// the double-quoted `ref` attribute value.
-		expect(xpathBlock).toContain(" and ");
-		expect(xpathBlock).toContain("region = &apos;North&apos;");
-		expect(xpathBlock).toContain("status = &apos;active&apos;");
+		// The fixture contributes three clauses: the always-on `region`
+		// filter, the derived `name_search` simple-arm predicate (its
+		// prompt key differs from the targeted `case_name`, so it routes
+		// through `_xpath_query`), and the advanced `status` predicate.
+		expect(matches.length).toBe(3);
+		// Constant clauses emit as bare XPath string literals — no
+		// concat() wrapper, no ` and ` joining them. XPath quote
+		// literals round-trip as `&apos;` / `&quot;` inside the
+		// double-quoted `ref` attribute value.
+		expect(suite).toContain(
+			'<data key="_xpath_query" ref="&quot;region = &apos;North&apos;&quot;"/>',
+		);
+		expect(suite).toContain(
+			'<data key="_xpath_query" ref="&quot;@status = &apos;active&apos;&quot;"/>',
+		);
+		// The derived simple-arm clause carries its own presence gate over
+		// the typed value.
+		expect(suite).toContain(
+			"if(count(instance(&apos;search-input:results&apos;)/input/field[@name=&apos;name_search&apos;])",
+		);
 	});
 
 	it("emits a same-property always-on filter and exact search input as cumulative query criteria", () => {
@@ -759,7 +756,7 @@ describe("case-search integration — suite XML wire emission", () => {
 		const queryBlock = suite.slice(queryOpenIdx, queryCloseIdx);
 
 		expect(queryBlock).toContain(
-			'<data key="_xpath_query" ref="concat(&quot;case_name = &apos;Alice&apos;&quot;)"/>',
+			'<data key="_xpath_query" ref="&quot;case_name = &apos;Alice&apos;&quot;"/>',
 		);
 		expect(queryBlock).toContain('<prompt key="case_name">');
 		// Exact self-property prompts are the native CCHQ auto-match
@@ -1062,18 +1059,20 @@ describe("case-search integration — expandDoc HQ JSON projection", () => {
 		expect(decodeXML(suiteValidation?.[1] ?? "")).toBe(hqValidation?.test);
 	});
 
-	it("AND-composes the filter + advanced-arm predicate into _xpath_query on default_properties", () => {
+	it("projects each composed clause as its own _xpath_query row on default_properties", () => {
 		const doc = buildSearchBlueprint();
 		const defaults = expandDoc(doc).modules[0].search_config.default_properties;
-		const xpathEntry = defaults.find((d) => d.property === "_xpath_query");
-		expect(xpathEntry).toBeDefined();
-		// Both authored predicate fragments survive the AST-level AND
-		// composition and land in the same `concat(...)` runtime
-		// expression.
-		expect(xpathEntry?.defaultValue).toMatch(/concat\(/);
-		expect(xpathEntry?.defaultValue).toContain("region");
-		expect(xpathEntry?.defaultValue).toContain("status");
-		expect(xpathEntry?.defaultValue).toContain(" and ");
+		const xpathEntries = defaults.filter((d) => d.property === "_xpath_query");
+		// Same three clauses as the suite-XML surface: the always-on
+		// filter, the derived `name_search` simple arm, and the advanced
+		// `status` predicate. CCHQ's suite generator loops every row into
+		// its own `<data>` element and the search endpoint ANDs the
+		// values, so the rows compose identically to one fused string.
+		expect(xpathEntries).toHaveLength(3);
+		const values = xpathEntries.map((d) => d.defaultValue);
+		expect(values).toContain(`"region = 'North'"`);
+		expect(values).toContain(`"@status = 'active'"`);
+		expect(values.join("\n")).toContain("case_name = ");
 	});
 
 	it("combines case-list and owner availability rules in case_details.short.filter", () => {

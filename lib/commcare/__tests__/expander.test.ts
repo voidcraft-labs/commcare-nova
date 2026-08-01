@@ -4949,21 +4949,22 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 			expect(property).not.toHaveProperty("starts_with_search");
 		}
 		// The matcher strategy rides on `_xpath_query` via the
-		// `simpleArmDerivation` lift.
-		const xpathQueryEntry = searchConfig.default_properties.find(
-			(d) => d.property === "_xpath_query",
-		);
-		expect(xpathQueryEntry).toBeDefined();
-		expect(xpathQueryEntry?.defaultValue).toContain("fuzzy-match(case_name,");
-		expect(xpathQueryEntry?.defaultValue).toContain("starts-with(case_name,");
+		// `simpleArmDerivation` lift — one row per derived input.
+		const xpathQueryValues = searchConfig.default_properties
+			.filter((d) => d.property === "_xpath_query")
+			.map((d) => d.defaultValue)
+			.join("\n");
+		expect(xpathQueryValues).toContain("fuzzy-match(case_name,");
+		expect(xpathQueryValues).toContain("starts-with(case_name,");
 	});
 
-	it("AND-composes `caseListConfig.filter` and every advanced-arm predicate into a single `_xpath_query` slot on `default_properties`", () => {
-		// CCHQ accepts one `_xpath_query` per search; the AST-level
-		// `and(...)` collapses the unified filter + every advanced-arm
-		// predicate before the CSQL emitter walks the result. The
-		// suite-XML side does the same — `composeXPathQueryEmission`
-		// is the shared helper.
+	it("projects `caseListConfig.filter` and every advanced-arm predicate as sibling `_xpath_query` rows on `default_properties`", () => {
+		// CCHQ AND-composes every `_xpath_query` value it receives
+		// (`corehq/apps/case_search/utils.py::_apply_filter` loops the
+		// multi-term criteria into one ES filter each), so the filter
+		// and each advanced-arm predicate project as their own rows. The
+		// suite-XML side emits the same clauses as sibling `<data>`
+		// elements — `composeXPathQueryEmission` is the shared helper.
 		const doc = buildHqProjectionDoc({
 			columns: [
 				plainColumn(
@@ -4994,16 +4995,17 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 			expect.objectContaining({ name: "status_search", exclude: true }),
 		]);
 		const defaults = searchConfig.default_properties;
-		const xpathQueryEntry = defaults.find((d) => d.property === "_xpath_query");
-		expect(xpathQueryEntry).toBeDefined();
-		// The CSQL emitter wraps the AND-composed predicate in a
-		// `concat(...)` runtime expression; both authored property
-		// fragments survive the wrap.
-		expect(xpathQueryEntry?.defaultValue).toMatch(/concat\(/);
-		expect(xpathQueryEntry?.defaultValue).toContain("region");
-		expect(xpathQueryEntry?.defaultValue).toContain("status");
-		// Bare `and` survives between the two fragments.
-		expect(xpathQueryEntry?.defaultValue).toContain(" and ");
+		const xpathQueryValues = defaults
+			.filter((d) => d.property === "_xpath_query")
+			.map((d) => d.defaultValue);
+		// One row per composed clause: the filter and the advanced-arm
+		// predicate emit as independent bare CSQL literals; CCHQ's search
+		// endpoint AND-composes every `_xpath_query` value it receives
+		// (`case_search/utils.py::_apply_filter`).
+		expect(xpathQueryValues).toEqual([
+			`"region = 'North'"`,
+			`"@status = 'active'"`,
+		]);
 	});
 
 	it("omits the `_xpath_query` slot entirely when no filter and no advanced-arm predicates are authored", () => {
@@ -5273,15 +5275,14 @@ describe("expandDoc HQ JSON projection — case-search integration", () => {
 			expect.objectContaining({ name: "age_filter", exclude: true }),
 		);
 
-		// Advanced-arm predicate + filter AND-compose into
-		// `_xpath_query` on `default_properties`.
-		const xpathEntry = module.search_config.default_properties.find(
-			(d) => d.property === "_xpath_query",
-		);
-		expect(xpathEntry).toBeDefined();
-		expect(xpathEntry?.defaultValue).toContain("region");
-		expect(xpathEntry?.defaultValue).toContain("age");
-		expect(xpathEntry?.defaultValue).toContain(" and ");
+		// Advanced-arm predicate + filter emit as sibling `_xpath_query`
+		// rows on `default_properties`; the server ANDs the values.
+		const xpathValues = module.search_config.default_properties
+			.filter((d) => d.property === "_xpath_query")
+			.map((d) => d.defaultValue)
+			.join("\n");
+		expect(xpathValues).toContain("region");
+		expect(xpathValues).toContain("age");
 	});
 
 	// ── Simple-arm-with-via routing into _xpath_query ──────────────
