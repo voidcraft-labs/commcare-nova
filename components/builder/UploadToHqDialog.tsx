@@ -27,6 +27,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/shadcn/button";
 import {
 	Dialog,
+	DialogBody,
 	DialogClose,
 	DialogContent,
 	DialogTitle,
@@ -257,174 +258,182 @@ export function UploadToHqDialog({
 				</div>
 
 				{/* ── Body ─────────────────────────────────────── */}
-				<div className="px-5 py-4">
-					{uploadStatus.type === "success" ? (
-						<SuccessView
-							appUrl={uploadStatus.appUrl}
-							warnings={uploadStatus.warnings}
-							onClose={onClose}
-						/>
-					) : notConfigured ? (
-						<LoadErrorView
-							message="CommCare HQ is not configured. Add your API key in Settings."
-							onClose={onClose}
-						/>
-					) : (
-						<>
-							<div className="space-y-4">
-								{/* Project space — picker (multi) or verified badge (single) */}
-								<div className="flex flex-col gap-1.5">
-									<span className="text-sm text-nova-text-secondary font-medium">
-										Project Space
-									</span>
-									{isMultiSpace ? (
-										<>
-											<Select
-												items={domainItems}
-												value={selectedDomain}
-												onValueChange={(next) => setSelectedDomain(next ?? "")}
-												disabled={isUploading}
+				<DialogBody className="mx-0 px-0">
+					<div className="px-5 py-4">
+						{uploadStatus.type === "success" ? (
+							<SuccessView
+								appUrl={uploadStatus.appUrl}
+								warnings={uploadStatus.warnings}
+								onClose={onClose}
+							/>
+						) : notConfigured ? (
+							<LoadErrorView
+								message="CommCare HQ is not configured. Add your API key in Settings."
+								onClose={onClose}
+							/>
+						) : (
+							<>
+								<div className="space-y-4">
+									{/* Project space — picker (multi) or verified badge (single) */}
+									<div className="flex flex-col gap-1.5">
+										<span className="text-sm text-nova-text-secondary font-medium">
+											Project Space
+										</span>
+										{isMultiSpace ? (
+											<>
+												<Select
+													items={domainItems}
+													value={selectedDomain}
+													onValueChange={(next) =>
+														setSelectedDomain(next ?? "")
+													}
+													disabled={isUploading}
+												>
+													<SelectTrigger
+														className="w-full"
+														aria-label="Project space"
+													>
+														<SelectValue placeholder="Choose a project space…" />
+													</SelectTrigger>
+													<SelectContent>
+														{availableDomains.map((d) => (
+															<SelectItem key={d.name} value={d.name}>
+																{d.displayName}
+															</SelectItem>
+														))}
+													</SelectContent>
+												</Select>
+												{selectedDomain && (
+													<span className="text-[11px] text-nova-text-muted">
+														Uploads to {selectedDomain}
+													</span>
+												)}
+											</>
+										) : (
+											<div className="flex items-center gap-3 px-3.5 py-2.5 rounded-lg bg-nova-emerald/[0.04] border border-nova-emerald/15">
+												<div className="flex items-center justify-center w-7 h-7 rounded-full bg-nova-emerald/10 shrink-0">
+													<Icon
+														icon={tablerCircleCheck}
+														width="16"
+														height="16"
+														className="text-nova-emerald"
+													/>
+												</div>
+												<div className="min-w-0">
+													<p className="text-sm font-medium text-nova-text truncate leading-snug">
+														{availableDomains[0].displayName}
+													</p>
+													<p className="text-[11px] text-nova-text-muted leading-snug">
+														{availableDomains[0].name}
+													</p>
+												</div>
+											</div>
+										)}
+									</div>
+
+									{/* App name input */}
+									<label
+										htmlFor="hq-upload-app-name"
+										className="flex flex-col gap-1.5"
+									>
+										<span className="text-sm text-nova-text-secondary font-medium">
+											App Name
+										</span>
+										<Input
+											id="hq-upload-app-name"
+											type="text"
+											value={appName}
+											onChange={(e) => setAppName(e.target.value)}
+											disabled={isUploading}
+											autoComplete="off"
+											data-1p-ignore
+											className="h-auto px-4 py-2.5"
+										/>
+									</label>
+
+									{/* Info callout — sets expectations about new app creation */}
+									<div className="flex items-start gap-2 px-3 py-2.5 rounded-lg bg-white/[0.03] border border-white/[0.04]">
+										<Icon
+											icon={tablerInfoCircle}
+											width="15"
+											height="15"
+											className="text-nova-text-muted mt-0.5 shrink-0"
+										/>
+										<p className="text-xs text-nova-text-muted leading-relaxed">
+											Creates a new app in the selected project space. Does not
+											update existing apps.
+										</p>
+									</div>
+								</div>
+
+								{/* Upload error — inline, form stays intact for retry.
+								 * Boundary-gate rejections carry per-issue lines, each
+								 * naming what's wrong and where — list them so the user
+								 * can fix the app without guessing. */}
+								{uploadStatus.type === "error" && (
+									<div className="mt-3">
+										<p className="text-sm text-nova-rose">
+											{uploadStatus.message}
+										</p>
+										{uploadStatus.details.length > 0 && (
+											<ul className="mt-1.5 space-y-1 list-disc pl-4">
+												{uploadStatus.details.map((line) => (
+													<li
+														key={line}
+														className="text-xs text-nova-text-secondary leading-snug"
+													>
+														{line}
+													</li>
+												))}
+											</ul>
+										)}
+										{uploadStatus.status === 401 && (
+											<Link
+												href="/settings"
+												onClick={onClose}
+												className="inline-flex items-center gap-1 mt-1.5 text-xs font-medium text-nova-violet-bright hover:text-white transition-colors"
 											>
-												<SelectTrigger
-													className="w-full"
-													aria-label="Project space"
-												>
-													<SelectValue placeholder="Choose a project space…" />
-												</SelectTrigger>
-												<SelectContent>
-													{availableDomains.map((d) => (
-														<SelectItem key={d.name} value={d.name}>
-															{d.displayName}
-														</SelectItem>
-													))}
-												</SelectContent>
-											</Select>
-											{selectedDomain && (
-												<span className="text-[11px] text-nova-text-muted">
-													Uploads to {selectedDomain}
-												</span>
-											)}
-										</>
-									) : (
-										<div className="flex items-center gap-3 px-3.5 py-2.5 rounded-lg bg-nova-emerald/[0.04] border border-nova-emerald/15">
-											<div className="flex items-center justify-center w-7 h-7 rounded-full bg-nova-emerald/10 shrink-0">
+												Go to Settings
 												<Icon
-													icon={tablerCircleCheck}
-													width="16"
-													height="16"
-													className="text-nova-emerald"
+													icon={tablerChevronRight}
+													width="12"
+													height="12"
 												/>
-											</div>
-											<div className="min-w-0">
-												<p className="text-sm font-medium text-nova-text truncate leading-snug">
-													{availableDomains[0].displayName}
-												</p>
-												<p className="text-[11px] text-nova-text-muted leading-snug">
-													{availableDomains[0].name}
-												</p>
-											</div>
-										</div>
-									)}
+											</Link>
+										)}
+									</div>
+								)}
+
+								{/* Action buttons */}
+								<div className="mt-5 flex justify-end gap-2">
+									<DialogClose render={<Button variant="outline" size="lg" />}>
+										Cancel
+									</DialogClose>
+									<Button
+										type="button"
+										size="lg"
+										onClick={handleUpload}
+										disabled={!canUpload}
+									>
+										{isUploading ? (
+											<>
+												<Icon
+													icon={tablerLoader2}
+													width="15"
+													height="15"
+													className="animate-spin"
+												/>
+												Uploading...
+											</>
+										) : (
+											"Upload"
+										)}
+									</Button>
 								</div>
-
-								{/* App name input */}
-								<label
-									htmlFor="hq-upload-app-name"
-									className="flex flex-col gap-1.5"
-								>
-									<span className="text-sm text-nova-text-secondary font-medium">
-										App Name
-									</span>
-									<Input
-										id="hq-upload-app-name"
-										type="text"
-										value={appName}
-										onChange={(e) => setAppName(e.target.value)}
-										disabled={isUploading}
-										autoComplete="off"
-										data-1p-ignore
-										className="h-auto px-4 py-2.5"
-									/>
-								</label>
-
-								{/* Info callout — sets expectations about new app creation */}
-								<div className="flex items-start gap-2 px-3 py-2.5 rounded-lg bg-white/[0.03] border border-white/[0.04]">
-									<Icon
-										icon={tablerInfoCircle}
-										width="15"
-										height="15"
-										className="text-nova-text-muted mt-0.5 shrink-0"
-									/>
-									<p className="text-xs text-nova-text-muted leading-relaxed">
-										Creates a new app in the selected project space. Does not
-										update existing apps.
-									</p>
-								</div>
-							</div>
-
-							{/* Upload error — inline, form stays intact for retry.
-							 * Boundary-gate rejections carry per-issue lines, each
-							 * naming what's wrong and where — list them so the user
-							 * can fix the app without guessing. */}
-							{uploadStatus.type === "error" && (
-								<div className="mt-3">
-									<p className="text-sm text-nova-rose">
-										{uploadStatus.message}
-									</p>
-									{uploadStatus.details.length > 0 && (
-										<ul className="mt-1.5 space-y-1 list-disc pl-4">
-											{uploadStatus.details.map((line) => (
-												<li
-													key={line}
-													className="text-xs text-nova-text-secondary leading-snug"
-												>
-													{line}
-												</li>
-											))}
-										</ul>
-									)}
-									{uploadStatus.status === 401 && (
-										<Link
-											href="/settings"
-											onClick={onClose}
-											className="inline-flex items-center gap-1 mt-1.5 text-xs font-medium text-nova-violet-bright hover:text-white transition-colors"
-										>
-											Go to Settings
-											<Icon icon={tablerChevronRight} width="12" height="12" />
-										</Link>
-									)}
-								</div>
-							)}
-
-							{/* Action buttons */}
-							<div className="mt-5 flex justify-end gap-2">
-								<DialogClose render={<Button variant="outline" size="lg" />}>
-									Cancel
-								</DialogClose>
-								<Button
-									type="button"
-									size="lg"
-									onClick={handleUpload}
-									disabled={!canUpload}
-								>
-									{isUploading ? (
-										<>
-											<Icon
-												icon={tablerLoader2}
-												width="15"
-												height="15"
-												className="animate-spin"
-											/>
-											Uploading...
-										</>
-									) : (
-										"Upload"
-									)}
-								</Button>
-							</div>
-						</>
-					)}
-				</div>
+							</>
+						)}
+					</div>
+				</DialogBody>
 			</DialogContent>
 		</Dialog>
 	);

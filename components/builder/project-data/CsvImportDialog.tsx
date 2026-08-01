@@ -13,6 +13,7 @@ import { useId, useRef, useState } from "react";
 import { Button } from "@/components/shadcn/button";
 import {
 	Dialog,
+	DialogBody,
 	DialogContent,
 	DialogDescription,
 	DialogFooter,
@@ -256,85 +257,87 @@ export function CsvImportDialog({
 						merge — rows that are not in the file are removed.
 					</DialogDescription>
 				</DialogHeader>
-
-				<div className="space-y-3">
-					<div>
-						<Label htmlFor={fileId} className="text-[13px]">
-							CSV file
-						</Label>
-						<input
-							ref={inputRef}
-							id={fileId}
-							type="file"
-							accept=".csv,text/csv"
-							disabled={busy}
-							autoComplete="off"
-							data-1p-ignore
-							onChange={(event) => void choose(event.target.files?.[0])}
-							className="mt-1 block w-full text-[13px] text-nova-text-secondary file:mr-3 file:min-h-11 file:cursor-pointer file:rounded-lg file:border file:border-nova-border file:bg-nova-elevated file:px-3 file:text-[13px] file:text-nova-text hover:file:bg-white/[0.05]"
-						/>
-					</div>
-
-					<p className="text-[12px] leading-snug text-nova-text-muted">
-						The first line must be exactly these headings, in any order:{" "}
-						<span className="[overflow-wrap:anywhere]">{headings}</span>
-					</p>
-
-					{fileState.kind === "reading" && (
-						<p role="status" className="text-[13px] text-nova-text-secondary">
-							Checking {fileState.name}…
-						</p>
-					)}
-
-					{selection !== undefined && !current && (
-						<div
-							role="alert"
-							className="rounded-lg border border-nova-amber/30 bg-nova-amber/[0.08] p-3"
-						>
-							<p className="text-[13px] leading-relaxed text-nova-text-secondary">
-								This table changed after “{selection.fileName}” was checked.
-								Review the same file against the latest columns and{" "}
-								{formatLookupCount(currentTable.rowCount, "row")} before
-								replacing anything.
-							</p>
-							<Button
-								type="button"
-								variant="outline"
-								className="mt-2 min-h-11"
+				<DialogBody>
+					<div className="space-y-3">
+						<div>
+							<Label htmlFor={fileId} className="text-[13px]">
+								CSV file
+							</Label>
+							<input
+								ref={inputRef}
+								id={fileId}
+								type="file"
+								accept=".csv,text/csv"
 								disabled={busy}
-								onClick={() => void reviewAgainstLatest()}
-							>
-								{reviewing
-									? "Loading latest table…"
-									: "Review file against latest table"}
-							</Button>
-						</div>
-					)}
-
-					{displayedProblem !== null && (
-						<ProblemDetails problem={displayedProblem} />
-					)}
-
-					{selection !== undefined && current && displayedProblem === null && (
-						<p
-							role="status"
-							className="flex items-center gap-2 text-[13px] text-nova-text-secondary"
-						>
-							<Icon
-								icon={tablerFileSpreadsheet}
-								width="16"
-								height="16"
-								className="shrink-0 text-nova-text-muted"
-								aria-hidden="true"
+								autoComplete="off"
+								data-1p-ignore
+								onChange={(event) => void choose(event.target.files?.[0])}
+								className="mt-1 block w-full text-[13px] text-nova-text-secondary file:mr-3 file:min-h-11 file:cursor-pointer file:rounded-lg file:border file:border-nova-border file:bg-nova-elevated file:px-3 file:text-[13px] file:text-nova-text hover:file:bg-white/[0.05]"
 							/>
-							{selection.fileName} —{" "}
-							{formatLookupCount(selection.rowCount, "row")}, checked against
-							the current table and ready to replace{" "}
-							{formatLookupCount(selection.replacedRowCount, "row")}.
-						</p>
-					)}
-				</div>
+						</div>
 
+						<p className="text-[12px] leading-snug text-nova-text-muted">
+							The first line must be exactly these headings, in any order:{" "}
+							<span className="[overflow-wrap:anywhere]">{headings}</span>
+						</p>
+
+						{fileState.kind === "reading" && (
+							<p role="status" className="text-[13px] text-nova-text-secondary">
+								Checking {fileState.name}…
+							</p>
+						)}
+
+						{selection !== undefined && !current && (
+							<div
+								role="alert"
+								className="rounded-lg border border-nova-amber/30 bg-nova-amber/[0.08] p-3"
+							>
+								<p className="text-[13px] leading-relaxed text-nova-text-secondary">
+									This table changed after “{selection.fileName}” was checked.
+									Review the same file against the latest columns and{" "}
+									{formatLookupCount(currentTable.rowCount, "row")} before
+									replacing anything.
+								</p>
+								<Button
+									type="button"
+									variant="outline"
+									className="mt-2 min-h-11"
+									disabled={busy}
+									onClick={() => void reviewAgainstLatest()}
+								>
+									{reviewing
+										? "Loading latest table…"
+										: "Review file against latest table"}
+								</Button>
+							</div>
+						)}
+
+						{displayedProblem !== null && (
+							<ProblemDetails problem={displayedProblem} />
+						)}
+
+						{selection !== undefined &&
+							current &&
+							displayedProblem === null && (
+								<p
+									role="status"
+									className="flex items-center gap-2 text-[13px] text-nova-text-secondary"
+								>
+									<Icon
+										icon={tablerFileSpreadsheet}
+										width="16"
+										height="16"
+										className="shrink-0 text-nova-text-muted"
+										aria-hidden="true"
+									/>
+									{selection.fileName} —{" "}
+									{formatLookupCount(selection.rowCount, "row")}, checked
+									against the current table and ready to replace{" "}
+									{formatLookupCount(selection.replacedRowCount, "row")}.
+								</p>
+							)}
+					</div>
+				</DialogBody>
 				<DialogFooter>
 					<Button
 						type="button"

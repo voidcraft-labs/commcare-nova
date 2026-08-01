@@ -29,6 +29,7 @@ import {
 import {
 	AlertDialog,
 	AlertDialogAction,
+	AlertDialogBody,
 	AlertDialogCancel,
 	AlertDialogContent,
 	AlertDialogDescription,
@@ -277,20 +278,22 @@ export function ConvertImpactDialog({
 						</AlertDialogDescription>
 					)}
 				</AlertDialogHeader>
-				{state.kind === "impact" && state.uncastable > 0 && (
-					<div className="rounded-lg border border-white/[0.06] bg-nova-deep/50 p-3 text-[13px] leading-relaxed text-nova-text-secondary">
-						{state.samples.map(sampleText).join(" · ")}
-						{state.uncastable > state.samples.length &&
-							` · and ${state.uncastable - state.samples.length} more`}
-						{state.alreadyHeld > 0 && (
-							<p className="mt-1 text-nova-text-muted">
-								{state.alreadyHeld} of the affected cases{" "}
-								{state.alreadyHeld === 1 ? "is" : "are"} already held for other
-								values.
-							</p>
-						)}
-					</div>
-				)}
+				<AlertDialogBody>
+					{state.kind === "impact" && state.uncastable > 0 && (
+						<div className="rounded-lg border border-white/[0.06] bg-nova-deep/50 p-3 text-[13px] leading-relaxed text-nova-text-secondary">
+							{state.samples.map(sampleText).join(" · ")}
+							{state.uncastable > state.samples.length &&
+								` · and ${state.uncastable - state.samples.length} more`}
+							{state.alreadyHeld > 0 && (
+								<p className="mt-1 text-nova-text-muted">
+									{state.alreadyHeld} of the affected cases{" "}
+									{state.alreadyHeld === 1 ? "is" : "are"} already held for
+									other values.
+								</p>
+							)}
+						</div>
+					)}
+				</AlertDialogBody>
 				<AlertDialogFooter>
 					<AlertDialogCancel>Cancel</AlertDialogCancel>
 					{state.kind === "impact" && state.uncastable > 0 && (

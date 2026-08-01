@@ -35,6 +35,7 @@ import {
 } from "@/components/shadcn/collapsible";
 import {
 	Dialog,
+	DialogBody,
 	DialogClose,
 	DialogContent,
 	DialogDescription,
@@ -764,118 +765,125 @@ export function RelationPathBuilder({
 							connection and the case type it reaches.
 						</DialogDescription>
 					</DialogHeader>
-					<div className="space-y-4 py-1">
-						<Field>
-							<FieldLabel htmlFor={`${id}-custom-identifier`}>
-								Connection name
-							</FieldLabel>
-							<Input
-								id={`${id}-custom-identifier`}
-								value={pendingCustomKindChange?.identifier ?? ""}
-								onChange={(event) =>
-									setPendingCustomKindChange((pending) =>
-										pending === null
-											? null
-											: { ...pending, identifier: event.target.value },
-									)
-								}
-								autoComplete="off"
-								data-1p-ignore
-								aria-invalid={
-									customIdentifier.length > 0 && !customIdentifierIsValid
-								}
-							/>
-							<FieldDescription>
-								Use the name already stored for this relationship, such as
-								guardian or host
-							</FieldDescription>
-							{customIdentifier.length > 0 && !customIdentifierIsValid ? (
-								<p role="alert" className="text-sm text-nova-rose">
-									Use a custom saved name with letters, numbers, or underscores
-								</p>
-							) : null}
-						</Field>
+					<DialogBody>
+						<div className="space-y-4 py-1">
+							<Field>
+								<FieldLabel htmlFor={`${id}-custom-identifier`}>
+									Connection name
+								</FieldLabel>
+								<Input
+									id={`${id}-custom-identifier`}
+									value={pendingCustomKindChange?.identifier ?? ""}
+									onChange={(event) =>
+										setPendingCustomKindChange((pending) =>
+											pending === null
+												? null
+												: { ...pending, identifier: event.target.value },
+										)
+									}
+									autoComplete="off"
+									data-1p-ignore
+									aria-invalid={
+										customIdentifier.length > 0 && !customIdentifierIsValid
+									}
+								/>
+								<FieldDescription>
+									Use the name already stored for this relationship, such as
+									guardian or host
+								</FieldDescription>
+								{customIdentifier.length > 0 && !customIdentifierIsValid ? (
+									<p role="alert" className="text-sm text-nova-rose">
+										Use a custom saved name with letters, numbers, or
+										underscores
+									</p>
+								) : null}
+							</Field>
 
-						<Field>
-							<FieldLabel htmlFor={`${id}-custom-destination`}>
-								Related case type
-							</FieldLabel>
-							<Select
-								value={
-									pendingCustomKindChange?.destinationCaseType ?? NO_CASE_TYPE
-								}
-								onValueChange={(next) =>
-									setPendingCustomKindChange((pending) =>
-										pending === null
-											? null
-											: {
-													...pending,
-													destinationCaseType:
-														next === null || next === NO_CASE_TYPE
-															? undefined
-															: next,
-												},
-									)
-								}
-							>
-								<SelectTrigger
-									id={`${id}-custom-destination`}
-									aria-label="Related case type"
-									className="h-11 w-full"
+							<Field>
+								<FieldLabel htmlFor={`${id}-custom-destination`}>
+									Related case type
+								</FieldLabel>
+								<Select
+									value={
+										pendingCustomKindChange?.destinationCaseType ?? NO_CASE_TYPE
+									}
+									onValueChange={(next) =>
+										setPendingCustomKindChange((pending) =>
+											pending === null
+												? null
+												: {
+														...pending,
+														destinationCaseType:
+															next === null || next === NO_CASE_TYPE
+																? undefined
+																: next,
+													},
+										)
+									}
 								>
-									<SelectValue>
-										{pendingCustomKindChange?.destinationCaseType === undefined
-											? "Choose a case type"
-											: caseTypeLabel(
-													pendingCustomKindChange.destinationCaseType,
-												)}
-									</SelectValue>
-								</SelectTrigger>
-								<SelectContent align="start">
-									<SelectItem value={NO_CASE_TYPE} disabled>
-										Choose a case type
-									</SelectItem>
-									{ctx.caseTypes.map((caseType) => {
-										const candidateAdmission =
-											pendingCustomKindChange === null ||
-											!customIdentifierIsValid
-												? ({ admitted: true } as const)
-												: (admitChange?.(
-														customRelationPath(
-															pendingCustomKindChange.target,
-															customIdentifier,
-															caseType.name,
-														),
-													) ?? { admitted: true as const });
-										return (
-											<SelectItem
-												key={caseType.name}
-												value={caseType.name}
-												disabled={!candidateAdmission.admitted}
-												wrap
-											>
-												<span className="min-w-0">
-													<span className="block">
-														{caseTypeLabel(caseType.name)}
-													</span>
-													{!candidateAdmission.admitted ? (
-														<span className="block text-xs font-normal text-nova-text-muted">
-															{candidateAdmission.reason}
+									<SelectTrigger
+										id={`${id}-custom-destination`}
+										aria-label="Related case type"
+										className="h-11 w-full"
+									>
+										<SelectValue>
+											{pendingCustomKindChange?.destinationCaseType ===
+											undefined
+												? "Choose a case type"
+												: caseTypeLabel(
+														pendingCustomKindChange.destinationCaseType,
+													)}
+										</SelectValue>
+									</SelectTrigger>
+									<SelectContent align="start">
+										<SelectItem value={NO_CASE_TYPE} disabled>
+											Choose a case type
+										</SelectItem>
+										{ctx.caseTypes.map((caseType) => {
+											const candidateAdmission =
+												pendingCustomKindChange === null ||
+												!customIdentifierIsValid
+													? ({ admitted: true } as const)
+													: (admitChange?.(
+															customRelationPath(
+																pendingCustomKindChange.target,
+																customIdentifier,
+																caseType.name,
+															),
+														) ?? { admitted: true as const });
+											return (
+												<SelectItem
+													key={caseType.name}
+													value={caseType.name}
+													disabled={!candidateAdmission.admitted}
+													wrap
+												>
+													<span className="min-w-0">
+														<span className="block">
+															{caseTypeLabel(caseType.name)}
 														</span>
-													) : null}
-												</span>
-											</SelectItem>
-										);
-									})}
-								</SelectContent>
-							</Select>
-						</Field>
-					</div>
-					{customAdmission.admitted === false ? (
-						<p role="alert" className="text-sm leading-relaxed text-nova-rose">
-							{customAdmission.reason}
-						</p>
-					) : null}
+														{!candidateAdmission.admitted ? (
+															<span className="block text-xs font-normal text-nova-text-muted">
+																{candidateAdmission.reason}
+															</span>
+														) : null}
+													</span>
+												</SelectItem>
+											);
+										})}
+									</SelectContent>
+								</Select>
+							</Field>
+						</div>
+						{customAdmission.admitted === false ? (
+							<p
+								role="alert"
+								className="text-sm leading-relaxed text-nova-rose"
+							>
+								{customAdmission.reason}
+							</p>
+						) : null}
+					</DialogBody>
 					<DialogFooter>
 						<DialogClose render={<Button variant="outline" />}>
 							Cancel

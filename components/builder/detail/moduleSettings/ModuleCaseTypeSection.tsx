@@ -19,6 +19,7 @@ import { CaseTypePicker } from "@/components/builder/shared/CaseTypePicker";
 import {
 	AlertDialog,
 	AlertDialogAction,
+	AlertDialogBody,
 	AlertDialogCancel,
 	AlertDialogContent,
 	AlertDialogDescription,
@@ -165,14 +166,16 @@ export function ModuleCaseTypeSection({
 								: "Search, Results, and Details will use the new case type."}
 						</AlertDialogDescription>
 					</AlertDialogHeader>
-					{switchError && (
-						<p
-							role="alert"
-							className="rounded-lg border border-nova-rose/30 bg-nova-rose/[0.06] p-3 text-sm leading-relaxed text-nova-rose"
-						>
-							{switchError}
-						</p>
-					)}
+					<AlertDialogBody>
+						{switchError && (
+							<p
+								role="alert"
+								className="rounded-lg border border-nova-rose/30 bg-nova-rose/[0.06] p-3 text-sm leading-relaxed text-nova-rose"
+							>
+								{switchError}
+							</p>
+						)}
+					</AlertDialogBody>
 					<AlertDialogFooter>
 						<AlertDialogCancel>Cancel</AlertDialogCancel>
 						<AlertDialogAction onClick={confirmCaseTypeSwitch}>
@@ -203,14 +206,16 @@ export function ModuleCaseTypeSection({
 								: "This module has no forms, so stopping case management would leave it empty. Add a form first."}
 						</AlertDialogDescription>
 					</AlertDialogHeader>
-					{clearError && (
-						<p
-							role="alert"
-							className="rounded-lg border border-nova-rose/30 bg-nova-rose/[0.06] p-3 text-sm leading-relaxed text-nova-rose"
-						>
-							{clearError}
-						</p>
-					)}
+					<AlertDialogBody>
+						{clearError && (
+							<p
+								role="alert"
+								className="rounded-lg border border-nova-rose/30 bg-nova-rose/[0.06] p-3 text-sm leading-relaxed text-nova-rose"
+							>
+								{clearError}
+							</p>
+						)}
+					</AlertDialogBody>
 					<AlertDialogFooter>
 						<AlertDialogCancel>
 							{hasForms ? "Cancel" : "Close"}

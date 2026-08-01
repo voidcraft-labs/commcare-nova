@@ -12,6 +12,7 @@ import tablerRefresh from "@iconify-icons/tabler/refresh";
 import { Button } from "@/components/shadcn/button";
 import {
 	Dialog,
+	DialogBody,
 	DialogContent,
 	DialogDescription,
 	DialogHeader,
@@ -186,56 +187,59 @@ export function CaseDetailDialog({
 					</DialogDescription>
 				</DialogHeader>
 
-				{state.kind === "loading" || state.kind === "idle" ? (
-					<LoadingTable />
-				) : state.kind === "error" ||
-					state.kind === "unauthenticated" ||
-					state.kind === "persona-unavailable" ? (
-					<div role="alert">
-						<p className="text-sm leading-relaxed text-nova-text-secondary">
-							{state.kind === "error"
-								? state.message
-								: state.kind === "persona-unavailable"
+				<DialogBody>
+					{state.kind === "loading" || state.kind === "idle" ? (
+						<LoadingTable />
+					) : state.kind === "error" ||
+						state.kind === "unauthenticated" ||
+						state.kind === "persona-unavailable" ? (
+						<div role="alert">
+							<p className="text-sm leading-relaxed text-nova-text-secondary">
+								{state.kind === "error"
 									? state.message
-									: "You're signed out. Reload the page to sign in again."}
+									: state.kind === "persona-unavailable"
+										? state.message
+										: "You're signed out. Reload the page to sign in again."}
+							</p>
+							<Button
+								type="button"
+								variant="outline"
+								className="mt-3 min-h-11"
+								onClick={() => void reload()}
+							>
+								<Icon icon={tablerRefresh} />
+								Try again
+							</Button>
+						</div>
+					) : row === null ? (
+						<p className="text-sm leading-relaxed text-nova-text-secondary">
+							This case isn’t here anymore. It may have been removed or
+							replaced.
 						</p>
-						<Button
-							type="button"
-							variant="outline"
-							className="mt-3 min-h-11"
-							onClick={() => void reload()}
-						>
-							<Icon icon={tablerRefresh} />
-							Try again
-						</Button>
-					</div>
-				) : row === null ? (
-					<p className="text-sm leading-relaxed text-nova-text-secondary">
-						This case isn’t here anymore. It may have been removed or replaced.
-					</p>
-				) : (
-					<table className="w-full border-collapse">
-						<tbody>
-							{rows.map(({ key, decl, value }) => (
-								<tr key={key} className="border-t border-nova-border">
-									<th
-										scope="row"
-										className="w-40 py-2.5 pr-4 text-left align-top font-normal"
-									>
-										{rowChip(key, decl)}
-									</th>
-									<td className="py-2.5 align-top text-sm leading-relaxed break-words text-nova-text [overflow-wrap:anywhere]">
-										{value === "" ? (
-											<span className="text-nova-text-muted">Empty</span>
-										) : (
-											value
-										)}
-									</td>
-								</tr>
-							))}
-						</tbody>
-					</table>
-				)}
+					) : (
+						<table className="w-full border-collapse">
+							<tbody>
+								{rows.map(({ key, decl, value }) => (
+									<tr key={key} className="border-t border-nova-border">
+										<th
+											scope="row"
+											className="w-40 py-2.5 pr-4 text-left align-top font-normal"
+										>
+											{rowChip(key, decl)}
+										</th>
+										<td className="py-2.5 align-top text-sm leading-relaxed break-words text-nova-text [overflow-wrap:anywhere]">
+											{value === "" ? (
+												<span className="text-nova-text-muted">Empty</span>
+											) : (
+												value
+											)}
+										</td>
+									</tr>
+								))}
+							</tbody>
+						</table>
+					)}
+				</DialogBody>
 			</DialogContent>
 		</Dialog>
 	);

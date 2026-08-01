@@ -43,6 +43,7 @@ import { Button } from "@/components/shadcn/button";
 import { DatePicker } from "@/components/shadcn/date-picker";
 import {
 	Dialog,
+	DialogBody,
 	DialogClose,
 	DialogContent,
 	DialogDescription,
@@ -745,46 +746,48 @@ function BarcodeScannerDialog({
 						{description}
 					</DialogDescription>
 				</DialogHeader>
-				<div className="relative grid aspect-video overflow-hidden rounded-lg border border-nova-border bg-nova-void">
-					{status.kind !== "error" && (
-						<video
-							ref={videoRef}
-							autoPlay
-							muted
-							playsInline
-							aria-label="Barcode camera preview"
-							className="size-full object-cover"
-						/>
-					)}
-					{status.kind === "starting" && (
-						<div className="absolute inset-0 grid place-items-center bg-nova-void">
-							<Spinner className="size-6 text-nova-text-secondary" />
-						</div>
-					)}
-					{status.kind === "scanning" && (
-						<div
-							aria-hidden="true"
-							className="pointer-events-none absolute inset-[16%] rounded-lg border-2 border-nova-violet-bright ring-[999px] ring-nova-void/60"
-						/>
-					)}
-					{status.kind === "error" && (
-						<div
-							role="alert"
-							className="grid place-items-center gap-2 p-6 text-center"
-						>
-							<Icon
-								icon={tablerAlertCircle}
-								className="size-8 text-nova-rose"
+				<DialogBody>
+					<div className="relative grid aspect-video overflow-hidden rounded-lg border border-nova-border bg-nova-void">
+						{status.kind !== "error" && (
+							<video
+								ref={videoRef}
+								autoPlay
+								muted
+								playsInline
+								aria-label="Barcode camera preview"
+								className="size-full object-cover"
 							/>
-							<p className="text-sm font-semibold text-nova-text">
-								{status.title}
-							</p>
-							<p className="max-w-sm text-sm text-nova-text-secondary">
-								{status.message}
-							</p>
-						</div>
-					)}
-				</div>
+						)}
+						{status.kind === "starting" && (
+							<div className="absolute inset-0 grid place-items-center bg-nova-void">
+								<Spinner className="size-6 text-nova-text-secondary" />
+							</div>
+						)}
+						{status.kind === "scanning" && (
+							<div
+								aria-hidden="true"
+								className="pointer-events-none absolute inset-[16%] rounded-lg border-2 border-nova-violet-bright ring-[999px] ring-nova-void/60"
+							/>
+						)}
+						{status.kind === "error" && (
+							<div
+								role="alert"
+								className="grid place-items-center gap-2 p-6 text-center"
+							>
+								<Icon
+									icon={tablerAlertCircle}
+									className="size-8 text-nova-rose"
+								/>
+								<p className="text-sm font-semibold text-nova-text">
+									{status.title}
+								</p>
+								<p className="max-w-sm text-sm text-nova-text-secondary">
+									{status.message}
+								</p>
+							</div>
+						)}
+					</div>
+				</DialogBody>
 				<DialogFooter>
 					<DialogClose
 						render={<Button type="button" variant="outline" size="xl" />}

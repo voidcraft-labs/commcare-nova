@@ -33,6 +33,7 @@ import { propertyDisplayLabel } from "@/components/builder/shared/primitives/pro
 import { Button } from "@/components/shadcn/button";
 import {
 	Dialog,
+	DialogBody,
 	DialogContent,
 	DialogDescription,
 	DialogFooter,
@@ -419,301 +420,307 @@ export function CasePropertyRenameDialog({
 					</DialogDescription>
 				</DialogHeader>
 
-				{(saving || preflightState.kind === "checking") && (
-					<p role="status" aria-live="polite" className="sr-only">
-						{saving ? "Saving case-property rename…" : "Checking impact…"}
-					</p>
-				)}
+				<DialogBody>
+					{(saving || preflightState.kind === "checking") && (
+						<p role="status" aria-live="polite" className="sr-only">
+							{saving ? "Saving case-property rename…" : "Checking impact…"}
+						</p>
+					)}
 
-				{stage === "overview" && (
-					<div className="grid max-h-[55dvh] gap-4 overflow-y-auto pr-1">
-						{orderedCaseTypes.map((caseType) => (
-							<section
-								key={caseType.name}
-								aria-labelledby={`case-properties-${caseType.name}`}
-								className="rounded-xl border border-nova-border"
-							>
-								<h3
-									id={`case-properties-${caseType.name}`}
-									className="border-b border-nova-border px-4 py-3 font-medium text-nova-text"
+					{stage === "overview" && (
+						<div className="grid max-h-[55dvh] gap-4 overflow-y-auto pr-1">
+							{orderedCaseTypes.map((caseType) => (
+								<section
+									key={caseType.name}
+									aria-labelledby={`case-properties-${caseType.name}`}
+									className="rounded-xl border border-nova-border"
 								>
-									{typeLabel(caseType.name)}
-								</h3>
-								<ul className="divide-y divide-nova-border">
-									{casePropertyInventoryNames(caseType).map((property) => {
-										const locked = CASE_SCALAR_PROPERTY_NAMES.has(property);
-										const authoredProperty = caseType.properties.find(
-											(candidate) => candidate.name === property,
-										);
-										return (
-											<li
-												key={property}
-												className="flex min-w-0 flex-wrap items-center gap-3 px-4 py-3"
-											>
-												<div className="min-w-0 flex-1">
-													<p className="break-words font-medium text-nova-text [overflow-wrap:anywhere]">
-														{authoredProperty === undefined
-															? propertyLabel(property)
-															: propertyDisplayLabel(
-																	authoredProperty,
-																	projectProse,
-																)}
-													</p>
-													<p className="break-all font-mono text-xs text-nova-text-muted">
-														#{caseType.name}/{property}
-													</p>
-												</div>
-												{locked ? (
-													<span className="inline-flex min-h-11 shrink-0 items-center gap-1.5 text-xs text-nova-text-muted">
-														<Icon icon={tablerLock} />
-														Managed by Nova
-													</span>
-												) : canEdit ? (
-													<Button
-														type="button"
-														variant="outline"
-														className="min-h-11 shrink-0"
-														onClick={() => addSource(caseType.name, property)}
-													>
-														<Icon icon={tablerEdit} />
-														Rename
-													</Button>
-												) : null}
-											</li>
-										);
-									})}
-								</ul>
-							</section>
-						))}
-					</div>
-				)}
-
-				{stage === "compose" && (
-					<div className="grid gap-4">
-						<div className="grid gap-3">
-							{rows.map((row, index) => {
-								const available = availableCasePropertyRenameSources(
-									sources,
-									rows,
-									index,
-								);
-								const rowError =
-									rowNameErrors[index] ??
-									(!review.ok && review.renameIndex === index
-										? review.reason
-										: null);
-								return (
-									<div
-										key={`${row.caseType}\0${row.property}`}
-										className="grid gap-3 rounded-xl border border-nova-border bg-nova-elevated/35 p-3 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto] sm:items-end"
+									<h3
+										id={`case-properties-${caseType.name}`}
+										className="border-b border-nova-border px-4 py-3 font-medium text-nova-text"
 									>
-										<div className="grid min-w-0 gap-1.5 text-xs font-medium text-nova-text-secondary">
-											<span id={`${nameInputId}-${index}-source`}>
-												Current property
-											</span>
-											<Select
-												value={casePropertyRenameSourceId(
-													row.caseType,
-													row.property,
-												)}
-												onValueChange={(value) => {
-													if (value === null) return;
-													const source = parseCasePropertyRenameSourceId(value);
-													if (source === undefined) return;
-													setRows((current) =>
-														current.map((candidate, candidateIndex) =>
-															candidateIndex === index
-																? { ...source, to: candidate.to }
-																: candidate,
-														),
-													);
-												}}
-											>
-												<SelectTrigger
-													aria-labelledby={`${nameInputId}-${index}-source`}
-													wrapValue
-													className="min-h-11 w-full"
+										{typeLabel(caseType.name)}
+									</h3>
+									<ul className="divide-y divide-nova-border">
+										{casePropertyInventoryNames(caseType).map((property) => {
+											const locked = CASE_SCALAR_PROPERTY_NAMES.has(property);
+											const authoredProperty = caseType.properties.find(
+												(candidate) => candidate.name === property,
+											);
+											return (
+												<li
+													key={property}
+													className="flex min-w-0 flex-wrap items-center gap-3 px-4 py-3"
 												>
-													<SelectValue>
-														#{row.caseType}/{row.property}
-													</SelectValue>
-												</SelectTrigger>
-												<SelectContent>
-													{orderedCaseTypes.map((caseType) => (
-														<SelectGroup key={caseType.name}>
-															<SelectLabel>
-																{typeLabel(caseType.name)}
-															</SelectLabel>
-															{available
-																.filter(
-																	(source) => source.caseType === caseType.name,
-																)
-																.map((source) => (
-																	<SelectItem
-																		key={casePropertyRenameSourceId(
-																			source.caseType,
-																			source.property,
-																		)}
-																		value={casePropertyRenameSourceId(
-																			source.caseType,
-																			source.property,
-																		)}
-																		wrap
-																	>
-																		#{source.caseType}/{source.property}
-																	</SelectItem>
-																))}
-														</SelectGroup>
-													))}
-												</SelectContent>
-											</Select>
+													<div className="min-w-0 flex-1">
+														<p className="break-words font-medium text-nova-text [overflow-wrap:anywhere]">
+															{authoredProperty === undefined
+																? propertyLabel(property)
+																: propertyDisplayLabel(
+																		authoredProperty,
+																		projectProse,
+																	)}
+														</p>
+														<p className="break-all font-mono text-xs text-nova-text-muted">
+															#{caseType.name}/{property}
+														</p>
+													</div>
+													{locked ? (
+														<span className="inline-flex min-h-11 shrink-0 items-center gap-1.5 text-xs text-nova-text-muted">
+															<Icon icon={tablerLock} />
+															Managed by Nova
+														</span>
+													) : canEdit ? (
+														<Button
+															type="button"
+															variant="outline"
+															className="min-h-11 shrink-0"
+															onClick={() => addSource(caseType.name, property)}
+														>
+															<Icon icon={tablerEdit} />
+															Rename
+														</Button>
+													) : null}
+												</li>
+											);
+										})}
+									</ul>
+								</section>
+							))}
+						</div>
+					)}
+
+					{stage === "compose" && (
+						<div className="grid gap-4">
+							<div className="grid gap-3">
+								{rows.map((row, index) => {
+									const available = availableCasePropertyRenameSources(
+										sources,
+										rows,
+										index,
+									);
+									const rowError =
+										rowNameErrors[index] ??
+										(!review.ok && review.renameIndex === index
+											? review.reason
+											: null);
+									return (
+										<div
+											key={`${row.caseType}\0${row.property}`}
+											className="grid gap-3 rounded-xl border border-nova-border bg-nova-elevated/35 p-3 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto] sm:items-end"
+										>
+											<div className="grid min-w-0 gap-1.5 text-xs font-medium text-nova-text-secondary">
+												<span id={`${nameInputId}-${index}-source`}>
+													Current property
+												</span>
+												<Select
+													value={casePropertyRenameSourceId(
+														row.caseType,
+														row.property,
+													)}
+													onValueChange={(value) => {
+														if (value === null) return;
+														const source =
+															parseCasePropertyRenameSourceId(value);
+														if (source === undefined) return;
+														setRows((current) =>
+															current.map((candidate, candidateIndex) =>
+																candidateIndex === index
+																	? { ...source, to: candidate.to }
+																	: candidate,
+															),
+														);
+													}}
+												>
+													<SelectTrigger
+														aria-labelledby={`${nameInputId}-${index}-source`}
+														wrapValue
+														className="min-h-11 w-full"
+													>
+														<SelectValue>
+															#{row.caseType}/{row.property}
+														</SelectValue>
+													</SelectTrigger>
+													<SelectContent>
+														{orderedCaseTypes.map((caseType) => (
+															<SelectGroup key={caseType.name}>
+																<SelectLabel>
+																	{typeLabel(caseType.name)}
+																</SelectLabel>
+																{available
+																	.filter(
+																		(source) =>
+																			source.caseType === caseType.name,
+																	)
+																	.map((source) => (
+																		<SelectItem
+																			key={casePropertyRenameSourceId(
+																				source.caseType,
+																				source.property,
+																			)}
+																			value={casePropertyRenameSourceId(
+																				source.caseType,
+																				source.property,
+																			)}
+																			wrap
+																		>
+																			#{source.caseType}/{source.property}
+																		</SelectItem>
+																	))}
+															</SelectGroup>
+														))}
+													</SelectContent>
+												</Select>
+											</div>
+											<Icon
+												icon={tablerArrowRight}
+												className="hidden self-center text-nova-text-muted sm:block"
+												aria-hidden="true"
+											/>
+											<label
+												htmlFor={`${nameInputId}-${index}`}
+												className="grid min-w-0 gap-1.5 text-xs font-medium text-nova-text-secondary"
+											>
+												New name
+												<Input
+													id={`${nameInputId}-${index}`}
+													value={row.to}
+													aria-invalid={rowError !== null}
+													aria-describedby={
+														rowError
+															? `${nameInputId}-${index}-error`
+															: undefined
+													}
+													className="min-h-11 font-mono"
+													placeholder="preferred_name"
+													autoComplete="off"
+													data-1p-ignore
+													onChange={(event) => {
+														const to = event.target.value;
+														setRows((current) =>
+															current.map((candidate, candidateIndex) =>
+																candidateIndex === index
+																	? { ...candidate, to }
+																	: candidate,
+															),
+														);
+														setError(null);
+													}}
+												/>
+												{rowError && (
+													<span
+														id={`${nameInputId}-${index}-error`}
+														className="text-xs leading-relaxed text-nova-rose"
+													>
+														{rowError}
+													</span>
+												)}
+											</label>
+											<Button
+												type="button"
+												variant="ghost"
+												size="icon-lg"
+												className="min-h-11 min-w-11 self-end text-nova-text-muted"
+												aria-label={`Remove rename for ${row.property}`}
+												onClick={() =>
+													setRows((current) =>
+														current.filter(
+															(_, candidateIndex) => candidateIndex !== index,
+														),
+													)
+												}
+											>
+												<Icon icon={tablerTrash} />
+											</Button>
 										</div>
+									);
+								})}
+							</div>
+							{availableCasePropertyRenameSources(sources, rows).length > 0 && (
+								<Select
+									value={null}
+									onValueChange={(value) => {
+										if (value === null) return;
+										const source = parseCasePropertyRenameSourceId(value);
+										if (source !== undefined) {
+											addSource(source.caseType, source.property);
+										}
+									}}
+								>
+									<SelectTrigger className="min-h-11 w-full sm:w-auto">
+										<Icon icon={tablerPlus} />
+										<SelectValue placeholder="Rename another property" />
+									</SelectTrigger>
+									<SelectContent>
+										{orderedCaseTypes.map((caseType) => (
+											<SelectGroup key={caseType.name}>
+												<SelectLabel>{typeLabel(caseType.name)}</SelectLabel>
+												{availableCasePropertyRenameSources(sources, rows)
+													.filter((source) => source.caseType === caseType.name)
+													.map((source) => (
+														<SelectItem
+															key={casePropertyRenameSourceId(
+																source.caseType,
+																source.property,
+															)}
+															value={casePropertyRenameSourceId(
+																source.caseType,
+																source.property,
+															)}
+															wrap
+														>
+															#{source.caseType}/{source.property}
+														</SelectItem>
+													))}
+											</SelectGroup>
+										))}
+									</SelectContent>
+								</Select>
+							)}
+							{!review.ok &&
+								rows.length > 0 &&
+								review.renameIndex === undefined && (
+									<p className="text-sm leading-relaxed text-nova-rose">
+										{review.reason}
+									</p>
+								)}
+						</div>
+					)}
+
+					{stage === "review" && review.ok && storageImpact !== null && (
+						<>
+							<ul className="grid gap-2">
+								{renames.map((rename) => (
+									<li
+										key={`${rename.caseType}\0${rename.from}`}
+										className="flex min-w-0 flex-wrap items-center gap-2 rounded-lg border border-nova-border px-3 py-2.5 font-mono text-xs"
+									>
+										<span className="break-all">
+											#{rename.caseType}/{rename.from}
+										</span>
 										<Icon
 											icon={tablerArrowRight}
-											className="hidden self-center text-nova-text-muted sm:block"
-											aria-hidden="true"
+											className="shrink-0 text-nova-text-muted"
 										/>
-										<label
-											htmlFor={`${nameInputId}-${index}`}
-											className="grid min-w-0 gap-1.5 text-xs font-medium text-nova-text-secondary"
-										>
-											New name
-											<Input
-												id={`${nameInputId}-${index}`}
-												value={row.to}
-												aria-invalid={rowError !== null}
-												aria-describedby={
-													rowError ? `${nameInputId}-${index}-error` : undefined
-												}
-												className="min-h-11 font-mono"
-												placeholder="preferred_name"
-												autoComplete="off"
-												data-1p-ignore
-												onChange={(event) => {
-													const to = event.target.value;
-													setRows((current) =>
-														current.map((candidate, candidateIndex) =>
-															candidateIndex === index
-																? { ...candidate, to }
-																: candidate,
-														),
-													);
-													setError(null);
-												}}
-											/>
-											{rowError && (
-												<span
-													id={`${nameInputId}-${index}-error`}
-													className="text-xs leading-relaxed text-nova-rose"
-												>
-													{rowError}
-												</span>
-											)}
-										</label>
-										<Button
-											type="button"
-											variant="ghost"
-											size="icon-lg"
-											className="min-h-11 min-w-11 self-end text-nova-text-muted"
-											aria-label={`Remove rename for ${row.property}`}
-											onClick={() =>
-												setRows((current) =>
-													current.filter(
-														(_, candidateIndex) => candidateIndex !== index,
-													),
-												)
-											}
-										>
-											<Icon icon={tablerTrash} />
-										</Button>
-									</div>
-								);
-							})}
-						</div>
-						{availableCasePropertyRenameSources(sources, rows).length > 0 && (
-							<Select
-								value={null}
-								onValueChange={(value) => {
-									if (value === null) return;
-									const source = parseCasePropertyRenameSourceId(value);
-									if (source !== undefined) {
-										addSource(source.caseType, source.property);
-									}
-								}}
-							>
-								<SelectTrigger className="min-h-11 w-full sm:w-auto">
-									<Icon icon={tablerPlus} />
-									<SelectValue placeholder="Rename another property" />
-								</SelectTrigger>
-								<SelectContent>
-									{orderedCaseTypes.map((caseType) => (
-										<SelectGroup key={caseType.name}>
-											<SelectLabel>{typeLabel(caseType.name)}</SelectLabel>
-											{availableCasePropertyRenameSources(sources, rows)
-												.filter((source) => source.caseType === caseType.name)
-												.map((source) => (
-													<SelectItem
-														key={casePropertyRenameSourceId(
-															source.caseType,
-															source.property,
-														)}
-														value={casePropertyRenameSourceId(
-															source.caseType,
-															source.property,
-														)}
-														wrap
-													>
-														#{source.caseType}/{source.property}
-													</SelectItem>
-												))}
-										</SelectGroup>
-									))}
-								</SelectContent>
-							</Select>
-						)}
-						{!review.ok &&
-							rows.length > 0 &&
-							review.renameIndex === undefined && (
-								<p className="text-sm leading-relaxed text-nova-rose">
-									{review.reason}
-								</p>
-							)}
-					</div>
-				)}
+										<span className="break-all">
+											#{rename.caseType}/{rename.to}
+										</span>
+									</li>
+								))}
+							</ul>
+							<ImpactReview impact={review.impact} storage={storageImpact} />
+						</>
+					)}
 
-				{stage === "review" && review.ok && storageImpact !== null && (
-					<>
-						<ul className="grid gap-2">
-							{renames.map((rename) => (
-								<li
-									key={`${rename.caseType}\0${rename.from}`}
-									className="flex min-w-0 flex-wrap items-center gap-2 rounded-lg border border-nova-border px-3 py-2.5 font-mono text-xs"
-								>
-									<span className="break-all">
-										#{rename.caseType}/{rename.from}
-									</span>
-									<Icon
-										icon={tablerArrowRight}
-										className="shrink-0 text-nova-text-muted"
-									/>
-									<span className="break-all">
-										#{rename.caseType}/{rename.to}
-									</span>
-								</li>
-							))}
-						</ul>
-						<ImpactReview impact={review.impact} storage={storageImpact} />
-					</>
-				)}
-
-				{error && (
-					<p
-						role="alert"
-						className="rounded-lg border border-nova-rose/30 bg-nova-rose/[0.06] p-3 text-sm leading-relaxed text-nova-rose"
-					>
-						{error}
-					</p>
-				)}
+					{error && (
+						<p
+							role="alert"
+							className="rounded-lg border border-nova-rose/30 bg-nova-rose/[0.06] p-3 text-sm leading-relaxed text-nova-rose"
+						>
+							{error}
+						</p>
+					)}
+				</DialogBody>
 
 				<DialogFooter className="flex-col-reverse sm:flex-row">
 					{stage === "overview" ? (

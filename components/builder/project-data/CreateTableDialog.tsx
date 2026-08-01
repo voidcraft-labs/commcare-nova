@@ -20,6 +20,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { Button } from "@/components/shadcn/button";
 import {
 	Dialog,
+	DialogBody,
 	DialogContent,
 	DialogDescription,
 	DialogFooter,
@@ -154,179 +155,183 @@ export function CreateTableDialog({
 					</DialogDescription>
 				</DialogHeader>
 
-				<FieldGroup>
-					<Field>
-						<FieldLabel htmlFor={nameId}>Table name</FieldLabel>
-						<Input
-							id={nameId}
-							value={name}
-							placeholder="Facilities"
-							autoComplete="off"
-							data-1p-ignore
-							disabled={working}
-							onChange={(event) => setName(event.target.value)}
-							className="h-11"
-						/>
-					</Field>
-					<Field>
-						<FieldLabel htmlFor={tagId}>Name in exports</FieldLabel>
-						<Input
-							id={tagId}
-							value={effectiveTag}
-							autoComplete="off"
-							data-1p-ignore
-							disabled={working}
-							onChange={(event) => {
-								setTagTouched(true);
-								setTag(event.target.value);
-							}}
-							className="h-11"
-						/>
-						<FieldDescription>
-							Letters, digits, and underscores. Changing it later needs admin
-							access.
-						</FieldDescription>
-					</Field>
-
-					<FieldSet>
-						<FieldLegend variant="label">Columns</FieldLegend>
-						{columns.map((column, index) => {
-							const labelId = `${columnIds}-${column.key}-label`;
-							const wireNameId = `${columnIds}-${column.key}-wire`;
-							const typeId = `${columnIds}-${column.key}-type`;
-							return (
-								/* A real fieldset per column: its legend captions the group, so
-								 * "Name people see" is announced inside "Column 2" rather than
-								 * arriving as the third identically-labelled input on screen.
-								 * The legend carries text only — the browser renders it into
-								 * the border line, which a 44px control would straddle — so
-								 * removal sits at the foot of the card, under its own name. */
-								<FieldSet
-									key={column.key}
-									className="gap-4 rounded-lg border border-nova-border p-3"
-								>
-									<FieldLegend
-										variant="label"
-										className="mb-0 text-nova-text-muted"
-									>
-										Column {index + 1}
-									</FieldLegend>
-									<Field>
-										<FieldLabel htmlFor={labelId}>Name people see</FieldLabel>
-										<Input
-											id={labelId}
-											value={column.label}
-											autoComplete="off"
-											data-1p-ignore
-											disabled={working}
-											onChange={(event) =>
-												patch(column.key, { label: event.target.value })
-											}
-											className="h-11"
-										/>
-									</Field>
-									<Field>
-										<FieldLabel htmlFor={wireNameId}>
-											Name in exports and CSV
-										</FieldLabel>
-										<Input
-											id={wireNameId}
-											value={
-												column.wireNameTouched
-													? column.wireName
-													: suggestWireName(column.label)
-											}
-											autoComplete="off"
-											data-1p-ignore
-											disabled={working}
-											onChange={(event) =>
-												patch(column.key, {
-													wireNameTouched: true,
-													wireName: event.target.value,
-												})
-											}
-											className="h-11"
-										/>
-										<FieldDescription>
-											This is the heading a CSV import must use.
-										</FieldDescription>
-									</Field>
-									<Field>
-										<FieldLabel htmlFor={typeId}>Type of value</FieldLabel>
-										<Select
-											value={column.dataType}
-											disabled={working}
-											onValueChange={(next) =>
-												patch(column.key, { dataType: next as LookupDataType })
-											}
-										>
-											{/* `min-h-11`, not `h-11`: the trigger's own height is a
-											 * `data-[size=…]` variant, which outranks a bare `h-*`
-											 * from a call site and would leave it 32px beside these
-											 * 44px inputs. */}
-											<SelectTrigger id={typeId} className="min-h-11 w-full">
-												<SelectValue>
-													{(selected) =>
-														COLUMN_TYPE_LABELS[selected as LookupDataType]
-													}
-												</SelectValue>
-											</SelectTrigger>
-											<SelectContent>
-												{LOOKUP_DATA_TYPES.map((candidate) => (
-													<SelectItem key={candidate} value={candidate}>
-														{COLUMN_TYPE_LABELS[candidate]}
-													</SelectItem>
-												))}
-											</SelectContent>
-										</Select>
-									</Field>
-									{columns.length > 1 && (
-										<Button
-											type="button"
-											variant="destructive"
-											className="min-h-11 gap-2 self-end"
-											disabled={working}
-											onClick={() =>
-												setColumns((current) =>
-													current.filter(
-														(candidate) => candidate.key !== column.key,
-													),
-												)
-											}
-										>
-											<Icon
-												icon={tablerTrash}
-												width="16"
-												height="16"
-												aria-hidden="true"
-											/>
-											Remove column {index + 1}
-										</Button>
-									)}
-								</FieldSet>
-							);
-						})}
-						<Button
-							type="button"
-							variant="outline"
-							className="min-h-11 gap-2 self-start"
-							disabled={working}
-							onClick={() =>
-								setColumns((current) => [...current, newColumnDraft()])
-							}
-						>
-							<Icon
-								icon={tablerPlus}
-								width="16"
-								height="16"
-								aria-hidden="true"
+				<DialogBody>
+					<FieldGroup>
+						<Field>
+							<FieldLabel htmlFor={nameId}>Table name</FieldLabel>
+							<Input
+								id={nameId}
+								value={name}
+								placeholder="Facilities"
+								autoComplete="off"
+								data-1p-ignore
+								disabled={working}
+								onChange={(event) => setName(event.target.value)}
+								className="h-11"
 							/>
-							Add another column
-						</Button>
-					</FieldSet>
+						</Field>
+						<Field>
+							<FieldLabel htmlFor={tagId}>Name in exports</FieldLabel>
+							<Input
+								id={tagId}
+								value={effectiveTag}
+								autoComplete="off"
+								data-1p-ignore
+								disabled={working}
+								onChange={(event) => {
+									setTagTouched(true);
+									setTag(event.target.value);
+								}}
+								className="h-11"
+							/>
+							<FieldDescription>
+								Letters, digits, and underscores. Changing it later needs admin
+								access.
+							</FieldDescription>
+						</Field>
 
-					<FieldError>{failure}</FieldError>
-				</FieldGroup>
+						<FieldSet>
+							<FieldLegend variant="label">Columns</FieldLegend>
+							{columns.map((column, index) => {
+								const labelId = `${columnIds}-${column.key}-label`;
+								const wireNameId = `${columnIds}-${column.key}-wire`;
+								const typeId = `${columnIds}-${column.key}-type`;
+								return (
+									/* A real fieldset per column: its legend captions the group, so
+									 * "Name people see" is announced inside "Column 2" rather than
+									 * arriving as the third identically-labelled input on screen.
+									 * The legend carries text only — the browser renders it into
+									 * the border line, which a 44px control would straddle — so
+									 * removal sits at the foot of the card, under its own name. */
+									<FieldSet
+										key={column.key}
+										className="gap-4 rounded-lg border border-nova-border p-3"
+									>
+										<FieldLegend
+											variant="label"
+											className="mb-0 text-nova-text-muted"
+										>
+											Column {index + 1}
+										</FieldLegend>
+										<Field>
+											<FieldLabel htmlFor={labelId}>Name people see</FieldLabel>
+											<Input
+												id={labelId}
+												value={column.label}
+												autoComplete="off"
+												data-1p-ignore
+												disabled={working}
+												onChange={(event) =>
+													patch(column.key, { label: event.target.value })
+												}
+												className="h-11"
+											/>
+										</Field>
+										<Field>
+											<FieldLabel htmlFor={wireNameId}>
+												Name in exports and CSV
+											</FieldLabel>
+											<Input
+												id={wireNameId}
+												value={
+													column.wireNameTouched
+														? column.wireName
+														: suggestWireName(column.label)
+												}
+												autoComplete="off"
+												data-1p-ignore
+												disabled={working}
+												onChange={(event) =>
+													patch(column.key, {
+														wireNameTouched: true,
+														wireName: event.target.value,
+													})
+												}
+												className="h-11"
+											/>
+											<FieldDescription>
+												This is the heading a CSV import must use.
+											</FieldDescription>
+										</Field>
+										<Field>
+											<FieldLabel htmlFor={typeId}>Type of value</FieldLabel>
+											<Select
+												value={column.dataType}
+												disabled={working}
+												onValueChange={(next) =>
+													patch(column.key, {
+														dataType: next as LookupDataType,
+													})
+												}
+											>
+												{/* `min-h-11`, not `h-11`: the trigger's own height is a
+												 * `data-[size=…]` variant, which outranks a bare `h-*`
+												 * from a call site and would leave it 32px beside these
+												 * 44px inputs. */}
+												<SelectTrigger id={typeId} className="min-h-11 w-full">
+													<SelectValue>
+														{(selected) =>
+															COLUMN_TYPE_LABELS[selected as LookupDataType]
+														}
+													</SelectValue>
+												</SelectTrigger>
+												<SelectContent>
+													{LOOKUP_DATA_TYPES.map((candidate) => (
+														<SelectItem key={candidate} value={candidate}>
+															{COLUMN_TYPE_LABELS[candidate]}
+														</SelectItem>
+													))}
+												</SelectContent>
+											</Select>
+										</Field>
+										{columns.length > 1 && (
+											<Button
+												type="button"
+												variant="destructive"
+												className="min-h-11 gap-2 self-end"
+												disabled={working}
+												onClick={() =>
+													setColumns((current) =>
+														current.filter(
+															(candidate) => candidate.key !== column.key,
+														),
+													)
+												}
+											>
+												<Icon
+													icon={tablerTrash}
+													width="16"
+													height="16"
+													aria-hidden="true"
+												/>
+												Remove column {index + 1}
+											</Button>
+										)}
+									</FieldSet>
+								);
+							})}
+							<Button
+								type="button"
+								variant="outline"
+								className="min-h-11 gap-2 self-start"
+								disabled={working}
+								onClick={() =>
+									setColumns((current) => [...current, newColumnDraft()])
+								}
+							>
+								<Icon
+									icon={tablerPlus}
+									width="16"
+									height="16"
+									aria-hidden="true"
+								/>
+								Add another column
+							</Button>
+						</FieldSet>
+
+						<FieldError>{failure}</FieldError>
+					</FieldGroup>
+				</DialogBody>
 
 				<DialogFooter>
 					<Button

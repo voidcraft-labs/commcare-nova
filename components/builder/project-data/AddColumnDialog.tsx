@@ -13,6 +13,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { Button } from "@/components/shadcn/button";
 import {
 	Dialog,
+	DialogBody,
 	DialogContent,
 	DialogDescription,
 	DialogFooter,
@@ -92,66 +93,70 @@ export function AddColumnDialog({
 					</DialogDescription>
 				</DialogHeader>
 
-				<FieldGroup>
-					<Field>
-						<FieldLabel htmlFor={labelId}>Name people see</FieldLabel>
-						<Input
-							id={labelId}
-							value={label}
-							autoComplete="off"
-							data-1p-ignore
-							disabled={working}
-							onChange={(event) => setLabel(event.target.value)}
-							className="h-11"
-						/>
-					</Field>
-					<Field>
-						<FieldLabel htmlFor={wireNameId}>
-							Name in exports and CSV
-						</FieldLabel>
-						<Input
-							id={wireNameId}
-							value={effectiveWireName}
-							autoComplete="off"
-							data-1p-ignore
-							disabled={working}
-							onChange={(event) => {
-								setWireNameTouched(true);
-								setWireName(event.target.value);
-							}}
-							className="h-11"
-						/>
-						<FieldDescription>
-							Letters, digits, and underscores; it cannot start with a digit.
-							This is the heading a CSV import must use.
-						</FieldDescription>
-					</Field>
-					<Field>
-						<FieldLabel htmlFor={typeId}>Type of value</FieldLabel>
-						<Select
-							value={dataType}
-							disabled={working}
-							onValueChange={(next) => setDataType(next as LookupDataType)}
-						>
-							{/* `min-h-11`, not `h-11`: the trigger's height is a
-							 * `data-[size=…]` variant, which outranks a bare `h-*` from a
-							 * call site and would leave it 32px beside these 44px inputs. */}
-							<SelectTrigger id={typeId} className="min-h-11 w-full">
-								<SelectValue>
-									{(selected) => COLUMN_TYPE_LABELS[selected as LookupDataType]}
-								</SelectValue>
-							</SelectTrigger>
-							<SelectContent>
-								{LOOKUP_DATA_TYPES.map((candidate) => (
-									<SelectItem key={candidate} value={candidate}>
-										{COLUMN_TYPE_LABELS[candidate]}
-									</SelectItem>
-								))}
-							</SelectContent>
-						</Select>
-					</Field>
-					<FieldError>{failure}</FieldError>
-				</FieldGroup>
+				<DialogBody>
+					<FieldGroup>
+						<Field>
+							<FieldLabel htmlFor={labelId}>Name people see</FieldLabel>
+							<Input
+								id={labelId}
+								value={label}
+								autoComplete="off"
+								data-1p-ignore
+								disabled={working}
+								onChange={(event) => setLabel(event.target.value)}
+								className="h-11"
+							/>
+						</Field>
+						<Field>
+							<FieldLabel htmlFor={wireNameId}>
+								Name in exports and CSV
+							</FieldLabel>
+							<Input
+								id={wireNameId}
+								value={effectiveWireName}
+								autoComplete="off"
+								data-1p-ignore
+								disabled={working}
+								onChange={(event) => {
+									setWireNameTouched(true);
+									setWireName(event.target.value);
+								}}
+								className="h-11"
+							/>
+							<FieldDescription>
+								Letters, digits, and underscores; it cannot start with a digit.
+								This is the heading a CSV import must use.
+							</FieldDescription>
+						</Field>
+						<Field>
+							<FieldLabel htmlFor={typeId}>Type of value</FieldLabel>
+							<Select
+								value={dataType}
+								disabled={working}
+								onValueChange={(next) => setDataType(next as LookupDataType)}
+							>
+								{/* `min-h-11`, not `h-11`: the trigger's height is a
+								 * `data-[size=…]` variant, which outranks a bare `h-*` from a
+								 * call site and would leave it 32px beside these 44px inputs. */}
+								<SelectTrigger id={typeId} className="min-h-11 w-full">
+									<SelectValue>
+										{(selected) =>
+											COLUMN_TYPE_LABELS[selected as LookupDataType]
+										}
+									</SelectValue>
+								</SelectTrigger>
+								<SelectContent>
+									{LOOKUP_DATA_TYPES.map((candidate) => (
+										<SelectItem key={candidate} value={candidate}>
+											{COLUMN_TYPE_LABELS[candidate]}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+						</Field>
+						<FieldError>{failure}</FieldError>
+					</FieldGroup>
+				</DialogBody>
 
 				<DialogFooter>
 					<Button

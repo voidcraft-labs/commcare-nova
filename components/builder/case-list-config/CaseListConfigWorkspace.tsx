@@ -46,6 +46,7 @@ import { RemoveRow } from "@/components/builder/inspector/inspectorChrome";
 import {
 	AlertDialog,
 	AlertDialogAction,
+	AlertDialogBody,
 	AlertDialogCancel,
 	AlertDialogContent,
 	AlertDialogDescription,
@@ -2459,40 +2460,42 @@ function SearchInputInspectorBody({
 							you can remove the field.
 						</AlertDialogDescription>
 					</AlertDialogHeader>
-					<ul aria-label={`Rules using ${inputLabel}`} className="grid gap-2">
-						{removalDependencies.map((dependency) => (
-							<li
-								key={`${dependency.kind}:${
-									dependency.kind === "search-field-condition"
-										? dependency.inputUuid
-										: "results"
-								}:${JSON.stringify(dependency.paths)}`}
-							>
-								<Button
-									type="button"
-									variant="outline"
-									size="xl"
-									onClick={() => {
-										navigatingReviewRef.current = true;
-										onReviewRemovalDependency(dependency);
-									}}
-									className="h-auto min-h-11 w-full justify-between gap-3 border-white/[0.08] bg-white/[0.025] px-3 py-2.5 text-left text-[14px]"
+					<AlertDialogBody>
+						<ul aria-label={`Rules using ${inputLabel}`} className="grid gap-2">
+							{removalDependencies.map((dependency) => (
+								<li
+									key={`${dependency.kind}:${
+										dependency.kind === "search-field-condition"
+											? dependency.inputUuid
+											: "results"
+									}:${JSON.stringify(dependency.paths)}`}
 								>
-									<span className="min-w-0 flex-1 break-words font-medium text-nova-text">
-										<span className="block">{dependency.label}</span>
-										<span className="mt-0.5 block text-[12px] font-normal text-nova-text-muted">
-											{dependency.paths.length === 1
-												? "Uses this answer once"
-												: `Uses this answer in ${dependency.paths.length} places`}
+									<Button
+										type="button"
+										variant="outline"
+										size="xl"
+										onClick={() => {
+											navigatingReviewRef.current = true;
+											onReviewRemovalDependency(dependency);
+										}}
+										className="h-auto min-h-11 w-full justify-between gap-3 border-white/[0.08] bg-white/[0.025] px-3 py-2.5 text-left text-[14px]"
+									>
+										<span className="min-w-0 flex-1 break-words font-medium text-nova-text">
+											<span className="block">{dependency.label}</span>
+											<span className="mt-0.5 block text-[12px] font-normal text-nova-text-muted">
+												{dependency.paths.length === 1
+													? "Uses this answer once"
+													: `Uses this answer in ${dependency.paths.length} places`}
+											</span>
 										</span>
-									</span>
-									<span className="shrink-0 font-medium text-nova-violet-bright">
-										Review
-									</span>
-								</Button>
-							</li>
-						))}
-					</ul>
+										<span className="shrink-0 font-medium text-nova-violet-bright">
+											Review
+										</span>
+									</Button>
+								</li>
+							))}
+						</ul>
+					</AlertDialogBody>
 					<AlertDialogFooter>
 						<AlertDialogCancel onClick={onCancelRemovalReview}>
 							Keep field
