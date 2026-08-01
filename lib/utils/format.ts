@@ -55,17 +55,9 @@ export function formatPeriodLabel(period: string): string {
  */
 export const STATUS_STYLES: Record<
 	"complete" | "generating" | "error",
-	{ bg: string; text: string; label: string }
+	{ variant: "emerald" | "violet" | "rose"; label: string }
 > = {
-	complete: {
-		bg: "bg-nova-emerald/15",
-		text: "text-nova-emerald",
-		label: "Complete",
-	},
-	generating: {
-		bg: "bg-nova-violet/15",
-		text: "text-nova-violet-bright",
-		label: "Generating",
-	},
-	error: { bg: "bg-nova-rose/15", text: "text-nova-rose", label: "Error" },
+	complete: { variant: "emerald", label: "Complete" },
+	generating: { variant: "violet", label: "Generating" },
+	error: { variant: "rose", label: "Error" },
 };

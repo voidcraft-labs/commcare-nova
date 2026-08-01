@@ -391,7 +391,7 @@ export function ChatInput({
 						<PromptInputSubmit
 							disabled={disabled || overLimit || !hasText}
 							status={submitting ? "submitted" : "ready"}
-							className="size-11 rounded-lg"
+							className="size-11 rounded-xl"
 						/>
 					</div>
 				</PromptInputFooter>

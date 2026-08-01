@@ -393,7 +393,7 @@
 	--animate-shimmer: nova-shimmer 1.5s ease-in-out infinite;
 	--animate-breathe: nova-breathe var(--duration-breathe, 3.6s) ease-in-out
 		infinite;
-	--font-heading: var(--font-sans);
+	--font-heading: var(--font-nova-sans);
 	/* Floating-tier + ambient shadows (soft, paper-in-low-light; the glass
 	   tiers wear a faint lit rim). shadow-md/lg keep Tailwind's names but
 	   resolve to Nova's ambient set. */
@@ -477,7 +477,7 @@
 body {
 	background: var(--nova-void);
 	color: var(--nova-text);
-	font-family: var(--font-sans);
+	font-family: var(--font-nova-sans);
 }
 
 /* Scrollbar defaults for scroll containers — a stable gutter so long-lived
@@ -976,7 +976,7 @@ body {
    shared with the LIVE readouts and inspector kickers; 7px was the
    scale's one outlier. */
 .nova-panel-etch {
-	font-family: var(--font-mono);
+	font-family: var(--font-nova-mono);
 	font-size: 9px;
 	letter-spacing: 0.15em;
 	text-transform: uppercase;
@@ -1110,7 +1110,7 @@ body {
 	opacity: 0.7;
 }
 .chat-markdown code {
-	font-family: var(--font-mono);
+	font-family: var(--font-nova-mono);
 	font-size: 0.85em;
 	background: rgba(150, 120, 242, 0.1);
 	border: 1px solid rgba(150, 120, 242, 0.15);
@@ -1243,7 +1243,7 @@ body {
 	font-style: italic;
 }
 .preview-markdown code {
-	font-family: var(--font-mono);
+	font-family: var(--font-nova-mono);
 	font-size: 0.85em;
 	background: var(--pv-input-bg);
 	border: 1px solid var(--pv-input-border);
@@ -1356,12 +1356,19 @@ body {
  * <button>, so a plain styled button reads as not-clickable. We always
  * want clickable things to look clickable — restore the pointer for every
  * enabled button (and role="button") that doesn't set its OWN cursor. The
- * `:not([class*="cursor-"])` guard leaves explicit cursors untouched:
- * drag handles (`cursor-grab`), disabled affordances (`cursor-not-allowed`),
- * inline text editors (`cursor-text`) keep theirs. This is the global
- * default so no individual button has to remember `cursor-pointer`. */
-button:not(:disabled):not([class*="cursor-"]),
-[role="button"]:not([aria-disabled="true"]):not([class*="cursor-"]) {
+ * guard leaves an explicit cursor untouched: drag handles (`cursor-grab`)
+ * and inline text editors (`cursor-text`) keep theirs. It matches only a
+ * BARE cursor utility, at the start of the class list or after a space. A
+ * VARIANT one (`disabled:cursor-not-allowed`) is preceded by a colon and
+ * deliberately does not count: it describes the disabled state, and
+ * treating it as an opt-out is what left every system control carrying
+ * that variant, selects and comboboxes included, on the default arrow
+ * while enabled. This is the global default so no individual button has
+ * to remember `cursor-pointer`. */
+button:not(:disabled):not([class^="cursor-"]):not([class*=" cursor-"]),
+[role="button"]:not([aria-disabled="true"]):not([class^="cursor-"]):not(
+	[class*=" cursor-"]
+) {
 	cursor: pointer;
 }
 
@@ -1568,7 +1575,8 @@ html.dark {
 .nova-docs #nd-page :not(pre) > code {
 	background: var(--nova-deep);
 	border: 1px solid var(--nova-border);
-	border-radius: 5px;
+	border-radius: var(--radius-sm);
+	font-family: var(--font-nova-mono);
 	padding: 0.1em 0.35em;
 	color: var(--nova-text);
 	font-size: 0.9em;
@@ -1586,8 +1594,12 @@ html.dark {
 		0 12px 32px rgba(0, 0, 0, 0.35);
 }
 
-.nova-docs figure.shiki :is(pre, code) {
+.nova-docs figure.shiki :is(pre, code),
+.nova-docs figure.shiki :is(pre, code) span {
 	background: transparent;
+	/* fumadocs' own `font-mono` resolves to the browser's ui-monospace
+	   stack, so code was set in SF Mono rather than the product's mono. */
+	font-family: var(--font-nova-mono);
 }
 
 .nova-docs figure.shiki [role="region"] {
@@ -1663,6 +1675,24 @@ html.dark {
 		var(--nova-deep)
 	);
 	border-color: var(--nova-border-bright);
+}
+
+/* The sidebar and table of contents inherit fumadocs' own muted neutral,
+   which is a cold gray with no place in Nova's warm plum palette. Point
+   them at the text ladder the rest of the product uses. */
+#nd-sidebar a[href],
+#nd-toc a[href],
+#nd-sidebar button {
+	color: var(--nova-text-secondary);
+}
+#nd-sidebar a[href]:hover,
+#nd-toc a[href]:hover,
+#nd-sidebar button:hover {
+	color: var(--nova-text);
+}
+#nd-sidebar a[data-active="true"],
+#nd-toc a[data-active="true"] {
+	color: var(--nova-violet-bright);
 }
 
 /* ─── docs chrome: the 44px floor ──────────────────────────────────

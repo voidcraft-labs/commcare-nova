@@ -143,7 +143,7 @@ export function ProjectSwitcher({
 		>
 			<Popover.Trigger
 				aria-label="Switch Project"
-				className="nova-focusable flex min-h-11 items-center gap-1.5 max-w-[200px] rounded-lg px-3 text-sm text-nova-text-muted transition-colors hover:text-nova-text hover:bg-white/5 cursor-pointer"
+				className="nova-focusable flex min-h-11 items-center gap-1.5 max-w-[200px] rounded-xl px-3 text-sm text-nova-text-muted transition-colors hover:text-nova-text hover:bg-white/5 cursor-pointer"
 			>
 				<Icon icon={tablerUsers} width="16" height="16" className="shrink-0" />
 				<span className="truncate font-medium">{active.name}</span>

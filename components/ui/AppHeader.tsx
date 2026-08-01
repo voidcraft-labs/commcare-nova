@@ -59,7 +59,7 @@ export function AppHeader({
 		<header className="border-b border-nova-border px-4 py-2.5 flex items-center bg-nova-void shrink-0">
 			<Link
 				href="/"
-				className="nova-focusable flex min-h-11 items-center rounded-lg px-1"
+				className="nova-focusable flex min-h-11 items-center rounded-xl px-1"
 			>
 				<Logo size="sm" />
 			</Link>

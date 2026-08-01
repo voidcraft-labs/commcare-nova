@@ -43,7 +43,7 @@ export function AppSettingsButton() {
 	return (
 		<Popover.Root open={open} onOpenChange={setOpen}>
 			<Popover.Trigger
-				className="flex items-center justify-center gap-1 min-w-[44px] min-h-[44px] rounded-lg transition-colors cursor-pointer text-nova-text-muted hover:text-nova-text hover:bg-white/5 data-[popup-open]:text-nova-text data-[popup-open]:bg-white/5"
+				className="nova-focusable flex items-center justify-center gap-1 min-w-11 min-h-11 rounded-xl transition-colors cursor-pointer text-nova-text-muted hover:text-nova-text hover:bg-white/[0.06] data-[popup-open]:text-nova-text data-[popup-open]:bg-white/[0.06]"
 				aria-label="App settings"
 			>
 				<Icon icon={tablerSettings} width="18" height="18" />

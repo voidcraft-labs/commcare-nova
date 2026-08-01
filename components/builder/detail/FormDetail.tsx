@@ -70,7 +70,7 @@ export function FormTypeButton({
 			{editable ? (
 				<Menu.Root>
 					<Menu.Trigger
-						className="nova-focusable -ml-1.5 flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-lg text-nova-text-muted transition-colors cursor-pointer hover:text-nova-text hover:bg-white/[0.06]"
+						className="nova-focusable -ml-1.5 flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-xl text-nova-text-muted transition-colors cursor-pointer hover:text-nova-text hover:bg-white/[0.06]"
 						aria-label="Change form type"
 					>
 						<Icon icon={icon} width="18" height="18" />

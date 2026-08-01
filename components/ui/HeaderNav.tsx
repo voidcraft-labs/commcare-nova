@@ -54,7 +54,7 @@ const NAV_ITEMS: NavItem[] = [
  *  1px nudge text-tier controls use, not a scale. */
 function navLinkClass(active: boolean): string {
 	const base =
-		"flex min-h-11 items-center gap-1.5 px-3 text-sm rounded-lg transition-all active:translate-y-px cursor-pointer";
+		"nova-focusable flex min-h-11 items-center gap-1.5 px-3 text-sm rounded-xl transition-all active:translate-y-px cursor-pointer";
 	return active
 		? `${base} text-nova-text bg-white/[0.08]`
 		: `${base} text-nova-text-secondary hover:text-nova-text hover:bg-white/[0.06]`;

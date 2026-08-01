@@ -383,7 +383,7 @@ export function CaseDataManager({
 					ref={triggerRef}
 					render={<Button type="button" variant="outline" />}
 					aria-label={triggerLabel}
-					className="relative min-h-11 shrink-0 gap-2 rounded-lg border-nova-border bg-nova-surface/70 px-2.5 text-sm text-nova-text-secondary not-disabled:hover:border-nova-violet/45 not-disabled:hover:bg-nova-elevated not-disabled:hover:text-nova-text xl:px-3"
+					className="relative min-h-11 shrink-0 gap-2 rounded-xl border-nova-border bg-nova-surface/70 px-2.5 text-sm text-nova-text-secondary not-disabled:hover:border-nova-violet/45 not-disabled:hover:bg-nova-elevated not-disabled:hover:text-nova-text xl:px-3"
 				>
 					<Icon icon={tablerDatabase} width="16" height="16" />
 					<span className="inline-flex items-center gap-2">

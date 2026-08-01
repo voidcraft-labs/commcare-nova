@@ -16,7 +16,7 @@ import { useRejectionShake } from "@/lib/ui/hooks/useShake";
 const MEASURE_SPAN_CLASS =
 	"text-lg font-display font-semibold px-1 border border-transparent absolute invisible whitespace-pre";
 const INPUT_BASE_CLASS =
-	"min-h-11 text-lg font-display font-semibold outline-none rounded px-1 -mx-1 border text-nova-text";
+	"min-h-11 text-lg font-display font-semibold outline-none rounded-lg px-1 -mx-1 border text-nova-text";
 
 interface EditableTitleBaseProps {
 	value: string;

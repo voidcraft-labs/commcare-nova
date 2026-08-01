@@ -196,7 +196,7 @@ export function ProjectMembers({
 	 * path instead of promising the temporarily blocked app move. */
 	if (personal) {
 		return (
-			<section className="rounded-xl border border-nova-border bg-nova-surface overflow-hidden">
+			<section className="rounded-lg border border-nova-border bg-nova-surface overflow-hidden">
 				<div className="flex items-center gap-3 px-6 py-4 border-b border-nova-border/50">
 					<div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-nova-violet/10">
 						<Icon
@@ -320,7 +320,7 @@ export function ProjectMembers({
 	}
 
 	return (
-		<section className="rounded-xl border border-nova-border bg-nova-surface overflow-hidden">
+		<section className="rounded-lg border border-nova-border bg-nova-surface overflow-hidden">
 			{/* ── Card header ───────────────────────────────────────── */}
 			<div className="flex items-center gap-3 px-6 py-4 border-b border-nova-border/50">
 				<div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-nova-violet/10">

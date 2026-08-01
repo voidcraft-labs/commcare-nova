@@ -62,7 +62,7 @@ export function FormSettingsButton({
 	return (
 		<Popover.Root open={open} onOpenChange={handleOpenChange}>
 			<Popover.Trigger
-				className="nova-focusable ml-auto flex min-h-11 min-w-11 items-center justify-center gap-1 rounded-lg transition-colors cursor-pointer text-nova-text-muted hover:text-nova-text hover:bg-white/[0.06]"
+				className="nova-focusable ml-auto flex min-h-11 min-w-11 items-center justify-center gap-1 rounded-xl transition-colors cursor-pointer text-nova-text-muted hover:text-nova-text hover:bg-white/[0.06]"
 				aria-label="Form settings"
 			>
 				<Icon icon={tablerSettings} width="18" height="18" />

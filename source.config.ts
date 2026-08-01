@@ -1,4 +1,8 @@
 import { defineConfig, defineDocs } from "fumadocs-mdx/config";
+import {
+	NOVA_CODE_THEME_DARK,
+	NOVA_CODE_THEME_LIGHT,
+} from "./lib/docs/shikiTheme";
 
 export const docs = defineDocs({
 	dir: "content/docs",
@@ -21,5 +25,12 @@ export const docs = defineDocs({
 export default defineConfig({
 	mdxOptions: {
 		providerImportSource: "@/mdx-components",
+		/* fumadocs defaults to GitHub Light/Dark, which puts blues on JSON
+		 * keys and a salmon on shell keywords. Nova publishes its own code
+		 * palette and no borrowed blues, so both slots take it; the app is
+		 * dark-only, so there is no light mode to serve. */
+		rehypeCodeOptions: {
+			themes: { light: NOVA_CODE_THEME_LIGHT, dark: NOVA_CODE_THEME_DARK },
+		},
 	},
 });

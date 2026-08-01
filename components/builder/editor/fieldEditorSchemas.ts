@@ -220,17 +220,17 @@ const textFieldEditorSchema: FieldEditorSchema<TextField> = {
 		xpathEntry<TextField, "validate">("validate", "Validation"),
 		mediaEntry<TextField, "validate_msg_media">(
 			"validate_msg_media",
-			"Validation Message Media",
+			"Validation message media",
 		),
-		xpathEntry<TextField, "relevant">("relevant", "Show When"),
-		xpathEntry<TextField, "default_value">("default_value", "Default Value"),
+		xpathEntry<TextField, "relevant">("relevant", "Show when"),
+		xpathEntry<TextField, "default_value">("default_value", "Default value"),
 	],
 	ui: [
-		mediaEntry<TextField, "label_media">("label_media", "Label Media"),
+		mediaEntry<TextField, "label_media">("label_media", "Label media"),
 		hintEntry<TextField>(),
-		mediaEntry<TextField, "hint_media">("hint_media", "Hint Media"),
+		mediaEntry<TextField, "hint_media">("hint_media", "Hint media"),
 		textEntry<TextField, "help">("help", "Help"),
-		mediaEntry<TextField, "help_media">("help_media", "Help Media"),
+		mediaEntry<TextField, "help_media">("help_media", "Help media"),
 	],
 };
 
@@ -241,17 +241,17 @@ const intFieldEditorSchema: FieldEditorSchema<IntField> = {
 		xpathEntry<IntField, "validate">("validate", "Validation"),
 		mediaEntry<IntField, "validate_msg_media">(
 			"validate_msg_media",
-			"Validation Message Media",
+			"Validation message media",
 		),
-		xpathEntry<IntField, "relevant">("relevant", "Show When"),
-		xpathEntry<IntField, "default_value">("default_value", "Default Value"),
+		xpathEntry<IntField, "relevant">("relevant", "Show when"),
+		xpathEntry<IntField, "default_value">("default_value", "Default value"),
 	],
 	ui: [
-		mediaEntry<IntField, "label_media">("label_media", "Label Media"),
+		mediaEntry<IntField, "label_media">("label_media", "Label media"),
 		hintEntry<IntField>(),
-		mediaEntry<IntField, "hint_media">("hint_media", "Hint Media"),
+		mediaEntry<IntField, "hint_media">("hint_media", "Hint media"),
 		textEntry<IntField, "help">("help", "Help"),
-		mediaEntry<IntField, "help_media">("help_media", "Help Media"),
+		mediaEntry<IntField, "help_media">("help_media", "Help media"),
 	],
 };
 
@@ -262,17 +262,17 @@ const decimalFieldEditorSchema: FieldEditorSchema<DecimalField> = {
 		xpathEntry<DecimalField, "validate">("validate", "Validation"),
 		mediaEntry<DecimalField, "validate_msg_media">(
 			"validate_msg_media",
-			"Validation Message Media",
+			"Validation message media",
 		),
-		xpathEntry<DecimalField, "relevant">("relevant", "Show When"),
-		xpathEntry<DecimalField, "default_value">("default_value", "Default Value"),
+		xpathEntry<DecimalField, "relevant">("relevant", "Show when"),
+		xpathEntry<DecimalField, "default_value">("default_value", "Default value"),
 	],
 	ui: [
-		mediaEntry<DecimalField, "label_media">("label_media", "Label Media"),
+		mediaEntry<DecimalField, "label_media">("label_media", "Label media"),
 		hintEntry<DecimalField>(),
-		mediaEntry<DecimalField, "hint_media">("hint_media", "Hint Media"),
+		mediaEntry<DecimalField, "hint_media">("hint_media", "Hint media"),
 		textEntry<DecimalField, "help">("help", "Help"),
-		mediaEntry<DecimalField, "help_media">("help_media", "Help Media"),
+		mediaEntry<DecimalField, "help_media">("help_media", "Help media"),
 	],
 };
 
@@ -283,17 +283,17 @@ const dateFieldEditorSchema: FieldEditorSchema<DateField> = {
 		xpathEntry<DateField, "validate">("validate", "Validation"),
 		mediaEntry<DateField, "validate_msg_media">(
 			"validate_msg_media",
-			"Validation Message Media",
+			"Validation message media",
 		),
-		xpathEntry<DateField, "relevant">("relevant", "Show When"),
-		xpathEntry<DateField, "default_value">("default_value", "Default Value"),
+		xpathEntry<DateField, "relevant">("relevant", "Show when"),
+		xpathEntry<DateField, "default_value">("default_value", "Default value"),
 	],
 	ui: [
-		mediaEntry<DateField, "label_media">("label_media", "Label Media"),
+		mediaEntry<DateField, "label_media">("label_media", "Label media"),
 		hintEntry<DateField>(),
-		mediaEntry<DateField, "hint_media">("hint_media", "Hint Media"),
+		mediaEntry<DateField, "hint_media">("hint_media", "Hint media"),
 		textEntry<DateField, "help">("help", "Help"),
-		mediaEntry<DateField, "help_media">("help_media", "Help Media"),
+		mediaEntry<DateField, "help_media">("help_media", "Help media"),
 	],
 };
 
@@ -304,17 +304,17 @@ const timeFieldEditorSchema: FieldEditorSchema<TimeField> = {
 		xpathEntry<TimeField, "validate">("validate", "Validation"),
 		mediaEntry<TimeField, "validate_msg_media">(
 			"validate_msg_media",
-			"Validation Message Media",
+			"Validation message media",
 		),
-		xpathEntry<TimeField, "relevant">("relevant", "Show When"),
-		xpathEntry<TimeField, "default_value">("default_value", "Default Value"),
+		xpathEntry<TimeField, "relevant">("relevant", "Show when"),
+		xpathEntry<TimeField, "default_value">("default_value", "Default value"),
 	],
 	ui: [
-		mediaEntry<TimeField, "label_media">("label_media", "Label Media"),
+		mediaEntry<TimeField, "label_media">("label_media", "Label media"),
 		hintEntry<TimeField>(),
-		mediaEntry<TimeField, "hint_media">("hint_media", "Hint Media"),
+		mediaEntry<TimeField, "hint_media">("hint_media", "Hint media"),
 		textEntry<TimeField, "help">("help", "Help"),
-		mediaEntry<TimeField, "help_media">("help_media", "Help Media"),
+		mediaEntry<TimeField, "help_media">("help_media", "Help media"),
 	],
 };
 
@@ -325,20 +325,20 @@ const datetimeFieldEditorSchema: FieldEditorSchema<DatetimeField> = {
 		xpathEntry<DatetimeField, "validate">("validate", "Validation"),
 		mediaEntry<DatetimeField, "validate_msg_media">(
 			"validate_msg_media",
-			"Validation Message Media",
+			"Validation message media",
 		),
-		xpathEntry<DatetimeField, "relevant">("relevant", "Show When"),
+		xpathEntry<DatetimeField, "relevant">("relevant", "Show when"),
 		xpathEntry<DatetimeField, "default_value">(
 			"default_value",
-			"Default Value",
+			"Default value",
 		),
 	],
 	ui: [
-		mediaEntry<DatetimeField, "label_media">("label_media", "Label Media"),
+		mediaEntry<DatetimeField, "label_media">("label_media", "Label media"),
 		hintEntry<DatetimeField>(),
-		mediaEntry<DatetimeField, "hint_media">("hint_media", "Hint Media"),
+		mediaEntry<DatetimeField, "hint_media">("hint_media", "Hint media"),
 		textEntry<DatetimeField, "help">("help", "Help"),
-		mediaEntry<DatetimeField, "help_media">("help_media", "Help Media"),
+		mediaEntry<DatetimeField, "help_media">("help_media", "Help media"),
 	],
 };
 
@@ -349,17 +349,17 @@ const secretFieldEditorSchema: FieldEditorSchema<SecretField> = {
 		xpathEntry<SecretField, "validate">("validate", "Validation"),
 		mediaEntry<SecretField, "validate_msg_media">(
 			"validate_msg_media",
-			"Validation Message Media",
+			"Validation message media",
 		),
-		xpathEntry<SecretField, "relevant">("relevant", "Show When"),
-		xpathEntry<SecretField, "default_value">("default_value", "Default Value"),
+		xpathEntry<SecretField, "relevant">("relevant", "Show when"),
+		xpathEntry<SecretField, "default_value">("default_value", "Default value"),
 	],
 	ui: [
-		mediaEntry<SecretField, "label_media">("label_media", "Label Media"),
+		mediaEntry<SecretField, "label_media">("label_media", "Label media"),
 		hintEntry<SecretField>(),
-		mediaEntry<SecretField, "hint_media">("hint_media", "Hint Media"),
+		mediaEntry<SecretField, "hint_media">("hint_media", "Hint media"),
 		textEntry<SecretField, "help">("help", "Help"),
-		mediaEntry<SecretField, "help_media">("help_media", "Help Media"),
+		mediaEntry<SecretField, "help_media">("help_media", "Help media"),
 	],
 };
 
@@ -370,17 +370,17 @@ const barcodeFieldEditorSchema: FieldEditorSchema<BarcodeField> = {
 		xpathEntry<BarcodeField, "validate">("validate", "Validation"),
 		mediaEntry<BarcodeField, "validate_msg_media">(
 			"validate_msg_media",
-			"Validation Message Media",
+			"Validation message media",
 		),
-		xpathEntry<BarcodeField, "relevant">("relevant", "Show When"),
-		xpathEntry<BarcodeField, "default_value">("default_value", "Default Value"),
+		xpathEntry<BarcodeField, "relevant">("relevant", "Show when"),
+		xpathEntry<BarcodeField, "default_value">("default_value", "Default value"),
 	],
 	ui: [
-		mediaEntry<BarcodeField, "label_media">("label_media", "Label Media"),
+		mediaEntry<BarcodeField, "label_media">("label_media", "Label media"),
 		hintEntry<BarcodeField>(),
-		mediaEntry<BarcodeField, "hint_media">("hint_media", "Hint Media"),
+		mediaEntry<BarcodeField, "hint_media">("hint_media", "Hint media"),
 		textEntry<BarcodeField, "help">("help", "Help"),
-		mediaEntry<BarcodeField, "help_media">("help_media", "Help Media"),
+		mediaEntry<BarcodeField, "help_media">("help_media", "Help media"),
 	],
 };
 
@@ -390,18 +390,18 @@ const geopointFieldEditorSchema: FieldEditorSchema<GeopointField> = {
 	data: [caseWriteEntry<GeopointField>()],
 	logic: [
 		requiredEntry<GeopointField>(),
-		xpathEntry<GeopointField, "relevant">("relevant", "Show When"),
+		xpathEntry<GeopointField, "relevant">("relevant", "Show when"),
 		xpathEntry<GeopointField, "default_value">(
 			"default_value",
-			"Default Value",
+			"Default value",
 		),
 	],
 	ui: [
-		mediaEntry<GeopointField, "label_media">("label_media", "Label Media"),
+		mediaEntry<GeopointField, "label_media">("label_media", "Label media"),
 		hintEntry<GeopointField>(),
-		mediaEntry<GeopointField, "hint_media">("hint_media", "Hint Media"),
+		mediaEntry<GeopointField, "hint_media">("hint_media", "Hint media"),
 		textEntry<GeopointField, "help">("help", "Help"),
-		mediaEntry<GeopointField, "help_media">("help_media", "Help Media"),
+		mediaEntry<GeopointField, "help_media">("help_media", "Help media"),
 	],
 };
 
@@ -419,20 +419,20 @@ const singleSelectFieldEditorSchema: FieldEditorSchema<SingleSelectField> = {
 		xpathEntry<SingleSelectField, "validate">("validate", "Validation"),
 		mediaEntry<SingleSelectField, "validate_msg_media">(
 			"validate_msg_media",
-			"Validation Message Media",
+			"Validation message media",
 		),
-		xpathEntry<SingleSelectField, "relevant">("relevant", "Show When"),
+		xpathEntry<SingleSelectField, "relevant">("relevant", "Show when"),
 		xpathEntry<SingleSelectField, "default_value">(
 			"default_value",
-			"Default Value",
+			"Default value",
 		),
 	],
 	ui: [
-		mediaEntry<SingleSelectField, "label_media">("label_media", "Label Media"),
+		mediaEntry<SingleSelectField, "label_media">("label_media", "Label media"),
 		hintEntry<SingleSelectField>(),
-		mediaEntry<SingleSelectField, "hint_media">("hint_media", "Hint Media"),
+		mediaEntry<SingleSelectField, "hint_media">("hint_media", "Hint media"),
 		textEntry<SingleSelectField, "help">("help", "Help"),
-		mediaEntry<SingleSelectField, "help_media">("help_media", "Help Media"),
+		mediaEntry<SingleSelectField, "help_media">("help_media", "Help media"),
 	],
 };
 
@@ -450,20 +450,20 @@ const multiSelectFieldEditorSchema: FieldEditorSchema<MultiSelectField> = {
 		xpathEntry<MultiSelectField, "validate">("validate", "Validation"),
 		mediaEntry<MultiSelectField, "validate_msg_media">(
 			"validate_msg_media",
-			"Validation Message Media",
+			"Validation message media",
 		),
-		xpathEntry<MultiSelectField, "relevant">("relevant", "Show When"),
+		xpathEntry<MultiSelectField, "relevant">("relevant", "Show when"),
 		xpathEntry<MultiSelectField, "default_value">(
 			"default_value",
-			"Default Value",
+			"Default value",
 		),
 	],
 	ui: [
-		mediaEntry<MultiSelectField, "label_media">("label_media", "Label Media"),
+		mediaEntry<MultiSelectField, "label_media">("label_media", "Label media"),
 		hintEntry<MultiSelectField>(),
-		mediaEntry<MultiSelectField, "hint_media">("hint_media", "Hint Media"),
+		mediaEntry<MultiSelectField, "hint_media">("hint_media", "Hint media"),
 		textEntry<MultiSelectField, "help">("help", "Help"),
-		mediaEntry<MultiSelectField, "help_media">("help_media", "Help Media"),
+		mediaEntry<MultiSelectField, "help_media">("help_media", "Help media"),
 	],
 };
 
@@ -474,10 +474,10 @@ const imageFieldEditorSchema: FieldEditorSchema<ImageField> = {
 	data: [],
 	logic: [
 		requiredEntry<ImageField>(),
-		xpathEntry<ImageField, "relevant">("relevant", "Show When"),
+		xpathEntry<ImageField, "relevant">("relevant", "Show when"),
 	],
 	ui: [
-		mediaEntry<ImageField, "label_media">("label_media", "Label Media"),
+		mediaEntry<ImageField, "label_media">("label_media", "Label media"),
 		hintEntry<ImageField>(),
 	],
 };
@@ -486,10 +486,10 @@ const audioFieldEditorSchema: FieldEditorSchema<AudioField> = {
 	data: [],
 	logic: [
 		requiredEntry<AudioField>(),
-		xpathEntry<AudioField, "relevant">("relevant", "Show When"),
+		xpathEntry<AudioField, "relevant">("relevant", "Show when"),
 	],
 	ui: [
-		mediaEntry<AudioField, "label_media">("label_media", "Label Media"),
+		mediaEntry<AudioField, "label_media">("label_media", "Label media"),
 		hintEntry<AudioField>(),
 	],
 };
@@ -498,10 +498,10 @@ const videoFieldEditorSchema: FieldEditorSchema<VideoField> = {
 	data: [],
 	logic: [
 		requiredEntry<VideoField>(),
-		xpathEntry<VideoField, "relevant">("relevant", "Show When"),
+		xpathEntry<VideoField, "relevant">("relevant", "Show when"),
 	],
 	ui: [
-		mediaEntry<VideoField, "label_media">("label_media", "Label Media"),
+		mediaEntry<VideoField, "label_media">("label_media", "Label media"),
 		hintEntry<VideoField>(),
 	],
 };
@@ -510,10 +510,10 @@ const fileFieldEditorSchema: FieldEditorSchema<FileField> = {
 	data: [],
 	logic: [
 		requiredEntry<FileField>(),
-		xpathEntry<FileField, "relevant">("relevant", "Show When"),
+		xpathEntry<FileField, "relevant">("relevant", "Show when"),
 	],
 	ui: [
-		mediaEntry<FileField, "label_media">("label_media", "Label Media"),
+		mediaEntry<FileField, "label_media">("label_media", "Label media"),
 		hintEntry<FileField>(),
 	],
 };
@@ -522,10 +522,10 @@ const signatureFieldEditorSchema: FieldEditorSchema<SignatureField> = {
 	data: [],
 	logic: [
 		requiredEntry<SignatureField>(),
-		xpathEntry<SignatureField, "relevant">("relevant", "Show When"),
+		xpathEntry<SignatureField, "relevant">("relevant", "Show when"),
 	],
 	ui: [
-		mediaEntry<SignatureField, "label_media">("label_media", "Label Media"),
+		mediaEntry<SignatureField, "label_media">("label_media", "Label media"),
 		hintEntry<SignatureField>(),
 	],
 };
@@ -540,8 +540,8 @@ const hiddenFieldEditorSchema: FieldEditorSchema<HiddenField> = {
 	data: [caseWriteEntry<HiddenField>()],
 	logic: [
 		xpathEntry<HiddenField, "calculate">("calculate", "Calculate"),
-		xpathEntry<HiddenField, "default_value">("default_value", "Default Value"),
-		xpathEntry<HiddenField, "relevant">("relevant", "Show When"),
+		xpathEntry<HiddenField, "default_value">("default_value", "Default value"),
+		xpathEntry<HiddenField, "relevant">("relevant", "Show when"),
 	],
 	ui: [],
 };
@@ -552,7 +552,7 @@ const hiddenFieldEditorSchema: FieldEditorSchema<HiddenField> = {
 // rather than adding an Appearance section to every container.
 const groupFieldEditorSchema: FieldEditorSchema<GroupField> = {
 	data: [],
-	logic: [xpathEntry<GroupField, "relevant">("relevant", "Show When")],
+	logic: [xpathEntry<GroupField, "relevant">("relevant", "Show when")],
 	ui: [],
 };
 
@@ -567,14 +567,14 @@ const groupFieldEditorSchema: FieldEditorSchema<GroupField> = {
 // directly support.
 const repeatFieldEditorSchema: FieldEditorSchema<RepeatField> = {
 	data: [],
-	logic: [xpathEntry<RepeatField, "relevant">("relevant", "Show When")],
+	logic: [xpathEntry<RepeatField, "relevant">("relevant", "Show when")],
 	ui: [],
 };
 
 const labelFieldEditorSchema: FieldEditorSchema<LabelField> = {
 	data: [],
-	logic: [xpathEntry<LabelField, "relevant">("relevant", "Show When")],
-	ui: [mediaEntry<LabelField, "label_media">("label_media", "Label Media")],
+	logic: [xpathEntry<LabelField, "relevant">("relevant", "Show when")],
+	ui: [mediaEntry<LabelField, "label_media">("label_media", "Label media")],
 };
 
 /**

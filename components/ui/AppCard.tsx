@@ -8,6 +8,7 @@ import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
 import { useRef, useState } from "react";
 import { mediaSrc } from "@/components/builder/media/mediaClient";
+import { Badge } from "@/components/shadcn/badge";
 import { Button } from "@/components/shadcn/button";
 import {
 	Popover,
@@ -214,28 +215,28 @@ export function AppCard({
 			<div className="pointer-events-auto relative z-10 shrink-0 flex items-center gap-2">
 				{cardState.type === "confirmingDelete" ? (
 					<>
-						<button
+						<Button
 							type="button"
+							variant="ghost"
 							onClick={(e) => {
 								e.preventDefault();
 								e.stopPropagation();
 								setCardState({ type: "idle" });
 							}}
-							className="min-h-11 cursor-pointer rounded-md px-3 py-1.5 text-sm text-nova-text-secondary transition-colors hover:bg-nova-border/30 hover:text-nova-text"
 						>
 							Cancel
-						</button>
-						<button
+						</Button>
+						<Button
 							type="button"
+							variant="destructive"
 							onClick={(e) => {
 								e.preventDefault();
 								e.stopPropagation();
 								void handleConfirmDelete();
 							}}
-							className="min-h-11 cursor-pointer rounded-md bg-nova-rose/10 px-3 py-1.5 text-sm font-medium text-nova-rose transition-colors hover:bg-nova-rose/15"
 						>
 							Confirm delete
-						</button>
+						</Button>
 					</>
 				) : cardState.type === "deleting" || cardState.type === "movingApp" ? (
 					<span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm text-nova-text-muted">
@@ -249,11 +250,7 @@ export function AppCard({
 					</span>
 				) : (
 					<>
-						<span
-							className={`text-xs px-2 py-1 rounded-md ${style.bg} ${style.text}`}
-						>
-							{style.label}
-						</span>
+						<Badge variant={style.variant}>{style.label}</Badge>
 						{projectMove && !isFailed && (
 							<Popover
 								open={cardState.type === "choosingMoveTarget"}
@@ -283,7 +280,7 @@ export function AppCard({
 											e.preventDefault();
 											e.stopPropagation();
 										}}
-										className="size-12 text-nova-text-muted not-disabled:hover:bg-nova-violet/10 not-disabled:hover:text-nova-text"
+										className="size-11 text-nova-text-muted not-disabled:hover:bg-nova-violet/10 not-disabled:hover:text-nova-text"
 									>
 										<Icon
 											icon={tablerBuildingCommunity}
@@ -367,7 +364,7 @@ export function AppCard({
 										e.stopPropagation();
 										setCardState({ type: "confirmingDelete" });
 									}}
-									className="inline-flex size-11 cursor-pointer items-center justify-center rounded-md text-nova-text-muted transition-colors hover:bg-nova-rose/[0.08] hover:text-nova-rose"
+									className="nova-focusable inline-flex size-11 cursor-pointer items-center justify-center rounded-xl text-nova-text-muted transition-colors hover:bg-nova-rose/[0.08] hover:text-nova-rose"
 									aria-label={`Move ${displayName} to recently deleted`}
 								>
 									<Icon icon={tablerTrash} width="18" height="18" />

@@ -4,6 +4,7 @@ import tablerArrowBackUp from "@iconify-icons/tabler/arrow-back-up";
 import tablerLoader2 from "@iconify-icons/tabler/loader-2";
 import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
+import { Badge } from "@/components/shadcn/badge";
 import type { DeletedAppSummary } from "@/lib/db/apps";
 import { STATUS_STYLES } from "@/lib/utils/format";
 import { ConnectBadge } from "./ConnectBadge";
@@ -129,11 +130,7 @@ export function DeletedAppCard({ app, index, onRestore }: DeletedAppCardProps) {
 						</AnimatePresence>
 					</div>
 					<div className="shrink-0 flex items-center gap-2">
-						<span
-							className={`text-xs px-2 py-1 rounded-md ${style.bg} ${style.text}`}
-						>
-							{style.label}
-						</span>
+						<Badge variant={style.variant}>{style.label}</Badge>
 						{state.type === "restoring" ? (
 							<span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm text-nova-text-muted">
 								<Icon
