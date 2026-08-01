@@ -191,7 +191,7 @@ describe("CaseDataManager", () => {
 		const replaceCaseData = screen.getByRole("button", {
 			name: "Replace case data",
 		});
-		expect(replaceCaseData.className).toContain("bg-destructive");
+		expect(replaceCaseData.className).toContain("nova-keycap-rose");
 		fireEvent.click(replaceCaseData);
 
 		expect(mocks.reset).not.toHaveBeenCalled();

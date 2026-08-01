@@ -60,7 +60,7 @@ export function AppTree() {
 	if (!moduleOrder || moduleOrder.length === 0) {
 		return (
 			<div className="h-full flex items-center justify-center text-nova-text-muted text-sm">
-				Building your app…
+				Building your app
 			</div>
 		);
 	}

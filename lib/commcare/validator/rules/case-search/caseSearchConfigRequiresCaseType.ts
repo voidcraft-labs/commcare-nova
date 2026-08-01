@@ -40,7 +40,7 @@ export function caseSearchConfigRequiresCaseType(
 		validationError(
 			"CASE_SEARCH_CONFIG_REQUIRES_CASE_TYPE",
 			"module",
-			`Module "${mod.name}" has case search enabled but no \`caseType\` — the search can't run without knowing which kind of case to return. Set its case type, or remove its search inputs and search settings.`,
+			`Module "${mod.name}" has case search enabled but no \`caseType\`, the search can't run without knowing which kind of case to return. Set its case type, or remove its search inputs and search settings.`,
 			{ moduleUuid, moduleName: mod.name },
 		),
 	];

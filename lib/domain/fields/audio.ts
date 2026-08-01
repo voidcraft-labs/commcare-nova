@@ -38,6 +38,6 @@ export const audioFieldMetadata: FieldKindMetadata<"audio"> = {
 	isStructural: false,
 	isContainer: false,
 	saDocs:
-		"Audio attachment — the worker attaches an existing MP3, WAV, OGG, AMR, QCP, or 3GA file. Web Apps has no recorder, so never describe this as recording audio. Cannot be saved to a case property.",
+		"Audio attachment, the worker attaches an existing MP3, WAV, OGG, AMR, QCP, or 3GA file. Web Apps has no recorder, so never describe this as recording audio. Cannot be saved to a case property.",
 	convertTargets: ["image", "video", "signature", "file"],
 };

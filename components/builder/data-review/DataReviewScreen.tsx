@@ -343,7 +343,7 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 				projectToast(
 					"error",
 					"Couldn’t overwrite the value",
-					"The server couldn’t be reached. Your new value is still here — try again.",
+					"The server couldn’t be reached. Your new value is still here. Try again.",
 				);
 				return;
 			}

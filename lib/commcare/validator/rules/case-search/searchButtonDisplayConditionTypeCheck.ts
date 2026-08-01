@@ -64,7 +64,7 @@ export function searchButtonDisplayConditionTypeCheck(
 			validationError(
 				"CASE_SEARCH_BUTTON_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE",
 				"module",
-				`Module "${mod.name}" has a search-button display condition that reads a case property or relationship, but the condition is evaluated once — before any case is selected — to decide whether the Search action shows. There is no case to read, so the reference resolves blank on every runtime and the condition silently collapses. Compose the condition from fixed values and current-user/session values; to narrow which cases appear, use the case list filter or a search input instead — or clear the condition to show the button unconditionally.`,
+				`Module "${mod.name}" has a search-button display condition that reads a case property or relationship, but the condition is evaluated once, before any case is selected, to decide whether the Search action shows. There is no case to read, so the reference resolves blank on every runtime and the condition silently collapses. Compose the condition from fixed values and current-user/session values; to narrow which cases appear, use the case list filter or a search input instead, or clear the condition to show the button unconditionally.`,
 				{ moduleUuid, moduleName: mod.name },
 				{
 					slot: "caseSearchConfig.searchButtonDisplayCondition",

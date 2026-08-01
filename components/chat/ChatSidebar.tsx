@@ -646,7 +646,7 @@ export function ChatSidebar({
 										description={
 											isExistingApp
 												? "What changes would you like to make?"
-												: "Describe the app you want to build"
+												: "Tell me about the app you'd like to build"
 										}
 									/>
 								))}
@@ -819,7 +819,7 @@ function WelcomeIntro() {
 						transition={{ duration: 0.35, ease: [0.4, 0, 0.2, 1] }}
 						className="text-lg font-display font-medium text-nova-text"
 					>
-						What do you want to build?
+						What would you like to build?
 					</motion.h1>
 					<motion.p
 						initial={{ opacity: 0, y: 8 }}
@@ -831,8 +831,8 @@ function WelcomeIntro() {
 						}}
 						className="text-nova-text-secondary text-sm leading-relaxed"
 					>
-						Describe the workflows, information, and people your app needs to
-						support
+						Tell me about the people you support, the work they do, and what you
+						need to keep track of
 					</motion.p>
 				</div>
 			</MessageContent>

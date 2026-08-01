@@ -330,8 +330,8 @@ export function ChatInput({
 						onKeyDown={handleTextareaKeyDown}
 						placeholder={
 							openingPrompt
-								? "Describe the app you want to build"
-								: "Describe a change"
+								? "Tell me about the app you'd like to build"
+								: "What would you like to change?"
 						}
 					/>
 				</PromptInputBody>

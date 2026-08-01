@@ -115,7 +115,7 @@ export function FieldPicker({
 	onChange,
 	label,
 	typeFilter,
-	placeholder = "Search fields...",
+	placeholder = "Search fields",
 	required,
 }: FieldPickerProps) {
 	const fields = useMemo(

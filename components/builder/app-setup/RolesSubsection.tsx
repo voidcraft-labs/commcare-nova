@@ -50,7 +50,7 @@ export function RolesSubsection() {
 		<Subsection
 			id="app-setup-roles"
 			title="Roles"
-			description="A role bundles the worker information a kind of worker carries — every community health worker starts with the same defaults. A persona holds a role; a role on its own is a template, not a person."
+			description="A role bundles the worker information a kind of worker carries. Every community health worker starts with the same defaults. A persona holds a role; a role on its own is a template, not a person."
 			addLabel="Add role"
 			onAdd={add}
 			canEdit={canEdit}

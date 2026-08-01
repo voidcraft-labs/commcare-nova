@@ -5,7 +5,7 @@ description: Describe the people who use your app, and preview it as one of them
 
 Most apps behave differently depending on who opens them. A supervisor sees a
 different case list than a health worker; a form asks a different question of
-someone in one district than someone in another. **App setup → Users & personas**
+someone in one district than someone in another. **App setup → Users and personas**
 is where you describe those people, and it is what lets you preview your app as
 one of them instead of only as yourself.
 
@@ -19,7 +19,7 @@ saves.
 
 ## Worker information
 
-**Worker information** is the data every worker carries with them — their
+**Worker information** is the data every worker carries with them, their
 region, their cadre, their supervisor's name. It is not case data: it belongs to
 the person, travels with them into every form, and is the same on every screen
 they open.
@@ -60,12 +60,12 @@ still reads it. The refusal names the settings to update. Once those references
 are gone, removal also clears the property's values from every role and persona
 in the same change.
 
-Nova also shows the information **CommCare provides on its own** — the project
+Nova also shows the information **CommCare provides on its own**: the project
 the worker signed into, their name, their locations. You cannot change these,
 but you can write conditions against them, and each one says plainly whether
 Nova can show you a real value while you are only previewing. A few cannot be
-known yet. Keys that CommCare always supplies — including first name, last name,
-phone number, and the user case's email — remain present with an empty value
+known yet. Keys that CommCare always supplies, including first name, last name,
+phone number, and the user case's email, remain present with an empty value
 when Nova has no honest value for them. Target-dependent keys, such as the
 CommCare project space, remain absent until a deployment supplies one. Nova
 never invents a value that would make a condition pass in Preview and fail on a
@@ -76,7 +76,7 @@ carried along for your app to read. The screen says which is which.
 
 ## Roles
 
-A **role** is a job — Community health worker, Supervisor, Data clerk. Give it a
+A **role** is a job, Community health worker, Supervisor, Data clerk. Give it a
 name, then fill in the worker information everyone in that job shares. Define it
 once and every persona holding that role inherits it.
 
@@ -119,7 +119,7 @@ Nova stops the running app and asks you to switch back to yourself; it never
 quietly continues as your account.
 
 Because a persona really owns the cases it creates, removing a persona leaves
-those cases where they are — owned by someone who no longer exists in your app.
+those cases where they are, owned by someone who no longer exists in your app.
 This is Nova's policy for design and test actors, not a claim that every
 CommCare worker-removal path behaves the same way. It avoids quietly deleting
 or reassigning your real test data. The confirmation counts every retained case
@@ -143,5 +143,5 @@ One thing worth knowing about the devices themselves: CommCare merges worker
 data into a device on each sync and never clears it. If you remove a piece of
 worker information after clearing every app reference to it, it stays on a
 device that has already downloaded it until that device does a full resync.
-Nova does not simulate that in preview — it is a property of the platform, not
+Nova does not simulate that in preview, it is a property of the platform, not
 of your app.

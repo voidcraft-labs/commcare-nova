@@ -708,7 +708,7 @@ function buildVerbEntries(): readonly VerbEntry[] {
 			carryGate: (value: Predicate, ctx: PredicateEditContext) =>
 				matchCarriesAValue(value, m.mode, ctx),
 			carryDisabledReason:
-				"Type the text to match first — matching against an empty value never finds anything.",
+				"Type the text to match first. Matching against an empty value never finds anything.",
 		});
 	}
 	entries.push(

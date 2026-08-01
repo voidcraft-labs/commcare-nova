@@ -29,16 +29,16 @@ describe("Select value layout", () => {
 		let trigger = screen.getByRole("combobox", { name: "Status" });
 		expect(trigger.className).toContain("whitespace-nowrap");
 		expect(trigger.className).toContain("line-clamp-1");
-		expect(trigger.className).toContain("data-[size=default]:h-8");
+		expect(trigger.className).toContain("h-11");
 		expect(trigger.className).not.toContain("line-clamp-none");
 
 		view.rerender(<SelectFixture wrapValue />);
 		trigger = screen.getByRole("combobox", { name: "Status" });
 		expect(trigger.className).toContain("whitespace-normal");
 		expect(trigger.className).toContain("line-clamp-none");
-		expect(trigger.className).toContain("data-[size=default]:h-auto");
+		expect(trigger.className).toContain("min-h-11");
 		expect(trigger.className).not.toContain("line-clamp-1");
-		expect(trigger.className).not.toContain("data-[size=default]:h-8");
+		expect(trigger.className).not.toContain(" h-11 ");
 	});
 
 	it("centers the value at every height, wrapping or not", () => {

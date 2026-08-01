@@ -84,7 +84,7 @@ export function registerGetAgentPrompt(
 		"get_agent_prompt",
 		{
 			description:
-				"Return the current nova-architect operating instructions for the given mode. The plugin's bootstrap subagent / skills call this as their first tool use and follow the returned text as their full system prompt for the rest of the run. Edit mode requires `app_id` so the inlined blueprint summary mirrors the web flow's edit-mode prompt at boot. The returned text ends with the line `NOVA-PROMPT-END`; if yours does not, you received a partial prompt — stop and report that rather than acting on it.",
+				"Return the current nova-architect operating instructions for the given mode. The plugin's bootstrap subagent / skills call this as their first tool use and follow the returned text as their full system prompt for the rest of the run. Edit mode requires `app_id` so the inlined blueprint summary mirrors the web flow's edit-mode prompt at boot. The returned text ends with the line `NOVA-PROMPT-END`; if yours does not, you received a partial prompt. Stop and report that rather than acting on it.",
 			/* This tool returns a whole system prompt, an order of
 			 * magnitude past what a typical tool result carries, so it
 			 * declares its own size rather than inheriting a default
@@ -116,7 +116,7 @@ export function registerGetAgentPrompt(
 					.string()
 					.optional()
 					.describe(
-						"Required when `mode === 'edit'` — the app id whose blueprint summary should be inlined into the returned text. The user must own this app. Ignored for `build` and `autonomous_build` (no app to read from).",
+						"Required when `mode === 'edit'`, the app id whose blueprint summary should be inlined into the returned text. The user must own this app. Ignored for `build` and `autonomous_build` (no app to read from).",
 					),
 			},
 		},

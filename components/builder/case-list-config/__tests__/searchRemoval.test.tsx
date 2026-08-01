@@ -727,7 +727,7 @@ describe("Search field removal", () => {
 		const removeSearchField = screen.getByRole("button", {
 			name: "Remove search field",
 		});
-		expect(removeSearchField.className).toContain("bg-destructive");
+		expect(removeSearchField.className).toContain("nova-keycap-rose");
 		fireEvent.click(removeSearchField);
 
 		await waitFor(() => {

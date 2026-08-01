@@ -88,7 +88,7 @@ export function applyFieldMutation(
 			// merging keys that don't apply to the current kind.
 			if (field.kind !== mut.targetKind) {
 				console.warn(
-					`updateField: skipped a stale patch for ${mut.uuid} — the patch was built for a "${mut.targetKind}" field, but the field is now a "${field.kind}". The field probably converted kind between when this update was queued and when it ran. Re-read the field, rebuild the patch, and try again.`,
+					`updateField: skipped a stale patch for ${mut.uuid}, the patch was built for a "${mut.targetKind}" field, but the field is now a "${field.kind}". The field probably converted kind between when this update was queued and when it ran. Re-read the field, rebuild the patch, and try again.`,
 				);
 				return;
 			}
@@ -124,7 +124,7 @@ export function applyFieldMutation(
 				// inside an Immer reducer (a throw would propagate up through
 				// `store.applyMany()` and crash the surrounding render).
 				console.warn(
-					`updateField: a patch for ${mut.uuid} (kind=${field.kind}) didn't fit the field's schema and was skipped. The merged shape failed validation — check that every patch value is the right type for its key.`,
+					`updateField: a patch for ${mut.uuid} (kind=${field.kind}) didn't fit the field's schema and was skipped. The merged shape failed validation. Check that every patch value is the right type for its key.`,
 					{ patch: mut.patch, issues: result.error.issues },
 				);
 				return;
@@ -204,7 +204,7 @@ export function applyFieldMutation(
 				}
 				if (insideMovedSubtree) {
 					console.warn(
-						`moveField: skipped moving "${field.id}" — the destination container is the field itself or one of its own descendants, and a field can't move inside its own subtree. Pick a destination outside the moved ${field.kind}.`,
+						`moveField: skipped moving "${field.id}", the destination container is the field itself or one of its own descendants, and a field can't move inside its own subtree. Pick a destination outside the moved ${field.kind}.`,
 						{ uuid: mut.uuid, toParentUuid: mut.toParentUuid },
 					);
 					return;
@@ -227,7 +227,7 @@ export function applyFieldMutation(
 				sourceFormUuid !== destFormUuid
 			) {
 				console.warn(
-					`moveField: skipped moving "${field.id}" — the move couldn't be confirmed to stay within one form (the destination is in a different form, or one end isn't reachable from any form). A field can't move between forms because its references can't follow it across the form boundary; remove the field and recreate it in the other form instead.`,
+					`moveField: skipped moving "${field.id}", the move couldn't be confirmed to stay within one form (the destination is in a different form, or one end isn't reachable from any form). A field can't move between forms because its references can't follow it across the form boundary; remove the field and recreate it in the other form instead.`,
 					{ uuid: mut.uuid, toParentUuid: mut.toParentUuid },
 				);
 				return;
@@ -276,7 +276,7 @@ export function applyFieldMutation(
 				// client-side, where the logger's production path throws (see
 				// the moveField guard note).
 				console.warn(
-					`convertField: skipped converting "${field.id}" — a "${field.kind}" field can't convert to "${mut.toKind}".${allowed.length > 0 ? ` Valid targets: ${allowed.join(", ")}.` : ""}`,
+					`convertField: skipped converting "${field.id}", a "${field.kind}" field can't convert to "${mut.toKind}".${allowed.length > 0 ? ` Valid targets: ${allowed.join(", ")}.` : ""}`,
 					{ uuid: mut.uuid, validTargets: allowed },
 				);
 				return;
@@ -301,7 +301,7 @@ export function applyFieldMutation(
 				// warning + no-op keeps the app alive while making the anomaly
 				// visible in dev tools.
 				console.warn(
-					`convertField: couldn't reconcile "${field.id}" from "${field.kind}" to "${mut.toKind}" — the converted shape failed the field schema, so the field was left unchanged.`,
+					`convertField: couldn't reconcile "${field.id}" from "${field.kind}" to "${mut.toKind}", the converted shape failed the field schema, so the field was left unchanged.`,
 					{ uuid: mut.uuid, field },
 				);
 				return;
@@ -331,7 +331,7 @@ export function applyFieldMutation(
 			// guard is the backstop for any other emitter.
 			if (!fieldKindDeclaresKey(field.kind, mediaKey)) {
 				console.warn(
-					`setFieldMedia: skipped setting ${mut.slot} media on "${field.id}" — a "${field.kind}" field has no ${mediaKey} slot.`,
+					`setFieldMedia: skipped setting ${mut.slot} media on "${field.id}", a "${field.kind}" field has no ${mediaKey} slot.`,
 					{ uuid: mut.fieldUuid, slot: mut.slot },
 				);
 				return;

@@ -95,7 +95,7 @@ export function buildLookupFixtures(
 			const rows = rowsByTable.get(table.tableId);
 			if (rows === undefined) {
 				throw new Error(
-					`buildLookupFixtures: table '${table.tableId}' has no rows entry in the fixture snapshot. Definitions and rows must come from one snapshot read — this is a reader bug, not an authoring state.`,
+					`buildLookupFixtures: table '${table.tableId}' has no rows entry in the fixture snapshot. Definitions and rows must come from one snapshot read, this is a reader bug, not an authoring state.`,
 				);
 			}
 			const element = buildFixtureElement(table, rows);

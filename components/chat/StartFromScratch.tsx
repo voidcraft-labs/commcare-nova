@@ -91,11 +91,11 @@ export function StartFromScratch({
 							aria-busy={creating || undefined}
 						>
 							{creating ? <Spinner /> : <Icon icon={tablerFilePlus} />}
-							{creating ? "Creating starter…" : "Start from scratch"}
+							{creating ? "Creating blank app" : "Start with a blank app"}
 						</Button>
 
 						<p className="text-xs text-nova-text-muted">
-							Skip chat and build the app yourself
+							Build it yourself, with Nova here whenever you want a hand
 						</p>
 					</div>
 				</motion.div>

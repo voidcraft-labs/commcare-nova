@@ -91,7 +91,7 @@ const handler = async (req: Request) => {
 				 * is the visible signal that token shape and watermark logic
 				 * have drifted apart. */
 				log.warn(
-					"[auth/oauth] revoke ok but no watermark written — token shape unrecognized",
+					"[auth/oauth] revoke ok but no watermark written. Token shape unrecognized",
 				);
 			}
 		} catch (err) {

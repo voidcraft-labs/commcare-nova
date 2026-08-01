@@ -201,7 +201,7 @@ export function AddColumnDialog({
 							else setFailure(refusal);
 						}}
 					>
-						{working ? "Adding…" : "Add column"}
+						{working ? "Adding" : "Add column"}
 					</Button>
 				</DialogFooter>
 			</DialogContent>

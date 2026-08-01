@@ -87,7 +87,7 @@ export function userPropertySlugVerdict(
 			ok: false,
 			code: "all_digits",
 			userMessage:
-				"Include at least one non-digit character — digits alone won't work.",
+				"Include at least one non-digit character. Digits alone won't work.",
 		};
 	}
 	if (!USER_PROPERTY_SLUG_PATTERN.test(trimmed)) {

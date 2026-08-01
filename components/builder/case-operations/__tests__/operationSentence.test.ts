@@ -217,7 +217,7 @@ describe("operationSentence", () => {
 			operationSentenceText(
 				operationSentence(op({ forEach: { repeat: REPEAT } }), context),
 			),
-		).toBe("Create a new referral case — once for each “Beds” entry");
+		).toBe("Create a new referral case: once for each “Beds” entry");
 		expect(operationSentenceText(operationSentence(op(), context))).toBe(
 			"Create a new referral case",
 		);

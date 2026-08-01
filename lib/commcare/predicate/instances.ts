@@ -79,7 +79,7 @@ export function instanceSourceFor(
 			if (table !== undefined) return lookupFixtureSrc(table.fixtureId);
 			throw new Error(
 				`Unknown instance id '${instanceId}' reached the suite-XML instance source helper. ` +
-					"The instance accumulator surfaced an id with no known jr:// source — verify the accumulator and this helper agree on the closed id set.",
+					"The instance accumulator surfaced an id with no known jr:// source. Verify the accumulator and this helper agree on the closed id set.",
 			);
 		}
 	}

@@ -70,7 +70,7 @@ function getBucket(): Bucket {
 		const name = process.env.NOVA_MEDIA_BUCKET;
 		if (!name) {
 			throw new Error(
-				"NOVA_MEDIA_BUCKET is unset — multimedia upload and read routes need this env var to know which GCS bucket holds the bytes. Set it to e.g. `nova-multimedia-prod` (production) or `commcare-nova-dev-multimedia` (local dev).",
+				"NOVA_MEDIA_BUCKET is unset. Multimedia upload and read routes need this env var to know which GCS bucket holds the bytes. Set it to e.g. `nova-multimedia-prod` (production) or `commcare-nova-dev-multimedia` (local dev).",
 			);
 		}
 		_bucket = getStorage().bucket(name);
@@ -753,7 +753,7 @@ export async function downloadAssetBytes(
 		if (total > maxBytes) {
 			stream.destroy();
 			throw new Error(
-				`The stored file is larger than the ${(maxBytes / 1024 / 1024).toFixed(0)} MB cap for its kind — it may have been overwritten after the upload started. Upload it again.`,
+				`The stored file is larger than the ${(maxBytes / 1024 / 1024).toFixed(0)} MB cap for its kind, it may have been overwritten after the upload started. Upload it again.`,
 			);
 		}
 		chunks.push(chunk as Buffer);

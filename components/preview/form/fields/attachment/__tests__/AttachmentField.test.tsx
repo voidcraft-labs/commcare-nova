@@ -1544,7 +1544,7 @@ describe("AttachmentField", () => {
 		});
 		await waitFor(() => expect(input.disabled).toBe(true));
 		expect(label?.getAttribute("aria-disabled")).toBe("true");
-		expect(label?.className).toContain("opacity-40");
+		expect(label?.className).toContain("opacity-(--disabled-opacity)");
 		expect(screen.getByRole("status").textContent).toMatch(/attaching/i);
 
 		await __resetAttachmentCoordinatorForTests();

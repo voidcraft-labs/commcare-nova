@@ -49,7 +49,7 @@ const SECTION_PENDING_COPY: Readonly<
 	Record<Exclude<AppSetupSection, "users">, string>
 > = {
 	organization:
-		"The places people work — districts, facilities, and the rest of your organization structure — and which of them own cases.",
+		"The places people work, districts, facilities, and the rest of your organization structure, and which of them own cases.",
 	automations:
 		"Rules that run on a schedule against your cases, and the messages they send.",
 	deployment:

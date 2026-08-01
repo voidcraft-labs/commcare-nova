@@ -57,7 +57,7 @@ can answer, but an intentionally configured Search action can remain.
 
 If another rule uses that field's answer, Nova does not silently rewrite or
 discard the rule. The removal dialog groups every place the answer is used and
-opens the exact spot — a condition in Results, another search field's condition
+opens the exact spot, a condition in Results, another search field's condition
 or starting value, a calculated column's formula, Assigned cases, or the
 Search button's display condition.
 After each update, return to the field to see the remaining uses. Once none
@@ -68,14 +68,14 @@ remain, the dialog closes and **Remove search field** is ready for you again.
 A result is normally one row: each piece of information gets a column, and the
 columns run left to right. A **tile** is the other way to lay Results out. The
 result becomes a card, and each piece of information takes a rectangle on a
-12 × 12 grid — a name across the top, a status in the corner, a date
+12 × 12 grid, a name across the top, a status in the corner, a date
 underneath.
 
 Reach for a tile when the row runs out of room or stops reading well: when a
 name deserves to be larger than everything beside it, when two short values
 belong together on one line, or when people are scanning for a shape rather
 than reading across. Keep the row of columns when every piece of information
-is short and people compare the same value down the list — a row is easier to
+is short and people compare the same value down the list, a row is easier to
 scan that way, and it needs no arranging.
 
 Turning the tile on and placing the information happen together. Every piece
@@ -84,9 +84,9 @@ place or hide it from Results first.
 
 Hiding still works the way it does for a row of columns. An item hidden from
 Results needs no place on the tile, and Default order can still sort by a
-hidden item — the list carries the value without showing it.
+hidden item: the list carries the value without showing it.
 
-Give an item a place by choosing where it starts and how far it reaches — the
+Give an item a place by choosing where it starts and how far it reaches, the
 column and row it begins at, and how many columns and rows it spans. Two items
 may never cover the same square. Because of that, a swap is a single
 rearrangement, not two moves: the halfway state where both items sit on one
@@ -98,7 +98,7 @@ those behave in ways worth knowing up front:
 
 - **Border and shading are tile-wide.** Turning either on for a single item
   puts the whole tile into a boxed layout, which changes the spacing of every
-  other item on the tile — not just the one you set. Decide them for the tile,
+  other item on the tile, not just the one you set. Decide them for the tile,
   not for one piece of information.
 - **Text size is inherited when you leave it alone.** An item with no size set
   reads at the same size as the rest of the list. There is no default size Nova
@@ -240,30 +240,30 @@ frontline user will run, so every button there behaves like a real app button.
 
 ## Review data after a property change
 
-When a case property changes type — for example, a free-text date of birth
-becomes a real date field — Nova converts every saved case value it can. A
+When a case property changes type, for example, a free-text date of birth
+becomes a real date field, Nova converts every saved case value it can. A
 value that doesn't fit the new type is kept instead of deleted, and its case
 is held out of the app: it leaves case lists, search, and forms until you've
 decided its waiting values on the **Data to review** screen. Holding the
-whole case keeps the app honest — no form opens onto a silently blank
+whole case keeps the app honest: no form opens onto a silently blank
 required field, and no calculation runs over a hole.
 
 Conversions that could set values aside ask first. Before a risky
-conversion — one where some saved values may not fit the new type — Nova
+conversion, one where some saved values may not fit the new type, Nova
 checks the saved data and shows what would happen: how many values can't
 convert, what they look like, and how many cases would be held. Nothing
 changes until you confirm, and a conversion with nothing at stake proceeds
 without the question. The same check applies when the assistant converts a
-property in chat — it relays the impact and waits for your go-ahead. A type
-change that happens without a convert action — say, pointing a number field
-at a property that used to hold dates — skips the question, but the same
+property in chat, it relays the impact and waits for your go-ahead. A type
+change that happens without a convert action, say, pointing a number field
+at a property that used to hold dates, skips the question, but the same
 safety net catches it: the values that don't fit are kept, their cases are
 held, and the notice points you at Data to review.
 
 You'll see a notice the moment it happens, and the **Case data** button
 carries a dot while any cases are held. Open Case data and choose **Review
 data** to see them, one card per case. Each value states in a few words why
-it's waiting — "Isn't a date", "The property was removed" — checked against
+it's waiting, "Isn't a date", "The property was removed", checked against
 the property as it is right now. **View case** on any card opens everything
 the case currently holds, so you can decide with the whole record in front
 of you. Everyone in the Project sees the same list, so a teammate's
@@ -271,11 +271,11 @@ conversion is just as visible as your own.
 
 For each value you can:
 
-- **Put it back** — saves the value on its case again. Offered when the value
+- **Put it back**: saves the value on its case again. Offered when the value
   fits the property's current type.
-- **Overwrite** it — enter a new value in the property's current type, saved
+- **Overwrite** it, enter a new value in the property's current type, saved
   straight to the case. The original moves to the **Dismissed** list.
-- **Dismiss** it — move it to the **Dismissed** list, where it stays readable
+- **Dismiss** it, move it to the **Dismissed** list, where it stays readable
   and can be moved back at any time.
 
 Once a case has nothing left waiting, it returns to the app on its own. You
@@ -293,7 +293,7 @@ current results in place until you choose the screen's Search button, matching
 the app people will ultimately use. A
 case row opens that case, while an action inside the row, such as calling a
 phone number or checking why a value is shown, works independently.
-The Results filter matches the same text people see—including formatted dates,
+The Results filter matches the same text people see, including formatted dates,
 calculated answers, and choice labels. If an older case contains a choice value
 that is no longer in the app, Nova leaves that saved value visible instead of
 hiding the data.

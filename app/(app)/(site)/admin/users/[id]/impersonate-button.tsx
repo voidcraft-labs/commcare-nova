@@ -52,7 +52,7 @@ export function ImpersonateButton({
 				className="inline-flex items-center gap-1.5 rounded-lg border border-nova-border bg-nova-surface px-3 py-1.5 text-sm font-medium text-nova-text transition-all not-disabled:hover:border-nova-border-bright not-disabled:hover:bg-nova-elevated cursor-pointer disabled:opacity-(--disabled-opacity) disabled:cursor-not-allowed"
 			>
 				<Icon icon={tablerSpy} width="16" height="16" />
-				{loading ? "Impersonating..." : "Impersonate"}
+				{loading ? "Impersonating" : "Impersonate"}
 			</button>
 			{error && <span className="text-xs text-nova-rose">{error}</span>}
 		</div>

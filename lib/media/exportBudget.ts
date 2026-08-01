@@ -99,7 +99,7 @@ export function exportBudgetExcess(
  * check so the two surfaces speak identically.
  */
 export function attachOverBudgetMessage(excess: ExportBudgetExcess): string {
-	return `Attaching this would put the app over its media export limit — ${excess.reasons.join(
+	return `Attaching this would put the app over its media export limit: ${excess.reasons.join(
 		" and ",
 	)}. Remove or shrink some other attachments first, then attach this one.`;
 }

@@ -85,7 +85,7 @@ const API_KEY_MASK = "•".repeat(32);
  * environment name (what the connection stores).
  */
 const SERVER_ITEMS = COMMCARE_SERVER_IDS.map((id) => ({
-	label: `${COMMCARE_SERVERS[id].label} — ${COMMCARE_SERVERS[id].host}`,
+	label: `${COMMCARE_SERVERS[id].label}: ${COMMCARE_SERVERS[id].host}`,
 	value: id,
 }));
 

@@ -322,7 +322,7 @@ export function checkCaseHashtag(
 	}
 	if (!props.has(rest)) {
 		return isRegistrationForm
-			? `Reference "${text}" can't resolve on a form that creates a case. The "${ns}" case doesn't exist yet here, so only its newly-allocated id is available — not its other properties. Use "#${ns}/case_id" for the new case's id, or move this reference to a follow-up form where "${ns}" already exists.`
+			? `Reference "${text}" can't resolve on a form that creates a case. The "${ns}" case doesn't exist yet here, so only its newly-allocated id is available, not its other properties. Use "#${ns}/case_id" for the new case's id, or move this reference to a follow-up form where "${ns}" already exists.`
 			: `Case type "${ns}" has no property "${rest}" (referenced as "${text}"). Add that property to "${ns}", or reference a property it already declares.`;
 	}
 	return undefined;
@@ -446,7 +446,7 @@ function validateFunctionCall(
 		if (suggestion) {
 			errors.push({
 				code: "UNKNOWN_FUNCTION",
-				message: `Unknown function "${funcName}()" — did you mean "${suggestion}()"? Function names are case-sensitive`,
+				message: `Unknown function "${funcName}()". Did you mean "${suggestion}()"?`,
 				position: nameNode.from,
 			});
 		} else {

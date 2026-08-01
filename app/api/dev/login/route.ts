@@ -55,7 +55,7 @@ function identityFor(as: string | null): AgentIdentity {
 	if (as === null) return DEFAULT_IDENTITY;
 	if (!IDENTITY_SLUG.test(as)) {
 		throw new ApiError(
-			`dev-login: \`as\` must match ${IDENTITY_SLUG} (it becomes the user id and email local-part) — got \`${as}\`.`,
+			`dev-login: \`as\` must match ${IDENTITY_SLUG} (it becomes the user id and email local-part). Got \`${as}\`.`,
 			400,
 		);
 	}
@@ -74,7 +74,7 @@ export async function GET(request: Request): Promise<Response> {
 		}
 		if (!process.env.NOVA_DB_LOCAL_URL) {
 			throw new ApiError(
-				"dev-login refuses to run without NOVA_DB_LOCAL_URL — it writes a forged session, and that env var is the guard keeping such writes on the local compose Postgres, never the real Cloud SQL instance. Set it in .env (see .env.example) and restart `npm run dev`.",
+				"dev-login refuses to run without NOVA_DB_LOCAL_URL, it writes a forged session, and that env var is the guard keeping such writes on the local compose Postgres, never the real Cloud SQL instance. Set it in .env (see .env.example) and restart `npm run dev`.",
 				500,
 			);
 		}
@@ -91,7 +91,7 @@ export async function GET(request: Request): Promise<Response> {
 		const next = url.searchParams.get("next") ?? "/";
 		if (!next.startsWith("/") || next.startsWith("//")) {
 			throw new ApiError(
-				`dev-login: \`next\` must be a same-origin path starting with \`/\` — got \`${next}\`.`,
+				`dev-login: \`next\` must be a same-origin path starting with \`/\`. Got \`${next}\`.`,
 				400,
 			);
 		}

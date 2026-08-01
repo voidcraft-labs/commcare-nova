@@ -510,7 +510,7 @@ export function CaseOperationDetailCanvas({
 				{operation.action !== "close" && (
 					<Section
 						title="Connections to other cases"
-						description="How this case relates to another one. A connection can also be broken here — that is what an author reaches for when a temporary grouping has served its purpose."
+						description="How this case relates to another one. A connection can also be broken here, that is what an author reaches for when a temporary grouping has served its purpose."
 					>
 						<CaseOperationLinks
 							operation={operation}

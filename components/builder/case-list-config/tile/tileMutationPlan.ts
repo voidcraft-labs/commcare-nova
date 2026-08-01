@@ -77,7 +77,7 @@ export function planTileLayoutEnable(args: {
 		return {
 			ok: false,
 			reason:
-				"Add information to Results before turning on the tile — a tile needs at least one field to lay out.",
+				"Add information to Results before turning on the tile: a tile needs at least one field to lay out.",
 		};
 	}
 

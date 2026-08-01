@@ -12,7 +12,7 @@ describe("ScreenNavButtons", () => {
 		expect(back.getAttribute("data-slot")).toBe("button");
 		expect(back.hasAttribute("disabled")).toBe(false);
 		expect(back.className).toContain("size-11");
-		expect(back.className).toContain("focus-visible:ring-3");
+		expect(back.className).toContain("focus-visible:shadow-(--focus-ring)");
 		expect(back.className).toContain("not-disabled:hover:bg-white/5");
 		expect(screen.getAllByRole("button")).toHaveLength(1);
 

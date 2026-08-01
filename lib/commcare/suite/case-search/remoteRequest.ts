@@ -95,7 +95,7 @@ export function buildRemoteRequest(args: {
 					: "no caseSearchConfig";
 		throw new Error(
 			`Tried to build a <remote-request> element for module index ${moduleIndex} ("${mod.name}"), but the module has ${missing}. ` +
-				"A <remote-request> needs both slots set — the case type names the cases the search returns; the caseSearchConfig configures how the search runs. " +
+				"A <remote-request> needs both slots set, the case type names the cases the search returns; the caseSearchConfig configures how the search runs. " +
 				"`compileCcz` gates on both being present before calling this builder, so reaching here means a caller bypassed the gate. Check the call site against `compiler.ts::compileCcz`.",
 		);
 	}

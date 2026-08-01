@@ -205,7 +205,7 @@ export function AddressSearch({ value, onSelect }: AddressSearchProps) {
 					}`}
 				/>
 				<Autocomplete.Input
-					placeholder="Search for an address or place…"
+					placeholder="Search for an address or place"
 					autoComplete="off"
 					data-1p-ignore
 					aria-label="Search for an address"

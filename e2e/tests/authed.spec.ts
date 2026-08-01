@@ -1775,7 +1775,7 @@ test.describe("authenticated builder", () => {
 
 			await page.getByRole("button", { name: "Field actions" }).click();
 			await waitForSavedMutation('"kind":"moveField"', async () => {
-				await page.getByRole("menuitem", { name: "Move Down" }).click();
+				await page.getByRole("menuitem", { name: "Move down" }).click();
 			});
 			await expect(
 				page.locator("main [data-field-uuid]").first(),
@@ -2375,7 +2375,7 @@ test.describe("authenticated builder", () => {
 		});
 		expect(await bottomGap(page)).toBeLessThanOrEqual(1);
 
-		const composer = page.getByPlaceholder("Describe a change");
+		const composer = page.getByPlaceholder("What would you like to change?");
 		const submit = page.getByRole("button", { name: "Submit" });
 
 		// Re-reading history escapes the bottom pin: the view holds still and
@@ -2441,7 +2441,7 @@ test.describe("authenticated builder", () => {
 		).toBeVisible();
 		await expect.poll(() => logScrollTop(page)).toBeLessThanOrEqual(1);
 		const preAnswerMax = await armScrollTrace(page);
-		const composer = page.getByPlaceholder("Describe a change");
+		const composer = page.getByPlaceholder("What would you like to change?");
 		await composer.fill("The community team handles it");
 		await page.getByRole("button", { name: "Submit" }).click();
 		await expect(page.getByText(seed.scrollQuestionTwoText)).toBeVisible();

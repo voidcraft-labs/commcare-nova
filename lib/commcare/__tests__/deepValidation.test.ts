@@ -79,7 +79,7 @@ describe("validateXPath", () => {
 			expect(errors).toHaveLength(1);
 			expect(errors[0].code).toBe("UNKNOWN_FUNCTION");
 			expect(errors[0].message).toContain("today()");
-			expect(errors[0].message).toContain("case-sensitive");
+			expect(errors[0].message).toContain('Did you mean "today()"');
 		});
 
 		it("suggests correct casing for IF", () => {
@@ -1527,7 +1527,7 @@ describe("runValidation — bare-id reference suggestion (group-path DX)", () =>
 		);
 		expect(refErr).toBeDefined();
 		expect(refErr?.message).toContain("`#form/consent_grp/consent`");
-		expect(refErr?.message).toContain("did you mean");
+		expect(refErr?.message).toContain("Did you mean");
 	});
 });
 
@@ -1589,7 +1589,7 @@ describe("INVALID_REF stored-reference classification", () => {
 			(e) => e.code === "INVALID_REF",
 		);
 		expect(rendered?.message).toContain("`#form/grp/score`");
-		expect(rendered?.message).toContain("did you mean");
+		expect(rendered?.message).toContain("Did you mean");
 		expect(rendered?.message).not.toContain("re-commit");
 	});
 

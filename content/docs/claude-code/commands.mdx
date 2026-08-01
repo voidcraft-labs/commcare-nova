@@ -3,9 +3,9 @@ title: Commands
 description: Every Nova command in Claude Code, what it does, and an example.
 ---
 
-The plugin adds seven `/nova:*` commands. The two `/plugin` commands and `/mcp` are Claude Code's own — they appear here because you use them during setup.
+The plugin adds seven `/nova:*` commands. The two `/plugin` commands and `/mcp` are Claude Code's own, they appear here because you use them during setup.
 
-The intended flow is: build an app with `/nova:build` (or `/nova:autobuild`), change it with `/nova:edit` until it's right, then push it to CommCare HQ with `/nova:upload_to_hq`. Apps live in your Nova account — uploading to HQ is a separate, optional step.
+The intended flow is: build an app with `/nova:build` (or `/nova:autobuild`), change it with `/nova:edit` until it's right, then push it to CommCare HQ with `/nova:upload_to_hq`. Apps live in your Nova account, uploading to HQ is a separate, optional step.
 
 ## Setup
 
@@ -45,7 +45,7 @@ The output is the same as `/nova:build`, plus a note about the choices Claude ma
 
 Modifies an existing app. Like `/nova:build`, edits run interactively, so Claude can ask you questions while it works.
 
-Quote the instruction — Claude Code splits arguments on whitespace, so without quotes only the first word after the app ID would become the instruction. (`/nova:upload_to_hq` also takes an optional second argument, a project space, but that's a single slug — you only need quotes there if your app *name* has spaces *and* you're naming a space too; see below.)
+Quote the instruction, Claude Code splits arguments on whitespace, so without quotes only the first word after the app ID would become the instruction. (`/nova:upload_to_hq` also takes an optional second argument, a project space, but that's a single slug, you only need quotes there if your app *name* has spaces *and* you're naming a space too; see below.)
 
 ```text
 /nova:edit <your-app-id> "add a phone number field to the registration form"
@@ -87,7 +87,7 @@ Prints a summary of one app: its modules, forms, fields, and case types. Use thi
 
 Pushes an app from Nova to CommCare HQ. The first argument is the app's ID or a name to search for; if more than one app matches the name, Claude shows the matches and asks which one you mean.
 
-Name a **project space** as the second argument to upload straight there — useful when your key reaches several spaces and you already know the target. Leave it off and Claude shows you the target before uploading — asking which one if your API key (saved in [Nova settings](https://commcare.app/settings)) reaches more than one — then asks you to confirm; decline to back out. If you name a space the key can't reach, Claude lists the ones it can so you can pick.
+Name a **project space** as the second argument to upload straight there, useful when your key reaches several spaces and you already know the target. Leave it off and Claude shows you the target before uploading, asking which one if your API key (saved in [Nova settings](https://commcare.app/settings)) reaches more than one, then asks you to confirm; decline to back out. If you name a space the key can't reach, Claude lists the ones it can so you can pick.
 
 ```text
 /nova:upload_to_hq vaccine tracking

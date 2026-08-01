@@ -36,7 +36,7 @@ export async function PUT(req: NextRequest) {
 		const key = new URL(req.url).searchParams.get("key");
 		if (!key) {
 			throw new ApiError(
-				"The upload is missing its object key — the `key` query param names where the bytes land. The initiate step sets it; don't call this route directly.",
+				"The upload is missing its object key, the `key` query param names where the bytes land. The initiate step sets it; don't call this route directly.",
 				400,
 			);
 		}
@@ -59,7 +59,7 @@ export async function PUT(req: NextRequest) {
 			!objectName
 		) {
 			throw new ApiError(
-				`The object key \`${key}\` doesn't look like an upload-attempt key — the initiate step mints \`${PENDING_OBJECT_PREFIX}<projectId>/<assetId>.<ext>\` or \`${STAGED_CAPTURE_PREFIX}<projectId>/<attachmentId>.<ext>\`. Don't call this route directly.`,
+				`The object key \`${key}\` doesn't look like an upload-attempt key, the initiate step mints \`${PENDING_OBJECT_PREFIX}<projectId>/<assetId>.<ext>\` or \`${STAGED_CAPTURE_PREFIX}<projectId>/<attachmentId>.<ext>\`. Don't call this route directly.`,
 				400,
 			);
 		}
@@ -82,7 +82,7 @@ export async function PUT(req: NextRequest) {
 			} catch (err) {
 				if (err instanceof AppAccessError) {
 					throw new ApiError(
-						"This upload targets a Project you can't edit — the pending key's Project segment must name a Project you hold edit access in.",
+						"This upload targets a Project you can't edit, the pending key's Project segment must name a Project you hold edit access in.",
 						403,
 					);
 				}

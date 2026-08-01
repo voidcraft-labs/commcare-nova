@@ -56,7 +56,7 @@ export type DeleteResult =
  */
 function invalidKeyMessage(server: CommCareServer): string {
 	const { label, host } = COMMCARE_SERVERS[server];
-	return `CommCare HQ (${label} — ${host}) rejected this API key. Check that you copied it correctly, and that ${label} is the server where your account lives — a key only works on the server that issued it.`;
+	return `CommCare HQ (${label}: ${host}) rejected this API key. Check that you copied it correctly, and that ${label} is the server where your account lives, a key only works on the server that issued it.`;
 }
 
 /**
@@ -159,7 +159,7 @@ export async function refreshDomainsAction(): Promise<SettingsResult> {
 				return {
 					success: false,
 					error:
-						"This API key no longer reaches any project space — it may have been revoked or had its access changed. Your saved connection is unchanged.",
+						"This API key no longer reaches any project space, it may have been revoked or had its access changed. Your saved connection is unchanged.",
 				};
 			}
 			/* A refresh 401 can't be a copy/paste or wrong-server mistake — the
@@ -169,7 +169,7 @@ export async function refreshDomainsAction(): Promise<SettingsResult> {
 				return {
 					success: false,
 					error:
-						"CommCare HQ no longer accepts your stored API key — it may have been revoked or expired. Disconnect and reconnect with a new key.",
+						"CommCare HQ no longer accepts your stored API key, it may have been revoked or expired. Disconnect and reconnect with a new key.",
 				};
 			}
 			return { success: false, error: settingsErrorMessage(result.status) };

@@ -76,7 +76,7 @@ export const DEFAULT_APP_SETUP_SECTION: AppSetupSection = "users";
 export const APP_SETUP_SECTION_LABELS: Readonly<
 	Record<AppSetupSection, string>
 > = {
-	users: "Users & personas",
+	users: "Users and personas",
 	organization: "Organization",
 	automations: "Automations",
 	deployment: "Deployment",

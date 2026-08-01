@@ -2646,8 +2646,8 @@ function datetimeShapeMessage(value: string): string {
 	if (clock !== "" && !isReadableTemporalValue("time", clock)) {
 		return clockShapeMessage(clock);
 	}
-	if (clock === "") return "Enter a clock time — this question needs both.";
-	if (datePart === "") return "Pick a date — this question needs both.";
+	if (clock === "") return "Enter a clock time: this question needs both.";
+	if (datePart === "") return "Pick a date: this question needs both.";
 	return `“${value}” isn’t a date and time.`;
 }
 

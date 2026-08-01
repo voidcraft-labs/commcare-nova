@@ -1336,7 +1336,7 @@ export async function commitGuardedBatch(
 		const freshDoc = freshSnapshot.doc;
 		if (mutationTargetsInvalid(freshDoc, mutations)) {
 			throw new BlueprintCommitRejectedError(
-				"This app changed while you were editing — something your change " +
+				"This app changed while you were editing. Something your change " +
 					"targeted was removed by someone else. Reload to get the latest " +
 					"version, then redo that change.",
 			);
@@ -2168,7 +2168,7 @@ export class RunConflictError extends Error {
 		readonly reapableIdentity: ExactRunHolderIdentity | null = null,
 	) {
 		super(
-			"Another request is already running on this app — only one run can work on an app at a time.",
+			"Another request is already running on this app, only one run can work on an app at a time.",
 		);
 		this.name = "RunConflictError";
 	}

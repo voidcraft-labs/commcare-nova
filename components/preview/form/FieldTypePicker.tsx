@@ -64,7 +64,7 @@ const INSERTION_CATEGORIES: readonly InsertionCategory[] = [
 		// Barcode rides here rather than under Input: it is a scan, not
 		// something the worker types. It is not a capture kind — its answer
 		// is the scanned text, not an attachment.
-		label: "Attachments & scanning",
+		label: "Attachments and scanning",
 		icon: tablerPhoto,
 		types: ["image", "audio", "video", "file", "signature", "barcode"],
 	},

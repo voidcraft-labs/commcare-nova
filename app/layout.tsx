@@ -33,7 +33,7 @@ const mono = JetBrains_Mono({
 export const metadata: Metadata = {
 	title: {
 		default: "commcare nova",
-		template: "%s — commcare nova",
+		template: "%s. Commcare nova",
 	},
 	description: "Build CommCare apps from natural language",
 };

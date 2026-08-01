@@ -293,7 +293,7 @@ export function UploadToHqDialog({
 														className="w-full"
 														aria-label="Project space"
 													>
-														<SelectValue placeholder="Choose a project space…" />
+														<SelectValue placeholder="Choose a project space" />
 													</SelectTrigger>
 													<SelectContent>
 														{availableDomains.map((d) => (

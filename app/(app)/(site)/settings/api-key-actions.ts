@@ -322,7 +322,7 @@ function pluginErrorMessage(err: unknown, fallback: string): string {
 	const code = readPluginErrorCode(err);
 	switch (code) {
 		case "KEY_NOT_FOUND":
-			return "That key isn't available — it may have been revoked already. The list will refresh on your next visit.";
+			return "That key isn't available, it may have been revoked already. The list will refresh on your next visit.";
 		case "INVALID_NAME_LENGTH":
 		case "NAME_REQUIRED":
 			return "Names must be 1–32 characters.";
@@ -474,7 +474,7 @@ export async function mintApiKey(
 							.where("id", "=", created.id)
 							.execute();
 						log.warn(
-							"[settings/api-keys] mint race detected — over-limit row deleted",
+							"[settings/api-keys] mint race detected. Over-limit row deleted",
 							{
 								userId: session.user.id,
 								keyId: created.id,

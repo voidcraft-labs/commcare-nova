@@ -195,6 +195,6 @@ function retainedRowStatus(retained: RetainedRowRecovery): string {
 		case "delete-conflict":
 			return "A delete needs your decision";
 		case "table-unavailable":
-			return "Original table unavailable — copy or discard this local row";
+			return "Original table unavailable. Copy or discard this local row";
 	}
 }

@@ -565,7 +565,7 @@ function checkEntries(
 				validationError(
 					"SUITE_ENTRY_NO_DISPLAY",
 					"app",
-					`The suite has an <entry> with no display text — no <command> text and no <text>. CommCare needs every entry to declare what to show in the menu. This is a bug in the suite generator.`,
+					`The suite has an <entry> with no display text, no <command> text and no <text>. CommCare needs every entry to declare what to show in the menu. This is a bug in the suite generator.`,
 					loc,
 				),
 			);
@@ -1757,7 +1757,7 @@ function checkSort(
 				validationError(
 					"SUITE_SORT_BAD_DIRECTION",
 					"app",
-					`The suite has a <sort direction="${direction}">, but CommCare only honors "ascending" or "descending" and silently ignores anything else — the column sorts the wrong way with no error. This is a bug in the suite generator.`,
+					`The suite has a <sort direction="${direction}">, but CommCare only honors "ascending" or "descending" and silently ignores anything else, the column sorts the wrong way with no error. This is a bug in the suite generator.`,
 					loc,
 				),
 			);
@@ -1769,7 +1769,7 @@ function checkSort(
 				validationError(
 					"SUITE_SORT_BAD_TYPE",
 					"app",
-					`The suite has a <sort type="${type}">, but CommCare only honors "int", "double", or "string" and silently ignores anything else — the column sorts under the wrong comparator with no error. This is a bug in the suite generator.`,
+					`The suite has a <sort type="${type}">, but CommCare only honors "int", "double", or "string" and silently ignores anything else, the column sorts under the wrong comparator with no error. This is a bug in the suite generator.`,
 					loc,
 				),
 			);
@@ -1785,7 +1785,7 @@ function checkSort(
 				validationError(
 					"SUITE_SORT_BAD_BLANKS",
 					"app",
-					`The suite has a <sort blanks="${blanks}">, but CommCare only honors "first" or "last" and silently ignores anything else — blank values sort in the wrong place with no error. This is a bug in the suite generator.`,
+					`The suite has a <sort blanks="${blanks}">, but CommCare only honors "first" or "last" and silently ignores anything else. Blank values sort in the wrong place with no error. This is a bug in the suite generator.`,
 					loc,
 				),
 			);

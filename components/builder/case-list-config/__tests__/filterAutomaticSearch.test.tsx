@@ -498,7 +498,7 @@ describe("Results Cases available composer", () => {
 		).toBeNull();
 		const showAll = screen.getByRole("button", { name: "Show all cases" });
 		expect(showAll).toBeDefined();
-		expect(showAll.className).toContain("text-destructive");
+		expect(showAll.className).toContain("nova-keycap-rose");
 		/* The workbench is frequently narrower than the viewport because it sits
 		 * inside the Results card. At a 320px handset its own container is only
 		 * about 200px wide, so the summary and action must become two full rows
@@ -649,7 +649,7 @@ describe("Results Cases available composer", () => {
 		await Promise.resolve();
 
 		const remove = screen.getByRole("button", { name: "Remove" });
-		expect(remove.className).toContain("bg-destructive");
+		expect(remove.className).toContain("nova-keycap-rose");
 		fireEvent.click(remove);
 		expect(onClearFilter).toHaveBeenCalledWith(undefined);
 		expect(onFilterChange).not.toHaveBeenCalled();

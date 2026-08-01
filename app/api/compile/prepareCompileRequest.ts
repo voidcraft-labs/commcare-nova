@@ -92,7 +92,7 @@ export async function prepareCompileRequest(
 		// user-facing failure. (The SA's compile path reads the verbose
 		// `message` through its own envelope, not this route.)
 		throw new ApiError(
-			`This app isn't ready to ${boundaryErrorVerb} — fix the issues below, then try again.`,
+			`This app isn't ready to ${boundaryErrorVerb}. Fix the issues below, then try again.`,
 			422,
 			boundary.violations.map(userFacingError),
 		);

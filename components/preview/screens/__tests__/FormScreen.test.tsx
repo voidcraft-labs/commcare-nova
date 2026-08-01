@@ -21,7 +21,7 @@
 //      field failure list renders one line per failure in the
 //      `whitespace-pre-line` block.
 //   3. Pending UX: while the action is in flight the submit button
-//      reads "Submitting...", carries the spinner icon, and is
+//      reads "Submitting", carries the spinner icon, and is
 //      disabled. The Clear button is also disabled so a re-click
 //      can't queue a second submission against a still-running one.
 //      A controllable deferred holds the action in flight for the
@@ -1237,10 +1237,10 @@ describe("FormScreen — pending UX", () => {
 		fireEvent.click(submit);
 
 		/* The button's accessible name switches from "Submit" to
-		 *  "Submitting..." while the action is in flight. The trailing
-		 *  ellipsis matches the screen's label format verbatim. */
+		 *  "Submitting" while the action is in flight (no ellipsis in a
+		 *  button label; the disabled state carries the in-flight cue). */
 		const pending = await screen.findByRole("button", {
-			name: /submitting\.\.\./i,
+			name: /^submitting$/i,
 		});
 		expect((pending as HTMLButtonElement).disabled).toBe(true);
 		/* Clear is also disabled so a re-click can't queue a second
@@ -1295,7 +1295,7 @@ describe("FormScreen — pending UX", () => {
 		await blockerStarted.promise;
 
 		fireEvent.click(screen.getByRole("button", { name: /^submit$/i }));
-		await screen.findByRole("button", { name: /submitting\.\.\./i });
+		await screen.findByRole("button", { name: /^submitting$/i });
 
 		// A post-click gesture must not mutate the coherent answer set that
 		// will be read once the attachment barrier opens.
@@ -1405,7 +1405,7 @@ describe("FormScreen — pending UX", () => {
 		const blockerResult = blocker.catch((error: unknown) => error);
 		await blockerStarted.promise;
 		fireEvent.click(screen.getByRole("button", { name: /^submit$/i }));
-		await screen.findByRole("button", { name: /submitting\.\.\./i });
+		await screen.findByRole("button", { name: /^submitting$/i });
 
 		let updateOutcome:
 			| ReturnType<NonNullable<typeof updateCapturedPersonaValue>>

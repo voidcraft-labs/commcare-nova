@@ -1510,7 +1510,7 @@ describe("case workspace chrome", () => {
 		const alwaysContinue = screen.getByRole("button", {
 			name: "Always allow Search",
 		});
-		expect(alwaysContinue.className).toContain("bg-destructive");
+		expect(alwaysContinue.className).toContain("nova-keycap-rose");
 		alwaysContinue.focus();
 		fireEvent.click(alwaysContinue);
 		let dialog = await screen.findByRole("alertdialog");
@@ -1534,7 +1534,7 @@ describe("case workspace chrome", () => {
 		const confirm = within(dialog).getByRole("button", {
 			name: "Always allow Search",
 		});
-		expect(confirm.className).toContain("bg-destructive");
+		expect(confirm.className).toContain("nova-keycap-rose");
 		fireEvent.click(confirm);
 		expect(onChange).toHaveBeenLastCalledWith({});
 		view.rerender(
@@ -1714,7 +1714,7 @@ describe("case workspace chrome", () => {
 		const replace = within(dialog).getByRole("button", {
 			name: "Hide cases",
 		});
-		expect(replace.className).toContain("bg-destructive");
+		expect(replace.className).toContain("nova-keycap-rose");
 		fireEvent.click(replace);
 		expect(onChange).toHaveBeenLastCalledWith(currentUserOwners);
 		await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
@@ -1960,7 +1960,7 @@ describe("case workspace chrome", () => {
 			screen.getByRole("button", {
 				name: "Remove the starting value for search field 1",
 			}).className,
-		).toContain("bg-destructive");
+		).toContain("nova-keycap-rose");
 
 		const typeTrigger = screen.getByRole("button", {
 			name: /search field 1 type: text box/i,

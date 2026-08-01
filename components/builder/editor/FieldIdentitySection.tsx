@@ -485,9 +485,9 @@ export function FieldIdentitySection({ field }: FieldIdentitySectionProps) {
 										label={
 											shiftHeld
 												? crossUp?.direction === "into"
-													? "Move Into Group"
-													: "Move Out of Group"
-												: "Move Up"
+													? "Move into group"
+													: "Move out of group"
+												: "Move up"
 										}
 										shortcut={shiftHeld ? "⇧↑" : "↑"}
 										disabled={shiftHeld ? !crossUp : isFirst}
@@ -504,9 +504,9 @@ export function FieldIdentitySection({ field }: FieldIdentitySectionProps) {
 										label={
 											shiftHeld
 												? crossDown?.direction === "into"
-													? "Move Into Group"
-													: "Move Out of Group"
-												: "Move Down"
+													? "Move into group"
+													: "Move out of group"
+												: "Move down"
 										}
 										shortcut={shiftHeld ? "⇧↓" : "↓"}
 										disabled={shiftHeld ? !crossDown : isLast}
@@ -519,7 +519,7 @@ export function FieldIdentitySection({ field }: FieldIdentitySectionProps) {
 
 									<Menu.Separator className="mx-2 h-px bg-white/[0.06]" />
 
-									{/* Convert Type — submenu with conversion targets. When the
+									{/* Convert type — submenu with conversion targets. When the
 									 *  current kind has no convert targets, the trigger
 									 *  collapses to a disabled item with an explanatory
 									 *  tooltip rather than disappearing, so the menu's
@@ -536,7 +536,7 @@ export function FieldIdentitySection({ field }: FieldIdentitySectionProps) {
 													height="16"
 													className="text-nova-text-muted shrink-0"
 												/>
-												<span className="flex-1 text-left">Convert Type</span>
+												<span className="flex-1 text-left">Convert type</span>
 												<Icon
 													icon={tablerChevronRight}
 													width="14"
@@ -580,7 +580,7 @@ export function FieldIdentitySection({ field }: FieldIdentitySectionProps) {
 										<SimpleTooltip content="This field type doesn't support conversion">
 											<MenuItem
 												icon={tablerArrowsExchange}
-												label="Convert Type"
+												label="Convert type"
 												disabled
 											/>
 										</SimpleTooltip>

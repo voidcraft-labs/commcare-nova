@@ -183,5 +183,5 @@ export function operationSentence(
 export function operationSentenceText(sentence: OperationSentence): string {
 	return sentence.details.length === 0
 		? sentence.lead
-		: `${sentence.lead} — ${sentence.details.join(", ")}`;
+		: `${sentence.lead}: ${sentence.details.join(", ")}`;
 }

@@ -45,14 +45,14 @@ export default function GlobalError({
 			</div>
 			<div className="flex gap-3">
 				<Button variant="ghost" onClick={() => reset()}>
-					Try Again
+					Try again
 				</Button>
 				<Button
 					onClick={() => {
 						window.location.href = "/";
 					}}
 				>
-					Return to Home
+					Return to home
 				</Button>
 			</div>
 		</div>

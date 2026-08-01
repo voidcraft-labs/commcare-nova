@@ -1144,7 +1144,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 										aria-hidden="true"
 									/>
 								)}
-								{submitStatus.kind === "running" ? "Submitting..." : "Submit"}
+								{submitStatus.kind === "running" ? "Submitting" : "Submit"}
 							</button>
 							<button
 								type="button"
@@ -1163,7 +1163,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 									className={clearRunning ? "animate-spin" : undefined}
 									aria-hidden="true"
 								/>
-								{clearRunning ? "Starting fresh…" : "Clear form"}
+								{clearRunning ? "Starting fresh" : "Clear form"}
 							</button>
 						</div>
 					)}

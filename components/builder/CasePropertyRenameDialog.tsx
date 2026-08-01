@@ -425,7 +425,7 @@ export function CasePropertyRenameDialog({
 				<DialogBody>
 					{(saving || preflightState.kind === "checking") && (
 						<p role="status" aria-live="polite" className="sr-only">
-							{saving ? "Saving case-property rename…" : "Checking impact…"}
+							{saving ? "Saving case-property rename" : "Checking impact"}
 						</p>
 					)}
 

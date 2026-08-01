@@ -365,7 +365,7 @@ function projectSortElements(
 		// compiler-bug backstop.
 		if (columnIndex === undefined) {
 			throw new Error(
-				"projectSortElements: sort directive references a column UUID that is not in the HQ short-detail source — `buildSortDirectives` should only surface directives for columns in this list.",
+				"projectSortElements: sort directive references a column UUID that is not in the HQ short-detail source: `buildSortDirectives` should only surface directives for columns in this list.",
 			);
 		}
 		if (directive.kind === "property") {

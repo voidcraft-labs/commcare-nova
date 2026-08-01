@@ -441,7 +441,7 @@ function ManagerBody({ onClose }: { onClose: () => void }) {
 			<div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
 				<p className="text-xs leading-relaxed text-nova-text-secondary">
 					{forms.length === 0
-						? "Add at least one form before turning Connect on — an enabled Connect app always has a complete, nonempty participant set."
+						? "Add at least one form before turning Connect on, an enabled Connect app always has a complete, nonempty participant set."
 						: isCurrentMode
 							? "Turn forms on or off and edit their Connect details. Changes apply together when you save."
 							: enabled

@@ -199,7 +199,7 @@ export function evaluateTilePlacement(args: {
 		if (!tileCellsOverlap(cell, other.cell)) continue;
 		return {
 			ok: false,
-			reason: `${label} would sit on top of ${other.label}. Two fields can’t share a square on a tile — one would be drawn over the other.`,
+			reason: `${label} would sit on top of ${other.label}. Two fields can’t share a square on a tile: one would be drawn over the other.`,
 		};
 	}
 
@@ -474,7 +474,7 @@ export function tileLayoutIssues(config: CaseListConfig): readonly TileIssue[] {
 		issues.push({
 			uuid: column.uuid,
 			kind: "out-of-grid",
-			message: `${columnLabel(column)} runs past the edge of the tile — it reaches ${overflow}, and a tile is ${TILE_GRID_COLUMNS} columns by ${TILE_GRID_ROWS} rows. Move it back, or make it smaller.`,
+			message: `${columnLabel(column)} runs past the edge of the tile: it reaches ${overflow}, and a tile is ${TILE_GRID_COLUMNS} columns by ${TILE_GRID_ROWS} rows. Move it back, or make it smaller.`,
 		});
 	}
 

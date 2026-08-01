@@ -88,7 +88,7 @@ function duplicateUserTypeNames(doc: BlueprintDoc): ValidationError[] {
 			validationError(
 				"USER_TYPE_NAME_DUPLICATE",
 				"app",
-				`Two roles are both called "${type.name}". Give each role a name of its own — otherwise there's no way to tell them apart when assigning one to a persona.`,
+				`Two roles are both called "${type.name}". Give each role a name of its own. Otherwise there's no way to tell them apart when assigning one to a persona.`,
 				{},
 				{ userTypeUuid: type.uuid, name: type.name },
 			),
@@ -111,7 +111,7 @@ function duplicatePersonaNames(doc: BlueprintDoc): ValidationError[] {
 			validationError(
 				"PERSONA_NAME_DUPLICATE",
 				"app",
-				`Two personas are both called "${persona.name}". Give each one a name of its own — otherwise there's no way to tell which you're previewing as.`,
+				`Two personas are both called "${persona.name}". Give each one a name of its own. Otherwise there's no way to tell which you're previewing as.`,
 				{},
 				{ personaUuid: persona.uuid, name: persona.name },
 			),

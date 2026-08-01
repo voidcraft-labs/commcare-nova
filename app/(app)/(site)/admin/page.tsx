@@ -13,7 +13,7 @@ export default function AdminDashboardPage() {
 	return (
 		<main className="max-w-6xl mx-auto px-6 py-12">
 			<h1 className="text-2xl font-display font-semibold mb-8">
-				Admin Dashboard
+				Admin dashboard
 			</h1>
 
 			<Suspense fallback={<AdminContentSkeleton />}>

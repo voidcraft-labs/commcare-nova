@@ -146,7 +146,7 @@ describe("prepareCompileRequest", () => {
 		expect(compileErr).toBeInstanceOf(ApiError);
 		expect((compileErr as ApiError).status).toBe(422);
 		expect((compileErr as ApiError).message).toBe(
-			"This app isn't ready to compile — fix the issues below, then try again.",
+			"This app isn't ready to compile. Fix the issues below, then try again.",
 		);
 		// One detail line per finding, rendered in the CONCISE builder
 		// voice (`userFacingError`) — not the verbose validator message the
@@ -170,7 +170,7 @@ describe("prepareCompileRequest", () => {
 			mode: "hq-json",
 		}).catch((e) => e);
 		expect((exportErr as ApiError).message).toBe(
-			"This app isn't ready to export — fix the issues below, then try again.",
+			"This app isn't ready to export. Fix the issues below, then try again.",
 		);
 
 		// The gate short-circuits before manifest resolution either way.

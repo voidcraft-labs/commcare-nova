@@ -12,7 +12,7 @@ import { roleAllowsApp } from "@/lib/auth/projectRoles";
  * become visible to the destination Project's members.
  */
 export const CROSS_PROJECT_MOVE_DISCLOSURE =
-	"The app's case data, media, and chat history — including files attached in chat — move with it. Everyone in the destination Project will be able to see them.";
+	"The app's case data, media, and chat history, including files attached in chat, move with it. Everyone in the destination Project will be able to see them.";
 
 export type AppProjectMovePolicy =
 	| { kind: "same_project_recovery" }

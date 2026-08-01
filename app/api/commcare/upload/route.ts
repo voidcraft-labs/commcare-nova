@@ -130,7 +130,7 @@ export async function POST(req: NextRequest) {
 		});
 		if (!boundary.ok) {
 			throw new ApiError(
-				"This app isn't ready to upload — fix the issues below, then try again.",
+				"This app isn't ready to upload. Fix the issues below, then try again.",
 				422,
 				boundary.violations.map(userFacingError),
 			);
@@ -199,7 +199,7 @@ export async function POST(req: NextRequest) {
 				// Accepted + queued, but HQ hadn't finished processing when we
 				// stopped polling — the media should appear shortly.
 				warnings.push(
-					"The app was created and its media uploaded — CommCare is still processing it, so it may take a few minutes to appear.",
+					"The app was created and its media uploaded. CommCare is still processing it, so it may take a few minutes to appear.",
 				);
 			} else {
 				// Reconcile HQ's unmatched-file report against the app: name the

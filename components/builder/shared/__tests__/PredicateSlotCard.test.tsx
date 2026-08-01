@@ -118,7 +118,7 @@ describe("PredicateSlotCard — slot populated", () => {
 		);
 
 		expect(screen.getByLabelText(/^clear filter$/i).className).toContain(
-			"bg-destructive",
+			"nova-keycap-rose",
 		);
 		expect(screen.queryByLabelText(/^add filter$/i)).toBeNull();
 	});

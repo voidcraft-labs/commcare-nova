@@ -25,10 +25,10 @@ A typical config entry looks like:
 }
 ```
 
-Field names vary by client — some use `url`, some `endpoint`; some need a `transport` marker. The URL is the same regardless. Check your client's docs for the exact wrapper.
+Field names vary by client, some use `url`, some `endpoint`; some need a `transport` marker. The URL is the same regardless. Check your client's docs for the exact wrapper.
 
 <Callout type="warn">
-If you're connecting Nova from an unattended pipeline, or from several parallel agents sharing one account, OAuth will fight you — sign-ins time out, parallel sessions invalidate each other, and you'll end up signing back in repeatedly. Use [API keys](./api-keys.mdx) instead — same scopes, no browser, no expiry surprises.
+If you're connecting Nova from an unattended pipeline, or from several parallel agents sharing one account, OAuth will fight you: sign-ins time out, parallel sessions invalidate each other, and you'll end up signing back in repeatedly. Use [API keys](./api-keys.mdx) instead: same scopes, no browser, no expiry surprises.
 </Callout>
 
 ## Sign in
@@ -37,20 +37,20 @@ The first time your agent tries to use a Nova tool, your client opens a browser 
 
 <Steps>
 <Step>Sign in with the same Google account you use for the Nova web builder.</Step>
-<Step>Review the permissions your client is asking for and click **Allow**. They're things like *Read your apps* and *Create and edit apps on your behalf* — see [Manage access](./access.mdx) for the full list.</Step>
+<Step>Review the permissions your client is asking for and click **Allow**. They're things like *Read your apps* and *Create and edit apps on your behalf*, see [Manage access](./access.mdx) for the full list.</Step>
 <Step>The browser tab closes (or shows a confirmation). Your client picks up the connection and your agent can call Nova from then on.</Step>
 </Steps>
 
 You only sign in once per client. The connection sticks until you revoke it.
 
-If your client doesn't open the browser tab automatically, check its MCP logs — most clients print the sign-in URL there as a fallback.
+If your client doesn't open the browser tab automatically, check its MCP logs, most clients print the sign-in URL there as a fallback.
 
 ## CommCare HQ uploads
 
 The HQ upload tool needs two things that aren't required for the rest of the surface:
 
-1. **HQ permissions on the connection.** The consent screen has two HQ-specific rows — *See your CommCare HQ project connection* and *Deploy your apps to CommCare HQ on your behalf*. If your client requested them when you signed in, they're already part of the connection. If not, you'll need to sign out and back in once your client is configured to ask for them.
-2. **An HQ API key in Nova settings.** Add the key on the [Nova settings page](https://commcare.app/settings), picking the CommCare server your account lives on — US (www.commcarehq.org), India, or EU. These are separate servers with separate accounts, and a key only works on the one that issued it, so a key rejected as invalid may just be paired with the wrong server. Uploads go to that server. A key can reach more than one project space (Settings shows which); your agent picks the target per upload with the upload tool's `domain` argument.
+1. **HQ permissions on the connection.** The consent screen has two HQ-specific rows, *See your CommCare HQ project connection* and *Deploy your apps to CommCare HQ on your behalf*. If your client requested them when you signed in, they're already part of the connection. If not, you'll need to sign out and back in once your client is configured to ask for them.
+2. **An HQ API key in Nova settings.** Add the key on the [Nova settings page](https://commcare.app/settings), picking the CommCare server your account lives on, US (www.commcarehq.org), India, or EU. These are separate servers with separate accounts, and a key only works on the one that issued it, so a key rejected as invalid may just be paired with the wrong server. Uploads go to that server. A key can reach more than one project space (Settings shows which); your agent picks the target per upload with the upload tool's `domain` argument.
 
 If either is missing when the upload tool runs, the response carries a clear error your agent can pass back to you.
 

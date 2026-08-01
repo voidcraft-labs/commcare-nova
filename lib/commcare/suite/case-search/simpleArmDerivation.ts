@@ -236,7 +236,7 @@ export function deriveSimpleArmPredicate(
 ): Predicate {
 	if (!simpleArmNeedsXPathQueryEmission(authored)) {
 		throw new Error(
-			`The wire emitter called \`deriveSimpleArmPredicate\` on a simple-arm input ("${authored.name}", property "${authored.property}", mode "${authored.mode?.kind ?? "default"}", via "${authored.via?.kind ?? "absent"}") that rides on the bare \`<prompt>\` slot — no \`_xpath_query\` predicate should be derived for it. The emission gate \`simpleArmNeedsXPathQueryEmission\` must be consulted first; check the call site for a missing gate or a stale cached result.`,
+			`The wire emitter called \`deriveSimpleArmPredicate\` on a simple-arm input ("${authored.name}", property "${authored.property}", mode "${authored.mode?.kind ?? "default"}", via "${authored.via?.kind ?? "absent"}") that rides on the bare \`<prompt>\` slot, no \`_xpath_query\` predicate should be derived for it. The emission gate \`simpleArmNeedsXPathQueryEmission\` must be consulted first; check the call site for a missing gate or a stale cached result.`,
 		);
 	}
 	const modeKind = authored.mode?.kind ?? defaultModeKind(authored.type);
@@ -294,7 +294,7 @@ export function deriveSimpleArmPredicate(
 			// validator regression as a structural failure at emission
 			// time rather than a silent runtime mismatch.
 			throw new Error(
-				`The wire emitter tried to derive an XPath predicate for the simple-arm input "${authored.name}" (mode "${modeKind}"), but \`${modeKind}\` mode has no faithful representation on the \`_xpath_query\` route — the validator rule \`searchInputViaModeCompatibility\` was meant to reject this shape at authoring time. Run validation against the doc before wire emission; the input needs to drop back to a bare-prompt-compatible shape (\`range\` on the current case with \`name === property\`) or move to the advanced arm with an explicit predicate.`,
+				`The wire emitter tried to derive an XPath predicate for the simple-arm input "${authored.name}" (mode "${modeKind}"), but \`${modeKind}\` mode has no faithful representation on the \`_xpath_query\` route, the validator rule \`searchInputViaModeCompatibility\` was meant to reject this shape at authoring time. Run validation against the doc before wire emission; the input needs to drop back to a bare-prompt-compatible shape (\`range\` on the current case with \`name === property\`) or move to the advanced arm with an explicit predicate.`,
 			);
 		default: {
 			const _exhaustive: never = modeKind;

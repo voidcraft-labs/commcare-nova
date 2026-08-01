@@ -63,7 +63,7 @@ export function PersonasSubsection() {
 		<Subsection
 			id="app-setup-personas"
 			title="Personas"
-			description="Named workers you can run the app as. Preview signs in as the persona you pick, so conditions on worker information behave the way they will for a real person — and the cases it creates belong to that persona."
+			description="Named workers you can run the app as. Preview signs in as the persona you pick, so conditions on worker information behave the way they will for a real person, and the cases it creates belong to that persona."
 			addLabel="Add persona"
 			onAdd={add}
 			canEdit={canEdit}

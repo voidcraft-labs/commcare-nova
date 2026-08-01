@@ -30,7 +30,7 @@ export function lookupFixtureCellText(
 		case "datetime": {
 			if (typeof value !== "string") {
 				throw new Error(
-					`lookupFixtureCellText: a '${dataType}' cell holds a stored number, which the storage layer never writes for that type. The definitions and rows in this snapshot disagree — this is a reader bug, not an authoring state.`,
+					`lookupFixtureCellText: a '${dataType}' cell holds a stored number, which the storage layer never writes for that type. The definitions and rows in this snapshot disagree, this is a reader bug, not an authoring state.`,
 				);
 			}
 			return value;
@@ -39,7 +39,7 @@ export function lookupFixtureCellText(
 		case "decimal": {
 			if (typeof value !== "number" || !Number.isFinite(value)) {
 				throw new Error(
-					`lookupFixtureCellText: a '${dataType}' cell holds a non-numeric stored value, which the storage layer never writes for that type. The definitions and rows in this snapshot disagree — this is a reader bug, not an authoring state.`,
+					`lookupFixtureCellText: a '${dataType}' cell holds a non-numeric stored value, which the storage layer never writes for that type. The definitions and rows in this snapshot disagree, this is a reader bug, not an authoring state.`,
 				);
 			}
 			return formatNumeric(value);

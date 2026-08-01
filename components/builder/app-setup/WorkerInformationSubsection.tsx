@@ -58,7 +58,7 @@ export function WorkerInformationSubsection() {
 		<Subsection
 			id="app-setup-worker-information"
 			title="Worker information"
-			description="What each worker carries with them — a role, a region, anything your app's conditions need to read. You give it a name to save under, and CommCare stores a value per worker."
+			description="What each worker carries with them, a role, a region, anything your app's conditions need to read. You give it a name to save under, and CommCare stores a value per worker."
 			addLabel="Add worker information"
 			onAdd={add}
 			canEdit={canEdit}
@@ -391,7 +391,7 @@ function BuiltInReference() {
 										{property.slug}
 									</span>
 									{property.readByRuntime && (
-										<SimpleTooltip content="CommCare itself reads this one — its value changes how the app behaves, not just what conditions see.">
+										<SimpleTooltip content="CommCare itself reads this one, its value changes how the app behaves, not just what conditions see.">
 											<span className="inline-flex items-center gap-1 rounded-full bg-nova-violet/[0.15] px-2 py-0.5 text-[11px] text-nova-violet-bright">
 												<Icon
 													icon={tablerBolt}

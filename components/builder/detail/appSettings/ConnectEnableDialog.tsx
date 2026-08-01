@@ -1036,7 +1036,7 @@ function ConnectEnableBody({
 					<p className="text-xs leading-relaxed text-nova-text-secondary">
 						{single
 							? "Turn on a section below and fill it in to add this form to Connect."
-							: "Pick which forms take part in Connect by turning on their sections and filling them in. Forms you leave off stay out — you can add them later from each form's settings."}
+							: "Pick which forms take part in Connect by turning on their sections and filling them in. Forms you leave off stay out, you can add them later from each form's settings."}
 					</p>
 					{restoredFormCount > 0 && (
 						<p className="text-[11px] text-nova-text-muted">

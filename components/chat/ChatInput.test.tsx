@@ -89,11 +89,13 @@ describe("ChatInput", () => {
 	it("uses real, action-oriented placeholders without decorative ellipses", () => {
 		const { rerender } = render(<ChatInput openingPrompt onSend={vi.fn()} />);
 		expect(
-			screen.getByPlaceholderText("Describe the app you want to build"),
+			screen.getByPlaceholderText("Tell me about the app you'd like to build"),
 		).toBeDefined();
 
 		rerender(<ChatInput openingPrompt={false} onSend={vi.fn()} />);
-		expect(screen.getByPlaceholderText("Describe a change")).toBeDefined();
+		expect(
+			screen.getByPlaceholderText("What would you like to change?"),
+		).toBeDefined();
 		expect(document.querySelector('textarea[placeholder*="..."]')).toBeNull();
 	});
 

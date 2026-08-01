@@ -326,7 +326,7 @@ export const resolveActiveProjectId = cache(
 				// with no trace. The stale stamp clears on the next session
 				// re-mint; the Project switcher reflects the active Project.
 				log.warn(
-					"[auth] active Project no longer accessible — falling back to personal",
+					"[auth] active Project no longer accessible. Falling back to personal",
 					{ userId: session.user.id, staleProjectId: active },
 				);
 			}

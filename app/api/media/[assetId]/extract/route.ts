@@ -81,7 +81,7 @@ async function loadExtractableDocument(
 		!(await userInProject(session.user.id, asset.project_id, capability))
 	) {
 		throw new ApiError(
-			"We couldn't find that file — it may have been deleted, or it isn't yours.",
+			"We couldn't find that file, it may have been deleted, or it isn't yours.",
 			404,
 		);
 	}
@@ -96,7 +96,7 @@ async function loadExtractableDocument(
 	}
 	if (asset.status !== "ready") {
 		throw new ApiError(
-			"This document is still uploading — its features can't be extracted until the upload finishes. Try again in a moment.",
+			"This document is still uploading, its features can't be extracted until the upload finishes. Try again in a moment.",
 			409,
 		);
 	}
@@ -149,7 +149,7 @@ export async function POST(
 			// read failure maps to 503.
 			if (err instanceof ApiError) throw err;
 			throw new ApiError(
-				"We couldn't check your usage just now, so extraction is paused for a moment. Try again shortly — your file is still saved.",
+				"We couldn't check your usage just now, so extraction is paused for a moment. Try again shortly. Your file is still saved.",
 				503,
 			);
 		}
@@ -312,7 +312,7 @@ export async function GET(
 			// The doc says ready but the object is gone — treat as not-found so the
 			// client can re-trigger a POST rather than 500.
 			throw new ApiError(
-				"This document's extract is missing — try extracting it again.",
+				"This document's extract is missing. Try extracting it again.",
 				404,
 			);
 		}

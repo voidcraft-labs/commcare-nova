@@ -62,11 +62,11 @@ export async function AppList({ projectId, userId }: AppListProps) {
 	return (
 		<>
 			<div className="flex items-center justify-between mb-8">
-				<h1 className="text-2xl font-display font-semibold">Your Apps</h1>
+				<h1 className="text-2xl font-display font-semibold">Your apps</h1>
 				{canCreateApp ? (
 					<Button render={<Link href="/build/new" />} nativeButton={false}>
 						<Icon icon={tablerPlus} width="14" height="14" />
-						New App
+						New app
 					</Button>
 				) : null}
 			</div>

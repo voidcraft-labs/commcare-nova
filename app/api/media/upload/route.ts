@@ -77,7 +77,7 @@ export async function POST(req: NextRequest) {
 		const parsed = requestBodySchema.safeParse(body);
 		if (!parsed.success) {
 			throw new ApiError(
-				"Upload request couldn't be parsed — make sure filename, mimeType, sizeBytes, and contentHash are all present and well-formed.",
+				"Upload request couldn't be parsed. Make sure filename, mimeType, sizeBytes, and contentHash are all present and well-formed.",
 				400,
 				parsed.error.issues.map((e) => `${e.path.join(".")}: ${e.message}`),
 			);

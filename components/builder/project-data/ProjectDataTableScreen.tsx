@@ -410,7 +410,7 @@ function TableGrid({
 												/* A missing cell is not an empty one. The dash is
 												 * decoration, so the accessible name says which. */
 												<span className="text-nova-text-muted">
-													<span aria-hidden="true">—</span>
+													<span aria-hidden="true">–</span>
 													<span className="sr-only">No value</span>
 												</span>
 											) : (

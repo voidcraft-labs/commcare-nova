@@ -21,10 +21,10 @@ OAuth's sign-in needs a person at a browser, and parallel tools sharing one OAut
 
 <Steps>
 <Step>Open [Settings → API keys](https://commcare.app/settings) on commcare.app, signed in as the account that should own the key.</Step>
-<Step>Click **+ New key** and pick a name. The name only shows up in your keys list — it doesn't affect what the key can do.</Step>
+<Step>Click **+ New key** and pick a name. The name only shows up in your keys list, it doesn't affect what the key can do.</Step>
 <Step>Pick the scopes. **Read** and **Write** are required. Add the **HQ** scopes if your tool needs to upload finished apps to CommCare HQ.</Step>
 <Step>Pick an expiry. **1 year** is the default. Pick shorter if you want tighter rotation, or **Never expires** for credentials you'll rotate manually on your own schedule.</Step>
-<Step>Click **Mint key**. The next screen shows the full key once — copy it now. Nova hashes it after that, so if you lose the full value you'll have to mint a new one.</Step>
+<Step>Click **Mint key**. The next screen shows the full key once, copy it now. Nova hashes it after that, so if you lose the full value you'll have to mint a new one.</Step>
 </Steps>
 
 ## Use it with Claude Code
@@ -33,7 +33,7 @@ The setup depends on whether you have the [Nova plugin](../claude-code/index.mdx
 
 ### With the plugin
 
-The plugin reads `NOVA_API_KEY` from your environment. Set it to your key value and the plugin authenticates with it automatically — no extra commands, no second server entry:
+The plugin reads `NOVA_API_KEY` from your environment. Set it to your key value and the plugin authenticates with it automatically, with no extra commands and no second server entry:
 
 ```bash
 export NOVA_API_KEY="sk-nova-v1-YOUR_KEY_HERE"
@@ -43,10 +43,10 @@ export NOVA_API_KEY="sk-nova-v1-YOUR_KEY_HERE"
 Replace `sk-nova-v1-YOUR_KEY_HERE` with your actual key value. Put the `export` line in your shell profile (`~/.zshrc`, `~/.bashrc`) so it's set every time Claude Code starts.
 </Callout>
 
-Leave `NOVA_API_KEY` unset to use browser sign-in instead — the plugin falls back to the OAuth flow on its own.
+Leave `NOVA_API_KEY` unset to use browser sign-in instead: the plugin falls back to the OAuth flow on its own.
 
 <Callout type="warn">
-Stuck on *Needs authentication* even with a key set? If an earlier sign-in failed, Claude Code remembers that failed state and keeps skipping the connection — even once the key is valid. Clear it by deleting `~/.claude/mcp-needs-auth-cache.json`, then restart Claude Code. (The `/mcp` → Clear authentication option doesn't clear this one.)
+Stuck on *Needs authentication* even with a key set? If an earlier sign-in failed, Claude Code remembers that failed state and keeps skipping the connection, even once the key is valid. Clear it by deleting `~/.claude/mcp-needs-auth-cache.json`, then restart Claude Code. (The `/mcp` → Clear authentication option doesn't clear this one.)
 </Callout>
 
 ### Without the plugin
@@ -71,7 +71,7 @@ Add the server directly. Drop a config block in your project's `.mcp.json` or a 
 Replace `sk-nova-v1-YOUR_KEY_HERE` with your actual key value.
 </Callout>
 
-To keep the key out of a committed file, set it in your environment and reference it as `"Bearer ${NOVA_API_KEY}"` — Claude Code fills it in at startup. The variable has to be set: if it's missing, Claude Code won't start the `nova` server and tells you which variable is unset (a hand-added entry like this has no OAuth fallback to catch you). Want browser sign-in instead? Omit the `Authorization` header entirely and Claude Code runs the OAuth flow.
+To keep the key out of a committed file, set it in your environment and reference it as `"Bearer ${NOVA_API_KEY}"`, Claude Code fills it in at startup. The variable has to be set: if it's missing, Claude Code won't start the `nova` server and tells you which variable is unset (a hand-added entry like this has no OAuth fallback to catch you). Want browser sign-in instead? Omit the `Authorization` header entirely and Claude Code runs the OAuth flow.
 
 ## Scopes
 
@@ -88,7 +88,7 @@ Set scopes when you mint, change them later from the kebab menu → **Edit scope
 
 ## Rotating and revoking
 
-Every key in the list shows when it was last used and when it expires. To rotate, mint a new key, point your tool at the new value, then revoke the old one — there's no in-place rotation, because Nova only keeps the hash.
+Every key in the list shows when it was last used and when it expires. To rotate, mint a new key, point your tool at the new value, then revoke the old one, there's no in-place rotation, because Nova only keeps the hash.
 
 To revoke, click the kebab on the row → **Revoke** → confirm. The next call from that key fails immediately.
 

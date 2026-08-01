@@ -814,7 +814,7 @@ function checkMatch(
 		errors.push({
 			path: [...path, "value"],
 			code: "match-value-empty",
-			message: `match value cannot be the empty string — every match mode collapses an empty value to a non-match (see matchSchema JSDoc). Use is-blank(prop) for absent-or-empty.`,
+			message: `match value cannot be the empty string. Every match mode collapses an empty value to a non-match (see matchSchema JSDoc). Use is-blank(prop) for absent-or-empty.`,
 		});
 	}
 	// Type-check the whole value expression and verify its
@@ -959,7 +959,7 @@ function checkAbsenceOperator(
 		errors.push({
 			path: [...path, "left"],
 			code: "runtime-value",
-			message: `Operator '${p.kind}' cannot be applied to a literal — a literal is the value itself, not a runtime read whose presence is in question. Use a property / input / session reference in 'left'.`,
+			message: `Operator '${p.kind}' cannot be applied to a literal, a literal is the value itself, not a runtime read whose presence is in question. Use a property / input / session reference in 'left'.`,
 		});
 		return;
 	}
@@ -1190,13 +1190,13 @@ export function checkRelationPath(
 			// concern, not the type-checker's.
 			throw new Error(
 				[
-					"`checkRelationPath` — `self` reached the relation-path checker, but every caller short-circuits `self` upstream.",
+					"`checkRelationPath`: `self` reached the relation-path checker, but every caller short-circuits `self` upstream.",
 					"",
 					"`self` walks have no destination distinct from the originating scope, so",
 					"the relation-path-bearing arms (`exists(self)` / `missing(self)` /",
 					"`count(self)` / `prop(via: self)`) are rejected or handled directly at",
 					"the operator-level checker before recursing into `checkRelationPath`. Reaching",
-					"this throw means a new caller bypassed that short-circuit — either fix",
+					"this throw means a new caller bypassed that short-circuit, either fix",
 					"the caller, or document why `self` should now be a recursive case here.",
 				].join("\n"),
 			);

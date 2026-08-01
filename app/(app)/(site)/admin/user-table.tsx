@@ -222,7 +222,7 @@ export function UserTable({ users }: { users: AdminUserRow[] }) {
 				type="text"
 				value={globalFilter}
 				onChange={(e) => setGlobalFilter(e.target.value)}
-				placeholder="Search users..."
+				placeholder="Search users"
 				aria-label="Search users"
 				autoComplete="off"
 				data-1p-ignore

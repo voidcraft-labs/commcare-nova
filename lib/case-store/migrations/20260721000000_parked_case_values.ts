@@ -47,7 +47,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 			IF to_regclass('public.cases_quarantine') IS NOT NULL THEN
 				EXECUTE 'SELECT EXISTS (SELECT 1 FROM cases_quarantine)' INTO has_rows;
 				IF has_rows THEN
-					RAISE EXCEPTION 'cases_quarantine still holds rows — refusing to drop the recoverable-row sink. Each row is a full case an old quarantine path already removed from cases; inspect and migrate them forward, then re-run.';
+					RAISE EXCEPTION 'cases_quarantine still holds rows. Refusing to drop the recoverable-row sink. Each row is a full case an old quarantine path already removed from cases; inspect and migrate them forward, then re-run.';
 				END IF;
 			END IF;
 		END $$`.execute(db);

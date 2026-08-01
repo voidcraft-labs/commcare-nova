@@ -62,7 +62,7 @@ export async function GET(
 		const storedSize = await getStoredObjectSize(asset.gcsObjectKey);
 		if (storedSize === null) {
 			log.error(
-				"Media asset row says ready, but its object is missing from storage — returning 404. The row is stale and needs cleanup.",
+				"Media asset row says ready, but its object is missing from storage. Returning 404. The row is stale and needs cleanup.",
 				undefined,
 				{ assetId, gcsObjectKey: asset.gcsObjectKey },
 			);
@@ -140,7 +140,7 @@ export async function DELETE(
 			!(await userInProject(session.user.id, asset.project_id, "edit"))
 		) {
 			throw new ApiError(
-				"We couldn't find that file — it may already have been deleted, or it isn't yours.",
+				"We couldn't find that file, it may already have been deleted, or it isn't yours.",
 				404,
 			);
 		}
@@ -157,7 +157,7 @@ export async function DELETE(
 				});
 				if (result.kind === "referenced") {
 					throw new ApiError(
-						`Can't delete this file — it's still used by ${result.references.join("; ")}. Swap the media or clear the slot in those apps, then delete it.`,
+						`Can't delete this file. It's still used by ${result.references.join("; ")}. Swap the media or clear the slot in those apps, then delete it.`,
 						409,
 					);
 				}
@@ -166,7 +166,7 @@ export async function DELETE(
 		});
 		if (!deleted) {
 			throw new ApiError(
-				"We couldn't find that file — it may already have been deleted, or it isn't yours.",
+				"We couldn't find that file, it may already have been deleted, or it isn't yours.",
 				404,
 			);
 		}

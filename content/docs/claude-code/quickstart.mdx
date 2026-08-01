@@ -20,7 +20,7 @@ Run `/mcp`, pick `nova` from the list, and complete the sign-in in the browser w
 
 If the sign-in window doesn't open, run `/mcp` again. If Claude Code later says you're not signed in anymore, run `/mcp`, pick `nova`, and choose Reauthenticate.
 
-Running Nova unattended — from CI, or from automated agents that can't stop for a browser? Set a `NOVA_API_KEY` in your environment instead and skip the sign-in entirely. See [API keys](../mcp/api-keys.mdx).
+Running Nova unattended, from CI, or from automated agents that can't stop for a browser? Set a `NOVA_API_KEY` in your environment instead and skip the sign-in entirely. See [API keys](../mcp/api-keys.mdx).
 
 ## Build your first app
 
@@ -36,4 +36,4 @@ If you'd rather Claude make every call itself without asking, use `/nova:autobui
 
 ## Uploading to CommCare HQ
 
-`/nova:upload_to_hq` pushes a Nova app to CommCare HQ as a new HQ app. Before your first upload, add your CommCare HQ API key on the [Nova settings page](https://commcare.app/settings) — pick the CommCare server your account lives on (US, India, or EU; they're separate servers, and a key only works on the one that issued it). Uploads land on that server. If your key reaches more than one project space, Claude asks which one to upload to each time — or name the space in the command to upload straight there. Full details are on the [Commands](./commands.mdx#novaupload_to_hq-app_id-or-name-project-space) page.
+`/nova:upload_to_hq` pushes a Nova app to CommCare HQ as a new HQ app. Before your first upload, add your CommCare HQ API key on the [Nova settings page](https://commcare.app/settings): pick the CommCare server your account lives on (US, India, or EU; they're separate servers, and a key only works on the one that issued it). Uploads land on that server. If your key reaches more than one project space, Claude asks which one to upload to each time, or name the space in the command to upload straight there. Full details are on the [Commands](./commands.mdx#novaupload_to_hq-app_id-or-name-project-space) page.

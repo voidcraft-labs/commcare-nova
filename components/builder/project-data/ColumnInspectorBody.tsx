@@ -147,7 +147,7 @@ export function ColumnInspectorBody({
 									}
 								}}
 							>
-								{settingWrite === "label" ? "Saving…" : "Save name"}
+								{settingWrite === "label" ? "Saving" : "Save name"}
 							</Button>
 						</div>
 						{label.conflicted && (
@@ -213,7 +213,7 @@ export function ColumnInspectorBody({
 									}
 								}}
 							>
-								{settingWrite === "wire-name" ? "Saving…" : "Save export name"}
+								{settingWrite === "wire-name" ? "Saving" : "Save export name"}
 							</Button>
 						</div>
 						{wireName.conflicted && (

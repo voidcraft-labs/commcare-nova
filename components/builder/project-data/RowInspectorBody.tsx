@@ -202,7 +202,7 @@ export function RowInspectorBody({
 						disabled={!dirty || saving || deleting || confirmingDelete}
 						onClick={() => void save()}
 					>
-						{saving ? "Saving…" : "Save row"}
+						{saving ? "Saving" : "Save row"}
 					</Button>
 					{dirty && (
 						<Button
@@ -275,7 +275,7 @@ export function RowInspectorBody({
 									}
 								}}
 							>
-								{deleting ? "Deleting…" : "Delete row"}
+								{deleting ? "Deleting" : "Delete row"}
 							</Button>
 						</div>
 					</div>
@@ -295,7 +295,7 @@ export function RowInspectorBody({
 								height="16"
 								aria-hidden="true"
 							/>
-							{deleting ? "Deleting…" : "Delete row"}
+							{deleting ? "Deleting" : "Delete row"}
 						</Button>
 						{dirty && (
 							<p className="text-[12px] leading-snug text-nova-text-muted">

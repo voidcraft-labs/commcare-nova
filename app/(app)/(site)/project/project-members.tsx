@@ -63,11 +63,11 @@ const ROLE_DESCRIPTIONS: Record<
 	string
 > = {
 	viewer:
-		"Can open and preview this Project's apps and case data — but can't change anything.",
+		"Can open and preview this Project's apps and case data, but can't change anything.",
 	editor:
 		"Can build and edit the Project's apps and case data. Can't invite people or change roles.",
 	admin:
-		"Everything an editor can do, plus managing people — invite members, change their roles, and remove them. Can't remove or change the owner.",
+		"Everything an editor can do, plus managing people. Invite members, change their roles, and remove them. Can't remove or change the owner.",
 	owner:
 		"Whoever created the Project. Full control, and the one member who can't be removed or have their role changed.",
 };

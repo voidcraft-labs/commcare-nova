@@ -71,7 +71,7 @@ export const CONNECT_SLUG_MAX_LENGTH = CONNECT_ID_MAX_LENGTH;
  * files so the agent-facing contract can't drift between them.
  */
 export const CONNECT_ID_FIELD_DESCRIPTION =
-	"Leave unset — Nova derives a valid unique id from the name. Set only " +
+	"Leave unset. Nova derives a valid unique id from the name. Set only " +
 	`to pin one (XML-name legal, ≤${CONNECT_SLUG_MAX_LENGTH} chars, app-unique).`;
 
 /**
@@ -94,10 +94,10 @@ export const CONNECT_ID_FIELD_DESCRIPTION =
  */
 export function connectIdError(id: string): string | null {
 	if (!XML_ELEMENT_NAME_REGEX.test(id)) {
-		return `"${id}" can't be used as a Connect id — it becomes an XML element name in the form, so it can't contain spaces or start with a digit. Use letters, numbers, and underscores, starting with a letter or underscore.`;
+		return `"${id}" can't be used as a Connect id, it becomes an XML element name in the form, so it can't contain spaces or start with a digit. Use letters, numbers, and underscores, starting with a letter or underscore.`;
 	}
 	if (id.length > CONNECT_SLUG_MAX_LENGTH) {
-		return `"${id}" is ${id.length} characters — Connect stores ids in a column limited to ${CONNECT_SLUG_MAX_LENGTH}. Shorten it to ${CONNECT_SLUG_MAX_LENGTH} characters or fewer.`;
+		return `"${id}" is ${id.length} characters. Connect stores ids in a column limited to ${CONNECT_SLUG_MAX_LENGTH}. Shorten it to ${CONNECT_SLUG_MAX_LENGTH} characters or fewer.`;
 	}
 	return null;
 }
@@ -122,7 +122,7 @@ export function connectIdConflictError(
 	existingIds: ReadonlySet<string>,
 ): string | null {
 	if (existingIds.has(id)) {
-		return `"${id}" is already used by another Connect block in this app. Connect ids must be unique — choose a different id.`;
+		return `"${id}" is already used by another Connect block in this app. Connect ids must be unique. Choose a different id.`;
 	}
 	return null;
 }
@@ -211,7 +211,7 @@ export function buildConnectSlugMap(
 		const priorSite = idToSite.get(id);
 		if (priorSite) {
 			throw new Error(
-				`Two Connect blocks share the id "${id}" — ${priorSite} and ${site}. Connect ids must be unique across the app (they key the per-kind DB slug and the XForm element name). This should be rejected at the source (the field / tool guards + the CONNECT_ID_DUPLICATE validator rule); reaching emission with a duplicate means a doc skipped that enforcement.`,
+				`Two Connect blocks share the id "${id}": ${priorSite} and ${site}. Connect ids must be unique across the app (they key the per-kind DB slug and the XForm element name). This should be rejected at the source (the field / tool guards + the CONNECT_ID_DUPLICATE validator rule); reaching emission with a duplicate means a doc skipped that enforcement.`,
 			);
 		}
 		idToSite.set(id, site);

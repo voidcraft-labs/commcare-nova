@@ -1809,7 +1809,7 @@ export class PostgresCaseStore implements CaseStore {
 					invariant:
 						"`change` and `syncedSeq` are both set; a per-row migration and the monotone additive gate are mutually exclusive",
 					detail:
-						"`change` describes a per-row reshape (rename / retype / narrow-options) that runs pre-commit with no committed seq; `syncedSeq` is the monotone gate for an additive sync that carries a committed seq and no migration. Reaching this means a caller combined them — the coarse `synced_seq` gate could then skip the migration's per-row work on a stale seq. Hint: run the migration un-versioned (Phase 1) and let the post-commit sweep advance `synced_seq` additively.",
+						"`change` describes a per-row reshape (rename / retype / narrow-options) that runs pre-commit with no committed seq; `syncedSeq` is the monotone gate for an additive sync that carries a committed seq and no migration. Reaching this means a caller combined them, the coarse `synced_seq` gate could then skip the migration's per-row work on a stale seq. Hint: run the migration un-versioned (Phase 1) and let the post-commit sweep advance `synced_seq` additively.",
 				}),
 			);
 		}
@@ -3719,7 +3719,7 @@ function parseJsonbInput(value: unknown): Record<string, unknown> {
 					where: "case-store.parseJsonbInput",
 					invariant:
 						"input string is not parseable JSON, but every CaseStore caller stringifies through `JSON.stringify` before passing the payload here",
-					detail: `Underlying parser message: ${err instanceof Error ? err.message : String(err)}\n\nHint: trace the caller's stringify path — a serializer that produces non-JSON text (a stray sentinel, a non-stringifiable type) is the structural cause.`,
+					detail: `Underlying parser message: ${err instanceof Error ? err.message : String(err)}\n\nHint: trace the caller's stringify path, a serializer that produces non-JSON text (a stray sentinel, a non-stringifiable type) is the structural cause.`,
 				}),
 			);
 		}
@@ -4677,7 +4677,7 @@ function indexName(
 				where: "case-store.indexName",
 				invariant: `composed index name \`${composed}\` exceeds Postgres' 63-byte identifier cap (\`NAMEDATALEN - 1\`)`,
 				detail:
-					"Both identity segments are fixed-width hashes, so a composed name is at most 40 bytes and this throw is unreachable in the current scheme — reaching it means a name segment regained a variable length. Restore fixed-width composition so the `readLiveIndexSet` name-prefix contract holds.\n\nHint: keep every non-`mode` name segment fixed-width.",
+					"Both identity segments are fixed-width hashes, so a composed name is at most 40 bytes and this throw is unreachable in the current scheme. Reaching it means a name segment regained a variable length. Restore fixed-width composition so the `readLiveIndexSet` name-prefix contract holds.\n\nHint: keep every non-`mode` name segment fixed-width.",
 			}),
 		);
 	}

@@ -803,9 +803,7 @@ function MintDialog({ open, onOpenChange, onComplete }: MintDialogProps) {
 			 * confirming flash. */
 			window.setTimeout(() => setCopied(false), 1800);
 		} catch {
-			setError(
-				"Couldn't copy automatically — select the key and copy by hand.",
-			);
+			setError("Couldn't copy automatically. Select the key and copy by hand.");
 		}
 	}, [revealedKey]);
 
@@ -960,7 +958,7 @@ function MintForm({
 						required
 						value={name}
 						onValueChange={onNameChange}
-						placeholder="e.g., ACE service account"
+						placeholder="A name like ACE service account"
 						maxLength={32}
 						autoComplete="off"
 						data-1p-ignore
@@ -1055,7 +1053,7 @@ function MintForm({
 							className="animate-spin"
 						/>
 					)}
-					{submitting ? "Minting…" : "Mint key"}
+					{submitting ? "Minting" : "Mint key"}
 				</Button>
 			</div>
 		</form>
@@ -1102,8 +1100,8 @@ function RevealedKey({
 					<DialogTitle className="font-display">Key created</DialogTitle>
 				</div>
 				<DialogDescription className="mt-1 text-xs text-nova-text-muted leading-relaxed">
-					Copy this key now. Nova won't keep the full value — close this and
-					it's gone.
+					Copy this key now. Nova won't keep the full value. Close this and it's
+					gone.
 				</DialogDescription>
 			</div>
 
@@ -1329,7 +1327,7 @@ function EditScopesDialog({
 								className="animate-spin"
 							/>
 						)}
-						{submitting ? "Saving…" : "Save scopes"}
+						{submitting ? "Saving" : "Save scopes"}
 					</Button>
 				</div>
 			</DialogContent>

@@ -315,7 +315,7 @@ function checkLocation(
 			validationError(
 				"MEDIA_LOCATION_UNKNOWN_AUTHORITY",
 				"app",
-				`The generated media_suite.xml has a <location authority="${authority}">${where}, but CommCare's installer only reads bundled bytes for "local" authority. Anything else fails install — the path isn't bundled and the installer can never fetch it. This is a bug in the media-suite generator.`,
+				`The generated media_suite.xml has a <location authority="${authority}">${where}, but CommCare's installer only reads bundled bytes for "local" authority. Anything else fails install, the path isn't bundled and the installer can never fetch it. This is a bug in the media-suite generator.`,
 				loc,
 			),
 		);

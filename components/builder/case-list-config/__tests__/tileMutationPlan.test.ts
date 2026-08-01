@@ -155,7 +155,7 @@ describe("planTileLayoutEnable", () => {
 		});
 		expect(plan.ok).toBe(false);
 		expect(plan.ok === false && plan.reason).toBe(
-			"Add information to Results before turning on the tile — a tile needs at least one field to lay out.",
+			"Add information to Results before turning on the tile: a tile needs at least one field to lay out.",
 		);
 	});
 

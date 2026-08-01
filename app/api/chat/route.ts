@@ -123,7 +123,7 @@ export async function POST(req: Request) {
 		Response.json(
 			{
 				error:
-					"That request is too large to process. Start a fresh conversation — the history has grown past what one request can send.",
+					"That request is too large to process. Start a fresh conversation, the history has grown past what one request can send.",
 				type: "invalid_request",
 			},
 			{ status: 413 },
@@ -188,7 +188,7 @@ export async function POST(req: Request) {
 		if (typedLength > MAX_CHAT_MESSAGE_CHARS) {
 			return Response.json(
 				{
-					error: `That message is ${typedLength.toLocaleString()} characters, over the ${MAX_CHAT_MESSAGE_CHARS.toLocaleString()}-character limit. Trim it — or attach long content as a file — and send again.`,
+					error: `That message is ${typedLength.toLocaleString()} characters, over the ${MAX_CHAT_MESSAGE_CHARS.toLocaleString()}-character limit. Trim it, or attach long content as a file, and send again.`,
 					type: "message_too_long",
 				},
 				{ status: 400 },
@@ -1075,7 +1075,7 @@ export async function POST(req: Request) {
 								});
 							} catch (err) {
 								log.error(
-									"[chat] thread marker clear failed — a stranded marker will read as an instance death and re-drive this completed turn on the next open",
+									"[chat] thread marker clear failed, a stranded marker will read as an instance death and re-drive this completed turn on the next open",
 									err,
 									{ appId, threadId },
 								);
@@ -1151,7 +1151,7 @@ export async function POST(req: Request) {
 					 * ends the client's send; its post-close heal re-fetches the
 					 * thread and attaches to whatever the winner is streaming. */
 					if (parsed.data.redrive) {
-						log.info("[chat] re-drive lost the claim race — bailing clean", {
+						log.info("[chat] re-drive lost the claim race. Bailing clean", {
 							appId,
 							threadId,
 						});
@@ -1181,7 +1181,7 @@ export async function POST(req: Request) {
 					ctx.emitError(
 						{
 							type: "generation_in_progress",
-							message: `Waiting — ${await holderLabel()} is still running on this app. Only one request runs at a time; this one will start automatically when it finishes.`,
+							message: `Waiting: ${await holderLabel()} is still running on this app. Only one request runs at a time; this one will start automatically when it finishes.`,
 							recoverable: true,
 						},
 						"route:serialize-wait",
@@ -1285,7 +1285,7 @@ export async function POST(req: Request) {
 								type: claimError ? "internal" : "generation_in_progress",
 								message: claimError
 									? "Couldn't start your request just now. Please try again shortly."
-									: `Still busy — ${await holderLabel()} is taking a while. Please try again in a moment.`,
+									: `Still busy: ${await holderLabel()} is taking a while. Please try again in a moment.`,
 								recoverable: false,
 							},
 							"route:serialize-wait-timeout",

@@ -69,7 +69,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 		"compile_app",
 		{
 			description:
-				'Compile an owned app to CommCare HQ format. `format: "json"` returns the HQ JSON as text, or — when the app has media — a base64-encoded zip bundle (JSON + an HQ multimedia upload) so the media round-trips. `format: "ccz"` returns the binary archive base64-encoded.',
+				'Compile an owned app to CommCare HQ format. `format: "json"` returns the HQ JSON as text, or, when the app has media, a base64-encoded zip bundle (JSON + an HQ multimedia upload) so the media round-trips. `format: "ccz"` returns the binary archive base64-encoded.',
 			inputSchema: {
 				app_id: z
 					.string()
@@ -116,7 +116,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 				});
 				if (!boundary.ok) {
 					throw new McpInvalidInputError(
-						`This app isn't ready to compile — fix these first: ${boundary.violations
+						`This app isn't ready to compile. Fix these first: ${boundary.violations
 							.map(errorToString)
 							.join(" ")}`,
 					);

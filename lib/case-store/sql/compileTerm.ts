@@ -386,7 +386,7 @@ function compileNonSelfViaPropertyRef(args: {
 				invariant:
 					"a non-`self` `RelationPath` produced a `self` compiled result",
 				detail:
-					"The upstream `isSelfVia` branch in `compilePropertyRef` is supposed to route every `self` walk away from this helper before it reaches `compileRelationPath`. Reaching this throw means `compileRelationPath` returned the degenerate `self` marker for a `RelationPath` whose `kind` is not `self` — a contract violation between the two helpers.",
+					"The upstream `isSelfVia` branch in `compilePropertyRef` is supposed to route every `self` walk away from this helper before it reaches `compileRelationPath`. Reaching this throw means `compileRelationPath` returned the degenerate `self` marker for a `RelationPath` whose `kind` is not `self`, a contract violation between the two helpers.",
 			}),
 		);
 	}
@@ -492,7 +492,7 @@ function resolveDestinationCaseType(
 					where: "compileTerm.resolveDestinationCaseType",
 					invariant: "a `self` `RelationPath` reached the destination resolver",
 					detail:
-						"`self` walks have no destination distinct from the originating scope, so callers branch on `kind === 'self'` upstream and use `originCaseType` directly. Reaching this throw means the upstream branch was skipped — the resolver was called with a `self` input it cannot resolve.",
+						"`self` walks have no destination distinct from the originating scope, so callers branch on `kind === 'self'` upstream and use `originCaseType` directly. Reaching this throw means the upstream branch was skipped, the resolver was called with a `self` input it cannot resolve.",
 				}),
 			);
 
@@ -620,8 +620,8 @@ function resolveDestinationCaseType(
 					where: "compileTerm.resolveDestinationCaseType",
 					summary:
 						candidates.length === 0
-							? `\`${via.kind}\` walk from origin \`${originCaseType}\` has no destination — no case type declares \`parent_type: '${originCaseType}'\``
-							: `\`${via.kind}\` walk from origin \`${originCaseType}\` is ambiguous — \`ofCaseType\` is required to disambiguate the destination`,
+							? `\`${via.kind}\` walk from origin \`${originCaseType}\` has no destination, no case type declares \`parent_type: '${originCaseType}'\``
+							: `\`${via.kind}\` walk from origin \`${originCaseType}\` is ambiguous: \`ofCaseType\` is required to disambiguate the destination`,
 					expected:
 						candidates.length === 0
 							? `at least one case type whose \`parent_type\` is \`${originCaseType}\`, or an explicit \`ofCaseType\` qualifier on the walk`
@@ -718,7 +718,7 @@ export function compileBoundRef<Key extends string>(
 		// binding map is the runtime-resolution surface.
 		throw new Error(
 			[
-				`\`compileTerm\` — missing binding for ${descriptor}.`,
+				`\`compileTerm\`. Missing binding for ${descriptor}.`,
 				``,
 				`The AST references a runtime value (\`${key}\`) the wider pipeline did not`,
 				`thread through \`ctx.bindings\` before calling \`compileTerm\`. Runtime-`,
@@ -749,7 +749,7 @@ export function compileBoundValue(
 ): AliasableExpression<unknown> {
 	if (value === undefined) {
 		throw new Error(
-			`\`compileExpression\` — missing binding for ${descriptor}. Thread the server-resolved value through \`ctx.bindings\` before compiling this operation expression.`,
+			`\`compileExpression\`. Missing binding for ${descriptor}. Thread the server-resolved value through \`ctx.bindings\` before compiling this operation expression.`,
 		);
 	}
 	return eb.val(value);

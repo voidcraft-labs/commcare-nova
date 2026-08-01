@@ -127,7 +127,7 @@ function GetStarted({ canCreateApp }: { canCreateApp: boolean }) {
 			{canCreateApp ? (
 				<Button render={<Link href="/build/new" />} nativeButton={false} glow>
 					<Icon icon={tablerSparkles} width="16" height="16" />
-					Get Started
+					Get started
 				</Button>
 			) : null}
 		</div>

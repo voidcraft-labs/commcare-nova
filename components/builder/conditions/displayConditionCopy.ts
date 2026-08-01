@@ -91,7 +91,7 @@ export const DISPLAY_CONDITION_NOT_A_PERMISSION =
 	"A condition decides what a screen offers, not who may see the data behind it. The app still carries this item and everything it reads.";
 
 const NO_CASE_SCOPE_NOTE =
-	"No case has been chosen at that point, so the condition can use fixed values and information about the person signed in — not case information.";
+	"No case has been chosen at that point, so the condition can use fixed values and information about the person signed in, not case information.";
 
 function quoted(name: string): string {
 	return `“${name}”`;
@@ -172,7 +172,7 @@ export function displayConditionCopy(
 		...shared,
 		lede: `People reach ${name} by picking a ${caseWord} first, so CommCare checks this once that ${caseWord} is chosen.`,
 		locus,
-		scopeNote: `The chosen ${caseWord}'s own information is available here. Information from connected cases, and counts of them, is not — CommCare cannot reach them from this screen.`,
+		scopeNote: `The chosen ${caseWord}'s own information is available here. Information from connected cases, and counts of them, is not. CommCare cannot reach them from this screen.`,
 		caseDataScope: "selected-case",
 	};
 }

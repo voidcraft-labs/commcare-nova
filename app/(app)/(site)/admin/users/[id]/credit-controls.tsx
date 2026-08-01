@@ -299,7 +299,7 @@ export function CreditControls({
 									onClick={handleReset}
 									disabled={pending !== null}
 								>
-									{pending === "reset" ? "Resetting…" : "Reset credits"}
+									{pending === "reset" ? "Resetting" : "Reset credits"}
 								</AlertDialogAction>
 							</AlertDialogFooter>
 						</AlertDialogContent>
@@ -342,7 +342,7 @@ export function CreditControls({
 										inputMode="numeric"
 										value={grantAmount}
 										onChange={(e) => setGrantAmount(e.target.value)}
-										placeholder="e.g. 500"
+										placeholder="Number of credits"
 										autoComplete="off"
 										data-1p-ignore
 										disabled={pending !== null}
@@ -376,7 +376,7 @@ export function CreditControls({
 									// grant can't even be submitted.
 									disabled={pending !== null || !grantAmountValid}
 								>
-									{pending === "grant" ? "Granting…" : "Grant credits"}
+									{pending === "grant" ? "Granting" : "Grant credits"}
 								</AlertDialogAction>
 							</AlertDialogFooter>
 						</AlertDialogContent>
@@ -418,7 +418,7 @@ export function CreditControls({
 									{grant.actor_email}
 								</span>
 								{grant.reason && (
-									<span className="text-nova-text-muted">— {grant.reason}</span>
+									<span className="text-nova-text-muted">· {grant.reason}</span>
 								)}
 								<RelativeTime
 									className="ml-auto text-xs text-nova-text-muted tabular-nums"

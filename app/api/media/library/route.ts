@@ -74,7 +74,7 @@ export async function GET(req: NextRequest) {
 		});
 		if (!parsed.success) {
 			throw new ApiError(
-				"Library query couldn't be parsed — each `kind` must be one of image/audio/video/pdf/text/docx/xlsx, `cursor` must be the opaque token a prior page returned, `q` must be at most 200 characters, and `id` must be repeated asset ids (at most the export-asset limit).",
+				"Library query couldn't be parsed, each `kind` must be one of image/audio/video/pdf/text/docx/xlsx, `cursor` must be the opaque token a prior page returned, `q` must be at most 200 characters, and `id` must be repeated asset ids (at most the export-asset limit).",
 				400,
 				parsed.error.issues.map((e) => `${e.path.join(".")}: ${e.message}`),
 			);

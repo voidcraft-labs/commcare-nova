@@ -120,7 +120,7 @@ export function compileLookupColumnTerm(
 				expected:
 					"the type checker admits `table-column` only inside the owning `table-lookup`'s `where`, where `compileTableLookup` sets the row scope",
 				received: `a \`table-column\` term for table \`${term.tableId}\` with no enclosing row scope`,
-				hint: "reject the AST at validation — a row-relative column read has no meaning without its fixture row.",
+				hint: "reject the AST at validation, a row-relative column read has no meaning without its fixture row.",
 			}),
 		);
 	}

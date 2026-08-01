@@ -66,7 +66,7 @@ export class FormPath {
 				`FormPath.parse expected a path anchored at /data, got "${raw}". ` +
 					`Nova XForm paths always start at the primary <data> instance; ` +
 					`an XPath expression body (with predicates or function calls) ` +
-					`isn't a path — route it through the Lezer XPath parser instead.`,
+					`isn't a path. Route it through the Lezer XPath parser instead.`,
 			);
 		}
 		if (raw === "/data") return FormPath.root();
@@ -80,7 +80,7 @@ export class FormPath {
 		for (const part of parts) {
 			if (!part) {
 				throw new Error(
-					`FormPath.parse found an empty segment in "${raw}" — paths can't ` +
+					`FormPath.parse found an empty segment in "${raw}". Paths can't ` +
 						`contain double slashes or trailing slashes.`,
 				);
 			}
@@ -116,7 +116,7 @@ export class FormPath {
 		this.assertNotTerminated("child");
 		if (!XML_ELEMENT_NAME_REGEX.test(name)) {
 			throw new Error(
-				`FormPath.child got invalid element name "${name}" — XForm ` +
+				`FormPath.child got invalid element name "${name}". XForm ` +
 					`element names must match ${XML_ELEMENT_NAME_REGEX} (letter or ` +
 					`underscore, then letters / digits / underscores).`,
 			);
@@ -133,7 +133,7 @@ export class FormPath {
 		this.assertNotTerminated("attr");
 		if (!XML_ELEMENT_NAME_REGEX.test(name)) {
 			throw new Error(
-				`FormPath.attr got invalid attribute name "${name}" — XForm ` +
+				`FormPath.attr got invalid attribute name "${name}". XForm ` +
 					`attribute names must match ${XML_ELEMENT_NAME_REGEX} (letter or ` +
 					`underscore, then letters / digits / underscores).`,
 			);

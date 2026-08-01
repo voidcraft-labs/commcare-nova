@@ -81,7 +81,7 @@ export function searchInputDefaultTypeCheck(
 				validationError(
 					"CASE_LIST_SEARCH_INPUT_DEFAULT_CASE_DATA_UNAVAILABLE",
 					"module",
-					`Search input "${input.label}" (input #${index + 1}, name "${input.name}") on the case list of module "${mod.name}" has a starting value that reads a case property or relationship, but the search screen opens before any case is selected — there is no case to read, so the seed resolves blank on every runtime. Use a fixed value, \`today()\`, or a current-user/session value; otherwise remove the starting value so the input opens empty.`,
+					`Search input "${input.label}" (input #${index + 1}, name "${input.name}") on the case list of module "${mod.name}" has a starting value that reads a case property or relationship, but the search screen opens before any case is selected. There is no case to read, so the seed resolves blank on every runtime. Use a fixed value, \`today()\`, or a current-user/session value; otherwise remove the starting value so the input opens empty.`,
 					{ moduleUuid, moduleName: mod.name },
 					{
 						index: String(index),
@@ -110,7 +110,7 @@ export function searchInputDefaultTypeCheck(
 				validationError(
 					"CASE_LIST_SEARCH_INPUT_DEFAULT_TYPE_ERROR",
 					"module",
-					`Search input "${input.label}" (input #${index + 1}, name "${input.name}", widget "${input.type}") on the case list of module "${mod.name}" has a default value that doesn't type-check${suffix}: ${err.message}. The widget kind expects a "${expectedType}"-typed seed. Open the input's editor and adjust the operand at that path — pick a global value whose type matches, wrap the expression in a coercion (\`dateCoerce(...)\` for date widgets; \`concat(...)\` for text / select / barcode widgets), or remove the default entirely (the runtime leaves the input empty when the default slot is absent).`,
+					`Search input "${input.label}" (input #${index + 1}, name "${input.name}", widget "${input.type}") on the case list of module "${mod.name}" has a default value that doesn't type-check${suffix}: ${err.message}. The widget kind expects a "${expectedType}"-typed seed. Open the input's editor and adjust the operand at that path. Pick a global value whose type matches, wrap the expression in a coercion (\`dateCoerce(...)\` for date widgets; \`concat(...)\` for text / select / barcode widgets), or remove the default entirely (the runtime leaves the input empty when the default slot is absent).`,
 					{ moduleUuid, moduleName: mod.name },
 					{
 						index: String(index),

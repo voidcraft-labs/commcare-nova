@@ -251,7 +251,7 @@ export function GeopointPicker({
 								aria-hidden="true"
 								className={locating ? "animate-pulse" : ""}
 							/>
-							{locating ? "Locating…" : "My location"}
+							{locating ? "Locating" : "My location"}
 						</button>
 
 						{!point && (

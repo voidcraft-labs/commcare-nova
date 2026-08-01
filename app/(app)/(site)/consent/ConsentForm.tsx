@@ -357,7 +357,7 @@ export function ConsentForm({
 						onClick={() => submit(false)}
 						className="flex-1"
 					>
-						{pending === "deny" ? "Denying…" : "Deny"}
+						{pending === "deny" ? "Denying" : "Deny"}
 					</Button>
 					<Button
 						type="button"
@@ -366,7 +366,7 @@ export function ConsentForm({
 						onClick={() => submit(true)}
 						className="flex-1"
 					>
-						{pending === "accept" ? "Approving…" : "Allow"}
+						{pending === "accept" ? "Approving" : "Allow"}
 					</Button>
 				</motion.div>
 

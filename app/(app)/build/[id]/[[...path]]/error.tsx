@@ -45,14 +45,14 @@ export default function BuildError({
 			</div>
 			<div className="flex gap-3">
 				<Button variant="ghost" onClick={() => reset()}>
-					Try Again
+					Try again
 				</Button>
 				<Button
 					onClick={() => {
 						window.location.href = "/build/new";
 					}}
 				>
-					Start New Build
+					Start new build
 				</Button>
 			</div>
 		</div>

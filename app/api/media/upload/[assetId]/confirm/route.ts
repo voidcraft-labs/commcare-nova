@@ -79,13 +79,13 @@ export async function POST(
 				});
 			}
 			throw new ApiError(
-				"We couldn't find the upload you're trying to confirm. It may have been cleaned up after timing out — try uploading again.",
+				"We couldn't find the upload you're trying to confirm. It may have been cleaned up after timing out. Try uploading again.",
 				404,
 			);
 		}
 		if (!(await userInProject(session.user.id, asset.project_id, "edit"))) {
 			throw new ApiError(
-				"We couldn't find the upload you're trying to confirm. It may have been cleaned up after timing out — try uploading again.",
+				"We couldn't find the upload you're trying to confirm. It may have been cleaned up after timing out. Try uploading again.",
 				404,
 			);
 		}
@@ -114,7 +114,7 @@ export async function POST(
 				});
 			}
 			throw new ApiError(
-				"We couldn't find the uploaded bytes for this asset. The signed-upload step may not have completed — try uploading again.",
+				"We couldn't find the uploaded bytes for this asset. The signed-upload step may not have completed. Try uploading again.",
 				404,
 			);
 		}
@@ -155,7 +155,7 @@ export async function POST(
 					});
 				}
 				throw new ApiError(
-					"We couldn't find the uploaded bytes for this asset. The signed-upload step may not have completed — try uploading again.",
+					"We couldn't find the uploaded bytes for this asset. The signed-upload step may not have completed. Try uploading again.",
 					404,
 				);
 			}
@@ -230,7 +230,7 @@ export async function POST(
 						);
 						if (current.kind === "not_found") {
 							throw new ApiError(
-								"We couldn't find the upload you're trying to confirm. It may have been cleaned up after timing out — try uploading again.",
+								"We couldn't find the upload you're trying to confirm. It may have been cleaned up after timing out. Try uploading again.",
 								404,
 							);
 						}
@@ -252,7 +252,7 @@ export async function POST(
 						);
 						if (canonicalized.kind === "not_found") {
 							throw new ApiError(
-								"We couldn't find the upload you're trying to confirm. It may have been cleaned up after timing out — try uploading again.",
+								"We couldn't find the upload you're trying to confirm. It may have been cleaned up after timing out. Try uploading again.",
 								404,
 							);
 						}
@@ -305,7 +305,7 @@ export async function POST(
 					);
 					if (published.kind === "not_found") {
 						throw new ApiError(
-							"We couldn't find the upload you're trying to confirm. It may have been cleaned up after timing out — try uploading again.",
+							"We couldn't find the upload you're trying to confirm. It may have been cleaned up after timing out. Try uploading again.",
 							404,
 						);
 					}
@@ -436,7 +436,7 @@ async function deleteRejectedUpload(
 	});
 	if (result.kind === "not_found") {
 		throw new ApiError(
-			"We couldn't find the upload you're trying to confirm. It may have been cleaned up after timing out — try uploading again.",
+			"We couldn't find the upload you're trying to confirm. It may have been cleaned up after timing out. Try uploading again.",
 			404,
 		);
 	}

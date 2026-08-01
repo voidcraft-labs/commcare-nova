@@ -165,7 +165,7 @@ describe("planTilePlacement", () => {
 		});
 		expect(verdict.ok).toBe(false);
 		expect(verdict.ok === false && verdict.reason).toBe(
-			"Patient name would sit on top of Village. Two fields can’t share a square on a tile — one would be drawn over the other.",
+			"Patient name would sit on top of Village. Two fields can’t share a square on a tile: one would be drawn over the other.",
 		);
 	});
 
@@ -450,7 +450,7 @@ describe("tileLayoutIssues", () => {
 			const found = issues([escaping], tileOn);
 			expect(found.map((issue) => issue.kind)).toEqual(["out-of-grid"]);
 			expect(found[0]?.message).toBe(
-				"Photo runs past the edge of the tile — it reaches column 14, and a tile is 12 columns by 12 rows. Move it back, or make it smaller.",
+				"Photo runs past the edge of the tile: it reaches column 14, and a tile is 12 columns by 12 rows. Move it back, or make it smaller.",
 			);
 		}
 	});

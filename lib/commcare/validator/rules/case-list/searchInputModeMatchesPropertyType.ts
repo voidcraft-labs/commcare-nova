@@ -136,7 +136,7 @@ export function searchInputModeMatchesPropertyType(
 			validationError(
 				"CASE_LIST_SEARCH_INPUT_MODE_PROPERTY_TYPE_MISMATCH",
 				"module",
-				`Search input "${input.label}" (input #${index + 1}, name "${input.name}") on the case list of module "${mod.name}" uses search mode "${input.mode.kind}" against property "${input.property}" on case type "${destinationCaseType}", whose \`data_type\` is "${dataType}". The "${input.mode.kind}" mode only admits properties whose \`data_type\` is one of ${allowed.map((t) => `"${t}"`).join(" / ")} — running it against "${dataType}" wouldn't produce a meaningful match at the wire layer. Either pick a search mode that admits "${dataType}", change the property's \`data_type\` to one the mode supports, or target a different property whose declared type fits.`,
+				`Search input "${input.label}" (input #${index + 1}, name "${input.name}") on the case list of module "${mod.name}" uses search mode "${input.mode.kind}" against property "${input.property}" on case type "${destinationCaseType}", whose \`data_type\` is "${dataType}". The "${input.mode.kind}" mode only admits properties whose \`data_type\` is one of ${allowed.map((t) => `"${t}"`).join(" / ")}. Running it against "${dataType}" wouldn't produce a meaningful match at the wire layer. Either pick a search mode that admits "${dataType}", change the property's \`data_type\` to one the mode supports, or target a different property whose declared type fits.`,
 				{ moduleUuid, moduleName: mod.name },
 				{
 					index: String(index),

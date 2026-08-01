@@ -1322,7 +1322,7 @@ describe("SignaturePad", () => {
 		}) as HTMLButtonElement;
 		expect(undo.disabled).toBe(true);
 		expect(undo.className).toContain("disabled:cursor-not-allowed");
-		expect(undo.className).toContain("disabled:opacity-40");
+		expect(undo.className).toContain("disabled:opacity-(--disabled-opacity)");
 	});
 
 	it("exposes a blocked drawing surface as read-only and disabled", () => {

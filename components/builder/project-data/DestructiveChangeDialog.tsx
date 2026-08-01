@@ -314,7 +314,7 @@ export function DestructiveChangeDialog({
 							}
 						}}
 					>
-						{working ? "Working…" : confirmLabel}
+						{working ? "Working" : confirmLabel}
 					</AlertDialogAction>
 				</AlertDialogFooter>
 			</AlertDialogContent>

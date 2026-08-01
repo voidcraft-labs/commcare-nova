@@ -149,7 +149,7 @@ const USER_MESSAGE_BY_CODE: Partial<
 	USER_PROPERTY_SLUG_INVALID: (e) => {
 		const slug = det(e, "slug", "");
 		return slug
-			? `CommCare won't accept ${q(slug)} as the name a piece of worker information is saved under. Pick a different one — letters, numbers, and underscores work.`
+			? `CommCare won't accept ${q(slug)} as the name a piece of worker information is saved under. Pick a different one. Letters, numbers, and underscores work.`
 			: "CommCare won't accept the name one piece of worker information is saved under. Pick a different one.";
 	},
 	USER_PROPERTY_SLUG_DUPLICATE: (e) => {
@@ -257,7 +257,7 @@ const USER_MESSAGE_BY_CODE: Partial<
 			? `The search field ${q(det(e, "inputName", "in this module"))} has an old one-date starting value, but a date range needs both dates. Remove the starting value.`
 			: `The starting value for search field ${q(det(e, "inputName", "in this module"))} doesn't match its field type. Change the starting value or clear it.`,
 	CASE_LIST_SEARCH_INPUT_DEFAULT_CASE_DATA_UNAVAILABLE: (e) =>
-		`The starting value for search field ${q(det(e, "inputName", "in this module"))} tries to read a case before one has been selected, so it always comes back empty. Use a fixed value, today's date, or current-user information — or clear it.`,
+		`The starting value for search field ${q(det(e, "inputName", "in this module"))} tries to read a case before one has been selected, so it always comes back empty. Use a fixed value, today's date, or current-user information, or clear it.`,
 	CASE_LIST_DUPLICATE_SEARCH_INPUT_NAME: (e) =>
 		`Two search fields in ${q(modName(e))} use the same name for conditions, ${q(det(e, "inputName", ""))}. Rename one under More settings.`,
 	CASE_LIST_BARE_SEARCH_INPUT_REF: (e) => {
@@ -448,7 +448,7 @@ const USER_MESSAGE_BY_CODE: Partial<
 	MEDIA_CASE_PROPERTY: (e) =>
 		`${q(formName(e))} is trying to save an attachment question to the case. Photos, audio, video, signatures, and files can't be saved as case data, so don't have that field save to the case.`,
 	FORM_TOO_MANY_ATTACHMENTS: (e) =>
-		`${q(formName(e))} asks for ${det(e, "captureCount", "too many")} attachments, and CommCare accepts at most ${MAX_FORM_ATTACHMENTS} per submitted form — a worker who answered them all couldn't submit. Split this into more than one form, or remove some attachment questions.`,
+		`${q(formName(e))} asks for ${det(e, "captureCount", "too many")} attachments, and CommCare accepts at most ${MAX_FORM_ATTACHMENTS} per submitted form, a worker who answered them all couldn't submit. Split this into more than one form, or remove some attachment questions.`,
 	CLOSE_CONDITION_WRONG_TYPE: (e) =>
 		`${q(formName(e))} has a close condition but isn't a close form. Make it a close form, or drop the condition.`,
 	CLOSE_FORM_NO_CASE_TYPE: (e) =>
@@ -527,7 +527,7 @@ const USER_MESSAGE_BY_CODE: Partial<
 		`${q(formName(e))} creates a new case but reads from one that doesn't exist yet (${det(e, "hashtag", "a case reference")}). Point it at a form question instead.`,
 	PRIMARY_CASE_FIELD_IN_REPEAT: (e) => {
 		const f = det(e, "fieldId", "a field");
-		return `In ${q(formName(e))}, ${q(f)} is inside a repeating section but saves to the form's main case — which a repeat can't do. Move it out of the repeat, or save it to a child case instead.`;
+		return `In ${q(formName(e))}, ${q(f)} is inside a repeating section but saves to the form's main case, which a repeat can't do. Move it out of the repeat, or save it to a child case instead.`;
 	},
 
 	// ── Field-level ──────────────────────────────────────────────────
@@ -540,13 +540,13 @@ const USER_MESSAGE_BY_CODE: Partial<
 	HIDDEN_NO_VALUE: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} is hidden but has no value, so it'll always stay blank. Give it a default or a calculated value.`,
 	REQUIRED_ON_HIDDEN: (e) =>
-		`${q(fieldName(e))} in ${q(formName(e))} is hidden, so it can't be required — no one can fill it in. Turn off required, or make the field visible.`,
+		`${q(fieldName(e))} in ${q(formName(e))} is hidden, so it can't be required, no one can fill it in. Turn off required, or make the field visible.`,
 	CALCULATE_ON_VISIBLE_INPUT: (e) =>
-		`${q(fieldName(e))} in ${q(formName(e))} has a calculated value, but only hidden fields can — on a visible field, whatever someone types gets ignored. Move it to a hidden field, or drop the calculation.`,
+		`${q(fieldName(e))} in ${q(formName(e))} has a calculated value, but only hidden fields can. On a visible field, whatever someone types gets ignored. Move it to a hidden field, or drop the calculation.`,
 	UNQUOTED_STRING_LITERAL: (e) =>
 		`A formula on ${q(fieldName(e))} in ${q(formName(e))} looks like plain text. If you meant the words ${q(det(e, "bareWord", ""))}, put quotes around them.`,
 	VALIDATION_ON_NON_INPUT_KIND: (e) =>
-		`${q(fieldName(e))} in ${q(formName(e))} can't have a validation rule — only fields people answer can. Remove it, or change the field's type.`,
+		`${q(fieldName(e))} in ${q(formName(e))} can't have a validation rule, only fields people answer can. Remove it, or change the field's type.`,
 	EMPTY_REPEAT_COUNT: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} repeats a set number of times, but you haven't said how many. Set the count.`,
 	EMPTY_IDS_QUERY: (e) =>
@@ -596,7 +596,7 @@ const USER_MESSAGE_BY_CODE: Partial<
 	LOOKUP_SELECT_SOURCE_VALUE_BLANK: (e) =>
 		`A lookup-powered choice list uses ${det(e, "columnLabel", "a column")} for its saved values, but ${det(e, "offendingRowCount", "some")} row(s) in ${det(e, "tableName", "the lookup table")} leave it blank. Fill in those rows or choose another value column.`,
 	LOOKUP_SELECT_SOURCE_VALUE_WHITESPACE: (e) =>
-		`A lookup-powered choice list uses ${det(e, "columnLabel", "a column")} for its saved values, but ${det(e, "offendingRowCount", "some")} row(s) in ${det(e, "tableName", "the lookup table")} contain spaces or line breaks there. Saved values can't contain whitespace — tidy those rows or choose another value column.`,
+		`A lookup-powered choice list uses ${det(e, "columnLabel", "a column")} for its saved values, but ${det(e, "offendingRowCount", "some")} row(s) in ${det(e, "tableName", "the lookup table")} contain spaces or line breaks there. Saved values can't contain whitespace. Tidy those rows or choose another value column.`,
 	LOOKUP_SELECT_SOURCE_VALUE_DUPLICATE: (e) =>
 		`A lookup-powered choice list uses ${det(e, "columnLabel", "a column")} for its saved values, but ${det(e, "tableName", "the lookup table")} repeats the same value in several rows. Make the values unique or choose another value column.`,
 	LOOKUP_SELECT_SOURCE_LABEL_BLANK: (e) =>
@@ -606,13 +606,13 @@ const USER_MESSAGE_BY_CODE: Partial<
 
 	// ── Media (export boundary) ──────────────────────────────────────
 	MEDIA_ASSET_NOT_FOUND: () =>
-		"An attached media file is missing — it may have been deleted. Open the slot and pick another file, or clear it.",
+		"An attached media file is missing, it may have been deleted. Open the slot and pick another file, or clear it.",
 	MEDIA_ASSET_NOT_READY: () =>
 		"An attached media file hasn't finished uploading yet. Give it a moment, or clear the slot.",
 	MEDIA_KIND_MISMATCH: (e) => {
 		const kind = det(e, "expectedKind", "");
 		return kind
-			? `An attached file is the wrong type — this slot takes ${kind}. Swap it out, or clear the slot.`
+			? `An attached file is the wrong type, this slot takes ${kind}. Swap it out, or clear the slot.`
 			: "An attached file is the wrong type for its slot. Swap it out, or clear the slot.";
 	},
 	MEDIA_EXPORT_TOO_LARGE: () =>
@@ -624,7 +624,7 @@ const USER_MESSAGE_BY_CODE: Partial<
  *  log. Either way it's a Nova-side problem, not something the user
  *  authored, so the copy says so instead of leaking wire detail. */
 const GENERIC_INTERNAL =
-	"Something went wrong preparing your app. This is on our end — try again, and let us know if it keeps happening.";
+	"Something went wrong preparing your app. This is on our end. Try again, and let us know if it keeps happening.";
 
 /**
  * Render a validator finding as the concise builder-surface line. The SA

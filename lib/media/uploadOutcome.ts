@@ -141,12 +141,12 @@ export function mediaAttachWarnings(outcome: MediaAttachOutcome): string[] {
 	const lines: string[] = [];
 	for (const f of outcome.failures) {
 		lines.push(
-			`Couldn't attach ${f.where} — CommCare HQ didn't recognize it during upload, so it won't display. Remove and re-add the file, then upload again.`,
+			`Couldn't attach ${f.where}. CommCare HQ didn't recognize it during upload, so it won't display. Remove and re-add the file, then upload again.`,
 		);
 	}
 	if (outcome.logoNotCarried) {
 		lines.push(
-			"Your logo image won't appear as the app logo — CommCare HQ doesn't apply a logo automatically on upload. Set it in CommCare HQ's app settings, or use the same image somewhere in a form so it's carried with the app.",
+			"Your logo image won't appear as the app logo. CommCare HQ doesn't apply a logo automatically on upload. Set it in CommCare HQ's app settings, or use the same image somewhere in a form so it's carried with the app.",
 		);
 	}
 	return lines;
@@ -210,7 +210,7 @@ export function reportMediaAttach(args: {
 	} else {
 		// Positive unmatched count but nothing resolvable — keep a signal.
 		warnings.push(
-			"Some media files may not have attached. The app was created — check its media in CommCare HQ.",
+			"Some media files may not have attached. The app was created. Check its media in CommCare HQ.",
 		);
 		log.error(
 			`${logPrefix} unmatched media reported without per-file detail`,
