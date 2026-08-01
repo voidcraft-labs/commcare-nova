@@ -4,7 +4,11 @@ import { Icon } from "@iconify/react/offline";
 import tablerCheck from "@iconify-icons/tabler/check";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useState } from "react";
-import { POPOVER_POPUP_CLS, POPOVER_POSITIONER_GLASS_CLS } from "@/lib/styles";
+import {
+	FLOATING_LAYER_CLS,
+	POPOVER_POPUP_CLS,
+	POPOVER_POSITIONER_GLASS_CLS,
+} from "@/lib/styles";
 
 interface EditableDropdownProps {
 	label: string;
@@ -73,7 +77,7 @@ export function EditableDropdown({
 						side="bottom"
 						align="start"
 						sideOffset={4}
-						className={POPOVER_POSITIONER_GLASS_CLS}
+						className={`${FLOATING_LAYER_CLS} ${POPOVER_POSITIONER_GLASS_CLS}`}
 					>
 						<Popover.Popup className={POPOVER_POPUP_CLS}>
 							<div className="min-w-[160px] overflow-hidden">

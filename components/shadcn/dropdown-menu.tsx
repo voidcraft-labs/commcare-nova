@@ -6,6 +6,7 @@ import tablerCheck from "@iconify-icons/tabler/check";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import type * as React from "react";
 import {
+	FLOATING_LAYER_CLS,
 	MENU_ITEM_CLS,
 	MENU_POPUP_CLS,
 	MENU_POSITIONER_CLS,
@@ -88,6 +89,7 @@ function DropdownMenuPositioner({
 			data-slot="dropdown-menu-positioner"
 			className={cn(
 				"isolate",
+				FLOATING_LAYER_CLS,
 				surface === "elevated"
 					? MENU_SUBMENU_POSITIONER_CLS
 					: MENU_POSITIONER_CLS,

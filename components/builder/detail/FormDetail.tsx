@@ -14,6 +14,7 @@ import {
 } from "@/lib/domain";
 import { formTypeIcons } from "@/lib/domain/formTypeIcons";
 import {
+	FLOATING_LAYER_CLS,
 	MENU_ITEM_BASE,
 	MENU_ITEM_CLS,
 	MENU_ITEM_DISABLED_CLS,
@@ -80,7 +81,7 @@ export function FormTypeButton({
 							side="bottom"
 							align="start"
 							sideOffset={4}
-							className={MENU_POSITIONER_CLS}
+							className={`${FLOATING_LAYER_CLS} ${MENU_POSITIONER_CLS}`}
 						>
 							<Menu.Popup className={MENU_POPUP_CLS}>
 								{formTypeOptions.map((opt, i) => {

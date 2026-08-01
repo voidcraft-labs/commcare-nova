@@ -12,6 +12,12 @@ import { extendTailwindMerge } from "tailwind-merge";
  * paints behind it. Listing the scale here restores the contract every call site
  * assumes: the last z token wins.
  *
+ * Floating chrome no longer leans on that (`lib/styles.ts` keeps the stacking
+ * plane out of the surface constants, so a positioner names exactly one tier).
+ * This stays load-bearing for the deliberate override — a surface that must
+ * leave the shared plane gets the tier it asked for rather than whichever token
+ * happens to sort last.
+ *
  * Keep in sync with the `--z-index-*` keys in `app/globals.css`; the unit test
  * beside this file reads that file and fails when the two drift.
  */

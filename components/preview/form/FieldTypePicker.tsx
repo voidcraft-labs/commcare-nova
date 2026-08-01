@@ -16,6 +16,7 @@ import { type FieldKind, fieldRegistry } from "@/lib/domain";
 import { useSelect } from "@/lib/routing/hooks";
 import { useMarkNewField } from "@/lib/session/hooks";
 import {
+	FLOATING_LAYER_CLS,
 	MENU_ITEM_CLS,
 	MENU_POPUP_CLS,
 	MENU_POSITIONER_CLS,
@@ -170,7 +171,7 @@ export function FieldTypePickerPopup({
 	return (
 		<Menu.Portal>
 			<Menu.Positioner
-				className={MENU_POSITIONER_CLS}
+				className={`${FLOATING_LAYER_CLS} ${MENU_POSITIONER_CLS}`}
 				sideOffset={8}
 				collisionPadding={8}
 			>
@@ -200,7 +201,7 @@ export function FieldTypePickerPopup({
 							</Menu.SubmenuTrigger>
 							<Menu.Portal>
 								<Menu.Positioner
-									className={MENU_SUBMENU_POSITIONER_CLS}
+									className={`${FLOATING_LAYER_CLS} ${MENU_SUBMENU_POSITIONER_CLS}`}
 									sideOffset={4}
 								>
 									<Menu.Popup className={MENU_POPUP_CLS}>

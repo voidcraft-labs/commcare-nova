@@ -26,7 +26,11 @@
 import { Popover } from "@base-ui/react/popover";
 import { Icon } from "@iconify/react/offline";
 import { deriveCapabilities } from "@/lib/oauth/capabilities";
-import { POPOVER_POPUP_CLS, POPOVER_POSITIONER_GLASS_CLS } from "@/lib/styles";
+import {
+	FLOATING_LAYER_CLS,
+	POPOVER_POPUP_CLS,
+	POPOVER_POSITIONER_GLASS_CLS,
+} from "@/lib/styles";
 
 interface ScopesPopoverProps {
 	/** Granted scope tokens, e.g. `["nova.read", "nova.write"]`. */
@@ -72,7 +76,7 @@ export function ScopesPopover({
 					side="top"
 					align="start"
 					sideOffset={8}
-					className={POPOVER_POSITIONER_GLASS_CLS}
+					className={`${FLOATING_LAYER_CLS} ${POPOVER_POSITIONER_GLASS_CLS}`}
 				>
 					<Popover.Popup className={`${POPOVER_POPUP_CLS} w-64`}>
 						<div className="px-4 pt-3.5 pb-4">

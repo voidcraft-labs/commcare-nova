@@ -7,6 +7,7 @@ import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
 import tablerChevronUp from "@iconify-icons/tabler/chevron-up";
 import type * as React from "react";
 import {
+	FLOATING_LAYER_CLS,
 	MENU_ITEM_CLS,
 	MENU_POPUP_CLS,
 	MENU_POSITIONER_CLS,
@@ -100,17 +101,11 @@ function SelectContent({
 		// The popup portals to document.body (Base UI's default) — escaping
 		// ancestor stacking/overflow is the whole point, so a Select opened from
 		// inside a Dialog floats above it with no per-call wiring. The positioner
-		// sits at `z-modal`, co-planar with dialogs, and wins by portal order: its
-		// portal mounts after the dialog's, so it stacks on top. Do NOT portal this
-		// into a dialog panel — a fixed-position popup inside a transformed panel
-		// (a centered dialog uses `translate(-50%,-50%)`) anchors to the panel
-		// rather than the viewport and lands in the wrong place.
-		//
-		// The trailing `z-modal` REPLACES the `z-popover-top` the shared glass
-		// constant carries, and only because `cn` knows Nova's named z scale
-		// (`lib/utils.ts`). Untaught, tailwind-merge keeps both classes and
-		// alphabetical stylesheet order hands the win to `z-popover-top` — which
-		// left this popup at 60 behind the dialog's 100, open but invisible.
+		// takes the shared floating plane, co-planar with dialogs, and wins by
+		// portal order: its portal mounts after the dialog's, so it stacks on top.
+		// Do NOT portal this into a dialog panel — a fixed-position popup inside a
+		// transformed panel (a centered dialog uses `translate(-50%,-50%)`) anchors
+		// to the panel rather than the viewport and lands in the wrong place.
 		//
 		// Nova chrome: the frosted-glass surface (shared constants from
 		// `lib/styles.ts`, same as every menu) lives on the POSITIONER — see the
@@ -126,7 +121,7 @@ function SelectContent({
 				alignOffset={alignOffset}
 				alignItemWithTrigger={alignItemWithTrigger}
 				collisionPadding={collisionPadding}
-				className={cn("isolate", MENU_POSITIONER_CLS, "z-modal")}
+				className={cn("isolate", FLOATING_LAYER_CLS, MENU_POSITIONER_CLS)}
 			>
 				<SelectPrimitive.Popup
 					data-slot="select-content"

@@ -63,6 +63,7 @@ import {
 	useSessionFocusHint,
 } from "@/lib/session/hooks";
 import {
+	FLOATING_LAYER_CLS,
 	MENU_ITEM_CLS,
 	MENU_ITEM_DISABLED_CLS,
 	MENU_POPUP_CLS,
@@ -427,7 +428,7 @@ export function FieldIdentitySection({ field }: FieldIdentitySectionProps) {
 								sideOffset={6}
 								collisionPadding={8}
 								anchor={idWrapperRef}
-								className="z-popover-top"
+								className={FLOATING_LAYER_CLS}
 							>
 								<Popover.Popup className={POPOVER_POPUP_CLS}>
 									{idNotice?.severity === "error" ? (
@@ -470,7 +471,7 @@ export function FieldIdentitySection({ field }: FieldIdentitySectionProps) {
 
 						<Menu.Portal>
 							<Menu.Positioner
-								className={MENU_POSITIONER_CLS}
+								className={`${FLOATING_LAYER_CLS} ${MENU_POSITIONER_CLS}`}
 								sideOffset={4}
 								align="end"
 							>
@@ -545,7 +546,7 @@ export function FieldIdentitySection({ field }: FieldIdentitySectionProps) {
 											</Menu.SubmenuTrigger>
 											<Menu.Portal>
 												<Menu.Positioner
-													className={MENU_SUBMENU_POSITIONER_CLS}
+													className={`${FLOATING_LAYER_CLS} ${MENU_SUBMENU_POSITIONER_CLS}`}
 													sideOffset={4}
 												>
 													<Menu.Popup className={MENU_POPUP_CLS}>
