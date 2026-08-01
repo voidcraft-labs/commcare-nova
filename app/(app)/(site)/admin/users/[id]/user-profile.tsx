@@ -1,5 +1,5 @@
 /**
- * Async server component — user profile card.
+ * Async server component: user profile card.
  *
  * Fetches the user row from Postgres and renders the profile card
  * with an impersonate action for admins viewing another user's profile.

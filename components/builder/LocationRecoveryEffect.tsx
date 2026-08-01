@@ -15,7 +15,7 @@
  *    path. The effect detects this mismatch by comparing the canonical
  *    URL for the parsed location against the current path segments.
  *
- * Returns `null` — exists purely for its side effect.
+ * Returns `null`: exists purely for its side effect.
  */
 "use client";
 
@@ -41,7 +41,7 @@ export function LocationRecoveryEffect() {
 
 	/* Subscribe to entity maps directly so the effect re-fires whenever a
 	 * referenced uuid might have disappeared. `useDocEntityMaps` returns a
-	 * shallow-stable `{modules, forms, fields}` object — each slice is an
+	 * shallow-stable `{modules, forms, fields}` object: each slice is an
 	 * Immer-stable reference, so the hook only re-renders when one of the
 	 * three maps actually changes identity. */
 	const { modules, forms, fields } = useDocEntityMaps();

@@ -17,7 +17,7 @@ export const ROW_BASE_PADDING_X_PX = 24;
  *  default `estimateSize` for insertion rows. */
 export const INSERTION_REST_HEIGHT_PX = 24;
 
-/** Height of an OPEN insertion point — the gap expands and pushes the
+/** Height of an OPEN insertion point: the gap expands and pushes the
  *  neighboring rows apart to make room for the line + "+" circle. The
  *  virtualizer picks the change up through `measureElement`. */
 export const INSERTION_OPEN_HEIGHT_PX = 32;

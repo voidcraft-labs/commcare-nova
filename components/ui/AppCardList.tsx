@@ -10,7 +10,7 @@ interface AppCardListProps {
 /**
  * Grid of app cards used by the admin user-detail page (admin viewing
  * any user's apps). The home app list builds its own grid inline in
- * `app/(app)/app-list.tsx` because it owns the delete affordance — a
+ * `app/(app)/app-list.tsx` because it owns the delete affordance, a
  * concern admin should never inherit. Stays a Server Component because
  * `AppCard` is the only client island it needs.
  */

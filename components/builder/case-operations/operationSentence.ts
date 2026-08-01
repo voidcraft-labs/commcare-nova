@@ -7,7 +7,7 @@
 // read straight off the stored operation, and the legality of every one
 // of them is decided by the validator and the planners. If this file
 // ever seems to know something the operation does not say, that is the
-// bug — the same discipline the display-condition summary printer keeps.
+// bug: the same discipline the display-condition summary printer keeps.
 //
 // The vocabulary is deliberately intent-level. CommCare calls this
 // "Save to Case" and the wire calls it a case block; an author is told
@@ -22,11 +22,11 @@ import { type CaseOperation, humanizeId, type Uuid } from "@/lib/domain";
 
 /** What the row needs from outside the operation to read naturally. */
 export interface OperationSentenceContext {
-	/** Human name of an earlier operation, by uuid — for an `op` target. */
+	/** Human name of an earlier operation, by uuid: for an `op` target. */
 	readonly operationName: (uuid: Uuid) => string | undefined;
-	/** Human label of a repeat field, by uuid — for `forEach`. */
+	/** Human label of a repeat field, by uuid: for `forEach`. */
 	readonly repeatLabel: (uuid: Uuid) => string | undefined;
-	/** Human label of a form field, by uuid — for a keyed create. */
+	/** Human label of a form field, by uuid: for a keyed create. */
 	readonly fieldLabel: (uuid: Uuid) => string | undefined;
 }
 
@@ -34,7 +34,7 @@ export interface OperationSentence {
 	/** The lead clause: what happens to which case. */
 	readonly lead: string;
 	/**
-	 * Qualifying clauses in reading order — multiplicity, then what else
+	 * Qualifying clauses in reading order: multiplicity, then what else
 	 * the operation sets. Rendered as quiet trailing detail.
 	 */
 	readonly details: readonly string[];
@@ -57,7 +57,7 @@ export function caseTypePhrase(name: string): string {
 	return `${label.charAt(0).toLowerCase()}${label.slice(1)}`;
 }
 
-/** A saved property's name as a STANDALONE label — a card heading, a picker
+/** A saved property's name as a STANDALONE label: a card heading, a picker
  * item, the subject of its own line.
  *
  * The same reason `caseTypePhrase` exists, one dimension over: the picker

@@ -1,6 +1,6 @@
 // components/builder/case-list-config/cards/column/CalculatedColumnCard.tsx
 //
-// Renders the `calculated` Column kind — an author-defined
+// Renders the `calculated` Column kind: an author-defined
 // `ValueExpression` that yields a derived per-row value
 // (e.g. "days since last visit", "concatenated full name").
 // Calculated columns have NO `field` slot; the expression is the
@@ -8,8 +8,8 @@
 // expression / on-device XPath fragment.
 //
 // Slots:
-//   - `header` — column display label.
-//   - `expression` — a `ValueExpression` AST edited through the
+//   - `header`: column display label.
+//   - `expression`: a `ValueExpression` AST edited through the
 //     shared `ExpressionCardEditor`. Cross-family recursion (`if.cond`
 //     / `count.where` carrying Predicate operands) flows naturally
 //     through that editor's existing context plumbing.
@@ -39,7 +39,7 @@ interface CalculatedColumnCardProps {
  * Calculated column card. Routes every mutation through
  * `calculatedColumn` so the constructed shape always matches the
  * schema. Mounts the shared `ExpressionCardEditor` for the
- * expression slot — the same editor surface every other
+ * expression slot: the same editor surface every other
  * ValueExpression authoring site uses, so a calc-column's
  * expression UI is identical to (e.g.) a search-input's default
  * value editor.

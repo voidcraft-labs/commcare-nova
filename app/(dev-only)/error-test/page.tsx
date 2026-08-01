@@ -43,7 +43,7 @@ const errorScenarios: ErrorScenario[] = [
 			setGenerationError,
 			setStatusMessage,
 		}) => {
-			// Start with sending — builder is still in Idle (no data-start-build received yet)
+			// Start with sending: builder is still in Idle (no data-start-build received yet)
 			setGridMode("sending");
 			setPhase(BuilderPhase.Idle);
 			setStage(null);
@@ -51,7 +51,7 @@ const errorScenarios: ErrorScenario[] = [
 			setStatusMessage("");
 
 			const t1 = setTimeout(() => {
-				// "Server responds with auth error" — show as toast only (Idle phase → no progress bar)
+				// "Server responds with auth error": show as toast only (Idle phase → no progress bar)
 				setGridMode("error-fatal");
 				setPhase(BuilderPhase.Generating);
 				setStage(GenerationStage.Foundation);
@@ -114,7 +114,7 @@ const errorScenarios: ErrorScenario[] = [
 			timers.push(setTimeout(() => injectEnergy(200), 3500));
 			timers.push(setTimeout(() => injectEnergy(200), 5000));
 
-			// Error at 6s — phase stays Generating, error is metadata
+			// Error at 6s: phase stays Generating, error is metadata
 			timers.push(
 				setTimeout(() => {
 					clearInterval(energyId);
@@ -225,7 +225,7 @@ const errorScenarios: ErrorScenario[] = [
 			);
 			intervals.push(buildId);
 
-			// Error at 2s — recovering (phase stays Generating)
+			// Error at 2s: recovering (phase stays Generating)
 			timers.push(
 				setTimeout(() => {
 					clearInterval(buildId);
@@ -249,7 +249,7 @@ const errorScenarios: ErrorScenario[] = [
 					);
 					intervals.push(recoverEnergy);
 
-					// Recovery at 5s — error clears and Build resumes.
+					// Recovery at 5s: error clears and Build resumes.
 					timers.push(
 						setTimeout(() => {
 							clearInterval(recoverEnergy);
@@ -329,7 +329,7 @@ export default function ErrorTestPage() {
 	const [activeScenario, setActiveScenario] = useState<number | null>(null);
 	const [gridMode, setGridMode] = useState<SignalMode>("idle");
 	const [phase, setPhase] = useState<BuilderPhase>(BuilderPhase.Idle);
-	/* Stage/error/status state — used by the error scenario runner to drive
+	/* Stage/error/status state: used by the error scenario runner to drive
 	 * generation lifecycle simulations. GenerationProgress self-subscribes from
 	 * the store in production, but these are needed here for the scenario
 	 * callbacks that simulate generation state transitions. */
@@ -416,7 +416,7 @@ export default function ErrorTestPage() {
 					</p>
 				</div>
 
-				{/* Live preview — grid then progress stacked */}
+				{/* Live preview: grid then progress stacked */}
 				<div className="space-y-4">
 					{/* Signal Grid */}
 					<div className="space-y-2">
@@ -435,7 +435,7 @@ export default function ErrorTestPage() {
 						</div>
 					</div>
 
-					{/* GenerationProgress removed — it self-subscribes from the Zustand
+					{/* GenerationProgress removed: it self-subscribes from the Zustand
 					 *  store, which this dev page doesn't provide. The error scenarios
 					 *  still drive the signal grid via the controller ref below. */}
 				</div>

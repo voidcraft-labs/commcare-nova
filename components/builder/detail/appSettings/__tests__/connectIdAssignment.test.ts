@@ -1,6 +1,6 @@
 /**
  * `assignDraftConnectIds` is the manager's in-flight id scope: it must assign
- * each participating sub-config the id its current draft proposes — including
+ * each participating sub-config the id its current draft proposes, including
  * drafts seeded from complete live or session-stashed configurations. Every
  * explicit id is kept verbatim and reserved before an empty id derives from
  * its display-name fallback; collisions stay visible for the app-wide gate.

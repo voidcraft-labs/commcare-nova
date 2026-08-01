@@ -49,9 +49,9 @@ function PopoverContent({
 		// portal ordering.
 		//
 		// Nova chrome: the frosted-glass surface (shared constant from
-		// `lib/styles.ts`) lives on the POSITIONER — `will-change: transform`
+		// `lib/styles.ts`) lives on the POSITIONER: `will-change: transform`
 		// there creates a compositing boundary that would break a descendant
-		// `backdrop-filter` — while the popup carries only the animation.
+		// `backdrop-filter`, while the popup carries only the animation.
 		<PopoverPrimitive.Portal>
 			<PopoverPrimitive.Positioner
 				align={align}

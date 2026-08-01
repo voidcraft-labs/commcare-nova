@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 //
-// InlineField — the compact labeled text editor in the form-settings
+// InlineField: the compact labeled text editor in the form-settings
 // panel. These tests pin the field-level validity guard: when a
 // `validate` predicate is supplied, an invalid value must NOT commit
 // (no `onChange`), the value reverts, and the reason renders inline
@@ -39,7 +39,7 @@ describe("InlineField — field-level validity guard", () => {
 
 		fireEvent.blur(input);
 
-		// Commit was aborted — the bad value never reached the consumer.
+		// Commit was aborted: the bad value never reached the consumer.
 		expect(onChange).not.toHaveBeenCalled();
 	});
 

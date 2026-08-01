@@ -1,11 +1,11 @@
 // components/builder/shared/cards/expression/DateConstantCards.tsx
 //
-// Discriminator-only cards for the two date constants — `today`
+// Discriminator-only cards for the two date constants: `today`
 // (project-timezone ISO date) and `now` (UTC ISO datetime). No
 // authoring controls; the kind picker chrome on the surrounding
 // `ExpressionPicker` shell carries the kind-replace menu.
 //
-// Same visual language as `SentinelCards` on the Predicate side —
+// Same visual language as `SentinelCards` on the Predicate side:
 // a one-line status row inside the card body that explains what the
 // constant resolves to. The card is intentionally inert so an author
 // glancing at the editor reads "this slot is the current date /
@@ -46,7 +46,7 @@ interface NowCardProps {
 	readonly path: EditorPath;
 }
 
-/** Today constant — resolves to the project-timezone ISO date at
+/** Today constant: resolves to the project-timezone ISO date at
  *  evaluation time. The card body is inert; the kind picker on the
  *  parent shell handles the kind-replace affordance. */
 export function TodayCard(_props: TodayCardProps) {
@@ -65,7 +65,7 @@ export function TodayCard(_props: TodayCardProps) {
 	);
 }
 
-/** Now constant — resolves to the UTC ISO datetime at evaluation
+/** Now constant: resolves to the UTC ISO datetime at evaluation
  *  time. Inert body; same shape as `TodayCard`. */
 export function NowCard(_props: NowCardProps) {
 	return (

@@ -1,5 +1,5 @@
 /**
- * Roles — reusable templates that fill worker information with defaults.
+ * Roles: reusable templates that fill worker information with defaults.
  *
  * A role is not a person and never becomes one: it says what every worker
  * in that role carries. Personas hold a role; a deployed worker is created

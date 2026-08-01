@@ -3,7 +3,7 @@
  *
  * Pragmatic DnD stores arbitrary `Record<string | symbol, unknown>` on each
  * source + drop target. We wrap the read/write pair in these helpers so every
- * callsite sees strongly-typed data — losing the brand at the `getData`
+ * callsite sees strongly-typed data: losing the brand at the `getData`
  * boundary and recovering it at `monitor.onDrop` is where DnD bugs usually
  * live.
  *
@@ -29,7 +29,7 @@ type DropRecord<T> = T & Record<string | symbol, unknown>;
 // ── Source (draggable) payloads ───────────────────────────────────────
 
 /** Tag on a draggable row's `source.data`. The dragged thing is ALWAYS a
- *  field (leaf) or a group/repeat (container) — identified by uuid. */
+ *  field (leaf) or a group/repeat (container): identified by uuid. */
 export interface DraggableFieldData {
 	readonly kind: "draggable-field";
 	readonly uuid: Uuid;
@@ -51,7 +51,7 @@ export function isDraggableFieldData(
 
 // ── Drop target payloads ──────────────────────────────────────────────
 
-/** A field row drop target — drop here with a top/bottom edge to place
+/** A field row drop target: drop here with a top/bottom edge to place
  *  the dragged item before or after this field. */
 export interface DropFieldData {
 	readonly kind: "drop-field";
@@ -60,7 +60,7 @@ export interface DropFieldData {
 	readonly siblingIndex: number;
 }
 
-/** A group header drop target — drop here to insert at position 0 inside
+/** A group header drop target: drop here to insert at position 0 inside
  *  the group. */
 export interface DropGroupHeaderData {
 	readonly kind: "drop-group-header";
@@ -70,7 +70,7 @@ export interface DropGroupHeaderData {
 	readonly siblingIndex: number;
 }
 
-/** An empty-container drop target — drop here to become the sole child of
+/** An empty-container drop target: drop here to become the sole child of
  *  the empty group/repeat. */
 export interface DropEmptyContainerData {
 	readonly kind: "drop-empty-container";
@@ -82,7 +82,7 @@ export type DropTargetData =
 	| DropGroupHeaderData
 	| DropEmptyContainerData;
 
-// Factory helpers — keep the `kind` discriminator in one place.
+// Factory helpers: keep the `kind` discriminator in one place.
 export function makeDropFieldData(
 	uuid: Uuid,
 	parentUuid: Uuid,
@@ -108,7 +108,7 @@ export function makeDropEmptyContainerData(
 /**
  * Narrow an arbitrary drop-target data bag (as received from
  * `location.current.dropTargets[i].data`) into our discriminated union.
- * Returns `null` when the data isn't one of ours — defensive against
+ * Returns `null` when the data isn't one of ours: defensive against
  * concurrently-registered unrelated targets.
  */
 export function readDropTargetData(
@@ -131,10 +131,10 @@ export function readDropTargetData(
  * Return `true` when `candidate` is `ancestor` or is in the subtree rooted
  * at `ancestor` (as defined by `fieldOrder`). Used by drop-target
  * `canDrop` filters to block the user from dragging a group onto one of
- * its own descendants — such a drop would reparent the group under itself
+ * its own descendants: such a drop would reparent the group under itself
  * and produce a cycle in `fieldOrder`.
  *
- * Pure traversal with a visited set — safe against cyclic `fieldOrder`
+ * Pure traversal with a visited set: safe against cyclic `fieldOrder`
  * (which shouldn't happen but can during a mutation-replay race). Works
  * on the plain-object snapshot the doc store hands out via `getState()`.
  */

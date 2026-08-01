@@ -1,15 +1,15 @@
 /**
- * Presence write endpoint — a collaborator's live location in the builder.
+ * Presence write endpoint: a collaborator's live location in the builder.
  *
- * GET    /api/apps/{id}/presence — authoritative complete current roster,
+ * GET    /api/apps/{id}/presence: authoritative complete current roster,
  *        used to recover presence alone after a malformed SSE page.
- * POST   /api/apps/{id}/presence — upsert this session's presence row (heartbeat
+ * POST   /api/apps/{id}/presence: upsert this session's presence row (heartbeat
  *        + on selection change). The client supplies `sessionId`, `name`,
  *        `color`, and `location`; the server stamps `userId` (never client-
  *        asserted), the avatar/email from the session, `updated_at`, and the TTL
  *        `expire_at`. Each POST also opportunistically sweeps this app's expired
  *        rows so the table stays bounded (the roster read already filters them).
- * DELETE /api/apps/{id}/presence — remove this session's presence row (tab
+ * DELETE /api/apps/{id}/presence: remove this session's presence row (tab
  *        close / unmount).
  *
  * Both require an authenticated session and Project membership (view) on the
@@ -40,7 +40,7 @@ import { locationSchema } from "@/lib/routing/types";
 
 /** The per-tab session id the client mints via `crypto.randomUUID()`. Shape-
  *  pinned to a UUID because it is the stable per-tab key of the presence row's
- *  `(app_id, user_id, session_id)` primary key — a freeform string would let a
+ *  `(app_id, user_id, session_id)` primary key: a freeform string would let a
  *  client mint arbitrary keys, and the UUID shape keeps the roster's per-session
  *  dedup honest. */
 const sessionIdSchema = z.string().uuid();
@@ -125,7 +125,7 @@ export async function POST(
 					session_id: sessionId,
 					name,
 					/* Avatar + email stamped from the SESSION (authoritative), never the
-					 * body — a client can't wear someone else's face or address. */
+					 * body: a client can't wear someone else's face or address. */
 					image: session.user.image ?? null,
 					email: session.user.email ?? "",
 					color,

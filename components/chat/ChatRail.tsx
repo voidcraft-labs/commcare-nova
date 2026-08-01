@@ -1,10 +1,10 @@
 /**
- * ChatRail — the chat sidebar's collapsed state: a slim icon rail on
+ * ChatRail: the chat sidebar's collapsed state: a slim icon rail on
  * the right edge, the mirror of the structure side's AppTreeRail. A
  * collapsed panel stays architectural (a rail in the layout flow),
  * never a floating button that something can cover or click-shield.
  *
- * The rail only ever represents "chat closed, nothing selected" —
+ * The rail only ever represents "chat closed, nothing selected":
  * selecting something to inspect bypasses it entirely, because the
  * inspector claims the full-width rail the moment a selection exists.
  */

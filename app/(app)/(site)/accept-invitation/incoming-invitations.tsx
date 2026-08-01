@@ -1,5 +1,5 @@
 /**
- * Incoming invitations — the surface where a signed-in user accepts or
+ * Incoming invitations: the surface where a signed-in user accepts or
  * declines the Project invitations addressed to them. No invitation email is
  * sent, so this list is how an invitee discovers a pending invite.
  *
@@ -41,7 +41,7 @@ export function IncomingInvitations({
 			);
 			return;
 		}
-		/* Land in the Project just joined — set it active, then go to the app
+		/* Land in the Project just joined: set it active, then go to the app
 		 * list. A failure to set active isn't fatal (the membership stands); the
 		 * switcher can still select it. */
 		await authClient.organization.setActive({

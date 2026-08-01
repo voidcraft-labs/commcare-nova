@@ -3,7 +3,7 @@
 // The sentences a refusal is allowed to say.
 //
 // Every line here is read by an author who has just been stopped, so the
-// bar is that it be TRUE of the thing that stopped them — not merely
+// bar is that it be TRUE of the thing that stopped them, not merely
 // grammatical. The two shapes a dependency refusal comes in are the whole
 // hazard: the reference wording ("uses the case X makes") is false of a
 // type blocker, and there is nothing in the type shape for a reference

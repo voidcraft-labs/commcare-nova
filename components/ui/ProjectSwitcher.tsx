@@ -1,5 +1,5 @@
 /**
- * Project switcher — the header control that shows the active Project (the
+ * Project switcher: the header control that shows the active Project (the
  * tenancy scope every app list, builder, and case-data read is filtered by)
  * and lets the user switch between the Projects they belong to, spin up a new
  * one, or jump to member management.
@@ -66,7 +66,7 @@ export function ProjectSwitcher({
 	const [newName, setNewName] = useState("");
 	const [busy, setBusy] = useState(false);
 
-	/* No session / no Projects resolved — render nothing rather than an empty
+	/* No session / no Projects resolved: render nothing rather than an empty
 	 * control (the personal Project is always provisioned, so this only happens
 	 * pre-auth, where the header itself is hidden). */
 	if (!activeProjectId || projects.length === 0) return null;
@@ -200,7 +200,7 @@ export function ProjectSwitcher({
 								<div className="p-2.5">
 									<input
 										// Focus on mount via a callback ref (the `autoFocus`
-										// attribute is disallowed) — opening the create form is
+										// attribute is disallowed): opening the create form is
 										// a deliberate click, so jumping the cursor in is wanted.
 										ref={(el) => el?.focus()}
 										autoComplete="off"

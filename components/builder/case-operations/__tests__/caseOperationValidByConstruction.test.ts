@@ -8,7 +8,7 @@
 // (`shared/__tests__/validByConstruction.test.ts`) and that every
 // admitted verb build type-checks (`verbMenuBuildFuzz.test.ts`). Neither
 // can see this surface's extra law: `rules/caseOperations.ts` refuses
-// reads and shapes the TYPE CHECKER is perfectly happy with —
+// reads and shapes the TYPE CHECKER is perfectly happy with:
 //
 //   - a case property / relationship count / presence test in ANY slot
 //     unless the module selects a case before opening its forms, and
@@ -19,14 +19,14 @@
 // shapes (case-first and not) and EVERY slot the detail canvas mounts. The
 // editor's own admission functions choose the candidates: the Add-condition
 // menu's own items, the verb menu's builds, the expression kind menu's
-// seeds, and the canvas's own committed seeds. Nothing is re-derived — a
+// seeds, and the canvas's own committed seeds. Nothing is re-derived, a
 // candidate the editor would not offer is skipped by the editor's own
 // predicate, so the test can only fail on a genuine offer-then-reject.
 //
 // Candidates are what the menus OFFER, not what the schema registry can
 // build. Driving every authorable schema's seed looked stricter and was
-// merely wrong: `match` and `within-distance` have no Add-condition item —
-// they are verb switches on an existing condition — and their registry
+// merely wrong: `match` and `within-distance` have no Add-condition item:
+// they are verb switches on an existing condition, and their registry
 // seeds are deliberately incomplete, so asserting them tested a path no
 // author can take.
 
@@ -118,7 +118,7 @@ const WORKER: UserProperty = {
  * One module, one case type, and every answer shape an operation might
  * read. The module's form TYPE is the whole variable: a module holding
  * only case-loading forms is case-first, and one holding a registration
- * form is not — which is exactly the axis `validateCaseSnapshotUse`
+ * form is not, which is exactly the axis `validateCaseSnapshotUse`
  * branches on.
  */
 function fixture(formType: "followup" | "registration"): {
@@ -211,7 +211,7 @@ function fixture(formType: "followup" | "registration"): {
 }
 
 /**
- * The vocabulary the detail canvas mounts every slot with — assembled
+ * The vocabulary the detail canvas mounts every slot with: assembled
  * from the SAME functions the canvas calls, so a change to either the
  * canvas or the scope rule moves this test with it.
  */
@@ -244,7 +244,7 @@ function priorCreate(): CaseOperation {
 
 /**
  * The operation under test. It targets the earlier create rather than
- * the session so the BASELINE is valid in both module shapes — a session
+ * the session so the BASELINE is valid in both module shapes, a session
  * target is itself unavailable without a case-first module, and that
  * refusal would mask every finding this test is looking for.
  */
@@ -286,8 +286,8 @@ function gateFindings(
  * `match-value-empty` used to be tolerated here too, and that tolerance
  * is exactly why the test built to catch offer-then-refuse missed an
  * empty match value on its own surface. Nothing unfinished may be
- * committed — the gate has no tolerant class, `gate.ts` gates
- * completeness like soundness — so the editor must not OFFER a gesture
+ * committed: the gate has no tolerant class, `gate.ts` gates
+ * completeness like soundness, so the editor must not OFFER a gesture
  * that lands one. The verb menu now disables a switch to `match` until
  * something carryable exists, which is what makes dropping this safe.
  */
@@ -317,11 +317,11 @@ interface ExpressionSlot {
 	readonly name: string;
 	readonly constraint: SlotConstraint;
 	/** A runtime target mounts a DIFFERENT operation scope from every
-	 *  other slot — see `editorScope.ts`. */
+	 *  other slot: see `editorScope.ts`. */
 	readonly runtimeTarget: boolean;
 	/**
 	 * Whether the editor mounts the owner-value axis on this slot. It governs
-	 * `acting-user` and `unowned` — and nothing else does — so it has to be
+	 * `acting-user` and `unowned`, and nothing else does, so it has to be
 	 * part of the slot table or the one slot those sentinels live on is driven
 	 * with the opposite of what the canvas mounts
 	 * (`CaseOperationDetailCanvas.tsx:441`) and never exercised at all.
@@ -329,7 +329,7 @@ interface ExpressionSlot {
 	readonly ownerValues: boolean;
 	/**
 	 * A name / rename / owner slot, where `validateTextExpression` refuses a
-	 * BLANK literal on top of the type rule — a constraint `SlotConstraint`
+	 * BLANK literal on top of the type rule: a constraint `SlotConstraint`
 	 * has no axis for, so the picker's typed literal seed is an empty string
 	 * there. That is a COMPLETENESS state ("type the name") of exactly the
 	 * kind the editor leaves elsewhere, and the gate spells it that way; it
@@ -355,7 +355,7 @@ const PREDICATE_SLOTS: readonly PredicateSlot[] = [
 ];
 
 const TEXT_STORAGE = storageAssignmentConstraint(["text"]);
-/** What the three text facets actually mount with — the blank-refusing
+/** What the three text facets actually mount with: the blank-refusing
  *  constraint, so this drives the real offered set. */
 const TEXT_FACET = caseOperationTextConstraint();
 
@@ -475,7 +475,7 @@ describe("every condition the editor offers is admitted by the commit gate", () 
 
 		// Exactly what "Add condition" offers: one comparison leaf plus the
 		// structural shapes. Driving the whole schema registry instead
-		// asserted a path the menu has no item for — `match` and
+		// asserted a path the menu has no item for: `match` and
 		// `within-distance` are reachable only as VERB switches on an
 		// existing condition, and their registry seeds are deliberately
 		// incomplete (a match against an empty value matches nothing).
@@ -543,7 +543,7 @@ describe("every value the editor offers is admitted by the commit gate", () => {
 			});
 			for (const schema of expressionCardSchemaList) {
 				if (!isAuthorableExpressionKind(schema.kind, editCtx)) continue;
-				// The picker's own type gate — a kind whose result class cannot
+				// The picker's own type gate: a kind whose result class cannot
 				// satisfy the slot is disabled, never selectable.
 				if (!admitsValueExpressionKind(schema.kind, slot.constraint).admitted) {
 					continue;
@@ -607,7 +607,7 @@ describe("every value the editor offers is admitted by the commit gate", () => {
 
 // ── 3. The canvas's own committed seeds ────────────────────────────────
 //
-// These commit the instant the author presses the button — there is no
+// These commit the instant the author presses the button: there is no
 // intermediate state for them to be merely unfinished in, so they are
 // held to the whole gate with no tolerance at all.
 
@@ -654,8 +654,8 @@ describe("every seed the canvas commits is accepted outright", () => {
 			(caseType) => caseType.name === "visit",
 		);
 		for (const property of destination?.properties ?? []) {
-			// The picker withholds the reserved properties — an operation's own
-			// facets own them — so they are never a seed the canvas commits.
+			// The picker withholds the reserved properties: an operation's own
+			// facets own them, so they are never a seed the canvas commits.
 			if (isReservedCaseOperationProperty(property.name)) continue;
 			const value = seedWriteValue(property.data_type, writeFields);
 			if (value === undefined) continue;

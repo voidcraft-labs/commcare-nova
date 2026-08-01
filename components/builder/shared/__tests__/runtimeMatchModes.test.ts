@@ -52,7 +52,7 @@ function context(
 	};
 }
 
-/** A filled comparison — the real starting point for a verb switch, and
+/** A filled comparison: the real starting point for a verb switch, and
  *  one that carries a value so the carry gate is satisfied. */
 const CURRENT: Predicate = eq(
 	term(prop("patient", "nickname")),

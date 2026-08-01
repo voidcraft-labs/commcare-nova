@@ -5,13 +5,13 @@ import { Switch as SwitchPrimitive } from "@base-ui/react/switch";
 import { cn } from "@/lib/utils";
 
 /**
- * The switch, one size: a 44px hit area (the one control height —
+ * The switch, one size: a 44px hit area (the one control height:
  * button = input = toggle) around a lighter 32px visible track, so the
  * solid pill doesn't outweigh bordered fields of the same height. The
  * track is drawn as a `before:` pseudo so the hit area stays honest.
  *
  * "On" wears the primary button's action fill (`--nova-action`) with a
- * dusk thumb — the thumb is the "ink" on the lit fill, same as button
+ * dusk thumb: the thumb is the "ink" on the lit fill, same as button
  * text. Off: deep track, muted thumb. Hover lifts one step toward light
  * (never dims); disabled dims to the one 0.6 opacity with hover gated
  * off and keeps pointer events for the not-allowed cursor.

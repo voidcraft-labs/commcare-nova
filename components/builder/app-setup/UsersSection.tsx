@@ -4,7 +4,7 @@
  * Three collections on one screen, in the order they build on each other:
  * worker information is the vocabulary, a role fills it with defaults, and
  * a persona is a named worker holding a role. Keeping them visibly separate
- * is the point — a role is a template, a persona is somebody, and a
+ * is the point: a role is a template, a persona is somebody, and a
  * deployed worker (a real account on a CommCare project) is neither and
  * lives with the deployment.
  *

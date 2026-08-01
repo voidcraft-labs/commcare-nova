@@ -8,17 +8,17 @@
 // wire emitters consume to pick the right value-function. A naïve
 // rebuild via the bare `literal(value)` builder strips the
 // qualifier on every edit, silently turning a `dateLiteral(...)`
-// into a plain text literal — the data-loss class where blur-
+// into a plain text literal: the data-loss class where blur-
 // commit silently strips the `data_type` qualifier from the
 // rebuilt AST.
 //
 // Two helpers cover the patterns the editor needs:
 //
-//   - `rebuildLiteralPreservingDataType(source, nextValue)` — emits
+//   - `rebuildLiteralPreservingDataType(source, nextValue)`: emits
 //     the source's qualifier on the rebuilt literal. Used by every
 //     "user typed something different at this slot" commit path.
 //   - `literalToInputText(value)` / `parseInputTextToLiteral(text,
-//     source)` — symmetric encode / decode for free-text inputs
+//     source)`: symmetric encode / decode for free-text inputs
 //     (the switch-case `when` editor is the canonical caller). The
 //     decode path heuristically classifies the input as boolean /
 //     numeric / string but always preserves the source's
@@ -33,7 +33,7 @@
 // preservation but may still allocate a fresh object.
 //
 // All AST construction routes through the predicate package's
-// builders — `qualifiedLiteral` for qualified shapes, `literal`
+// builders: `qualifiedLiteral` for qualified shapes, `literal`
 // for the unqualified case, plus the temporal specializations
 // (`dateLiteral` / `datetimeLiteral` / `timeLiteral`) used by the
 // free-text decode path. The editor never hand-rolls a Literal
@@ -54,7 +54,7 @@ import {
  * Routes through `qualifiedLiteral` when the source declares a
  * qualifier, and through the bare `literal` builder when the source
  * has none. Centralizing on the `qualifiedLiteral` primitive keeps
- * the editor out of direct AST shape construction — adding a new
+ * the editor out of direct AST shape construction: adding a new
  * `CasePropertyDataType` to the schema flows through the builder
  * without an editor-side parallel edit.
  *
@@ -75,7 +75,7 @@ export function rebuildLiteralPreservingDataType(
 /**
  * Encode a literal's value as a string suitable for a free-text
  * input's initial value. Mirrors the `SwitchWhenLiteralInput`
- * encoding shape — booleans render as `"true"` / `"false"`, null
+ * encoding shape: booleans render as `"true"` / `"false"`, null
  * as the empty string, everything else via `String(...)`.
  *
  * Symmetric with `parseInputTextToLiteral`: encoding a literal then
@@ -114,14 +114,14 @@ export function parseInputTextToLiteral(
 ): Literal {
 	// Qualifier-driven decode: the source declares a typed shape,
 	// route through the matching builder. Empty input still emits a
-	// typed literal with empty-string value — the type checker's
+	// typed literal with empty-string value: the type checker's
 	// "match value cannot be the empty string" rule fires inline,
 	// but the qualifier survives.
 	if (source.data_type === "date") return dateLiteral(text);
 	if (source.data_type === "datetime") return datetimeLiteral(text);
 	if (source.data_type === "time") return timeLiteral(text);
 
-	// Non-temporal qualifier or no qualifier — heuristic shape
+	// Non-temporal qualifier or no qualifier: heuristic shape
 	// classification.
 	if (text === "") {
 		return rebuildLiteralPreservingDataType(source, null);
@@ -132,7 +132,7 @@ export function parseInputTextToLiteral(
 	if (text === "false") {
 		return rebuildLiteralPreservingDataType(source, false);
 	}
-	// Pure numeric — `Number(text)` returns NaN for non-numeric
+	// Pure numeric: `Number(text)` returns NaN for non-numeric
 	// inputs; the trim-equality check rejects whitespace-padded or
 	// empty-looking strings the parser would otherwise coerce.
 	const asNumber = Number(text);

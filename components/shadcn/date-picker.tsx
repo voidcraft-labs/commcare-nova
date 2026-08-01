@@ -14,7 +14,7 @@ import {
 } from "@/components/shadcn/popover";
 import { cn } from "@/lib/utils";
 
-/** Wire-form date shape — the literal `date-fns` format string the picker
+/** Wire-form date shape: the literal `date-fns` format string the picker
  *  emits. Matches the pattern the case-data binding layer enforces
  *  (`lib/preview/engine/runtimeBindings`'s `ISO_DATE_PATTERN`); a drift
  *  between the two would silently drop values at parsing. */
@@ -35,13 +35,13 @@ interface DatePickerProps {
 	/** ISO `yyyy-MM-dd` string, or `""` for no selection. */
 	value: string;
 	onValueChange: (next: string) => void;
-	/** Trigger button id — wire a `<label htmlFor>` to it. */
+	/** Trigger button id: wire a `<label htmlFor>` to it. */
 	id?: string;
 	placeholder?: string;
 	disabled?: boolean;
 	/** Show the Clear footer while a date is selected (default true). */
 	clearable?: boolean;
-	/** Fires when focus leaves the trigger — including into the popover, so
+	/** Fires when focus leaves the trigger, including into the popover, so
 	 *  a caller that treats blur as "the person has engaged with this field"
 	 *  (marking it touched, say) hears about opening the calendar too. */
 	onBlur?: () => void;
@@ -54,7 +54,7 @@ interface DatePickerProps {
 }
 
 /**
- * Single-date picker — the shadcn date-picker composition (outline Button
+ * Single-date picker: the shadcn date-picker composition (outline Button
  * trigger + Popover + `mode="single"` Calendar) as ONE component, so feature
  * code never assembles the popover itself and never reaches for a native
  * `<input type="date">` (whose browser picker pops over Nova's theme).
@@ -71,7 +71,7 @@ interface DatePickerProps {
  *     strings; everything else renders as no selection.
  *   - The calendar-validity gate (`isValid(parseISO(...))`) catches
  *     shape-conforming-but-calendar-invalid values like `"2024-13-45"` that
- *     `parseISO` returns as Invalid Date — `format(invalidDate, ...)` throws
+ *     `parseISO` returns as Invalid Date: `format(invalidDate, ...)` throws
  *     `RangeError` and would crash the surrounding tree; the regex alone
  *     isn't enough.
  */
@@ -93,7 +93,7 @@ function DatePicker({
 	const selected = parsed !== undefined && isValid(parsed) ? parsed : undefined;
 	// `open` is lifted into local state so a day-pick or Clear can close the
 	// popover programmatically. Base UI's Popover dismisses on outside-press /
-	// escape / close-press / focus-out only — none fire when a descendant
+	// escape / close-press / focus-out only: none fire when a descendant
 	// updates its own state, so an uncontrolled popover stays open after a
 	// pick, blocking the user's reach to the next control.
 	const [open, setOpen] = useState(false);

@@ -54,7 +54,7 @@ import { SignaturePad } from "./SignaturePad";
  * ## What this deliberately does NOT show
  *
  * No thumbnail, no playback, no way to reopen the file. That is not a gap
- * — it is what CommCare Web Apps shows. `entry_file.html` is a Browse
+ *: it is what CommCare Web Apps shows. `entry_file.html` is a Browse
  * button, a filename text node, and a Clear button; there is no `<img>`,
  * no `<audio>`, no `<video>`, and Formplayer declares no route that serves
  * a staged capture back (`FormController` has one GET mapping,
@@ -73,15 +73,15 @@ import { SignaturePad } from "./SignaturePad";
  * ## Wording
  *
  * Every string says "attach". Web Apps has no camera, microphone, or
- * recorder anywhere in cloudcare — the file input binds `accept` and
- * nothing else, with no `capture` attribute — so every kind but signature
+ * recorder anywhere in cloudcare: the file input binds `accept` and
+ * nothing else, with no `capture` attribute, so every kind but signature
  * opens the OS file picker. A phone's picker may offer its camera; that is
  * the phone's menu, not something this app can request.
  */
 interface AttachmentFieldProps {
 	readonly field: CaptureField;
 	readonly state: FieldState;
-	/** Concrete engine path — carries the repeat index, so a replace
+	/** Concrete engine path: carries the repeat index, so a replace
 	 *  targets exactly one instance. Absent only on an edit-mode row, which
 	 *  never reaches the live control. */
 	readonly path: string | undefined;

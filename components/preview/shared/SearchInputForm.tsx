@@ -3,7 +3,7 @@
 // Running-app search-input form. Renders one widget per
 // `SearchInputDef` mounted at the top of the case list when the
 // module's `caseListConfig.searchInputs` is non-empty. The widget
-// shape is the same regardless of `input.kind` — a user filling a
+// shape is the same regardless of `input.kind`: a user filling a
 // search input doesn't see the simple-vs-advanced distinction; the
 // runtime-bindings layer (`composeRuntimeFilter`) handles the
 // per-arm value→predicate translation upstream.
@@ -17,13 +17,13 @@
 //
 // Per-type widget dispatch:
 //
-//   text     → `<Input>` (shadcn Input — Base UI Input under the hood)
+//   text     → `<Input>` (shadcn Input: Base UI Input under the hood)
 //   barcode  → `<Input>` + progressively enhanced camera scanner.
 //              Manual entry and paste always remain available. Scan
 //              appears only when this secure browser exposes both
 //              BarcodeDetector and camera capture; unsupported
 //              browsers get truthful fallback copy, not a dead button.
-//   date     → the shared `DatePicker` (shadcn date-picker composition) —
+//   date     → the shared `DatePicker` (shadcn date-picker composition):
 //              value emits as ISO `YYYY-MM-DD` to match the
 //              runtime-bindings layer's `parseDateBound` shape.
 //   date-range → two `DatePicker`s
@@ -197,13 +197,13 @@ export function SearchInputForm({
 
 	// Debounced upward emission. The cleanup-on-deps-change pattern
 	// resets the timer on every keystroke (each render that mutates
-	// `draft` reschedules) — exactly the per-keystroke debounce
+	// `draft` reschedules): exactly the per-keystroke debounce
 	// contract. Cleanup on unmount drops any pending fire so the
 	// form doesn't emit after teardown.
 	useEffect(() => {
 		// Skip when `draft` is the same reference as the last upward
 		// emission OR the most recent external value. Either way, no
-		// real user change occurred — emitting again would loop.
+		// real user change occurred: emitting again would loop.
 		if (draft === lastEmittedRef.current) return;
 		const handle = setTimeout(() => {
 			lastEmittedRef.current = draft;
@@ -213,7 +213,7 @@ export function SearchInputForm({
 	}, [draft]);
 
 	// One mutator routed through every per-input change handler.
-	// Empty values delete the key — the runtime-bindings layer
+	// Empty values delete the key: the runtime-bindings layer
 	// short-circuits absent and empty alike, so dropping the key
 	// keeps the emitted map tight + avoids spurious entries that
 	// would only ever evaluate to "no clause" downstream.
@@ -230,7 +230,7 @@ export function SearchInputForm({
 	};
 	const submitAvailable = onSubmit !== undefined;
 
-	// Zero-input modules render nothing — the caller is the
+	// Zero-input modules render nothing: the caller is the
 	// case-list screen, which already guards on
 	// `caseListConfig.searchInputs.length > 0` before mounting this
 	// component. Returning null here makes the contract self-
@@ -299,7 +299,7 @@ interface SearchInputRowProps {
 /**
  * Resolves the input's effective widget shape and dispatches the
  * matching control. The widget shape is the same regardless of
- * `input.kind` — the simple/advanced distinction only affects how
+ * `input.kind`: the simple/advanced distinction only affects how
  * the value flows into the predicate, which the runtime-bindings
  * layer owns.
  */
@@ -814,14 +814,14 @@ interface DatePopoverFieldProps {
 	 * message beneath both bound controls. */
 	readonly invalid?: boolean;
 	readonly describedBy?: string;
-	/** Optional override for the `FieldLabel`'s className — date-range
+	/** Optional override for the `FieldLabel`'s className: date-range
 	 *  bounds shrink their per-bound label so the parent legend reads
 	 *  as the primary heading. Top-level single-date pickers omit the
 	 *  override and inherit the default `FieldLabel` styling. */
 	readonly labelClassName?: string;
 	/** Optional explicit `aria-label` on the trigger button. Date-
 	 *  range bounds set this to disambiguate "from" vs "to" for
-	 *  screen readers — `FieldLabel htmlFor` already wires the
+	 *  screen readers: `FieldLabel htmlFor` already wires the
 	 *  accessible name, but the trigger's button role benefits from
 	 *  an explicit label inside a grid where ATs may flatten the
 	 *  visual hierarchy. Top-level pickers omit it and rely on the
@@ -830,7 +830,7 @@ interface DatePopoverFieldProps {
 }
 
 /**
- * Date picker row — the shared `DatePicker` component (the shadcn
+ * Date picker row: the shared `DatePicker` component (the shadcn
  * composition, `components/shadcn/date-picker.tsx`) wrapped in the form's
  * `Field` chrome: label association, group-owned invalid state, and the
  * error slot. The picker owns the trigger/calendar/Clear behavior and the
@@ -883,15 +883,15 @@ interface DateRangeRowProps {
 }
 
 /**
- * Date-range row. Two independent single-date pickers — one per
- * bound — labeled `<label> from` / `<label> to`. The parent
+ * Date-range row. Two independent single-date pickers: one per
+ * bound: labeled `<label> from` / `<label> to`. The parent
  * dispatcher owns the `<name>:from` / `<name>:to` key shape on the
  * value map; this row only sees per-bound values + change handlers
  * so it can't accidentally drift from the binding layer's key
  * convention.
  *
  * A `mode="range"` Calendar would visually unify the two pickers
- * but couples them at the UX layer — touching only the upper
+ * but couples them at the UX layer: touching only the upper
  * bound would require navigating the range Calendar past the
  * lower-bound's anchor. Two single pickers keep each bound's
  * lifecycle independent and let the test suite assert "clearing

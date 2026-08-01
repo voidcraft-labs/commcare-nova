@@ -1,5 +1,5 @@
 /**
- * Docs 404 — rendered inside the docs layout so the `.nova-docs` chrome
+ * Docs 404: rendered inside the docs layout so the `.nova-docs` chrome
  * (background bloom, sidebar, search) carries through. Without this
  * file, `notFound()` from the catch-all page would walk up to the
  * global default and render unstyled outside the docs subtree.

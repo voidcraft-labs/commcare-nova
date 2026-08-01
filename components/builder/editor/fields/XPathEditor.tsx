@@ -1,5 +1,5 @@
 /**
- * XPathEditor — generic editor for any XPath-valued field key.
+ * XPathEditor: generic editor for any XPath-valued field key.
  *
  * Used for: `relevant`, `validate`, `default_value`, `calculate`.
  * Wraps XPathField with a section label, the save-shortcut hint, and
@@ -11,7 +11,7 @@
  * text a user sees when the expression fails), not a sibling Logic
  * entry, so the editor bundles both rather than giving `validate_msg`
  * its own registry row. No kind's editor schema contains a
- * `validate_msg` entry — its UX is owned entirely at this boundary.
+ * `validate_msg` entry, its UX is owned entirely at this boundary.
  */
 
 "use client";
@@ -49,7 +49,7 @@ import {
  * stays TEXT. Display prints the stored value against the live doc
  * (a rename of a referenced field updates the shown text with no slot
  * write); commit parses the authored text back. The `as F[K]` casts
- * widen through the generic — the editor only mounts on
+ * widen through the generic: the editor only mounts on
  * `XPathExpressionKeys`, so the runtime value is always an expression
  * or undefined.
  */
@@ -68,7 +68,7 @@ export function XPathEditor<F extends Field, K extends XPathExpressionKeys<F>>(
 
 	const handleSave = useCallback(
 		(next: string) => {
-			// Forward the gated outcome — XPathField keeps the editor open
+			// Forward the gated outcome: XPathField keeps the editor open
 			// with the draft + an inline message when the gate refuses (e.g.
 			// a dependency cycle only the whole-doc validator can see).
 			return onChange((next === "" ? undefined : parseForField(next)) as F[K]);
@@ -113,11 +113,11 @@ export function XPathEditor<F extends Field, K extends XPathExpressionKeys<F>>(
 	// editor only mounts when `keyName === "validate"`, which is true
 	// exclusively on kinds whose schema declares `validate_msg`. The
 	// `as` cast widens the literal-key patch back to the kind's partial
-	// shape — TS can't prove `validate_msg` belongs on `F` from inside
+	// shape: TS can't prove `validate_msg` belongs on `F` from inside
 	// this generic body.
 	/* Inline flavor: the validate-message editor renders the returned
 	 * outcome itself (EditableText's notice), and the clear arm removes a
-	 * message string — a removal no validator rule can object to. */
+	 * message string: a removal no validator rule can object to. */
 	const {
 		inline: { updateField },
 	} = useBlueprintMutations();

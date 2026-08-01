@@ -36,8 +36,8 @@ import {
 import { MAX_CHAT_MESSAGE_CHARS } from "@/lib/chat/limits";
 import { useReconcilerContext } from "@/lib/collab/context";
 import { useCreditBalance } from "@/lib/credits/useCreditBalance";
-// `chargeAmount` is the single source of truth for what an action costs — the
-// same pure rule the server credit gate charges — so the chip can never display
+// `chargeAmount` is the single source of truth for what an action costs, the
+// same pure rule the server credit gate charges, so the chip can never display
 // a figure that disagrees with the real debit. Client-safe: every import in
 // `creditPolicy` is type-only, so it pulls no server data layer into the bundle.
 import { chargeAmount } from "@/lib/db/creditPolicy";
@@ -58,7 +58,7 @@ function isChatAttachmentKind(
 }
 
 /** Map a picked library asset to the wire ref the chat sends. The bytes never
- *  ride the request — only this id-keyed pointer, which the server resolves to
+ *  ride the request: only this id-keyed pointer, which the server resolves to
  *  the stored extract (documents) or image bytes (vision). */
 function toAttachmentRef(asset: MediaAssetView): AttachmentRef {
 	if (!isChatAttachmentKind(asset.kind)) {
@@ -80,7 +80,7 @@ interface ChatInputProps {
 	/** Send a turn. `attachments` are asset-id refs to files the user picked from
 	 *  the file manager; the server resolves each to its extract or image bytes. */
 	onSend: (message: { text: string; attachments?: AttachmentRef[] }) => void;
-	/** The composer can't be typed in or submitted. Says nothing about WHY —
+	/** The composer can't be typed in or submitted. Says nothing about WHY:
 	 *  a turn may be in flight, or something else may simply own the screen. */
 	disabled?: boolean;
 	/** A turn is actually in flight, so the submit button shows a spinner. A
@@ -92,7 +92,7 @@ interface ChatInputProps {
 	 *  Disables the attach button and preserves any staged files for the next
 	 *  normal turn rather than dropping them. */
 	answerPending?: boolean;
-	/** Centered (Idle) card layout vs docked sidebar — drives the input chrome
+	/** Centered (Idle) card layout vs docked sidebar: drives the input chrome
 	 *  (the docked variant gets a top divider). */
 	centered?: boolean;
 	/** True only for the opening prompt of a brand-new build (centered + nothing
@@ -112,7 +112,7 @@ interface ChatInputProps {
 
 /**
  * The chat composer, built on AI Elements `PromptInput`. PromptInput owns its own
- * text state and resets on submit; THIS component owns the staged attachments —
+ * text state and resets on submit; THIS component owns the staged attachments:
  * assets the user picks from the media library (file manager), not files staged
  * in the browser. The "+" opens the picker; picked assets show as chips above the
  * textarea and ride the next send as id refs. There is no raw-file path: every
@@ -137,10 +137,10 @@ export function ChatInput({
 	const [previewTarget, setPreviewTarget] = useState<AssetPreviewTarget | null>(
 		null,
 	);
-	/** Live shadow of the typed text — PromptInput owns the textarea value; we
+	/** Live shadow of the typed text: PromptInput owns the textarea value; we
 	 *  mirror only what the footer needs: its length (counter + over-limit gate)
 	 *  and whether it holds any non-whitespace (`hasText`, the require-text send
-	 *  gate — so a staged attachment alone can't send an empty turn). */
+	 *  gate, so a staged attachment alone can't send an empty turn). */
 	const [textLength, setTextLength] = useState(0);
 	const [hasText, setHasText] = useState(false);
 	const overLimit = textLength > MAX_CHAT_MESSAGE_CHARS;
@@ -176,18 +176,18 @@ export function ChatInput({
 		[reconcilerContext],
 	);
 
-	/* Cost-chip data — mirror the server's charge exactly. `useBuilderIsReady` is
+	/* Cost-chip data: mirror the server's charge exactly. `useBuilderIsReady` is
 	 * the same `appReady` flag `ChatContainer` puts on the /api/chat request body
 	 * (true once the blueprint is Ready/Completed → an edit; false during a fresh
 	 * build), so the number shown before sending equals what the server debits.
-	 * `chargeAmount` owns the amounts — never hardcode 100/5 here. */
+	 * `chargeAmount` owns the amounts: never hardcode 100/5 here. */
 	const appReady = useBuilderIsReady();
 	/* Land chat-attached documents in THIS app's Project so the conversation
 	 * resolves them under the same Project (see `resolveAttachments`). */
 	const appId = useAppId();
 	const cost = chargeAmount(appReady);
 	/* Best-effort balance for the tooltip's "credits left this month" line; a null
-	 * summary simply omits that line. Default-enabled — the builder always renders
+	 * summary simply omits that line. Default-enabled: the builder always renders
 	 * behind auth, so the fetch can't race sign-in here. */
 	const { summary } = useCreditBalance();
 
@@ -205,7 +205,7 @@ export function ChatInput({
 	};
 	// Eager extraction finishes AFTER a document is staged, so the snapshot picked
 	// here has no title/summary yet. When the chip's badge reports completion, fold
-	// the fresh extract back in — so the chip preview shows the title/summary right
+	// the fresh extract back in, so the chip preview shows the title/summary right
 	// away (not only after a library re-fetch) and the ref sent on submit carries
 	// them too (`toAttachmentRef` reads `asset.extract`).
 	const reconcileExtract = (assetId: string, extract: ExtractMeta) => {
@@ -219,7 +219,7 @@ export function ChatInput({
 	// A staged document is "reading" until its extract settles. Derived from
 	// `picked` (not the chip badges): a freshly staged doc has no extract yet, and
 	// the badge's `onExtracted` folds a ready OR failed terminal status back in via
-	// `reconcileExtract` — so once every staged doc is ready/failed, this clears.
+	// `reconcileExtract`, so once every staged doc is ready/failed, this clears.
 	// Reported up so the sidebar can show the "Reading your documents" status.
 	const reading = visiblePicked.some(
 		(a) =>
@@ -236,7 +236,7 @@ export function ChatInput({
 	useEffect(() => () => onReadingChangeRef.current?.(false), []);
 
 	// Block the Enter-to-send when over the limit BEFORE PromptInput's submit
-	// runs (it resets the textarea immediately) — otherwise the over-limit paste
+	// runs (it resets the textarea immediately): otherwise the over-limit paste
 	// the user needs to trim would be wiped, the exact UX we're avoiding. The
 	// disabled submit button covers the click path; this covers the keyboard one.
 	// Shift+Enter (newline) and IME composition are never blocked.
@@ -263,19 +263,19 @@ export function ChatInput({
 		if (!ownsCurrentProjectScope() || disabled) return;
 		// PromptInput resets the textarea on every submit it processes; mirror that
 		// in the text shadow (form.reset() doesn't fire onChange). (Over-limit
-		// submits never reach here — they're blocked at the keydown + the disabled
+		// submits never reach here: they're blocked at the keydown + the disabled
 		// button, so their text isn't reset.)
 		setTextLength(0);
 		setHasText(false);
 		const text = (message.text ?? "").trim();
-		// Require typed text to send — a staged attachment alone never sends an
+		// Require typed text to send: a staged attachment alone never sends an
 		// empty turn (the SA reads an attachment as context for a request, not as
 		// the request itself). The disabled submit button covers the click path;
 		// this guards every other submit route.
 		if (!text) return;
 		if (answerPending) {
 			// This send answers a waiting question card (text-only). Forward the
-			// text and KEEP the staged attachments — they're not part of an answer,
+			// text and KEEP the staged attachments: they're not part of an answer,
 			// but they shouldn't vanish; they ride the next normal turn.
 			onSend({ text });
 			return;
@@ -297,7 +297,7 @@ export function ChatInput({
 					// already carries the border + violet focus ring; without padding its
 					// rounded corners + ring sit flush against the centered card's
 					// rounded-2xl overflow-hidden edge and get cropped. So the form itself
-					// needs no ring/fill — just padding, plus a top divider when docked.
+					// needs no ring/fill: just padding, plus a top divider when docked.
 					"p-3",
 					centered ? "" : "border-t border-nova-border",
 				)}
@@ -339,7 +339,7 @@ export function ChatInput({
 					<PromptInputTools>
 						{/* Attach from the file manager. Disabled while a turn is in
 						 *  flight (staging something you can't yet send reads as broken)
-						 *  AND while a question card is awaiting a reply — that send is a
+						 *  AND while a question card is awaiting a reply: that send is a
 						 *  text-only answer, so an attachment couldn't ride it anyway. */}
 						<Tooltip>
 							<TooltipTrigger
@@ -365,10 +365,10 @@ export function ChatInput({
 					{/* Counter + cost chip + submit grouped on the right. The counter is
 					 *  hidden until the text nears the limit; the cost chip is a calm,
 					 *  informational hint of what this turn will spend (muted, not a
-					 *  semantic warning — it informs, it doesn't alarm; the number is
+					 *  semantic warning: it informs, it doesn't alarm; the number is
 					 *  `chargeAmount(appReady)`, so it tracks the real charge exactly).
 					 *  The submit is disabled when the text is empty (a staged attachment
-					 *  alone can't send) or over the limit (the text is never truncated —
+					 *  alone can't send) or over the limit (the text is never truncated:
 					 *  only sending is blocked). While a turn is in flight the whole input
 					 *  is disabled (Nova shows progress in the activity status, not a stop
 					 *  button), so the submit shows the spinner. */}
@@ -412,7 +412,7 @@ export function ChatInput({
 					if (selection.kind === "uploaded") addPicked(selection.asset);
 				}}
 				// Let the file manager warn before deleting a file that's staged as a
-				// chip here, and drop the chip when it's deleted — otherwise the chip
+				// chip here, and drop the chip when it's deleted: otherwise the chip
 				// would dangle, pointing at bytes that no longer exist.
 				attachedAssetIds={visiblePicked.map((a) => a.id)}
 				onAssetDeleted={removePicked}

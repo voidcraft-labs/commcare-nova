@@ -2,7 +2,7 @@
 //
 // The Results arrangement switch. It sits beside the "Information shown"
 // heading rather than in Module settings because it changes the
-// composition surface directly underneath it — the same reason row order
+// composition surface directly underneath it: the same reason row order
 // is dragged on the canvas and never set from a panel. Module settings
 // stays the home for the module's menu appearance, and it isn't even
 // reachable from this workspace on a module that has forms.
@@ -38,7 +38,7 @@ export function TileLayoutToggle({
 	/** Present when the case list cannot currently be laid out as a tile;
 	 *  the option stays visible and explains itself. */
 	readonly tileDisabledReason: string | undefined;
-	/** Present when going back to rows takes a tile setting with it — the
+	/** Present when going back to rows takes a tile setting with it, the
 	 *  cells always survive, but a setting that only a tile can carry
 	 *  cannot, so the author confirms it first. */
 	readonly rowsConsequence: string | undefined;

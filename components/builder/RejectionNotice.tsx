@@ -12,13 +12,13 @@ import { AnimatePresence, motion } from "motion/react";
  *
  * Tone rules, deliberately:
  * - The alert-hexagon icon + a short rose label carry the semantic ("the
- *   guardrail held this back") — rose is an accent, never the body.
+ *   guardrail held this back"): rose is an accent, never the body.
  * - The finding itself renders in neutral text. The validator already
  *   speaks person-to-person prose; a wall of rose text reads as scolding,
  *   calm neutral reads as explanation.
  * - The user's draft is always still in the input when one of these
  *   shows (the `useCommitField` contract), so the label says "Not saved"
- *   — present state, not accusation.
+ *  : present state, not accusation.
  */
 
 interface RejectionBodyProps {
@@ -26,7 +26,7 @@ interface RejectionBodyProps {
 	/**
 	 * The short rose register line above the message. Defaults to
 	 * "Not saved" (a bounced commit with the draft still in the input).
-	 * Pass `null` for surfaces where a register line is noise — e.g. a
+	 * Pass `null` for surfaces where a register line is noise: e.g. a
 	 * live "can't save yet" reason that tracks typing.
 	 */
 	label?: string | null;
@@ -82,7 +82,7 @@ interface RejectionCalloutProps {
 
 /**
  * Floating callout anchored below an inline editor that has no panel to
- * render into — editable titles on the preview screens. Rendered inside
+ * render into: editable titles on the preview screens. Rendered inside
  * the anchor's `relative` wrapper.
  *
  * `w-max` is load-bearing: an absolutely-positioned box computes its
@@ -102,7 +102,7 @@ export function RejectionCallout({ message, label }: RejectionCalloutProps) {
 					transition={{ duration: 0.16, ease: "easeOut" }}
 					className={`absolute left-0 top-full mt-2 z-popover w-max max-w-sm px-3 py-2.5 font-sans font-normal tracking-normal whitespace-normal ${REJECTION_SURFACE_CLS}`}
 				>
-					{/* Caret tying the callout to its input — same surface +
+					{/* Caret tying the callout to its input: same surface +
 					 *  border so it reads as one shape. */}
 					<span
 						aria-hidden
@@ -125,7 +125,7 @@ interface RejectionInlineProps {
 }
 
 /**
- * In-flow rejection notice for panel and drawer fields — a soft
+ * In-flow rejection notice for panel and drawer fields: a soft
  * rose-tinted block that expands beneath the input instead of floating
  * over neighboring controls.
  */

@@ -141,7 +141,7 @@ export function toggleHeading(
 	if (!toggleLevel) return false;
 
 	try {
-		/* When the heading is already active, toggle back to paragraph directly —
+		/* When the heading is already active, toggle back to paragraph directly:
 		 * TipTap handles this without needing the NodeSelection conversion path. */
 		const isActive = levels.some((l) =>
 			editor.isActive("heading", { level: l }),
@@ -192,7 +192,7 @@ export function toggleHeading(
 		const selection = state.selection;
 		let chain = editor.chain().focus();
 
-		/* Handle NodeSelection — clear the block structure first,
+		/* Handle NodeSelection: clear the block structure first,
 		 * then set the heading */
 		if (selection instanceof NodeSelection) {
 			const firstChild = selection.node.firstChild?.firstChild;

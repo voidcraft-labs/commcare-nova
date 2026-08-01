@@ -1,10 +1,10 @@
 // components/preview/shared/listFilter.tsx
 //
-// The case list's own filter box — the same quick narrowing CommCare
+// The case list's own filter box: the same quick narrowing CommCare
 // gives every case list: type a few letters and the rows narrow to
 // the ones containing them, case-insensitively, across every visible
 // column; each typed word has to match somewhere in the row. It runs
-// entirely client-side over the rows already on screen — the
+// entirely client-side over the rows already on screen: the
 // authored search fields query the case store, this narrows what
 // came back. (CommCare's engine implements the same contract in
 // commcare-core's entity filterer: per-term, case-folded, substring,
@@ -57,7 +57,7 @@ export function ListFilterBox({
 }: {
 	readonly value: string;
 	readonly onChange: (next: string) => void;
-	/** Rows surviving the filter — read out under the box only while
+	/** Rows surviving the filter: read out under the box only while
 	 *  a filter is active, so the narrowing is never silent. */
 	readonly resultCount?: number;
 	/** A paged case list can only apply this CommCare-style client filter to

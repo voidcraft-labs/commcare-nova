@@ -4,7 +4,7 @@
  * Produces the `handleSelect` callback every row component calls when
  * the user clicks a tree item. Centralizes two responsibilities:
  *
- *   1. URL navigation via `useNavigate` — selection state lives in the
+ *   1. URL navigation via `useNavigate`: selection state lives in the
  *      URL, so a click ultimately resolves to a history update.
  *   2. Pending-scroll priming for field selections. The scroll
  *      request must be posted BEFORE the URL change so the target row's
@@ -12,7 +12,7 @@
  *      `isSelected` flips true. Reversing the order drops the scroll
  *      because the row would consume the request that is not yet there.
  *
- * Row components stay thin — they only know how to build a typed target
+ * Row components stay thin: they only know how to build a typed target
  * shape and hand it to the returned handler.
  */
 "use client";

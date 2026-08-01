@@ -15,7 +15,7 @@
 //   - dragging feeds it to `canDropAtIndex`, so a refused destination
 //     never opens and a release over it commits nothing;
 //   - a keyboard move asks the same map BEFORE committing, and a refusal
-//     is SPOKEN — naming the changes it is about — rather than the key
+//     is SPOKEN: naming the changes it is about, rather than the key
 //     silently doing nothing. That parity is the whole point: a keyboard
 //     author gets the information a pointer author reads off the drop
 //     zone.
@@ -106,7 +106,7 @@ export function CaseOperationsCanvas({
 	);
 
 	/* The dragged row's verdict map, captured the moment its handle is
-	 * grabbed — before any pointer move can ask about a destination. Reading
+	 * grabbed: before any pointer move can ask about a destination. Reading
 	 * it from drag state instead would leave the first pointer move
 	 * ungated. */
 	const dragVerdictsRef = useRef<ReadonlyMap<
@@ -174,7 +174,7 @@ export function CaseOperationsCanvas({
 	});
 
 	/* A refused destination cannot be signalled by the insertion rule's HUE
-	 * alone — that is state conveyed by color, and on the twenty-change form
+	 * alone: that is state conveyed by color, and on the twenty-change form
 	 * this screen is designed for, the sentence below the list can be a
 	 * screenful away from the pointer. The reason travels WITH the rule. */
 	const dropRefusal =
@@ -508,9 +508,9 @@ function AddChangeControl({
 	/* Stable so `CaseTypePickerContent` can memoize the whole verdict map: it
 	 * asks once per offered case type, each ask is a whole-document validation,
 	 * and the picker re-renders on every keystroke in its create-new box. The
-	 * verdict itself cannot be value-cached here the way an edit verdict is —
+	 * verdict itself cannot be value-cached here the way an edit verdict is:
 	 * `seedCaseOperation` mints a fresh uuid per call, so each candidate is a
-	 * new identity — which is exactly why the stability has to live here. */
+	 * new identity, which is exactly why the stability has to live here. */
 	const createTypeVerdict = useCallback(
 		(caseType: string) =>
 			addVerdict(

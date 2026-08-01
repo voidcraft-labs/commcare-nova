@@ -1,12 +1,12 @@
 /**
- * CommCare HQ integration settings — client component.
+ * CommCare HQ integration settings: client component.
  *
  * Card-based UI for managing CommCare HQ API credentials. Verify, refresh,
  * and disconnect use Server Actions (`actions.ts`), each returning the fresh
  * `CommCareSettingsPublic` so the client swaps its state wholesale.
  *
  * Multi-space keys: an HQ API key can reach several project spaces. This card
- * is display-only about that — a single-space key shows a "Connected to X"
+ * is display-only about that: a single-space key shows a "Connected to X"
  * badge; a multi-space key shows how many spaces it reaches, with a popover
  * listing them. Choosing WHICH space an upload targets happens in the upload
  * dialog (per-upload), not here.
@@ -80,7 +80,7 @@ type FormStatus =
 const API_KEY_MASK = "•".repeat(32);
 
 /**
- * Server picker items — one per HQ deployment, labeled with the hostname the
+ * Server picker items: one per HQ deployment, labeled with the hostname the
  * user recognizes from their browser's address bar. The value is HQ's
  * environment name (what the connection stores).
  */
@@ -103,7 +103,7 @@ export function CommCareSettings({
 	userEmail,
 }: CommCareSettingsProps) {
 	/* ── Form values ─────────────────────────────────────────────── */
-	/* `initial` is a discriminated union — narrow on `configured` before
+	/* `initial` is a discriminated union: narrow on `configured` before
 	 * reading the saved username/domains, falling back to email/empty when
 	 * unconfigured. */
 	const [username, setUsername] = useState(
@@ -176,7 +176,7 @@ export function CommCareSettings({
 	}, [username, apiKey, server, applySettings]);
 
 	/* ── Refresh the reachable set ────────────────────────────────── */
-	/* Re-reads which spaces the key can reach — picks up project memberships
+	/* Re-reads which spaces the key can reach: picks up project memberships
 	 * added since the key was first saved. */
 	const handleRefresh = useCallback(async () => {
 		setDomainBusy(true);
@@ -227,7 +227,7 @@ export function CommCareSettings({
 					</p>
 				</div>
 
-				{/* Connected pill — appears in the header corner once configured. */}
+				{/* Connected pill: appears in the header corner once configured. */}
 				<AnimatePresence>
 					{isConfigured && (
 						<motion.div
@@ -248,7 +248,7 @@ export function CommCareSettings({
 
 			{/* ── Card body ─────────────────────────────────────────── */}
 			<div className="p-6">
-				{/* Project-space area — badge (single) or count + popover (multi) */}
+				{/* Project-space area: badge (single) or count + popover (multi) */}
 				<AnimatePresence>
 					{isConfigured && (
 						<motion.div
@@ -269,7 +269,7 @@ export function CommCareSettings({
 
 				{/* ── Form fields ────────────────────────────────────── */}
 				<div className="space-y-4">
-					{/* Server — US/India/EU are separate deployments with separate
+					{/* Server: US/India/EU are separate deployments with separate
 					 * accounts, so this choice decides which one the key is
 					 * verified against (and later uploaded to). */}
 					<div className="flex flex-col gap-1.5">
@@ -320,7 +320,7 @@ export function CommCareSettings({
 						/>
 					</label>
 
-					{/* API Key — masked when locked, plaintext when editable */}
+					{/* API Key: masked when locked, plaintext when editable */}
 					<label htmlFor="commcare-api-key" className="flex flex-col gap-1.5">
 						<span className="text-sm font-medium text-nova-text-secondary">
 							API key
@@ -348,7 +348,7 @@ export function CommCareSettings({
 							/>
 						)}
 
-						{/* Help link — only when the input is editable; follows the
+						{/* Help link: only when the input is editable; follows the
 						 * selected server so the user lands on the deployment that
 						 * can actually issue a working key. */}
 						{!fieldsLocked && (
@@ -455,7 +455,7 @@ interface DomainSectionProps {
 }
 
 /**
- * The connected-state project-space surface — display-only.
+ * The connected-state project-space surface: display-only.
  *
  * A single-space key shows a verified "Connected to X" badge. A multi-space
  * key shows the count with a popover listing every reachable space (the user

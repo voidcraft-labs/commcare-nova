@@ -6,7 +6,7 @@
 //
 // Each builder is type-checked against ITS kind's schema
 // (`Omit<Extract<Field, { kind: K }>, "uuid">`), so the compiler rejects a
-// property the kind doesn't have — e.g. a `label` on `hidden` (which carries
+// property the kind doesn't have: e.g. a `label` on `hidden` (which carries
 // no label) fails to COMPILE here, rather than silently minting a field that
 // the strict `blueprintDocSchema` later rejects on auto-save. The
 // `[K in FieldKind]` mapped type also forces every kind to have an entry.
@@ -78,12 +78,12 @@ export const NEW_FIELD_BUILDERS: {
 		label: proseText(label),
 		repeat_mode: "user_controlled",
 	}),
-	// Hidden carries NO label (it's never shown) — passing one would not
+	// Hidden carries NO label (it's never shown): passing one would not
 	// compile, which is the whole point. It starts with `default_value:
-	// "''"` (the empty-string literal — a one-shot <setvalue> seed) so the
+	// "''"` (the empty-string literal: a one-shot <setvalue> seed) so the
 	// fresh field is immediately valid: a hidden field must carry a value
 	// source (`HIDDEN_NO_VALUE` is soundness, so the commit gate rejects a
-	// bare one in every phase). `default_value` — not `calculate` — is the
+	// bare one in every phase). `default_value`, not `calculate`, is the
 	// seed because it stays inert if the user then adds a calculate (the
 	// computed value simply wins), whereas a seeded calculate would
 	// continuously clobber any default the user typed until removed.

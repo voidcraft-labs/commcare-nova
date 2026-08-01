@@ -23,7 +23,7 @@ interface DeletedAppCardProps {
 /**
  * Card for a soft-deleted app. Same outer frame as `AppCard` so a user
  * toggling tabs reads continuity, but the body is two stacked metadata
- * rows — when it was deleted, then how long is left to restore it.
+ * rows: when it was deleted, then how long is left to restore it.
  * One fact per line keeps each unambiguous and avoids the right column
  * collisions a single right-aligned countdown produced. The countdown
  * line shifts to rose inside the final week so the row reads as "act
@@ -35,12 +35,12 @@ interface DeletedAppCardProps {
  *     button, with no confirmation since restore is non-destructive (it only
  *     clears the soft-delete marker; nothing is overwritten or lost). Other
  *     members retain read access to the recovery history without the action.
- *   - The card is never a `<Link>` — deleted apps aren't navigable.
+ *   - The card is never a `<Link>`: deleted apps aren't navigable.
  *     Opening one would bypass the recovery affordance and land the
  *     user in a builder for an app the system considers gone.
  *
  * Each card owns its own restore state (idle → restoring → unmount-on-
- * success / error → idle) — the parent RSC re-fetches via
+ * success / error → idle): the parent RSC re-fetches via
  * `revalidatePath` and the row drops out of the deleted list on
  * success.
  */
@@ -52,7 +52,7 @@ export function DeletedAppCard({ app, index, onRestore }: DeletedAppCardProps) {
 	const recoverableUntil = new Date(app.recoverable_until);
 	const errorMessage = state.type === "error" ? state.message : null;
 
-	/* Recovery-window urgency cue — when the deadline is inside a
+	/* Recovery-window urgency cue: when the deadline is inside a
 	 * week, the countdown line shifts to rose so the row reads as
 	 * "act now" rather than something the user can leave open in
 	 * another tab. */
@@ -67,7 +67,7 @@ export function DeletedAppCard({ app, index, onRestore }: DeletedAppCardProps) {
 				setState({ type: "error", message: result.error });
 			}
 			/* On success, parent RSC re-renders without this row and the
-			 * card unmounts naturally — no idle reset needed. */
+			 * card unmounts naturally: no idle reset needed. */
 		} catch {
 			setState({
 				type: "error",
@@ -90,7 +90,7 @@ export function DeletedAppCard({ app, index, onRestore }: DeletedAppCardProps) {
 						</h3>
 
 						{/*
-						 * Two stacked metadata lines — one fact per row. Keeps
+						 * Two stacked metadata lines: one fact per row. Keeps
 						 * each piece of context unambiguous (no separator-or-no-
 						 * separator dilemma between sentence-length phrases) and
 						 * leaves the right column clear of stray text.

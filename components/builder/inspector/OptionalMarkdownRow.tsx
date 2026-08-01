@@ -4,7 +4,7 @@
 // optional inspector slots whose wire value is markdown (verified
 // against CommCare Web Apps, which renders the search screen's
 // `description` through its markdown-it pipeline). The attached toolbar
-// IS the affordance — it shows exactly the formatting the runtime
+// IS the affordance: it shows exactly the formatting the runtime
 // renders, so the row needs no "Markdown" badge, no syntax explanation,
 // and no separate live preview.
 //
@@ -103,7 +103,7 @@ export function OptionalMarkdownRow({
 	const inputId = useId();
 	const rowRef = useRef<HTMLDivElement>(null);
 
-	/* Fresh-value refs — the blur handler and keyboard extension are
+	/* Fresh-value refs: the blur handler and keyboard extension are
 	 * captured once by TipTap, so they read through refs. */
 	const valueRef = useRef(value);
 	valueRef.current = value;
@@ -132,7 +132,7 @@ export function OptionalMarkdownRow({
 							editor.commands.blur();
 							return true;
 						},
-						/* Revert, then blur — the blur commit compares against the
+						/* Revert, then blur: the blur commit compares against the
 						 * restored value and no-ops, so Escape is a pure cancel. */
 						Escape: ({ editor }) => {
 							editor.commands.setContent(valueRef.current ?? "");
@@ -167,9 +167,9 @@ export function OptionalMarkdownRow({
 		},
 		onBlur: ({ editor: e }) => {
 			/* Delay so activeElement reflects where focus went. Focus moving
-			 * into the row's own toolbar — or a toolbar popover portaled to
+			 * into the row's own toolbar, or a toolbar popover portaled to
 			 * body (tagged [data-inline-toolbar] by the tiptap-ui
-			 * primitives) — is a transient blur, not a commit. */
+			 * primitives): is a transient blur, not a commit. */
 			requestAnimationFrame(() => {
 				const active = document.activeElement;
 				if (rowRef.current?.contains(active) === true) return;
@@ -179,7 +179,7 @@ export function OptionalMarkdownRow({
 		},
 	});
 
-	/* External value sync — undo/redo or an agent edit can change the
+	/* External value sync: undo/redo or an agent edit can change the
 	 * slot while the row is mounted. Only while unfocused, so a commit's
 	 * own round-trip never stomps an in-progress edit. */
 	useEffect(() => {

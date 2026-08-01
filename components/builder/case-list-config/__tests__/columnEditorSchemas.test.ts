@@ -4,7 +4,7 @@
 // invariants pinned here (mirrors `editorSchemas.test.ts` /
 // `expressionEditorSchemas.test.ts`):
 //
-//   1. Exhaustivity over the ColumnKind union — every kind
+//   1. Exhaustivity over the ColumnKind union: every kind
 //      appears as a key in `columnCardSchemas`. The mapped-type
 //      `Record<ColumnKind, ...>` enforces this at the type
 //      layer; the runtime guard verifies the keys at the

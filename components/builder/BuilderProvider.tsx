@@ -1,21 +1,21 @@
 /**
- * BuilderProvider — the top-level provider stack for the builder route.
+ * BuilderProvider: the top-level provider stack for the builder route.
  *
  * Mounts the complete provider tree for a specific buildId and hydrates
  * the session + doc stores depending on whether the session is a new build
  * or an existing-app load.
  *
  * The provider tree (outer -> inner) is:
- *   BlueprintDocProvider        — doc store (entities, undo/redo)
- *   BuilderSessionProvider      — lifecycle + ephemeral UI state
- *   ScrollRegistryProvider      — imperative scroll plumbing
- *   EditGuardProvider           — select-guard predicate stack
- *   CaseListWorkspaceProvider   — the single case-list workspace controller,
+ *   BlueprintDocProvider          doc store (entities, undo/redo)
+ *   BuilderSessionProvider        lifecycle + ephemeral UI state
+ *   ScrollRegistryProvider        imperative scroll plumbing
+ *   EditGuardProvider             select-guard predicate stack
+ *   CaseListWorkspaceProvider  : the single case-list workspace controller,
  *                                 shared by the center canvas + the right rail
- *   BuilderFormEngineProvider   — form preview runtime controller
- *     SyncBridge                — wires doc store ref into session store
- *     LocationRecoveryEffect    — repairs stale URL selection mid-session
- *     LoadAppHydrator           — clears loading flag for existing apps
+ *   BuilderFormEngineProvider  : form preview runtime controller
+ *     SyncBridge                  wires doc store ref into session store
+ *     LocationRecoveryEffect      repairs stale URL selection mid-session
+ *     LoadAppHydrator             clears loading flag for existing apps
  *     {children}
  *
  * Lifecycle:
@@ -62,7 +62,7 @@ export interface InitialBuilderAccess {
 // ── Provider ────────────────────────────────────────────────────────────
 
 /**
- * BuilderProvider — mounts the entire builder provider stack for a
+ * BuilderProvider: mounts the entire builder provider stack for a
  * specific buildId and hydrates the session store.
  *
  * `key={buildId}` on the inner component forces a full unmount/remount
@@ -78,7 +78,7 @@ export function BuilderProvider({
 }: {
 	buildId: string;
 	children: ReactNode;
-	/** Server-fetched transport copy — ordinary records satisfy React Flight;
+	/** Server-fetched transport copy: ordinary records satisfy React Flight;
 	 *  `BlueprintDocProvider` synchronously normalizes them before the first
 	 *  document read so the first render sees populated, prototype-safe state. */
 	initialDoc?: PersistableDoc;
@@ -86,7 +86,7 @@ export function BuilderProvider({
 	 *  active-Project role with `baseSeq: 0`; its reconciler is still dormant
 	 *  until creation. */
 	initialAccess?: InitialBuilderAccess;
-	/** The session user id — the reconciler's echo classification keys on it. */
+	/** The session user id: the reconciler's echo classification keys on it. */
 	userId?: string;
 }) {
 	return (
@@ -105,7 +105,7 @@ export function BuilderProvider({
 // ── Inner provider ──────────────────────────────────────────────────────
 
 /**
- * Inner provider — owns the provider stack. Wrapped by `BuilderProvider`
+ * Inner provider: owns the provider stack. Wrapped by `BuilderProvider`
  * so the `key={buildId}` swap happens at the boundary; everything below
  * this component is guaranteed to be a fresh tree per build session.
  */
@@ -123,7 +123,7 @@ function BuilderProviderInner({
 	userId?: string;
 }) {
 	/* Pre-compute session store init so `derivePhase` returns the correct
-	 * phase on the very first render — `Loading` for existing apps, `Idle`
+	 * phase on the very first render: `Loading` for existing apps, `Idle`
 	 * for new builds. The session store captures these values in its lazy
 	 * `useState` initializer and never re-reads them. */
 	const hasExistingData = Boolean(initialDoc);
@@ -149,7 +149,7 @@ function BuilderProviderInner({
 					 *  `BuilderLookupCatalogProvider` above, which supplies the
 					 *  field picker its rows-free catalog: this one owns the
 					 *  workspace's reads, drafts, and conflict state, and every
-					 *  consumer falls back to an idle state without it — so a
+					 *  consumer falls back to an idle state without it, so a
 					 *  missing mount is a permanent spinner, not a crash. */}
 					<ProjectDataWorkspaceProvider>
 						<BuilderFormEngineProvider>
@@ -210,7 +210,7 @@ function BlueprintEditableBridge({ children }: { children: ReactNode }) {
 // ── Hydrators & bridge ──────────────────────────────────────────────────
 
 /**
- * SyncBridge — installs the doc store reference on the session store
+ * SyncBridge: installs the doc store reference on the session store
  * after the provider tree mounts. Non-React callers (e.g. `switchConnectMode`,
  * `beginAgentWrite`, `endAgentWrite`) reach the doc through this reference
  * instead of importing it directly.
@@ -234,7 +234,7 @@ function SyncBridge() {
 }
 
 /**
- * LoadAppHydrator — finalizes session store lifecycle for existing-app
+ * LoadAppHydrator: finalizes session store lifecycle for existing-app
  * loads. The session store was created with `loading=true` and `appId`
  * pre-seeded, so `derivePhase` returned `Loading` on the first render.
  * This effect clears the loading flag to transition to `Ready` (the doc

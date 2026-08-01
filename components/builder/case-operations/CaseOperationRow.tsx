@@ -4,14 +4,14 @@
 //
 // The row is a PROJECTION and decides nothing. It renders what
 // `operationSentence` reads off the stored operation, plus two answers
-// the doc layer supplies — the conditions it inherits from earlier
+// the doc layer supplies: the conditions it inherits from earlier
 // changes, and whether the position it is being dragged onto is
 // available. If this row ever seems to know something the document does
 // not say, that is the bug: the planners in `lib/doc` are where a
 // decision belongs.
 //
 // The reorder handle carries the keyboard alternative to dragging, and
-// its accessible name states the position, the total, and the keys — a
+// its accessible name states the position, the total, and the keys, a
 // keyboard author needs to know where they are in a twenty-change list
 // before they know what moving does.
 
@@ -51,7 +51,7 @@ export interface CaseOperationRowProps {
 	/** True while this row is the drag source. */
 	readonly beingMoved: boolean;
 	readonly setHandleEl: (el: HTMLElement | null) => void;
-	/** Fired when the handle is pressed, before any drag can begin — the
+	/** Fired when the handle is pressed, before any drag can begin, the
 	 *  canvas captures this row's move verdicts there so the very first
 	 *  pointer move is already gated. */
 	readonly onGrab: () => void;
@@ -76,7 +76,7 @@ export function CaseOperationRow({
 	/* The guard clause has to be IN the accessible name, not merely on screen
 	 * beside it: an `aria-label` REPLACES the name computed from the button's
 	 * contents, so without this the one signal that a change is conditional on
-	 * an earlier one — the only place the list shows it — reaches nobody using
+	 * an earlier one: the only place the list shows it, reaches nobody using
 	 * a screen reader, and they are told it runs on every submission. */
 	const spoken =
 		inheritedGuards.length > 0
@@ -173,7 +173,7 @@ export function CaseOperationRow({
 	);
 }
 
-/** "A", "A and B", "A, B and C" — the same join the refusals use. */
+/** "A", "A and B", "A, B and C": the same join the refusals use. */
 function listSentence(names: readonly string[]): string {
 	if (names.length === 1) return `“${names[0]}”`;
 	const quoted = names.map((name) => `“${name}”`);

@@ -7,7 +7,7 @@
 import { Skeleton } from "@/components/shadcn/skeleton";
 
 /**
- * Header column widths for the usage table skeleton — one per real column
+ * Header column widths for the usage table skeleton: one per real column
  * (period, generations, tokens, cost, credits used, bonus).
  */
 const USAGE_HEADER_WIDTHS = [
@@ -27,7 +27,7 @@ const APP_CARD_KEYS = ["app-a", "app-b", "app-c"] as const;
 
 // ── Section Skeletons (reused by page Suspense boundaries) ───────────
 
-/** Profile card skeleton — matches avatar + name + email + dates + badge. */
+/** Profile card skeleton: matches avatar + name + email + dates + badge. */
 export function ProfileSkeleton() {
 	return (
 		<div className="bg-nova-deep border border-nova-border rounded-xl p-6">
@@ -50,7 +50,7 @@ export function ProfileSkeleton() {
 const CREDIT_SUMMARY_KEYS = ["allowance", "used", "lifetime"] as const;
 
 /**
- * Credits skeleton — section heading + card with a headline balance, a few
+ * Credits skeleton: section heading + card with a headline balance, a few
  * supporting balance lines, and two action-button placeholders. Mirrors the
  * `CreditControls` card chrome so the layout doesn't shift when it streams in.
  */
@@ -82,13 +82,13 @@ export function CreditsSkeleton() {
 	);
 }
 
-/** Usage history skeleton — section heading + table with 3 rows. */
+/** Usage history skeleton: section heading + table with 3 rows. */
 export function UsageSkeleton() {
 	return (
 		<section>
 			<Skeleton className="w-32 h-5 mb-4" />
 			<div className="rounded-xl border border-nova-border overflow-hidden">
-				{/* Header row — widths mirror real usage table columns */}
+				{/* Header row: widths mirror real usage table columns */}
 				<div className="flex gap-8 px-4 py-3 border-b border-nova-border bg-nova-deep/50">
 					{USAGE_HEADER_WIDTHS.map(({ id, width }) => (
 						<Skeleton key={id} className="h-3" style={{ width }} />
@@ -113,7 +113,7 @@ export function UsageSkeleton() {
 	);
 }
 
-/** App list skeleton — section heading + 3 app card placeholders. */
+/** App list skeleton: section heading + 3 app card placeholders. */
 export function AppsSkeleton() {
 	return (
 		<section>
@@ -139,7 +139,7 @@ export function AppsSkeleton() {
 	);
 }
 
-/** Full-page skeleton — breadcrumb + all sections. Used by navigation-level Suspense. */
+/** Full-page skeleton: breadcrumb + all sections. Used by navigation-level Suspense. */
 export function UserDetailPageSkeleton() {
 	return (
 		<main className="max-w-4xl mx-auto px-6 py-10 space-y-8">

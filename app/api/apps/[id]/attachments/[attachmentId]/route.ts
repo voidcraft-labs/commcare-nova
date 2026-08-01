@@ -1,7 +1,7 @@
 /**
- * POST   /api/apps/[id]/attachments/[attachmentId] — confirm the upload
- * PATCH  /api/apps/[id]/attachments/[attachmentId] — repeat-path compaction
- * DELETE /api/apps/[id]/attachments/[attachmentId] — clear / replace
+ * POST   /api/apps/[id]/attachments/[attachmentId]: confirm the upload
+ * PATCH  /api/apps/[id]/attachments/[attachmentId]: repeat-path compaction
+ * DELETE /api/apps/[id]/attachments/[attachmentId]: clear / replace
  *
  * POST is confirm; there is no other write this resource takes.
  *
@@ -17,8 +17,8 @@
  * `cleanCurrentMedia` before `FormEntryController::answerQuestion`
  * returns `ANSWER_REQUIRED_BUT_EMPTY` without committing). Here the
  * client clears its answer first and calls this second, so a failed
- * delete leaves a staged orphan — which the scheduled sweep and bucket TTL
- * reap — rather than a live answer pointing at nothing.
+ * delete leaves a staged orphan, which the scheduled sweep and bucket TTL
+ * reap, rather than a live answer pointing at nothing.
  */
 
 import { type NextRequest, NextResponse } from "next/server";
@@ -59,7 +59,7 @@ export async function POST(
 		const session = await requireSession(req);
 		const { projectId } = await resolveAppScope(appId, session.user.id, "edit");
 
-		// Read, then measure, then flip — in that order. The row's own key is
+		// Read, then measure, then flip: in that order. The row's own key is
 		// the authority on where the bytes went, never a client-supplied
 		// path; and measuring first is what lets the flip record the REAL
 		// size in one write. Flipping first and correcting after would either
@@ -186,7 +186,7 @@ export async function DELETE(
 			expectedProjectId: projectId,
 		});
 		if (deleted === null) {
-			// Already gone, submitted, foreign-app, or another member's — one
+			// Already gone, submitted, foreign-app, or another member's, one
 			// not-found shape for all four, so a caller cannot probe which.
 			throw new ApiError("Attachment not found", 404);
 		}

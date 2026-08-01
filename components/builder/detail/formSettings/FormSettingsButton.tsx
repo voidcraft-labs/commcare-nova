@@ -14,7 +14,7 @@ import {
 } from "@/lib/styles";
 import { FormSettingsPanel } from "./FormSettingsPanel";
 
-/** Trigger prop shape — the same `{ moduleUuid, formUuid }` pair the
+/** Trigger prop shape: the same `{ moduleUuid, formUuid }` pair the
  *  panel itself consumes, carried through to `FormSettingsPanel`. */
 interface FormSettingsButtonProps {
 	moduleUuid: Uuid;
@@ -22,7 +22,7 @@ interface FormSettingsButtonProps {
 }
 
 /**
- * Popover trigger that mounts the form-settings panel — the public mount
+ * Popover trigger that mounts the form-settings panel: the public mount
  * point rendered by `FormScreen`'s header. Shows the settings cog plus a
  * small Connect logomark badge when the form has an active ConnectConfig
  * so users can see at a glance which forms have been wired into a

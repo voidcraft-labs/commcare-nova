@@ -16,9 +16,9 @@ interface UnwrittenPropertiesDialogProps {
 /**
  * Informational list of the case properties this app reads but never
  * writes (`lib/doc/unwrittenProperties.ts`), opened from the App
- * Settings data-sources row. Deliberately NOT a warning — reading data
+ * Settings data-sources row. Deliberately NOT a warning: reading data
  * another app or system writes is a normal shape (a viewer app is
- * exactly this) — so the chrome stays neutral: no semantic color, no
+ * exactly this), so the chrome stays neutral: no semantic color, no
  * action to take, just the fact and where each property is read.
  * Mounts through a portal so it escapes the app-settings popover's
  * transformed positioner, the same pattern as `ConnectManagerDialog`.

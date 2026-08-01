@@ -37,8 +37,8 @@ const STATUS: Record<
 /**
  * One tool call rendered as: a status glyph, the friendly action
  * (`Added column "Age"`), a `→ Clients` container breadcrumb, and any
- * secondary detail (a completion outcome, an error, or — for a call with no
- * structured summary — its raw prose). The breadcrumb leads the location rather
+ * secondary detail (a completion outcome, an error, or: for a call with no
+ * structured summary, its raw prose). The breadcrumb leads the location rather
  * than letting it trail the sentence, which was the whole point of the
  * structured summary. `headline` sizes the row up for the single-call case
  * where it stands alone; the default is the compact size used inside the
@@ -76,7 +76,7 @@ function ToolCallRow({
 						<span className="truncate">{location}</span>
 					</div>
 				)}
-				{/* A refused completion can carry many findings — tuck them behind a
+				{/* A refused completion can carry many findings: tuck them behind a
 				 *  collapsed "N issues" disclosure (bulleted) instead of dumping the
 				 *  whole wall inline. Any other call's detail renders plainly. */}
 				{errors ? (
@@ -132,7 +132,7 @@ function ValidateErrors({ errors }: { errors: string[] }) {
  * A run of MANY calls (a large build's dozens of addFields) collapses to a
  * single "N changes" card so it doesn't flood the transcript; the header
  * carries the rolled-up status and expanding reveals each call's friendly row.
- * A run of ONE renders that row plainly — no "N changes" header to read as a
+ * A run of ONE renders that row plainly: no "N changes" header to read as a
  * redundant echo of the single line beneath it, and nothing to disclose since
  * the row already shows everything. Defaults closed for the many-call case: the
  * live canvas already reflects the changes and the chat status shows activity,

@@ -1,5 +1,5 @@
 /**
- * Per-page Markdown route — the LLM-readable counterpart to every
+ * Per-page Markdown route: the LLM-readable counterpart to every
  * page rendered by `app/(docs)/docs/[[...slug]]/page.tsx`.
  *
  * Why a sibling tree rather than `<page>.mdx`: Next.js' file-system
@@ -8,10 +8,10 @@
  * ships the same capability with one fewer moving piece.
  *
  * Wire path on each environment:
- *   - prod: `https://docs.commcare.app/llms.mdx/<slug>` — the docs
+ *   - prod: `https://docs.commcare.app/llms.mdx/<slug>`, the docs
  *     subdomain proxy rewrites it to the internal `/docs/llms.mdx/<slug>`
  *     route the file lives at (see `proxy.ts`).
- *   - dev:  `http://localhost:3000/docs/llms.mdx/<slug>` — the dev
+ *   - dev:  `http://localhost:3000/docs/llms.mdx/<slug>`, the dev
  *     `/docs` bypass in `proxy.ts` lets it through unrewritten.
  *
  * `revalidate = false` + `generateStaticParams` make every page's

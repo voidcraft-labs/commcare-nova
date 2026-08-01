@@ -9,12 +9,12 @@
 // `ColumnKind` union without a parallel entry here is a compile-
 // time error, so the editor can never silently bypass a kind.
 //
-// Seven kinds — `plain`, `date`, `phone`, `id-mapping`, `image-map`,
+// Seven kinds: `plain`, `date`, `phone`, `id-mapping`, `image-map`,
 // `interval`, `calculated`. `image-map` mirrors `id-mapping`'s
 // value-lookup card with an image slot per row instead of a label. The
 // `interval` kind dispatches on its own `display: "always" | "flag"`
 // discriminator; one card body covers both modes. The `calculated`
-// kind has no `field` slot — the expression IS the source — so its
+// kind has no `field` slot: the expression IS the source, so its
 // card body skips the field picker and mounts `ExpressionCardEditor`
 // directly.
 
@@ -56,12 +56,12 @@ import { newUuid } from "./uuid";
  * Minimum context every `defaultValue(...)` factory and
  * `applicableForProperty(...)` predicate consumes. The case-list
  * column editor always reads against the module's own case type
- * (no relation walks at the column level — those live inside
+ * (no relation walks at the column level: those live inside
  * `calculated.expression`), so the context is shallow: the available
  * case-types and the originating scope.
  *
  * Symmetric in spirit to `PredicateEditContext` /
- * `ExpressionEditContext` but minus the `knownInputs` slot — column
+ * `ExpressionEditContext` but minus the `knownInputs` slot, column
  * editing has no search-input-binding shape to consume.
  */
 export interface ColumnEditContext {
@@ -74,17 +74,17 @@ export interface ColumnEditContext {
 /**
  * Per-kind editor schema. Generic over `K` (the column-kind
  * discriminator) so each entry's `component` and `defaultValue`
- * carry the precise per-arm shape — `DateColumnCard`'s component
+ * carry the precise per-arm shape: `DateColumnCard`'s component
  * receives the `date`-arm subtype, `IdMappingCard`'s receives the
  * `id-mapping`-arm, etc. The signed exhaustiveness lives at the
- * `columnCardSchemas` declaration (a `Record<ColumnKind, ...>`) —
+ * `columnCardSchemas` declaration (a `Record<ColumnKind, ...>`):
  * adding a kind without an entry breaks the build.
  *
  * `applicableForProperty(property)` decides whether the kind can
  * meaningfully render the supplied case property. Date / Interval
  * require date-typed properties; Phone is text-shaped only; Plain /
  * ID-Mapping accept any. Calculated has no `field` and so always
- * applies regardless of property — the kind picker stays open
+ * applies regardless of property: the kind picker stays open
  * across every property choice.
  *
  * `applicabilityRequirement` names the compatible information in plain
@@ -106,7 +106,7 @@ export interface ColumnCardSchema<K extends ColumnKind> {
 		 * applicability check and threads the resulting messages
 		 * through this prop; cards forward the array to their
 		 * `ColumnFieldRow` so the message renders next to the
-		 * offending picker. Calculated cards have no field picker —
+		 * offending picker. Calculated cards have no field picker:
 		 * they receive errors but never render them (the parent's
 		 * outer-shell error footer surfaces operator-level
 		 * diagnostics).
@@ -124,19 +124,19 @@ export interface ColumnCardSchema<K extends ColumnKind> {
 
 // ── Property applicability ────────────────────────────────────────
 //
-// Per-kind property compatibility — thin arrows over the DOMAIN
+// Per-kind property compatibility: thin arrows over the DOMAIN
 // predicate (`lib/domain/columnApplicability.ts`), the same one the
 // commit gate's `CASE_LIST_COLUMN_KIND_PROPERTY_TYPE_MISMATCH` rule
 // runs, so the menu's offered-set can't drift from the gate's
 // accept-set. The verdict is honest-unknown-permissive: a property
 // whose `data_type` the effective view leaves absent (neither a
-// declaration nor the writing fields pin one) accepts every kind —
+// declaration nor the writing fields pin one) accepts every kind:
 // missing metadata never manufactures an error. The applicability
 // predicate itself also has no opinion on `undefined`, but creation
 // and kind-swap affordances separately require a declared property:
 // they never manufacture an unbound column.
 
-/** Thin per-kind arrow over the domain predicate — the kind→family
+/** Thin per-kind arrow over the domain predicate: the kind→family
  *  mapping itself lives ONLY in `columnKindPropertyRequirement`. */
 function applicableFor(
 	kind: ColumnKind,
@@ -182,7 +182,7 @@ function pickFirstAny(ctx: ColumnEditContext): string | undefined {
 /**
  * Per-kind editor schema keyed by `ColumnKind`. The mapped-type
  * shape forces TypeScript to fail compilation if a new kind lands
- * in the `ColumnKind` union without a parallel entry — the
+ * in the `ColumnKind` union without a parallel entry: the
  * registry's exhaustivity is the structural guarantee that the
  * editor never silently bypasses a kind.
  */
@@ -297,7 +297,7 @@ export const columnCardSchemas: {
 };
 
 /**
- * Convenience array — every schema in declaration order. Used by
+ * Convenience array: every schema in declaration order. Used by
  * the kind-replace menu to render its option list.
  */
 export const columnCardSchemaList: readonly ColumnCardSchema<ColumnKind>[] =
@@ -324,7 +324,7 @@ export function canSeedColumnKind(
  * Resolve the effective `data_type` of the column's referenced
  * property against the editor context. Returns `undefined` when
  * the field references a property the case type doesn't declare
- * — the inline-validity surface uses this to render an "Unknown
+ *: the inline-validity surface uses this to render an "Unknown
  * property" hint without blocking the kind picker.
  *
  * Calculated columns have no `field` slot; callers must guard

@@ -1,11 +1,11 @@
 /**
- * The chat POST against a real Postgres testcontainer — pinning the one
+ * The chat POST against a real Postgres testcontainer: pinning the one
  * contract the whole resumable-threads design hangs on: **a client that
  * disconnects mid-run changes NOTHING server-side.**
  *
  * The regression this exists for: `createUIMessageStream`'s `onEnd` fires
  * through the response stream's `cancel()` hook as well as its natural end,
- * so teardown hung off it ran the moment a user refreshed mid-run — sealing
+ * so teardown hung off it ran the moment a user refreshed mid-run, sealing
  * the chunk log with a synthetic `finish` (every later chunk dropped, the
  * resume replayed a truncated stub), flushing a zero-usage accumulator
  * (refunding the charge and latching the real finalize into a no-op), and
@@ -15,8 +15,8 @@
  *
  * The SA is replaced with a hand-driven chunk feed so the test controls
  * exactly when the "model" produces output relative to the disconnect; auth
- * and Project access are mocked; everything else — claim + reservation,
- * durable chunk log, thread persistence, run finalization — is the real
+ * and Project access are mocked; everything else: claim + reservation,
+ * durable chunk log, thread persistence, run finalization: is the real
  * code against the real schema.
  */
 
@@ -129,7 +129,7 @@ vi.mock("@/lib/db/credits", async (importOriginal) => {
 		settleAndRelease: settleAndReleaseMock,
 	};
 });
-/* Only the SA constructor is faked — `GenerationContext`, the retry loop,
+/* Only the SA constructor is faked: `GenerationContext`, the retry loop,
  * the finalizers, and every persistence path stay real. */
 vi.mock("@/lib/agent", async (importOriginal) => ({
 	...(await importOriginal<typeof import("@/lib/agent")>()),
@@ -171,7 +171,7 @@ let harness: PerTestAppDb;
 /**
  * A hand-cranked stand-in for the SA's `StreamTextResult`: the test pushes
  * UI message chunks whenever it wants (before/after the simulated
- * disconnect), and `consumeStream()` resolves when `end()` is called — the
+ * disconnect), and `consumeStream()` resolves when `end()` is called, the
  * same "drain reaches the tool loop's terminal state" signal the route keys
  * finalization on.
  */
@@ -557,7 +557,7 @@ describe("mid-run client disconnect", () => {
 		if (!streamId || !response.body) throw new Error("no stream to read");
 
 		/* Stream the first half of the "model" output and read it off the live
-		 * response, so the cancel below lands mid-run with bytes in flight —
+		 * response, so the cancel below lands mid-run with bytes in flight:
 		 * the exact shape of a user refreshing while reasoning streams. */
 		feed.push(
 			{ type: "start" },

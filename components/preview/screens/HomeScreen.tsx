@@ -29,7 +29,7 @@ import { useBuilderIsReady, useEditMode } from "@/lib/session/hooks";
 
 export function HomeScreen() {
 	const appName = useAppName();
-	/* Read only the `formOrder` slice of the app structure — the module
+	/* Read only the `formOrder` slice of the app structure: the module
 	 * sequence is served separately by `useOrderedModules()` below.
 	 * `useAppStructure` returns a shallow-stable pair, so destructuring
 	 * one field keeps the reference cheap. */
@@ -42,11 +42,11 @@ export function HomeScreen() {
 	const hasData = useDocHasData();
 	const modules = useOrderedModules();
 	/* Case-first modules (every form case-loading) land on the case list,
-	 * not a form menu — the running app hoists the shared case selection. */
+	 * not a form menu: the running app hoists the shared case selection. */
 	const caseFirstModules = useCaseFirstModuleUuids();
 	const logo = useAppLogo();
 	const lookup = usePreviewLookupStatus();
-	/* Whoever Preview is running as — the member, or the persona they
+	/* Whoever Preview is running as: the member, or the persona they
 	 * picked. The hook owns the hydration rule (Better Auth resolves a
 	 * cached session synchronously on the browser's first paint while SSR
 	 * has none) so every preview surface reads one identity. */
@@ -56,7 +56,7 @@ export function HomeScreen() {
 	/* The running preview gates the module list exactly as a device would
 	 * (`<menu relevant>`); edit mode ("authoring surfaces never hide")
 	 * shows everything. Hidden modules stay reachable through the reveal
-	 * affordance below — ghosted, with each condition's summary. */
+	 * affordance below: ghosted, with each condition's summary. */
 	const moduleVisibility = useMemo(
 		() =>
 			new Map(
@@ -93,7 +93,7 @@ export function HomeScreen() {
 		[modules, moduleVisibility, projectProse],
 	);
 
-	/* Forward the gated dispatch's outcome — a refused rename keeps the
+	/* Forward the gated dispatch's outcome: a refused rename keeps the
 	 * editor open with the draft and surfaces the finding inline; the
 	 * saved checkmark only fires on a committed rename. */
 	const saveAppName = useCallback(
@@ -107,7 +107,7 @@ export function HomeScreen() {
 
 	return (
 		<ContentFrame width="5xl" className="p-6 space-y-4">
-			{/* The web-apps logo banner — CommCare shows the app logo at the top
+			{/* The web-apps logo banner: CommCare shows the app logo at the top
 			    of the home screen. */}
 			{logo && (
 				<ProjectMediaImage
@@ -163,7 +163,7 @@ export function HomeScreen() {
 							className="w-full flex items-center gap-4 p-4 rounded-xl bg-pv-surface border border-pv-input-border hover:border-pv-input-focus hover:translate-y-[-1px] transition-all duration-200 cursor-pointer text-left group"
 						>
 							{mod.icon ? (
-								// Module menu-tile icon — CommCare shows it on the
+								// Module menu-tile icon: CommCare shows it on the
 								// module's home-screen tile.
 								<ProjectMediaImage
 									assetId={mod.icon}

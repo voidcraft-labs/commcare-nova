@@ -26,7 +26,7 @@ import { ValidationError } from "./ValidationError";
  * The `dark:` duplication is not redundancy: `app/layout.tsx` puts `dark`
  * on `<html>` permanently, so the primitives' own `dark:` rules are always
  * live and a bare `bg-*` from here would lose to them. Everything the
- * theme already agrees on is deliberately absent — `--ring` and
+ * theme already agrees on is deliberately absent: `--ring` and
  * `--destructive` resolve to the same violet and rose the preview uses, so
  * focus and error states need no override at all.
  *
@@ -57,11 +57,11 @@ interface DateFieldProps {
  *
  * ## The value it holds is the value the case store holds
  *
- * `state.value` is the wire-and-storage shape end to end — `2026-01-15`,
+ * `state.value` is the wire-and-storage shape end to end: `2026-01-15`,
  * `14:30:00.000Z`, `2026-01-15T14:30:00.000-05:00` (`lib/domain/temporalValues.ts`
  * owns all three). That is what preload writes into the instance and what
  * typed case-property reads return, so the widget renders and returns the same
- * spelling rather than a private one — which is also why the native
+ * spelling rather than a private one, which is also why the native
  * `<input type="datetime-local">` this replaces could not stay: it silently
  * blanks any value carrying a zone designator, so every preloaded datetime
  * showed up empty.
@@ -72,14 +72,14 @@ interface DateFieldProps {
  *     human text and a value the person is typing is left alone, the line
  *     drawn by `storedWallClock` on marks hand-typing cannot leave.
  *     Reformatting across it would rewrite "2:30" into "2:30 AM" under
- *     someone still reaching for PM — the one thing a live-formatting
+ *     someone still reaching for PM: the one thing a live-formatting
  *     field must not do.
  *   - **Writing**, every commit boundary canonicalizes: a calendar pick
  *     (which closes its own popover, so it IS a commit) and the clock
  *     field's blur. Canonicalization is idempotent, so a focus-and-blur
- *     that changed nothing rewrites nothing — a value that merely predates
+ *     that changed nothing rewrites nothing: a value that merely predates
  *     the millisecond rule is repaired to the spelling submission would
- *     have given it anyway — and half-finished text survives to be named in
+ *     have given it anyway, and half-finished text survives to be named in
  *     the engine's shape error rather than being mangled toward a shape it
  *     never had.
  *
@@ -92,7 +92,7 @@ interface DateFieldProps {
  * A NEWLY entered datetime takes the offset of the viewer's zone, matching
  * the device stamping its own (`DateTimeData::uncast`, and Web Apps'
  * browser-offset provider). An answer that already carries an offset keeps
- * it, and its wall clock is displayed exactly as stored — so an answer
+ * it, and its wall clock is displayed exactly as stored, so an answer
  * entered on some other device reads as the clock that was entered there,
  * and moving its date does not quietly relocate it to the author's zone.
  * The offset belongs to the answer; only a clock the person types here is
@@ -156,7 +156,7 @@ export function DateField({
 
 	// A datetime is edited as its two halves and stored as one string, so
 	// either control can lead. The split is textual, and each half is then
-	// read on its own terms — a stored datetime's clock half is by
+	// read on its own terms: a stored datetime's clock half is by
 	// construction in the stored TIME shape, so the same reader the
 	// standalone time question uses projects it, and it keeps doing so
 	// while the other half is missing or half-typed.
@@ -167,7 +167,7 @@ export function DateField({
 	/**
 	 * Commit the two halves as one answer. Each arm produces a value the
 	 * split above can read back, and none of them invents a half nobody
-	 * entered — the join has to survive being HALF filled in, because that
+	 * entered: the join has to survive being HALF filled in, because that
 	 * is the state a person passes through on the way to filling it.
 	 *
 	 * A bare date is deliberately left bare rather than extended to its own
@@ -175,7 +175,7 @@ export function DateField({
 	 * boundary reads as midnight, so leaving it alone keeps an empty clock
 	 * box honest ("you have not set a time") instead of answering the
 	 * question on the person's behalf with a 12:00 AM they never chose and
-	 * cannot clear — clearing it would just put it straight back.
+	 * cannot clear: clearing it would just put it straight back.
 	 */
 	const commit = (date: string, time: string): void => {
 		const clock = parseClockTime(time) ?? time.trim();
@@ -190,7 +190,7 @@ export function DateField({
 		if (date === "") {
 			// No date yet. The clock is padded so it still reads back as a
 			// clock while the person goes to pick the date, and keeps whatever
-			// zone it already had — a `Z` tag added here would later be
+			// zone it already had: a `Z` tag added here would later be
 			// mistaken for the whole answer's real offset. The engine's shape
 			// gate is what asks them for the date.
 			onChange(`T${paddedTimeOfDay(clock)}`);
@@ -223,7 +223,7 @@ export function DateField({
 					value={formatClockTime(timePart) ?? timePart}
 					onValueChange={(next) =>
 						// Both halves empty is an empty answer, not the `T` that
-						// joining two empty strings would leave behind — a value
+						// joining two empty strings would leave behind: a value
 						// no schema accepts and no person typed.
 						onChange(
 							next === "" && datePart === "" ? "" : `${datePart}T${next}`,

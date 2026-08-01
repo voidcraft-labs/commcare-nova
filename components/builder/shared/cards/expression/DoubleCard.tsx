@@ -1,6 +1,6 @@
 // components/builder/shared/cards/expression/DoubleCard.tsx
 //
-// Renders the `double` ValueExpression — forced numeric coercion via
+// Renders the `double` ValueExpression: forced numeric coercion via
 // CSQL's `double(...)` value function. Single-slot: a
 // `ValueExpression` operand resolving to a text-shaped or numeric
 // type. The result type is always `decimal`.
@@ -22,11 +22,11 @@ import type { ExpressionEditContext } from "../../expressionEditorSchemas";
 import { appendSlot, type EditorPath } from "../../path";
 import { ExpressionPicker } from "../../primitives/ExpressionPicker";
 
-/** `double` reads a text-shaped or already-numeric value — module-const
+/** `double` reads a text-shaped or already-numeric value: module-const
  *  for a stable identity across renders. */
 const OPERAND_CONSTRAINT = doubleOperandConstraint();
 
-/** Default — `double(literal(""))`. The text-shaped seed lands clean
+/** Default: `double(literal(""))`. The text-shaped seed lands clean
  *  through the type checker; authors who want to force a different
  *  shape edit through the operand picker. */
 export function doubleDefault(

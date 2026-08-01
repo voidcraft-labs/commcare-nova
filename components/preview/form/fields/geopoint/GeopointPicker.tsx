@@ -67,12 +67,12 @@ export function GeopointPicker({
 
 	const mapRef = useRef<MapHandle | null>(null);
 	// The map box is the IntersectionObserver target; the Google map mounts
-	// only while on screen (browser WebGL-context cap — see useInView) and is
+	// only while on screen (browser WebGL-context cap: see useInView) and is
 	// released when scrolled away, so many geopoint fields don't all run live
 	// maps at once.
 	const mapBoxRef = useRef<HTMLDivElement>(null);
 	const mapInView = useInView(mapBoxRef);
-	// Resolved address shown in the search box + readout. Local UI state —
+	// Resolved address shown in the search box + readout. Local UI state:
 	// the engine only stores coordinates, never the address text.
 	const [address, setAddress] = useState("");
 	const [locating, setLocating] = useState(false);
@@ -132,7 +132,7 @@ export function GeopointPicker({
 					return; // superseded or Project reset
 				setAddress(results[0]?.formatted_address ?? "");
 			} catch {
-				/* reverse lookup is best-effort — leave the address as-is */
+				/* reverse lookup is best-effort: leave the address as-is */
 			}
 		}, REVERSE_DEBOUNCE_MS);
 	}, []);
@@ -155,7 +155,7 @@ export function GeopointPicker({
 		[onChange, onBlur, reverseGeocode],
 	);
 
-	// User positioned via the map (drag settle or click) — coordinates are
+	// User positioned via the map (drag settle or click): coordinates are
 	// Google's (lat, lng); store lng as `lon`. The map is already centered
 	// there, so no recenter.
 	const handleMapPick = useCallback(
@@ -225,7 +225,7 @@ export function GeopointPicker({
 						{mapInView ? (
 							<MapView ref={mapRef} point={point} onPick={handleMapPick} />
 						) : (
-							// Lightweight stand-in until the field scrolls into view —
+							// Lightweight stand-in until the field scrolls into view:
 							// keeps layout stable and the map instance unallocated.
 							<div className="flex h-full w-full items-center justify-center bg-pv-input-bg">
 								<Icon

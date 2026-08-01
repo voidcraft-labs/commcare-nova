@@ -6,7 +6,7 @@ import { useModule } from "@/lib/doc/hooks/useEntity";
 import { asUuid, type Mutation, type Uuid } from "@/lib/doc/types";
 import type { MediaAssetId, ModuleIconRef } from "@/lib/domain";
 
-/** Props for the module-appearance section — just the module being edited. */
+/** Props for the module-appearance section: just the module being edited. */
 interface ModuleAppearanceSectionProps {
 	moduleUuid: Uuid;
 }

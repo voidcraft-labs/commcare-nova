@@ -1,5 +1,5 @@
 /**
- * Client island for the home app list — owns the active/deleted view
+ * Client island for the home app list: owns the active/deleted view
  * toggle and renders the corresponding card grid. Lists arrive as
  * props from the parent RSC; this component does no fetching.
  *
@@ -10,7 +10,7 @@
  *
  * Per-card action state (idle → confirming → deleting / restoring →
  * unmount on success / error → idle) lives inside each card. This
- * file is deliberately small — view toggle plus a thin render branch.
+ * file is deliberately small: view toggle plus a thin render branch.
  */
 
 "use client";
@@ -59,7 +59,7 @@ export function AppListBody({
 	);
 
 	/* Tab strip is suppressed entirely when the user has nothing in the
-	 * trash AND isn't currently viewing it — would otherwise be a
+	 * trash AND isn't currently viewing it: would otherwise be a
 	 * degenerate one-pill switcher. Stays visible while the user is on
 	 * the deleted view (even if a restore just emptied the count) so
 	 * they always have a way back. */
@@ -119,7 +119,7 @@ interface TabsProps {
 }
 
 /**
- * Pill-style segmented control. Plain buttons — the toggle is local
+ * Pill-style segmented control. Plain buttons: the toggle is local
  * UI state, no URL or navigation involved.
  */
 function Tabs({ view, onChange, deletedCount }: TabsProps) {

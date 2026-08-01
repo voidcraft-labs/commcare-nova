@@ -1,7 +1,7 @@
 // components/builder/shared/cards/ExistsCard.tsx
 //
 // Renders the relational quantifiers `exists` and `missing`. Both
-// share one body — `via` (RelationPath) + optional inner `where`
+// share one body: `via` (RelationPath) + optional inner `where`
 // predicate. The card surfaces a kind toggle (Has / No related
 // case) at the top so authors can flip between the two without
 // rebuilding the relation walk; the `defaultValue` factories on
@@ -9,7 +9,7 @@
 //
 // Inside the inner `where` clause, the editor flips its
 // `currentCaseType` to the relation walk's destination so nested
-// property pickers show the destination's properties — mirrors
+// property pickers show the destination's properties: mirrors
 // the type checker's `checkInDestinationScope` contract.
 
 "use client";
@@ -97,7 +97,7 @@ export function ExistsCard({ value, onChange, path }: ExistsCardProps) {
 
 	// Resolve the destination case type from the relation path so
 	// nested property pickers show the correct properties. Matches
-	// the type checker's resolution rules — an unresolved walk
+	// the type checker's resolution rules: an unresolved walk
 	// means the inner where can't be type-checked, but the editor
 	// still allows authoring; the surfaced inline error tells the
 	// user the walk is broken.
@@ -117,7 +117,7 @@ export function ExistsCard({ value, onChange, path }: ExistsCardProps) {
 						// Only the CASE TYPE and the scope change inside a
 						// relation walk. The other axes still describe what this
 						// surface offers, and a narrowed context resolves a form
-						// answer to nothing — which widens the dependent slot's
+						// answer to nothing, which widens the dependent slot's
 						// accept-set, skips the reseed, and commits the
 						// type-incorrect pair the gate then refuses.
 						userProperties: ctx.userProperties,

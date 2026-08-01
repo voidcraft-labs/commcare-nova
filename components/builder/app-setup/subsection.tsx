@@ -61,7 +61,7 @@ export function Subsection({
 	);
 }
 
-/** The list's empty state — an invitation, in the section's own words. */
+/** The list's empty state: an invitation, in the section's own words. */
 export function SubsectionEmpty({ children }: { children: ReactNode }) {
 	return (
 		<p className="rounded-lg border border-dashed border-nova-border px-3 py-4 text-[13px] leading-relaxed text-nova-text-muted">
@@ -73,7 +73,7 @@ export function SubsectionEmpty({ children }: { children: ReactNode }) {
 /**
  * One collection entry: a full-width disclosure whose header names it and
  * whose panel holds its editor. A row that cannot be edited (view-only
- * access) still opens — reading the setup is not an edit.
+ * access) still opens: reading the setup is not an edit.
  */
 export function EntryRow({
 	summary,
@@ -82,7 +82,7 @@ export function EntryRow({
 	open,
 	onOpenChange,
 }: {
-	/** The entry's name — the disclosure's accessible label. */
+	/** The entry's name: the disclosure's accessible label. */
 	summary: ReactNode;
 	/** A short right-aligned fact about the entry. */
 	detail?: ReactNode;

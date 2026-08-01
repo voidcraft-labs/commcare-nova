@@ -1,4 +1,4 @@
-// The data review screen's state model — pure functions over the
+// The data review screen's state model: pure functions over the
 // Server Action's wire entries (`ParkedValueEntryWire`), kept free of
 // React so the case grouping, filter partition, and draft
 // normalization unit-test directly. The component renders this model;
@@ -42,7 +42,7 @@ export function reviewCounts(
 /**
  * Distinct cases the active (undismissed) entries HOLD out of the
  * running app. The discovery surfaces (the Case data badge/popover)
- * speak in cases — that is the unit the app is missing.
+ * speak in cases: that is the unit the app is missing.
  */
 export function heldCaseCount(
 	entries: readonly ParkedValueEntryWire[],
@@ -68,8 +68,8 @@ export function filterReviewEntries(
 
 /**
  * One card on the review screen: a CASE and the values it's waiting
- * on. The case is the anchor — people review records, not floating
- * values — and each row under it names the property, the value, and
+ * on. The case is the anchor: people review records, not floating
+ * values, and each row under it names the property, the value, and
  * what can happen next. Cards order by case name so the list reads
  * like a roster; rows order by property name for a stable scan.
  */
@@ -102,7 +102,7 @@ export function groupReviewByCase(
 }
 
 /**
- * Person-facing spelling for each data type — the chip icon's
+ * Person-facing spelling for each data type: the chip icon's
  * screen-reader name reads these instead of the wire tokens
  * (`single_select` is authoring vocabulary, not user vocabulary).
  */
@@ -119,7 +119,7 @@ export const DATA_TYPE_LABELS: Record<CasePropertyDataType, string> = {
 };
 
 /**
- * A stored value rendered for a row — arrays (multi-select originals)
+ * A stored value rendered for a row: arrays (multi-select originals)
  * read as their comma-separated selections, everything else as its
  * plain string form.
  */
@@ -130,11 +130,11 @@ export function displayReviewValue(value: JsonValue): string {
 
 /**
  * The row's one-clause story: why this value is waiting, told
- * against the property's CURRENT state — the server's `standing`
+ * against the property's CURRENT state: the server's `standing`
  * classification carries the fact, this maps it to words. The
  * blocked arm names what the value fails to be ("Isn’t a date"
  * beside the literal "next Tuesday" and the date-iconed chip is the
- * whole event). A select block is always a SHAPE mismatch — the
+ * whole event). A select block is always a SHAPE mismatch: the
  * stored select schema carries no option enum (a narrowed-away value
  * stands `fits`; its case is held, so nothing else claims the slot),
  * so the only way a select declaration rejects a value is a list
@@ -171,7 +171,7 @@ export function standingPhrase(
  * row schema requires on top of CommCare's own shapes; they parse
  * strictly because the time half is HAND-TYPED (the date half comes from
  * the Calendar picker as `YYYY-MM-DD`). The server's schema validation
- * remains the authority — a value this function admits can still come
+ * remains the authority: a value this function admits can still come
  * back as the typed `invalid-value` arm (e.g. a geopoint that misses the
  * pattern).
  *

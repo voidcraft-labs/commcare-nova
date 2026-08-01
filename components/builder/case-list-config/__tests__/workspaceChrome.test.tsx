@@ -53,8 +53,8 @@ import { SearchConditionCanvas } from "../canvas/SearchConditionCanvas";
 import { SearchInputEditor } from "../inspector/SearchInputEditor";
 import { SearchPanelInspectorBody } from "../inspector/SearchPanelInspectorBody";
 
-// Every surface on this canvas spells authored prose — an information label, a
-// field name, a saved condition — against the document. Wrapping at `render`
+// Every surface on this canvas spells authored prose: an information label, a
+// field name, a saved condition: against the document. Wrapping at `render`
 // rather than per component reproduces the builder's provider for the whole
 // workspace, and carries through each `rerender`.
 function DocumentProvider({ children }: { readonly children: ReactNode }) {
@@ -124,7 +124,7 @@ const SEARCH_CONDITION_CASE_TYPES: readonly CaseType[] = [
 ];
 // The Search-button condition resolves before any case is selected, so
 // its friendly first condition compares a session value, never a case
-// property (the gate rejects case reads in that slot) — and it holds
+// property (the gate rejects case reads in that slot), and it holds
 // true unedited, so the committed placeholder never hides the Search
 // action before the author writes the real rule.
 const FIRST_SEARCH_CONDITION = neq(sessionContext("username"), literal(""));

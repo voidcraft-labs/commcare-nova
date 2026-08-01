@@ -22,7 +22,7 @@ import { dispatchMcpTools } from "./dispatch";
 
 /**
  * Closed set of reasons mapped from the api-key plugin's error codes.
- * Same injection-safety rationale as `JwtUnauthorizedReason` —
+ * Same injection-safety rationale as `JwtUnauthorizedReason`:
  * `WWW-Authenticate` quotes the value but doesn't escape, so the set
  * has to stay closed.
  *
@@ -40,7 +40,7 @@ type ApiKeyUnauthorizedReason =
 
 /**
  * Build a 401 for the API-key path. Same RFC 6750 Bearer challenge as
- * the JWT path, but no `resource_metadata` parameter — the client
+ * the JWT path, but no `resource_metadata` parameter: the client
  * explicitly chose API-key auth (the prefix proves it), so suggesting
  * OAuth fallback would mislead.
  *
@@ -64,7 +64,7 @@ function apiKeyUnauthorizedResponse(
 /**
  * Build a 403 for the missing-scope branch. RFC 6750 §3 specifies
  * `error="insufficient_scope"` with HTTP 403 for "the request requires
- * higher privileges than provided by the access token" — distinct
+ * higher privileges than provided by the access token": distinct
  * from the 401 + `invalid_token` we use for failed authentication.
  * Aligns the API-key path with the JWT path: `mcpHandler` already
  * surfaces a 403 implicitly when the token is missing scope, via
@@ -88,7 +88,7 @@ function apiKeyForbiddenResponse(reason: "api key missing scope"): Response {
  * `node_modules/@better-auth/api-key/dist/index.mjs`) and
  * `KEY_NOT_FOUND` (the plugin's stored-key-has-no-permissions code,
  * which surfaces only when the route calls `verifyApiKey` with a
- * `permissions` argument — Nova's route doesn't) collapse to the
+ * `permissions` argument: Nova's route doesn't) collapse to the
  * same `"api key invalid"` reason. The collapse is deliberate: the
  * client gets no key-existence side channel, and the diagnostic
  * difference is preserved on the server side via the `pluginCode`
@@ -120,7 +120,7 @@ function mapApiKeyErrorCode(
  * masked-display length (`startingCharactersConfig.charactersLength`
  * in `lib/auth.ts`, which is `NOVA_API_KEY_PREFIX.length + 6`), so a
  * sysadmin reading 401 bursts in logs can map them back to the named
- * key in the user's settings list — both surfaces show the prefix
+ * key in the user's settings list: both surfaces show the prefix
  * plus the same six body chars, never more. The remaining body bytes
  * carry the key's entropy and stay out of logs.
  */
@@ -135,7 +135,7 @@ const PREFIX_LOG_LENGTH = NOVA_API_KEY_PREFIX.length + 6;
  * Floor-scope enforcement is local, not delegated to the plugin's
  * `verifyApiKey({ permissions })` arg. Reason: when the plugin runs
  * the permission check internally (with `permissions` passed in), a
- * scope mismatch throws `KEY_NOT_FOUND` — `mapApiKeyErrorCode`
+ * scope mismatch throws `KEY_NOT_FOUND`: `mapApiKeyErrorCode`
  * collapses that to `"api key invalid"`, indistinguishable on the
  * wire from a stale or malformed key. Verifying the key shape
  * without the `permissions` arg and comparing the granted
@@ -181,13 +181,13 @@ export async function handleApiKeyMcp(
 	const verifiedKey = result.key;
 	/* `referenceId` carries the userId for our `references: "user"`
 	 * configuration. For `"organization"` configs it would be an org
-	 * id, but Nova doesn't enable that mode — see the api-key plugin
+	 * id, but Nova doesn't enable that mode: see the api-key plugin
 	 * mount in `lib/auth.ts`. The plugin's `ApiKey` type pins this
 	 * field to a string, but we still defend against an empty value
 	 * because a regression in the verify endpoint that returned a
 	 * blank reference would otherwise hand tools a userId-shaped empty
 	 * string (a `WHERE userId = ''` lookup would just match nothing and
-	 * leak nothing — but the cleaner failure is a 401). */
+	 * leak nothing, but the cleaner failure is a 401). */
 	const userId = verifiedKey.referenceId;
 	if (typeof userId !== "string" || !userId) {
 		log.error("[mcp/api-key] verified key has no referenceId", undefined, {
@@ -200,7 +200,7 @@ export async function handleApiKeyMcp(
 			? verifiedKey.permissions.scope
 			: [];
 
-	/* Floor-scope check, locally — see the function docblock for why
+	/* Floor-scope check, locally: see the function docblock for why
 	 * this isn't delegated to `verifyApiKey({ permissions })`. 403 +
 	 * `insufficient_scope` per RFC 6750 §3, matching the JWT path's
 	 * implicit 403 from `mcpHandler`'s scope verification. */
@@ -216,14 +216,14 @@ export async function handleApiKeyMcp(
 		}
 	}
 
-	/* Live revocation lock — the api-key plugin's `validateApiKey`
+	/* Live revocation lock: the api-key plugin's `validateApiKey`
 	 * does not cross-reference `auth_user`, so a banned or deleted
 	 * user's pre-minted keys would otherwise authenticate forever.
 	 * The JWT path runs this SAME `isUserActive` gate (alongside its
 	 * access-token TTL + `hasActiveConsent`), so revocation is universal
 	 * across both MCP bearers; this read is its equivalent. The local catch
 	 * translates a database outage into 401, matching the verifier-throw
-	 * branch — fail-closed posture: a transient outage rejects rather than
+	 * branch: fail-closed posture: a transient outage rejects rather than
 	 * authenticates a possibly-banned user. */
 	let active: boolean;
 	try {

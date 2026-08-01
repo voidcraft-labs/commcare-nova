@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 /**
- * Tests for EditGuardContext — the scoped context that gates URL-driven
+ * Tests for EditGuardContext: the scoped context that gates URL-driven
  * selection changes when an inline editor has unsaved content.
  *
  * Covers the full registration contract: default allow, predicate blocking,
@@ -57,7 +57,7 @@ describe("EditGuardContext", () => {
 			{ wrapper: Wrapper, initialProps: { enabled: true } },
 		);
 
-		/* Guard is active — selection should be blocked. */
+		/* Guard is active: selection should be blocked. */
 		expect(result.current()).toBe(false);
 
 		/* Disable the guard (simulates blur/commit/cancel). The effect
@@ -66,7 +66,7 @@ describe("EditGuardContext", () => {
 		expect(result.current()).toBe(true);
 	});
 
-	// ── Test 4: Last-write-wins — second registration replaces first ────
+	// ── Test 4: Last-write-wins, second registration replaces first ────
 
 	it("evaluates the latest predicate when two are registered (last-write-wins)", () => {
 		const predicateA = () => false;
@@ -80,10 +80,10 @@ describe("EditGuardContext", () => {
 			{ wrapper: Wrapper, initialProps: { predicate: predicateA } },
 		);
 
-		/* A is active — blocks. */
+		/* A is active: blocks. */
 		expect(result.current()).toBe(false);
 
-		/* B takes over — allows. */
+		/* B takes over: allows. */
 		rerender({ predicate: predicateB });
 		expect(result.current()).toBe(true);
 	});
@@ -96,7 +96,7 @@ describe("EditGuardContext", () => {
 		const { result, rerender } = renderHook(
 			({ mounted }: { mounted: boolean }) => {
 				/* Conditionally register. When mounted=false, the hook
-				 * call is skipped — simulating unmount of the registering
+				 * call is skipped: simulating unmount of the registering
 				 * component. We use enabled to control this cleanly. */
 				useRegisterEditGuard(() => false, mounted);
 				return useConsultEditGuard();
@@ -104,13 +104,13 @@ describe("EditGuardContext", () => {
 			{ wrapper: Wrapper, initialProps: { mounted: true } },
 		);
 
-		/* Registration active — blocks selection. */
+		/* Registration active: blocks selection. */
 		expect(result.current()).toBe(false);
 
 		/* "Unmount" the registration by disabling it. */
 		rerender({ mounted: false });
 
-		/* Guard cleared — selection allowed. */
+		/* Guard cleared: selection allowed. */
 		expect(result.current()).toBe(true);
 	});
 

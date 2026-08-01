@@ -1,5 +1,5 @@
 /**
- * Export menu — CommCare HQ is the primary destination and local files are
+ * Export menu: CommCare HQ is the primary destination and local files are
  * secondary. The shared shadcn menu owns positioning, focus, keyboard
  * navigation, collision handling, item highlights, and the floating chrome.
  */

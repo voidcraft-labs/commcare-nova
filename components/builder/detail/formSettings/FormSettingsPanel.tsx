@@ -19,7 +19,7 @@ interface FormSettingsPanelProps extends FormSettingsSectionProps {
 
 /**
  * Form-settings drawer body rendered inside the Popover popup. Pure
- * chrome — a labeled header with a dismiss button and a scrollable
+ * chrome: a labeled header with a dismiss button and a scrollable
  * content region that composes the three feature sections in a fixed
  * vertical order. Each section decides whether it renders (close forms
  * only for `CloseConditionSection`, non-null `connectType` for

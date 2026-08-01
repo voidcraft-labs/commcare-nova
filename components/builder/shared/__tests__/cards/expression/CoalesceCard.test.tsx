@@ -2,7 +2,7 @@
 //
 // components/builder/shared/__tests__/cards/expression/CoalesceCard.test.tsx
 //
-// Coalesce card tests — drag/reorder + non-empty invariant. Mirrors
+// Coalesce card tests: drag/reorder + non-empty invariant. Mirrors
 // `ConcatCard.test.tsx`'s pattern; the two cards share a body shape
 // (variadic value list) so the tests pin the same structural
 // guarantees.

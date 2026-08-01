@@ -1,5 +1,5 @@
 /**
- * Accept-invitation page — where a signed-in user reviews and acts on the
+ * Accept-invitation page, where a signed-in user reviews and acts on the
  * Project invitations addressed to their email. Reachable from the home-page
  * banner (shown when invites are pending) and a stable link.
  *

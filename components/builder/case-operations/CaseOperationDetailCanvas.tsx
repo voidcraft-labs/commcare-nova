@@ -10,11 +10,11 @@
 // before it.
 //
 // Every expression slot here mounts with the operation's own scope: the
-// form answers this change may read (narrowed by its multiplicity — see
+// form answers this change may read (narrowed by its multiplicity, see
 // `formFieldScope.ts`), the app's worker information, the submission's own
 // vocabulary (the acting user, no owner, an earlier create's case), and
 // what the slot may read against a case row. Together they are what let
-// the shared editor offer a form answer at all — and what stop it
+// the shared editor offer a form answer at all, and what stop it
 // offering a case read this module can never make, or an earlier create's
 // id inside a runtime target. `editorScope.ts` owns the last two, because
 // the target slots deliberately do NOT get the same scope as the rest.
@@ -117,17 +117,17 @@ export function CaseOperationDetailCanvas({
 	const writeFocus = useRemovedRowFocus((operation?.writes ?? []).length);
 	/* Whether a slot here may read the case at all. The gate refuses every
 	 * case-data read in a form the module opens without choosing a case
-	 * first — see `editorScope.ts` for why that maps onto `"global"`. */
+	 * first: see `editorScope.ts` for why that maps onto `"global"`. */
 	const caseDataScope = operationCaseDataScope(caseFirst);
 	/* The scope an operation EXPRESSION resolves against is the module's case
-	 * type — what `rules/caseOperations.ts::expressionContext` hands the
-	 * checker — not the operation's destination type. The destination decides
+	 * type: what `rules/caseOperations.ts::expressionContext` hands the
+	 * checker, not the operation's destination type. The destination decides
 	 * which PROPERTY a write may target; it never decides what the value may
 	 * read. A module with no case type has no walkable origin, and the empty
 	 * string is how the editor says so. */
 	const expressionCaseType = useModuleCaseType(moduleUuid) ?? "";
 	/* A link may point at "the case this form opened" only where the module
-	 * actually hands its forms one — the same rule the validator applies to
+	 * actually hands its forms one: the same rule the validator applies to
 	 * a session target. */
 	const sessionUnavailableReason = caseFirst
 		? undefined
@@ -137,7 +137,7 @@ export function CaseOperationDetailCanvas({
 		[fieldEntries, operation?.forEach?.repeat],
 	);
 
-	/* Only the creates BEFORE this one are in scope — the same set the
+	/* Only the creates BEFORE this one are in scope: the same set the
 	 * checker admits, so an `id-of` value can never name a case that does
 	 * not exist yet at this point in the sequence. */
 	const operationScope = useMemo<OperationValueScope>(() => {
@@ -379,7 +379,7 @@ export function CaseOperationDetailCanvas({
 							}}
 							constraint={caseOperationRuntimeTargetConstraint()}
 							{...editorScope}
-							// A runtime target may not name a create's output — target
+							// A runtime target may not name a create's output: target
 							// that create directly instead. Owner sentinels are withheld
 							// because this is not an owner-value slot.
 							operationScope={RUNTIME_TARGET_OPERATION_SCOPE}
@@ -528,7 +528,7 @@ export function CaseOperationDetailCanvas({
 							initialSessionCaseType={expressionCaseType || undefined}
 							// The only editor a link mounts is a runtime target, so
 							// `operationScope` is withheld here rather than overridden
-							// there — the rows fix it to the target scope themselves.
+							// there: the rows fix it to the target scope themselves.
 							editorScope={{
 								caseTypes,
 								currentCaseType: expressionCaseType,
@@ -702,7 +702,7 @@ function WriteRow({
 	readonly canEdit: boolean;
 	readonly editorScope: EditorScope;
 	/** The declared type of the property being written, when the catalog
-	 *  knows one. Absent means a brand-new property — the batch declares
+	 *  knows one. Absent means a brand-new property: the batch declares
 	 *  it, so any storable value is admissible. */
 	readonly destinationType: CasePropertyDataType | undefined;
 	readonly onChange: (next: CaseOperationWrite) => void;

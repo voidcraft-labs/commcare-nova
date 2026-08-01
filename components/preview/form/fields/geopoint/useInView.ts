@@ -4,11 +4,11 @@
 // uses this to mount its Google map ONLY while its field is on screen:
 // browsers hard-cap simultaneous WebGL contexts (~16 in Chrome), so a form
 // with several geopoint fields would otherwise spawn one live map each, blow
-// past the cap, and the browser drops the oldest contexts — every map then
+// past the cap, and the browser drops the oldest contexts: every map then
 // renders blank. Mounting on-view and releasing off-view keeps the number of
 // live maps to the handful actually visible.
 //
-// This is NOT bundle code-splitting — the Maps JS API still loads once via
+// This is NOT bundle code-splitting: the Maps JS API still loads once via
 // the shared loader; only the per-field map *instance* is created on demand.
 
 "use client";

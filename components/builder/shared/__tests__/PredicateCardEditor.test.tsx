@@ -6,7 +6,7 @@
 // checker, the validity-index plumbing, the registry-driven
 // dispatch, and the recursive shell. The card bodies' visual
 // chrome is covered by the per-card smoke tests; this file pins
-// the editor's structural contract — what reaches the parent's
+// the editor's structural contract: what reaches the parent's
 // `onChange` / `onValidityChange`, and how nested errors land on
 // the right card.
 
@@ -86,7 +86,7 @@ describe("PredicateCardEditor — validity propagation", () => {
 	});
 
 	it("reports invalid when a comparison's operands disagree on type", () => {
-		// `gt(int, "string")` is rejected by the type checker —
+		// `gt(int, "string")` is rejected by the type checker:
 		// the editor surfaces the verdict to the parent so save
 		// can be disabled. The card itself shows the diagnostic
 		// inline via the validity-index lookup.
@@ -221,7 +221,7 @@ describe("PredicateCardEditor — recursive nesting", () => {
 		// editor reports invalid to the parent, but the operator-
 		// level error attaches to the nested clause's path, not the
 		// outer exists card. This test exercises that the editor
-		// renders both cards without throwing — the detailed path
+		// renders both cards without throwing: the detailed path
 		// shape is covered by `path.test.ts` and the type checker's
 		// own tests.
 		const value = exists(

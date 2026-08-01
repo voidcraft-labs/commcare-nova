@@ -1,6 +1,6 @@
 // components/builder/inspector/inspectorChrome.tsx
 //
-// The shared chrome every right-rail inspector body is built from —
+// The shared chrome every right-rail inspector body is built from:
 // the case-list/search bodies and the form-field inspector alike.
 // One place owns the rail's sizing and voice so every editor feels
 // like the same calm, approachable surface: readable labels, recessed
@@ -14,12 +14,12 @@ import { useId } from "react";
 import { Button } from "@/components/shadcn/button";
 import { Switch } from "@/components/shadcn/switch";
 
-/** Full-width picker trigger — the recessed well every dropdown in
+/** Full-width picker trigger: the recessed well every dropdown in
  *  the rail uses. Pair with `CONSOLE_MENU_ITEM_CLS` for the items. */
 export const CONSOLE_TRIGGER_CLS =
 	"group w-full flex items-center gap-2.5 px-3 py-2.5 min-h-11 text-[14px] rounded-lg border transition-colors cursor-pointer text-nova-text bg-nova-deep/50 border-white/[0.06] hover:border-nova-violet/30";
 
-/** Menu items for the rail's pickers — the rail's type size over the
+/** Menu items for the rail's pickers: the rail's type size over the
  *  shared menu-item box (sizing and alignment come from `MENU_ITEM_BASE`). */
 export const CONSOLE_MENU_ITEM_CLS = "text-[14px]";
 
@@ -30,7 +30,7 @@ export const INSPECTOR_LABEL_CLS =
 	"text-[13px] font-medium leading-5 text-nova-text-secondary";
 
 /** The recessed single-line input well every text field in the rail uses.
- *  Pure `focus:` ring — for inputs that also carry a refusable state, build
+ *  Pure `focus:` ring, for inputs that also carry a refusable state, build
  *  the focused class by hand (see EditableText) so a rejection border isn't
  *  overridden by the focus pseudo-class. */
 export const INSPECTOR_INPUT_CLS =
@@ -70,7 +70,7 @@ export function InspectorHint({
 }
 
 /**
- * Labeled on/off row — the label and its meaning are always visible,
+ * Labeled on/off row: the label and its meaning are always visible,
  * the switch carries the state. The whole row toggles, so the target
  * is the full rail width, never just the switch.
  */
@@ -108,7 +108,7 @@ export function ToggleRow({
 
 /**
  * The inspector's standard footer action for taking the inspected
- * thing out of the app — "Remove column", "Remove filter", "Remove
+ * thing out of the app: "Remove column", "Remove filter", "Remove
  * search field". Its persistent rose treatment communicates the cost before
  * hover; a later confirmation is an additional safeguard, not the first cue.
  * One shape across every body so removal always lives in the same place: last.
@@ -151,7 +151,7 @@ export function RemoveRow({
 }
 
 /**
- * Labeled segmented control — every option visible, every option a
+ * Labeled segmented control: every option visible, every option a
  * full-size target. Use for short mutually-exclusive choices where a
  * dropdown would hide the alternatives.
  */

@@ -67,7 +67,7 @@ import { resolveSortedColumns } from "./sortPriority";
 
 export interface CaseOrderingComposerProps {
 	/** The whole config, because both lists this composer shows are Results
-	 *  sequences — the sorted carriers and the fields still available to add. */
+	 *  sequences: the sorted carriers and the fields still available to add. */
 	readonly config: CaseListConfig;
 	readonly value: readonly Column[];
 	readonly caseType?: CaseType;

@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 /**
- * useFormRows integration tests — subscription shape, memoization, and
+ * useFormRows integration tests: subscription shape, memoization, and
  * collapse reactivity against a real BlueprintDoc store.
  *
  * Uses `BlueprintDocProvider` (the public provider surface) rather than
@@ -94,7 +94,7 @@ describe("useFormRows", () => {
 					includeInsertionPoints: false,
 					collapsed: EMPTY_COLLAPSE,
 				}),
-				/** Imperative store access for test mutations — goes through
+				/** Imperative store access for test mutations: goes through
 				 *  the public hook API, not a raw store import. */
 				storeApi: useBlueprintDocApi(),
 			}),
@@ -165,14 +165,14 @@ describe("useFormRows", () => {
 			]);
 		});
 
-		/* Group is expanded — all 3 field rows present (form's A + B,
+		/* Group is expanded: all 3 field rows present (form's A + B,
 		 * plus group's child z). */
 		expect(result.current.rows.filter((r) => r.kind === "field")).toHaveLength(
 			3,
 		);
 
 		rerender({ collapsed: new Set([groupUuid]) });
-		/* Group is collapsed — child is gone, only bracket rows remain. */
+		/* Group is collapsed: child is gone, only bracket rows remain. */
 		expect(result.current.rows.filter((r) => r.kind === "field")).toHaveLength(
 			2,
 		);

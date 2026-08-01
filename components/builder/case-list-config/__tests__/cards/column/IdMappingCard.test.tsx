@@ -344,7 +344,7 @@ describe("IdMappingCard — table mutations", () => {
 		const valueInput = screen.getByLabelText(
 			"Value 1 saved value",
 		) as HTMLInputElement;
-		// Focus the input first — the commit re-sync effect inside
+		// Focus the input first: the commit re-sync effect inside
 		// the input checks `document.activeElement === inputRef.current`
 		// before letting the local draft hold its in-flight value;
 		// without focus, the draft would re-sync to the source on

@@ -1,5 +1,5 @@
 /**
- * InteractiveFormRenderer — recursive renderer for preview mode.
+ * InteractiveFormRenderer: recursive renderer for preview mode.
  *
  * Mode matrix:
  *
@@ -23,12 +23,12 @@
  *     complete the form; `data-invalid` surfaces validation errors.
  *
  * Non-semantic differences from the legacy recursive `FormRenderer`:
- *   - No `useSortable` / `DragDropProvider` — nothing is reorderable here.
- *   - No `EditableFieldWrapper` — selection is an edit-time affordance.
- *   - No `InsertionPoint` — insertion is an edit-time affordance.
+ *   - No `useSortable` / `DragDropProvider`: nothing is reorderable here.
+ *   - No `EditableFieldWrapper`: selection is an edit-time affordance.
+ *   - No `InsertionPoint`: insertion is an edit-time affordance.
  *
  * **Flipbook parity.** Every row renders at `paddingLeft: depthPadding(depth)`
- * with `paddingRight: depthPadding(depth)` — the same gutter formula the
+ * with `paddingRight: depthPadding(depth)`, the same gutter formula the
  * virtualized edit view uses. `leadingGap` adds a 24px top pad at the
  * container, matching edit mode's `insertion(0)` row. Together these give
  * the two modes pixel-identical layout at every level of nesting so a
@@ -58,7 +58,7 @@ import { depthPadding } from "./virtual/rowStyles";
 // ── Props ─────────────────────────────────────────────────────────────
 
 interface InteractiveFormRendererProps {
-	/** Entity uuid that owns this level's children — formUuid at the root,
+	/** Entity uuid that owns this level's children: formUuid at the root,
 	 *  group/repeat uuid inside a nested container. */
 	readonly parentEntityId: string;
 	/** XForm data path prefix for descendants. Defaults to `"/data"` at the
@@ -182,7 +182,7 @@ const InteractiveField = memo(function InteractiveField({
 	// the field + engine state is paid per-field. Siblings whose
 	// visibility toggles independently don't affect this row.
 	if (!field) return null;
-	// `hidden` fields are authoring-time only — they never render in
+	// `hidden` fields are authoring-time only: they never render in
 	// interactive mode. The edit view keeps a compact card so authors
 	// can still edit them.
 	if (field.kind === "hidden") return null;
@@ -193,12 +193,12 @@ const InteractiveField = memo(function InteractiveField({
 	const fieldPath = fpath(fieldId, parentPath);
 
 	// Transparent group: an empty/absent label means the group has no UI
-	// chrome at runtime — matches CommCare's behavior for unlabeled
+	// chrome at runtime: matches CommCare's behavior for unlabeled
 	// `<group>` elements. Render the children inline at the same depth as
 	// the group's siblings (so visible children appear flush with the
 	// surrounding form structure, not inside an empty section); hidden-
 	// only contents disappear entirely. We skip the outer `mb-6` wrapper
-	// too — siblings of the parent contribute their own row spacing, so
+	// too: siblings of the parent contribute their own row spacing, so
 	// the transparent group adds zero visual footprint.
 	//
 	// Edit-mode rendering still surfaces empty-labeled groups via
@@ -214,7 +214,7 @@ const InteractiveField = memo(function InteractiveField({
 					Section {position}.
 				</span>
 				{/* A label-less group is transparent in preview, but its
-				    `label_media` is authored content — without this it vanishes on
+				    `label_media` is authored content: without this it vanishes on
 				    the edit→preview flip (edit renders it in the GroupBracket
 				    "Untitled group" header). Render it depth-padded to the group's
 				    column, above the inline children, keeping the group otherwise
@@ -248,13 +248,13 @@ const InteractiveField = memo(function InteractiveField({
 	// without maintaining a second copy. A blank authored label stays blank,
 	// and the sr-only fallback below carries the position instead.
 	// Always the question node's id, never gated on the label being
-	// authored: that node exists either way — it holds the visible label
+	// authored: that node exists either way, it holds the visible label
 	// when there is one and the sr-only "Question N." fallback when
 	// there is not. Gating it left a blank-labelled question's control
 	// with no accessible name at all, which is strictly worse than the
 	// position the fallback already provides.
 	const labelId = questionLabelId;
-	// The capture control names itself with the FULL context — its recovery
+	// The capture control names itself with the FULL context, its recovery
 	// messages are read out of the question's flow, so they need the ancestor
 	// trail. An ordinary control points at the visible question alone, so a
 	// repeated instance's accessible name is exactly the question a worker
@@ -314,7 +314,7 @@ const InteractiveField = memo(function InteractiveField({
 					paddingRight: depthPadding(depth),
 				}}
 			>
-				{/* Label media — image above the prompt / audio / video, the way
+				{/* Label media: image above the prompt / audio / video, the way
 				    CommCare renders a question's `<value form="image">`. Live
 				    controls in preview mode; mounted at the same position as the
 				    edit-mode `FieldRow` so the flipbook doesn't drift. */}
@@ -324,7 +324,7 @@ const InteractiveField = memo(function InteractiveField({
 						{/* `px-[5px] py-[5px]` matches TextEditable's idle
 						 *  wrapper in edit mode for flipbook parity. Without
 						 *  this, every leaf field is 10px shorter in live
-						 *  mode than in edit mode — see the matching note
+						 *  mode than in edit mode: see the matching note
 						 *  in `GroupField`. */}
 						<div
 							id={questionLabelId}
@@ -365,13 +365,13 @@ const InteractiveField = memo(function InteractiveField({
 						/>
 					</div>
 				)}
-				{/* Hint media — sits with the hint, above the input. `hint_media`
+				{/* Hint media: sits with the hint, above the input. `hint_media`
 				    is only on input-capable kinds, so guard the access. */}
 				<MediaDisplay
 					media={"hint_media" in field ? field.hint_media : undefined}
 					interactive
 				/>
-				{/* Help text + help media — shown inline in the builder preview
+				{/* Help text + help media: shown inline in the builder preview
 				    (CommCare hides help behind a "?"); both slots are input-kind
 				    only, so guard the access. */}
 				<FieldHelp

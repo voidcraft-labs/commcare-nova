@@ -2,7 +2,7 @@
  * Form-row card in the AppTree sidebar.
  *
  * Renders the form header (type icon, name, optional Connect marker)
- * plus — when expanded — the nested list of top-level FieldRows for
+ * plus: when expanded, the nested list of top-level FieldRows for
  * the form's fields. Subscribes by UUID to exactly this form's entity
  * and its field-order array, so unrelated form edits do not re-render
  * this card.
@@ -68,7 +68,7 @@ export const FormCard = memo(function FormCard({
 	 *  checks work without an existence guard. */
 	const fieldUuids = useOrderedFields(formId);
 
-	/** Boolean selection — URL-driven via useIsFormSelected.
+	/** Boolean selection: URL-driven via useIsFormSelected.
 	 *  Only this form + the previously selected re-render on change. */
 	const isSelected = useIsFormSelected(formId);
 
@@ -163,7 +163,7 @@ export const FormCard = memo(function FormCard({
 				{!locked && (
 					<TreeRowDelete label="Delete form" onDelete={handleDelete} />
 				)}
-				{/* Outermost on every row type — one constant right-edge offset
+				{/* Outermost on every row type: one constant right-edge offset
 				 *  (the hover-delete fades in just inboard). */}
 				<PeerBadge uuid={formId} />
 			</TreeItemRow>

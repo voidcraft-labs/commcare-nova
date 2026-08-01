@@ -155,7 +155,7 @@ describe("planKeyboardMove", () => {
 	});
 
 	// The bug this arm exists to stop: a type refusal used to borrow the
-	// reference wording and name whatever `dependsOn` happened to hold —
+	// reference wording and name whatever `dependsOn` happened to hold:
 	// a change that is not the blocker, described through an edge that
 	// does not exist.
 	it("says a target-type refusal in its own words, and never the reference ones", () => {

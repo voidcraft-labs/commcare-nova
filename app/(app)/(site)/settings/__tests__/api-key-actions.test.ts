@@ -26,7 +26,7 @@ const mocks = vi.hoisted(() => {
 	const headers = vi.fn(async () => new Headers());
 
 	/** Stand-in for the `auth_apikey` rows `getAuthDb()` reads during race
-	 *  compensation. The default is "no rows for this user" —
+	 *  compensation. The default is "no rows for this user":
 	 *  race-compensation tests set `apikeySnapshot.rows` to surface specific
 	 *  position orderings. The delete branch records every targeted id (the
 	 *  `where("id", "=", …)` value) so a test can assert which row was pruned. */
@@ -69,7 +69,7 @@ const mocks = vi.hoisted(() => {
 		getSession.mockReset();
 		countUserApiKeys.mockReset();
 		isUserActive.mockReset();
-		/* Default to active — banned-user tests opt in by overriding. */
+		/* Default to active: banned-user tests opt in by overriding. */
 		isUserActive.mockResolvedValue(true);
 		createApiKey.mockReset();
 		deleteApiKey.mockReset();
@@ -99,7 +99,7 @@ const mocks = vi.hoisted(() => {
 });
 
 vi.mock("@/lib/auth-utils", async () => {
-	/* `callerIpFromHeaders` is a pure helper — re-export the real
+	/* `callerIpFromHeaders` is a pure helper: re-export the real
 	 * implementation so the audit-log IP normalization is exercised
 	 * end-to-end (any future test passing a fake Headers object with
 	 * a real `x-forwarded-for` value gets the actual `isValidIP` /
@@ -116,7 +116,7 @@ vi.mock("@/lib/auth-utils", async () => {
 });
 
 vi.mock("@/lib/db/api-keys", async () => {
-	/* `toISOString` / `toISOStringOrNull` are pure helpers — re-export
+	/* `toISOString` / `toISOStringOrNull` are pure helpers: re-export
 	 * the real implementations rather than mocking, so the date
 	 * conversion is exercised end-to-end against the `Date` values
 	 * Postgres returns. */
@@ -143,7 +143,7 @@ vi.mock("@/lib/auth", () => ({
 	}),
 }));
 
-/* `lib/auth-public` is the client-safe seam — must be mocked
+/* `lib/auth-public` is the client-safe seam: must be mocked
  * separately from `@/lib/auth` since they're different modules from
  * vitest's POV. */
 vi.mock("@/lib/auth-public", () => ({
@@ -166,7 +166,7 @@ vi.mock("next/headers", () => ({
 }));
 
 /* `getAuthDb` is the auth-table surface the action's race-compensation path
- * reaches — it reads sibling `auth_apikey` rows for position resolution and may
+ * reaches: it reads sibling `auth_apikey` rows for position resolution and may
  * delete the just-minted row. The fake row set is configured per-test via
  * `mocks.apikeySnapshot`. */
 vi.mock("@/lib/auth/db", () => ({
@@ -216,7 +216,7 @@ describe("mintApiKey", () => {
 		 * `getSession()` can return a still-truthy session for a banned
 		 * user during the cache window. The action's secondary
 		 * `isUserActive` check is the live-revocation lock that closes
-		 * that gap — same pattern as `requireAdminAccess`'s direct
+		 * that gap: same pattern as `requireAdminAccess`'s direct
 		 * Postgres read. Mirrors the MCP route's `isUserActive`
 		 * lookup so the two surfaces agree on "user can act." */
 		mocks.getSession.mockResolvedValue({ user: sessionUser });
@@ -305,7 +305,7 @@ describe("mintApiKey", () => {
 		 * count=11. Each caller's compensating action reads the row
 		 * set, sorts deterministically, and deletes only its own
 		 * row when its position falls beyond the limit. This test
-		 * stages the post-create state for the LOSER caller — the
+		 * stages the post-create state for the LOSER caller: the
 		 * just-created row sits at position 10 (the 11th-newest),
 		 * so the action must delete it and surface the limit error. */
 		mocks.getSession.mockResolvedValue({ user: sessionUser });
@@ -322,7 +322,7 @@ describe("mintApiKey", () => {
 		/* Snapshot the user's apikey rows in the order Postgres
 		 * would surface them. Newer rows have later `createdAt`;
 		 * the just-minted (`KEY_ID_MINE`) is the LATER of the two
-		 * race winners, putting it at position 10 — the loser slot. */
+		 * race winners, putting it at position 10: the loser slot. */
 		const baseTime = new Date("2026-04-22T11:00:00.000Z").getTime();
 		mocks.apikeySnapshot.rows = [
 			...Array.from({ length: 9 }, (_, i) => ({
@@ -356,8 +356,8 @@ describe("mintApiKey", () => {
 	});
 
 	it("compensating delete: when count→create races push the user over the limit, a winner row is kept and success returns", async () => {
-		/* Symmetric scenario to the loser test. Same race shape —
-		 * pre-flight 9, post-create 11 — but the just-minted row
+		/* Symmetric scenario to the loser test. Same race shape:
+		 * pre-flight 9, post-create 11, but the just-minted row
 		 * sits at position 9 (the 10th-newest, last allowed slot).
 		 * The action must NOT delete it; the success result returns
 		 * with the plaintext key. The OTHER racing caller (not
@@ -444,7 +444,7 @@ describe("mintApiKey", () => {
 			permissions: { scope: ["nova.read", "nova.write", "nova.hq.write"] },
 			userId: "user-1",
 		});
-		/* Critically, `headers` is NOT passed — the plugin's create
+		/* Critically, `headers` is NOT passed: the plugin's create
 		 * endpoint rejects `permissions` (and other server-only props) as
 		 * `SERVER_ONLY_PROPERTY` when `ctx.headers` is set, and we want
 		 * to pass permissions. Server-only mode (no headers, explicit
@@ -559,7 +559,7 @@ describe("revokeApiKey", () => {
 	});
 
 	it("rejects keyIds that don't match Better Auth's generateId shape", async () => {
-		/* `isValidKeyId` matches `^[a-zA-Z0-9]{32}$` exactly — the
+		/* `isValidKeyId` matches `^[a-zA-Z0-9]{32}$` exactly: the
 		 * literal output of `@better-auth/core/utils/id::generateId`.
 		 * Lock the tighter contract in: anything else (HTML, control
 		 * chars, slashes, off-length, non-alphanumeric chars) is
@@ -602,7 +602,7 @@ describe("revokeApiKey", () => {
 	it("treats plugin KEY_NOT_FOUND as idempotent success and emits the audit-log warning (covers missing + not-owned)", async () => {
 		/* The plugin's deleteApiKey throws KEY_NOT_FOUND for both
 		 * "no such row" and "row exists but referenceId !== this user".
-		 * Server Action collapses both into success — same UX outcome
+		 * Server Action collapses both into success: same UX outcome
 		 * (the key is gone from the user's perspective), and matches
 		 * the plugin's deliberate non-leaking collapse.
 		 *
@@ -721,7 +721,7 @@ describe("editApiKeyScopes", () => {
 				},
 				userId: "user-1",
 			},
-			/* No `headers` — same `SERVER_ONLY_PROPERTY` rationale as the
+			/* No `headers`: same `SERVER_ONLY_PROPERTY` rationale as the
 			 * mint test above. The update endpoint rejects `permissions`
 			 * when `ctx.headers` is set; server-only mode is the right path. */
 		});

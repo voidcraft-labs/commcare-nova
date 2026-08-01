@@ -1,5 +1,5 @@
 /**
- * `POST /api/compile/json` — media-aware HQ-JSON export.
+ * `POST /api/compile/json`: media-aware HQ-JSON export.
  *
  * A media-free app returns a plain JSON file (unchanged). An app WITH
  * media returns a `.zip` bundling the media-ON JSON + a CommCare-HQ
@@ -120,7 +120,7 @@ describe("POST /api/compile/json", () => {
 		expect(res.status).toBe(200);
 		expect(res.headers.get("content-type")).toContain("application/json");
 		expect(res.headers.get("content-disposition")).toContain(".json");
-		// The seq rides out-of-band in the response header — the JSON body stays
+		// The seq rides out-of-band in the response header: the JSON body stays
 		// the byte-identical HQ-import artifact.
 		expect(res.headers.get("x-compiled-at-seq")).toBe("13");
 		expect(JSON.parse(await res.text())).toMatchObject({
@@ -150,7 +150,7 @@ describe("POST /api/compile/json", () => {
 		expect(res.status).toBe(200);
 		expect(res.headers.get("content-type")).toContain("application/zip");
 		expect(res.headers.get("content-disposition")).toContain(".zip");
-		// The media-bearing shape carries the seq in the same header — the zip
+		// The media-bearing shape carries the seq in the same header, the zip
 		// body (JSON + multimedia + README) stays byte-identical.
 		expect(res.headers.get("x-compiled-at-seq")).toBe("13");
 
@@ -194,7 +194,7 @@ describe("POST /api/compile/json", () => {
 
 		const res = await POST(reqWith({ appId: "a1" }));
 		// Read the body (asserting the message + closing the response
-		// stream — an unread error body leaks under the async-leak gate).
+		// stream: an unread error body leaks under the async-leak gate).
 		const body = (await res.json()) as { error: string; details?: string[] };
 
 		expect(res.status).toBe(422);

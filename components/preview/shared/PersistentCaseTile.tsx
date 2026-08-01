@@ -2,7 +2,7 @@
 //
 // The tile pinned above every form in a module whose case list asked to
 // keep it there (`caseListConfig.tile.persistOnForms`). It is the same
-// tile Results draws — same projection, same cells, same geometry —
+// tile Results draws: same projection, same cells, same geometry:
 // because both surfaces are driven by the one short detail, and a worker
 // who picked a case from a tile must recognise the band above the form
 // as that exact case.
@@ -46,8 +46,8 @@ export function PersistentCaseTile({
 }: PersistentCaseTileProps) {
 	/* A read of its own, with the display config attached, so calculated
 	 * cells project exactly as they did in Results. The form's own case
-	 * read deliberately carries no display config — it feeds the engine,
-	 * not a screen — and widening it would put this band's concerns inside
+	 * read deliberately carries no display config: it feeds the engine,
+	 * not a screen, and widening it would put this band's concerns inside
 	 * the engine's preload identity. */
 	const { state, reload } = useCaseData({
 		appId,
@@ -107,7 +107,7 @@ export function PersistentCaseTile({
 }
 
 /**
- * The band still says something when the case behind it can't be shown —
+ * The band still says something when the case behind it can't be shown:
  * a silently empty strip above a form reads as a rendering bug. Retry is
  * offered only where retrying can change the answer.
  */

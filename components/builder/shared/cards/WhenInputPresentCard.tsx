@@ -1,6 +1,6 @@
 // components/builder/shared/cards/WhenInputPresentCard.tsx
 //
-// Renders the `when-input-present` predicate — search-input
+// Renders the `when-input-present` predicate: search-input
 // dropdown plus a nested predicate editor for the inner clause.
 // Authors compose conditional inclusion ("apply this filter only
 // when the user typed in the input").

@@ -1,5 +1,5 @@
 /**
- * `POST /api/compile` (.ccz compile) — boundary gate + inline-return tests.
+ * `POST /api/compile` (.ccz compile): boundary gate + inline-return tests.
  *
  * This route is media-ON (the archive bundles media bytes) and boundary-
  * gated: any validator finding returns an actionable 422 before expand
@@ -141,7 +141,7 @@ describe("POST /api/compile — boundary gate", () => {
 
 		expect(res.status).toBe(422);
 		expect(body.details?.[0]).toContain("wrong type");
-		/* The gate short-circuits BEFORE expand + compile — neither runs
+		/* The gate short-circuits BEFORE expand + compile: neither runs
 		 * on a media-invalid doc. */
 		expect(expandDoc).not.toHaveBeenCalled();
 		expect(compileCcz).not.toHaveBeenCalled();
@@ -169,7 +169,7 @@ describe("POST /api/compile — inline archive return", () => {
 		expect(res.status).toBe(200);
 		expect(res.headers.get("content-type")).toBe("application/octet-stream");
 		// Filename derives from the (sanitized) app name; the bytes ARE the
-		// compiled archive — there is no storage round-trip or download URL.
+		// compiled archive: there is no storage round-trip or download URL.
 		expect(res.headers.get("content-disposition")).toBe(
 			'attachment; filename="Vaccine Tracker.ccz"',
 		);

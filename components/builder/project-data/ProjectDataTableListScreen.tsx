@@ -3,7 +3,7 @@
  * Project, with what each one holds.
  *
  * A row states the table's name, the tag apps and exports address it by, and
- * its size in both units that can stop a write — rows and stored bytes —
+ * its size in both units that can stop a write: rows and stored bytes:
  * because the two caps bind independently and a surface that shows only one
  * leaves an author guessing which limit refused them.
  */

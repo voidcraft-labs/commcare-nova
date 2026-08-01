@@ -1,14 +1,14 @@
 /**
- * FieldPicker — shared Base UI Autocomplete for selecting form fields.
+ * FieldPicker: shared Base UI Autocomplete for selecting form fields.
  *
  * Provides a searchable dropdown of form fields with kind icons and
- * labels. Reusable anywhere a user needs to reference a field by ID —
+ * labels. Reusable anywhere a user needs to reference a field by ID:
  * close conditions, future XPath field pickers, etc.
  *
  * Consumes the normalized doc directly (`fields` + `fieldOrder` maps).
  * The flat list of selectable entries comes from `collectFieldEntries`,
  * the same walker used by CodeMirror XPath autocomplete and TipTap
- * reference chips — so field lookups stay consistent across surfaces.
+ * reference chips, so field lookups stay consistent across surfaces.
  */
 "use client";
 import { Autocomplete } from "@base-ui/react/autocomplete";
@@ -44,7 +44,7 @@ export interface FieldEntry {
 	labelProjection: ReturnType<
 		typeof collectFieldEntries
 	>[number]["labelProjection"];
-	/** Field kind (text, single_select, etc.) — drives the icon. */
+	/** Field kind (text, single_select, etc.): drives the icon. */
 	kind: FieldKind;
 }
 
@@ -96,7 +96,7 @@ interface FieldPickerProps {
 	onChange: (uuid: Uuid) => void;
 	/** Label text shown above the input. */
 	label: string;
-	/** Optional kind filter — defaults to `VALUE_PRODUCING_TYPES`. */
+	/** Optional kind filter: defaults to `VALUE_PRODUCING_TYPES`. */
 	typeFilter?: ReadonlySet<FieldKind>;
 	/** Placeholder text for empty state. */
 	placeholder?: string;

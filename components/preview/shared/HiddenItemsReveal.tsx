@@ -10,7 +10,7 @@ export interface HiddenNavigationItem {
 	readonly key: string;
 	readonly name: string;
 	/** Person-readable condition summary (display-only prose from
-	 *  `summarizeFilter`) — why the item is hidden right now. */
+	 *  `summarizeFilter`): why the item is hidden right now. */
 	readonly summary?: string;
 }
 

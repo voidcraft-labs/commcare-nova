@@ -1,5 +1,5 @@
 /**
- * Build page — Server Component that fetches app data and composes the
+ * Build page: Server Component that fetches app data and composes the
  * client-side builder tree.
  *
  * This page uses an optional catch-all route (`[[...path]]`) so Next.js
@@ -12,7 +12,7 @@
  *   /build/{id}/{uuid}/details → case-details authoring
  *   /build/{id}/{uuid}/cases/{caseId} → case record
  *
- * The `path` param is NOT read here — all path resolution happens
+ * The `path` param is NOT read here: all path resolution happens
  * client-side in `useLocation()` (via `useBuilderPathSegments` +
  * `parsePathToLocation`). Navigation uses the browser History API
  * (pushState/replaceState) so intra-builder screen changes are purely
@@ -24,7 +24,7 @@
  *
  * Conversation state loads here too: the thread list plus the most
  * recently active thread's full transcript, so a refresh always lands
- * back in the conversation the user was in — including a thread whose
+ * back in the conversation the user was in, including a thread whose
  * run is still streaming (the client reconnects to it by thread id).
  */
 
@@ -60,7 +60,7 @@ export default async function BuilderPage({
 	if (!session) redirect("/");
 	const commcareSettings = await getCommCareSettings(session.user.id);
 
-	/* During impersonation, session.user is the target — surface their
+	/* During impersonation, session.user is the target: surface their
 	 * identity so BuilderHeader shows the banner, mirroring the site
 	 * header in `(site)/layout.tsx`. */
 	const impersonating = session.session.impersonatedBy
@@ -98,7 +98,7 @@ export default async function BuilderPage({
 		);
 	}
 
-	/* Project-membership gate (view) — any member may open the builder; edit
+	/* Project-membership gate (view): any member may open the builder; edit
 	 * is enforced at the write paths (PUT / chat / MCP). Denials collapse to
 	 * notFound() to avoid leaking another Project's app. */
 	let app: AppDoc;
@@ -125,14 +125,14 @@ export default async function BuilderPage({
 		if (err instanceof AppAccessError) notFound();
 		throw err;
 	}
-	/* `complete` apps open normally, and so does a `generating` build — the
+	/* `complete` apps open normally, and so does a `generating` build, the
 	 * builder hydrates its thread and reconnects to the live stream, so a
 	 * refresh mid-build resumes instead of locking the user out. `error`
 	 * builds are decided BELOW, off the thread load: a build whose run died
-	 * mid-flight (instance kill — the reaper flipped it to `error`, the
+	 * mid-flight (instance kill: the reaper flipped it to `error`, the
 	 * thread heal just stripped its dead stream marker) is admitted so the
 	 * client can auto-re-drive the interrupted turn; every other error app
-	 * still redirects — there is no run to rejoin and no usable app behind
+	 * still redirects: there is no run to rejoin and no usable app behind
 	 * it. */
 	if (
 		app.status !== "complete" &&
@@ -142,14 +142,14 @@ export default async function BuilderPage({
 		redirect("/");
 	}
 
-	/* Viewers (view-only members) get the read-only builder — every edit
+	/* Viewers (view-only members) get the read-only builder: every edit
 	 * affordance hides and auto-save is suppressed. Editors/admins/owners
 	 * edit normally. The write paths enforce this server-side regardless. */
-	/* Conversations — the list plus the most recent thread's transcript.
+	/* Conversations: the list plus the most recent thread's transcript.
 	 * Best-effort for a COMPLETE app (the builder is fully usable without
 	 * chat history, so a read fault degrades to an empty conversation, never
 	 * a 500). A GENERATING app is different: it was admitted PRECISELY so the
-	 * live build resumes, and that resume rides the hydrated thread — landing
+	 * live build resumes, and that resume rides the hydrated thread, landing
 	 * without it would show a half-built app with an empty chat and no sign a
 	 * build is running, so the degraded path keeps the old redirect. */
 	let threads: LoadedThreadMeta[] = [];
@@ -170,11 +170,11 @@ export default async function BuilderPage({
 
 	/* An `error` app earns admission ONLY as an interrupted build: the
 	 * hydrated thread carries a dead live-stream marker (`loadThread` derives
-	 * `resume_interrupted` itself — the detection is level-triggered, so it
+	 * `resume_interrupted` itself: the detection is level-triggered, so it
 	 * doesn't matter which loader read the row first, and a NON-most-recent
 	 * interrupted thread keeps its own signal for the Conversations list to
-	 * act on). Anything else — a build that failed and finalized cleanly, a
-	 * faulted hydration — keeps the old redirect. */
+	 * act on). Anything else: a build that failed and finalized cleanly, a
+	 * faulted hydration: keeps the old redirect. */
 	const buildInterrupted =
 		app.status === "error" && initialThread?.resume_interrupted === true;
 	if (app.status === "error" && !buildInterrupted) redirect("/");

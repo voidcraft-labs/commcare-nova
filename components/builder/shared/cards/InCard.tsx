@@ -82,7 +82,7 @@ export function inDefault(
 		acceptsType(subjectConstraint, effectiveDataType(candidate)),
 	);
 	const propName = property?.name ?? "";
-	// Seed the value of the property's OWN type — a text `literal("")`
+	// Seed the value of the property's OWN type: a text `literal("")`
 	// opposite a non-text first property would be a soundness error.
 	return isIn(
 		prop(ctx.currentCaseType, propName),
@@ -108,7 +108,7 @@ export function InCard({ value, onChange, path }: InCardProps) {
 			? value.left.term.property
 			: undefined;
 
-	// The subject (left) drives each membership value — the value
+	// The subject (left) drives each membership value: the value
 	// widgets are typed against the `in` value constraint (compatible
 	// with the subject), and a change of subject reseeds any
 	// now-incompatible value in the same onChange. `inValueConstraint`

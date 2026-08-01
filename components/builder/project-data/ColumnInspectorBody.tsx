@@ -9,7 +9,7 @@
  *   - the WIRE NAME is an external contract every export and every CSV header
  *     uses, so it needs the `delete` capability;
  *   - the TYPE and REMOVAL are destructive or contract-breaking, need `delete`,
- *     AND need zero apps referencing the column — which is what the
+ *     AND need zero apps referencing the column, which is what the
  *     confirmation names before it happens.
  */
 "use client";

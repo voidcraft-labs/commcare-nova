@@ -77,14 +77,14 @@ import {
 } from "../form/fields/attachment/attachmentClient";
 
 /**
- * Failure arms of `SubmissionResult` — the complement of the success
+ * Failure arms of `SubmissionResult`: the complement of the success
  * set. Pulling the union as a type so `describeSubmitError`'s switch
  * stays exhaustive against any future arm added to the result type.
  * Success arms mirror `SubmissionMutation`'s `FormType` discriminator
  * (one per `FormType`); the handler short-circuits on those and routes
  * everything else through this failure shape. Keying the `Exclude` off
  * `FormType` itself (rather than the four literals inline) keeps the
- * partition aligned with the source-of-truth `FormType` union — a new
+ * partition aligned with the source-of-truth `FormType` union, a new
  * form type landing in `FORM_TYPES` re-narrows this type automatically.
  */
 type SubmissionFailure = Exclude<SubmissionResult, { kind: FormType }>;
@@ -92,7 +92,7 @@ type SubmissionFailure = Exclude<SubmissionResult, { kind: FormType }>;
 /**
  * Shape a `SubmissionResult` failure arm into the inline error string
  * rendered below the submit row. Mirrors `CaseListScreen`'s
- * `describePopulateError` shape — typed errors get readable text that
+ * `describePopulateError` shape: typed errors get readable text that
  * names the affected entity so the user can amend without parsing the
  * case-store's vocabulary. `case-properties-validation` renders the
  * per-field failure list one line per failure.
@@ -108,7 +108,7 @@ function describeSubmitError(result: SubmissionFailure): string {
 		case "case-properties-validation": {
 			/* AJV's `path` is the JSONB pointer (`/age`, or `""` for the
 			 * document root); strip the leading slash for readability and
-			 * substitute `<root>` for the empty path — same shape
+			 * substitute `<root>` for the empty path: same shape
 			 * `describePopulateError` uses so the two surfaces stay
 			 * visually consistent. The header names `result.caseType` so
 			 * registration forms with multi-case fan-out tell the user
@@ -132,7 +132,7 @@ function describeSubmitError(result: SubmissionFailure): string {
 }
 
 /**
- * Person-readable copy for the atomic envelope's typed rejections —
+ * Person-readable copy for the atomic envelope's typed rejections:
  * the whole submission rolled back, matching the device's transaction
  * failure. Each sentence says what went wrong and what to look at; the
  * operation uuid stays out of the prose (it names nothing a worker
@@ -186,7 +186,7 @@ function describeSubmissionRejection(
 }
 
 /**
- * Submit lifecycle. Mirrors `CaseListScreen`'s `populateStatus` —
+ * Submit lifecycle. Mirrors `CaseListScreen`'s `populateStatus`:
  * three arms covering idle, in-flight, and per-arm error. The error
  * arm carries the already-shaped user-facing string so the render
  * layer doesn't re-walk the failure shape.
@@ -211,7 +211,7 @@ interface SubmissionContextSnapshot {
 interface FormScreenProps {
 	/** Passed from PreviewShell so the subtree stays valid while Activity hides it. Only `caseId` is consumed here. */
 	screen: Extract<PreviewScreen, { type: "form" }>;
-	/** BuilderLayout's back handler — also the fallback post-submit destination for `previous` forms. */
+	/** BuilderLayout's back handler: also the fallback post-submit destination for `previous` forms. */
 	onBack: () => void;
 }
 
@@ -236,18 +236,18 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	const previewIdentity = useSelectedPreviewIdentity();
 	const session = useBuilderSessionApi();
 	/* A viewer may preview the running app but not WRITE case data (submit a
-	 * form, generate sample cases) — those server actions are edit-gated, so
+	 * form, generate sample cases): those server actions are edit-gated, so
 	 * disable their controls rather than let a viewer hit a server error.
 	 * (Distinct from the `canEdit` below, which is preview-vs-edit MODE.) */
 	const mayWriteCaseData = useCanEdit();
-	/* The MATERIALIZABLE view — the exact shape `case_type_schemas`
+	/* The MATERIALIZABLE view: the exact shape `case_type_schemas`
 	 * validates against. Submission coercion must agree with the insert
 	 * schema's writer-derived property types. */
 	const caseTypes = useMaterializableCaseTypes();
 
 	/* `form-condition` and `form-operations` are this form's own
 	 * configuration URLs, and Preview runs a configuration URL's owning
-	 * item — so they identify the same form here. Neither carries a field
+	 * item, so they identify the same form here. Neither carries a field
 	 * selection. */
 	const atForm =
 		loc.kind === "form" ||
@@ -266,7 +266,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	/* Direct preview of a case-loading form with no case in hand (jumped here
 	 * from the structure tree, not walked through the case list): auto-bind
 	 * the first available case so the form is usable. Nothing should block
-	 * previewing the screen you're editing — same stance as the case list,
+	 * previewing the screen you're editing: same stance as the case list,
 	 * which runs against real sample data rather than gating on navigation.
 	 * The query stays idle (no caseType) unless we're actually auto-selecting. */
 	const autoSelectCase =
@@ -315,7 +315,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		effectiveCaseId !== undefined &&
 		bindingRevisionRef.current.revision !== replacementRevision;
 
-	/* The form's readable case-type chain — which `#<type>/<prop>`
+	/* The form's readable case-type chain, which `#<type>/<prop>`
 	 * namespace binds to which parent-hop depth, and how deep the
 	 * server-side ancestor walk needs to go. Serialized to a string so
 	 * its identity tracks CONTENT: the catalog array is a fresh
@@ -341,7 +341,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	);
 
 	/* Keyed on `effectiveCaseId` (not just the nav-provided `caseId`) so an
-	 * auto-selected case also gets its full row + ancestor chain loaded —
+	 * auto-selected case also gets its full row + ancestor chain loaded:
 	 * ancestor refs (`#<parent_type>/<prop>`) need the parent rows, which
 	 * the auto-select list query doesn't carry. */
 	const { state: caseDataState } = useCaseData({
@@ -351,7 +351,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		ancestorDepth: Math.max(0, reachableChain.length - 1),
 	});
 
-	/* The settled row arm alone — NOT the whole load state — keys the
+	/* The settled row arm alone: NOT the whole load state, keys the
 	 * preload memo. The idle→loading transition would otherwise mint a
 	 * data-identical map whose fresh identity re-fires useFormEngine's
 	 * effect and rebuilds the engine, wiping anything typed in the
@@ -360,7 +360,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 
 	/** Preload from the loaded case + its ancestors; the bare auto-selected
 	 *  row bridges the load window (own-type data only, ancestors follow
-	 *  when the load settles — that one re-supply recreates the engine,
+	 *  when the load settles: that one re-supply recreates the engine,
 	 *  the same shape as the nav path's load settling). Every other arm
 	 *  leaves the form rendering against defaults. */
 	const caseData = useMemo(() => {
@@ -513,7 +513,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	);
 
 	/* Submit lifecycle + post-submit dispatch live above the early-
-	 * return gates so the hooks run on every render — moving them
+	 * return gates so the hooks run on every render: moving them
 	 * below the conditional returns would violate the rules of hooks
 	 * during the transient mount window when `form` resolves from
 	 * undefined to defined. The `form?.` reads tolerate the undefined
@@ -622,7 +622,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 					onBack();
 					return;
 				default: {
-					/* Exhaustive switch — a future `PostSubmitDestination`
+					/* Exhaustive switch: a future `PostSubmitDestination`
 					 * arm landing without a case here surfaces as the
 					 * standard `unhandledKindMessage` shape rather than
 					 * silently routing to `onBack()`. */
@@ -774,7 +774,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		 *      remediation surfaces in a different UI element (per-field
 		 *      required indicators).
 		 *   2. A second submit after a server error must replace, not
-		 *      augment — the alert always reflects the latest attempt. */
+		 *      augment: the alert always reflects the latest attempt. */
 		settleAttempt({ kind: "idle" });
 		setValidationAnnouncement(undefined);
 
@@ -857,7 +857,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 					// a missing required answer, an authored validation rule, OR
 					// a temporal answer that is not yet a value of its type, and
 					// the focused question announces its OWN message a moment
-					// later — naming one of the three here would contradict the
+					// later: naming one of the three here would contradict the
 					// other two.
 					message: "Review the highlighted question.",
 				});
@@ -978,7 +978,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 
 	if (!form || !formUuid || !moduleUuid) return null;
 
-	/** A NAV-bound case-loading form (followup / close) hitting `unauthenticated` / `error` must surface the failure — the no-preload fallback would hide session expiry and transport failures behind a defaults-rendered form. The guard is scoped to the nav-provided `caseId`: on the auto-select path the form is already usable off the auto-row's bridge preload, and a failed by-id load only means the OPTIONAL ancestor enrichment didn't arrive — blanking a working form for that would be a downgrade. `idle` / `loading` / `missing` fall through (the form renders against defaults during the load window; `missing` shares the "no row" semantic with the next guard). The form-type set comes from `CASE_LOADING_FORM_TYPES` so adding a third case-loading form type in `lib/domain/forms.ts` would extend this guard automatically. */
+	/** A NAV-bound case-loading form (followup / close) hitting `unauthenticated` / `error` must surface the failure, the no-preload fallback would hide session expiry and transport failures behind a defaults-rendered form. The guard is scoped to the nav-provided `caseId`: on the auto-select path the form is already usable off the auto-row's bridge preload, and a failed by-id load only means the OPTIONAL ancestor enrichment didn't arrive, blanking a working form for that would be a downgrade. `idle` / `loading` / `missing` fall through (the form renders against defaults during the load window; `missing` shares the "no row" semantic with the next guard). The form-type set comes from `CASE_LOADING_FORM_TYPES` so adding a third case-loading form type in `lib/domain/forms.ts` would extend this guard automatically. */
 	if (mode === "preview" && CASE_LOADING_FORM_TYPES.has(form.type) && caseId) {
 		if (caseDataState.kind === "persona-unavailable") {
 			return (
@@ -1025,11 +1025,11 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		}
 	}
 
-	/* The form ALWAYS renders — flipping to preview keeps it in place and the
+	/* The form ALWAYS renders: flipping to preview keeps it in place and the
 	 * case data loads IN; it is never swapped for a loading/empty interstitial
 	 * (that multi-stage flash is the antithesis of the flipbook). The only
 	 * thing a directly-previewed case-loading form gates on a bound case is
-	 * the submit action — `computeSubmissionMutation` needs the caseId — so
+	 * the submit action: `computeSubmissionMutation` needs the caseId, so
 	 * `caseMissing` drives the submit row below, not the whole screen. */
 	const caseMissing = needsBoundCase && effectiveCaseId === undefined;
 	const noSampleCases = caseMissing && autoCases.state.kind === "empty";
@@ -1038,7 +1038,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 
 	const formBody = (
 		<>
-			{/* `data-form-header` is queried by `InlineTextEditor` as the clamp floor for the floating label toolbar — preserve the attribute if this block is refactored. */}
+			{/* `data-form-header` is queried by `InlineTextEditor` as the clamp floor for the floating label toolbar, preserve the attribute if this block is refactored. */}
 			<div
 				data-form-header
 				className="px-6 pt-5 pb-4 border-b border-pv-input-border"
@@ -1053,7 +1053,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 						<EditableTitle
 							value={form.name}
 							ariaLabel="Form name"
-							/* Forward the gated dispatch's outcome — a refused rename
+							/* Forward the gated dispatch's outcome: a refused rename
 							 * keeps the editor open with the draft and surfaces the
 							 * finding inline; the saved checkmark only fires on a
 							 * committed rename. */
@@ -1185,7 +1185,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 					) : null}
 					{/* Inline error sits BELOW the submit row so the user's
 					 *  amend-then-resubmit loop keeps the action affordance
-					 *  steady in place — the row doesn't reflow when an error
+					 *  steady in place: the row doesn't reflow when an error
 					 *  appears or clears. `whitespace-pre-line` honors the
 					 *  per-field newline list `describeSubmitError` emits for
 					 *  the validation-failure arm. */}
@@ -1202,7 +1202,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		</>
 	);
 
-	/* The module's persistent case tile — the same tile Results draws, kept
+	/* The module's persistent case tile: the same tile Results draws, kept
 	 * on screen above every form in the module (`persistOnForms`). Preview
 	 * only: edit mode has no bound case, and a band that appeared while
 	 * authoring would claim a case the author never chose. It carries no
@@ -1229,7 +1229,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 
 	/* The band is the only reason this frame grows. A sticky element can
 	 * travel no further than its containing block, so while a persistent
-	 * tile is on screen that block has to span the form's real height —
+	 * tile is on screen that block has to span the form's real height:
 	 * and the frame still fills a short form (it is the flex child that
 	 * grows), so the submit row keeps its footer position.
 	 *
@@ -1239,7 +1239,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	 * that percentage unresolved and containment settles it at zero. The
 	 * virtualizer then measures an empty viewport and renders no rows at
 	 * all. The band is preview-only by construction, so edit mode always
-	 * takes the definite-height branch its virtualized canvas requires —
+	 * takes the definite-height branch its virtualized canvas requires:
 	 * which is also the inner scroller `builder/CLAUDE.md` documents as
 	 * the edit-mode one, and the surface the flipbook's scroll restore
 	 * reads its offset and measurements back from. */

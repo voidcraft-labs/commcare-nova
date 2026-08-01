@@ -1,7 +1,7 @@
 // components/builder/detail/moduleSettings/ModuleCaseTypeSection.tsx
 //
 // Module-settings section for viewing and changing a module's case type. Picks
-// an existing type, creates a new one, or clears it — all through the gated
+// an existing type, creates a new one, or clears it: all through the gated
 // `updateModule` (the inline flavor, so a rejection renders beside the control
 // instead of only as a toast). The born-valid shaping lives in the
 // `caseTypeSetPatch` / `caseTypeClearPatch` builders (`lib/doc/scaffolds`):
@@ -9,7 +9,7 @@
 // clearing drops the case-list config AND the `caseListOnly` flag (so a module
 // with forms becomes a survey). `updateModule` itself declares a brand-new type
 // in the catalog and runs the case-type retirement cascade. A change the gate
-// refuses surfaces inline — clearing the type while case forms still need it,
+// refuses surfaces inline: clearing the type while case forms still need it,
 // or clearing a FORMLESS viewer (a module with neither forms nor a case list is
 // invalid in CommCare, so the user must add a form first or delete the module).
 

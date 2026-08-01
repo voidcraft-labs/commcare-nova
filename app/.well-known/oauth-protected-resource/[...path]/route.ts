@@ -5,7 +5,7 @@
  *   - prod: `/.well-known/oauth-protected-resource/mcp`
  *   - dev:  `/.well-known/oauth-protected-resource/api/mcp`
  *
- * The metadata document doesn't depend on the path segments — every
+ * The metadata document doesn't depend on the path segments, every
  * caller gets the same document.
  */
 export { GET } from "../route";

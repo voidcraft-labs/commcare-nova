@@ -22,7 +22,7 @@ export type CreateStarterAppResult =
 	| { success: false; error: string };
 
 /**
- * Create the canonical starter — the starting point for a user who'd rather
+ * Create the canonical starter: the starting point for a user who'd rather
  * build from scratch than describe the app to the SA.
  *
  * `createApp` supplies the universal canonical starter: a real `Untitled` name
@@ -31,7 +31,7 @@ export type CreateStarterAppResult =
  * app exists.
  *
  * Born `complete` with no run behind it, so nothing to charge, reserve or
- * finalize — the credit ledger only meters generation.
+ * finalize: the credit ledger only meters generation.
  */
 export async function createStarterApp(
 	expectedProjectId: string,

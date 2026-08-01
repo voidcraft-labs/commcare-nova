@@ -1,18 +1,18 @@
 // components/builder/case-list-config/cards/column/PlainColumnCard.tsx
 //
-// Renders the `plain` Column kind — the case-list cell shows the
+// Renders the `plain` Column kind: the case-list cell shows the
 // property's raw value as a string, no formatting applied. The
 // default kind for any displayed column.
 //
 // Slots:
-//   - `field` — case-property name. Plain accepts every property
+//   - `field`: case-property name. Plain accepts every property
 //     type (`applicableForAny`), so the picker surfaces every
 //     declared property without filtering.
-//   - `header` — column display label.
+//   - `header`: column display label.
 //
 // No per-kind extras beyond the shared field/header pair. The
 // optional common slots (`sort`, visibility, and tile presentation)
-// belong to the surrounding display workspace — every column kind
+// belong to the surrounding display workspace: every column kind
 // shares those regardless of its body shape.
 
 "use client";

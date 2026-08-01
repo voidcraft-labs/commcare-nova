@@ -2,8 +2,8 @@
 //
 // Shared "field + header" row used by the six field-bearing column
 // cards (`plain`, `date`, `phone`, `id-mapping`, `image-map`,
-// `interval`). The `calculated` arm has no `field` slot — the
-// expression is the source — so it skips this row and renders
+// `interval`). The `calculated` arm has no `field` slot: the
+// expression is the source, so it skips this row and renders
 // header + expression directly. Factoring the field/header pair
 // keeps the per-card body focused on the kind-specific extras (date
 // pattern, threshold, mapping table) rather than re-implementing
@@ -13,7 +13,7 @@
 //   - Property picker (`PropertyPicker`) constrained by the kind's
 //     `applicableForProperty` predicate. Surfaces an inline error
 //     when the resolved property's data type doesn't satisfy the
-//     kind — e.g. Late Flag on a text-typed property.
+//     kind: e.g. Late Flag on a text-typed property.
 //   - Header text input via the shared `BlurCommitTextInput`
 //     primitive at `primitives/BlurCommitTextInput.tsx`. Plain
 //     text; commits on blur. CommCare allows any header string at
@@ -25,7 +25,7 @@
 // `PropertyPicker` reads `currentCaseType` from the same context
 // that drives the predicate / expression editors. A column-only
 // surface (no Predicate / Expression provider available) must
-// mount its own provider — the top-level `ColumnEditor` handles
+// mount its own provider: the top-level `ColumnEditor` handles
 // this.
 
 "use client";
@@ -54,7 +54,7 @@ interface ColumnFieldRowProps {
 	 *  Plain / ID-Mapping pass no filter so every property
 	 *  surfaces. */
 	readonly propertyFilter?: (p: CaseProperty) => boolean;
-	/** Inline error rows surfaced beneath the picker — typically
+	/** Inline error rows surfaced beneath the picker: typically
 	 *  the kind-vs-property-type applicability mismatch hint. */
 	readonly errors?: readonly string[];
 }

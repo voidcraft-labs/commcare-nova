@@ -152,7 +152,7 @@ export function CaseAvailabilityComposer({
 		caseTypes,
 		currentCaseType,
 		knownInputs: inputDecls,
-		// Cases available runs against every Results row — the ordinary
+		// Cases available runs against every Results row: the ordinary
 		// per-case scope where property reads are meaningful.
 		caseDataScope: "per-case",
 	} as const;

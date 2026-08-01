@@ -5,7 +5,7 @@
 // Places API (New): `AutocompleteSuggestion.fetchAutocompleteSuggestions`
 // with a session token (cheaper per-session billing), then `toPlace()` +
 // `fetchFields(['location','formattedAddress'])` on selection to resolve
-// coordinates. `mode="none"` — the list is server-driven, not locally
+// coordinates. `mode="none"`: the list is server-driven, not locally
 // filtered. Free-typed text that matches nothing is harmless (the user can
 // still position the map).
 
@@ -45,7 +45,7 @@ interface AddressSearchProps {
 	/** Resolved address label to display (set by the picker after a map move
 	 *  reverse-geocodes, or after a selection). Synced into the input. */
 	readonly value: string;
-	/** Fired when the user selects a suggestion — carries coordinates. */
+	/** Fired when the user selects a suggestion: carries coordinates. */
 	readonly onSelect: (pick: PlacePick) => void;
 }
 
@@ -170,7 +170,7 @@ export function AddressSearch({ value, onSelect }: AddressSearchProps) {
 				label: place.formattedAddress ?? suggestion.label,
 			});
 		} catch {
-			/* details fetch failed — leave the map as-is */
+			/* details fetch failed: leave the map as-is */
 		}
 	}
 

@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
 
 function InputGroup({ className, ...props }: React.ComponentProps<"div">) {
 	return (
-		// No `role="group"` — the group here is a layout shell around a single
+		// No `role="group"`: the group here is a layout shell around a single
 		// textarea, not a semantic grouping of related form controls. The ARIA
 		// `group` role would promise the latter to assistive tech and force the
 		// non-semantic `<fieldset>` swap (with its border/min-width baggage) to
@@ -18,8 +18,8 @@ function InputGroup({ className, ...props }: React.ComponentProps<"div">) {
 		// The disabled-dim (bg + opacity-(--disabled-opacity)) is scoped to the input *control*
 		// being disabled, not shadcn's default `has-disabled:` (`:has(:disabled)`).
 		// A composer commonly disables only its send button (e.g. empty input),
-		// and `:has(:disabled)` would then drop the whole group — placeholder and
-		// counter included — to 50% opacity, failing contrast in the resting state.
+		// and `:has(:disabled)` would then drop the whole group, placeholder and
+		// counter included: to 50% opacity, failing contrast in the resting state.
 		<div
 			data-slot="input-group"
 			className={cn(
@@ -59,7 +59,7 @@ function InputGroupAddon({
 }: React.ComponentProps<"div"> & VariantProps<typeof inputGroupAddonVariants>) {
 	return (
 		// The addon is a decorative slot (icons, buttons, labels) flanking the
-		// control — not a semantic form group, so no `role="group"`. We also drop
+		// control, not a semantic form group, so no `role="group"`. We also drop
 		// the original click-to-focus-the-input handler: keyboard users tab
 		// straight into the textarea, so forwarding clicks on the surrounding
 		// padding was a mouse-only affordance that tripped `useKeyWithClickEvents`
@@ -83,7 +83,7 @@ function InputGroupButton({
 	type?: "button" | "submit" | "reset";
 }) {
 	// Composer controls sit on the 44px hit-target floor like every other
-	// control — the Button's one size IS that floor, so this is a plain
+	// control: the Button's one size IS that floor, so this is a plain
 	// pass-through (icon-square by default: the attach "+", submit, …).
 	return (
 		<Button

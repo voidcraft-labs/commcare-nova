@@ -1,12 +1,12 @@
 /**
- * The presence write route against a real Postgres testcontainer — the
+ * The presence write route against a real Postgres testcontainer, the
  * POST/DELETE half of the relay.
  *
  * What this pins:
  *   - POST server-stamps `userId` (never trusts a client-asserted one), keys the
  *     row at `(app_id, user_id, session_id)`, and stamps `updated_at` +
  *     `expire_at`; avatar/email come from the SESSION, never the body.
- *   - A user's two tabs (two `sessionId`s) write two distinct rows — one DELETE
+ *   - A user's two tabs (two `sessionId`s) write two distinct rows, one DELETE
  *     removes only its own session.
  *   - Each POST opportunistically sweeps the app's expired rows (bounds the
  *     table; the roster read already filters expired rows).
@@ -120,8 +120,8 @@ function deleteReq(appId: string, body: unknown): Request {
  *
  * Draining is load-bearing under the async-leak gate, not a convenience:
  * `postReq`/`deleteReq` build real `Request`s with a JSON body, and the route
- * returns a bodied `Response` on every path. An unconsumed body stream — request
- * OR response — leaves its pull promise pending, which `--detect-async-leaks`
+ * returns a bodied `Response` on every path. An unconsumed body stream, request
+ * OR response: leaves its pull promise pending, which `--detect-async-leaks`
  * flags. The RESPONSE is drained here so a status-only assertion still settles
  * it; the REQUEST is drained on paths that short-circuit before the route's own
  * `readJsonBody` (the scope-denial 404 rejects at `resolveAppScope` first),

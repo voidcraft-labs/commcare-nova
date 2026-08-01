@@ -7,12 +7,12 @@
  * the Solutions Architect recovers from and continues past.
  *
  * The trap this guards against: the SDK's `toUIMessageStream({ onError })`
- * callback fires for THREE distinct chunk kinds — `tool-input-error` and
+ * callback fires for THREE distinct chunk kinds: `tool-input-error` and
  * `tool-output-error` (a model-emitted invalid tool call, or a tool `execute()`
- * throw — the SA loop retries past both and the run can still complete
+ * throw: the SA loop retries past both and the run can still complete
  * successfully) AND the terminal `error` chunk (the model run itself ending in
  * error). Only the last is fatal. Keying run-failure on "did `onError` fire at
- * all" wrongly fails a successful run that merely recovered from a tool error —
+ * all" wrongly fails a successful run that merely recovered from a tool error:
  * flipping a completed app to `error` and refunding a legitimate charge. So the
  * route keys on the fatal CHUNK type instead, via this predicate.
  */

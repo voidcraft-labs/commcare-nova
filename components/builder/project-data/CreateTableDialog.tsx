@@ -2,7 +2,7 @@
  * Create a data table.
  *
  * A table is born with at least one column, because that is what the boundary
- * requires and because a columnless table is not a thing anyone wants — the
+ * requires and because a columnless table is not a thing anyone wants, the
  * dialog therefore starts with one row of column fields rather than creating
  * an empty shell you then have to fill.
  *
@@ -102,8 +102,8 @@ export function CreateTableDialog({
 	useEffect(() => {
 		/* Claim the flag on every mount, not just the first. A cleanup-only
 		 * version leaves it false forever the moment React mounts, unmounts and
-		 * remounts the same instance — StrictMode's development double-invoke does
-		 * exactly that — and then every `mounted.current` guard below returns
+		 * remounts the same instance: StrictMode's development double-invoke does
+		 * exactly that, and then every `mounted.current` guard below returns
 		 * early, stranding the dialog on "Creating…" after a successful write. */
 		mounted.current = true;
 		return () => {
@@ -202,8 +202,8 @@ export function CreateTableDialog({
 									/* A real fieldset per column: its legend captions the group, so
 									 * "Name people see" is announced inside "Column 2" rather than
 									 * arriving as the third identically-labelled input on screen.
-									 * The legend carries text only — the browser renders it into
-									 * the border line, which a 44px control would straddle — so
+									 * The legend carries text only: the browser renders it into
+									 * the border line, which a 44px control would straddle, so
 									 * removal sits at the foot of the card, under its own name. */
 									<FieldSet
 										key={column.key}

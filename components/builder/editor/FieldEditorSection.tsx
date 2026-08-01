@@ -1,5 +1,5 @@
 /**
- * FieldEditorSection — renders one Data / Logic / UI section of the
+ * FieldEditorSection: renders one Data / Logic / UI section of the
  * declarative field inspector.
  *
  * Reads its entries from the schema (passed in by the panel, which
@@ -13,14 +13,14 @@
  *     doesn't currently expose this property and won't until
  *     another mutation flips visibility).
  *
- * Returns `null` when neither editors nor pills would render — the
+ * Returns `null` when neither editors nor pills would render, the
  * parent (FieldEditorPanel) uses the null return to skip the
  * section's card chrome entirely.
  *
  * AnimatePresence wraps the visible editors so add/remove transitions
  * (opacity + height) animate smoothly when a pill is activated or an
  * entry's `visible()` flips false. Keys are the entry `key` string so
- * React keeps editor instances stable across visibility flips — an
+ * React keeps editor instances stable across visibility flips, an
  * editor that toggles off and back on retains its internal state.
  */
 "use client";
@@ -36,7 +36,7 @@ import { useSectionActivation } from "./useSectionActivation";
 
 /**
  * Prop shape for the section. Generic on the field variant so the
- * component dispatch is precisely typed — the panel narrows `field`
+ * component dispatch is precisely typed: the panel narrows `field`
  * to a single kind via `Extract<Field, { kind: K }>` and passes the
  * matching entries list.
  */
@@ -70,7 +70,7 @@ export function FieldEditorSection<F extends Field>({
 
 	// Generic setter: write exactly one key on this field, then notify
 	// the activation hook so it can clear pending state on empty-commit.
-	// The field's `kind` discriminates the patch type — every per-key
+	// The field's `kind` discriminates the patch type: every per-key
 	// editor in this section is mounted only when the schema entry's
 	// `visible(field)` returns true, so `key` is always a property the
 	// kind's schema declares. The cast on `updateField`'s patch arg
@@ -90,7 +90,7 @@ export function FieldEditorSection<F extends Field>({
 			const outcome = updateField(field.uuid, field.kind, {
 				[key]: value,
 			} as unknown as FieldPatchFor<F["kind"]>);
-			// Activation cleanup only when the write actually landed — a
+			// Activation cleanup only when the write actually landed: a
 			// gate-rejected clear leaves the slot populated, so collapsing
 			// the entry's activation would misstate the doc.
 			if (outcome.ok) onCommit(key, value);
@@ -99,7 +99,7 @@ export function FieldEditorSection<F extends Field>({
 		[updateField, field.uuid, field.kind, onCommit],
 	);
 
-	// Section contributes nothing — let the panel skip the card chrome.
+	// Section contributes nothing: let the panel skip the card chrome.
 	if (visible.length === 0 && pills.length === 0) return null;
 
 	const hasContent = visible.length > 0;
@@ -159,7 +159,7 @@ export function FieldEditorSection<F extends Field>({
 								label={entry.label}
 								// Two pill-click flows. Entries with `valueOnAdd`
 								// (e.g. the Required toggle) write the on-state
-								// directly — adding the property already encodes
+								// directly: adding the property already encodes
 								// the user's intent, so an empty editor + manual
 								// flip would just be two clicks for one
 								// decision. Entries without it (XPath / text
@@ -174,7 +174,7 @@ export function FieldEditorSection<F extends Field>({
 										);
 										/* A refused direct-add has NO editor mounted to
 										 * anchor the finding to (the editor only mounts
-										 * on success) — announce, the no-anchor fallback.
+										 * on success): announce, the no-anchor fallback.
 										 * `messages` is already the concise builder copy
 										 * (the inline flavor rendered it). */
 										if (!outcome.ok && outcome.messages.length > 0) {

@@ -1,11 +1,11 @@
 /**
- * ThreadList — the conversations view of the chat rail.
+ * ThreadList: the conversations view of the chat rail.
  *
  * First-class thread rows: every conversation about this app, most recently
  * active first, clickable back into. Replaces the conversation region while
  * open (ChatSidebar owns the open/close state and the header's back
- * affordance). A row shows what a person needs to pick a conversation —
- * its opening request, how old it is, how much was said — and two live
+ * affordance). A row shows what a person needs to pick a conversation:
+ * its opening request, how old it is, how much was said, and two live
  * signals: the violet dot marks the open conversation, and the pulsing active
  * badge marks one with a run streaming right now (its row resumes the
  * stream on open).

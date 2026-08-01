@@ -53,7 +53,7 @@ import { INSPECTOR_RAIL_WIDTH } from "@/lib/ui/inspector";
 
 /** Sidebar panel width in pixels. Exported so siblings (e.g. cursor mode bar
  *  positioning in BuilderLayout) can derive offsets without magic numbers. */
-/** The right rail is ONE width in both of its modes — full chat and
+/** The right rail is ONE width in both of its modes: full chat and
  *  docked-under-inspector. Selecting something to inspect must never
  *  change the canvas width (content reflowing as a side effect of a
  *  click reads as a glitch), so the chat's resting width IS the
@@ -63,7 +63,7 @@ export const CHAT_SIDEBAR_WIDTH = INSPECTOR_RAIL_WIDTH;
 interface ChatSidebarProps {
 	centered: boolean;
 	heroLogo?: ReactNode;
-	/** Rendered under the chat card in centered mode — the from-scratch escape
+	/** Rendered under the chat card in centered mode: the from-scratch escape
 	 *  hatch on a new build. Sharing the centered column is the point: it holds
 	 *  the chat above true center until it collapses away. */
 	startFromScratch?: ReactNode;
@@ -91,7 +91,7 @@ interface ChatSidebarProps {
 		output: unknown;
 	}) => void;
 	readOnly?: boolean;
-	/** When `readOnly`, an optional note shown where the composer would be —
+	/** When `readOnly`, an optional note shown where the composer would be:
 	 *  explains why the user can't send (view-only Project access). */
 	readOnlyNotice?: ReactNode;
 	/** Whether the app was loaded from Postgres (not a new build).
@@ -170,10 +170,10 @@ export function ChatSidebar({
 	const phase = useBuilderPhase();
 	const setSidebarOpen = useSetSidebarOpen();
 
-	/* Inspector dock — when something is selected for inspection, the chat
+	/* Inspector dock: when something is selected for inspection, the chat
 	 * condenses to a compact status row + composer beneath the inspector panel.
 	 * The rail renders the panel body directly from shared selection state
-	 * (`useActiveInspector`) — no claim, no portal — so it never unmounts across
+	 * (`useActiveInspector`): no claim, no portal, so it never unmounts across
 	 * a preview flip and keeps its scroll for free. */
 	const inspector = useActiveInspector();
 	const docked = inspector !== null && !centered;
@@ -205,7 +205,7 @@ export function ChatSidebar({
 	// stream must SURVIVE the chip unmounting on send (the doc is still streaming
 	// and only that original request carries the tokens) but must NOT outlive the
 	// build. It is
-	// created in this effect and aborted in its cleanup — symmetric under React's
+	// created in this effect and aborted in its cleanup: symmetric under React's
 	// mount→unmount→remount. A render-phase controller aborted by an unmount cleanup
 	// would stay dead (nothing re-creates it, and no re-render follows), and in dev
 	// Strict Mode that left EVERY read with an already-aborted signal → an instant
@@ -215,7 +215,7 @@ export function ChatSidebar({
 	// authoritative snapshot can reopen the composer.
 	const [extractionAbort, setExtractionAbort] =
 		useState<AbortController | null>(null);
-	// biome-ignore lint/correctness/useExhaustiveDependencies: sessionApi and scopeEpoch are the deps on PURPOSE — recreate and abort the prior build/Project-scoped controller even though the body doesn't read them.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: sessionApi and scopeEpoch are the deps on PURPOSE, recreate and abort the prior build/Project-scoped controller even though the body doesn't read them.
 	useEffect(() => {
 		const controller = new AbortController();
 		setExtractionAbort(controller);
@@ -232,7 +232,7 @@ export function ChatSidebar({
 	}, [reconcilerContext, sessionApi, scopeEpoch]);
 	const extractionAbortSignal = extractionAbort?.signal;
 
-	/* True while the current `submitted` window was opened by a LOCAL send —
+	/* True while the current `submitted` window was opened by a LOCAL send:
 	 * a typed message or an answered question round. A refresh-resume and the
 	 * instance-death
 	 * re-drive (`regenerate`) ALSO pass through `submitted` while they
@@ -260,13 +260,13 @@ export function ChatSidebar({
 
 	// Auto-decay Completed → Ready after the confirmation has remained visible.
 	//
-	// Gate on `bufferEmpty` — the timer must not arm until the SSE stream
+	// Gate on `bufferEmpty`: the timer must not arm until the SSE stream
 	// has actually closed (endRun cleared the events buffer). `data-done`
 	// stamps `runCompletedAt` mid-stream while the agent is still
 	// streaming its final summary text. If the 3.5s timer fired during
 	// that streaming window, `acknowledgeCompletion` would clear
 	// `runCompletedAt` while the events buffer still held the run's
-	// schema/scaffold/fix mutations — `derivePhase` would then flip from
+	// schema/scaffold/fix mutations: `derivePhase` would then flip from
 	// Completed straight to Generating (foundation + stage) for a
 	// fraction of a second until stream-close cleared the buffer,
 	// flashing the GenerationProgress card back on screen. Waiting for
@@ -297,7 +297,7 @@ export function ChatSidebar({
 
 	// ── Conversations view ───────────────────────────────────────────────
 	/* The thread list swaps into the conversation region while open. Local
-	 * state on purpose: opening the list is a peek, not a navigation — any
+	 * state on purpose: opening the list is a peek, not a navigation, any
 	 * action that returns attention to the conversation (picking a thread,
 	 * starting a new one, sending a message) closes it. */
 	const [threadListOpen, setThreadListOpen] = useState(false);
@@ -377,7 +377,7 @@ export function ChatSidebar({
 	/* A local turn always returns the view to the bottom, wherever the user had
 	 * scrolled: jump (no animated travel through the transcript) and re-engage
 	 * use-stick-to-bottom's pin, which an upward scroll releases. The jump lands
-	 * on the CURRENT bottom — the new message commits a render later — and the
+	 * on the CURRENT bottom: the new message commits a render later, and the
 	 * re-engaged pin then carries it (and the streamed reply) into view via the
 	 * resize follow. Incoming content alone never scrolls an escaped view; only
 	 * the user's own send does. */
@@ -404,7 +404,7 @@ export function ChatSidebar({
 	);
 
 	// An answered question starts the same outgoing-message status as the composer
-	// — and, like one, must leave the resumed stream in view even if the user had
+	//, and, like one, must leave the resumed stream in view even if the user had
 	// unpinned the view before clicking the final option.
 	const handleToolOutput = useCallback(
 		(params: { tool: string; toolCallId: string; output: unknown }) => {
@@ -540,7 +540,7 @@ export function ChatSidebar({
 					</>
 				)}
 
-				{/* Inspector dock — the properties panel rendered from shared
+				{/* Inspector dock: the properties panel rendered from shared
 				 *  selection state, plus the condensed chat strip. The Conversation
 				 *  block below unmounts while docked; messages are props, so the
 				 *  thread re-renders intact (re-pinned to bottom) on expand. */}
@@ -553,7 +553,7 @@ export function ChatSidebar({
 						>
 							{inspector.body}
 						</InspectorPanel>
-						{/* The condensed conversation's grab handle — ONE full-width
+						{/* The condensed conversation's grab handle: ONE full-width
 						 *  row (not a label plus a small link) so the affordance is
 						 *  unmissable and the target spans the rail at full height.
 						 *  Clicking it closes the properties panel and gives the
@@ -591,7 +591,7 @@ export function ChatSidebar({
 					</>
 				)}
 
-				{/* Conversations list — swapped in over the conversation region
+				{/* Conversations list: swapped in over the conversation region
 				 *  while open. The active status + composer below stay; sending
 				 *  returns to the conversation (handleSend closes the list). */}
 				{!docked && listVisible && !shortChatFallback && (
@@ -605,7 +605,7 @@ export function ChatSidebar({
 					/>
 				)}
 
-				{/* Messages — the open conversation's transcript (hydrated
+				{/* Messages: the open conversation's transcript (hydrated
 				 *  history + live turns through one render path).
 				 *  Conversation (a use-stick-to-bottom root) owns the scroll: it
 				 *  keeps the view pinned to the latest message and across the
@@ -652,7 +652,7 @@ export function ChatSidebar({
 								))}
 
 							{/* Live messages from the active useChat session. Only the last
-							 *  message can be mid-stream, so it alone receives isStreaming —
+							 *  message can be mid-stream, so it alone receives isStreaming:
 							 *  the reasoning panel narrows that to "trailing part is still
 							 *  reasoning" so the shimmer stops once answer tokens arrive. */}
 							{messages.map((msg, msgIndex) => (
@@ -701,7 +701,7 @@ export function ChatSidebar({
 				)}
 
 				{/* A view-only member sees why they can't send, where the composer
-				 *  would be — only when a notice is supplied for the
+				 *  would be: only when a notice is supplied for the
 				 *  read-only-access case. */}
 				{!shortInspectorDock &&
 					!shortChatFallback &&
@@ -716,7 +716,7 @@ export function ChatSidebar({
 					<ShortChatFallback onCollapse={() => setSidebarOpen("chat", false)} />
 				)}
 
-				{/* Input — absent only in read-only mode. Short layouts keep its
+				{/* Input: absent only in read-only mode. Short layouts keep its
 				 * subtree mounted so opening an inspector cannot erase a draft or
 				 * staged attachment. */}
 				<PersistentChatComposer
@@ -757,7 +757,7 @@ export function ChatSidebar({
 				</PersistentChatComposer>
 			</motion.div>
 
-			{/* Under the card, inside the same centered column — sharing it is the
+			{/* Under the card, inside the same centered column: sharing it is the
 			 *  point: this holds the chat above true center, and the chat settles
 			 *  back to center as this collapses away. */}
 			{centered && startFromScratch}
@@ -809,7 +809,7 @@ function WelcomeIntro() {
 		// sits in the same column. Heading + subtitle are ONE unit, so they share a
 		// single wrapper child: the shell spaces SEPARATE turns at gap-4, and splitting
 		// the pair across two children would drop that 16px between a title and its own
-		// caption — the tight gap-1.5 here owns the pair's rhythm instead.
+		// caption: the tight gap-1.5 here owns the pair's rhythm instead.
 		<Message from="assistant">
 			<MessageContent>
 				<div className="flex flex-col gap-1.5">

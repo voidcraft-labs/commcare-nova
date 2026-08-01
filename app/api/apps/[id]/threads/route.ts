@@ -1,7 +1,7 @@
 /**
- * Chat threads API — the conversation list for an app.
+ * Chat threads API: the conversation list for an app.
  *
- * GET /api/apps/{id}/threads — thread METAS (no transcripts), most recently
+ * GET /api/apps/{id}/threads: thread METAS (no transcripts), most recently
  * active first. The thread switcher's list read; full transcripts load per
  * thread via `/api/apps/{id}/threads/{threadId}`.
  *
@@ -22,7 +22,7 @@ export async function GET(
 		const session = await requireSession(req);
 		const { id } = await params;
 
-		/* Project-membership gate (view) — threads are a subcollection of the app
+		/* Project-membership gate (view): threads are a subcollection of the app
 		 * but the path alone doesn't scope access. An `AppAccessError` maps to 404
 		 * in `handleApiError` (shared IDOR-safe not-found posture). */
 		await resolveAppScope(id, session.user.id, "view");

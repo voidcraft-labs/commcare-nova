@@ -6,7 +6,7 @@ import { useIsFieldSelected, useSelect } from "@/lib/routing/hooks";
 import { useEditMode } from "@/lib/session/hooks";
 
 interface EditableFieldWrapperProps {
-	/** Stable crypto UUID — the sole identity prop (survives renames). */
+	/** Stable crypto UUID: the sole identity prop (survives renames). */
 	fieldUuid: Uuid;
 	children: ReactNode;
 	style?: React.CSSProperties;
@@ -14,7 +14,7 @@ interface EditableFieldWrapperProps {
 	/** When true, the selection ring flattens at the bottom when the row is
 	 *  selected. Set by the expanded group header, whose content has a flat
 	 *  bottom edge (`rounded-t-lg border-b-0`) that connects to the group's
-	 *  body below — the ring must match so it doesn't round off where the
+	 *  body below: the ring must match so it doesn't round off where the
 	 *  content is square. Leaf rows leave it false and stay fully `rounded-lg`. */
 	flatBottomOnSelect?: boolean;
 }
@@ -25,7 +25,7 @@ interface EditableFieldWrapperProps {
  * Selection is driven by the URL (`sel=` query param). `useIsFieldSelected`
  * reads the URL's `sel` and returns `true` for exactly one wrapper at a time.
  * On click, `useSelect()` replaces the `sel=` param via the History API
- * (`history.replaceState`, not Next's router) — no Zustand write, no
+ * (`history.replaceState`, not Next's router): no Zustand write, no
  * re-render cascade. Editing the selected field docks in the right rail
  * (the rail renders it from the URL selection via `useActiveInspector`); this
  * wrapper only draws the canvas selection ring, it mounts no panel of its own.
@@ -49,7 +49,7 @@ export function EditableFieldWrapper({
 	const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const wasDraggingRef = useRef(false);
 
-	/* Selection via URL-driven boolean selector — only this wrapper and the
+	/* Selection via URL-driven boolean selector: only this wrapper and the
 	 * previously-selected wrapper re-render on selection change. All other
 	 * wrappers return the same `false` and skip rendering entirely. */
 	const isSelected = useIsFieldSelected(fieldUuid);
@@ -91,7 +91,7 @@ export function EditableFieldWrapper({
 	}
 
 	/** Select this field in the builder and scroll its tree row into view.
-	 *  `hasToolbar` signals that a text-editable zone was clicked — the scroll
+	 *  `hasToolbar` signals that a text-editable zone was clicked, the scroll
 	 *  target needs extra clearance for the floating TipTap label toolbar. */
 	const selectField = useCallback(
 		(hasToolbar = false) => {
@@ -111,16 +111,16 @@ export function EditableFieldWrapper({
 			// Don't intercept clicks inside drag-exempt zones (text editors,
 			// media pickers), nested wrappers, or insertion points.
 			if (target.closest("[data-no-drag]")) return;
-			/* Nested wrapper guard — if the click landed inside a child field's
+			/* Nested wrapper guard: if the click landed inside a child field's
 			 * wrapper, bail so only that child handles selection. Must run before
 			 * the text-editable check: without this, clicking a nested field's
 			 * label (a [data-text-editable] zone) would match here and select the
-			 * GROUP, then the child's handler would re-select the child — two
+			 * GROUP, then the child's handler would re-select the child, two
 			 * select calls with two scrollTo targets, the second missing the
 			 * collapsing panel compensation from the first. */
 			const closestWrapper = target.closest("[data-field-wrapper]");
 			if (closestWrapper && closestWrapper !== e.currentTarget) return;
-			/* Let clicks on text-editable zones pass through — select the field
+			/* Let clicks on text-editable zones pass through: select the field
 			 * but don't stop propagation so TextEditable's handler also fires.
 			 * Pass hasToolbar so the scroll leaves clearance for the floating
 			 * TipTap label toolbar that will render above the field.
@@ -144,10 +144,10 @@ export function EditableFieldWrapper({
 		[selectField, isSelected, fieldUuid, scrollTo],
 	);
 
-	/** Keyboard activation — Enter or Space selects this field, matching
+	/** Keyboard activation: Enter or Space selects this field, matching
 	 *  the click behavior for keyboard-only users (role="button" contract).
 	 *  Skip when the event originates from an active text editor (TipTap
-	 *  contenteditable) — otherwise the bubbling keydown swallows spaces
+	 *  contenteditable): otherwise the bubbling keydown swallows spaces
 	 *  and prevents typing. */
 	const handleKeyDown = useCallback(
 		(e: React.KeyboardEvent) => {
@@ -162,7 +162,7 @@ export function EditableFieldWrapper({
 		[selectField],
 	);
 
-	/* In preview mode this wrapper is a no-op — selection affordances only
+	/* In preview mode this wrapper is a no-op: selection affordances only
 	 * belong in edit mode. `useEditMode()` is derived from the session store,
 	 * so it always returns a defined value; no "no context" fallback needed. */
 	if (mode === "preview") {
@@ -178,7 +178,7 @@ export function EditableFieldWrapper({
 	 * form inputs). HTML forbids nesting interactive content inside <button>,
 	 * and browsers/SSR parsers will mangle the tree. */
 	return (
-		// biome-ignore lint/a11y/useSemanticElements: can't use <button> — children contain nested interactive elements (buttons, inputs, fieldsets) which is forbidden in HTML
+		// biome-ignore lint/a11y/useSemanticElements: can't use <button>, children contain nested interactive elements (buttons, inputs, fieldsets) which is forbidden in HTML
 		<div
 			role="button"
 			tabIndex={0}

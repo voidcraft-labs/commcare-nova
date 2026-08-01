@@ -6,11 +6,11 @@ import { Spinner } from "@/components/shadcn/spinner";
 import { cn } from "@/lib/utils";
 
 /**
- * Small status / metadata chip: a full pill of soft, BORDERLESS color —
+ * Small status / metadata chip: a full pill of soft, BORDERLESS color:
  * a pool of tint rather than an outlined chip (nothing machined, nothing
  * doubled up against card borders). Violet is the neutral accent;
  * emerald / amber / rose carry semantic state. Amber means warning /
- * recovering ("Trying again"), never in-progress — working states pass
+ * recovering ("Trying again"), never in-progress: working states pass
  * `working` for the quiet violet spinner instead.
  *
  * Badge text: sentence case, no punctuation. Interactive badges

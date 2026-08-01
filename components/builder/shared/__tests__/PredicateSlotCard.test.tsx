@@ -2,7 +2,7 @@
 //
 // components/builder/shared/__tests__/PredicateSlotCard.test.tsx
 //
-// PredicateSlotCard composition tests — pin the public contract of
+// PredicateSlotCard composition tests: pin the public contract of
 // the optional-Predicate slot primitive:
 //
 //   - Slot-empty state surfaces the "Add ..." dashed CTA; the
@@ -56,7 +56,7 @@ const PATIENT: CaseType = {
 };
 const CASE_TYPES = [PATIENT];
 
-// Common props shape — every test renders against these unless it
+// Common props shape: every test renders against these unless it
 // overrides a slot. One declaration is the single source of truth
 // for the test-side defaults across the file.
 const baseProps = {
@@ -175,7 +175,7 @@ describe("PredicateSlotCard — validity", () => {
 
 	it("reports valid: false when the slot is a type-mismatch comparison", () => {
 		// `gt(int, "string")` is rejected by the predicate type
-		// checker — the inner editor's onValidityChange flows through
+		// checker: the inner editor's onValidityChange flows through
 		// the card to its onValidityChange prop.
 		const populated: Predicate = gt(prop("patient", "age"), literal("string"));
 		const onValidityChange = vi.fn<(valid: boolean) => void>();

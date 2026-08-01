@@ -15,18 +15,18 @@ import {
 import { AppSettingsPanel } from "./AppSettingsPanel";
 
 /**
- * App-level settings popover trigger — the gear in the structure
+ * App-level settings popover trigger: the gear in the structure
  * sidebar's app row, beside the app name. Renders only for a ready
  * editor (`isReady && hasData && canEdit`): settings are an edit
  * affordance, so viewers and in-flight generations see the app row
- * without it. The panel hosts the app-level sections — appearance
+ * without it. The panel hosts the app-level sections: appearance
  * (logo) and CommCare Connect mode.
  *
  * When the app is in a Connect mode the gear carries the Connect
- * logomark — the app-level twin of the per-form settings button's
+ * logomark: the app-level twin of the per-form settings button's
  * badge, so "this app uses Connect" reads at a glance. No CodeMirror
  * editor lives in this panel, so plain `open` / `onOpenChange` state
- * suffices — no outside-press dismissal guard. The nested media
+ * suffices: no outside-press dismissal guard. The nested media
  * picker / preview popovers live inside this subtree, so Base UI
  * doesn't treat a click on them as an outside press that would tear
  * the panel down.

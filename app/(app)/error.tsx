@@ -7,7 +7,7 @@ import { reportClientError } from "@/lib/clientErrorReporter";
 /**
  * Global error boundary. Uses hard navigation (window.location)
  * instead of router.push because client-side navigation doesn't work reliably
- * inside an error boundary — React's tree is in an error state.
+ * inside an error boundary: React's tree is in an error state.
  *
  * Reports the caught error through the shared client error funnel on
  * mount so React rendering crashes reach Sentry and Cloud Logging

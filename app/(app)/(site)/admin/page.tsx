@@ -3,7 +3,7 @@ import { AdminContent } from "./admin-content";
 import { AdminContentSkeleton } from "./skeletons";
 
 /**
- * Admin dashboard — streams the shell instantly, data via Suspense.
+ * Admin dashboard: streams the shell instantly, data via Suspense.
  *
  * Auth is handled by the admin layout (requireAdminAccess). The global header
  * is rendered by the root layout. Title renders immediately. Stats and user

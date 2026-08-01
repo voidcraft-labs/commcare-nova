@@ -1,28 +1,28 @@
 /**
- * BuilderLayout — thin structural shell for the builder page.
+ * BuilderLayout: thin structural shell for the builder page.
  *
  * Owns only:
  * - Phase-dependent layout structure (centered chat vs sidebar mode)
  * - Keyboard shortcuts (delegated to engine methods)
  * - Flipbook scroll sync (DOM measurement coordination during mode switches)
  * - The scroll-to-field callback registration
- * - BuilderReferenceProvider wrapping (the URL-aware reference context) —
+ * - BuilderReferenceProvider wrapping (the URL-aware reference context):
  *   extracted into its own child so the `useLocation()` subscription for
  *   reference resolution doesn't cascade into layout re-renders on every
  *   `router.replace` for selection changes.
  *
  * All content, data subscriptions, and interactive behavior live in
  * self-sufficient child components:
- * - BuilderHeader — logo, Preview toggle (centered), undo/redo, save,
+ * - BuilderHeader: logo, Preview toggle (centered), undo/redo, save,
  *   export, account
- * - BuilderContentArea — sidebar wrappers, breadcrumb strip, preview, chat
- * - ChatContainer — useChat lifecycle, stream effects
- * - GenerationProgress — generation stage/error/status
- * - StructureSidebar — fully propless
+ * - BuilderContentArea: sidebar wrappers, breadcrumb strip, preview, chat
+ * - ChatContainer: useChat lifecycle, stream effects
+ * - GenerationProgress: generation stage/error/status
+ * - StructureSidebar: fully propless
  *
  * BuilderLayout subscribes to one store field: `phase`. All other store
  * subscriptions live in the child components listed above. This means
- * BuilderLayout re-renders only on app lifecycle transitions — not on
+ * BuilderLayout re-renders only on app lifecycle transitions, not on
  * messages, keystrokes, or clicks.
  */
 "use client";
@@ -62,13 +62,13 @@ const SCROLL_MARGIN = 20;
 const SCROLL_MARGIN_WITH_TOOLBAR = 60;
 
 interface BuilderLayoutProps {
-	/** Thread-list projection — loaded by the RSC page, passed through to
+	/** Thread-list projection: loaded by the RSC page, passed through to
 	 *  ChatContainer. */
 	threads?: ThreadMeta[];
-	/** The most recently active thread, transcript included — the
+	/** The most recently active thread, transcript included: the
 	 *  conversation this session opens into. */
 	initialThread?: ThreadDoc | null;
-	/** True when the page loaded a `generating` app — a live-thread resume
+	/** True when the page loaded a `generating` app: a live-thread resume
 	 *  reconnects to an initial BUILD run. */
 	appGenerating?: boolean;
 	/** The signed-in user, for owner-scoped chat notices. */
@@ -76,11 +76,11 @@ interface BuilderLayoutProps {
 	/** True when the app was loaded from Postgres (not a new build).
 	 *  Drives the chat empty-state copy. */
 	isExistingApp?: boolean;
-	/** CommCare HQ settings read by the RSC page — drives the export
+	/** CommCare HQ settings read by the RSC page: drives the export
 	 *  dropdown's configured/unconfigured state and upload dialog domain. */
 	commcareSettings?: CommCareSettingsPublic;
 	/** Active impersonation info, or null/omitted when viewing as
-	 *  yourself — surfaces the banner in BuilderHeader, mirroring the
+	 *  yourself: surfaces the banner in BuilderHeader, mirroring the
 	 *  site header. */
 	impersonating?: { userName: string; userEmail: string } | null;
 }
@@ -88,7 +88,7 @@ interface BuilderLayoutProps {
 /**
  * Stable empty reference for the unconfigured / not-yet-loaded case. Reusing
  * one module-level array keeps `commcareAvailableDomains`'s identity constant
- * across renders so `ExportPanel`'s `memo` holds — a fresh `[]` literal each
+ * across renders so `ExportPanel`'s `memo` holds: a fresh `[]` literal each
  * render would defeat it (and re-fire the upload dialog's reset effect).
  */
 const EMPTY_DOMAINS: { name: string; displayName: string }[] = [];
@@ -105,7 +105,7 @@ export function BuilderLayout({
 	const docStore = useContext(BlueprintDocContext);
 	const phase = useBuilderPhase();
 
-	/* CommCare settings — server-resolved, passed through to BuilderSubheader.
+	/* CommCare settings: server-resolved, passed through to BuilderSubheader.
 	 * `commcareSettings` is a discriminated union; narrow on `configured` to
 	 * read the full reachable set `availableDomains` (the upload dialog picks
 	 * the target from it per upload). */
@@ -147,7 +147,7 @@ export function BuilderLayout({
 	 *  `PreviewShell` scroller, which `document.querySelector` returns and
 	 *  whose fields are all in the DOM). The EDIT canvas is a virtualized
 	 *  list with its own inner scroller and off-screen rows, so it can't be
-	 *  restored this way — it remembers its own scroll position per form and
+	 *  restored this way: it remembers its own scroll position per form and
 	 *  re-applies it via the virtualizer's `initialOffset` on mount (see
 	 *  `VirtualFormList`). */
 	const handleSetPreviewing = useCallback(
@@ -203,7 +203,7 @@ export function BuilderLayout({
 		) as HTMLElement | null;
 
 		if (!targetEl) {
-			/* Anchor hidden in new mode — bidirectional search for nearest visible. */
+			/* Anchor hidden in new mode: bidirectional search for nearest visible. */
 			const anchorIdx = scrollAnchor.allUuids.indexOf(scrollAnchor.fieldUuid);
 			for (let dist = 1; dist < scrollAnchor.allUuids.length; dist++) {
 				const backIdx = anchorIdx - dist;
@@ -248,7 +248,7 @@ export function BuilderLayout({
 	useEffect(() => {
 		const isReady =
 			phase === BuilderPhase.Ready || phase === BuilderPhase.Completed;
-		/* `hasModules` comes from the doc store — it owns blueprint entity data.
+		/* `hasModules` comes from the doc store: it owns blueprint entity data.
 		 * Reading imperatively (no subscription) since we only branch on the
 		 * condition at effect time; the effect re-runs on phase change. */
 		const hasModules = (docStore?.getState().moduleOrder.length ?? 0) > 0;
@@ -300,7 +300,7 @@ export function BuilderLayout({
 			) as HTMLElement | null;
 			if (!fieldEl || !scrollContainer) return;
 
-			// `overrideTarget` must be within `scrollContainer` (see ScrollCallback) —
+			// `overrideTarget` must be within `scrollContainer` (see ScrollCallback):
 			// it's measured against it. Defaults to the field row.
 			const el = overrideTarget ?? fieldEl;
 			const paddingTop = scrollContainer.style.paddingTop
@@ -353,7 +353,7 @@ export function BuilderLayout({
 	// ── Navigate to first form when generation completes ──────────────
 
 	const navigate = useNavigate();
-	/* Read the two top-level order arrays together — `useAppStructure`
+	/* Read the two top-level order arrays together: `useAppStructure`
 	 * returns a shallow-stable `{moduleOrder, formOrder}` pair so the
 	 * navigate-to-first-form effect only re-fires when one of them
 	 * actually changes reference. */
@@ -401,7 +401,7 @@ export function BuilderLayout({
 		<BuilderReferenceProvider>
 			<CaseTargetDraftProvider>
 				<div className="h-full flex flex-col overflow-hidden">
-					{/* Builder header — logo, centered Preview toggle, doc tools, account.
+					{/* Builder header: logo, centered Preview toggle, doc tools, account.
 					 *  Always rendered: it replaces the site AppHeader inside /build. */}
 					<BuilderHeader
 						commcareConfigured={commcareConfigured}
@@ -411,7 +411,7 @@ export function BuilderLayout({
 					/>
 
 					<BuilderAccessGate>
-						{/* Content area — self-sufficient, owns sidebar/preview/chat layout */}
+						{/* Content area: self-sufficient, owns sidebar/preview/chat layout */}
 						<BuilderContentArea
 							isCentered={isCentered}
 							isExistingApp={!!isExistingApp}

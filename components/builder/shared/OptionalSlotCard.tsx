@@ -12,7 +12,7 @@
 // the consumer's source-of-truth; routing the `undefined` clear into
 // a "drop key" emit on the doc store is the consumer's call.
 //
-// The collapse is a visibility toggle, not a mount toggle — when the
+// The collapse is a visibility toggle, not a mount toggle: when the
 // slot is defined, the editor stays mounted across collapse state so
 // its validity verdict keeps reaching the inner shadow.
 
@@ -28,7 +28,7 @@ import { useValidityPropagator } from "./useInnerValidityShadow";
 
 /**
  * Optional collapse-toggle wiring. The disclosed region's DOM id
- * comes from an internal `useId` — the consumer doesn't thread one
+ * comes from an internal `useId`: the consumer doesn't thread one
  * through.
  */
 export interface OptionalSlotCardCollapse {
@@ -42,21 +42,21 @@ export interface OptionalSlotCardCollapse {
 }
 
 export interface OptionalSlotCardProps<T> {
-	/** Header title — short label rendered as the section's etched
+	/** Header title: short label rendered as the section's etched
 	 *  console eyebrow (e.g., "Excluded owners"). */
 	readonly title: string;
-	/** Header hint — single-line description below the title that
+	/** Header hint: single-line description below the title that
 	 *  tells the author what the slot does. */
 	readonly description: string;
 	/** Empty-state CTA label. Used as the dashed "Add ..." button's
 	 *  visible text AND `aria-label` so screen readers and visual
 	 *  readers see the same words. */
 	readonly addLabel: string;
-	/** Header Clear button — short visible text (the section title
+	/** Header Clear button: short visible text (the section title
 	 *  beside it already names the slot). Surfaces only when
 	 *  `value !== undefined`. */
 	readonly clearLabel: string;
-	/** Screen-reader name for the Clear button — the specific action
+	/** Screen-reader name for the Clear button: the specific action
 	 *  ("Clear the assigned cases setting"), since SRs don't get the
 	 *  visual adjacency to the section title. */
 	readonly clearAriaLabel: string;
@@ -74,7 +74,7 @@ export interface OptionalSlotCardProps<T> {
 	 *  `term(literal(""))` for ValueExpression). The primitive treats
 	 *  this as opaque and never inspects its shape. */
 	readonly addSeed: T;
-	/** Editor render prop — mounted whenever `value !== undefined`.
+	/** Editor render prop: mounted whenever `value !== undefined`.
 	 *  Receives the present value, the inner `onChange` (consumers
 	 *  pipe this back into the primitive's `onChange`), and the
 	 *  validity callback (consumers pipe this into the editor's
@@ -117,7 +117,7 @@ export function OptionalSlotCard<T>({
 	collapse,
 	onValidityChange,
 }: OptionalSlotCardProps<T>) {
-	// Inner editor verdict shadow. Default `true` — when the slot is
+	// Inner editor verdict shadow. Default `true`: when the slot is
 	// undefined, the editor is unmounted and the verdict stays
 	// trivially valid. When the slot is defined, the editor's
 	// `onValidityChange` overrides this on its first effect tick.
@@ -126,7 +126,7 @@ export function OptionalSlotCard<T>({
 	// Collapse open state. `useId` and `useState` MUST run unconditionally
 	// (hook rules), so both fire whether or not the consumer passes
 	// `collapse`. The `defaultOpen` initializer falls back to `true` when
-	// collapse is absent — the open state is unread in that case anyway,
+	// collapse is absent: the open state is unread in that case anyway,
 	// since the body is never wrapped in a `hidden`-toggled region.
 	const [isOpen, setIsOpen] = useState(collapse?.defaultOpen ?? true);
 	const regionId = useId();
@@ -144,7 +144,7 @@ export function OptionalSlotCard<T>({
 
 	// `slotPresent` reused so the body branch and the validity branch
 	// read off one source.
-	// No wrapper well around the editor — predicate / expression rows
+	// No wrapper well around the editor: predicate / expression rows
 	// carry their own surfaces, and a second frame around them reads
 	// as a box inside a box.
 	const body = slotPresent ? (

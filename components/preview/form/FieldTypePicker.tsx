@@ -26,12 +26,12 @@ import { NEW_FIELD_BUILDERS } from "./newFieldDefaults";
 
 /* ── Insertion menu organization ────────────────────────────────────────
  * Menu-layout-only concern: which kinds group into submenus, which kinds
- * render as direct level-1 items. The picker is the single consumer —
+ * render as direct level-1 items. The picker is the single consumer:
  * co-located rather than pulled into the domain layer because field
  * grouping is a UI decision, not a data-model invariant.
  *
  * Categories with 2+ types render as submenus; top-level items render as
- * direct `Menu.Item`s (e.g. Hidden — single-purpose types that don't
+ * direct `Menu.Item`s (e.g. Hidden: single-purpose types that don't
  * belong in a family). */
 
 interface InsertionCategory {
@@ -43,7 +43,7 @@ interface InsertionCategory {
 	types: readonly FieldKind[];
 }
 
-/** Grouped families — each becomes a submenu in the insertion menu. */
+/** Grouped families: each becomes a submenu in the insertion menu. */
 const INSERTION_CATEGORIES: readonly InsertionCategory[] = [
 	{
 		label: "Input",
@@ -62,7 +62,7 @@ const INSERTION_CATEGORIES: readonly InsertionCategory[] = [
 	},
 	{
 		// Barcode rides here rather than under Input: it is a scan, not
-		// something the worker types. It is not a capture kind — its answer
+		// something the worker types. It is not a capture kind, its answer
 		// is the scanned text, not an attachment.
 		label: "Attachments and scanning",
 		icon: tablerPhoto,
@@ -85,7 +85,7 @@ interface FieldTypePickerPopupProps {
 	parentUuid: Uuid;
 	/** Reports which insertion location the menu is open for (null on close).
 	 *  Fired from inside `Menu.Popup`, whose mount is exactly the menu's open
-	 *  lifetime — the anchor InsertionPoint pins its line while this matches. */
+	 *  lifetime: the anchor InsertionPoint pins its line while this matches. */
 	onActiveTargetChange: (
 		target: { atIndex: number; parentUuid: Uuid } | null,
 	) => void;
@@ -95,14 +95,14 @@ interface FieldTypePickerPopupProps {
  * Popup content for the field insertion menu.
  *
  * Renders the portal, positioner, popup shell, and categorised menu items.
- * Rendered as a child of the shared `Menu.Root` in `FormRenderer` — each
+ * Rendered as a child of the shared `Menu.Root` in `FormRenderer`, each
  * `InsertionPoint` sends its context (`atIndex`, `parentUuid`) as payload
  * via detached `Menu.Trigger`s connected through `Menu.createHandle()`.
  * Base UI's `FloatingTreeStore` is initialised by the root `Menu.Root`,
  * allowing submenus to register as tree children and preventing spurious
  * dismiss events during submenu hover transitions.
  *
- * Menu close is handled automatically by `Menu.Item`'s `closeOnClick` default —
+ * Menu close is handled automatically by `Menu.Item`'s `closeOnClick` default:
  * no explicit close callback is needed.
  */
 export function FieldTypePickerPopup({
@@ -117,7 +117,7 @@ export function FieldTypePickerPopup({
 	const docStore = useContext(BlueprintDocContext);
 
 	/** Generate a unique ID, create the field, and select it.
-	 *  Reads the doc store imperatively at insert time — avoids N
+	 *  Reads the doc store imperatively at insert time: avoids N
 	 *  reactive subscriptions to entity maps that would fire on every
 	 *  unrelated field edit. */
 	const handleSelect = useCallback(
@@ -141,7 +141,7 @@ export function FieldTypePickerPopup({
 			}
 
 			// Build the kind's starter field through the typed per-kind builder
-			// map — each kind's shape is checked against its own schema, so an
+			// map: each kind's shape is checked against its own schema, so an
 			// invalid default (e.g. a `label` on `hidden`) can't be minted. The
 			// label mirrors the kind's human-readable name (e.g. "New Text",
 			// "New Single Select") so a freshly-added field is self-describing;
@@ -152,7 +152,7 @@ export function FieldTypePickerPopup({
 			);
 
 			const outcome = addField(parentUuid, newField, { atIndex });
-			/* A rejected insert (the commit gate refused the batch — the
+			/* A rejected insert (the commit gate refused the batch: the
 			 * rejection toast already names the findings) must not navigate:
 			 * there is no new field to mark, scroll to, or select, and
 			 * re-selecting a phantom would kick the user off the field they
@@ -230,7 +230,7 @@ export function FieldTypePickerPopup({
 	);
 }
 
-/** Reports the menu's open target for the lifetime of `Menu.Popup`'s mount —
+/** Reports the menu's open target for the lifetime of `Menu.Popup`'s mount:
  *  Base UI unmounts the popup on close (default `keepMounted: false`), so the
  *  effect's setup/cleanup brackets exactly the open window, independent of
  *  HOW the menu was opened or closed. Renders nothing. */

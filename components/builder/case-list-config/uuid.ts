@@ -7,7 +7,7 @@
 // shape rather than reaching for the cast inline.
 //
 // Mirrors the agent-layer's `newUuid()` at
-// `lib/agent/tools/case-list-config/shared.ts` — both authoring
+// `lib/agent/tools/case-list-config/shared.ts`: both authoring
 // surfaces (SA tool path + UI workspace) need the same kind of
 // helper, but cross-layer imports from `components/builder` into
 // `lib/agent/tools` would invert the dependency direction (UI

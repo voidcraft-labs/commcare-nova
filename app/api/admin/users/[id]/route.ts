@@ -1,11 +1,11 @@
 /**
- * Admin user detail endpoint — returns a single user's profile, usage history, and apps.
+ * Admin user detail endpoint: returns a single user's profile, usage history, and apps.
  *
  * GET /api/admin/users/{userId} → AdminUserDetailResponse
  *
  * Data fetching is delegated to getAdminUserDetail() in lib/db/admin.ts,
  * shared with the RSC admin user detail page. This route is retained for
- * external API consumers — the RSC page calls the DB function directly.
+ * external API consumers: the RSC page calls the DB function directly.
  */
 
 import { ApiError, handleApiError } from "@/lib/apiError";

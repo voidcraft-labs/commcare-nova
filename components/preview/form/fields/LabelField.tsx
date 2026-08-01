@@ -15,7 +15,7 @@ import { TextEditable } from "../TextEditable";
 
 /**
  * Display-only label field renderer. Labels carry only `label` + optional
- * `relevant` in the domain schema — no hint, no data binding. The preview
+ * `relevant` in the domain schema: no hint, no data binding. The preview
  * engine still provides a resolved label (hashtag substitution) via
  * `FieldState`.
  */
@@ -24,7 +24,7 @@ export function LabelField({
 	state,
 }: {
 	/** The label field entity. Prop name is `field` to match the domain.
-	 *  consistent with other preview field components — the prop name is
+	 *  consistent with other preview field components: the prop name is
 	 *  cosmetic; the value is a domain `LabelField`. */
 	field: LabelFieldEntity;
 	state: FieldState;
@@ -32,13 +32,13 @@ export function LabelField({
 	const mode = useEditMode();
 	const isEditMode = mode === "edit";
 	const { updateField } = useBlueprintMutations();
-	/* Inline save callback — null in preview mode so the TextEditable
+	/* Inline save callback: null in preview mode so the TextEditable
 	 * below falls back to read-only. In edit mode returns a stable
 	 * `(field, value) => void` that coerces empty strings to undefined
 	 * (an unset property) and commits through the doc store. The
 	 * patch's `property` arg is a runtime key (the TextEditable's
 	 * `fieldType` axis), so we cast back to the label kind's partial
-	 * shape — every key TextEditable can save (`label`) is declared on
+	 * shape: every key TextEditable can save (`label`) is declared on
 	 * `LabelField`, so the runtime contract holds. */
 	const saveField = useMemo<
 		((field: string, value: ProseTemplate) => void) | null
@@ -53,7 +53,7 @@ export function LabelField({
 
 	return (
 		<div className="py-1">
-			{/* Label media above the text — same `MediaDisplay` the input fields
+			{/* Label media above the text: same `MediaDisplay` the input fields
 			    use, so a display-only label shows its image/audio/video too. */}
 			<MediaDisplay media={field.label_media} interactive={!isEditMode} />
 			<TextEditable

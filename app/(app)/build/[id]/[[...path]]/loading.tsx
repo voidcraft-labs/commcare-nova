@@ -1,5 +1,5 @@
 /**
- * Build page loading skeleton — shown by Next.js while the RSC page
+ * Build page loading skeleton: shown by Next.js while the RSC page
  * awaits server-side data (auth check + Postgres app read).
  */
 import { Logo } from "@/components/ui/Logo";

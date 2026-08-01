@@ -1,5 +1,5 @@
 /**
- * Async server component — user app list.
+ * Async server component: user app list.
  *
  * Fetches apps from Postgres and renders the AppCardList.
  * Wrapped in a Suspense boundary by the parent page so it streams in

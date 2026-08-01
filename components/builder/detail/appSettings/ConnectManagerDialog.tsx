@@ -38,7 +38,7 @@ import {
 } from "./ConnectEnableDialog";
 
 /**
- * App-wide CommCare Connect manager — the single surface that owns the
+ * App-wide CommCare Connect manager: the single surface that owns the
  * app-level Connect story, opened from App Settings. ONE coherent editor:
  * every form is a draft, every field (names, descriptions, time, ids, the
  * XPath slots behind "Advanced") edits in place, and a single primary action
@@ -49,7 +49,7 @@ import {
  *     live doc (active mode) and the session stash (the other), so flipping
  *     the control never loses in-progress work.
  *   - The primary action reads "Apply changes" (editing the active mode),
- *     "Switch to <mode>" (moving to the other mode — gated on reaching it
+ *     "Switch to <mode>" (moving to the other mode: gated on reaching it
  *     with ≥1 participant in one atomic batch), or "Enable Connect" (off).
  *     A rejected commit keeps the drafts with the gate's findings inline.
  *   - "Turn off Connect" disables it entirely (the stash preserves the work).
@@ -67,7 +67,7 @@ interface FormRow {
 
 type ModeDrafts = Record<ConnectType, Record<string, BlockDraft>>;
 
-/** The app's forms in tree order — subscribes to the live structure + name
+/** The app's forms in tree order: subscribes to the live structure + name
  *  maps so the manager tracks a concurrent edit (an agent adding, removing, or
  *  renaming a form while the modal is open) instead of editing a stale
  *  snapshot. Drafts stay keyed by uuid, so an added form is editable via the
@@ -97,7 +97,7 @@ function useFormRows(): FormRow[] {
 /** Seed one mode's draft per form: the form's live block when `mode` is the
  *  app's active mode, the session stash otherwise. Existing XPath is printed
  *  to its buffer so it round-trips. Each empty slot gets its OWN cloned
- *  `EMPTY_DRAFT` — never the shared singleton — so a slot can never alias
+ *  `EMPTY_DRAFT`: never the shared singleton, so a slot can never alias
  *  another (or the dirty baseline). */
 function seedModeDrafts(
 	forms: FormRow[],
@@ -140,11 +140,11 @@ function seedDrafts(
 	return drafts;
 }
 
-/** A normalized key for "would committing this mode change anything" — only
+/** A normalized key for "would committing this mode change anything", only
  *  the fields of ENABLED sub-configs count, so a residual id/name left in a
  *  toggled-OFF sub-config's buffer never reads as a change. A draft with NO
  *  enabled sub-config is skipped entirely so it reads identically to an absent
- *  one — otherwise a form added to the doc while the modal is open (present in
+ *  one: otherwise a form added to the doc while the modal is open (present in
  *  `drafts` but not the once-captured `seeded`) and toggled on→off would read
  *  as permanently dirty. */
 function dirtyKey(
@@ -237,7 +237,7 @@ function ManagerBody({ onClose }: { onClose: () => void }) {
 		);
 	})[0];
 	const [drafts, setDrafts] = useState<ModeDrafts>(initialDrafts);
-	/** The last-committed snapshot — diffed against `drafts` to gate "Apply
+	/** The last-committed snapshot: diffed against `drafts` to gate "Apply
 	 *  changes" on real edits and to drive the saved/unsaved hint. */
 	const [seeded, setSeeded] = useState<ModeDrafts>(initialDrafts);
 	const [selectedMode, setSelectedMode] = useState<ConnectType>(
@@ -249,7 +249,7 @@ function ManagerBody({ onClose }: { onClose: () => void }) {
 	const draftOf = (formUuid: string) => modeDrafts[formUuid] ?? EMPTY_DRAFT;
 
 	const patchDraft = (formUuid: string, patch: Partial<BlockDraft>) => {
-		// An edit invalidates any inline gate findings from a prior apply — clear
+		// An edit invalidates any inline gate findings from a prior apply, clear
 		// them so a stale rejection can't describe a problem the user just fixed.
 		setRejectionMessages((m) => (m.length ? [] : m));
 		setDrafts((prev) => ({
@@ -264,7 +264,7 @@ function ManagerBody({ onClose }: { onClose: () => void }) {
 		}));
 	};
 
-	// Id uniqueness scoped to the IN-FLIGHT drafts of the mode being edited —
+	// Id uniqueness scoped to the IN-FLIGHT drafts of the mode being edited:
 	// NOT the live doc. So a duplicate id the user types across two forms is
 	// caught inline, a seeded id matches what the commit will store, and editing
 	// the mode the app isn't currently in validates against the right set. One
@@ -330,7 +330,7 @@ function ManagerBody({ onClose }: { onClose: () => void }) {
 						: `Ready to switch to ${modeLabel(selectedMode)}.`;
 
 	const reseed = () => {
-		// Only the just-applied mode changed on the doc — rebuild ITS drafts +
+		// Only the just-applied mode changed on the doc: rebuild ITS drafts +
 		// baseline and PRESERVE the other mode's in-progress work (reseeding both
 		// would silently discard uncommitted edits the user made to the mode they
 		// didn't apply).
@@ -382,7 +382,7 @@ function ManagerBody({ onClose }: { onClose: () => void }) {
 
 	const turnOff = () => {
 		/* Disabling is always valid (the stash preserves each mode's work),
-		 * so this never bounces — route any hypothetical finding inline. */
+		 * so this never bounces: route any hypothetical finding inline. */
 		const outcome = switchMode(null, undefined, { announce: false });
 		if (outcome.ok) onClose();
 		else setRejectionMessages(outcome.messages);
@@ -393,7 +393,7 @@ function ManagerBody({ onClose }: { onClose: () => void }) {
 			<header className="flex items-center justify-between border-b border-nova-border px-5 py-3.5">
 				<div className="flex items-center gap-3">
 					<DialogTitle className="font-display">CommCare Connect</DialogTitle>
-					{/* Mode selector — the active mode carries a dot. */}
+					{/* Mode selector: the active mode carries a dot. */}
 					<div
 						className="flex items-center gap-1 rounded-lg bg-white/[0.04] p-0.5"
 						role="radiogroup"

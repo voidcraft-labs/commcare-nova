@@ -4,13 +4,13 @@ import { tablerCredits } from "@/components/icons/tablerExtras";
 import { cn } from "@/lib/utils";
 
 interface CreditAmountProps extends ComponentPropsWithRef<"span"> {
-	/** The credit figure to show — a cost (e.g. 100) or a remaining balance. */
+	/** The credit figure to show: a cost (e.g. 100) or a remaining balance. */
 	value: number;
-	/** When set, renders "value / total" — the account-menu balance-gauge form. */
+	/** When set, renders "value / total": the account-menu balance-gauge form. */
 	total?: number;
 	/** Append the word "credits" after the number. Off by default: the tightest
 	 *  surfaces (the composer cost chip, table cells) have no room for it and the
-	 *  glyph already carries the meaning. Turn it on where there's space — the
+	 *  glyph already carries the meaning. Turn it on where there's space, the
 	 *  account menu, empty states, or a tooltip that should spell it out. */
 	showLabel?: boolean;
 	/** Visual scale. `sm` matches the composer chip; `md` is body size. */
@@ -23,7 +23,7 @@ const SIZES = {
 } as const;
 
 /**
- * The canonical "nova credits" display — the credits glyph next to a figure,
+ * The canonical "nova credits" display: the credits glyph next to a figure,
  * used everywhere a credit amount appears (the composer cost chip, the
  * account-menu balance gauge, admin controls) so the look never drifts per
  * surface. Pure presentational (no hooks), safe in both server and client
@@ -31,7 +31,7 @@ const SIZES = {
  * floating-element trigger (e.g. a Base UI `Tooltip.Trigger`). Numbers are
  * locale-formatted; the glyph carries the "credits" meaning when `showLabel` is
  * off (the default), so a tight surface needs no extra word. The default tone is
- * muted/informational — pass a `text-*` class to recolor.
+ * muted/informational: pass a `text-*` class to recolor.
  */
 export function CreditAmount({
 	value,

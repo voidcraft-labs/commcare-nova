@@ -1,5 +1,5 @@
 /**
- * GroupBracket — opening + closing bracket rows for group / repeat
+ * GroupBracket: opening + closing bracket rows for group / repeat
  * containers in the virtualized edit view.
  *
  * Drag semantics:
@@ -9,7 +9,7 @@
  *       - cursor in the top half  → insert the source BEFORE the group
  *         at the parent's level (sibling), not inside it. This is the
  *         only way to place a field above a group when the group is the
- *         parent's first child — the parent-level insertion gap above
+ *         parent's first child: the parent-level insertion gap above
  *         the header is too thin to reliably hit, so we let the top half
  *         of the header claim "before" semantics.
  *       - cursor in the bottom half → insert the source as the first
@@ -17,7 +17,7 @@
  *     The violet highlight ring only fires for the "into group" case so
  *     the user never sees conflicting feedback while the placeholder row
  *     above the header shows the parent-level landing slot.
- *   - `GroupCloseRow` is inert — a visual cap, not a drag surface.
+ *   - `GroupCloseRow` is inert: a visual cap, not a drag surface.
  */
 
 "use client";
@@ -77,7 +77,7 @@ export const GroupOpenRow = memo(function GroupOpenRow({
 	const projectProse = useProseProjection();
 	const mode = useEditMode();
 	const { updateField } = useBlueprintMutations();
-	/* Inline save for the TextEditable header — null outside edit mode so
+	/* Inline save for the TextEditable header: null outside edit mode so
 	 * the group label stays read-only. Matches FieldRow's inlined pattern
 	 * (empty string → undefined, commit via doc store). The closure
 	 * captures the field's `kind` so the patch type narrows to the
@@ -102,7 +102,7 @@ export const GroupOpenRow = memo(function GroupOpenRow({
 	// the monitor can distinguish top-half hovers (insert BEFORE the group)
 	// from bottom-half hovers (insert INTO the group at position 0). With
 	// only `["top", "bottom"]` allowed, the helper snaps to whichever edge
-	// is closer to the cursor — half of a ~40px header is enough real estate
+	// is closer to the cursor: half of a ~40px header is enough real estate
 	// for either intent, and the placeholder row renders at a distinct depth
 	// for each so the user sees the outcome before releasing.
 	const buildDropData = useCallback<
@@ -135,7 +135,7 @@ export const GroupOpenRow = memo(function GroupOpenRow({
 		cycleTargetContainerUuid: uuid,
 		buildDropData,
 		// Track the edge locally so we can suppress the "into group" ring
-		// when the cursor is in the top half — that hover means "before the
+		// when the cursor is in the top half: that hover means "before the
 		// group", which is already communicated by the depth-0 placeholder
 		// in the parent-level gap above the header.
 		trackEdge: true,
@@ -144,7 +144,7 @@ export const GroupOpenRow = memo(function GroupOpenRow({
 
 	// Ring feedback fires only for the "insert into group" intent. When the
 	// cursor is in the top half of the header (edge === "top"), the drop
-	// lands at the parent level — the header is just a neighboring row, not
+	// lands at the parent level: the header is just a neighboring row, not
 	// the landing container, so highlighting it would mislead.
 	const showIntoGroupRing = isDragOver && dropEdge !== "top";
 
@@ -179,7 +179,7 @@ export const GroupOpenRow = memo(function GroupOpenRow({
 							collapsed ? "rounded-b-lg border-b" : ""
 						} ${showIntoGroupRing ? "ring-2 ring-nova-violet" : ""}`}
 					>
-						{/* Group label media — banner above the header row, matching
+						{/* Group label media: banner above the header row, matching
 						    the live `GroupField` position for flipbook parity. */}
 						<MediaDisplay
 							media={q && "label_media" in q ? q.label_media : undefined}
@@ -218,7 +218,7 @@ export const GroupOpenRow = memo(function GroupOpenRow({
 							<div className="min-w-0 flex-1">
 								{/* GroupBracket always receives a container field (group
 								 *  or repeat). Both kinds carry an OPTIONAL `label`
-								 *  (containerFieldBase) — empty/absent label means the
+								 *  (containerFieldBase): empty/absent label means the
 								 *  container is transparent at runtime, but the author
 								 *  still needs an inline affordance to give it one. We
 								 *  always render `TextEditable` and let it activate on
@@ -250,7 +250,7 @@ export const GroupOpenRow = memo(function GroupOpenRow({
 							</div>
 						</div>
 						{/* Containers (group/repeat) carry no `hint` in the domain
-						 *  schema — only `relevant`. The hint editor only appears
+						 *  schema: only `relevant`. The hint editor only appears
 						 *  on non-container kinds via FieldRow. */}
 					</div>
 				</EditableFieldWrapper>

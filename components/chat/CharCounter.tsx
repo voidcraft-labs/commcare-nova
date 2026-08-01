@@ -10,7 +10,7 @@ import { CHAR_COUNTER_VISIBLE_AT } from "@/lib/chat/limits";
  * The composer's character counter. Hidden until the text reaches
  * `CHAR_COUNTER_VISIBLE_AT` of the limit (so normal short messages carry no
  * chrome), then escalates by color: nova-amber as a warning while at or below
- * the limit, nova-rose at or over it. It never blocks typing — the composer
+ * the limit, nova-rose at or over it. It never blocks typing, the composer
  * lets the text go over and gates SENDING instead, so a paste you need to trim
  * stays editable.
  */
@@ -20,7 +20,7 @@ export function CharCounter({ length, max }: { length: number; max: number }) {
 
 	// OVER the limit reads as an error (rose); at-or-below is a warning (amber).
 	// Strictly `> max` to match the send gate (ChatInput's `overLimit` + the server
-	// both reject only PAST the limit) — so a message exactly at the limit, which
+	// both reject only PAST the limit), so a message exactly at the limit, which
 	// IS sendable, never shows the rose "trim to send" state.
 	// The counter renders at full opacity once visible: its appearance at
 	// CHAR_COUNTER_VISIBLE_AT already signals the approaching limit, and a

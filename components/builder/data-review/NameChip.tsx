@@ -13,7 +13,7 @@ import type { CasePropertyDataType } from "@/lib/preview/engine/caseDataBindingT
 import { CHIP, REF_TYPE_CONFIG } from "@/lib/references/config";
 
 /**
- * The property's current data type as a chip icon — the same icons
+ * The property's current data type as a chip icon: the same icons
  * the field palette uses for the kinds that write each type, so the
  * chip shows what the property holds NOW in vocabulary the builder
  * already taught. `datetime` shares the clock with `time` exactly as
@@ -32,7 +32,7 @@ export const DATA_TYPE_ICONS: Record<CasePropertyDataType, IconifyIcon> = {
 };
 
 /**
- * A case identifier — a property id, a case-type name — rendered as a
+ * A case identifier: a property id, a case-type name, rendered as a
  * variant of the typed case-property reference chip (`lib/references`):
  * the case family's violet tint, mono id, and 4px radius, sharing the
  * `CHIP` dimension constants so the two can't drift. Two deliberate
@@ -42,7 +42,7 @@ export const DATA_TYPE_ICONS: Record<CasePropertyDataType, IconifyIcon> = {
  *
  * `icon` defaults to the case family's database mark; pass a
  * `DATA_TYPE_ICONS` entry with an `iconLabel` to show the property's
- * current type instead (the label is the icon's screen-reader name —
+ * current type instead (the label is the icon's screen-reader name:
  * without it the icon is decorative).
  */
 export function NameChip({

@@ -2,7 +2,7 @@
  * Removing a persona, with the consequence stated before it happens.
  *
  * Cases the persona owns are deliberately left where they are. That is
- * Nova's own rule rather than HQ parity — HQ deactivating a worker leaves
+ * Nova's own rule rather than HQ parity: HQ deactivating a worker leaves
  * their cases alone, but HQ DELETING one soft-deletes every case they own
  * (`users/models.py::CommCareUser.retire`). A persona is a design and test
  * actor rather than a person who left an organization, and the cases it

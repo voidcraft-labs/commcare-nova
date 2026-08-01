@@ -1,6 +1,6 @@
 // components/builder/shared/cards/expression/CoalesceCard.tsx
 //
-// Renders the `coalesce` ValueExpression — first-non-empty fallback
+// Renders the `coalesce` ValueExpression: first-non-empty fallback
 // chain. Each `values[i]` is a recursive `ValueExpression`; the
 // result type is the agreed type across all values (per
 // `accumulateBranchType` in the type checker). Drag-and-drop
@@ -42,7 +42,7 @@ import {
 import { useStableListIdentity } from "../../useStableListIdentity";
 import { resolveExpressionType } from "../reseed";
 
-/** Default `coalesce` — two null literals. Both values resolve to
+/** Default `coalesce`: two null literals. Both values resolve to
  *  the `_any` sentinel so the `accumulateBranchType` agreement
  *  check accepts the seed clean. Authors flip values via the per-
  *  row picker. */
@@ -56,7 +56,7 @@ interface CoalesceCardProps {
 	readonly value: Extract<ValueExpression, { kind: "coalesce" }>;
 	readonly onChange: (next: ValueExpression) => void;
 	readonly path: EditorPath;
-	/** The coalesce's own result constraint propagates to every value —
+	/** The coalesce's own result constraint propagates to every value:
 	 *  the result is whichever value resolves first, so each must
 	 *  satisfy the slot. */
 	readonly constraint?: SlotConstraint;
@@ -86,7 +86,7 @@ export function CoalesceCard({
 		// `coalesce` builder's variadic-with-required-first signature
 		// ties the call together. The builder's declared return type
 		// is the precise `Extract<ValueExpression, { kind: "coalesce" }>`
-		// arm — no narrowing cast needed.
+		// arm: no narrowing cast needed.
 		return coalesce(first, ...rest);
 	};
 
@@ -258,7 +258,7 @@ function ValueRow({
 	constraint,
 }: ValueRowProps) {
 	// Per-value errors render via the `ExpressionPicker` shell's
-	// `CardShell` footer at the matching slot path — no parallel
+	// `CardShell` footer at the matching slot path: no parallel
 	// `<InlineError>` is needed here.
 	return (
 		<ExpressionPicker

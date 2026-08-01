@@ -5,7 +5,7 @@
  * **It names the apps.** Reference edges are exact and transactional, so this
  * surface can say "Household register and Referral follow-up still use this"
  * instead of warning generically that something somewhere might break. The
- * pre-flight read runs while the dialog opens — advisory by construction,
+ * pre-flight read runs while the dialog opens: advisory by construction,
  * because a scan races a concurrent app commit and only the transactional edge
  * check under the table lock can authorize the change. If the commit refuses
  * anyway, its own blocking set is rendered in exactly the same words, so the
@@ -69,7 +69,7 @@ export function DestructiveChangeDialog({
 	confirmLabel: string;
 	onCancel: () => void;
 	/** Resolves `null` when the change landed, or the refusal that stopped it.
-	 *  A refusal keeps the dialog open, beside the action that produced it —
+	 *  A refusal keeps the dialog open, beside the action that produced it:
 	 *  and its `blockingApps` replace the advisory list, because the commit's
 	 *  answer is the authoritative one. */
 	onConfirm: () => Promise<LookupGovernanceFailure | null>;

@@ -1,5 +1,5 @@
 /**
- * Account menu — avatar-triggered dropdown with profile, credit balance,
+ * Account menu: avatar-triggered dropdown with profile, credit balance,
  * settings link, and sign-out.
  *
  * The credit summary comes from the shared `useCreditBalance` hook, which
@@ -34,7 +34,7 @@ import { getInitials } from "@/lib/utils";
 /**
  * Credit-gauge gradient. The argument is the fraction of the month's credits
  * still available, so the bar is healthy violet while credits remain and shifts
- * to the amber→rose warning once the balance runs low — under 20% of the
+ * to the amber→rose warning once the balance runs low: under 20% of the
  * month's credits left.
  */
 function getBarGradient(remainingRatio: number): string {
@@ -81,7 +81,7 @@ function UserAvatar({
 		);
 	}
 	return (
-		/* `leading-none` centers the CAPS optically — with the inherited
+		/* `leading-none` centers the CAPS optically: with the inherited
 		 * line-height the line box towers over the glyphs, so flex centers
 		 * the box and the letters ride high of the circle's midline. */
 		<span
@@ -104,12 +104,12 @@ export function AccountMenu({
 	const { user, isAuthenticated, isPending, signOut } = useAuth();
 	const [open, setOpen] = useState(false);
 	/* File-manager dialog open state. The "Files" item opens the same media
-	 * dialog the chat composer uses, but with no pick target — a standalone
+	 * dialog the chat composer uses, but with no pick target: a standalone
 	 * manager for browsing, uploading, previewing, and deleting your files. */
 	const [fileManagerOpen, setFileManagerOpen] = useState(false);
 
-	/* Credit summary via the shared hook. It owns the on-mount fetch — gated by
-	 * `isAuthenticated` so it doesn't fire a 401 before sign-in resolves — so the
+	/* Credit summary via the shared hook. It owns the on-mount fetch, gated by
+	 * `isAuthenticated` so it doesn't fire a 401 before sign-in resolves, so the
 	 * dropdown opens instantly with no loading state. `refresh` re-fetches on
 	 * demand for the on-open effect below. */
 	const { summary: usage, refresh } = useCreditBalance(isAuthenticated);
@@ -128,7 +128,7 @@ export function AccountMenu({
 	 * mismatch: the auth client resolves the session synchronously on the client
 	 * (`isPending` false on first paint) while SSR has none (`isPending` true),
 	 * so the server renders the placeholder and the client would render the menu
-	 * — a mismatch React has to discard. Gating the first client render on mount
+	 *: a mismatch React has to discard. Gating the first client render on mount
 	 * makes it match the server, then it swaps to the resolved menu. */
 	const [mounted, setMounted] = useState(false);
 	useEffect(() => {
@@ -145,11 +145,11 @@ export function AccountMenu({
 		);
 	}
 
-	/* Session still loading or somehow unauthenticated — nothing to render */
+	/* Session still loading or somehow unauthenticated: nothing to render */
 	if (!isAuthenticated || !user) return null;
 
 	/* The bar is a fuel gauge: full when fresh, depleting as credits are spent.
-	 * Its denominator is the effective monthly total — allowance + bonus, recovered
+	 * Its denominator is the effective monthly total: allowance + bonus, recovered
 	 * as `balance + consumed` (equal by definition) so a bonused user's extra credits
 	 * count toward the total. The ratio is the fraction still available; clamped to
 	 * [0, 1] and guarding divide-by-zero. */
@@ -200,7 +200,7 @@ export function AccountMenu({
 									<span className="text-[11px] text-nova-text-muted">
 										Credits this month
 									</span>
-									{/* Just the remaining balance — no "/ total", no "credits" word. A
+									{/* Just the remaining balance: no "/ total", no "credits" word. A
 									 * countdown to zero reads fine without the denominator, and dropping the
 									 * trailing text keeps this on one line beside the "Credits this month"
 									 * label instead of wrapping. The bar below still conveys the proportion
@@ -223,7 +223,7 @@ export function AccountMenu({
 						<div className="border-t border-white/[0.06]" />
 
 						{/* ── Files (file manager) ─────────────────────── */}
-						{/* Opens the media dialog as a standalone manager — the only
+						{/* Opens the media dialog as a standalone manager: the only
 						 *  entry to it outside the chat composer's attach flow. Close
 						 *  the menu first, then open the dialog (a sibling of this
 						 *  Popover, so it outlives the menu). */}
@@ -282,11 +282,11 @@ export function AccountMenu({
 
 			{/* The file manager opens OUTSIDE the Popover (it portals to body
 			 *  anyway), so it outlives the menu closing on the click that opened it.
-			 *  Omitting onPick puts the dialog in manage mode — all asset kinds,
+			 *  Omitting onPick puts the dialog in manage mode: all asset kinds,
 			 *  browse / preview, plus upload/delete for Project editors, with no
 			 *  carrier to pick into.
 			 *  `iconLibrary="all"` surfaces the built-in icon set here for discovery
-			 *  (browse-only — clicking previews; there's no slot to attach to). */}
+			 *  (browse-only: clicking previews; there's no slot to attach to). */}
 			<MediaPickerDialog
 				open={fileManagerOpen}
 				onOpenChange={setFileManagerOpen}

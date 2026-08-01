@@ -2,7 +2,7 @@
 //
 // Every word the display-condition surfaces say, derived from the
 // carrier alone. Pure and separately tested, because the hard part of
-// this feature is not the editor — it is telling an author WHERE their
+// this feature is not the editor: it is telling an author WHERE their
 // condition takes effect, and that answer changes with the module's
 // shape.
 //
@@ -12,7 +12,7 @@
 //
 //   - every form opens an existing case (case-first): the worker picks a
 //     case first, so the form condition is checked afterwards, against
-//     the chosen case — including the shortcut that skips the form list
+//     the chosen case, including the shortcut that skips the form list
 //     when a module has only one form;
 //   - any form starts a new case or collects a plain survey
 //     (forms-first): the worker chooses the form BEFORE any case, so
@@ -28,14 +28,14 @@ export type DisplayConditionCarrier =
 			readonly kind: "module";
 			readonly moduleName: string;
 			/** A module with no forms is its case list, so it has no home tile
-			 *  of its own to describe differently — the copy still holds. */
+			 *  of its own to describe differently: the copy still holds. */
 			readonly moduleIsBareCaseList: boolean;
 	  }
 	| {
 			readonly kind: "form";
 			readonly formName: string;
 			readonly moduleName: string;
-			/** `isCaseFirstModule` — every form in the module opens an
+			/** `isCaseFirstModule`: every form in the module opens an
 			 *  existing case, so a case is chosen before the form is. */
 			readonly caseFirst: boolean;
 			/** The module's case type, when it declares one. */
@@ -119,7 +119,7 @@ export function displayConditionCopy(
 			clearLabel: "Always show",
 			clearTitle: "Always show this module?",
 			clearConsequence: `The condition will be removed and ${name} will appear on the home screen for everyone. You can undo this change.`,
-			/* A bare case list has no module screen — it IS its case list —
+			/* A bare case list has no module screen: it IS its case list:
 			 * so Back lands there and must say so. */
 			backLabel: carrier.moduleIsBareCaseList
 				? "Back to case list"

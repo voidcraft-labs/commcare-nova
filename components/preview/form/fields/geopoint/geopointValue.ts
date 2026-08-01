@@ -3,7 +3,7 @@
 // Pure conversions between a geopoint field's wire value and a typed
 // coordinate. The wire value is CommCare's space-separated
 // "lat lon alt accuracy" string (see `GEOPOINT_PATTERN` in
-// `lib/domain/predicate/jsonSchema.ts`) — exactly four decimals, or
+// `lib/domain/predicate/jsonSchema.ts`): exactly four decimals, or
 // empty. The picker UI works in the typed `GeoPoint` shape and only
 // touches the string at the engine boundary, so all the parsing /
 // formatting lives here where it can be unit-tested without a DOM.
@@ -45,7 +45,7 @@ export function isValidLon(lon: number): boolean {
  * longitude must parse and fall in range. Altitude/accuracy default to 0
  * when absent (the two-token case a hand-authored default might use).
  * An empty / blank string, an out-of-range lat or lon, or a non-numeric
- * first-two token yields `null` — the caller treats that as "no value".
+ * first-two token yields `null`: the caller treats that as "no value".
  */
 export function parseGeopoint(raw: string | undefined | null): GeoPoint | null {
 	if (!raw) return null;
@@ -81,7 +81,7 @@ function tidy(value: number, dp: number): string {
  * Encode a `GeoPoint` into the wire string. Always emits four tokens so
  * the result matches `GEOPOINT_PATTERN`. Latitude/longitude keep six
  * decimals (~0.1 m); altitude/accuracy keep two. The caller is
- * responsible for passing an in-range coordinate — `format` does not
+ * responsible for passing an in-range coordinate: `format` does not
  * re-validate, mirroring the engine's "value in, string out" contract.
  */
 export function formatGeopoint(point: GeoPoint): string {

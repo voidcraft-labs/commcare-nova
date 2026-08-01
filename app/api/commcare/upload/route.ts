@@ -1,18 +1,18 @@
 /**
- * CommCare HQ app upload proxy — POST /api/commcare/upload.
+ * CommCare HQ app upload proxy: POST /api/commcare/upload.
  *
  * Accepts a blueprint and uploads it to CommCare HQ as a new app in the
  * caller's chosen project space. The API key stays server-side, and each
- * call creates a brand-new app — HQ has no atomic update API yet.
+ * call creates a brand-new app: HQ has no atomic update API yet.
  *
  * The zero-tolerance boundary gate runs first: every validator finding
  * (soundness, completeness, or a stale media reference) returns an
- * actionable 422, never an opaque 500 — an invalid app must never reach
+ * actionable 422, never an opaque 500: an invalid app must never reach
  * HQ. Then the upload is media-ON, two-phase: the blueprint expands
  * media-ON and imports, and once the app exists, each asset's bytes are
  * uploaded per-file against the new app id so HQ's `create_mapping`
  * resolves the references on the device. A media-byte failure never fails
- * the upload — the app is already created, so it degrades to a warning on
+ * the upload: the app is already created, so it degrades to a warning on
  * the response.
  */
 
@@ -71,7 +71,7 @@ export async function POST(req: NextRequest) {
 			throw new ApiError("App data is required", 400);
 		}
 
-		/* Membership gate (edit) + load the blueprint server-side — no whole
+		/* Membership gate (edit) + load the blueprint server-side: no whole
 		 * doc crosses the wire. Uploading to CommCare HQ PUBLISHES the app, so
 		 * it requires edit, not just view (matching the MCP upload tool); a
 		 * viewer can't push a shared app to HQ. An `AppAccessError` maps to 404.
@@ -105,18 +105,18 @@ export async function POST(req: NextRequest) {
 					403,
 				);
 			}
-			/* `ambiguous` shouldn't occur — the dialog always sends a chosen
-			 * space — but a malformed request with no space lands here. */
+			/* `ambiguous` shouldn't occur: the dialog always sends a chosen
+			 * space, but a malformed request with no space lands here. */
 			throw new ApiError("No project space selected for the upload.", 400);
 		}
 		const { creds } = credResult;
 		const domain = credResult.domain.name;
 
-		/* ── Boundary gate — full validation before any expensive work ── */
+		/* ── Boundary gate: full validation before any expensive work ── */
 		// Zero tolerance at the upload boundary: every finding (soundness,
 		// completeness, media-state) rejects with the rule's actionable
 		// message and the carrier location. This also covers the media-ON
-		// expand's failure mode — a stale media reference would make
+		// expand's failure mode: a stale media reference would make
 		// `expandDoc` throw `requireAssetRef` → opaque 500.
 		const boundary = await prepareExportBoundary({
 			mode: "hq-upload",
@@ -150,7 +150,7 @@ export async function POST(req: NextRequest) {
 		const hqJson = expandDoc(prepared.doc, { assets: manifest });
 
 		/* ── Import the app first ───────────────────────────────────── */
-		// The app must exist before any media upload — the app id goes in
+		// The app must exist before any media upload: the app id goes in
 		// the upload URL, and HQ records each uploaded file against this
 		// new app's `multimedia_map`.
 		const result = await importApp(creds, domain, body.appName.trim(), hqJson);
@@ -173,8 +173,8 @@ export async function POST(req: NextRequest) {
 		// api-key-authed `upload_multimedia_api`, which unzips and matches
 		// each `commcare/<hash><ext>` entry to the app's `jr://` references
 		// (the per-kind `uploaded/<kind>/` endpoints are session-only and
-		// reject the API key — see `uploadAppMediaBundle`). A media failure
-		// never invalidates the import (the app already exists) — it surfaces
+		// reject the API key: see `uploadAppMediaBundle`). A media failure
+		// never invalidates the import (the app already exists): it surfaces
 		// as a warning. A media-free app skips the upload entirely.
 		const warnings = [...result.warnings];
 		if (manifest.size > 0) {
@@ -185,7 +185,7 @@ export async function POST(req: NextRequest) {
 				buildMediaBulkUploadZip(manifest),
 			);
 			if ("success" in mediaResult) {
-				// The ZIP itself was rejected (auth / transport) — the app
+				// The ZIP itself was rejected (auth / transport): the app
 				// exists but carries no media bytes.
 				warnings.push(
 					"Media upload could not be completed; the app was created but its media may not display.",
@@ -197,7 +197,7 @@ export async function POST(req: NextRequest) {
 				});
 			} else if (mediaResult.timedOut) {
 				// Accepted + queued, but HQ hadn't finished processing when we
-				// stopped polling — the media should appear shortly.
+				// stopped polling: the media should appear shortly.
 				warnings.push(
 					"The app was created and its media uploaded. CommCare is still processing it, so it may take a few minutes to appear.",
 				);

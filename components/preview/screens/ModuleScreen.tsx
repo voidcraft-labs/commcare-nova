@@ -35,7 +35,7 @@ import {
 } from "@/lib/session/hooks";
 
 interface ModuleScreenProps {
-	/** This screen's identity — which module is being displayed. Passed from
+	/** This screen's identity, which module is being displayed. Passed from
 	 *  PreviewShell so the component remains valid while Activity hides it. */
 	screen: Extract<PreviewScreen, { type: "module" }>;
 }
@@ -49,7 +49,7 @@ export function ModuleScreen({ screen: _screen }: ModuleScreenProps) {
 	const mode = useEditMode();
 	const setPreviewCaseTarget = useSetPreviewCaseTarget();
 
-	/** Module uuid from the URL — used for uuid-first mutations and
+	/** Module uuid from the URL: used for uuid-first mutations and
 	 *  navigation. Deliberately NOT widened to `module-condition`: a
 	 *  module's condition previews as the HOME screen (the screen the
 	 *  condition decides), so this screen is never the one shown there,
@@ -60,7 +60,7 @@ export function ModuleScreen({ screen: _screen }: ModuleScreenProps) {
 	const mod = useModuleEntity(moduleUuid);
 	const forms = useOrderedForms(moduleUuid);
 	const lookup = usePreviewLookupStatus();
-	/* Whoever Preview is running as — the member, or the persona they
+	/* Whoever Preview is running as: the member, or the persona they
 	 * picked. One identity across every preview surface. */
 	const identity = useSelectedPreviewIdentity();
 	const session = useMemo(() => previewSessionValues(identity), [identity]);
@@ -118,7 +118,7 @@ export function ModuleScreen({ screen: _screen }: ModuleScreenProps) {
 		}
 	}, [landing.kind, moduleUuid, navigate]);
 
-	/* Forward the gated dispatch's outcome — a rename the commit gate
+	/* Forward the gated dispatch's outcome: a rename the commit gate
 	 * refuses (e.g. duplicating another module's name) keeps the editor
 	 * open with the draft and surfaces the finding inline; the saved
 	 * checkmark only fires on a committed rename. */
@@ -147,7 +147,7 @@ export function ModuleScreen({ screen: _screen }: ModuleScreenProps) {
 				) : (
 					<EditableTitle value={mod.name} readOnly ariaLabel="Module name" />
 				)}
-				{/* Module-settings gear — the module-level analog of
+				{/* Module-settings gear: the module-level analog of
 				 *  `FormScreen`'s `FormSettingsButton` on the form header.
 				 *  Edit-mode only (matches the form-header gate) and only once
 				 *  the module uuid has resolved from the URL. Its `ml-auto`
@@ -199,7 +199,7 @@ export function ModuleScreen({ screen: _screen }: ModuleScreenProps) {
 							className="w-full flex items-center gap-3 p-3 rounded-lg bg-pv-surface border border-pv-input-border hover:border-pv-input-focus transition-all duration-200 cursor-pointer text-left group"
 						>
 							{form.icon ? (
-								// Form menu-tile icon — CommCare shows it on the form's
+								// Form menu-tile icon: CommCare shows it on the form's
 								// command in the module menu.
 								<ProjectMediaImage
 									assetId={form.icon}

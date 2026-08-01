@@ -38,12 +38,12 @@ interface ComparisonCardProps {
 
 /**
  * Comparison card body. The slots:
- *   - `left` — `ValueExpression`. The recursive `ExpressionPicker`
+ *   - `left`: `ValueExpression`. The recursive `ExpressionPicker`
  *     exposes every valid subject source and calculated expression.
  *     Its subject presentation keeps the dominant property case
  *     compact while preserving full editability for complex ASTs.
- *   - operator — kind discriminator (eq / neq / gt / lt / lte / gte).
- *   - `right` — `ValueExpression`. The card mounts an
+ *   - operator: kind discriminator (eq / neq / gt / lt / lte / gte).
+ *   - `right`: `ValueExpression`. The card mounts an
  *     `ExpressionPicker` shell at the slot, dispatching every
  *     ValueExpression kind (term / arith / if / count / coalesce /
  *     etc.) through the registry-driven per-arm cards. Authors swap
@@ -54,7 +54,7 @@ interface ComparisonCardProps {
 export function ComparisonCard({ value, onChange, path }: ComparisonCardProps) {
 	const ctx = usePredicateEditContext();
 
-	// The subject (left) drives what the value (right) may hold — the
+	// The subject (left) drives what the value (right) may hold, the
 	// right slot offers ONLY types compatible with the subject, so a
 	// type mismatch is unauthorable. `useResolvedType` runs the same
 	// checker `checkComparison` validates against, so the offered set

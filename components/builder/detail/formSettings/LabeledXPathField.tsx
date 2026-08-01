@@ -9,7 +9,7 @@ import type { CommitOutcome } from "@/lib/domain";
  * Compact labeled wrapper around `XPathField` for use inside the form
  * settings panel. Renders the label (with optional required marker) and
  * shows the keyboard save-shortcut hint alongside it only while the
- * underlying CodeMirror editor is actively focused — keeps the resting
+ * underlying CodeMirror editor is actively focused: keeps the resting
  * state visually quiet while still teaching the shortcut on demand.
  */
 export function LabeledXPathField({

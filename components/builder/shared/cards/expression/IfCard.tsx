@@ -1,16 +1,16 @@
 // components/builder/shared/cards/expression/IfCard.tsx
 //
-// Renders the `if` ValueExpression — boolean-conditional value
+// Renders the `if` ValueExpression: boolean-conditional value
 // selection. Three slots:
 //
-//   - `cond` — a `Predicate` (cross-family reference). Routes
+//   - `cond`: a `Predicate` (cross-family reference). Routes
 //     through `ChildPredicateEditor` so the full Predicate-side
 //     editor is reachable inline. The CCHQ on-device wire form is
 //     `if(cond, then, else)`; CSQL has no native `if` value
 //     function and the wire emitter hoists `if` arms out of CSQL
 //     fragments at the wire-emission boundary.
 //
-//   - `then` / `else` — `ValueExpression`s. Eager evaluation of both
+//   - `then` / `else`: `ValueExpression`s. Eager evaluation of both
 //     branches at runtime. The type checker's `accumulateBranchType`
 //     enforces branch-type agreement (then-type and else-type must
 //     be compatible, modulo null-as-universal); errors land at
@@ -18,7 +18,7 @@
 //     (per-branch).
 //
 // Path encoding for `if`: the type checker emits at
-// `[..., "if", "cond" | "then" | "else"]` — the kind segment
+// `[..., "if", "cond" | "then" | "else"]`: the kind segment
 // disambiguates errors inside a nested `if` from siblings. Use
 // `appendKindSlot(path, "if", slot)` for each child path.
 
@@ -41,7 +41,7 @@ import { InlineError } from "../../primitives/CardShell";
 import { ExpressionPicker } from "../../primitives/ExpressionPicker";
 import { PredicateFocusBoundary } from "../ChildPredicateEditor";
 
-/** Default `if` — `if(match-all, "", "")`. The condition seeds to
+/** Default `if`: `if(match-all, "", "")`. The condition seeds to
  *  match-all so the user immediately sees the predicate-editor card;
  *  branches seed to empty text literals. The type checker accepts
  *  the seed without a branch-mismatch error (both branches resolve
@@ -56,7 +56,7 @@ interface IfCardProps {
 	readonly value: Extract<ValueExpression, { kind: "if" }>;
 	readonly onChange: (next: ValueExpression) => void;
 	readonly path: EditorPath;
-	/** The `if`'s own result constraint propagates to BOTH branches —
+	/** The `if`'s own result constraint propagates to BOTH branches:
 	 *  whatever type the slot wants, each branch must produce. */
 	readonly constraint?: SlotConstraint;
 }
@@ -67,7 +67,7 @@ export function IfCard({
 	path,
 	constraint = ANY_CONSTRAINT,
 }: IfCardProps) {
-	// Operator-level errors land at `[..., "if"]` —
+	// Operator-level errors land at `[..., "if"]`:
 	// `accumulateBranchType` pushes the branch-type-mismatch message
 	// there. The card surfaces those inline because nothing else
 	// renders at the operator-level path: the parent
@@ -87,7 +87,7 @@ export function IfCard({
 
 	const setCond = (next: Predicate) => {
 		// Builders preserve the absent-not-undefined contract on
-		// optional slots — `ifExpr` has no optional slots, so the
+		// optional slots: `ifExpr` has no optional slots, so the
 		// raw constructor is the right shape.
 		onChange(ifExpr(next, value.then, value.else));
 	};

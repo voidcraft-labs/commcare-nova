@@ -1,5 +1,5 @@
 /**
- * Consent form — renders the requested scopes and hands approve/deny
+ * Consent form: renders the requested scopes and hands approve/deny
  * decisions back to Better Auth's oauth-provider plugin. Keeps all
  * interactive state on the client; the RSC shell hydrates the initial
  * view with client name + scope list.
@@ -35,8 +35,8 @@ interface ConsentFormProps {
 	trustedClient: boolean;
 	/**
 	 * Whether the user has connected a CommCare HQ API key. The OAuth grant
-	 * itself is unconditional — the user is granting the SCOPE here, and the
-	 * connecting app picks up data access the moment a key is later added —
+	 * itself is unconditional: the user is granting the SCOPE here, and the
+	 * connecting app picks up data access the moment a key is later added:
 	 * but if HQ scopes are requested while the key is missing, the
 	 * capability list surfaces a dormancy hint so the user isn't surprised
 	 * when the connecting app's HQ features no-op until setup completes.
@@ -52,12 +52,12 @@ interface ConsentFormProps {
 
 /**
  * Translate the opaque error object from `authClient.oauth2.consent` into
- * a user-readable message. "Consent failed" — the default message on many
- * Better Auth error paths — is meaningless to a non-technical user and
+ * a user-readable message. "Consent failed": the default message on many
+ * Better Auth error paths: is meaningless to a non-technical user and
  * leaves them with no recovery path; every branch here ends with an
  * actionable instruction (retry, sign in again, go back to the app).
  *
- * The mapping is best-effort — Better Auth's error shape doesn't
+ * The mapping is best-effort: Better Auth's error shape doesn't
  * guarantee specific codes across versions, so we fall back on HTTP
  * status first and an unknown-error string last.
  */
@@ -81,7 +81,7 @@ function friendlyConsentError(err: ConsentClientError): string {
 		if (status >= 500)
 			return "Something went wrong on our end. Please try again in a moment.";
 	}
-	/* A missing status usually means the fetch never completed — offline,
+	/* A missing status usually means the fetch never completed, offline,
 	 * DNS, CORS, etc. Prompt a retry rather than bouncing them back to the
 	 * client app, which won't help if their network is down. */
 	if (status === undefined)
@@ -102,7 +102,7 @@ export function ConsentForm({
 	const [error, setError] = useState<string | null>(null);
 
 	/* Invalid / expired request branch. Rendered inside the same card shell
-	 * as the happy path so the visual identity stays consistent — the user
+	 * as the happy path so the visual identity stays consistent, the user
 	 * doesn't bounce between "real Nova screen" and "generic error page" if
 	 * their auth link is stale. */
 	if (redirectMismatch) {
@@ -134,7 +134,7 @@ export function ConsentForm({
 			setPending(null);
 		}
 		/* Success: plugin redirects the user back to the client's
-		 * redirect_uri with an authorization_code — no client-side
+		 * redirect_uri with an authorization_code: no client-side
 		 * navigation needed here. */
 	};
 
@@ -150,7 +150,7 @@ export function ConsentForm({
 	 * without leaking styling onto the standard rows. Order within each
 	 * group is preserved from `deriveCapabilities`, which already sequences
 	 * known capabilities top-to-bottom in a sensible progression and
-	 * appends unknown-scope catch-alls at the end — those land in the
+	 * appends unknown-scope catch-alls at the end: those land in the
 	 * non-HQ bucket, so the HQ sub-card always anchors at the bottom of
 	 * the list regardless of whether unknown scopes are present. */
 	const allCapabilities = deriveCapabilities(scopes);
@@ -164,13 +164,13 @@ export function ConsentForm({
 	/* Render the dormancy sub-card only when the page told us we asked AND
 	 * got back a "no key" answer (`hqConfigured === false`) AND the row
 	 * actually surfaces. `undefined` means the page never even ran the
-	 * Postgres read — collapsing it with `false` would silently treat
+	 * Postgres read: collapsing it with `false` would silently treat
 	 * "didn't ask" as "asked and got no key" the moment a future caller
 	 * forgets to gate the prop on scope content. */
 	const showHqPendingGroup =
 		hqConfigured === false && hqCapabilities.length > 0;
 
-	/* Ease curve mirrors the landing page's sign-in reveal (0.16, 1, 0.3, 1) —
+	/* Ease curve mirrors the landing page's sign-in reveal (0.16, 1, 0.3, 1):
 	 * gentle decelerating arrival. Timing is tight enough to feel instant on
 	 * repeat visits but gives the eye a moment to parse hierarchy on first
 	 * sight. Three staggered groups (card → content → actions) rather than
@@ -270,13 +270,13 @@ export function ConsentForm({
 					</p>
 					{/* Three rendering shapes share the "It will be able to" slot:
 					 *
-					 *   1. Standard list — every row in a single <ul> with the
+					 *   1. Standard list: every row in a single <ul> with the
 					 *      gray surface treatment (HQ configured, OR no HQ
 					 *      scopes requested).
-					 *   2. Standard list + amber sub-card — non-HQ rows in the
+					 *   2. Standard list + amber sub-card: non-HQ rows in the
 					 *      gray-bordered <ul> as usual; HQ rows + footnote nest
 					 *      below in a self-contained amber sub-card.
-					 *   3. Amber sub-card alone — the request is HQ-only (a
+					 *   3. Amber sub-card alone: the request is HQ-only (a
 					 *      legitimate scope combination for deploy-only
 					 *      integrations), so there are zero non-HQ rows and the
 					 *      gray wrapper would otherwise render an empty <ul>
@@ -381,18 +381,18 @@ export function ConsentForm({
 // ── Local primitives ────────────────────────────────────────────────────
 //
 // Both branches (happy path + invalid-link fallback) share the same elevated
-// card shell. Factored locally rather than promoted to `components/ui/` — no
+// card shell. Factored locally rather than promoted to `components/ui/`, no
 // other surface in the app uses this exact treatment today, and premature
 // extraction would fossilize a "Nova card" API around a single caller.
 
 /**
  * Elevated card shell. Uses `bg-nova-deep` (the same tier Nova's
  * `ConfirmDialog` uses) so the consent surface reads as a decision dialog,
- * not a passive panel — it's lifted off the page with border + outer glow
+ * not a passive panel: it's lifted off the page with border + outer glow
  * rather than a brighter fill.
  *
  * The `tone` prop swaps the accent glow: violet for normal consent, rose
- * for the invalid-link state. The card itself stays dark in both cases —
+ * for the invalid-link state. The card itself stays dark in both cases:
  * flooding the surface with rose would turn error recovery into a scolding.
  */
 function ConsentCard({
@@ -411,7 +411,7 @@ function ConsentCard({
 		<div
 			className={`relative w-full rounded-2xl border border-nova-border bg-nova-deep p-5 sm:p-6 ${glow}`}
 		>
-			{/* Hairline top highlight — one-pixel violet gradient along the top
+			{/* Hairline top highlight: one-pixel violet gradient along the top
 			 *   edge of the card. Reads as a light source from above and adds a
 			 *   hint of the hardware-panel motif used in `nova-panel` without
 			 *   pulling in the full LED/bezel chrome (which would be too loud
@@ -500,7 +500,7 @@ function IdentityRow({
 }
 
 /**
- * Single capability row. Plain-English description is the only content —
+ * Single capability row. Plain-English description is the only content:
  * raw scope identifiers are intentionally omitted to keep the list
  * scannable for non-technical users. The semantic icon (user / eye /
  * pencil / cloud) carries the "what kind of grant this is" signal
@@ -539,14 +539,14 @@ function CapabilityRow({
 /**
  * Dormancy footnote attached to the capability list when the user is
  * granting HQ scopes but hasn't connected a CommCare HQ API key yet. The
- * grant itself is unconditional — the connecting app picks up data
- * access the moment a key is added later — so the footnote is purely
+ * grant itself is unconditional: the connecting app picks up data
+ * access the moment a key is added later, so the footnote is purely
  * informational, not a prerequisite or warning.
  *
  * The whole strip is a single popover trigger: opens on hover, focus, or
  * click (no settings link inside, on purpose). A direct "Open settings"
  * affordance would tempt the user to leave mid-flow, and the OAuth `sig`
- * has an `exp` — losing the tab to a settings detour can stale the
+ * has an `exp`: losing the tab to a settings detour can stale the
  * signature out from under them. The popover explains and reassures;
  * the user finishes consent first, sets up later.
  *
@@ -563,7 +563,7 @@ function HqPendingFootnote() {
 			 *   on its own.
 			 *
 			 *   Hover-open relies on Base UI's 300ms default delay to filter
-			 *   incidental pass-through hovers — without it, a cursor
+			 *   incidental pass-through hovers: without it, a cursor
 			 *   sweeping from the capability list down to the Allow button
 			 *   trips the hover threshold and flashes the popup open right
 			 *   as the user is about to click, reading as a bug. */}
@@ -609,7 +609,7 @@ function HqPendingFootnote() {
 									className="text-nova-amber"
 								/>
 								{/* `Popover.Title` is what Base UI threads into the
-								 *   popup's `aria-labelledby` — without it, AT users
+								 *   popup's `aria-labelledby`: without it, AT users
 								 *   who land focus inside the dialog (touch / tap-to-
 								 *   open path) hear an unlabelled dialog. Default
 								 *   render element is `<h2>`; we override to `<p>`

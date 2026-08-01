@@ -1,16 +1,16 @@
 /**
- * FieldRow — a single leaf field in the virtualized edit view.
+ * FieldRow: a single leaf field in the virtualized edit view.
  *
  * Drag wiring comes from the shared `useRowDnd` hook, which registers
  * the draggable + drop-target adapters and owns the cycle-safety +
  * self-drop filters. This row opts into `trackEdge: true` so it shows
- * a `DropZonePlaceholder` on its top or bottom edge during a drag —
+ * a `DropZonePlaceholder` on its top or bottom edge during a drag:
  * indicating where the dragged item will land on drop.
  *
  * The placeholder is `position: absolute` inside the 24px insertion gap
  * and never changes row height, so the virtualizer stays stable.
  *
- * Does NOT handle group or repeat fields — those are bracket rows in
+ * Does NOT handle group or repeat fields: those are bracket rows in
  * the flat row model. FieldRow is a leaf-only renderer.
  */
 
@@ -61,11 +61,11 @@ export const FieldRow = memo(function FieldRow({
 	useFulfillPendingScroll(uuid, isFieldSelected);
 	const mode = useEditMode();
 	const { updateField } = useBlueprintMutations();
-	/* Inline save for TextEditable — null outside edit mode so the inline
+	/* Inline save for TextEditable: null outside edit mode so the inline
 	 * editor falls back to read-only. Empty string coerces to undefined so
 	 * clearing a property removes it rather than storing an empty value.
 	 * The closure captures the field's `kind` so the patch type narrows to
-	 * the correct variant — TextEditable's `fieldType` axis only saves
+	 * the correct variant: TextEditable's `fieldType` axis only saves
 	 * scalar text keys (`label`, `hint`) that the kind's schema declares
 	 * for any kind that renders an editable label/hint at this row, so
 	 * the runtime contract holds. */
@@ -120,7 +120,7 @@ export const FieldRow = memo(function FieldRow({
 		errorMessage: undefined,
 	};
 
-	// Leaf rows never render group/repeat — those kinds are drawn by
+	// Leaf rows never render group/repeat: those kinds are drawn by
 	// GroupOpenRow/GroupCloseRow. The fallback branch handles every
 	// input-producing kind that exposes `label` + optional `hint`.
 	// Narrow on `kind` instead of the legacy wire `type` discriminant.
@@ -133,7 +133,7 @@ export const FieldRow = memo(function FieldRow({
 			<div className="block space-y-1.5">
 				{/* Label media (image above the prompt / audio / video), the way
 				    CommCare renders a question's `<value form="image">`. Visual-only
-				    in edit mode — the click selects the field. */}
+				    in edit mode: the click selects the field. */}
 				<MediaDisplay media={q.label_media} interactive={false} />
 				{q.label && (
 					<div className="flex items-center gap-1">
@@ -170,7 +170,7 @@ export const FieldRow = memo(function FieldRow({
 						/>
 					</TextEditable>
 				)}
-				{/* Hint media — sits with the hint, above the input. `hint_media`
+				{/* Hint media: sits with the hint, above the input. `hint_media`
 				    is only on input-capable kinds, so guard the access. */}
 				<MediaDisplay
 					media={"hint_media" in q ? q.hint_media : undefined}

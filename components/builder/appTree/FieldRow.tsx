@@ -3,7 +3,7 @@
  *
  * A `FieldRow` subscribes by UUID to exactly one field entity + its
  * child UUIDs. Immer's structural sharing means that editing one
- * field's label only re-renders that row — sibling FieldRows,
+ * field's label only re-renders that row: sibling FieldRows,
  * FormCards, and ModuleCards are untouched.
  *
  * Group / repeat containers expand to reveal their children, and the
@@ -12,7 +12,7 @@
  * if child rows lived in a different module importing back here.
  *
  * Inline reference chips in labels resolve against the row's OWN form
- * (`formUuid`) through the shared `ReferenceProvider` — the same gate the
+ * (`formUuid`) through the shared `ReferenceProvider`: the same gate the
  * editor and canvas use, so the sidebar never renders a chip that doesn't
  * resolve (e.g. a `#<type>/<prop>` ref to a type the form can't read).
  */
@@ -76,11 +76,11 @@ export const FieldRow = memo(function FieldRow({
 	 *  checks are safe without an existence guard. */
 	const childUuids = useOrderedFields(uuid);
 
-	/** Boolean selection — URL-driven via useIsFieldSelected.
+	/** Boolean selection: URL-driven via useIsFieldSelected.
 	 *  Only this field + the old selection re-render on change. */
 	const isSelected = useIsFieldSelected(uuid);
 
-	/** Shared provider — resolves label chips against this row's own form. */
+	/** Shared provider: resolves label chips against this row's own form. */
 	const provider = useReferenceProvider();
 
 	/** Stand-in when the row renders outside a `ReferenceProviderWrapper`: the
@@ -88,7 +88,7 @@ export const FieldRow = memo(function FieldRow({
 	 *  form-scope narrowing. */
 	const projectProse = useProseProjection();
 
-	/** The hue of a peer whose selection IS this field, or null — drives the
+	/** The hue of a peer whose selection IS this field, or null, drives the
 	 *  live "editing this" ring. Called unconditionally (before the guard). */
 	const editingColor = usePeerEditingColor(uuid);
 
@@ -106,7 +106,7 @@ export const FieldRow = memo(function FieldRow({
 	const idIndices = searchResult?.matchMap?.get(`${fieldPath}__id`);
 	// `label` is absent from `hidden` and optional on `group` (empty/absent
 	// label = transparent group). The `in` narrowing alone leaves `string |
-	// undefined`, so coerce `undefined` to "" — the tree row still renders
+	// undefined`, so coerce `undefined` to "": the tree row still renders
 	// for those kinds with the id-only display path below.
 	const fieldTemplate =
 		"label" in field && !proseTemplateIsEmpty(field.label)
@@ -166,7 +166,7 @@ export const FieldRow = memo(function FieldRow({
 					/>
 				) : (
 					/* Spacer preserves chevron column width so leaf rows align
-					 * with sibling group headers — without it, children of a
+					 * with sibling group headers: without it, children of a
 					 * group appear less indented than the group itself. */
 					<span className="size-11 shrink-0" aria-hidden />
 				)}
@@ -192,7 +192,7 @@ export const FieldRow = memo(function FieldRow({
 				) : (
 					/* `min-w-0 flex-1` is load-bearing: a flex item's default
 					 * min-width is auto, so a bare `truncate` never actually
-					 * truncates — a long label would push into the trailing meta
+					 * truncates: a long label would push into the trailing meta
 					 * (count / peer marker) instead of ellipsizing. flex-1 also
 					 * pins the trailing cluster to the row's right edge whatever
 					 * the label length. */
@@ -211,13 +211,13 @@ export const FieldRow = memo(function FieldRow({
 						{childUuids.length}
 					</span>
 				)}
-				{/* Peer marker in the fixed trailing slot — the flex-1 label pins
+				{/* Peer marker in the fixed trailing slot: the flex-1 label pins
 				 *  it (after any collapsed-count) to the right edge at a constant
 				 *  offset, and it renders no wrapper at all while solo. */}
 				<PeerBadge uuid={uuid} />
 			</TreeItemRow>
 
-			{/* Nested children for groups/repeats — self-recursive */}
+			{/* Nested children for groups/repeats: self-recursive */}
 			{hasChildren && !isCollapsed && (
 				<ul aria-label={`${displayText} fields`} className="m-0 list-none p-0">
 					{childUuids.map((childUuid, cIdx) => (

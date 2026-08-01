@@ -9,7 +9,7 @@ import { LookupChoicesEmpty, LookupChoicesLoading } from "./LookupChoiceStates";
 import { ValidationError } from "./ValidationError";
 
 interface SelectMultiFieldProps {
-	/** Multi-select field — options are required on this kind. */
+	/** Multi-select field: options are required on this kind. */
 	field: MultiSelectField;
 	state: FieldState;
 	/** Visible question label rendered by InteractiveFormRenderer. */
@@ -34,12 +34,12 @@ export function SelectMultiField({
 }: SelectMultiFieldProps) {
 	// Static options render in their authored array sequence, matching the wire
 	// `<item>` order; a
-	// lookup-backed select reads the ENGINE's live filtered choices — see
+	// lookup-backed select reads the ENGINE's live filtered choices, see
 	// the single-select twin for the loading contract.
 	const lookupBacked = field.optionsSource.kind === "lookup";
-	// Document-aware option-label projection — see the single-select twin.
+	// Document-aware option-label projection: see the single-select twin.
 	const projectProse = useProseProjection();
-	// `key` is display identity — see the single-select twin.
+	// `key` is display identity: see the single-select twin.
 	const options: ReadonlyArray<{
 		key: string;
 		value: string;
@@ -79,7 +79,7 @@ export function SelectMultiField({
 				{lookupBacked && options.length === 0 && <LookupChoicesEmpty />}
 				{options.map((opt) => {
 					/* Blank values can never be "checked": "" splits to no tokens.
-					 * The DOM id derives from the stable key, never the value —
+					 * The DOM id derives from the stable key, never the value:
 					 * duplicate lookup values would otherwise cross-wire labels. */
 					const checked = opt.value !== "" && selected.has(opt.value);
 					const inputId = `${state.path}-${opt.key}`;
@@ -132,7 +132,7 @@ export function SelectMultiField({
 							<span className="preview-markdown text-sm text-nova-text">
 								<PreviewMarkdown inline>{opt.label}</PreviewMarkdown>
 							</span>
-							{/* Per-option media — compact, same as the single-select. */}
+							{/* Per-option media: compact, same as the single-select. */}
 							<MediaDisplay
 								media={opt.media}
 								interactive={!isEditMode}

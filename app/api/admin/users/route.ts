@@ -1,11 +1,11 @@
 /**
- * Admin user list endpoint — returns all users with current month usage.
+ * Admin user list endpoint: returns all users with current month usage.
  *
  * GET /api/admin/users → { users: AdminUserRow[], stats: AdminStats }
  *
  * Data fetching is delegated to getAdminUsersWithStats() in lib/db/admin.ts,
  * shared with the RSC admin dashboard page. This route is retained for
- * external API consumers — the RSC page calls the DB function directly.
+ * external API consumers: the RSC page calls the DB function directly.
  */
 
 import { ApiError, handleApiError } from "@/lib/apiError";

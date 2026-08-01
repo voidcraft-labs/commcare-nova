@@ -1,11 +1,11 @@
 /**
- * The right rail renders the inspector directly from shared selection state —
+ * The right rail renders the inspector directly from shared selection state:
  * there is no claim, no portal, and no owning surface that injects content.
  * These hooks resolve "what is selected for inspection right now" from the two
  * selection sources and hand the rail a ready-to-render descriptor:
  *
  *   - a selected form FIELD (URL state, `useSelectedField`),
- *   - the case-list workspace's current selection (`useCaseListInspector` — the
+ *   - the case-list workspace's current selection (`useCaseListInspector`, the
  *     narrow, memoized slice of the shared controller carrying just the resolved
  *     `inspector` + its close handler, so these hooks don't re-render on every
  *     unrelated workspace change), or
@@ -17,7 +17,7 @@
  * while its workspace is on-screen, and a Project data URL names no module and
  * no field at all.
  * Because the rail is always mounted (it just parks off-screen during a preview
- * flip), whatever these return stays mounted across the flip — scroll survives
+ * flip), whatever these return stays mounted across the flip, scroll survives
  * for free. The mode (edit vs preview) is deliberately NOT consulted: parking
  * hides the panel in preview, so gating mount on edit-mode would needlessly tear
  * it down.
@@ -64,7 +64,7 @@ export function useActiveInspector(): ActiveInspector | null {
 	if (field) {
 		// Title = the field's prompt, falling back to its id (the `hidden` kind
 		// carries no label). The header truncates, so a long markdown label shows
-		// raw rather than rendered — short labels are the norm.
+		// raw rather than rendered: short labels are the norm.
 		const label =
 			"label" in field && field.label
 				? projectProse(field.label).trim()
@@ -95,8 +95,8 @@ export function useActiveInspector(): ActiveInspector | null {
 			title: operation.title,
 			body: (
 				/* Keyed by the change for the same reason the detail canvas is
-				 * (`PreviewShell`): this body holds per-change confirmation state —
-				 * an armed removal, an armed action change — and Previous / Next
+				 * (`PreviewShell`): this body holds per-change confirmation state:
+				 * an armed removal, an armed action change, and Previous / Next
 				 * changes only `operationUuid`, so an unkeyed instance would be
 				 * reconciled in place and one Enter would commit a confirmation the
 				 * author armed for the change they just left. */
@@ -159,7 +159,7 @@ interface SelectedCaseOperationTarget {
  * The third selection source: one case change, selected in the URL.
  *
  * Unlike the case workspace's row selection this lives in the path, so a
- * change is linkable and survives a preview flip for free — and unlike a
+ * change is linkable and survives a preview flip for free, and unlike a
  * field it names an entity inside a form record rather than a top-level
  * one, which is why closing means dropping back to the list URL rather
  * than clearing a selection param.

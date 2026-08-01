@@ -1,5 +1,5 @@
 /**
- * DataReviewScreen — the review surface for saved case values a schema
+ * DataReviewScreen: the review surface for saved case values a schema
  * conversion couldn't carry (`/build/{appId}/{moduleUuid}/data-review`).
  *
  * Everything shown is the Server Action's server-computed truth: the
@@ -10,23 +10,23 @@
  * renders and dispatches.
  *
  * Design rules (the review-round bar): the CASE is the anchor AND the
- * unit — each card is a case the review HOLDS out of the running app
+ * unit: each card is a case the review HOLDS out of the running app
  * until its waiting values are decided, its values as rows, the whole
  * record one View case dialog away so a decision is made against the
  * record, not a floating value. The page header explains the
  * interface once (the hold, the actions, the release, what returns on
- * its own); each row then tells ITS OWN story in one clause — the
+ * its own); each row then tells ITS OWN story in one clause, the
  * property renders as a reference-style chip whose icon is the
  * property's CURRENT type, beside the literal waiting value, and
  * under them the server-classified `standing` maps to a short
  * present-tense fact ("Isn't a date") via `standingPhrase`. Never
  * park-time history replayed as if current, never a paragraph. Each
  * row offers every action that works for it as visible labeled
- * buttons — never a disabled button beside a live one — and every
+ * buttons: never a disabled button beside a live one, and every
  * action keeps ONE fixed appearance on every row (constructive
  * actions in violet action text, Dismiss in secondary; no per-row
  * "primary" promotion). The Replace editor commits with the
- * warning-styled "Overwrite value" — the consequence in the verb, the
+ * warning-styled "Overwrite value": the consequence in the verb, the
  * aftermath in the toast, no forward-explaining footnote. Plain words
  * only, and reassurance lives in the verbs ("kept", "put back"), not
  * appended disclaimers.
@@ -152,7 +152,7 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 	const propertyDecl = (name: string): CaseProperty | undefined =>
 		caseType.properties.find((property) => property.name === name);
 	// The row's chip: the reference-chip variant carrying the
-	// property's CURRENT type as its icon — the state shown, not
+	// property's CURRENT type as its icon: the state shown, not
 	// narrated. A property the schema no longer declares (a rename's
 	// retired source) keeps the case family's database mark: naming a
 	// type for it would be fiction.
@@ -189,7 +189,7 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 			await run(isCurrent);
 		} catch {
 			if (!isCurrent()) return;
-			// A Server Action call is a fetch — it REJECTS on a dropped
+			// A Server Action call is a fetch: it REJECTS on a dropped
 			// connection or a mid-deploy stale action id. Without this
 			// catch the press would fail silently (busy resets below, no
 			// toast, nothing changed on screen).
@@ -224,8 +224,8 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 				return;
 			}
 			// A put-back removes the row, so the toast says where the value
-			// went. The kept arm is a race — the verdict moved between
-			// render and write (a teammate's edit, a fresh conversion) —
+			// went. The kept arm is a race: the verdict moved between
+			// render and write (a teammate's edit, a fresh conversion):
 			// and the refreshed list shows the row's new state.
 			if (result.restored === 1) {
 				projectToast(
@@ -282,7 +282,7 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 				return;
 			}
 			// count 0: the entry left the list between render and press (a
-			// teammate put it back, or its case was replaced) — claiming
+			// teammate put it back, or its case was replaced): claiming
 			// it's "under Dismissed" with a dead Undo would be a lie.
 			if (result.count === 0) {
 				projectToast(
@@ -334,7 +334,7 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 				if (!isCurrent()) return;
 				// A rejected Server Action fetch (dropped connection, stale
 				// action id mid-deploy) must not strand the editor in its
-				// saving state — Cancel is disabled while saving, so an
+				// saving state: Cancel is disabled while saving, so an
 				// uncaught rejection would lock the row until a reload.
 				// The typed value stays in the draft for a retry.
 				setReplaceDraft((prev) =>
@@ -389,7 +389,7 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 	const counts = reviewCounts(entries);
 	// The Dismissed pill disables at zero. When the view sits on
 	// Dismissed as its last entry leaves, move the STATE itself back to
-	// Ready (a guarded render-time reset) — a display-only fallback
+	// Ready (a guarded render-time reset): a display-only fallback
 	// would leave "dismissed" latched, and the next dismissal from the
 	// Ready list would yank the screen back to Dismissed mid-review.
 	if (
@@ -666,14 +666,14 @@ function ReviewEntryRow({
 	// value fits its property again, Replace whenever the property is
 	// still declared (both at once when both work), Dismiss always. A
 	// button that couldn't work is never rendered at all, let alone
-	// disabled beside a live one — and each action keeps ONE fixed
+	// disabled beside a live one, and each action keeps ONE fixed
 	// appearance on every row (constructive actions in violet action
 	// text, Dismiss in secondary), so no row promotes an arbitrary
 	// "primary". A park whose property is no longer declared (a
 	// rename's retired source, a removed property) offers only
 	// Dismiss and View case: the store rejects a write under an
 	// undeclared key, so Put back and Replace would fail on every
-	// save — and a put-back reappears by itself if the property is
+	// save, and a put-back reappears by itself if the property is
 	// ever declared again.
 	const restorable = entry.standing === "fits";
 	const replaceable = currentDecl !== undefined;

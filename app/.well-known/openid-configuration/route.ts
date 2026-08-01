@@ -12,7 +12,7 @@
  * compatibility gap without teaching every client our basePath.
  *
  * Lazy-bound for the same `next build` page-collection reason as the AS
- * metadata route next door — see
+ * metadata route next door: see
  * `app/.well-known/oauth-authorization-server/route.ts` for the full
  * rationale (`getAuth()` must not run at module load).
  *

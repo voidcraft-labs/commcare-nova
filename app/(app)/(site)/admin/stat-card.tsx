@@ -1,4 +1,4 @@
-/** Server-rendered stat card — pure markup, no client JS. */
+/** Server-rendered stat card: pure markup, no client JS. */
 export function StatCard({
 	label,
 	value,

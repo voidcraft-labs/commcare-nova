@@ -81,7 +81,7 @@ interface AppCardProps {
  * App card for live (non-deleted) rows. Used by the home active list
  * and the admin user-detail page. Each card owns its own delete state
  * (idle → confirming → deleting → unmount-on-success / error → idle)
- * — there is no parent-level orchestration. On a successful delete
+ *: there is no parent-level orchestration. On a successful delete
  * the Server Action's `revalidatePath` re-runs the parent RSC and the
  * card naturally unmounts when the row drops off the active query.
  *
@@ -146,7 +146,7 @@ export function AppCard({
 				setCardState({ type: "error", message: result.error });
 			}
 			/* On success the parent RSC re-fetches via the Server Action's
-			 * `revalidatePath` and the row drops out of the active list —
+			 * `revalidatePath` and the row drops out of the active list:
 			 * this card unmounts, so we don't need to clear state here. */
 		} catch {
 			setCardState({
@@ -167,7 +167,7 @@ export function AppCard({
 					className="size-9 rounded-md object-cover shrink-0"
 				/>
 			) : (
-				// Same-size fallback so every title block starts at the same x —
+				// Same-size fallback so every title block starts at the same x:
 				// logo or not, the column stays aligned.
 				<div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-nova-violet/10">
 					<Icon icon={tablerApps} className="size-5 text-nova-violet-bright" />
@@ -261,7 +261,7 @@ export function AppCard({
 									/* Closing abandons the choice. Keeping it would leave the
 									 * next open pre-armed, so a single click on a popover the
 									 * user only meant to read would move the app and all of its
-									 * data — there is no confirmation step after this. */
+									 * data: there is no confirmation step after this. */
 									if (!open) setMoveTargetId(null);
 									setCardState((s) =>
 										open

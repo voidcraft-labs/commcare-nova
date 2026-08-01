@@ -11,7 +11,7 @@ function Checkbox({ className, ...props }: CheckboxPrimitive.Root.Props) {
 		<CheckboxPrimitive.Root
 			data-slot="checkbox"
 			// Checked wears the action fill with a dusk glyph, matching the
-			// Switch — in Nova light is action, and no fill carries white ink.
+			// Switch: in Nova light is action, and no fill carries white ink.
 			// The `after:` inset stretches the pointer target to the 44px floor
 			// around the 16px visual box.
 			className={cn(

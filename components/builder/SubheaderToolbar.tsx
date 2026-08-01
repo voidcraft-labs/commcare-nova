@@ -24,7 +24,7 @@ import {
 /** A breadcrumb segment with a label, stable identity key, and navigation callback. */
 export interface BreadcrumbPart {
 	/** Stable identity derived from the underlying PreviewScreen (e.g. "home", "module-0").
-	 *  Labels aren't unique — "App > Intake > Intake" is valid — so we need a
+	 *  Labels aren't unique: "App > Intake > Intake" is valid, so we need a
 	 *  semantic key from the navigation hierarchy. */
 	key: string;
 	label: string;
@@ -33,8 +33,8 @@ export interface BreadcrumbPart {
 
 /** Chevron separator rendered between breadcrumb segments. */
 /** Chevron at full `text-nova-text-muted` (~2.9:1 on dark backgrounds) instead of
- *  the previous /50 variant (1.5:1). The chevron is a supplementary visual separator —
- *  hierarchy is conveyed by the text labels themselves — so near-3:1 is acceptable. */
+ *  the previous /50 variant (1.5:1). The chevron is a supplementary visual separator:
+ *  hierarchy is conveyed by the text labels themselves, so near-3:1 is acceptable. */
 const Chevron = (
 	<Icon
 		icon={tablerChevronRight}
@@ -46,15 +46,15 @@ const Chevron = (
 
 /** Shared base styles for all segments. Both ancestor and current use font-medium
  *  so the rendered text width stays constant when a segment transitions between
- *  states — preventing content shift from font-weight changes.
+ *  states: preventing content shift from font-weight changes.
  *  `min-h-[44px]` ensures WCAG 2.5.8 minimum target size compliance. */
 const SEGMENT_BASE =
 	"h-auto min-h-11 rounded-lg px-0 text-lg font-medium flex items-center";
 
-/** Ancestor segment — muted text, clickable to navigate up. */
+/** Ancestor segment: muted text, clickable to navigate up. */
 const ANCESTOR_CLASS = `${SEGMENT_BASE} shrink-0 whitespace-nowrap text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer`;
 
-/** Current segment — bright text, non-interactive. It owns the flexible slot
+/** Current segment: bright text, non-interactive. It owns the flexible slot
  * and truncates before it can paint underneath contextual actions at the end
  * of the strip (Case data, presence, etc.). */
 const CURRENT_CLASS = `${SEGMENT_BASE} min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-nova-text cursor-default`;
@@ -205,7 +205,7 @@ function BreadcrumbPathMenu({
  *
  * **Collapse is overflow-driven, not a fixed depth.** The trail expands to use
  * all the room its bar gives it and folds ancestors behind an ellipsis ONLY
- * when the full trail can't physically fit — so a short trail on a wide bar
+ * when the full trail can't physically fit, so a short trail on a wide bar
  * always shows in full (the prior `depth > 3` rule folded eagerly once the
  * strip moved to its own full-width bar). Overflow is measured against an inert
  * mirror that always renders every segment, so the reading is independent of
@@ -225,22 +225,22 @@ export const CollapsibleBreadcrumb = memo(function CollapsibleBreadcrumb({
 	const wrapperRef = useRef<HTMLDivElement | null>(null);
 	const mirrorRef = useRef<HTMLDivElement | null>(null);
 
-	/* Compare the natural (fully-expanded) trail width — read off the inert
-	 * mirror, which always renders every segment — against the width actually
+	/* Compare the natural (fully-expanded) trail width: read off the inert
+	 * mirror, which always renders every segment: against the width actually
 	 * available. Reading the mirror, not the live trail, is what keeps the fold
 	 * from oscillating: collapsing shrinks the live trail, which would otherwise
 	 * read as "fits" and immediately re-expand. */
 	const measure = useCallback(() => {
 		const avail = wrapperRef.current?.clientWidth ?? 0;
 		const natural = mirrorRef.current?.scrollWidth ?? 0;
-		/* Meaningful only once laid out (both > 0 — happy-dom/SSR report 0 and
+		/* Meaningful only once laid out (both > 0: happy-dom/SSR report 0 and
 		 * stay expanded); a 1px tolerance absorbs sub-pixel rounding so a trail
 		 * that exactly fits doesn't fold. */
 		setCollapsed(natural > 0 && avail > 0 && natural > avail + 1);
 	}, []);
 
 	/* Observer setup lives in the ref callback (React 19 ref cleanup), per the
-	 * components convention — not a useEffect. */
+	 * components convention, not a useEffect. */
 	const setWrapperRef = useCallback(
 		(el: HTMLDivElement | null) => {
 			wrapperRef.current = el;
@@ -253,7 +253,7 @@ export const CollapsibleBreadcrumb = memo(function CollapsibleBreadcrumb({
 		[measure],
 	);
 
-	/* Re-measure when the trail's text/structure changes — the ResizeObserver
+	/* Re-measure when the trail's text/structure changes: the ResizeObserver
 	 * fires on bar-width changes, not on a relabel (e.g. an inline title edit)
 	 * that shifts the natural width while the bar stays the same size. */
 	const sig = JSON.stringify(parts.map(({ key, label }) => [key, label]));

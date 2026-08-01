@@ -24,7 +24,7 @@ import {
 export type PreparedCompileRequest = PreparedExportBoundary;
 
 /**
- * The shared front half of the two CommCare export routes — `/api/compile`
+ * The shared front half of the two CommCare export routes: `/api/compile`
  * (`.ccz`) and `/api/compile/json` (HQ JSON). Both must authenticate, parse and
  * validate the posted `BlueprintDoc`, rebuild its derived `fieldParent` index,
  * run the zero-tolerance boundary gate, and resolve the app's Project resources
@@ -48,7 +48,7 @@ export async function prepareCompileRequest(
 	},
 ): Promise<PreparedCompileRequest> {
 	const session = await requireSession(req);
-	// The client sends only the app id — the blueprint loads server-side, so no
+	// The client sends only the app id: the blueprint loads server-side, so no
 	// whole doc crosses the wire. (The auto-save persists edits within ~1s, and
 	// an export is an on-demand action well after the last edit, so the loaded
 	// doc is the current one.)
@@ -59,7 +59,7 @@ export async function prepareCompileRequest(
 	}
 
 	// Membership gate (view) + load the persisted blueprint in one read. An
-	// `AppAccessError` (absent / non-member) maps to 404 — the IDOR-safe
+	// `AppAccessError` (absent / non-member) maps to 404: the IDOR-safe
 	// not-found posture.
 	const access = await resolveAppAccess(appId, session.user.id, "view");
 	const { app } = access;
@@ -71,7 +71,7 @@ export async function prepareCompileRequest(
 		app.blueprint as PersistableDoc,
 	);
 
-	// The transaction-boundary gate — zero tolerance, before any expensive
+	// The transaction-boundary gate: zero tolerance, before any expensive
 	// work. Every finding (soundness, completeness, media-state) rejects the
 	// export with the rule's own actionable message: an invalid app must
 	// never leave for a device or CommCare HQ, and a stale media reference
@@ -88,7 +88,7 @@ export async function prepareCompileRequest(
 		compiledAtSeq: app.mutation_seq,
 	});
 	if (!boundary.ok) {
-		// The concise builder copy on the detail lines — this is a
+		// The concise builder copy on the detail lines: this is a
 		// user-facing failure. (The SA's compile path reads the verbose
 		// `message` through its own envelope, not this route.)
 		throw new ApiError(

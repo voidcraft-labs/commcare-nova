@@ -10,7 +10,7 @@ import { useUncarriedLogo } from "@/lib/doc/hooks/useUncarriedLogo";
 
 /**
  * App-level appearance: the logo image shown on the web-apps login and
- * home screens. A single optional image asset — no audio, no per-language
+ * home screens. A single optional image asset: no audio, no per-language
  * variants (Android-only logo slots are out of scope for Nova's web-apps
  * target). The change dispatches through `setAppLogo` so a clear rides
  * the JSON-safe `null` sentinel; the reducer maps `null → undefined` so
@@ -48,7 +48,7 @@ export function AppAppearanceSection() {
 }
 
 /**
- * The proactive heads-up shown when the logo image is used nowhere else —
+ * The proactive heads-up shown when the logo image is used nowhere else:
  * a small amber line plus an info popover explaining (in plain terms) why
  * it won't appear and what to do about it.
  */

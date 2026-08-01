@@ -1,5 +1,5 @@
 /**
- * `GET /api/apps/{id}` — authoritative builder-snapshot wire contract.
+ * `GET /api/apps/{id}`: authoritative builder-snapshot wire contract.
  *
  * The database transaction is covered by the app-state integration suite; this
  * route test pins the one current Project/role/edit/document/cursor projection.

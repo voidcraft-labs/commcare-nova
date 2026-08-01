@@ -1,5 +1,5 @@
 /**
- * GroupField — interactive rendering of a group container.
+ * GroupField: interactive rendering of a group container.
  *
  * Rendered only by `InteractiveFormRenderer` (preview mode). The
  * edit-mode group representation is handled by the flat row model
@@ -9,17 +9,17 @@
  * mirror the edit-mode row structure pixel-for-pixel:
  *
  *   1. **Header block.** Top-rounded, gray-bordered, surface background,
- *      with a chevron collapse toggle — same chrome the virtualized
+ *      with a chevron collapse toggle: same chrome the virtualized
  *      `GroupOpenRow` uses.
  *   2. **Rails container.** Wraps the recursive child renderer and
  *      paints continuous left/right borders along the group's column so
  *      a child at any nested depth visually sits inside the group's
  *      outline. Skipped entirely when the group is collapsed.
  *   3. **Close cap.** 2px flat-top / bottom-rounded bracket that caps
- *      the column — matches `GroupCloseRow` exactly.
+ *      the column: matches `GroupCloseRow` exactly.
  *
  * Collapse state is stored in `FormLayoutContext` so it survives
- * mode/cursor switches within a form — toggling a group in edit mode
+ * mode/cursor switches within a form: toggling a group in edit mode
  * keeps it toggled when the user flips to live, and vice-versa.
  */
 
@@ -41,15 +41,15 @@ import { depthPadding } from "../virtual/rowStyles";
 
 interface GroupFieldProps {
 	/** The group field entity from the normalized doc. Its `hint` is
-	 *  optional — only present when the author set one. */
+	 *  optional: only present when the author set one. */
 	field: GroupFieldEntity;
 	/** XForm data path for this level (e.g. `/data/household_group`).
 	 *  Used as the prefix for descendants' paths. */
 	path: string;
-	/** Blueprint field path for descendants — threaded through so
+	/** Blueprint field path for descendants: threaded through so
 	 *  engine-state keys stay stable across nesting levels. */
 	fieldPath: FieldPath;
-	/** Nesting depth of this group — children render at `depth + 1` so
+	/** Nesting depth of this group: children render at `depth + 1` so
 	 *  they share the edit-mode `depthPadding` column exactly (flipbook
 	 *  parity). */
 	depth: number;
@@ -79,7 +79,7 @@ export function GroupField({
 }: GroupFieldProps) {
 	// Visibility is gated one level up by `InteractiveQuestion`, so we
 	// reach this component only when the group is visible. We still need
-	// the engine state for resolved label/hint rendering — path-keyed so
+	// the engine state for resolved label/hint rendering: path-keyed so
 	// a group inside a repeat instance shows that instance's resolution.
 	const state = useEngineStateAt(field.uuid, path);
 	const { toggleCollapse, isCollapsed } = useFormLayout();
@@ -89,7 +89,7 @@ export function GroupField({
 	const toggleActionId = useId();
 	const childContext = [accessibleContext, headerId].filter(Boolean).join(" ");
 
-	// Subscribe to children presence — drives the empty-state placeholder
+	// Subscribe to children presence: drives the empty-state placeholder
 	// block when the group has no template children yet.
 	const hasChildren = useHasFieldsInForm(field.uuid);
 
@@ -111,7 +111,7 @@ export function GroupField({
 						collapsed ? "rounded-lg" : "rounded-t-lg border-b-0"
 					}`}
 				>
-					{/* Group label media — banner above the header row. */}
+					{/* Group label media: banner above the header row. */}
 					<MediaDisplay media={field.label_media} interactive />
 					<div className="flex items-center gap-2">
 						<button
@@ -138,7 +138,7 @@ export function GroupField({
 							<span className="sr-only">Section {position}. </span>
 							{field.label ? (
 								/* `px-[5px] py-[5px]` matches TextEditable's
-								 *  idle/read-only wrapper in edit mode — without
+								 *  idle/read-only wrapper in edit mode: without
 								 *  this, a labelled group header is exactly 10px
 								 *  shorter in live mode than in edit mode and
 								 *  the flipbook shifts every child downward. */
@@ -157,7 +157,7 @@ export function GroupField({
 							)}
 						</div>
 					</div>
-					{/* Groups don't carry `hint` in the domain schema — structural
+					{/* Groups don't carry `hint` in the domain schema: structural
 					 *  containers expose only `relevant`. Only the label renders. */}
 				</div>
 			</div>
@@ -166,7 +166,7 @@ export function GroupField({
 			{!collapsed && (
 				<>
 					<div id={contentId} className="relative">
-						{/* Nesting rail — absolute L/R borders spanning from just
+						{/* Nesting rail: absolute L/R borders spanning from just
 						 *  below the header to just above the close cap. Positioned
 						 *  via inline style so it tracks the depth-padded column
 						 *  exactly; the header's `border border-b-0` and the close

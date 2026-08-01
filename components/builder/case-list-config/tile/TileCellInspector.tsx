@@ -5,7 +5,7 @@
 // The presentation controls appear only for a field that HOLDS a place.
 // CommCare's `<style>` element cannot exist without a complete `<grid>`
 // child, so alignment, text size, border, and shading have no wire
-// spelling at all for an unplaced field — offering them would be an
+// spelling at all for an unplaced field: offering them would be an
 // affordance with nothing to write.
 //
 // Two runtime facts this surface states rather than hides:
@@ -64,7 +64,7 @@ import {
 
 export interface TileCellInspectorProps {
 	readonly column: Column;
-	/** Every case-list column — the tile's members are what a placement
+	/** Every case-list column: the tile's members are what a placement
 	 *  is adjudicated against. */
 	readonly config: CaseListConfig;
 	/** Whether the case list is currently laid out as a tile. */
@@ -290,8 +290,8 @@ function SavedPlaceSection({
 	readonly onClearPlace: () => void;
 }) {
 	/* Editing is unconditional, not gated on a current finding. A saved cell
-	 * off the tile is invisible to `tileLayoutIssues` — that walk only checks
-	 * columns the tile SHOWS — so a cell that would collide the moment this
+	 * off the tile is invisible to `tileLayoutIssues`: that walk only checks
+	 * columns the tile SHOWS, so a cell that would collide the moment this
 	 * field came back reports nothing, and hiding the controls behind a
 	 * finding leaves the author no way to move it before revealing. */
 	return (
@@ -330,8 +330,8 @@ function SavedPlaceSection({
  *
  * A menu rather than a segmented row because the honest name for an
  * absent size is a phrase, not a word, and four segments in a 300px rail
- * would clip it. The runtime has no `medium` fallback — an absent size
- * produces an empty declaration the browser discards — so presenting one
+ * would clip it. The runtime has no `medium` fallback: an absent size
+ * produces an empty declaration the browser discards, so presenting one
  * of the three sizes as the default would be a lie.
  */
 function TextSizePicker({
@@ -484,7 +484,7 @@ function PlacementFields({
 	readonly config: CaseListConfig;
 	readonly cell: TileCell;
 	readonly canEdit: boolean;
-	/** Take focus on mount — set when the action that revealed these
+	/** Take focus on mount: set when the action that revealed these
 	 *  controls unmounted itself doing so. */
 	readonly autoFocus?: boolean;
 	readonly onPlace: (next: TileCell) => void;

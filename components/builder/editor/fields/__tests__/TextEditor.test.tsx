@@ -1,16 +1,16 @@
 // @vitest-environment happy-dom
 //
-// TextEditor — declarative editor for plain-string field keys
+// TextEditor: declarative editor for plain-string field keys
 // (`hint`, etc.). The component is a thin adapter that maps the
 // FieldEditorComponent contract onto the EditableText primitive.
 // The interesting wrap (`onEmpty` ↔ `onChange(undefined)`) lives in
 // the adapter; the "no-op on never-set" gate lives in
 // `handleEmpty` so the redundant-on-undefined dispatch is skipped
-// without changing the EditableText primitive — other consumers of
+// without changing the EditableText primitive: other consumers of
 // the primitive (XPathEditor's `validate_msg` editor) need
 // unconditional `onEmpty` for their UI-state cleanup arm.
 //
-// Tests below pin the family fix at this consumer's surface — when
+// Tests below pin the family fix at this consumer's surface, when
 // the underlying `value` is `undefined` (the slot is unset), a
 // passive focus + blur on the input must not call `onChange`. Mirror
 // of `DisplaySection`'s `OptionalTextRow` regression test, this time
@@ -36,7 +36,7 @@ describe("TextEditor — onChange no-op gate", () => {
 		// the hint editor (without typing anything) on a field whose
 		// `hint` is undefined must not write `onChange(undefined)` to
 		// the doc store. Without the gate the reducer would receive a
-		// removal patch on a slot that was already absent — a no-op
+		// removal patch on a slot that was already absent: a no-op
 		// downstream but a real undo-history entry the user never
 		// asked for.
 		const onChange = vi.fn();
@@ -86,7 +86,7 @@ describe("TextEditor — onChange no-op gate", () => {
 		//
 		// Cast the spread to `TextField` so the inferred field shape
 		// keeps `hint` as `string | undefined` rather than narrowing
-		// it to `string` — `OptionalStringKeys<F>` excludes required
+		// it to `string`: `OptionalStringKeys<F>` excludes required
 		// keys, and a string-literal `hint` would make TS reject
 		// `keyName="hint"` against the editor's narrowed generic.
 		const populatedField: TextField = {

@@ -3,14 +3,14 @@
 // Search owns the worker-facing fields used to narrow an already-available
 // set. The running search screen stays recognizable without pretending
 // edit-mode fields are live.
-// Config state lives in the artifact where it manifests — a date-range field
+// Config state lives in the artifact where it manifests: a date-range field
 // renders as two From/To boxes, a choice list carries its chevron, a default
-// shows pre-filled in the field — and in the inspector where it doesn't (the
+// shows pre-filled in the field, and in the inspector where it doesn't (the
 // match setting is invisible on the screen, so it stays off the canvas).
 //
 // Clicking a thing configures that thing: field rows select their
 // field, while Edit Search screen opens the screen-copy inspector. The
-// fields are depictions, not live widgets — the global Preview mode
+// fields are depictions, not live widgets: the global Preview mode
 // mounts the real `SearchInputForm` and its functional Search action.
 
 "use client";
@@ -69,7 +69,7 @@ export interface SearchCanvasProps {
 	/** Enables an intentional zero-input Search action before opening settings. */
 	readonly onConfigureSearchAction?: () => void;
 	readonly onAddInput: (property: CaseProperty) => void;
-	/** Disabled-add hint — `undefined` means add is enabled. */
+	/** Disabled-add hint: `undefined` means add is enabled. */
 	readonly addInputDisabledReason: string | undefined;
 	readonly onMoveInput: (uuid: SearchInputDef["uuid"], toIndex: number) => void;
 	/** Whether the worker actually sees a search screen (requires an input). */
@@ -590,7 +590,7 @@ function InputRow({
 	);
 }
 
-/** The field as the app renders it — widget shape carried by the
+/** The field as the app renders it: widget shape carried by the
  *  rendering itself (range = two fields, choice list = chevron,
  *  barcode = scan glyph), defaults pre-filled in full text color. */
 function AppField({
@@ -669,7 +669,7 @@ function FieldBox({
 /**
  * Render a default-value expression the way the field would carry it:
  * literal terms show their value, `today` reads as a date, anything
- * computed shows an honest generic. Mirrors the canvas principle —
+ * computed shows an honest generic. Mirrors the canvas principle:
  * the inspector owns the structure.
  */
 function defaultDisplayValue(

@@ -8,7 +8,7 @@
  * Hashing is tested through `sha256HexOfBytes` (the pure buffer→hex
  * core), NOT `sha256Hex(Blob)`: `Blob.arrayBuffer()` registers a
  * BLOBREADER async resource that lingers past test-end under the leak
- * detector, and the blob read is I/O — the byte→hash transformation is
+ * detector, and the blob read is I/O: the byte→hash transformation is
  * the part worth unit-testing.
  */
 

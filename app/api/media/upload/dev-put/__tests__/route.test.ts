@@ -1,9 +1,9 @@
 /**
- * `PUT /api/media/upload/dev-put` — the local-dev signed-PUT proxy.
+ * `PUT /api/media/upload/dev-put`: the local-dev signed-PUT proxy.
  *
  * The pending object key embeds the PROJECT id (`pending/<projectId>/…`,
  * `pendingGcsObjectKeyFor`), so the route's guard must gate Project
- * membership — a guard that demands the session USER id in that segment
+ * membership: a guard that demands the session USER id in that segment
  * rejects every legitimate dev upload with a 403. These tests pin that
  * regression plus the route's other boundary rejections (malformed key,
  * byte cap, prod hard-gate).
@@ -84,7 +84,7 @@ afterEach(() => {
 
 describe("PUT /api/media/upload/dev-put", () => {
 	it("writes the bytes when the key's Project is one the caller can edit", async () => {
-		// The tenant segment is the PROJECT id, never the user id — the same
+		// The tenant segment is the PROJECT id, never the user id: the same
 		// `edit` gate initiate ran before minting this URL.
 		const res = await PUT(
 			devPutReq({
@@ -199,7 +199,7 @@ describe("PUT /api/media/upload/dev-put", () => {
 
 	it("400s a key outside the pending upload shape, without a membership lookup", async () => {
 		// A final content-hash key (or anything else) is never a legitimate
-		// dev-put target — only initiate-minted `pending/<projectId>/<object>`.
+		// dev-put target: only initiate-minted `pending/<projectId>/<object>`.
 		const res = await PUT(
 			devPutReq({ key: "projects/project-1/abc.png", max: "1000" }),
 		);

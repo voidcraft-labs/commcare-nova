@@ -1,11 +1,11 @@
 /**
- * Impersonation banner — orchid-toned pill in the global header.
+ * Impersonation banner: orchid-toned pill in the global header.
  *
  * Rendered when an admin is viewing the app as another user. Shows
  * the impersonated user's name and a "Switch back" button that ends
  * the impersonation session and returns to the admin dashboard.
  *
- * Uses `--nova-orchid` — a warm pink-purple from the xpath "lavender
+ * Uses `--nova-orchid`: a warm pink-purple from the xpath "lavender
  * milk bath" palette. Distinct enough to notice against the cool violet
  * UI, but still native to the theme. The switch-back action performs a
  * hard reload (`window.location.href`) rather than client-side navigation
@@ -22,7 +22,7 @@ import { authClient } from "@/lib/auth-client";
 
 interface ImpersonationBannerProps {
 	userName: string;
-	/** Shown on hover — full email provides identity confirmation. */
+	/** Shown on hover: full email provides identity confirmation. */
 	userEmail: string;
 }
 
@@ -33,14 +33,14 @@ export function ImpersonationBanner({
 	const [loading, setLoading] = useState(false);
 
 	/** End the impersonation session and hard-reload to the admin dashboard.
-	 * Always navigates regardless of API success — a failed stop usually means
+	 * Always navigates regardless of API success: a failed stop usually means
 	 * the session is already stale, and a full reload will sort it out. */
 	const handleStopImpersonating = async () => {
 		setLoading(true);
 		try {
 			await authClient.admin.stopImpersonating();
 		} catch {
-			/* Swallow — the hard reload below handles recovery. */
+			/* Swallow: the hard reload below handles recovery. */
 		}
 		window.location.href = "/admin";
 	};

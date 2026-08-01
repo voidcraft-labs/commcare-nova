@@ -1,5 +1,5 @@
 /**
- * Project-settings layout — auth gate for the /project tree.
+ * Project-settings layout: auth gate for the /project tree.
  *
  * Requires an authenticated session. Non-authenticated users are
  * redirected to the landing page by `requireAuth()` (mirrors the

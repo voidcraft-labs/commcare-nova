@@ -123,7 +123,7 @@ describe("dialog viewport containment", () => {
 		);
 		await settleBaseUiMount();
 
-		/* The 44px floor lives on the Button itself now — every rendered
+		/* The 44px floor lives on the Button itself now: every rendered
 		 *  footer action is the one 44px control. */
 		const cancel = screen.getByRole("button", { name: "Cancel" });
 		expect(cancel.className).toContain("h-11");

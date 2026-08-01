@@ -13,12 +13,12 @@ import { cn } from "@/lib/utils";
 /**
  * The one tooltip surface in Nova, three layers:
  *
- * - `TooltipProvider` — mounted exactly ONCE, in `(app)/layout.tsx`. It owns
+ * - `TooltipProvider`: mounted exactly ONCE, in `(app)/layout.tsx`. It owns
  *   the shared Base UI delay group: once a tooltip opens, adjacent tooltips
  *   open instantly instead of re-waiting the delay. Never mount a second one.
- * - `Tooltip` / `TooltipTrigger` / `TooltipContent` — the compound primitives
+ * - `Tooltip` / `TooltipTrigger` / `TooltipContent`: the compound primitives
  *   (shadcn API) for composed cases like the vendored AI Elements.
- * - `SimpleTooltip` — the everyday wrapper: `content` + child, with falsy
+ * - `SimpleTooltip`: the everyday wrapper: `content` + child, with falsy
  *   passthrough and disabled-trigger handling built in.
  */
 
@@ -96,7 +96,7 @@ interface SimpleTooltipProps {
 }
 
 /**
- * Everyday tooltip — `content` + a single trigger child.
+ * Everyday tooltip: `content` + a single trigger child.
  *
  * Handles disabled children transparently: when the child has
  * `disabled={true}`, it's wrapped in a `<div role="presentation">` so hover
@@ -105,7 +105,7 @@ interface SimpleTooltipProps {
  * composition doesn't reliably forward tooltip handlers). The presentation
  * role keeps the wrapper invisible to the accessibility tree.
  *
- * Falsy `content` is a passthrough — the child renders unmodified, so
+ * Falsy `content` is a passthrough: the child renders unmodified, so
  * conditional tooltips don't need ternaries at the call site.
  */
 function SimpleTooltip({

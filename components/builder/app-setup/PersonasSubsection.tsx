@@ -1,5 +1,5 @@
 /**
- * Personas — named workers you can run the app as.
+ * Personas: named workers you can run the app as.
  *
  * A persona is somebody: a stable identity, a role, and any values that
  * differ from that role's defaults. It is what Preview runs as, and the
@@ -267,7 +267,7 @@ function PersonaRow({
 /**
  * One property on a persona: the editable override plus the fact of where
  * the effective value comes from. An inherited value shows as the input's
- * placeholder — present but not typed here — and a required property with
+ * placeholder: present but not typed here, and a required property with
  * nothing behind it says so, without blocking anything: whether a persona
  * can become a real worker is a question the deployment answers, against a
  * project whose plan and field schema Nova cannot see from here.

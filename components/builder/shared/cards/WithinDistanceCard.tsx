@@ -2,7 +2,7 @@
 //
 // Renders the `within-distance` predicate. Property picker
 // (geopoint-typed only) + center-coordinate input (a Term-shaped
-// ValueExpression — typed-text via the picker) + numeric distance
+// ValueExpression: typed-text via the picker) + numeric distance
 // + unit menu (miles / kilometers).
 
 "use client";
@@ -40,14 +40,14 @@ const UNIT_LABELS: Record<DistanceUnit, string> = {
 	kilometers: "kilometers",
 };
 
-/** Module-level filter so render-time identity stays stable —
+/** Module-level filter so render-time identity stays stable:
  *  `PropertyPicker`'s `useMemo` on `[caseType, filter]` invalidates
  *  on each fresh-arrow filter, even when the actual selection rule
  *  is constant. */
 const GEOPOINT_PROPERTY_FILTER = (p: { data_type?: string }): boolean =>
 	p.data_type === "geopoint";
 
-/** The center resolves to a geopoint or a text-encoded coordinate —
+/** The center resolves to a geopoint or a text-encoded coordinate:
  *  module-const for a stable identity across renders. */
 const CENTER_CONSTRAINT = withinCenterConstraint();
 
@@ -72,7 +72,7 @@ export function WithinDistanceCard({
 	path,
 }: WithinDistanceCardProps) {
 	// Center errors render via the `ExpressionPicker` shell's
-	// `CardShell` footer at the matching slot path — rendering them
+	// `CardShell` footer at the matching slot path: rendering them
 	// here too would double the diagnostic row count.
 	const propertyErrors = useEditorErrorsAt(appendSlot(path, "property"));
 
@@ -117,7 +117,7 @@ export function WithinDistanceCard({
 					{/* Center coordinate routes through `ExpressionPicker`.
 					 *  CCHQ accepts a typed-geopoint search input as the
 					 *  natural shape AND a wire-form coordinate string
-					 *  (per `query_functions.py::within_distance` —
+					 *  (per `query_functions.py::within_distance`:
 					 *  `GeoPoint.from_string` parses the text fallback), so
 					 *  `withinCenterConstraint` admits `geopoint` OR `text`
 					 *  and the picker offers only kinds / sources that

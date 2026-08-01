@@ -44,7 +44,7 @@ export const MessageContent = ({
 			// The packed bubble (attachments + text) keeps the tight base gap-2.
 			"group-[.is-user]:ml-auto group-[.is-user]:rounded-xl group-[.is-user]:border group-[.is-user]:border-nova-border group-[.is-user]:bg-nova-surface group-[.is-user]:px-4 group-[.is-user]:py-3 group-[.is-user]:text-nova-text",
 			// Assistant turns are unwrapped prose on the page background, interleaving
-			// distinct blocks — prose, reasoning bursts, tool-run cards, question
+			// distinct blocks: prose, reasoning bursts, tool-run cards, question
 			// cards. ONE uniform gap (here, not per-block margins, which compound when
 			// e.g. a reasoning burst abuts a tool run) keeps them all in rhythm.
 			"group-[.is-assistant]:gap-4 group-[.is-assistant]:text-nova-text",

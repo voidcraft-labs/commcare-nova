@@ -39,7 +39,7 @@ const AFTER_SUBMIT_OPTIONS: ReadonlyArray<
 ];
 
 /**
- * Dropdown for "After Submit" — what screen the user lands on after the
+ * Dropdown for "After Submit": what screen the user lands on after the
  * form is submitted. Writes the JSON-stable clear `null` when the choice matches the
  * form-type default so the doc doesn't carry redundant state.
  */

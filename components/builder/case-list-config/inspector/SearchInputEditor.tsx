@@ -23,7 +23,7 @@
 //
 // Inline diagnostics (empty / duplicate names, empty labels, unbound
 // or dangling properties, type-coupling mismatches) come from the
-// shared `searchInputResolution` derivation — the same source the
+// shared `searchInputResolution` derivation: the same source the
 // search canvas's error badges and the workspace's preview gate
 // read, so the three surfaces can't disagree.
 
@@ -142,7 +142,7 @@ import {
 export interface SearchInputEditorProps {
 	/** The input being edited. Must be a member of `siblings`. */
 	readonly value: SearchInputDef;
-	/** Position of `value` within `siblings` — drives the duplicate-
+	/** Position of `value` within `siblings`: drives the duplicate-
 	 *  name diagnostic and aria labels. */
 	readonly index: number;
 	/** The full search-input list. Sibling names feed the duplicate
@@ -157,7 +157,7 @@ export interface SearchInputEditorProps {
 	readonly onEditCondition: () => void;
 }
 
-/** Where a simple row's property lives — this case, the parent case,
+/** Where a simple row's property lives: this case, the parent case,
  *  or a non-canonical relation walk authored elsewhere (chat, MCP). */
 type BindingScope = "self" | "parent" | "custom";
 
@@ -236,7 +236,7 @@ export function SearchInputEditor({
 		);
 	}, [siblings, index, caseTypes, currentCaseType, projectProse, value.label]);
 
-	// Every named row is in scope — the edited row included. A custom
+	// Every named row is in scope: the edited row included. A custom
 	// condition is keyed to its OWN input via the when-input-present
 	// envelope `seedCustomCondition` produces, so the row must resolve
 	// its own `input(name)`. Matches the validator's full-list
@@ -319,7 +319,7 @@ export function SearchInputEditor({
 	 * (a calendar over a text property, say) self-corrects to one it
 	 * can, an inadmissible match drops back to the type's default,
 	 * and the label / name update only while they still read as
-	 * derived from the previous property — hand-typed values are the
+	 * derived from the previous property: hand-typed values are the
 	 * author's and are never overwritten.
 	 */
 	const setBinding = (property: string, scope: "self" | "parent") => {
@@ -441,7 +441,7 @@ export function SearchInputEditor({
 	// "Custom condition" replaces the row with the advanced arm,
 	// seeding `property = typed value` (the behavior the row already
 	// had) so the author edits forward rather than starting blank.
-	// The `via` slot drops — the condition AST encodes relation walks
+	// The `via` slot drops: the condition AST encodes relation walks
 	// inside its own structure when needed.
 	//
 	// Picking a standard match from the custom state converts back,
@@ -481,7 +481,7 @@ export function SearchInputEditor({
 		kind: SearchInputMode["kind"],
 	): PendingStandardReplacement | null => {
 		if (value.kind !== "advanced") return null;
-		// Land a WORKING row, same bar as the add seed — an unbound
+		// Land a WORKING row, same bar as the add seed: an unbound
 		// row matches nothing at runtime. Recover the condition's
 		// anchor property when it has the round-trip shape; otherwise
 		// seed the way a fresh field would.
@@ -564,7 +564,7 @@ export function SearchInputEditor({
 
 	const emptyValidityIndex = useMemo(() => buildValidityIndex([]), []);
 
-	/* The bound property's effective data type — the Field type and
+	/* The bound property's effective data type: the Field type and
 	 * Match pickers use it to disable choices the validator would
 	 * reject (fuzzy on a number, say) instead of letting the author
 	 * pick into an error. */
@@ -900,7 +900,7 @@ function FieldRow({
 	);
 }
 
-/** The person-to-person line under a dangling property —
+/** The person-to-person line under a dangling property:
  *  names what's wrong AND what it costs at runtime. */
 function propertyErrors(state: PropertyState): readonly string[] {
 	switch (state.kind) {
@@ -913,7 +913,7 @@ function propertyErrors(state: PropertyState): readonly string[] {
 	}
 }
 
-// ── Binding picker — property + where it lives, one control ───────
+// ── Binding picker: property + where it lives, one control ───────
 
 interface BindingPickerProps {
 	readonly row: SimpleSearchInputDef;
@@ -925,14 +925,14 @@ interface BindingPickerProps {
 }
 
 /**
- * One picker answers "what does this field search?" — the case's own
+ * One picker answers "what does this field search?": the case's own
  * properties, and the parent case's when the case type has a parent.
  * Picking a parent property carries the relation walk implicitly; no
  * separate control, no walk vocabulary.
  *
  * A row whose walk was authored elsewhere with a shape this picker
  * can't express (a child-case walk, a multi-step walk) keeps working
- * — the picker says so in plain words and offers the way back.
+ *: the picker says so in plain words and offers the way back.
  */
 function BindingPicker({
 	row,
@@ -1265,7 +1265,7 @@ function rebuildRow(value: SearchInputDef, patch: RowPatch): SearchInputDef {
 interface TypePickerProps {
 	readonly value: SearchInputType;
 	readonly onChange: (next: SearchInputType) => void;
-	/** Effective data type of the bound property (simple arm only) —
+	/** Effective data type of the bound property (simple arm only):
 	 *  gates which field types are selectable, mirroring the Match
 	 *  picker. `undefined` (custom condition / unresolved property)
 	 *  gates nothing, matching the validator's skip. */
@@ -1317,7 +1317,7 @@ function TypePicker({
 				>
 					{SEARCH_INPUT_TYPES.map((t) => {
 						const isActive = t === value;
-						// Property-level gate — a field the bound property's
+						// Property-level gate: a field the bound property's
 						// data type can't run (a calendar over a text
 						// property, say) is disabled with the reason rather
 						// than selectable into a validation error.
@@ -1369,11 +1369,11 @@ function TypePicker({
 	);
 }
 
-// ── Match picker — standard modes + the custom arm, one menu ──────
+// ── Match picker: standard modes + the custom arm, one menu ──────
 
 interface MatchPickerProps {
 	readonly value: SearchInputDef;
-	/** Effective data type of the bound property — gates which modes
+	/** Effective data type of the bound property: gates which modes
 	 *  are selectable. `undefined` (unresolved property / custom
 	 *  condition) gates nothing, matching the validator's skip. */
 	readonly propertyDataType: CasePropertyDataType | undefined;
@@ -1444,7 +1444,7 @@ function MatchPicker({
 				>
 					{choices.map((kind) => {
 						const isActive = !isCustom && effectiveKind === kind;
-						// Property-level gate — picking a match the bound
+						// Property-level gate: picking a match the bound
 						// property's data type can't run would only land the
 						// row in a validation error, so the item is disabled
 						// and says why instead.
@@ -1550,7 +1550,7 @@ function DefaultValueSlot({
 				</Button>
 			) : (
 				<div className="space-y-3 rounded-xl border border-white/[0.06] bg-nova-deep/30 p-3">
-					{/* Forbids input refs — the default fills the field before
+					{/* Forbids input refs: the default fills the field before
 				    the search screen opens. See NO_SEARCH_INPUTS. */}
 					<ExpressionCardEditor
 						value={value}

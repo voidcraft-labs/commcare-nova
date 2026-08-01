@@ -1,12 +1,12 @@
 // components/builder/appTree/TreeRowDelete.tsx
 //
-// The two-step, no-dialog delete for a tree row (module / form) — the app-card
+// The two-step, no-dialog delete for a tree row (module / form), the app-card
 // delete pattern (`components/ui/AppCard.tsx`) shrunk to fit a tree row. Idle:
 // a hover-revealed trash icon. Armed (after one click): a rose "Delete?" pill +
 // a cancel ✕; a second click on "Delete?" runs `onDelete`. Moving the pointer
 // off the cluster disarms. The parent row must set `group` for the idle reveal.
 //
-// `onDelete` dispatches `removeModule` / `removeForm` — both gated mutations, so
+// `onDelete` dispatches `removeModule` / `removeForm`: both gated mutations, so
 // the removal is one undo entry (⌘Z restores it, including a module's cascaded
 // forms/fields + any retired case-type record).
 
@@ -27,7 +27,7 @@ export function TreeRowDelete({
 	readonly label: string;
 	/** Runs the (gated) removal; returns whether it committed. A success
 	 *  unmounts this row with the deleted entity, so on `false` (the gate
-	 *  refused — e.g. a still-referenced case type can't be retired) we disarm
+	 *  refused: e.g. a still-referenced case type can't be retired) we disarm
 	 *  rather than leave the row stuck in its "Delete?" state. */
 	readonly onDelete: () => boolean;
 }) {
@@ -48,7 +48,7 @@ export function TreeRowDelete({
 		}
 	}, [armed]);
 
-	// A view-only Project member can't delete rows — render nothing.
+	// A view-only Project member can't delete rows: render nothing.
 	if (!canEdit) return null;
 
 	if (armed) {

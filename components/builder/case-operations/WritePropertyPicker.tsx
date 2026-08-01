@@ -4,9 +4,9 @@
 //
 // Chooser-first, like every other add affordance in the builder: pick
 // the property, and the row lands already holding a value that would
-// actually submit. A brand-new property is allowed here — the commit
+// actually submit. A brand-new property is allowed here: the commit
 // batch declares it in the catalog alongside the write
-// (`caseOperationCatalogMutations`) — but the name is adjudicated
+// (`caseOperationCatalogMutations`), but the name is adjudicated
 // inline, so an illegal or already-saved one is refused before the
 // gesture rather than after it.
 //
@@ -52,7 +52,7 @@ export function WritePropertyPicker({
 	readonly triggerRef?: React.Ref<HTMLButtonElement>;
 	readonly caseTypeName: string;
 	readonly alreadyWritten: ReadonlySet<string>;
-	/** The answers this change may read — what a write can be seeded from. */
+	/** The answers this change may read: what a write can be seeded from. */
 	readonly formFields: readonly EditorFormFieldDecl[];
 	readonly onChoose: (property: string, value: ValueExpression) => void;
 }) {
@@ -95,9 +95,9 @@ export function WritePropertyPicker({
 	const showError = draft.trim().length > 0 && !verdict.ok;
 
 	/* Typing the name of a property that ALREADY EXISTS is not "something new".
-	 * The identifier verdict cannot see that — it checks grammar, length,
+	 * The identifier verdict cannot see that: it checks grammar, length,
 	 * reserved names, and what this change already writes, never a declared
-	 * type — so without this the box seeds an empty text value for a declared
+	 * type, so without this the box seeds an empty text value for a declared
 	 * `date`, and the commit gate refuses the batch with
 	 * CASE_OPERATION_EXPRESSION_TYPE. Worse, the property may be sitting in the
 	 * list directly above as a DISABLED row carrying its reason, while the box

@@ -209,8 +209,8 @@ describe("replacementDraftToValue", () => {
 		expect(replacementDraftToValue("time", "12:60")).toEqual({ ok: false });
 		expect(replacementDraftToValue("time", "13:00 PM")).toEqual({ ok: false });
 		expect(replacementDraftToValue("time", "noonish")).toEqual({ ok: false });
-		// A pending half of the datetime pair — date picked, time not
-		// typed yet (or the reverse) — is not submittable.
+		// A pending half of the datetime pair: date picked, time not
+		// typed yet (or the reverse): is not submittable.
 		expect(replacementDraftToValue("datetime", "2026-07-20T")).toEqual({
 			ok: false,
 		});

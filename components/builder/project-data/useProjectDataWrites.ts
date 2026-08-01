@@ -23,7 +23,7 @@ import type {
 import { useProjectId } from "@/lib/session/hooks";
 import { formatLookupCount } from "./projectDataModel";
 
-/** The refusal a write reports when the session has no Project yet — a state
+/** The refusal a write reports when the session has no Project yet, a state
  *  the UI already prevents, spelled as a real failure so no caller has to
  *  invent one. */
 function unavailable(): LookupGovernanceFailure {
@@ -57,7 +57,7 @@ export interface ColumnWrites {
 		expectedTableRevision: LookupRevision,
 	) => Promise<boolean>;
 	/** Resolves `null` when the change landed, or the refusal that stopped it
-	 *  — the dialog renders its blocking apps. */
+	 * : the dialog renders its blocking apps. */
 	readonly removeColumn: (
 		column: LookupColumn,
 		expectedTableRevision: LookupRevision,

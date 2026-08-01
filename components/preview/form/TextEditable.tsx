@@ -9,7 +9,7 @@
  *
  * In preview mode: renders children as-is (zero overhead).
  *
- * The `data-text-editable` attribute enables Tab navigation discovery —
+ * The `data-text-editable` attribute enables Tab navigation discovery:
  * InlineTextEditor's Tab handler queries all [data-text-editable] elements
  * in DOM order to find the next/previous field.
  */
@@ -27,7 +27,7 @@ interface TextEditableProps {
 	value: ProseTemplate;
 	/** Called when the editor saves a new value. Undefined = read-only (no text mode editing). */
 	onSave: ((value: ProseTemplate) => void) | undefined;
-	/** Which text surface — drives InlineTextEditor styling. */
+	/** Which text surface: drives InlineTextEditor styling. */
 	fieldType: FieldType;
 	/** Static rendering of this field (LabelContent). Shown when not editing. */
 	children: ReactNode;
@@ -42,7 +42,7 @@ export function TextEditable({
 	const previewing = usePreviewing();
 	const canEdit = useCanEdit();
 	const [editing, setEditing] = useState(false);
-	/** Viewport coordinates of the activation click — passed to the editor
+	/** Viewport coordinates of the activation click: passed to the editor
 	 *  so it can place the cursor at the correct text position via posAtCoords. */
 	const clickPosRef = useRef<{ x: number; y: number } | null>(null);
 
@@ -57,7 +57,7 @@ export function TextEditable({
 		[value, onSave],
 	);
 
-	/** Cancel editing — revert to the static view without persisting changes. */
+	/** Cancel editing: revert to the static view without persisting changes. */
 	const handleCancel = useCallback(() => {
 		clickPosRef.current = null;
 		setEditing(false);
@@ -69,7 +69,7 @@ export function TextEditable({
 		setEditing(true);
 	}, []);
 
-	/** Keyboard activation — Enter or Space activates the inline editor
+	/** Keyboard activation: Enter or Space activates the inline editor
 	 *  without a click position (cursor lands at end of text). */
 	const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
 		if (e.key === "Enter" || e.key === " ") {
@@ -80,14 +80,14 @@ export function TextEditable({
 		}
 	}, []);
 
-	/* Previewing, no save handler, or a view-only Project member — render
+	/* Previewing, no save handler, or a view-only Project member, render
 	 * children as-is (static, non-editable). Still wrap in a div with matching
 	 * padding so content doesn't shift when toggling preview (flipbook parity). */
 	if (previewing || !onSave || !canEdit) {
 		return <div className="px-[5px] py-[5px]">{children}</div>;
 	}
 
-	/* Active editing — swap in the WYSIWYG editor. */
+	/* Active editing: swap in the WYSIWYG editor. */
 	if (editing) {
 		return (
 			<div
@@ -107,7 +107,7 @@ export function TextEditable({
 		);
 	}
 
-	/* Edit mode idle — semantic <button> with background tint + pointer
+	/* Edit mode idle: semantic <button> with background tint + pointer
 	 * cursor on hover. Cursor becomes text naturally when TipTap activates. */
 	return (
 		<button

@@ -1,10 +1,10 @@
 /**
- * Impersonate button — starts an admin impersonation session.
+ * Impersonate button: starts an admin impersonation session.
  *
  * Calls Better Auth's `admin.impersonateUser()` which creates a new
  * session mimicking the target user (default 1-hour duration). On
  * success, hard-reloads to `/` so the app renders with the impersonated
- * user's data. The hard reload ensures a full session cookie refresh —
+ * user's data. The hard reload ensures a full session cookie refresh:
  * client-side navigation would show stale state from the cookie cache.
  */
 "use client";
@@ -17,7 +17,7 @@ import { authClient } from "@/lib/auth-client";
 interface ImpersonateButtonProps {
 	/** The user ID to impersonate. */
 	userId: string;
-	/** Display name — used for the tooltip. */
+	/** Display name: used for the tooltip. */
 	userName: string;
 }
 
@@ -37,7 +37,7 @@ export function ImpersonateButton({
 			setLoading(false);
 			return;
 		}
-		/* Hard reload — the session cookie now represents the impersonated
+		/* Hard reload: the session cookie now represents the impersonated
 		 * user. window.location.href forces a full server-side re-render. */
 		window.location.href = "/";
 	};

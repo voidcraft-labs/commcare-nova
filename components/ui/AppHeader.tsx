@@ -1,11 +1,11 @@
 /**
- * Site header — rendered by `(site)/layout.tsx` for every non-builder
+ * Site header: rendered by `(site)/layout.tsx` for every non-builder
  * surface (app list, admin, settings, consent). The builder renders
  * `BuilderHeader` instead; the split lives at the route group.
  *
  * Always visible when the user is authenticated. Hidden on the landing
  * page (unauthenticated `/`). Uses `isAuthenticated` from the server-resolved
- * session rather than pathname checks — the same `/` route renders both
+ * session rather than pathname checks: the same `/` route renders both
  * the landing and the app list depending on auth state.
  */
 
@@ -27,13 +27,13 @@ interface ImpersonationState {
 }
 
 interface AppHeaderProps {
-	/** Whether the current user has admin role — passed through to HeaderNav. */
+	/** Whether the current user has admin role: passed through to HeaderNav. */
 	isAdmin: boolean;
-	/** Whether the user is authenticated — controls header visibility. */
+	/** Whether the user is authenticated: controls header visibility. */
 	isAuthenticated: boolean;
 	/** Active impersonation info, or null when viewing as yourself. */
 	impersonating: ImpersonationState | null;
-	/** Every Project the user belongs to — backs the switcher. */
+	/** Every Project the user belongs to: backs the switcher. */
 	projects: ProjectSummary[];
 	/** The active Project id (the tenancy scope), or null when unauthenticated. */
 	activeProjectId: string | null;
@@ -46,7 +46,7 @@ export function AppHeader({
 	projects,
 	activeProjectId,
 }: AppHeaderProps) {
-	/* Landing page (unauthenticated) — no header. */
+	/* Landing page (unauthenticated): no header. */
 	if (!isAuthenticated) return null;
 	const activeProject = projects.find(
 		(project) => project.id === activeProjectId,

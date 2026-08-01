@@ -57,7 +57,7 @@ function DialogContent({
 				// `DialogBody` takes the leftover and scrolls INSIDE it, so the
 				// title, the close button, and the actions stay put. Scrolling the
 				// whole panel puts the actions below the fold and carries the X off
-				// the top — the user has to scroll back up to dismiss.
+				// the top: the user has to scroll back up to dismiss.
 				//
 				// `overflow-y-auto` stays as the fallback for a dialog whose middle
 				// isn't wrapped in `DialogBody`: it then behaves exactly as it always
@@ -115,8 +115,8 @@ function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
  * close button on screen no matter how long the content runs.
  *
  * The negative inline margin cancels the panel's own `p-5` and the padding puts
- * it back on the CONTENT, so the scroll track lands where you expect it — hard
- * against the panel's inside edge — instead of floating 20px in from it. A
+ * it back on the CONTENT, so the scroll track lands where you expect it, hard
+ * against the panel's inside edge: instead of floating 20px in from it. A
  * panel that sets its own padding (`p-0` and custom chrome) passes
  * `className="mx-0 px-0"` to opt out.
  */

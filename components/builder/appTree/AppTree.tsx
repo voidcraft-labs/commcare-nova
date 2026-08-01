@@ -1,17 +1,17 @@
 /**
- * AppTree — structure sidebar with per-entity subscriptions.
+ * AppTree: structure sidebar with per-entity subscriptions.
  *
  * Each tree component (ModuleCard, FormCard, FieldRow) subscribes to
  * its own entity in the builder store by ID/UUID. Immer structural
  * sharing means editing field A's label only re-renders FieldRow(A) in
- * the sidebar — not the other 166 FieldRows, not the FormCards, not the
+ * the sidebar, not the other 166 FieldRows, not the FormCards, not the
  * ModuleCards.
  *
- * Selection uses boolean selectors — only the old and new selected
+ * Selection uses boolean selectors: only the old and new selected
  * components re-render on selection change (2 total), not every tree
  * item.
  *
- * Search filtering operates directly on entity maps — no assembled
+ * Search filtering operates directly on entity maps: no assembled
  * TreeData is constructed.
  */
 "use client";
@@ -122,7 +122,7 @@ export function AppTree() {
 						<ul aria-label="App structure" className="m-0 list-none p-0">
 							<AnimatePresence mode="sync">
 								{/* Insertion points interleave between modules so new
-								 *  modules can be added at any position — hidden while
+								 *  modules can be added at any position: hidden while
 								 *  a search filter is active or the app is locked. */}
 								{interleaveInsertions(moduleOrder, {
 									suppress: locked || !!searchResult,

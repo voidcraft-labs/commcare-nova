@@ -1,5 +1,5 @@
 /**
- * Help menu — a header dropdown (styled like the Project switcher) that groups
+ * Help menu: a header dropdown (styled like the Project switcher) that groups
  * the Docs and Give-Feedback links behind one control so the top bar stays
  * uncluttered. Both open in a new tab.
  */
@@ -26,7 +26,7 @@ const FEEDBACK_FORM_URL =
 
 /* Both links open in a new tab. Only the Docs URL differs by env: dev serves
  * the docs in-tree at `/docs` (so local edits preview), while prod points at the
- * `docs.commcare.app` subdomain — the main host doesn't serve `/docs` under the
+ * `docs.commcare.app` subdomain: the main host doesn't serve `/docs` under the
  * multi-host routing. `process.env.NODE_ENV` is inlined by Next at build time. */
 const DOCS_HREF =
 	process.env.NODE_ENV === "development"

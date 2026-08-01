@@ -71,7 +71,7 @@ const POPULATED_TRIGGER_LABEL =
 const UNAVAILABLE_TRIGGER_LABEL =
 	"Case data for Patient. Case count unavailable. Case data is shared throughout your app";
 
-/** The popover description's full text, chip and all — the case-type
+/** The popover description's full text, chip and all: the case-type
  *  name renders as a reference-style chip inside the paragraph, so
  *  assertions match the paragraph's assembled textContent rather than
  *  one text node. The chip carries the case type's NAME (the id the

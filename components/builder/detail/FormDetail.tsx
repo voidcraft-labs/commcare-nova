@@ -23,7 +23,7 @@ import {
 } from "@/lib/styles";
 
 // Derived from the domain's single-source labels (lib/domain/forms.ts) so the
-// type-change dropdown reads the same vocabulary as the add-form chooser — e.g.
+// type-change dropdown reads the same vocabulary as the add-form chooser, e.g.
 // "Follow-up", not a divergent hand-rolled "Followup".
 const formTypeOptions: { value: FormType; label: string }[] = FORM_TYPES.map(
 	(value) => ({ value, label: formTypeLabels[value] }),

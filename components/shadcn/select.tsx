@@ -46,7 +46,7 @@ function SelectTrigger({
 	wrapValue?: boolean;
 }) {
 	// One size: the 44px control height (button = input = toggle = select),
-	// wearing the input treatment — violet wash on the bright border, hover
+	// wearing the input treatment: violet wash on the bright border, hover
 	// lifting one step toward light, focus ring keyboard-crisp.
 	return (
 		<SelectPrimitive.Trigger
@@ -54,7 +54,7 @@ function SelectTrigger({
 			className={cn(
 				"nova-focusable flex w-fit justify-between gap-1.5 rounded-lg border border-nova-border-bright bg-nova-violet/[0.09] py-2 pr-2.5 pl-3.5 text-sm transition-colors outline-none select-none not-disabled:not-focus-visible:hover:bg-nova-violet/[0.14] disabled:cursor-not-allowed disabled:opacity-(--disabled-opacity) aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 data-placeholder:text-nova-text-muted *:data-[slot=select-value]:flex *:data-[slot=select-value]:gap-1.5 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
 				// A wrapping trigger grows past its fixed height, but it still
-				// CENTERS its value and chevron — an authored value that happens
+				// CENTERS its value and chevron: an authored value that happens
 				// to fit on one line must not sit top-heavy in a trigger sized by
 				// `min-h-*` for touch.
 				wrapValue
@@ -98,18 +98,18 @@ function SelectContent({
 		| "collisionPadding"
 	>) {
 	return (
-		// The popup portals to document.body (Base UI's default) — escaping
+		// The popup portals to document.body (Base UI's default): escaping
 		// ancestor stacking/overflow is the whole point, so a Select opened from
 		// inside a Dialog floats above it with no per-call wiring. The positioner
 		// takes the shared floating plane, co-planar with dialogs, and wins by
 		// portal order: its portal mounts after the dialog's, so it stacks on top.
-		// Do NOT portal this into a dialog panel — a fixed-position popup inside a
+		// Do NOT portal this into a dialog panel: a fixed-position popup inside a
 		// transformed panel (a centered dialog uses `translate(-50%,-50%)`) anchors
 		// to the panel rather than the viewport and lands in the wrong place.
 		//
 		// Nova chrome: the frosted-glass surface (shared constants from
-		// `lib/styles.ts`, same as every menu) lives on the POSITIONER — see the
-		// compositing-boundary note there — so `alignItemWithTrigger` defaults
+		// `lib/styles.ts`, same as every menu) lives on the POSITIONER, see the
+		// compositing-boundary note there, so `alignItemWithTrigger` defaults
 		// OFF: a translucent popup laid OVER its own trigger reads as a smear,
 		// and dropping below the trigger is how every other Nova option
 		// dropdown opens.

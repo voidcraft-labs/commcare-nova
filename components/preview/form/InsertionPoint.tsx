@@ -1,13 +1,13 @@
 /**
- * InsertionPoint — the intent-gated gap between fields for inserting new
+ * InsertionPoint: the intent-gated gap between fields for inserting new
  * fields. Reveal state comes from `useInsertionZone` (the shared insertion-
- * intent model): the zone registers its rect and the model decides — slow
+ * intent model): the zone registers its rect and the model decides, slow
  * deliberate hover opens near-instantly, traversal never opens, a flick that
  * stops on the gap opens after a settle beat, and an arming glow fades the
  * line in as evidence accumulates.
  *
  * The reveal physically expands the gap (24px → 32px), pushing the
- * neighboring fields apart while the line + "+" circle bloom in — layout
+ * neighboring fields apart while the line + "+" circle bloom in, layout
  * moving under the pointer is safe here because zone containment is
  * geometric (the binding re-measures rects through the reveal animation),
  * never DOM hover state.
@@ -23,7 +23,7 @@
  *    trigger sends its (`atIndex`, `parentUuid`) as payload.
  *
  * Clicking works in EVERY phase: the detector is always mounted, and a click
- * that lands before the trigger exists inflates first, then forwards — so
+ * that lands before the trigger exists inflates first, then forwards, so
  * automation (or a decisive user) can click a gap that never visibly opened.
  */
 "use client";
@@ -67,18 +67,18 @@ export function InsertionPoint({
 	const canEdit = useCanEdit();
 	const zone = useInsertionZone();
 	const pickerCtx = useFieldPicker();
-	/* Sticky after first interaction — keeps the Menu.Trigger + Tooltip mounted
+	/* Sticky after first interaction: keeps the Menu.Trigger + Tooltip mounted
 	 * so repeated hovers don't re-inflate. */
 	const [engaged, setEngaged] = useState(false);
 	const triggerRef = useRef<HTMLButtonElement>(null);
 	/* Set when a click arrives before the trigger exists (automation, or a
-	 * decisive click on a gap that hasn't revealed) — the click handler
+	 * decisive click on a gap that hasn't revealed): the click handler
 	 * forwards to the trigger mounted by the mousedown's state flip. */
 	const pendingOpenRef = useRef(false);
 
 	/* Pin the line while the shared menu is open FOR THIS GAP. The context's
 	 * `activeTarget` is reported from inside the menu popup's mount, so this
-	 * effect follows the menu's true open state through EVERY path — click,
+	 * effect follows the menu's true open state through EVERY path, click,
 	 * pointerdown-and-release-into-menu, keyboard open, Escape/outside-click
 	 * close, re-anchor to another gap (the model's single-slot hold transfers
 	 * atomically), and select. The cleanup also releases when this row
@@ -95,11 +95,11 @@ export function InsertionPoint({
 		return () => setHold(false);
 	}, [heldByMenu, setHold]);
 
-	/* Insertion points are an edit-mode-only affordance — they don't exist
+	/* Insertion points are an edit-mode-only affordance: they don't exist
 	 * in preview mode. `useEditMode()` is derived from the session store
 	 * so a "no context" branch is never needed. */
 	if (mode === "preview") return null;
-	/* A view-only Project member can't add fields — drop the "+" entirely.
+	/* A view-only Project member can't add fields: drop the "+" entirely.
 	 * `InsertionPointRow`'s `minHeight` keeps the 24px gap, so the canvas
 	 * spacing is unchanged. */
 	if (!canEdit) return null;
@@ -119,7 +119,7 @@ export function InsertionPoint({
 			)}
 			data-insertion-point
 		>
-			{/* Invisible click detector covering the gap — always mounted so a
+			{/* Invisible click detector covering the gap: always mounted so a
 			 * click works in every phase. Semantic <button> with tabIndex={-1} so
 			 * keyboard users skip it (they use the visible "+" below); aria-hidden
 			 * keeps it out of the a11y tree. */}
@@ -135,7 +135,7 @@ export function InsertionPoint({
 					if (e.button !== 0) return;
 					e.preventDefault();
 					e.stopPropagation();
-					// A fresh gesture always clears a stale pending-open — a prior
+					// A fresh gesture always clears a stale pending-open: a prior
 					// mousedown whose mouseup landed off the gap never fired the
 					// click that consumes it, and a leftover flag would forward a
 					// SECOND click below, toggling the menu open→shut.
@@ -193,7 +193,7 @@ function InsertionPointContent({
 
 	/* Same z tier as the detector but later in the DOM, so the layer paints
 	 * above it; `pointer-events-none` keeps the gap's clicks on the detector,
-	 * and only the "+" circle re-enables them when open — that's what makes
+	 * and only the "+" circle re-enables them when open: that's what makes
 	 * its hover tint and tooltip live (a detector ABOVE the trigger would eat
 	 * both). */
 	return (

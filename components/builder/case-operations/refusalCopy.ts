@@ -4,22 +4,22 @@
 //
 // The planners answer with a reason code and the operations the answer
 // is about; this turns that into a sentence that names them. It must
-// stay a projection — a refusal's wording may never imply a rule the
+// stay a projection: a refusal's wording may never imply a rule the
 // planner does not enforce, because the author will act on the wording.
 //
 // The reasons say genuinely different things, and collapsing them into
 // one "can't move that" would waste the distinction the analysis worked
 // to make:
 //
-//   - `dependent-reference` + `reference` — something else USES this
+//   - `dependent-reference` + `reference`: something else USES this
 //     operation's result, so order between them is not free.
-//   - `dependent-reference` + `target-type` — an earlier change SETS the
+//   - `dependent-reference` + `target-type`: an earlier change SETS the
 //     kind of case something later acts on, so the order the types were
 //     established in is not free either. Nothing here is made or used;
 //     saying it the reference way ("uses the case X makes") names a
 //     change that is not the blocker and describes an edge that does not
 //     exist, which is exactly why the planner reports which kind it was.
-//   - `execution-order` — the SUBMITTED FORM could not represent the
+//   - `execution-order`: the SUBMITTED FORM could not represent the
 //     order. `caseOperationOrder.ts` refuses a move backwards across a
 //     repeat boundary, an authored-key create after other work, and a
 //     repeated authored create sharing a repeat with a possibly-aliasing
@@ -78,14 +78,14 @@ export function moveRefusal(
  * would misdescribe one of them. The planner answers with the operations
  * whose REFERENCES would break, so:
  *
- *   - dragging a producer LATER breaks its consumers — name them;
- *   - dragging a consumer EARLIER breaks its own references — naming it
+ *   - dragging a producer LATER breaks its consumers: name them;
+ *   - dragging a consumer EARLIER breaks its own references: naming it
  *     back to the author would read as "this change uses itself", so the
  *     sentence names what it depends on instead.
  *
  * `moved` and `dependsOn` are what let the copy tell those apart without
  * deciding anything: both come from the model. A TARGET-TYPE refusal is
- * not about a reference at all, so it never reads `dependsOn` — the
+ * not about a reference at all, so it never reads `dependsOn`, the
  * blockers the planner named are the whole answer, and the sentence
  * claims no direction, because a retype moved either way can leave a
  * neighbour acting on the wrong kind of case.
@@ -121,7 +121,7 @@ export function moveRefusalReason(
 			? "Something else here uses this change's result, so it has to stay earlier."
 			: `${names} uses this change's result, so this has to stay before it.`;
 	}
-	/* The moved change is on both sides of a wire-order refusal — it is the
+	/* The moved change is on both sides of a wire-order refusal, it is the
 	 * one that would land wrong. Naming it here would put it on the wrong
 	 * side of itself. */
 	const names = quotedNames(
@@ -163,7 +163,7 @@ export function referenceSlotPhrase(slot: CaseOperationReferenceSlot): string {
  * The removal review's per-blocker line: which operation, and every slot
  * of it that would be left pointing at nothing.
  *
- * No slots means the blocker holds no reference at all — it depends on
+ * No slots means the blocker holds no reference at all: it depends on
  * the kind of case this change establishes. There is nothing to point
  * at, so the line names the operation and stops rather than inventing a
  * slot the author would go looking for.

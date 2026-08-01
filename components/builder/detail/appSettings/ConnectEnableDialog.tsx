@@ -45,8 +45,8 @@ import { assertNever } from "@/lib/utils/assertNever";
 /**
  * The per-form Connect enable dialog (form settings) plus the shared
  * building blocks the app-wide `ConnectManagerDialog` reuses. Enabling
- * Connect commits as ONE gated batch — `setConnectType` plus each
- * participating form's connect block — and the commit gate rejects a flip
+ * Connect commits as ONE gated batch: `setConnectType` plus each
+ * participating form's connect block, and the commit gate rejects a flip
  * that leaves the app with no participating form. Participation is per form:
  * a connect block opts the form INTO Connect; a form left without one stays
  * auxiliary and needs nothing. Nothing is pre-filled: a block's name and
@@ -58,14 +58,14 @@ import { assertNever } from "@/lib/utils/assertNever";
  * refills it on blur, so a slot is never left blank and the editor never has
  * to explain what blank means:
  *   - The XPath slots (`user_score`, `entity_id`, `entity_name`) use the real
- *     expression editor (`XPathField` — live lint, condition parsing, hashtag
+ *     expression editor (`XPathField`: live lint, condition parsing, hashtag
  *     chips), seeded with their actual wire default; a blank commit snaps back
  *     to that default, and an unchanged default drops to absent at commit so
  *     the single wire-emit default applies.
  *   - The identifiers sit behind an "Advanced" disclosure, seeded when the
  *     sub-config turns on with the value the commit would derive (never a
  *     placeholder); clearing one and leaving the field snaps it back to that
- *     derived id on blur — the same blur-commit the XPath slots do.
+ *     derived id on blur: the same blur-commit the XPath slots do.
  *
  * The dialog mounts through a portal (the media picker's pattern) so it
  * escapes the app-settings popover's transformed positioner.
@@ -116,7 +116,7 @@ export const EMPTY_DRAFT: BlockDraft = {
 	// The XPath buffers start at the ACTUAL wire default (not blank) so the
 	// editor shows the user exactly what runs; a buffer left at the default is
 	// dropped on commit (`draftToConfig`), so the slot stays absent and the
-	// wire-emit fallback — the single source of the default — still applies.
+	// wire-emit fallback: the single source of the default, still applies.
 	userScoreText: DEFAULT_ASSESSMENT_USER_SCORE,
 	deliverOn: false,
 	deliverName: "",
@@ -134,7 +134,7 @@ type SubConfigKind = "learn_module" | "assessment" | "deliver_unit" | "task";
 
 /** Seed a draft from an existing block (the manager's per-form starting
  *  point). `printExpr` lowers a stored XPath AST to its text so the buffers
- *  show what's there — required so an existing `user_score` / entity
+ *  show what's there: required so an existing `user_score` / entity
  *  expression isn't silently dropped on the next commit. */
 export function configToDraft(
 	config: ConnectConfig,
@@ -244,7 +244,7 @@ function idBaseName(
 		: moduleName;
 }
 
-/** Per-form id helpers — derive a blank slot's id, validate a typed one —
+/** Per-form id helpers: derive a blank slot's id, validate a typed one:
  *  bound to a "taken" id universe. The app-wide manager passes its
  *  DRAFT-derived universe (so sibling in-flight drafts AND the mode actually
  *  being edited are in scope); the per-form dialog passes the live-doc
@@ -336,7 +336,7 @@ export function assignDraftConnectIds(
 /** An XPath buffer counts as an OVERRIDE only when it's non-empty AND
  *  differs from the wire default. Otherwise the slot is left absent so the
  *  single wire-emit default applies (and a blank never trips
- *  `CONNECT_EMPTY_XPATH`) — the editor shows the default as a starting point
+ *  `CONNECT_EMPTY_XPATH`): the editor shows the default as a starting point
  *  the user can replace, not a value Nova pins into the doc. */
 function xpathOverride(
 	text: string,
@@ -432,7 +432,7 @@ export function draftToConfig(
 
 // ── Field + card primitives ───────────────────────────────────────────────
 
-/** One polished, controlled field — the single input style for every
+/** One polished, controlled field: the single input style for every
  *  Connect draft surface (this dialog, the manager, and the form-settings
  *  sub-toggles). Blur-commit lives in `InlineField`; this one is pure
  *  controlled state, validated live and committed by its owner on apply. */
@@ -452,7 +452,7 @@ export function DraftField({
 	label: string;
 	value: string;
 	onChange: (value: string) => void;
-	/** Fired when the field loses focus — the commit moment for fields that
+	/** Fired when the field loses focus: the commit moment for fields that
 	 *  refill a default on blank (the id slots), mirroring the XPath editor's
 	 *  blur-commit. */
 	onBlur?: () => void;
@@ -470,7 +470,7 @@ export function DraftField({
 }) {
 	const fieldId = useId();
 	const error = validate?.(value) ?? null;
-	// Escape exits the FIELD (blur), never the surrounding dialog — see hook.
+	// Escape exits the FIELD (blur), never the surrounding dialog, see hook.
 	const stopEscape = useStopEscape();
 
 	// Tones match the form-settings `InlineField` exactly so the two share one
@@ -535,7 +535,7 @@ export function DraftField({
 	);
 }
 
-/** A collapsible "Advanced" section — holds the rarely-touched id + XPath
+/** A collapsible "Advanced" section: holds the rarely-touched id + XPath
  *  fields so a sub-config card opens to just its essentials. */
 function AdvancedDisclosure({ children }: { children: ReactNode }) {
 	const [open, setOpen] = useState(false);
@@ -586,12 +586,12 @@ function SubConfigCard({
 	);
 }
 
-/** A Connect XPath slot, rendered with the real expression editor — live
+/** A Connect XPath slot, rendered with the real expression editor, live
  *  validation, condition parsing, and hashtag/chip autocomplete (the same
  *  CodeMirror field the rest of the builder uses). The buffer starts at the
  *  wire default so the user sees exactly what runs and can replace it; the
  *  editor commits on blur, and a blank commit snaps back to `defaultText`
- *  rather than persisting empty — the slot is never left blank, the same
+ *  rather than persisting empty: the slot is never left blank, the same
  *  reset the id fields do (and either way an unchanged default drops to absent
  *  at commit, so the single wire-emit default applies). */
 function ConnectXPathField({
@@ -620,7 +620,7 @@ function ConnectXPathField({
 	);
 }
 
-/** The learn / deliver sub-config pair for one form's draft — the single
+/** The learn / deliver sub-config pair for one form's draft, the single
  *  per-form editor, shared by the dialog and the manager. `validateId`
  *  surfaces an explicit id's format / uniqueness reason inline; the XPath
  *  slots use the real editor scoped to `formUuid` for chips + lint. */
@@ -638,7 +638,7 @@ export function FormSubConfigs({
 	validateId: IdValidator;
 	/** The id a blank slot would autofill to, scoped by the parent (the
 	 *  manager's in-flight drafts, or the per-form dialog's live doc). Used to
-	 *  seed an id field on turn-on and to refill it on a blank blur — never a
+	 *  seed an id field on turn-on and to refill it on a blank blur, never a
 	 *  placeholder; what's shown is what the commit will store. */
 	derivedId: (kind: SubConfigKind) => string;
 	formUuid: string;
@@ -704,7 +704,7 @@ export function FormSubConfigs({
 	// Blur-commit for an id field: a blank buffer snaps back to the derived
 	// default so the slot is never left empty (the user who wants the auto id
 	// just clears it and leaves; one who wants their own types it). The commit
-	// path autofills a blank id regardless — this only keeps the field honest.
+	// path autofills a blank id regardless: this only keeps the field honest.
 	const blurResetId = (kind: SubConfigKind) => () => {
 		switch (kind) {
 			case "learn_module":
@@ -862,7 +862,7 @@ export function FormSubConfigs({
 	return <CurrentFormScope formUuid={formUuid}>{body}</CurrentFormScope>;
 }
 
-/** Shared footer rejection block — the gate's findings, rendered inline so
+/** Shared footer rejection block: the gate's findings, rendered inline so
  *  a bounce explains itself without relying on the toast. */
 export function RejectionNoticeBlock({
 	messages,

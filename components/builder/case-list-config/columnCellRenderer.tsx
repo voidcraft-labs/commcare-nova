@@ -56,11 +56,11 @@ import { XPathDate } from "@/lib/preview/xpath/types";
  * column's `kind` discriminator; each branch handles the
  * authored shape with a best-effort runtime-mirroring format.
  *
- * The exhaustive `switch` forces a branch per kind — adding a
+ * The exhaustive `switch` forces a branch per kind: adding a
  * new column kind to the discriminated union surfaces here as a
  * type error first, not a silent rendering regression.
  *
- * Calculated arm reads `row.calculated[column.uuid]` — the case-
+ * Calculated arm reads `row.calculated[column.uuid]`: the case-
  * store's `query` keys results by the column's uuid (the wire-side
  * stable handle). Other arms read the case property named by
  * `column.field` via the shared display-value helper.
@@ -333,7 +333,7 @@ function unsupportedStoredValue(): PreviewFormattedValue {
  *     IEEE-754 round-tripping)
  *   - **boolean** → JS boolean
  *   - **date** / **timestamptz** → JS Date object (NOT an ISO
- *     string — pg's per-OID deserializer materializes the typed
+ *     string: pg's per-OID deserializer materializes the typed
  *     value)
  *   - **jsonb** → JS object / array (pg's JSONB deserializer
  *     parses the wire payload)
@@ -470,9 +470,9 @@ export function formatDateForPreview(
  * Runtime-aligned interval renderer. Dispatches on the column's
  * `display` discriminator:
  *
- *   - `"always"` — render the integer unit count until the threshold is
+ *   - `"always"`: render the integer unit count until the threshold is
  *     crossed, then replace it with the authored text.
- *   - `"flag"` — render the `text` slot when the interval has
+ *   - `"flag"`: render the `text` slot when the interval has
  *     crossed the threshold; otherwise empty cell.
  *
  * Empty values and future dates intentionally follow the emitted XPath shape.
@@ -504,7 +504,7 @@ export function formatIntervalForPreview(
 	// (commcare-core `DateUtils.roundDate` uses the default-timezone
 	// calendar) and `today()` is the local calendar day. A date-only value
 	// already IS a calendar day; a datetime instant converts to the viewer's
-	// local day first — reading its UTC fields instead would shift the count
+	// local day first: reading its UTC fields instead would shift the count
 	// by one near midnight for non-UTC viewers.
 	const baseDays =
 		parsed.time === null ? parsed.days : localCalendarDate(parsed.time).days;

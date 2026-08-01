@@ -116,7 +116,7 @@ function PropertyRefEditor({
 	const [relationOpen, setRelationOpen] = useState(hasRelationWalk);
 	/* A scope evaluated for one already-chosen case can read only that
 	 * case, so the "another case" route is not offered there. A saved walk
-	 * still opens its editor — an imported condition must stay repairable
+	 * still opens its editor: an imported condition must stay repairable
 	 * rather than render as an unexplained dead end. */
 	const canReachAnotherCase = relatedCaseDataInScope(ctx);
 	const showRelationControl =

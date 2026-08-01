@@ -173,7 +173,7 @@ function ComboboxContent({
 				alignOffset={alignOffset}
 				anchor={anchor}
 				// The shared floating plane keeps a combobox opened inside a dialog
-				// above it — co-planar, settled by portal order.
+				// above it: co-planar, settled by portal order.
 				className={cn(
 					"isolate",
 					FLOATING_LAYER_CLS,

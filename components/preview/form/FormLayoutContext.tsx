@@ -1,10 +1,10 @@
 /**
- * FormLayoutContext — shared layout state scoped to a single form screen.
+ * FormLayoutContext: shared layout state scoped to a single form screen.
  *
  * Houses state that must survive mode/cursor switches within a form (so
  * "flipbook" toggles between edit and live keep their layout intact):
  *
- *   - `collapsed` — uuids of groups/repeats folded by the user. Edit mode
+ *   - `collapsed`: uuids of groups/repeats folded by the user. Edit mode
  *     (`VirtualFormList`) and live mode (`InteractiveFormRenderer`) both
  *     read this set so a group collapsed in one mode stays collapsed in
  *     the other.

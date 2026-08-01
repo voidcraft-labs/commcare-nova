@@ -3,7 +3,7 @@
 // whole surface (the Search action) the moment the placeholder commits.
 // The registry's type-check invariants (validByConstruction,
 // verbMenuBuildFuzz) prove seeds are well-typed; this suite proves their
-// TRUTH — the axis a well-typed always-false placeholder still breaks.
+// TRUTH: the axis a well-typed always-false placeholder still breaks.
 
 import { describe, expect, it } from "vitest";
 import {

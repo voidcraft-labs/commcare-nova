@@ -4,7 +4,7 @@
  * The root layout's job is the document shell only: `<html>`, `<body>`,
  * the global CSS import, and the next/font loaders that publish the
  * Nova font CSS variables. Nothing here reads sessions, headers, or
- * cookies, so every route group below — main app, docs, dev-only —
+ * cookies, so every route group below: main app, docs, dev-only:
  * starts from a request-independent shell that can be statically
  * generated. Per-area chrome (the authenticated app header, error
  * reporter, toast container, the docs RootProvider) lives inside each

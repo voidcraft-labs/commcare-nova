@@ -1,13 +1,13 @@
 /**
- * Real-time relay — Server-Sent Events over a Postgres LISTEN/NOTIFY poke.
+ * Real-time relay: Server-Sent Events over a Postgres LISTEN/NOTIFY poke.
  *
- * GET /api/apps/{id}/stream — a same-origin SSE channel that pipes the app's
+ * GET /api/apps/{id}/stream: a same-origin SSE channel that pipes the app's
  * durable app-change stream (`app_changes`), Project lookup manifest, and
  * live presence roster to the browser. The browser carries no database client
  * and no second identity: this
  * route subscribes to the process-wide LISTEN connection (`lib/db/streamListener`)
  * and authorizes with the Better Auth session cookie, exactly like every other
- * authenticated app route. On each poke it SELECTs the rows since its cursor —
+ * authenticated app route. On each poke it SELECTs the rows since its cursor:
  * the poke carries no data, so no notification content is ever lost; a missed
  * poke degrades to the next poke or the reconnect catch-up, never to lost data.
  *
@@ -22,21 +22,21 @@
  * `maxDuration` below is advisory.
  *
  * Frames:
- *   event: mutation  id:<seq>  — one browser-replayable committed batch.
- *   event: lookup-revision     — the Project's complete authoritative lookup
+ *   event: mutation  id:<seq> , one browser-replayable committed batch.
+ *   event: lookup-revision       the Project's complete authoritative lookup
  *                                manifest. Seq-less; the mutation cursor stays
  *                                exclusively on `mutation` frames.
- *   event: presence            — the full presence roster snapshot.
- *   event: reload              — replay is impossible (below the retention
+ *   event: presence              the full presence roster snapshot.
+ *   event: reload                replay is impossible (below the retention
  *                                efficiency bound or a gap), or a server-only
  *                                change requires a fresh snapshot handoff; the
  *                                client GETs the current blueprint.
  *                                Seq-less, no `id:` line.
- *   event: protocol-failure    — the complete post-cursor suffix failed the
+ *   event: protocol-failure      the complete post-cursor suffix failed the
  *                                canonical frame grammar. No mutation frame
  *                                was emitted and the client reloads from its
  *                                unchanged cursor. Seq-less and terminal.
- *   event: revoked             — access was revoked; the client stops. Seq-less.
+ *   event: revoked               access was revoked; the client stops. Seq-less.
  */
 
 import { sql } from "kysely";
@@ -80,11 +80,11 @@ import {
 	safePersistedSequence,
 } from "@/lib/utils/persistedSequence";
 
-/* Node runtime — the route holds a long-lived subscription to the Postgres
+/* Node runtime: the route holds a long-lived subscription to the Postgres
  * LISTEN connection and `setInterval`s, neither of which the Edge runtime
  * supports. */
 export const runtime = "nodejs";
-/* Never statically prerender or cache — every connection is a live per-user
+/* Never statically prerender or cache: every connection is a live per-user
  * stream keyed on the session cookie. */
 export const dynamic = "force-dynamic";
 /* Advisory: the platform caps a request at 60 min regardless; the client
@@ -94,7 +94,7 @@ export const maxDuration = 3600;
 /**
  * Re-check session + scope on this cadence and close on a CONFIRMED denial. ~10 s
  * in prod; the revocation tests override it via `NOVA_STREAM_CADENCE_MS` so they
- * don't have to wait a full 10 s per case (a testability seam only — prod never
+ * don't have to wait a full 10 s per case (a testability seam only, prod never
  * sets the var).
  */
 const REVOCATION_CADENCE_MS = (() => {
@@ -104,7 +104,7 @@ const REVOCATION_CADENCE_MS = (() => {
 	);
 	// Guard the test-only override like `parseCursor` guards its input: a
 	// non-numeric/non-positive value would reach `setInterval(fn, NaN)`, which
-	// coerces to ~0 ms — a full session+scope re-check spinning per tick.
+	// coerces to ~0 ms: a full session+scope re-check spinning per tick.
 	return Number.isNaN(parsed) || parsed <= 0 ? 10_000 : parsed;
 })();
 
@@ -168,10 +168,10 @@ export async function GET(
 			req,
 		});
 	} catch (err) {
-		/* Pre-stream failure (auth, admission/registration) — OR a client
+		/* Pre-stream failure (auth, admission/registration): OR a client
 		 * disconnect that aborted an in-flight await here. `handleApiError`
 		 * centrally maps an `ApiError` → its status, an `AppAccessError` → 404, a
-		 * CLIENT ABORT → 499 logged at WARN (never Sentry — a disconnect is the
+		 * CLIENT ABORT → 499 logged at WARN (never Sentry: a disconnect is the
 		 * most common `/stream` event), and any genuine fault → 500 + `log.error`.
 		 * No stream opened, so nothing to tear down. */
 		return handleApiError(
@@ -202,7 +202,7 @@ function openStream(args: {
 
 	const encoder = new TextEncoder();
 
-	/* `start` populates this so `cancel` can tear down too — see the `cancel`
+	/* `start` populates this so `cancel` can tear down too: see the `cancel`
 	 * handler at the bottom. `teardown` is idempotent, so a double invocation
 	 * (abort + cancel) is safe. */
 	const teardownRef: { current: (() => void) | null } = { current: null };
@@ -213,7 +213,7 @@ function openStream(args: {
 			start(controller) {
 				/* Set on teardown (client abort). Every enqueue/close checks it first,
 				 * so a poke-driven pump or a cadence tick that resolves AFTER teardown is
-				 * a no-op — no enqueue on a closed controller, no leaked timer or
+				 * a no-op: no enqueue on a closed controller, no leaked timer or
 				 * subscription. */
 				let closed = false;
 				/* The highest seq delivered so far. The first `mutation` frame must be
@@ -224,7 +224,7 @@ function openStream(args: {
 				 * freshness interval must never launch two racing presence SELECTs. */
 				let rosterInFlight = false;
 				let rosterPending = false;
-				/* Pump, subscription, and interval holders — nullable so `teardown` is safe to
+				/* Pump, subscription, and interval holders: nullable so `teardown` is safe to
 				 * call BEFORE they attach (the retention-overrun early return below
 				 * reloads-and-closes before any subscribe). */
 				let mutationPump: ReturnType<typeof createCoalescedStreamPump> | null =
@@ -240,7 +240,7 @@ function openStream(args: {
 				function send(event: string, data: unknown, seqId?: number): void {
 					if (closed) return;
 					let frame = `event: ${event}\n`;
-					/* `revoked` / `reload` are seq-less — no `id:` line, so a reconnect
+					/* `revoked` / `reload` are seq-less: no `id:` line, so a reconnect
 					 * never advances past a change that requires a fresh snapshot. */
 					if (seqId !== undefined) frame += `id: ${seqId}\n`;
 					frame += `data: ${JSON.stringify(data)}\n\n`;
@@ -272,7 +272,7 @@ function openStream(args: {
 					try {
 						controller.close();
 					} catch {
-						/* Already closed by the platform (client gone) — nothing to do. */
+						/* Already closed by the platform (client gone): nothing to do. */
 					}
 				}
 				/* Expose teardown to `cancel` (a consumer/platform `cancel()` that does
@@ -280,7 +280,7 @@ function openStream(args: {
 				teardownRef.current = teardown;
 
 				/* A gap or a retention overrun means the browser can't rebuild from the
-				 * deltas it has — tell it to GET the fresh blueprint. `reload` is
+				 * deltas it has: tell it to GET the fresh blueprint. `reload` is
 				 * terminal for this connection's replay; the client reconnects at the
 				 * fresh seq. */
 				function reloadAndClose(reason = "replay-unavailable"): void {
@@ -300,7 +300,7 @@ function openStream(args: {
 
 				/* SELECT every committed batch past the delivered cursor and emit it. The
 				 * `app_changes` log is PERMANENT, so the entries always exist above
-				 * the retention efficiency bound — a gap here means the cursor is a real
+				 * the retention efficiency bound: a gap here means the cursor is a real
 				 * hole, not a pruned window. */
 				async function deliverSince(): Promise<void> {
 					if (closed) return;
@@ -435,7 +435,7 @@ function openStream(args: {
 					for (const frame of parsedFrames) {
 						if (closed) return;
 						deliveredThrough = frame.seq;
-						/* Project the client-relevant shape — the reconciler keys on these
+						/* Project the client-relevant shape: the reconciler keys on these
 						 * fields (echo classification, gap detection, apply). The row's
 						 * server-only `ts` is not on the wire. */
 						send("mutation", frame, frame.seq);
@@ -467,7 +467,7 @@ function openStream(args: {
 					send("presence", projectPresenceRoster(rows as PresenceRosterRow[]));
 				}
 
-				/* Coalesce overlapping roster emits into one follow-up query — a poke or
+				/* Coalesce overlapping roster emits into one follow-up query, a poke or
 				 * interval tick arriving mid-emit re-runs it once at the end, never a
 				 * racing presence SELECT on the pool (two concurrent identical roster
 				 * queries churn fresh pool connections needlessly). */
@@ -484,7 +484,7 @@ function openStream(args: {
 							await emitRosterOnce();
 						} while (rosterPending && !closed);
 					} catch (err) {
-						/* Transient read fault — warn; the interval / next poke re-queries. */
+						/* Transient read fault: warn; the interval / next poke re-queries. */
 						log.warn("[stream] presence roster error", {
 							appId,
 							err: err instanceof Error ? err.message : String(err),
@@ -534,7 +534,7 @@ function openStream(args: {
 					/* If the cursor fell below the retention window, the client is too far
 					 * behind to replay economically. The log is PERMANENT so the entries DO
 					 * exist, but replaying thousands of batches is slower than a single
-					 * blueprint reload — the retention bound is now purely an efficiency cap. */
+					 * blueprint reload: the retention bound is now purely an efficiency cap. */
 					if (cursor < head - RETENTION_COUNT) {
 						reloadAndClose();
 						return;
@@ -565,19 +565,19 @@ function openStream(args: {
 					void emitRoster();
 
 					/* Continuous revocation: re-run the session + scope check on a cadence and
-					 * close ONLY on a CONFIRMED denial — never on a transient backend blip.
+					 * close ONLY on a CONFIRMED denial: never on a transient backend blip.
 					 * The confirmed signals are:
 					 *   - `getSessionSafe` returns a session for a DIFFERENT user (the cookie
-					 *     now belongs to someone else — a real rotation).
-					 *   - `isUserActive(userId) === false` — a definitively banned/deleted
+					 *     now belongs to someone else: a real rotation).
+					 *   - `isUserActive(userId) === false`: a definitively banned/deleted
 					 *     user (`isUserActive` THROWS on a DB fault, so a throw is transient,
 					 *     not a ban).
-					 *   - `reauthorizeStreamScope` throws `AppAccessError` — a real non-member /
+					 *   - `reauthorizeStreamScope` throws `AppAccessError`: a real non-member /
 					 *     insufficient-role.
-					 * Everything else — a bare `getSessionSafe` null (its own `getSession`
+					 * Everything else: a bare `getSessionSafe` null (its own `getSession`
 					 * throw is swallowed to null, so null is ambiguous), an `isUserActive`
 					 * throw, a non-`AppAccessError` reauthorization throw (pool exhaustion,
-					 * a DB blip) — SKIPS this tick and leaves the stream open. The next tick
+					 * a DB blip): SKIPS this tick and leaves the stream open. The next tick
 					 * re-checks; a real loss confirms then. This keeps the cadence at least as
 					 * forgiving as the connect path, which lets EventSource auto-reconnect
 					 * through a transient 500. */
@@ -586,7 +586,7 @@ function openStream(args: {
 							if (closed) return;
 							const live = await getSessionSafe(req);
 							if (closed) return;
-							/* A confirmed identity change — a session that resolves to a
+							/* A confirmed identity change: a session that resolves to a
 							 * different user. A bare `null` is NOT confirmed (a swallowed
 							 * transient error looks identical), so it does not revoke here. */
 							if (live && live.user.id !== userId) {
@@ -602,7 +602,7 @@ function openStream(args: {
 									return;
 								}
 							} catch {
-								return; // transient — leave the stream open, re-check next tick
+								return; // transient: leave the stream open, re-check next tick
 							}
 							if (closed) return;
 
@@ -622,7 +622,7 @@ function openStream(args: {
 								if (err instanceof AppAccessError) {
 									revokeAndClose("access-revoked");
 								}
-								// else transient — leave open, re-check next tick.
+								// else transient: leave open, re-check next tick.
 							}
 						})();
 					}, REVOCATION_CADENCE_MS);
@@ -636,9 +636,9 @@ function openStream(args: {
 					}, PRESENCE_ROSTER_INTERVAL_MS);
 					rosterInterval.unref?.();
 
-					/* Client disconnect (tab closed, navigation, EventSource.close) — tear
+					/* Client disconnect (tab closed, navigation, EventSource.close), tear
 					 * down the subscription + both intervals. Handle an already-aborted
-					 * signal (the client vanished before `start` ran) — a late
+					 * signal (the client vanished before `start` ran): a late
 					 * `addEventListener` never fires for a past abort, so tear down now. */
 					if (req.signal.aborted) teardown();
 					else {
@@ -654,7 +654,7 @@ function openStream(args: {
 				}
 			},
 			/* A consumer/platform `cancel()` that doesn't also abort `req.signal` would
-			 * otherwise leak the subscription + both intervals — tear down here too.
+			 * otherwise leak the subscription + both intervals: tear down here too.
 			 * Runs the same idempotent teardown, so an abort+cancel pair is a no-op the
 			 * second time. */
 			cancel() {

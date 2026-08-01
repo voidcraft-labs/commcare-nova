@@ -2,12 +2,12 @@
 import { Button } from "@/components/shadcn/button";
 
 /**
- * Confirm row for a STAGED Connect sub-config — the sub-toggle scale of
+ * Confirm row for a STAGED Connect sub-config: the sub-toggle scale of
  * the app-level enable dialog's collect-before-commit footer. A staged
  * block lives only in component state until the user writes its content;
  * this row is the one commit affordance, disabled (with the reason as the
  * hint) until the draft is complete. Toggling the sub-config off discards
- * the draft — that is the cancel.
+ * the draft: that is the cancel.
  */
 export function StagedCommitRow({
 	ready,

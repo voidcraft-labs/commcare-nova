@@ -31,8 +31,8 @@ export function AppConnectSection() {
 						Connect
 						<ConnectLogomark size={12} className="text-nova-violet-bright" />
 					</span>
-					{/* One chip geometry across all three states — violet when on,
-					    quiet neutral when off — so status is the only thing that
+					{/* One chip geometry across all three states: violet when on,
+					    quiet neutral when off, so status is the only thing that
 					    changes. The logomark lives in the label, not here. */}
 					{connectType ? (
 						<Badge variant="violet" className="capitalize">

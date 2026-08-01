@@ -1,6 +1,6 @@
 // components/builder/case-list-config/__tests__/tilePresets.test.ts
 //
-// A preset is a builder gesture that fills placement — nothing about it
+// A preset is a builder gesture that fills placement: nothing about it
 // is ever persisted, so what it computes IS the whole contract. These
 // pin the arrangements, the point at which each one runs out of room,
 // and the born-valid seed the tile switch depends on.

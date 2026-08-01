@@ -6,7 +6,7 @@
 //
 // Tokens edit as a list of `Literal`s; the schema's tuple-with-rest
 // requires at least one. Each chip surfaces its index in the
-// `values` array — type-checker errors land per-chip via the
+// `values` array: type-checker errors land per-chip via the
 // `[..., "values", i]` path.
 
 "use client";
@@ -48,7 +48,7 @@ import {
 } from "../useStableListIdentity";
 import { PredicateVerbMenu } from "./PredicateVerbMenu";
 
-/** Module-level filter so render-time identity stays stable —
+/** Module-level filter so render-time identity stays stable:
  *  `PropertyPicker`'s `useMemo` on `[caseType, filter]` invalidates
  *  on each fresh-arrow filter, even when the actual selection rule
  *  is constant. */
@@ -59,7 +59,7 @@ const MULTI_SELECT_PROPERTY_FILTER = (p: { data_type?: string }): boolean =>
  * Build the default `multi-select-contains` predicate. Picks the
  * first multi_select-typed property (the kind's only valid target
  * per the type checker) and seeds with the property's first
- * declared option as a single-token list — the schema requires at
+ * declared option as a single-token list: the schema requires at
  * least one value.
  */
 export function multiSelectContainsDefault(
@@ -113,10 +113,10 @@ export function MultiSelectContainsCard({
 
 	const setProperty = (next: PropertyRef) => {
 		// On property switch, reset values to the new property's first
-		// option (keeping the schema's non-empty invariant) — the
+		// option (keeping the schema's non-empty invariant): the
 		// previous property's options have no semantic continuity with
 		// the new property's tokens. The `next` ref carries the
-		// preserved `via` walk (if any) verbatim — `PropertyRefPicker`'s
+		// preserved `via` walk (if any) verbatim: `PropertyRefPicker`'s
 		// canonical-edit branch rebuilds via `prop(caseType, name, via)`.
 		const nextProp = ct?.properties.find((p) => p.name === next.property);
 		const seed = nextProp?.options?.[0]?.value ?? "";
@@ -178,7 +178,7 @@ export function MultiSelectContainsCard({
 					/>
 					<InlineError errors={propertyErrors} />
 				</div>
-				{/* The verb carries the any/all quantifier — "includes any
+				{/* The verb carries the any/all quantifier: "includes any
 				 *  of" / "includes all of" are two verbs, not a verb plus a
 				 *  separate toggle. */}
 				<PredicateVerbMenu value={value} onChange={onChange} />

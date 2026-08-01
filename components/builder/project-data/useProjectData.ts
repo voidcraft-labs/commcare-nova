@@ -182,7 +182,7 @@ export function useProjectDataManifest(enabled = true): {
 }
 
 /**
- * One table's complete snapshot — definition, ordered columns, ordered rows,
+ * One table's complete snapshot: definition, ordered columns, ordered rows,
  * and the optimistic revisions every write against it carries.
  *
  * Keyed on the table's own `tableRevision` from the live manifest, so a

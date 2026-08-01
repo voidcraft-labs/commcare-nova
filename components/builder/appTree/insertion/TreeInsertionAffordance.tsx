@@ -1,9 +1,9 @@
 // components/builder/appTree/insertion/TreeInsertionAffordance.tsx
 //
-// The hover-reveal "+" affordance between app-tree rows — the tree analog of
+// The hover-reveal "+" affordance between app-tree rows: the tree analog of
 // the form canvas's `InsertionPoint`, sharing its EXACT reveal gating (the
 // insertion-intent model behind `lib/ui/hooks/useInsertionZone`): the strip
-// opens when the model reads dwell-intent over it — a slow hover opens
+// opens when the model reads dwell-intent over it: a slow hover opens
 // near-instantly, sweeping past never opens, a flick that stops on it opens
 // after a settle beat. The Base UI Menu/Popover TRIGGER itself is the
 // affordance. Every list ends with one persistent 44px Add action; the
@@ -13,11 +13,11 @@
 // invisible buttons. Keyboard and assistive-tech users get the visible final
 // action, while pointer users can still insert at any seam.
 // The host composes three pieces:
-//   - useTreeInsertionZone(open) — the gated `revealed` state + the zone ref
+//   - useTreeInsertionZone(open): the gated `revealed` state + the zone ref
 //     to attach to the trigger; AppTree mounts the surface-wide model via
 //     InsertionIntentProvider.
-//   - INSERTION_TRIGGER_CLS — the trigger's stable layout + hit area.
-//   - TreeInsertionLine — the violet lines + the labeled "+ Form" /
+//   - INSERTION_TRIGGER_CLS: the trigger's stable layout + hit area.
+//   - TreeInsertionLine: the violet lines + the labeled "+ Form" /
 //     "+ Module" pill rendered inside it. The label is the level indicator;
 //     there is no tooltip (naming an affordance through a tooltip means
 //     naming it while it's invisible).
@@ -41,7 +41,7 @@ import {
 interface TreeInsertionZone {
 	/** Whether the strip shows its line + "+". */
 	readonly revealed: boolean;
-	/** Arming evidence 0..1 — drives the pre-open glow. */
+	/** Arming evidence 0..1: drives the pre-open glow. */
 	readonly progress: number;
 	/** Attach to the Base UI `Menu.Trigger` / `Popover.Trigger`. */
 	readonly ref: InsertionZone["ref"];
@@ -50,7 +50,7 @@ interface TreeInsertionZone {
 /**
  * Intent-gated reveal for a tree insertion affordance. `open` is the host
  * popup's open state: while open the zone is HELD (the pointer may be inside
- * the portalled popup), and release hands control back to the model — the
+ * the portalled popup), and release hands control back to the model, the
  * tree equivalent of the form InsertionPoint pinning on the picker's
  * `activeTarget`.
  */
@@ -90,7 +90,7 @@ export function insertionTriggerStyle(
  * The violet flanking lines + centered "+ <label>" pill. While arming, the
  * lines glow in with accumulated evidence; on reveal they commit to full
  * opacity and the pill blooms in. The LABEL is what makes the two tree
- * levels legible — a bare "+" between a module's last form and the next
+ * levels legible: a bare "+" between a module's last form and the next
  * module is anonymous, and naming the action through a tooltip means naming
  * it through an invisible affordance. All inline (`<span>`) elements so the
  * markup is valid inside the trigger's `<button>`. The lines are
@@ -109,7 +109,7 @@ export function TreeInsertionLine({
 }: {
 	revealed: boolean;
 	progress?: number;
-	/** Names the action in the pill — "Form" | "Module". */
+	/** Names the action in the pill: "Form" | "Module". */
 	label: string;
 	insetCls?: string;
 }) {

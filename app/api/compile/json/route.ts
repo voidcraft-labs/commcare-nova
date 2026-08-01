@@ -6,7 +6,7 @@ import { sanitizeFilename } from "@/lib/utils/sanitize";
 import { prepareCompileRequest } from "../prepareCompileRequest";
 
 /**
- * HQ-JSON export endpoint — the manual-import twin of the HQ-upload path,
+ * HQ-JSON export endpoint: the manual-import twin of the HQ-upload path,
  * for users who import into CommCare HQ themselves rather than via an API key.
  * Shares the auth + parse + boundary-gate + manifest preamble with the `.ccz`
  * twin via `prepareCompileRequest`, then branches on whether the app has media:
@@ -33,14 +33,14 @@ export async function POST(req: NextRequest) {
 		const hasMedia = assets.size > 0;
 		const hqJson = expandDoc(doc, hasMedia ? { assets } : {});
 		// ASCII-safe name for the `Content-Disposition` HEADER (a Latin-1
-		// ByteString — non-ASCII would throw in the `Headers` constructor). The
+		// ByteString: non-ASCII would throw in the `Headers` constructor). The
 		// ZIP's internal member name is sanitized separately inside the builder
 		// and keeps Unicode, so the download filename can be ASCII while the
 		// member preserves the app's real name.
 		const appName = sanitizeFilename(doc.appName);
 
 		// The HQ-import body (plain JSON, or the zip bundle) stays byte-identical
-		// — it's the artifact the user hands to HQ, and HQ's importer owns its
+		//: it's the artifact the user hands to HQ, and HQ's importer owns its
 		// version slots. The blueprint's `mutation_seq` rides out-of-band in the
 		// `X-Compiled-At-Seq` response header so the export still names its
 		// document version without perturbing the body.
@@ -56,7 +56,7 @@ export async function POST(req: NextRequest) {
 		}
 
 		// Media-ON: the json + HQ-format multimedia zip + import README bundle.
-		// Pass the RAW name — the builder's Unicode-safe member sanitizer keeps
+		// Pass the RAW name: the builder's Unicode-safe member sanitizer keeps
 		// non-Latin/accented names intact inside the archive.
 		const archive = buildHqJsonExportArchive(doc.appName, hqJson, assets);
 		return new NextResponse(new Uint8Array(archive), {

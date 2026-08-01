@@ -1,10 +1,10 @@
 /**
- * Tests for the admin credit reset/grant endpoint — the FIRST admin write
+ * Tests for the admin credit reset/grant endpoint: the FIRST admin write
  * route in the codebase, and the harness that later admin write-route tests
  * copy.
  *
  * The route's two collaborators are mocked at the import boundary so the test
- * exercises only the route's own job — the requireAdmin gate, body parsing +
+ * exercises only the route's own job: the requireAdmin gate, body parsing +
  * validation, the AdminActor it builds, and the action dispatch:
  *
  *   - `@/lib/auth-utils` → a drivable `requireAdmin` mock. The default
@@ -15,7 +15,7 @@
  *   - `@/lib/db/credits` → `resetCredits` + `grantCredits` as bare `vi.fn()`s
  *     resolving `undefined`, so each test can assert the exact call args (the
  *     `(userId, who)` / `(userId, amount, who)` contract). `AdminActor` stays a
- *     type — types aren't mocked.
+ *     type: types aren't mocked.
  *
  * `@/lib/apiError` is deliberately NOT mocked: the real `ApiError` /
  * `handleApiError` are the response envelope under test (a 400 vs 500 split for
@@ -26,7 +26,7 @@ import { ApiError } from "@/lib/apiError";
 import type { Session } from "@/lib/auth";
 
 // `vi.mock` is hoisted above the imports below, so its factory can't close over
-// outer consts — mock with bare `vi.fn()`s, then drive them via `vi.mocked`.
+// outer consts: mock with bare `vi.fn()`s, then drive them via `vi.mocked`.
 vi.mock("@/lib/auth-utils", () => ({ requireAdmin: vi.fn() }));
 vi.mock("@/lib/db/credits", () => ({
 	resetCredits: vi.fn(),
@@ -57,16 +57,16 @@ function buildRequest(body: string): Request {
 
 /**
  * Invoke the handler with the async-params shape Next.js passes, and ALWAYS
- * drain BOTH body streams — returning the status plus the parsed response JSON.
+ * drain BOTH body streams: returning the status plus the parsed response JSON.
  *
  * Draining is load-bearing, not a convenience: an unconsumed body stream (on the
  * `Request` or the `Response`) leaves its underlying promise pending, which the
  * async-leak detector (the pre-push `--detect-async-leaks` gate) flags as a
  * leaked PROMISE and fails the push on. Two distinct streams must be settled:
  *
- *   - The RESPONSE body — always read here via `res.json()`, so a case that only
+ *   - The RESPONSE body: always read here via `res.json()`, so a case that only
  *     asserts on the status (and ignores `json`) still settles that stream.
- *   - The REQUEST body — read by the route's own `req.json()` on every path
+ *   - The REQUEST body: read by the route's own `req.json()` on every path
  *     EXCEPT the ones that short-circuit before parsing (e.g. the 403 case, where
  *     `requireAdmin` rejects first). On those paths the request stream is never
  *     consumed, so we drain it here, guarded on `bodyUsed`: every other case has
@@ -163,12 +163,12 @@ describe("POST /api/admin/users/[id]/credits", () => {
 		const body = json as ErrorBody;
 
 		expect(status).toBe(400);
-		// The bespoke top-line credit-action guidance — not a generic Zod string.
+		// The bespoke top-line credit-action guidance, not a generic Zod string.
 		expect(body.error).toMatch(/action "grant"/);
 		// The grant-amount message must survive the validation path and reach the
 		// client via `parsed.error.issues → ApiError.details`. This is the
 		// assertion that proves the discriminated-union schema preserved the
-		// custom message — a naive DU regresses the missing-amount case to Zod's
+		// custom message: a naive DU regresses the missing-amount case to Zod's
 		// default "expected number, received undefined". The two fixes interlock
 		// here: Fix 1's `{ error }` param is what keeps this assertion green.
 		expect(body.details).toEqual(
@@ -187,7 +187,7 @@ describe("POST /api/admin/users/[id]/credits", () => {
 		const body = json as ErrorBody;
 
 		expect(status).toBe(400);
-		// Pins the custom message on the `.positive()` check specifically — without
+		// Pins the custom message on the `.positive()` check specifically, without
 		// it, a negative amount regresses to Zod's default "Too small" while the
 		// status stays 400 and this test would otherwise pass blind.
 		expect(body.details).toEqual(
@@ -205,7 +205,7 @@ describe("POST /api/admin/users/[id]/credits", () => {
 		const body = json as ErrorBody;
 
 		expect(status).toBe(400);
-		// Pins the custom message on the `.int()` check specifically — without it, a
+		// Pins the custom message on the `.int()` check specifically, without it, a
 		// fractional amount regresses to Zod's default "expected int" while the
 		// status stays 400 and this test would otherwise pass blind.
 		expect(body.details).toEqual(
@@ -229,7 +229,7 @@ describe("POST /api/admin/users/[id]/credits", () => {
 		const body = json as ErrorBody;
 
 		expect(status).toBe(400);
-		// The JSON-parse path's bespoke message — proves a malformed body is
+		// The JSON-parse path's bespoke message: proves a malformed body is
 		// diagnosed for the client, not collapsed into a generic 500.
 		expect(body.error).toContain("valid JSON");
 		expect(resetCredits).not.toHaveBeenCalled();

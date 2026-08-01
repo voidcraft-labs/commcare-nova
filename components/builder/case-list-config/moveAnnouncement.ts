@@ -4,7 +4,7 @@
 // test rather than a DOM assertion.
 //
 // The announcement is made AFTER the commit and reads the position the document
-// actually holds — never the position the keypress asked for. A move can be
+// actually holds: never the position the keypress asked for. A move can be
 // refused (the commit gate, a peer edit landing first) or land somewhere the
 // gesture did not name, and a pointer author sees that outcome on screen while a
 // keyboard author has only this sentence. Announcing the request would report a
@@ -25,7 +25,7 @@ export interface LandedPlacement {
  * What a move reports back to the surface that requested it.
  *
  * A move dispatch is synchronous, so `landed` is read from the document AFTER
- * the commit — the position the document holds, not the one the gesture asked
+ * the commit: the position the document holds, not the one the gesture asked
  * for. The refusal arm carries the commit gate's own message so the announcement
  * can say why rather than going silent.
  */
@@ -48,7 +48,7 @@ export function movedAnnouncement(
 
 /**
  * The row is already against the edge it was asked to move past. Not a failure
- * and not an error — the sequence is simply unchanged, which is exactly what a
+ * and not an error: the sequence is simply unchanged, which is exactly what a
  * pointer author would see when a drop zone refuses to open.
  */
 export function atBoundaryAnnouncement(

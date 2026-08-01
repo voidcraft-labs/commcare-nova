@@ -1,7 +1,7 @@
 // components/builder/shared/cards/MatchCard.tsx
 //
 // Renders the `match` predicate. Property dropdown (text-shaped or
-// — for `fuzzy-date` — date / datetime), value input (typed by
+//: for `fuzzy-date`, date / datetime), value input (typed by
 // the property), and mode dropdown (fuzzy / phonetic / fuzzy-date
 // / starts-with).
 
@@ -30,7 +30,7 @@ import { PropertyRefPicker } from "../primitives/PropertyRefPicker";
 import { PredicateVerbMenu } from "./PredicateVerbMenu";
 
 /** Module-level filters so render-time identity stays stable per
- *  match mode — `PropertyPicker`'s `useMemo` on
+ *  match mode: `PropertyPicker`'s `useMemo` on
  *  `[caseType, filter]` invalidates on each fresh-arrow filter
  *  even when the per-mode selection rule is constant.
  *
@@ -62,7 +62,7 @@ export function matchDefault(
 	const propName = property?.name ?? "";
 	// `starts-with` is the only mode CommCare's own evaluator implements,
 	// so it is the only one valid on every carrier. Defaulting to `fuzzy`
-	// made this seed unusable anywhere a rule runs on the device — which
+	// made this seed unusable anywhere a rule runs on the device, which
 	// is everywhere except an advanced search input.
 	return match(
 		prop(ctx.currentCaseType, propName),
@@ -73,7 +73,7 @@ export function matchDefault(
 
 /**
  * A match against the empty string matches nothing on every mode, so
- * the commit gate refuses it — which makes a blank seed a choice that
+ * the commit gate refuses it, which makes a blank seed a choice that
  * cannot be committed rather than one waiting to be filled.
  *
  * This is the FALLBACK the verb menu uses when the condition it is
@@ -83,7 +83,7 @@ export function matchDefault(
  * all; seeding something real keeps the gesture available and the
  * author replaces it in the value row that now exists. A condition that
  * DOES carry an empty value keeps it, and the verb stays disabled with
- * the reason — there the copy points at a control that is on screen.
+ * the reason: there the copy points at a control that is on screen.
  */
 function matchSeedValue(ctx: PredicateEditContext): ValueExpression {
 	const searchInput = ctx.knownInputs[0];
@@ -126,7 +126,7 @@ export function MatchCard({ value, onChange, path }: MatchCardProps) {
 			: MATCH_TEXT_SHAPED_FILTER;
 
 	// The value slot takes a non-empty term whose type the mode admits
-	// — `matchValueConstraint` carries the mode's allow-list, the
+	//: `matchValueConstraint` carries the mode's allow-list, the
 	// term-only flag (the wire match emitter consumes terms), and the
 	// non-empty flag (every mode collapses an empty value to a
 	// non-match). Memoized on the mode so the term editor's source
@@ -158,7 +158,7 @@ export function MatchCard({ value, onChange, path }: MatchCardProps) {
 				{/* Match value routes through `ExpressionPicker` so the
 				 *  full Term family is reachable at the slot. The
 				 *  `matchValueConstraint` is `termOnly` (the wire match
-				 *  emitter consumes terms — no computed kinds offered),
+				 *  emitter consumes terms: no computed kinds offered),
 				 *  `nonEmpty` (the text widget refuses to commit an
 				 *  empty value), and carries the mode's allow-list so
 				 *  only a value of an admitted type is authorable. The

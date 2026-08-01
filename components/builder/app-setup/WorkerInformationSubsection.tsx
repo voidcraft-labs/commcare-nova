@@ -1,5 +1,5 @@
 /**
- * Worker information — the app's half of CommCare's custom user-data
+ * Worker information: the app's half of CommCare's custom user-data
  * schema. Each entry is a slot every worker carries a value in, and the
  * name it saves under is what expressions read.
  *
@@ -358,7 +358,7 @@ function PropertyRow({
 /**
  * CommCare's own built-in properties. Read-only, because CommCare sets
  * them; listed because an author writing a condition needs to know they
- * exist, what they hold, and — for the ones Nova cannot know yet — that
+ * exist, what they hold, and: for the ones Nova cannot know yet, that
  * Preview will read them as empty.
  */
 function BuiltInReference() {

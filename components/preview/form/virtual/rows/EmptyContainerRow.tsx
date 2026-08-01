@@ -1,5 +1,5 @@
 /**
- * EmptyContainerRow — drop target + placeholder for an empty group/repeat.
+ * EmptyContainerRow: drop target + placeholder for an empty group/repeat.
  *
  * Rendered between a `group-open` and `group-close` row when the
  * container has no children. Provides the sole drop target for "make

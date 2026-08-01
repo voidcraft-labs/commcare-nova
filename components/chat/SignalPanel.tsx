@@ -13,7 +13,7 @@ interface SignalPanelProps {
 	children: ReactNode;
 }
 
-/** Sci-fi panel chrome — bezels, notches, indicator LED, display well, etched label. */
+/** Sci-fi panel chrome: bezels, notches, indicator LED, display well, etched label. */
 export function SignalPanel({
 	active,
 	label,
@@ -33,7 +33,7 @@ export function SignalPanel({
 			data-recovering={recovering || undefined}
 			data-done={done || undefined}
 		>
-			{/* Top bezel — etched groove with corner notches */}
+			{/* Top bezel: etched groove with corner notches */}
 			<div className="nova-panel-bezel nova-panel-bezel-top">
 				<div className="nova-panel-notch" />
 				<div className="nova-panel-groove" />
@@ -42,10 +42,10 @@ export function SignalPanel({
 				<div className="nova-panel-notch" />
 			</div>
 
-			{/* Display well — the recessed area where the LEDs sit */}
+			{/* Display well: the recessed area where the LEDs sit */}
 			<div className="nova-panel-well">{children}</div>
 
-			{/* Bottom bezel — label etched into the frame */}
+			{/* Bottom bezel: label etched into the frame */}
 			<div className="nova-panel-bezel nova-panel-bezel-bottom">
 				<div className="nova-panel-groove" />
 				<AnimatePresence mode="wait" initial={false}>

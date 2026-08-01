@@ -4,7 +4,7 @@
  * The workspace edits a case-list item by rebuilding its body and replacing it
  * through a wholesale `updateModule({ caseListConfig })`. `withPreservedIdentity`
  * is what keeps the item's `uuid` and its tile square from being dropped by
- * that rebuild — without the uuid the replacement reads as a remove+add on the
+ * that rebuild: without the uuid the replacement reads as a remove+add on the
  * auto-save diff, and without the square the commit gate refuses a column the
  * tile shows.
  */

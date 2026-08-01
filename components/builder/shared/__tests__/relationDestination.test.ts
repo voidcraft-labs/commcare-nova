@@ -61,7 +61,7 @@ describe("resolveRelationDestination", () => {
 	});
 
 	it("returns undefined when the ancestor walk runs off the schema", () => {
-		// patient → household → (no parent) — three-hop walk is
+		// patient → household → (no parent): three-hop walk is
 		// structurally unresolvable.
 		expect(
 			resolveRelationDestination(

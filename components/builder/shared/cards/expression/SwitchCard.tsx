@@ -1,13 +1,13 @@
 // components/builder/shared/cards/expression/SwitchCard.tsx
 //
-// Renders the `switch` ValueExpression — value-driven multi-case
+// Renders the `switch` ValueExpression: value-driven multi-case
 // dispatch. Slots:
 //
-//   - `on` — `ValueExpression`. The discriminator value compared
+//   - `on`: `ValueExpression`. The discriminator value compared
 //     against each case's `when` literal.
-//   - `cases[i]` — `{ when: Literal; then: ValueExpression }[]`.
+//   - `cases[i]`: `{ when: Literal; then: ValueExpression }[]`.
 //     Drag-orderable; the schema requires non-empty.
-//   - `fallback` — `ValueExpression`. Returned when no case matches.
+//   - `fallback`: `ValueExpression`. Returned when no case matches.
 //
 // Type-checker rules (per `checkExpression`'s `case "switch":`):
 //   - Each `case.when` literal must be comparable with `on`'s
@@ -19,7 +19,7 @@
 //     `[..., "switch", "fallback"]`.
 //
 // Path encoding for `switch`: the type checker emits with the kind
-// segment first — `[..., "switch", "on" | "fallback"]` for the
+// segment first: `[..., "switch", "on" | "fallback"]` for the
 // scalar slots and `[..., "switch", "cases", i, "when" | "then"]`
 // for the indexed slots. The card uses `appendKindSlot` for the
 // scalar sub-paths and `appendKindIndexSlot` for the indexed ones.
@@ -76,7 +76,7 @@ import {
 	resolveExpressionType,
 } from "../reseed";
 
-/** Default `switch` — `switch(literal(""), [{ when: "", then: "" }],
+/** Default `switch`: `switch(literal(""), [{ when: "", then: "" }],
  *  fallback: "")`. The single-case seed satisfies the schema's
  *  non-empty `cases` requirement; the type checker accepts the seed
  *  clean (all values resolve to text). */
@@ -90,7 +90,7 @@ export function switchDefault(
 	);
 }
 
-/** Whether a `when` literal's type sits in `on`'s compatible set —
+/** Whether a `when` literal's type sits in `on`'s compatible set:
  *  the null literal (`_any`) is universally compatible. */
 function whenLiteralAccepted(
 	when: Literal,
@@ -104,7 +104,7 @@ interface SwitchCardProps {
 	readonly onChange: (next: ValueExpression) => void;
 	readonly path: EditorPath;
 	/** The switch's own result constraint propagates to every `then`
-	 *  branch and the `fallback` — the result is whichever branch
+	 *  branch and the `fallback`: the result is whichever branch
 	 *  matches, so each must satisfy the slot. */
 	readonly constraint?: SlotConstraint;
 }
@@ -117,7 +117,7 @@ export function SwitchCard({
 }: SwitchCardProps) {
 	// Per-slot errors at `[..., "switch", "on" | "fallback"]` render
 	// via the matching `ExpressionPicker` shells' `CardShell` footers
-	// — no parallel `<InlineError>` is needed here. The `[...,
+	//: no parallel `<InlineError>` is needed here. The `[...,
 	// "switch", "cases", i, "when"]` errors fall on the inner `when`
 	// literal input (which has no shell of its own), so the per-row
 	// `InlineError` for `whenErrors` STAYS in `CaseRow`.
@@ -127,7 +127,7 @@ export function SwitchCard({
 	const rowIdentity = useStableListIdentity(value.cases);
 
 	// Each `case.when` literal must be comparable with `on`'s resolved
-	// type — the when input is typed against this accept-set, and a
+	// type: the when input is typed against this accept-set, and a
 	// change of `on` reseeds any now-incompatible `when` in the same
 	// onChange so the committed switch is never transiently type-wrong.
 	const onType = useResolvedType(value.on);
@@ -146,7 +146,7 @@ export function SwitchCard({
 		cases: readonly SwitchCase[],
 	): Extract<ValueExpression, { kind: "switch" }> => {
 		const [first, ...rest] = cases;
-		// Same call-site cast pattern as ConcatCard / CoalesceCard —
+		// Same call-site cast pattern as ConcatCard / CoalesceCard:
 		// `switchExpr` requires at least one case at the type layer;
 		// the runtime contract guarantees `cases.length >= 1` (no
 		// path mutates the array to empty).
@@ -369,11 +369,11 @@ interface CaseRowProps {
 	readonly onMove: (key: ReorderKeyboardKey) => void;
 	readonly reorderLabel: string;
 	readonly path: EditorPath;
-	/** The accept-set for the `when` literal — `on`'s compatible
+	/** The accept-set for the `when` literal: `on`'s compatible
 	 *  types. Drives the typed `when` input so an authored value can't
 	 *  disagree with `on`. */
 	readonly whenAccepts: ReadonlySet<ResolvedType>;
-	/** The switch's result constraint — propagated to the `then`
+	/** The switch's result constraint: propagated to the `then`
 	 *  branch. */
 	readonly thenConstraint: SlotConstraint;
 }
@@ -392,7 +392,7 @@ function CaseRow({
 	thenConstraint,
 }: CaseRowProps) {
 	const ctx = usePredicateEditContext();
-	// `when` errors land on the inner `SwitchWhenLiteralInput` —
+	// `when` errors land on the inner `SwitchWhenLiteralInput`:
 	// that input has no card-shell of its own, so the `<InlineError>`
 	// row below the input is the only render path. `then` errors
 	// render via the `ExpressionPicker` shell at the matching slot

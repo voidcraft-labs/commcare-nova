@@ -1,15 +1,15 @@
 /**
- * PeerBadge — the canvas marker for peers occupying a blueprint entity.
+ * PeerBadge: the canvas marker for peers occupying a blueprint entity.
  *
  * `PeerBadge` renders a small cluster of colored initials dots on the entity a
  * peer occupies (a module row, a form tile, a field row, the inspector header),
  * one dot per peer with the same palette hue as their roster avatar. It reads
  * the roster grouped by entity uuid (`usePeersAt`) and looks up its own uuid,
- * so it renders nothing when no peer is on that entity — every entity can mount
+ * so it renders nothing when no peer is on that entity: every entity can mount
  * a `PeerBadge` cheaply.
  *
  * `usePeerEditingColor(uuid)` returns the palette hue of a peer whose selection
- * IS that field (a `form` location with `selectedUuid === uuid`), or `null` —
+ * IS that field (a `form` location with `selectedUuid === uuid`), or `null`:
  * the caller applies a live "editing this" ring in that color. The plain marker
  * says "a peer is here"; the ring says "a peer is editing THIS", so a field a
  * peer has selected gets both.
@@ -24,10 +24,10 @@ import { usePeersAt } from "@/lib/collab/usePeersAt";
 import { getInitials } from "@/lib/utils";
 
 /**
- * The colored marker-dot cluster for peers on entity `uuid` — the peer's
+ * The colored marker-dot cluster for peers on entity `uuid`, the peer's
  * photo (ringed in their palette hue) when their account has one, initials
- * on their palette fill otherwise. Renders nothing — no wrapper element at
- * all — when no peer occupies it, so an entity mounting a `PeerBadge` pays
+ * on their palette fill otherwise. Renders nothing: no wrapper element at
+ * all: when no peer occupies it, so an entity mounting a `PeerBadge` pays
  * no layout cost while solo. Kept compact (a horizontal overlap of small
  * dots) so it rides in a row's trailing gutter or a tile corner without
  * reflow. `className` positions the cluster at the call site.

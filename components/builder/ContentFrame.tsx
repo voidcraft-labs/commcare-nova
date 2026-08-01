@@ -1,5 +1,5 @@
 /**
- * ContentFrame — the shared centered content frame for canvas surfaces
+ * ContentFrame: the shared centered content frame for canvas surfaces
  * (breadcrumb strip, workspace tab strip, edit canvases, preview
  * screens), plus the mode-flip glide that keeps every frame moving in
  * lockstep with the sliding sidebars when Preview toggles.
@@ -10,26 +10,26 @@
  * through layout alone: while the canvas column is wider than the
  * frame's max width, `mx-auto` pins the frame to the column's center,
  * and only once the column crosses under the max width does the frame
- * start to move — so during a width tween the frame sits still and then
+ * start to move, so during a width tween the frame sits still and then
  * does all its travel in the tail (the "knee"), visibly lagging the
  * sidebars. The structural fix: a mode flip commits the final layout in
  * ONE render (the sidebars leave/enter the flex flow instantly), and
  * everything that visually travels does so via transforms sharing
- * `SIDEBAR_TRANSITION` — the sidebars slide with `x`, and each frame
+ * `SIDEBAR_TRANSITION`: the sidebars slide with `x`, and each frame
  * glides from its old position to its new one. Lockstep by
  * construction, not by hoping two animation systems agree.
  *
  * ## Why the glide is computed, not measured per frame
  *
  * The flip also SWAPS canvas content (workspace ↔ running app via
- * `<Activity>`), so an entering frame has no "before" box to FLIP from —
+ * `<Activity>`), so an entering frame has no "before" box to FLIP from:
  * yet it must start exactly where the outgoing surface (and the
  * breadcrumb strip above it) sit, or left edges shear mid-glide. Frame
  * position is a closed-form function of the column box:
  * `left = columnCenter − min(columnWidth, maxWidth) / 2`, exact in both
  * the clipped and the centered regime. The provider publishes the
  * column geometry before/after the flip, and every frame derives its
- * own delta from its max width — entering, exiting, and persistent
+ * own delta from its max width: entering, exiting, and persistent
  * frames all agree by construction.
  */
 "use client";
@@ -53,14 +53,14 @@ import {
 } from "react";
 
 /** The one transition driving mode-flip choreography AND manual sidebar
- *  toggles — sidebar slides, the chat panel, and frame glides all share
+ *  toggles: sidebar slides, the chat panel, and frame glides all share
  *  it so the pieces can never drift apart. */
 export const SIDEBAR_TRANSITION = {
 	duration: 0.2,
 	ease: [0.4, 0, 0.2, 1],
 } as const;
 
-/** Frame width variants. Pixel values mirror the Tailwind max-w scale —
+/** Frame width variants. Pixel values mirror the Tailwind max-w scale:
  *  the glide math needs the frame's max width as a number. */
 const FRAME_WIDTHS = {
 	"5xl": { className: "max-w-5xl", px: 1024 },
@@ -92,7 +92,7 @@ interface ModeFlipGlideProviderProps {
 	leftWidth: number;
 	/** Layout width currently occupied right of the canvas column. */
 	rightWidth: number;
-	/** The flex row bounding the columns — its width feeds the geometry. */
+	/** The flex row bounding the columns, its width feeds the geometry. */
 	rowRef: RefObject<HTMLDivElement | null>;
 	children: ReactNode;
 }
@@ -104,7 +104,7 @@ export function ModeFlipGlideProvider({
 	rowRef,
 	children,
 }: ModeFlipGlideProviderProps) {
-	/* Last-committed flank widths — the "before" side of the flip math.
+	/* Last-committed flank widths: the "before" side of the flip math.
 	 * Updated in an effect so the flip render still reads pre-flip values. */
 	const prevLeftRef = useRef(leftWidth);
 	const prevRightRef = useRef(rightWidth);
@@ -115,7 +115,7 @@ export function ModeFlipGlideProvider({
 
 	/* Detect the flip during render so the new context value reaches the
 	 * frames in the same commit as the layout change (their layout
-	 * effects fire before paint — no flash of the un-glided position).
+	 * effects fire before paint: no flash of the un-glided position).
 	 * Render-time ref writes are idempotent per committed value, the same
 	 * pattern PreviewShell uses for its screen-identity refs. */
 	const lastPreviewingRef = useRef(previewing);

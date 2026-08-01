@@ -1,16 +1,16 @@
 // components/builder/case-list-config/cards/column/IdMappingCard.tsx
 //
-// Renders the `id-mapping` Column kind — looks up a label for
+// Renders the `id-mapping` Column kind: looks up a label for
 // each property value via an explicitly-authored value→label
 // table. The runtime renders mapped labels and leaves unmatched
 // values blank, matching CommCare's enum display.
 //
 // Slots:
-//   - `field` — case-property name. Accepts every property type;
+//   - `field`: case-property name. Accepts every property type;
 //     authors typically use this with `single_select` /
 //     `multi_select` / `text` codes.
-//   - `header` — column display label.
-//   - `mapping` — variadic list of `{ value, label }` entries.
+//   - `header`: column display label.
+//   - `mapping`: variadic list of `{ value, label }` entries.
 //     Order is significant: the runtime walks the list top-to-
 //     bottom and renders the first match, so authors can place
 //     more-specific entries above more-general ones.
@@ -102,7 +102,7 @@ export function IdMappingCard({ value, onChange, errors }: IdMappingCardProps) {
 	};
 
 	const moveEntry = (from: number, to: number) => {
-		// Bounds check — the buttons disable at the boundaries, but
+		// Bounds check: the buttons disable at the boundaries, but
 		// the guard catches any caller that bypasses the disabled
 		// state (programmatic test invocations, keyboard sequencing).
 		if (to < 0 || to >= value.mapping.length || from === to) return;
@@ -247,7 +247,7 @@ interface MappingRowProps {
 
 /** One mapping row: value + label inputs in the shared row shell.
  *  Both inputs use the same blur-commit pattern as
- *  `BlurCommitTextInput` — local draft + late commit. */
+ *  `BlurCommitTextInput`: local draft + late commit. */
 function MappingRow({
 	index,
 	entry,

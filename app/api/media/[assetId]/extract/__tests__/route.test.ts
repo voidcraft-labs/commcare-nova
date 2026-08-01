@@ -51,7 +51,7 @@ vi.mock("@/lib/agent/documentExtractionStore", () => ({
 }));
 // The gate reads the user's month-to-date usage and compares it to the
 // cost backstop (`COST_BACKSTOP_USD`, the real client-safe constant the
-// route imports from creditPolicy — not mocked here). Only `getMonthlyUsage` is
+// route imports from creditPolicy, not mocked here). Only `getMonthlyUsage` is
 // stubbed so the over/under-budget tests are deterministic.
 vi.mock("@/lib/db/usage", () => ({
 	getMonthlyUsage: getMonthlyUsageMock,
@@ -343,8 +343,8 @@ describe("POST extract (streamed result)", () => {
 
 	it("404s a foreign-Project asset so ids stay non-enumerable", async () => {
 		// The row exists but the caller isn't a member of its Project
-		// (`userInProject` → false); the route maps that to a 404 — identical to
-		// not-found — so a caller can't distinguish "isn't yours" from "doesn't exist".
+		// (`userInProject` → false); the route maps that to a 404: identical to
+		// not-found, so a caller can't distinguish "isn't yours" from "doesn't exist".
 		loadAssetByIdMock.mockResolvedValue(docAsset());
 		userInProjectMock.mockResolvedValue(false);
 		const res = await POST(req(), ctx());
@@ -481,7 +481,7 @@ describe("GET extract", () => {
 			title: "ANC Program Requirements",
 			summary: "A data-collection spec for antenatal care visits.",
 		});
-		// Metadata comes off the asset doc — the extract body is never fetched.
+		// Metadata comes off the asset doc: the extract body is never fetched.
 		expect(readTextObject).not.toHaveBeenCalled();
 	});
 

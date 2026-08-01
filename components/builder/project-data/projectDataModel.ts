@@ -1,7 +1,7 @@
 // Pure derivations for the Project data workspace.
 //
-// Everything here is a function of its arguments — no React, no store, no
-// network — so the workspace's decisions are unit-testable without mounting
+// Everything here is a function of its arguments: no React, no store, no
+// network, so the workspace's decisions are unit-testable without mounting
 // a grid. The rule the workspace follows: a derivation that decides what an
 // author sees (a size, a capacity phrase, a conflict verdict) lives here, and
 // the components only render it.
@@ -53,7 +53,7 @@ export interface TableCapacity {
 	readonly byteLimit: number;
 	/** The larger of the two utilizations, 0–1, for one at-a-glance meter. */
 	readonly fullness: number;
-	/** True once either cap is reached — no further row can be added. */
+	/** True once either cap is reached: no further row can be added. */
 	readonly full: boolean;
 }
 
@@ -97,8 +97,8 @@ export function rowAdditionRefusal(
  *
  * A suggestion, never an imposition: the field stays editable and stops
  * tracking the label the moment the author types in it. The rule is
- * `LOOKUP_WIRE_IDENTIFIER_PATTERN` — an ASCII letter or underscore, then
- * letters, digits, and underscores — plus the boundary's refusal of anything
+ * `LOOKUP_WIRE_IDENTIFIER_PATTERN`: an ASCII letter or underscore, then
+ * letters, digits, and underscores, plus the boundary's refusal of anything
  * starting `xml`, so the suggestion is one the server will accept rather than
  * one it will bounce.
  */
@@ -130,7 +130,7 @@ export const COLUMN_TYPE_LABELS: Readonly<Record<LookupDataType, string>> = {
  * One cell as text for display.
  *
  * A missing UUID key is a missing cell, and a missing cell is not the empty
- * string — the wire treats both as blank at evaluation, but an author
+ * string: the wire treats both as blank at evaluation, but an author
  * reading a grid needs to see which rows never had a value. The caller
  * decides how to render `undefined`; this function never invents "".
  */
@@ -155,7 +155,7 @@ export const ROWS_PER_PAGE = 50;
  * The rows whose displayed text contains `query`, in authored order.
  *
  * Matching runs over the SAME text `cellText` renders, so a row a person can
- * see is a row they can find — searching stored values instead would miss a
+ * see is a row they can find: searching stored values instead would miss a
  * number the grid shows as text, and a missing cell would silently match the
  * empty string. Case-insensitive and whitespace-trimmed; an empty query
  * matches everything rather than nothing.
@@ -342,7 +342,7 @@ export interface RetainedRowRecovery {
 /**
  * Every controller-owned row session, flattened for the table-list recovery
  * surface. A conflict supersedes an edit with the same stable row identity,
- * and table availability is decided by UUID — recreating a same-named table
+ * and table availability is decided by UUID: recreating a same-named table
  * must never make an old draft look writable against the new resource.
  */
 export function retainedRowRecoveries(args: {
@@ -767,7 +767,7 @@ export function discardRevisionedTextDraft(
  * mismatch means SOMETHING in the table changed, and comparing the row the
  * author started from against the row the server now holds is what separates
  * "a co-member edited a different row" from "a co-member edited this one".
- * Key order is irrelevant — the stored object is a UUID-keyed map.
+ * Key order is irrelevant: the stored object is a UUID-keyed map.
  */
 export function rowValuesEqual(
 	left: LookupRowValues,
@@ -788,7 +788,7 @@ export function rowValuesEqual(
  * What the workspace does with a write the server refused on revision drift.
  *
  * A lookup table's optimistic token is `max(definitionRevision, rowsRevision)`,
- * so ANY concurrent change to the table invalidates it — including one to a
+ * so ANY concurrent change to the table invalidates it, including one to a
  * row the author never touched. Treating every drift as a conflict a human
  * must resolve would put a dialog in front of edits that do not conflict at
  * all; silently retrying every drift would let one author's save overwrite a
@@ -797,7 +797,7 @@ export function rowValuesEqual(
  * the same edit, and otherwise show both values and let them choose.
  */
 export type ConflictVerdict =
-	/** Nobody touched what this write is about — resend against the fresh
+	/** Nobody touched what this write is about: resend against the fresh
 	 *  revision. The author sees a save that took a moment longer. */
 	| { readonly kind: "retry" }
 	/** The write's subject changed underneath. The author's draft is kept and
@@ -817,7 +817,7 @@ export type ConflictReason =
  *
  * `baseline` is the row as it stood when the author began editing; `current`
  * is the row the freshly re-read table now holds. `columnsChanged` covers the
- * definition axis — a retype or a removed column changes what the author's
+ * definition axis: a retype or a removed column changes what the author's
  * draft even means, so it is never resent without asking.
  */
 export function rowWriteConflictVerdict(args: {

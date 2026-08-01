@@ -67,7 +67,7 @@ export interface AttachmentsContext {
 	clear: () => void;
 	openFileDialog: () => void;
 	fileInputRef: RefObject<HTMLInputElement | null>;
-	/** Id of the chip "armed" for keyboard removal — the two-stage Backspace
+	/** Id of the chip "armed" for keyboard removal: the two-stage Backspace
 	 *  pattern: a deliberate Backspace on an empty input arms (highlights) the
 	 *  last chip; the next one removes it. `null` when nothing is armed. The
 	 *  textarea sets it; the chip row reads it to render the highlight. */
@@ -377,7 +377,7 @@ export const PromptInput = ({
 	}, [files]);
 
 	// When an attachment is added, drop focus into the textarea so the user can
-	// immediately type their message — without this, focus is left on whatever
+	// immediately type their message: without this, focus is left on whatever
 	// triggered the add (the menu item / file picker), stranding the caret. Only
 	// react to the count GROWING; removing a chip shouldn't grab focus.
 	const prevFileCount = useRef(files.length);
@@ -446,7 +446,7 @@ export const PromptInput = ({
 				return;
 			}
 
-			// Re-adding a file that's already staged is a no-op (matched by name) —
+			// Re-adding a file that's already staged is a no-op (matched by name):
 			// surfaced as a duplicate error so the user knows why nothing was added.
 			const existingNames = new Set(files.map((f) => f.filename));
 			const deduped = sized.filter((f) => !existingNames.has(f.name));
@@ -459,7 +459,7 @@ export const PromptInput = ({
 			}
 
 			// Compute capacity from the CURRENT count (closure `files`) and build the
-			// new parts here — NOT inside the setItems updater. The updater must be
+			// new parts here: NOT inside the setItems updater. The updater must be
 			// pure: React runs it during render and double-invokes it under
 			// StrictMode, so an onError() (setState elsewhere) or URL.createObjectURL()
 			// inside it throws "setState during render" and fires/leaks twice.
@@ -801,7 +801,7 @@ export const PromptInput = ({
 				{...props}
 			>
 				{/* Nova chat-input chrome: surface fill, violet hairline border, and a
-				 * violet focus ring when the textarea is focused — matching the prior
+				 * violet focus ring when the textarea is focused: matching the prior
 				 * bespoke ChatInput so the re-skin reads as one design. */}
 				<InputGroup className="overflow-hidden rounded-lg border border-nova-border bg-nova-surface transition-colors has-[[data-slot=input-group-control]:focus-visible]:border-nova-violet has-[[data-slot=input-group-control]:focus-visible]:ring-2 has-[[data-slot=input-group-control]:focus-visible]:ring-nova-violet/30">
 					{children}
@@ -947,7 +947,7 @@ export const PromptInputTextarea = ({
 	const handleCompositionEnd = useCallback(() => setIsComposing(false), []);
 	const handleCompositionStart = useCallback(() => setIsComposing(true), []);
 
-	// Leaving the input cancels a pending two-stage chip removal — the armed
+	// Leaving the input cancels a pending two-stage chip removal, the armed
 	// state belongs to actively editing, so blurring resets it (matches the
 	// "any other key disarms" rule for the keyboard path).
 	const handleBlur: FocusEventHandler<HTMLTextAreaElement> = useCallback(
@@ -1049,7 +1049,7 @@ export type PromptInputSubmitProps = ComponentProps<typeof InputGroupButton> & {
 
 export const PromptInputSubmit = ({
 	className,
-	// Ghost (transparent), not the filled primary — Nova's send button is a violet
+	// Ghost (transparent), not the filled primary: Nova's send button is a violet
 	// glyph on transparent that lifts to the full text tier on hover. A filled
 	// violet button would wash the violet glyph out against its own background.
 	variant = "ghost",

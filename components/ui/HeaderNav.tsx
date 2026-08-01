@@ -1,10 +1,10 @@
 /**
  * Nav links rendered left-aligned next to the logo in AppHeader.
  *
- * Client component — needs `usePathname()` for active state. Accepts `isAdmin`
+ * Client component: needs `usePathname()` for active state. Accepts `isAdmin`
  * as a prop rather than reading from `useAuth()` to avoid a client session fetch
  * and the resulting flash where the Admin link pops in after hydration. Server
- * pages already resolve the session — they pass `isAdmin` directly.
+ * pages already resolve the session: they pass `isAdmin` directly.
  */
 
 "use client";
@@ -63,11 +63,11 @@ function navLinkClass(active: boolean): string {
 // ── Component ─────────────────────────────────────────────────────────
 
 interface HeaderNavProps {
-	/** Whether the current user has admin role — controls visibility of the Admin link. */
+	/** Whether the current user has admin role: controls visibility of the Admin link. */
 	isAdmin?: boolean;
 }
 
-/** Nav links only — rendered left-aligned next to the logo. */
+/** Nav links only: rendered left-aligned next to the logo. */
 export function HeaderNavLinks({ isAdmin }: HeaderNavProps) {
 	const pathname = usePathname();
 

@@ -11,7 +11,7 @@
 //      navigation. The Server Action lands the mutation through the
 //      case-store's atomic submission envelope; the screen's contract
 //      is that the mutation reaches the action with the matching
-//      `kind` — property-level walking is covered by the engine's own
+//      `kind`: property-level walking is covered by the engine's own
 //      unit tests.
 //   2. Error arms (`unauthenticated` / `error` / `case-not-found` /
 //      `case-properties-validation` / `missing-case-type` /
@@ -57,7 +57,7 @@ import {
 
 const APP_ID = "app-form-screen-test";
 const MODULE_UUID = testUuid("00000000-0000-0000-0000-000000000a01");
-/* One UUID per FormType — the test suite mounts a different form
+/* One UUID per FormType: the test suite mounts a different form
  * arm per case under one BlueprintDocProvider seed, and `formUuid` is
  * the URL discriminator the screen reads. Distinct UUIDs keep each
  * test's mounted form independent. */
@@ -137,7 +137,7 @@ let updateCapturedPersonaValue:
 
 /* The screen mounts BuilderFormEngineProvider, which resolves "Preview
  * as me" from `useAuth()`. Mock it so the suite doesn't subscribe Better
- * Auth's client session atom — its nanostores `onMount` schedules a
+ * Auth's client session atom, its nanostores `onMount` schedules a
  * `setTimeout(0) → fetchSession()` real fetch that the async-leak
  * detector pins. The persisted test member supplies the same actor/owner
  * authority coordinates a live preview carries. */
@@ -172,7 +172,7 @@ vi.mock("@/lib/session/hooks", async () => {
 	return {
 		...actual,
 		useAppId: () => currentAppId,
-		/* Preview mode mounts the submit row — every test in this file
+		/* Preview mode mounts the submit row: every test in this file
 		 *  asserts against the row's behavior. Mirroring CaseListScreen's
 		 *  hook mocks so the two screens share a session-mode contract.
 		 *  `usePreviewing` is mocked alongside because `TextEditable`
@@ -357,8 +357,8 @@ function renderFormScreen(opts: {
 						type: "survey",
 					},
 				},
-				/* `FIELD_UUID` — non-required text bound to the standard
-				 *  `case_name` scalar. `FIELD_REQUIRED_UUID` — same shape with
+				/* `FIELD_UUID`: non-required text bound to the standard
+				 *  `case_name` scalar. `FIELD_REQUIRED_UUID`: same shape with
 				 *  `required: "true()"` so the engine marks it invalid when
 				 *  the value is empty. */
 				fields: {
@@ -725,7 +725,7 @@ describe("FormScreen — registration submit", () => {
 
 describe("FormScreen — followup submit", () => {
 	it("dispatches submitFormAction with a followup-shaped mutation", async () => {
-		/* Followup forms require a bound caseId — the case-loading
+		/* Followup forms require a bound caseId: the case-loading
 		 *  preload runs through `loadCaseDataAction`, so the mock
 		 *  resolves to a `row` arm carrying the bound case row. The
 		 *  row's `properties` are immaterial here; the test asserts
@@ -823,7 +823,7 @@ describe("FormScreen — close submit", () => {
 		if (mutation.kind === "close") {
 			expect(mutation.caseId).toBe(FOLLOWUP_CASE_ID);
 		}
-		/* Close inherits followup's `previous` destination — both
+		/* Close inherits followup's `previous` destination: both
 		 *  case-loading form types fall through to `onBack`. */
 		await waitFor(() => {
 			expect(onBackMock).toHaveBeenCalledTimes(1);
@@ -874,7 +874,7 @@ describe("FormScreen — error arms render inline", () => {
 		await waitFor(() => {
 			expect(screen.getByText("Sign in to submit this form.")).toBeDefined();
 		});
-		/* The form stays mounted — no navigation fires. The Clear button
+		/* The form stays mounted: no navigation fires. The Clear button
 		 *  is still in the DOM, confirming the submit row didn't unmount. */
 		expect(navigateMock.goHome).not.toHaveBeenCalled();
 		expect(onBackMock).not.toHaveBeenCalled();
@@ -940,7 +940,7 @@ describe("FormScreen — error arms render inline", () => {
 		fireEvent.click(submit);
 
 		/* The validation block joins the header + per-field failures
-		 *  into one `whitespace-pre-line` text node — reading `alert.textContent`
+		 *  into one `whitespace-pre-line` text node: reading `alert.textContent`
 		 *  gives the full string in one match, letting one assertion
 		 *  pin every load-bearing fragment: (1) the header names
 		 *  `result.caseType` so multi-case submissions can tell which
@@ -1220,8 +1220,8 @@ describe("FormScreen — pending UX", () => {
 		/* Stall the action via a controllable deferred so the screen sits
 		 *  in the `running` arm long enough to assert the pending UX, then
 		 *  resolve it after the assertion. A never-resolving `new Promise`
-		 *  is never destroyed — async_hooks reports it as a permanent leak
-		 *  under `--detectAsyncLeaks` — so the deferred is resolved before
+		 *  is never destroyed: async_hooks reports it as a permanent leak
+		 *  under `--detectAsyncLeaks`, so the deferred is resolved before
 		 *  teardown to drain the in-flight submission + its awaiters. */
 		let resolveSubmit!: (value: SubmissionResult) => void;
 		vi.mocked(submitFormAction).mockImplementation(
@@ -1258,7 +1258,7 @@ describe("FormScreen — pending UX", () => {
 				childCaseIds: [],
 			});
 		});
-		/* Registration's success arm fires `navigate.goHome` — waiting on
+		/* Registration's success arm fires `navigate.goHome`: waiting on
 		 *  it confirms every follow-on async has flushed. */
 		await waitFor(() => {
 			expect(navigateMock.goHome).toHaveBeenCalledTimes(1);
@@ -1946,7 +1946,7 @@ describe("FormScreen — case-loading form previewed directly (no nav caseId)", 
 	it("auto-selects the first available case and renders the form — never blocks", async () => {
 		/* Close is a case-loading form. Previewed directly with no bound
 		 *  case, it must auto-bind the FIRST available case (so the form is
-		 *  usable), not gate on navigation — same stance as the case list.
+		 *  usable), not gate on navigation: same stance as the case list.
 		 *  The submit row renders against that bound case. */
 		vi.mocked(loadCasesAction).mockResolvedValue({
 			constraintSource: "unconstrained",
@@ -1990,7 +1990,7 @@ describe("FormScreen — case-loading form previewed directly (no nav caseId)", 
 		});
 		renderFormScreen({ formUuid: CLOSE_FORM_UUID });
 
-		/* The form itself renders — its field's textbox is present (an
+		/* The form itself renders, its field's textbox is present (an
 		 *  interstitial would have replaced the whole form). */
 		expect((await screen.findAllByRole("textbox")).length).toBeGreaterThan(0);
 		expect(
@@ -2011,18 +2011,18 @@ describe("FormScreen — case-loading form previewed directly (no nav caseId)", 
 
 describe("FormScreen — submit re-entry clears stale server error", () => {
 	it("hides the prior alert when the validate-fail short-circuit fires on re-submit", async () => {
-		/* Sequence — pins the invariant the handler enforces:
+		/* Sequence: pins the invariant the handler enforces:
 		 *   1. Render the required-field form, populate the field so
 		 *      the first submit passes validate. The action mock
 		 *      resolves to a server validation failure → alert renders.
 		 *   2. Re-empty the required field, click Submit again. The
 		 *      engine reports invalid; the handler short-circuits
-		 *      BEFORE the action call. The alert must disappear — the
+		 *      BEFORE the action call. The alert must disappear: the
 		 *      surface now reflects the per-field required indicator,
 		 *      not a stale server-side failure that no longer applies.
 		 *
 		 * This test pins that `handleSubmit` clears `submitStatus`
-		 * before validating — the alert from step 1 must disappear
+		 * before validating: the alert from step 1 must disappear
 		 * when step 2's validate-fail short-circuit fires. */
 		vi.mocked(submitFormAction).mockResolvedValue({
 			kind: "case-properties-validation",
@@ -2032,7 +2032,7 @@ describe("FormScreen — submit re-entry clears stale server error", () => {
 
 		renderFormScreen({ formUuid: REQUIRED_FORM_UUID });
 
-		/* The screen renders two `<input>`s — a readonly title input
+		/* The screen renders two `<input>`s: a readonly title input
 		 *  (the form's `EditableTitle`) and the field's editable text
 		 *  input. The non-readonly one is the field; filter to
 		 *  disambiguate `getByRole("textbox")`. */
@@ -2059,7 +2059,7 @@ describe("FormScreen — submit re-entry clears stale server error", () => {
 		await waitFor(() => {
 			expect(screen.queryByRole("alert")).toBeNull();
 		});
-		/* The action MUST NOT have re-fired — the validate-fail branch
+		/* The action MUST NOT have re-fired: the validate-fail branch
 		 *  short-circuits before reaching the action call. Confirms the
 		 *  validate-fail short-circuit fired (the action call count is
 		 *  unchanged across the re-submit). */
@@ -2083,7 +2083,7 @@ describe("FormScreen — Clear form clears stale server error", () => {
 		const submit = await screen.findByRole("button", { name: /^submit$/i });
 		fireEvent.click(submit);
 
-		/* The alert renders first — the user sees the error and decides
+		/* The alert renders first: the user sees the error and decides
 		 *  to start over via Clear. */
 		const alert = await screen.findByRole("alert");
 		expect(alert.textContent).toMatch(/Could not reach the case store\./);
@@ -2091,7 +2091,7 @@ describe("FormScreen — Clear form clears stale server error", () => {
 		const clear = screen.getByRole("button", { name: /clear form/i });
 		fireEvent.click(clear);
 
-		/* "Start fresh" means the surface returns to idle — the alert
+		/* "Start fresh" means the surface returns to idle: the alert
 		 *  must disappear. Leaving it visible while the form fields
 		 *  reset contradicts the user's mental model. */
 		await waitFor(() => {

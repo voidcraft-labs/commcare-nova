@@ -2,9 +2,9 @@
 //
 // Shared chrome for the two value→display mapping tables
 // (`IdMappingCard` value→label, `ImageMapColumnCard` value→image).
-// Both render the same list shape — etched section label, dashed
+// Both render the same list shape: etched section label, dashed
 // empty notice, ordered entry rows with move/remove controls, and a
-// full-width Add CTA — and differ only in each row's display cell.
+// full-width Add CTA, and differ only in each row's display cell.
 // One home for the chrome keeps the row controls at full size (44px
 // targets, tooltips) in both cards without drift.
 
@@ -24,7 +24,7 @@ export function MappingSectionLabel() {
 	return <div className={INSPECTOR_LABEL_CLS}>Values shown as</div>;
 }
 
-/** Dashed notice when the mapping has no entries — the consumer
+/** Dashed notice when the mapping has no entries: the consumer
  *  supplies the consequence ("values show exactly as they're
  *  stored", "rows show no image"). */
 export function MappingEmptyNotice({ children }: { children: ReactNode }) {
@@ -35,7 +35,7 @@ export function MappingEmptyNotice({ children }: { children: ReactNode }) {
 	);
 }
 
-/** Full-width dashed Add CTA — the same shape as every other Add
+/** Full-width dashed Add CTA: the same shape as every other Add
  *  affordance in the inspector. */
 export function AddMappingButton({ onClick }: { onClick: () => void }) {
 	return (

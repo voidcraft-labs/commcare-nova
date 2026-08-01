@@ -1,10 +1,10 @@
 // components/builder/shared/cards/expression/FormatDateCard.tsx
 //
-// Renders the `format-date` ValueExpression — render a date or
+// Renders the `format-date` ValueExpression: render a date or
 // datetime as text. Two slots:
 //
-//   - `date` — `ValueExpression` resolving to date or datetime.
-//   - `pattern` — `"short" | "long" | "iso" | string` (a closed
+//   - `date`: `ValueExpression` resolving to date or datetime.
+//   - `pattern`: `"short" | "long" | "iso" | string` (a closed
 //     enum or a validated JavaRosa pattern string per CommCare's
 //     `format-date(date, pattern)` value function).
 //
@@ -16,7 +16,7 @@
 // `DateColumnCard` so polish-passes apply once.
 //
 // Preset commits: this card supplies the FORMAT_DATE_PRESETS enum
-// values verbatim as the preset patterns — the AST distinguishes
+// values verbatim as the preset patterns: the AST distinguishes
 // preset (enum branch) from custom (string branch) and downstream
 // consumers (wire emitter, type checker) read the discriminator.
 // The column-side commits wire-form patterns instead since its
@@ -43,13 +43,13 @@ import {
 } from "../../primitives/CustomDatePatternInput";
 import { ExpressionPicker } from "../../primitives/ExpressionPicker";
 
-/** The `date` operand resolves to date or datetime — module-const for
+/** The `date` operand resolves to date or datetime: module-const for
  *  a stable identity across renders. */
 const DATE_CONSTRAINT = dateOperandConstraint();
 
 /**
  * Preset table for the format-date AST. Each preset commits the
- * enum value verbatim (`"short"` / `"long"` / `"iso"`) — the AST
+ * enum value verbatim (`"short"` / `"long"` / `"iso"`): the AST
  * keeps the preset-vs-custom distinction at the discriminator
  * level, and the wire emitter reads it.
  */
@@ -60,7 +60,7 @@ const FORMAT_DATE_PRESET_TABLE: readonly DatePatternPreset[] =
 		pattern: preset,
 	}));
 
-/** Default — `format-date(today(), "short")`. The seed is a clean
+/** Default: `format-date(today(), "short")`. The seed is a clean
  *  formatted date; the type checker validates the date operand and
  *  the result type resolves to text. */
 export function formatDateDefault(

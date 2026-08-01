@@ -45,7 +45,7 @@ function repeat(uuid: Uuid, id: string): Field {
 const EMPTY: CollapseState = new Set<Uuid>();
 
 /** Build a RowSource for tests. The row walker consumes domain entities
- *  keyed by uuid — the same shape the blueprint store exposes via its
+ *  keyed by uuid: the same shape the blueprint store exposes via its
  *  `fields` / `fieldOrder` maps. */
 function src(
 	fields: Record<Uuid, Field>,
@@ -308,7 +308,7 @@ describe("buildFormRows — row id stability", () => {
 	});
 
 	it("field row id reflects the field uuid, not its position", () => {
-		// Reorder the same fields — their row ids must not change.
+		// Reorder the same fields, their row ids must not change.
 		const fields = {
 			[Q(1)]: text(Q(1), "a"),
 			[Q(2)]: text(Q(2), "b"),

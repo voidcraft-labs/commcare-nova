@@ -1,5 +1,5 @@
 /**
- * Account settings — the settings that belong to the USER, not a Project: their
+ * Account settings: the settings that belong to the USER, not a Project: their
  * CommCare HQ credentials, the apps they've authorized (OAuth), and the API
  * keys they've issued. All keyed to `session.user.id` and unchanged by the
  * active Project. Project-scoped settings (members + invitations) live on their

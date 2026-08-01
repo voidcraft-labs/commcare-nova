@@ -1,16 +1,16 @@
 /**
- * AppSetupWorkspace — the URL-owned workspace for app administration
+ * AppSetupWorkspace: the URL-owned workspace for app administration
  * (`/build/{appId}/setup/{section}`).
  *
  * It sits deliberately outside the structure tree. The tree represents the
- * runnable app — modules, case lists, forms — and none of what lives here
+ * runnable app: modules, case lists, forms, and none of what lives here
  * is something a worker opens: it is who runs the app, where they work,
  * what runs on a schedule, and where it is deployed. Preview therefore has
  * nothing to run from this URL and leaves for the app home
  * (`usePreviewModeTransition`).
  *
  * The shell is a fixed, non-scrolling section strip over an independently
- * scrolling body — the same shape the case workspace's tabs use, so the two
+ * scrolling body: the same shape the case workspace's tabs use, so the two
  * workspaces feel like one system. The section IS the URL, so switching is
  * ordinary history navigation and every section deep-links.
  */
@@ -42,7 +42,7 @@ const SECTION_ICONS: Readonly<Record<AppSetupSection, IconifyIcon>> = {
 /**
  * What each not-yet-built section will hold, in the author's words. Naming
  * the contents is the honest empty state: it tells someone who opened the
- * section what belongs here, rather than showing a blank panel or — worse —
+ * section what belongs here, rather than showing a blank panel or, worse:
  * a control that does nothing.
  */
 const SECTION_PENDING_COPY: Readonly<

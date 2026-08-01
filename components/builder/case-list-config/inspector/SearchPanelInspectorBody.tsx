@@ -1,12 +1,12 @@
 // components/builder/case-list-config/inspector/SearchPanelInspectorBody.tsx
 //
-// Properties for the search panel itself — what the search canvas's
+// Properties for the search panel itself: what the search canvas's
 // panel chrome selects. Owns every Search-screen `caseSearchConfig` slot:
 //
-//   1. `searchScreenTitle` — title above the search inputs.
-//   2. `searchScreenSubtitle` — markdown subtitle below the title.
-//   3. `searchButtonLabel` — label on the search button.
-//   4. `searchButtonDisplayCondition` — optional predicate gating the
+//   1. `searchScreenTitle`: title above the search inputs.
+//   2. `searchScreenSubtitle`: markdown subtitle below the title.
+//   3. `searchButtonLabel`: label on the search button.
+//   4. `searchButtonDisplayCondition`: optional predicate gating the
 //      button's visibility at runtime. This rail only summarizes it
 //      (through the shared `ConditionSlotSetting`); the center Search
 //      workbench is its one editing surface.
@@ -47,7 +47,7 @@ import type { Predicate } from "@/lib/domain/predicate";
 
 export interface SearchPanelInspectorBodyProps {
 	/** Current case-search configuration. `undefined` means the module
-	 *  has no caseSearchConfig authored yet — first edit seeds the slot
+	 *  has no caseSearchConfig authored yet: first edit seeds the slot
 	 *  with the changed sub-slot on top of an otherwise-empty config. */
 	readonly value: OrdinaryCaseSearchConfig | undefined;
 	readonly onChange: (next: OrdinaryCaseSearchConfig) => void;

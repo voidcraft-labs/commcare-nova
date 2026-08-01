@@ -1,12 +1,12 @@
 /**
- * Project members — the Project-settings card that manages who shares the
+ * Project members: the Project-settings card that manages who shares the
  * active Project and at what role. Admins and owners can invite (dimagi addresses
- * only — the server's `beforeCreateInvitation` hook enforces it and its
+ * only: the server's `beforeCreateInvitation` hook enforces it and its
  * rejection surfaces here), change a member's role, remove a member, and
  * cancel a pending invitation. Everyone sees the roster read-only.
  *
  * Mutations go through Better Auth's organization client
- * (`authClient.organization.*`) — the org HTTP endpoints are live and
+ * (`authClient.organization.*`): the org HTTP endpoints are live and
  * authorized server-side by the role access-control rules, so a viewer/editor
  * who forged a request would still be refused. After each success we
  * `navigate.refresh()` so the server-fetched roster/invitation lists re-render.
@@ -190,7 +190,7 @@ export function ProjectMembers({
 		navigate.refresh();
 	}
 
-	/* A personal Project is private — it holds only its owner and accepts no
+	/* A personal Project is private: it holds only its owner and accepts no
 	 * invitations, so there's nothing to invite or manage. Render a read-only
 	 * card that explains why and points to the currently available collaboration
 	 * path instead of promising the temporarily blocked app move. */
@@ -238,7 +238,7 @@ export function ProjectMembers({
 						</div>
 					</div>
 
-					{/* Roster — a private personal Project holds just the owner (you), but
+					{/* Roster: a private personal Project holds just the owner (you), but
 					    may carry a non-owner guest, who can be removed here. */}
 					<ul className="divide-y divide-nova-border">
 						{members.map((m) => {
@@ -280,7 +280,7 @@ export function ProjectMembers({
 						})}
 					</ul>
 
-					{/* A still-pending invitation on a private personal Project —
+					{/* A still-pending invitation on a private personal Project:
 					    cancelable here (it can no longer be accepted either). */}
 					{invitations.length > 0 && (
 						<div>
@@ -366,7 +366,7 @@ export function ProjectMembers({
 			</div>
 
 			<div className="p-6">
-				{/* Invite — admins/owners only */}
+				{/* Invite: admins/owners only */}
 				{canManage && (
 					<div className="mb-6 flex flex-wrap items-center gap-2">
 						<Input

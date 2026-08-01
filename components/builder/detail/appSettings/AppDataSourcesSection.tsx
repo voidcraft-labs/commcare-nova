@@ -4,7 +4,7 @@ import { useUnwrittenPropertyCards } from "@/lib/doc/hooks/useUnwrittenPropertie
 import { UnwrittenPropertiesDialog } from "./UnwrittenPropertiesDialog";
 
 /**
- * App-level data-sources row in the App Settings panel — present only
+ * App-level data-sources row in the App Settings panel: present only
  * while the app reads case properties no form in it writes
  * (`lib/doc/unwrittenProperties.ts`). Informational, not a warning
  * (neutral chrome, no semantic color): the row states the count and

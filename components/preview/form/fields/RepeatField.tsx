@@ -1,5 +1,5 @@
 /**
- * RepeatField — interactive rendering of a repeat container.
+ * RepeatField: interactive rendering of a repeat container.
  *
  * Rendered only by `InteractiveFormRenderer` (preview mode). The
  * edit-mode representation uses `GroupOpenRow` / `GroupCloseRow` on the
@@ -15,7 +15,7 @@
  * rails as sibling blocks. Each instance starts with a tight divider
  * (index + optional remove) and then dispatches back into
  * `InteractiveFormRenderer` for the template's template fields at
- * `depth + 1` — same depth as a group's children, so leaf fields
+ * `depth + 1`: same depth as a group's children, so leaf fields
  * inside a repeat line up with leaf fields inside a group at the
  * same nesting level. An "Add …" button trails the last instance.
  *
@@ -50,11 +50,11 @@ import { useAttachmentEntryWriteAuthority } from "./attachment/useAttachmentEntr
 interface RepeatFieldProps {
 	/** The repeat field entity from the normalized doc. */
 	field: RepeatFieldEntity;
-	/** XForm data path prefix — we append `[idx]` per instance. */
+	/** XForm data path prefix: we append `[idx]` per instance. */
 	path: string;
 	/** Blueprint field path threaded through to descendants. */
 	fieldPath: FieldPath;
-	/** Nesting depth of this repeat — instance content renders at
+	/** Nesting depth of this repeat: instance content renders at
 	 *  `depth + 1` for flipbook parity with edit mode. */
 	depth: number;
 	/** Stable identities of enclosing repeats, before this repeat adds its
@@ -79,7 +79,7 @@ interface InstanceDividerProps {
 /**
  * Thin header above each repeat instance's template fields. Aligns to
  * `depthPadding(depth)` so it sits in the same column as the instance's
- * first field. `mb-6` gives the 24px gap to the first field — the
+ * first field. `mb-6` gives the 24px gap to the first field, the
  * caller passes `leadingGap={false}` to the instance's renderer to
  * prevent a double gap.
  */
@@ -164,7 +164,7 @@ export function RepeatField({
 
 	const hasChildren = useHasFieldsInForm(field.uuid);
 
-	// Reactive count — read from `state.repeatCount` (via
+	// Reactive count: read from `state.repeatCount` (via
 	// `useEngineStateAt`), not `controller.getRepeatCount(uuid)`.
 	// The latter is a non-reactive method call; `addRepeat` /
 	// `removeRepeat` bump `repeatCount` on the repeat's own
@@ -183,7 +183,7 @@ export function RepeatField({
 	// Add/Remove affordances are only meaningful for `user_controlled`
 	// repeats. `count_bound` and `query_bound` repeats freeze their
 	// cardinality at form load (JavaRosa spec), so the runtime suppresses
-	// these affordances — Nova's preview must mirror that. The instance
+	// these affordances: Nova's preview must mirror that. The instance
 	// dividers themselves still render so the user can see each iteration's
 	// content.
 	const isUserControlled = field.repeat_mode === "user_controlled";
@@ -228,7 +228,7 @@ export function RepeatField({
 						collapsed ? "rounded-lg" : "rounded-t-lg border-b-0"
 					}`}
 				>
-					{/* Repeat label media — banner above the header row, matching
+					{/* Repeat label media: banner above the header row, matching
 					    the edit-mode `GroupBracket` position for flipbook parity. */}
 					<MediaDisplay media={field.label_media} interactive />
 					<div className="flex items-center gap-2">
@@ -280,7 +280,7 @@ export function RepeatField({
 						<div id={titleId} className="min-w-0 flex-1">
 							{/* Repeats extend `containerFieldBase` (label optional).
 							 *  When set, render the title; when empty/absent, render
-							 *  nothing in the title slot — the surrounding chrome
+							 *  nothing in the title slot: the surrounding chrome
 							 *  (chevron, "Repeat" badge, border) stays so the user
 							 *  can still operate the repeat (Add/Remove + instance
 							 *  dividers below). Edit-mode rendering surfaces an
@@ -303,7 +303,7 @@ export function RepeatField({
 							)}
 						</div>
 					</div>
-					{/* Repeats don't carry `hint` in the domain schema — structural
+					{/* Repeats don't carry `hint` in the domain schema: structural
 					 *  containers expose only `relevant`. Only the label renders. */}
 				</div>
 			</div>
@@ -313,7 +313,7 @@ export function RepeatField({
 				<>
 					{/* `flow-root` prevents the last instance's trailing `mb-6`
 					 *  from collapsing out through the rails container's bottom
-					 *  edge — it must stay inside so the close cap sits 24px
+					 *  edge: it must stay inside so the close cap sits 24px
 					 *  below the last field, matching edit mode's
 					 *  insertion(N+1) row. */}
 					<div id={contentId} className="relative flow-root pt-6">
@@ -369,13 +369,13 @@ export function RepeatField({
 
 						{!hasChildren && <div className="h-[72px]" />}
 
-						{/* Add button — depth+1 to align with instance content.
+						{/* Add button: depth+1 to align with instance content.
 						 *  `mb-6` gives 24px before the close cap, matching the
 						 *  edit-mode insertion(N+1) that precedes `GroupCloseRow`.
 						 *  Suppressed entirely for non-`user_controlled` modes:
 						 *  count_bound and query_bound repeats derive their
 						 *  cardinality from XPath / case query and JavaRosa
-						 *  freezes it at form load — there's no Add affordance
+						 *  freezes it at form load: there's no Add affordance
 						 *  in the actual CommCare runtime, and exposing one
 						 *  here would mislead the user about the form's
 						 *  behavior. */}

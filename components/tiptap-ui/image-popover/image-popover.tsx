@@ -130,7 +130,7 @@ function ImageMain({
  * Image popover for Tiptap editors.
  *
  * URL + alt text input in a popover, matching the LinkPopover UX pattern.
- * No file upload — URL-only.
+ * No file upload: URL-only.
  */
 export const ImagePopover = forwardRef<HTMLButtonElement, ImagePopoverProps>(
 	(

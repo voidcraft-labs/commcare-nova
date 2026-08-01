@@ -1,9 +1,9 @@
 /**
- * renameOutcome — pure classification of a field-rename attempt.
+ * renameOutcome: pure classification of a field-rename attempt.
  *
  * `FieldIdentitySection`'s id input flows through `useCommitField`, which calls
  * a validate callback before saving. The header's callback runs the
- * shared identifier verdict (`lib/doc/identifierVerdicts.ts` — the same
+ * shared identifier verdict (`lib/doc/identifierVerdicts.ts`, the same
  * rules the SA tools enforce) and hands it here, then picks the right
  * UI response:
  *
@@ -43,7 +43,7 @@ export function classifyRenameOutcome(args: ClassifyArgs): RenameOutcome {
 	if (!args.newId) return { kind: "noop" };
 	if (!args.verdict.ok) {
 		// The verdict's CONCISE `userMessage` (not the SA-facing verbose
-		// `message`) — this is the builder surface. It embeds the offending
+		// `message`): this is the builder surface. It embeds the offending
 		// id verbatim so the user sees exactly which value was rejected,
 		// important when the input wrapper is small enough that the live
 		// value isn't also visible while the popover is open.

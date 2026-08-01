@@ -4,7 +4,7 @@
 // has no React Query / SWR, so these are plain `fetch` helpers the
 // hooks wrap with local state. The upload flow inherently runs in
 // the browser (the bytes PUT directly to a GCS signed URL), so a
-// server-action shape wouldn't fit — fetch is the right tool here.
+// server-action shape wouldn't fit: fetch is the right tool here.
 //
 // `WireMediaAsset` is imported as a type only (erased at compile),
 // so this client module never pulls the server-only `lib/db`
@@ -29,14 +29,14 @@ import {
 /** The asset shape the API returns and the UI renders. */
 export type MediaAssetView = WireMediaAsset;
 
-/** A completed extraction's metadata — the wire `extract` shape (status +
+/** A completed extraction's metadata: the wire `extract` shape (status +
  *  title/summary + counts). Returned by `triggerAssetExtraction` so a caller can
  *  refresh a staged asset's snapshot the instant extraction finishes. */
 export type ExtractMeta = NonNullable<WireMediaAsset["extract"]>;
 
 /**
  * Set one kind's asset on a `Media` bundle, preserving the other
- * slots. Pure — returned fresh so callers can hand it straight to a
+ * slots. Pure: returned fresh so callers can hand it straight to a
  * doc mutation.
  */
 export function setMediaSlot(
@@ -49,7 +49,7 @@ export function setMediaSlot(
 
 /**
  * Clear one kind's asset from a `Media` bundle. Returns `undefined`
- * when that was the last populated slot — so the carrier's optional
+ * when that was the last populated slot, so the carrier's optional
  * `media` becomes absent rather than an empty `{}` (which would
  * round-trip as "present but empty" and clutter the doc).
  */
@@ -74,10 +74,10 @@ export function clearMediaSlot(
  * assignable to it.
  */
 export function mediaSrc(assetId: IconRef): string {
-	// Built-in icon refs (`nova-icon:<slug>`) aren't stored assets — their
+	// Built-in icon refs (`nova-icon:<slug>`) aren't stored assets, their
 	// bytes ship statically at `/nova-icons/<slug>.png`. A known slug resolves to
 	// that static URL; an unknown/stale slug falls through to the API route, which
-	// 404s — the same broken-image outcome as a deleted upload, surfaced to fix.
+	// 404s: the same broken-image outcome as a deleted upload, surfaced to fix.
 	if (isBuiltinIconRef(assetId)) {
 		const slug = parseBuiltinIconSlug(assetId);
 		if (slug) return builtinIconPublicPath(slug);
@@ -87,7 +87,7 @@ export function mediaSrc(assetId: IconRef): string {
 
 /**
  * SHA-256 (lowercase hex) of a byte buffer, via SubtleCrypto. The pure
- * hashing core — separated from `sha256Hex` so the byte→hex transform
+ * hashing core: separated from `sha256Hex` so the byte→hex transform
  * can be unit-tested without reading a `Blob` (whose `arrayBuffer()`
  * leaves a BLOBREADER async resource the leak detector flags).
  */
@@ -102,24 +102,24 @@ export async function sha256HexOfBytes(bytes: BufferSource): Promise<string> {
  * SHA-256 (lowercase hex) of a file's bytes, computed in the browser
  * via SubtleCrypto. Sent at upload-initiate so the server can
  * dedup-skip the bytes push when the Project already holds this exact
- * content — and matched against the server's own hash at confirm.
+ * content, and matched against the server's own hash at confirm.
  * A thin `Blob` adapter over `sha256HexOfBytes`.
  */
 export async function sha256Hex(file: Blob): Promise<string> {
 	return sha256HexOfBytes(await file.arrayBuffer());
 }
 
-/** Initiate response shape — discriminated by `deduplicated`. */
+/** Initiate response shape: discriminated by `deduplicated`. */
 interface InitiateResponse {
 	assetId: string;
 	deduplicated: boolean;
-	/** Present iff `deduplicated` — the existing asset to reuse. */
+	/** Present iff `deduplicated`: the existing asset to reuse. */
 	asset?: MediaAssetView;
-	/** Present iff NOT `deduplicated` — the GCS signed PUT URL. */
+	/** Present iff NOT `deduplicated`: the GCS signed PUT URL. */
 	uploadUrl?: string;
 	/** The exact `Content-Type` the PUT must send (the normalized MIME). */
 	uploadContentType?: string;
-	/** Extra signed headers the PUT MUST send verbatim — the
+	/** Extra signed headers the PUT MUST send verbatim: the
 	 *  `x-goog-content-length-range` byte-cap binding. Absent/empty in dev. */
 	uploadHeaders?: Record<string, string>;
 	expiresAtMs?: number;
@@ -132,7 +132,7 @@ export interface UploadMediaOptions {
 	 *  rejects with an `AbortError` `DOMException`, matching fetch. */
 	signal?: AbortSignal;
 	/** Byte-level progress of the storage PUT, 0..1. Supplying this routes
-	 *  the PUT through `XMLHttpRequest` — fetch exposes no upload-progress
+	 *  the PUT through `XMLHttpRequest`: fetch exposes no upload-progress
 	 *  events. The dedup fast path never PUTs, so it reports nothing. */
 	onProgress?: (fraction: number) => void;
 	/** The app this upload belongs to, so the server resolves the app's
@@ -145,8 +145,8 @@ export interface UploadMediaOptions {
  * Run the full client-side upload: hash → initiate → (PUT bytes →
  * confirm) and resolve to the stored asset. On a dedup hit the
  * server returns the existing asset and the PUT/confirm steps are
- * skipped entirely. The resolved asset is always `ready` — confirm is
- * what flips the row — so a caller can hand its id straight to an
+ * skipped entirely. The resolved asset is always `ready`: confirm is
+ * what flips the row, so a caller can hand its id straight to an
  * attach.
  *
  * Throws an `Error` carrying the server's Elm-shaped message on any
@@ -165,7 +165,7 @@ export async function uploadMediaAsset(
 			filename: file.name,
 			// Browsers set `File.type` unreliably (empty / `application/octet-stream`
 			// for `.md` and some office files), and the initiate route validates the
-			// claim — so derive a usable MIME from the extension when the browser's is
+			// claim, so derive a usable MIME from the extension when the browser's is
 			// missing. Confirm re-derives the authoritative type from the bytes anyway.
 			mimeType: resolveUploadMimeType(file.type, file.name),
 			sizeBytes: file.size,
@@ -226,7 +226,7 @@ export async function uploadMediaAsset(
 }
 
 /**
- * PUT a blob via `XMLHttpRequest`, reporting upload-byte progress —
+ * PUT a blob via `XMLHttpRequest`, reporting upload-byte progress:
  * the one capability fetch lacks. Abort via `signal` rejects with an
  * `AbortError` `DOMException` so callers branch on cancellation the
  * same way they would for an aborted fetch.
@@ -291,7 +291,7 @@ function putBytesWithProgress(
 }
 
 /**
- * Fetch a document's requirements extract — the text Nova reads
+ * Fetch a document's requirements extract: the text Nova reads
  * ("What Nova reads"). Returns `null` when no current extract exists yet
  * (the route 404s until extraction finishes), so the caller shows a
  * not-ready state rather than an error. Throws only on an unexpected failure.
@@ -317,7 +317,7 @@ export async function fetchAssetExtract(
 /**
  * Fetch just a document's extract HEADER metadata (title/summary), without the
  * body. The preview uses this to fill its header when the in-band snapshot it
- * was opened with lacks them — a message attachment sent before extraction
+ * was opened with lacks them: a message attachment sent before extraction
  * finished froze its ref empty. Returns `null` on any failure (the caller falls
  * back to the filename alone), and `{}`/partial when the doc isn't ready yet.
  */
@@ -343,14 +343,14 @@ export async function fetchAssetExtractMeta(
  * extract metadata (status + title/summary when ready). The route STREAMS NDJSON:
  * `{type:"progress",chars}` lines while the model runs, then one `{type:"done",
  * extract}`. `onProgress` fires per progress line with that chunk's character
- * count — real read progress the caller pulses onto the signal grid. The promise
+ * count: real read progress the caller pulses onto the signal grid. The promise
  * settles with the `done` line's `ExtractMeta` (the indicator shows it while
  * pending AND the caller uses it to refresh its staged snapshot, so the chip
  * preview gets the title/summary the instant extraction finishes).
  *
  * Best-effort single-flight: a concurrent job rides the `done` line as
  * `extracting` (poll again); a server-side condense failure as `failed`. A
- * transport error — or an `abort` (the caller unmounted) — maps to `failed` too;
+ * transport error, or an `abort` (the caller unmounted): maps to `failed` too;
  * the file is saved and the chat's lazy backstop re-reads it on send. Pass
  * `signal` so an unmount aborts the in-flight read (no dangling stream reader).
  */
@@ -421,7 +421,7 @@ export interface MediaLibraryPage {
 /**
  * Fetch one page of the Project's `ready` assets, newest first.
  * Optionally filtered to a SET of `kinds` (repeated `?kind=` on the
- * wire) — a picker passes its carrier's allowed kinds so the server
+ * wire): a picker passes its carrier's allowed kinds so the server
  * returns only attachable assets; `cursor` resumes from a prior
  * page's `nextCursor`. `query` is an authoritative server-side name search
  * applied before pagination, so matches are not limited to pages the client has
@@ -453,12 +453,12 @@ export async function fetchMediaLibrary(
 	return res.json();
 }
 
-/** Ids per resolve request — keeps the repeated-`id` URL well under
+/** Ids per resolve request: keeps the repeated-`id` URL well under
  *  request-header limits; the server caps the per-request total anyway. */
 const RESOLVE_IDS_CHUNK = 50;
 
 /**
- * Resolve specific asset ids to their wire rows — the library route's
+ * Resolve specific asset ids to their wire rows: the library route's
  * resolve mode (repeated `?id=`). Project-scoped server-side (the app's
  * Project via `appId`, else the active Project): a missing or foreign id
  * is simply absent from the result, never an error. The attach budget
@@ -498,9 +498,9 @@ export async function fetchAssetsByIds(
 
 /**
  * Delete an asset from the owner's library. Resolves on success (the route
- * returns 204); throws with the server's message on a refusal — a 409 when the
+ * returns 204); throws with the server's message on a refusal, a 409 when the
  * asset is still referenced by one of the user's apps (the message names the
- * carriers) — or any other failure, so the caller can tell the user WHY a delete
+ * carriers), or any other failure, so the caller can tell the user WHY a delete
  * was blocked rather than failing silently.
  */
 export async function deleteMediaAsset(

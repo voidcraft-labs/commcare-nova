@@ -6,7 +6,7 @@
 // singular change cannot read a repeated answer (there would be one
 // value per iteration and no way to say which), and a repeated change
 // may read repeated answers only from the repeat it runs over. Getting
-// this wrong does not corrupt anything — it makes the editor offer a
+// this wrong does not corrupt anything: it makes the editor offer a
 // reference the gate then refuses, which is exactly the
 // offer-then-reject drift the valid-by-construction rule exists to
 // prevent.

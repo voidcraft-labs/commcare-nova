@@ -48,7 +48,7 @@ describe("rebuildLiteralPreservingDataType", () => {
 	it("preserves non-temporal qualifiers (single_select, multi_select, int, etc.)", () => {
 		// The schema admits a `data_type` qualifier on every
 		// `CasePropertyDataType`. The rebuild routes through
-		// `qualifiedLiteral` for any qualifier — temporal or not —
+		// `qualifiedLiteral` for any qualifier: temporal or not:
 		// so a non-temporal qualifier on the source carries through
 		// the rebuild verbatim.
 		const source = qualifiedLiteral("active", "single_select");

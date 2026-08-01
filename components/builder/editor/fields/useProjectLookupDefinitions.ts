@@ -4,7 +4,7 @@
 // to one.
 //
 // The manifest gives the table LIST; it carries counts and revisions but no
-// column definitions. Columns come from a separate read of ONE table — the one
+// column definitions. Columns come from a separate read of ONE table, the one
 // whose columns are needed right now, which is the bound table while a field is
 // bound and the table being CONSIDERED while the author is choosing one.
 // Without that second case, choosing a table would find no columns to bind
@@ -58,7 +58,7 @@ export interface ProjectLookupDefinitions {
 }
 
 /**
- * @param focusedTableId the table whose columns are needed right now — the one
+ * @param focusedTableId the table whose columns are needed right now, the one
  * a field is bound to, or the one the author has just chosen and is about to be
  * bound to.
  */

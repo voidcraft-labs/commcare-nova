@@ -69,7 +69,7 @@ export function CanvasNotice({
 
 // ── Add affordance ────────────────────────────────────────────────
 
-/** Dashed add button — the canvases' uniform "add a thing" shape. */
+/** Dashed add button: the canvases' uniform "add a thing" shape. */
 export function AddGhostButton({
 	label,
 	onClick,

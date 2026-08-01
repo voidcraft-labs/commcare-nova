@@ -1,6 +1,6 @@
 // components/builder/case-list-config/searchInputResolution.ts
 //
-// Pure per-row resolution for `SearchInputDef` lists — the single
+// Pure per-row resolution for `SearchInputDef` lists: the single
 // source of truth for "is this search input structurally sound".
 // Three consumers read it:
 //
@@ -66,13 +66,13 @@ import type { EditorSearchInputDecl } from "../shared/searchInputPresentation";
 
 /**
  * The known-inputs list handed to an editor whose slot runs BEFORE the
- * search screen opens — default values, calculated columns, and the
+ * search screen opens: default values, calculated columns, and the
  * search-button "show when" condition. Those slots resolve an
  * `input(...)` ref to the empty string, so the gate
  * (`CASE_LIST_BARE_SEARCH_INPUT_REF`, forbids-input-ref) rejects one
  * with no valid resolution; offering "Search Field" as a value source
  * there would only lead the author into a guaranteed rejection.
- * Session / user-data fields stay available — they're bound at that
+ * Session / user-data fields stay available: they're bound at that
  * time.
  *
  * A frozen module-level constant so the empty list keeps a stable
@@ -98,7 +98,7 @@ export const SEARCH_INPUT_TYPE_ICONS: Record<SearchInputType, IconifyIcon> = {
 	barcode: tablerBarcode,
 };
 
-/** Plain-words explanation per field type — what the field looks
+/** Plain-words explanation per field type: what the field looks
  *  like in the running app. Shown in the picker beside each label. */
 export const SEARCH_INPUT_TYPE_DESCRIPTIONS: Record<SearchInputType, string> = {
 	text: "A box to type into",
@@ -124,7 +124,7 @@ export const SEARCH_MODE_LABELS: Record<SearchInputMode["kind"], string> = {
 
 /**
  * Per-mode explanation, shown in the Match picker and as the chosen
- * mode's hint. These are exact behavioral claims, not vibes — each
+ * mode's hint. These are exact behavioral claims, not vibes, each
  * one states what CommCare's search actually does with the typed
  * value, because the gap between "Exact" and "Fuzzy" is the gap
  * between "search looks broken" and "search works": exact is
@@ -163,7 +163,7 @@ function friendlyPropertyTypes(types: readonly CasePropertyDataType[]): string {
 	);
 }
 
-/** The mode a row actually runs with — its explicit mode, or the
+/** The mode a row actually runs with, its explicit mode, or the
  *  per-type default when the slot is absent. */
 export function effectiveModeKind(
 	input: SearchInputDef,
@@ -191,31 +191,31 @@ export function buildMode(kind: SearchInputMode["kind"]): SearchInputMode {
 	}
 }
 
-// ── Row resolution — single source of truth ───────────────────────
+// ── Row resolution: single source of truth ───────────────────────
 
 export type NameState =
 	/** Non-empty + unique among siblings. */
 	| { kind: "ok" }
-	/** Empty string — the user hasn't named the input yet. */
+	/** Empty string: the user hasn't named the input yet. */
 	| { kind: "empty" }
-	/** Duplicate against an earlier index — first occurrence wins.
+	/** Duplicate against an earlier index: first occurrence wins.
 	 *  The wire layer binds inputs by name, so duplicates would
 	 *  silently overwrite. */
 	| { kind: "duplicate"; firstIndex: number };
 
 export type PropertyState =
-	/** Bound and resolvable (or advanced arm — the predicate AST owns
+	/** Bound and resolvable (or advanced arm: the predicate AST owns
 	 *  property resolution). */
 	| { kind: "ok" }
 	/** Simple arm naming a property the destination case type doesn't
-	 *  declare (renamed or removed since) — also matches nothing. */
+	 *  declare (renamed or removed since): also matches nothing. */
 	| { kind: "dangling"; destination: string };
 
 export interface ResolvedRow {
 	readonly nameState: NameState;
 	readonly labelEmpty: boolean;
 	readonly propertyState: PropertyState;
-	/** Type-coupling diagnostics — empty when the picked
+	/** Type-coupling diagnostics: empty when the picked
 	 *  `(type, mode)` pair is admissible against the targeted
 	 *  property's `data_type`. Always empty for `kind: "advanced"`
 	 *  (the predicate AST owns property resolution). */
@@ -254,7 +254,7 @@ export function resolveRows(
 			}
 		}
 
-		// Advanced arm bypasses type-coupling — the predicate AST owns
+		// Advanced arm bypasses type-coupling: the predicate AST owns
 		// property resolution + has its own type checker.
 		let propertyState: PropertyState = { kind: "ok" };
 		let typeCouplingErrors: readonly string[] = [];
@@ -394,19 +394,19 @@ export function rowHasStructuralError(resolved: ResolvedRow): boolean {
 // ── knownInputs derivation ────────────────────────────────────────
 //
 // The search inputs in scope for a row's advanced-predicate / type-
-// check editor are EVERY named row — the edited row INCLUDED. A search
+// check editor are EVERY named row: the edited row INCLUDED. A search
 // input's custom condition is keyed to its OWN input through the
 // `when-input-present(input(name), …)` envelope that both
 // `seedCustomCondition` and the wire-emit `deriveSimpleArmPredicate`
 // produce, so a row referencing its own input is the canonical shape,
 // not a self-reference to forbid. This mirrors the validator's
 // `moduleTypeContext`, which builds `knownInputs` from the full
-// `caseListConfig.searchInputs` list — editor, preview gate, commit
+// `caseListConfig.searchInputs` list: editor, preview gate, commit
 // gate, and wire emitter all resolve `input(...)` against ONE scope,
 // so none can flag a reference the others accept.
 //
-// Slots that run BEFORE the search screen opens — default values,
-// calculated columns, the search-button condition — see NO inputs at
+// Slots that run BEFORE the search screen opens: default values,
+// calculated columns, the search-button condition: see NO inputs at
 // all (`NO_SEARCH_INPUTS`): an `input(...)` ref there resolves to the
 // empty string and the commit gate rejects it.
 
@@ -444,7 +444,7 @@ export function expectedTypeForDefault(
 }
 
 /**
- * The default-value slot's `SlotConstraint` — the editor's
+ * The default-value slot's `SlotConstraint`: the editor's
  * valid-by-construction surface for the default expression. A value
  * compatible with the input's `expectedTypeForDefault`. The
  * config-validity gate keeps using `expectedTypeForDefault` directly
@@ -489,7 +489,7 @@ export function seedDefaultExpression(
 //
 // The Match picker's "Custom Condition" choice converts a simple row
 // to the advanced arm; these two functions are the conversion's two
-// halves — the forward seed and the round-trip recovery.
+// halves: the forward seed and the round-trip recovery.
 
 /**
  * Whether the simple row's effective match behavior has an equivalent
@@ -522,16 +522,16 @@ export function canSeedCustomConditionFaithfully(
  * becomes `property = typed value`; fuzzy, starts-with, phonetic, and
  * fuzzy-date become the corresponding `match` Predicate. The author edits
  * forward from something working instead of starting from a blank. Rows with
- * no property yet seed `match-all()` — the canonical always-true starting
+ * no property yet seed `match-all()`: the canonical always-true starting
  * point.
  *
  * The comparison against the typed value rides inside a
- * `when-input-present` envelope keyed to the input — the same shape
+ * `when-input-present` envelope keyed to the input: the same shape
  * the standard match modes derive at wire-emit
  * (`deriveSimpleArmPredicate`). Without it the bare `input(...)` ref
  * resolves to the empty string before anyone searches, matching every
  * empty-valued case, and the commit gate
- * (`CASE_LIST_BARE_SEARCH_INPUT_REF`) rejects the seed outright — so
+ * (`CASE_LIST_BARE_SEARCH_INPUT_REF`) rejects the seed outright, so
  * the envelope is what makes "Custom Condition" land at all.
  *
  * The property reference preserves the row's relation walk the same
@@ -539,7 +539,7 @@ export function canSeedCustomConditionFaithfully(
  * so the seed reads the property on the case the row actually searches
  * (a parent / related case), not the current one; a self walk
  * collapses to an unqualified `prop`. Dropping it would seed a
- * condition that reads a property the current case type may not have —
+ * condition that reads a property the current case type may not have:
  * a fresh gate rejection, the very failure this conversion avoids.
  */
 export function seedCustomCondition(
@@ -578,8 +578,8 @@ export function seedCustomCondition(
  * round-tripped custom→standard conversion land back on the same
  * property rather than re-seeding.
  *
- * A `when-input-present` envelope — the shape `seedCustomCondition`
- * produces for an input-bound row — unwraps to its clause first, so a
+ * A `when-input-present` envelope: the shape `seedCustomCondition`
+ * produces for an input-bound row: unwraps to its clause first, so a
  * seeded custom condition round-trips back to its property the same
  * way a hand-authored bare comparison does.
  */

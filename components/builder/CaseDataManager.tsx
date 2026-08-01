@@ -163,7 +163,7 @@ export function CaseDataManager({
 	 * remains after the conversion toast dies) and the popover's review
 	 * section. Both derive from the same list the review screen renders,
 	 * so one invalidation refreshes every surface. At zero active
-	 * entries neither renders — no empty-state noise. */
+	 * entries neither renders: no empty-state noise. */
 	const { state: parkedState } = useParkedValues({
 		appId,
 		caseType: caseType.name,
@@ -407,7 +407,7 @@ export function CaseDataManager({
 							aria-label="Refreshing case count…"
 						/>
 					)}
-					{/* The durable discovery signal — outlives the conversion
+					{/* The durable discovery signal: outlives the conversion
 					 * toast, clears when no undismissed entries remain. Amber:
 					 * the warning hue, never rose (nothing failed; values are
 					 * waiting). */}
@@ -493,7 +493,7 @@ export function CaseDataManager({
 						</p>
 					)}
 
-					{/* Review section — news first, between the header and the
+					{/* Review section: news first, between the header and the
 					 * count block, so the popover's existing jobs stay
 					 * untouched. Renders only while undismissed entries exist. */}
 					{activeParked.length > 0 && moduleUuid !== undefined && (
@@ -522,7 +522,7 @@ export function CaseDataManager({
 								className="mt-2.5 w-full"
 								onClick={() => {
 									setPopoverOpen(false);
-									// The review screen is an edit surface — in preview the
+									// The review screen is an edit surface: in preview the
 									// data-review URL renders the running case list, so the
 									// press would look like a no-op. Leave preview first.
 									setPreviewing(false);

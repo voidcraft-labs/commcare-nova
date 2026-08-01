@@ -3,7 +3,7 @@
  *
  * A third selection source beside a selected form field and the case-list
  * workspace's own selection, resolved the same way and mutually exclusive with
- * both — a Project data URL names no module and no field, so nothing else can
+ * both: a Project data URL names no module and no field, so nothing else can
  * be selected while this one is.
  */
 "use client";
@@ -21,7 +21,7 @@ import { RowInspectorBody } from "./RowInspectorBody";
  *
  * Every body carries a `key` on its selection's identity. The rail renders
  * `{inspector.body}` bare, so without one React preserves a body's local state
- * across a change of selection — and these bodies hold DRAFTS. That is not a
+ * across a change of selection, and these bodies hold DRAFTS. That is not a
  * cosmetic leak: a dirty row A followed by selecting row B would save A's typed
  * values to B's id, and a half-edited column name would rename the next column
  * you clicked.

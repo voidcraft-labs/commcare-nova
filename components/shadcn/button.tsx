@@ -6,13 +6,13 @@ import { cn } from "@/lib/utils";
 /**
  * The action button. Buttons are soft KEYCAPS: a crown gradient lit from
  * above over a 3px darker side wall (`--key-wall`), with real travel on
- * press — the cap sinks as the wall collapses. The keycap anatomy
+ * press: the cap sinks as the wall collapses. The keycap anatomy
  * (crowns, walls, travel, hover brighten, keyboard-only focus ring,
  * disabled at the one 0.6 opacity) lives in the `.nova-keycap-*` classes
  * in `app/globals.css`; this file only picks a variant and lays out the
  * label.
  *
- * ONE size: 44px tall at radius-xl — the 44px hit-target floor IS the
+ * ONE size: 44px tall at radius-xl, the 44px hit-target floor IS the
  * button; there is no small/medium/large ladder. `size="icon"` is the
  * same 44px height as a square. A call-site className may set layout
  * (width, margin, grid placement), never height, padding, radius, color,
@@ -28,14 +28,14 @@ const buttonVariants = cva(
 	{
 		variants: {
 			variant: {
-				// The luminous lilac keycap with dusk text — light is action;
+				// The luminous lilac keycap with dusk text: light is action;
 				// no fill carries white text.
 				default: "nova-keycap nova-keycap-action",
 				secondary: "nova-keycap nova-keycap-surface",
 				// The quiet page-level action (the calm sibling of the primary
 				// CTA): violet-wash crown on the bright border.
 				outline: "nova-keycap nova-keycap-outline border-nova-border-bright",
-				// Tinted rose keycap with rose text — calm, not alarming.
+				// Tinted rose keycap with rose text: calm, not alarming.
 				destructive: "nova-keycap nova-keycap-rose",
 				// Amber keycap, dusk text (light accents carry dark text).
 				warning: "nova-keycap nova-keycap-amber",

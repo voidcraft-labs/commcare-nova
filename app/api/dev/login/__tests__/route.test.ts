@@ -1,13 +1,13 @@
 /**
- * `GET /api/dev/login` — the local-dev one-URL sign-in.
+ * `GET /api/dev/login`: the local-dev one-URL sign-in.
  *
  * The route is a login backdoor by design, so what these tests pin is the
  * cage around it: the prod hard-gate (404 outside `NODE_ENV=development`,
  * before any auth machinery loads a session into existence), the
  * local-Postgres refusal (`NOVA_DB_LOCAL_URL`), the input rejections, and
  * that a minted cookie is exactly `signSessionCookie` over a token that was
- * actually written as a session row. The proxy-layer half of the cage — the
- * path staying OFF every host allowlist — is pinned in
+ * actually written as a session row. The proxy-layer half of the cage, the
+ * path staying OFF every host allowlist: is pinned in
  * `lib/__tests__/hostnames.test.ts`.
  */
 
@@ -63,7 +63,7 @@ describe("GET /api/dev/login", () => {
 			vi.stubEnv("NODE_ENV", env);
 			const res = await GET(loginReq());
 			expect(res.status).toBe(404);
-			/* Drain the body — an unread `Response.json` body holds an internal
+			/* Drain the body: an unread `Response.json` body holds an internal
 			 * promise open forever, which the async-leak gate flags (same
 			 * phenomenon `proxy.ts::notFound` documents). Ditto below. */
 			await res.text();

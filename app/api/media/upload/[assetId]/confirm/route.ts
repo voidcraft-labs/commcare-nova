@@ -1,5 +1,5 @@
 /**
- * POST /api/media/upload/[assetId]/confirm — finalize an upload.
+ * POST /api/media/upload/[assetId]/confirm: finalize an upload.
  *
  * Called by the browser after the signed-PUT step completes. The
  * server:
@@ -15,7 +15,7 @@
  * The validator's hash check catches GCS-side tampering between the
  * PUT and this confirm (the sniffed bytes' sha256 must match the
  * row's claimed content hash). The sharp/music-metadata re-parse
- * catches truncation + corruption — bytes that pass the magic-bytes
+ * catches truncation + corruption: bytes that pass the magic-bytes
  * sniff but don't actually parse as the format they claim.
  */
 

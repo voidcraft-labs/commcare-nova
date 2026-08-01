@@ -102,7 +102,7 @@ import {
 
 /** The structural shapes the Add-condition menu offers, beside its one
  *  comparison leaf. Exported so the per-carrier invariant tests can
- *  drive exactly what the menu offers rather than a superset — a seed
+ *  drive exactly what the menu offers rather than a superset, a seed
  *  the menu cannot reach is not an offer, and asserting one claims a
  *  path that does not exist. */
 export const STRUCTURE_KINDS = [
@@ -352,7 +352,7 @@ export interface PredicateWorkbenchProps {
 	readonly knownInputs?: readonly EditorSearchInputDecl[];
 	/** Current custom worker-information catalog for immutable user refs. */
 	readonly userProperties?: readonly UserProperty[];
-	/** Form answers this rule may read — already narrowed by the owning
+	/** Form answers this rule may read: already narrowed by the owning
 	 *  surface to the ones its slot admits. */
 	readonly formFields?: readonly EditorFormFieldDecl[];
 	readonly lookupTables?: readonly EditorLookupTableDecl[];
@@ -365,7 +365,7 @@ export interface PredicateWorkbenchProps {
 	readonly evaluationTarget?: EvaluationTarget;
 	/** When the rule evaluates relative to a case row. `"global"` slots
 	 *  (the search-button display condition) resolve once, before any
-	 *  case is selected — verbs, seeds, and value sources drop every
+	 *  case is selected: verbs, seeds, and value sources drop every
 	 *  case-property / relationship read there. */
 	readonly caseDataScope?: CaseDataScope;
 	/** What this whole rule is called on the surface that owns it. Shown
@@ -373,7 +373,7 @@ export interface PredicateWorkbenchProps {
 	 *  workbench never names another surface's setting. */
 	readonly rootLabel?: string;
 	/** See `PredicateEditContext.allowsNeverMatch`. Its own axis, not a
-	 *  reading of `caseDataScope` — the Search action's condition and a
+	 *  reading of `caseDataScope`: the Search action's condition and a
 	 *  module's display condition are both `global` and disagree. */
 	readonly allowsNeverMatch?: boolean;
 	/** A semantic navigation request from another surface. The token makes a
@@ -470,7 +470,7 @@ export function PredicateWorkbench({
 	// particular is not optional in practice: the sibling `typeContext`
 	// above already carries it, so omitting it here made the validity
 	// index and the verb menu resolve a saved worker-information read
-	// against two different vocabularies — the menu's the narrower one.
+	// against two different vocabularies: the menu's the narrower one.
 	const editContext = useMemo<PredicateEditContext>(
 		() => ({
 			caseTypes,

@@ -93,7 +93,7 @@ describe("widgetTypeForProperty", () => {
 		expect(widgetTypeForProperty(prop("case_name"))).toBe("text");
 		expect(widgetTypeForProperty(prop("dob", "date"))).toBe("date");
 		expect(widgetTypeForProperty(prop("ts", "datetime"))).toBe("date");
-		// Select-typed properties get `text`, not `select` — the wire
+		// Select-typed properties get `text`, not `select`: the wire
 		// prompt carries no itemset slot, so `select` is gate-rejected
 		// and can never be the widget an authoring path lands on.
 		expect(widgetTypeForProperty(prop("status", "single_select"))).toBe("text");
@@ -150,7 +150,7 @@ describe("seedSearchInput", () => {
 
 	it("seeds a text widget over select-typed properties — never `select`", () => {
 		// The wire prompt carries no itemset slot, so a `select` search
-		// input is gate-rejected outright — a seed that picked it would
+		// input is gate-rejected outright: a seed that picked it would
 		// turn the add affordance into a rejection toast.
 		const selectOnly = caseType("referral", [
 			prop("referral_status", "single_select"),
@@ -166,7 +166,7 @@ describe("seedSearchInput", () => {
 
 	it("withholds fuzzy from text widgets over non-text properties", () => {
 		// An int property renders as a text widget, but fuzzy is gated to
-		// text-shaped data types — seeding it would land an invalid row.
+		// text-shaped data types: seeding it would land an invalid row.
 		const intOnly = caseType("visit", [prop("visit_count", "int")]);
 		const seed = seedSearchInput(config(), intOnly, projectProse);
 		expect(seed?.type).toBe("text");
@@ -250,7 +250,7 @@ describe("chooser-first display fields", () => {
 
 			const existing = testUuid("20000000-0000-4000-8000-000000000000");
 			// The add lands after the column already on that screen, and joins
-			// the other screen at its end too — a column belongs to both from
+			// the other screen at its end too: a column belongs to both from
 			// birth whatever surface the author was looking at.
 			expect(mutation.afterInList).toBe(existing);
 			expect(mutation.afterInDetail).toBe(existing);

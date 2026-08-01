@@ -3,7 +3,7 @@
  *
  * Used as Suspense fallbacks in admin pages. Extracted from `loading.tsx`
  * because Next.js `loading.tsx` files trigger prerender attempts on routes
- * whose layouts use `headers()` — a known framework bug. Using explicit
+ * whose layouts use `headers()`: a known framework bug. Using explicit
  * `<Suspense fallback={...}>` in each page avoids the issue entirely.
  */
 import { Skeleton } from "@/components/shadcn/skeleton";
@@ -19,7 +19,7 @@ const ADMIN_TABLE_HEADER_WIDTHS = [
 	{ id: "last-active", width: 64 },
 ] as const;
 
-/** Stable keys for skeleton body rows — avoids array index keys. */
+/** Stable keys for skeleton body rows: avoids array index keys. */
 const SKELETON_ROW_KEYS = [
 	"row-a",
 	"row-b",
@@ -31,13 +31,13 @@ const SKELETON_ROW_KEYS = [
 
 // ── Shared Skeleton (reused by page Suspense boundary) ───────────────
 
-/** Skeleton for the stat cards + user table — matches real content layout. */
+/** Skeleton for the stat cards + user table: matches real content layout. */
 export function AdminContentSkeleton() {
 	return (
 		<div className="space-y-8">
 			{/* Stat cards */}
 			<div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-				{/* Stat card skeletons — first card is the primary count (no subtitle),
+				{/* Stat card skeletons: first card is the primary count (no subtitle),
             remaining two include a subtitle line to match the real layout. */}
 				<div className="bg-nova-deep border border-nova-border rounded-xl p-6">
 					<Skeleton className="w-20 h-3" />
@@ -62,7 +62,7 @@ export function AdminContentSkeleton() {
 
 				{/* Table */}
 				<div className="rounded-xl border border-nova-border overflow-hidden">
-					{/* Header row — widths mirror the 7 real table columns */}
+					{/* Header row: widths mirror the 7 real table columns */}
 					<div className="flex gap-4 px-4 py-3 border-b border-nova-border bg-nova-deep/50">
 						{ADMIN_TABLE_HEADER_WIDTHS.map(({ id, width }) => (
 							<Skeleton key={id} className="h-3" style={{ width }} />
@@ -92,7 +92,7 @@ export function AdminContentSkeleton() {
 	);
 }
 
-/** Full-page skeleton — title + content. Used by navigation-level Suspense. */
+/** Full-page skeleton: title + content. Used by navigation-level Suspense. */
 export function AdminPageSkeleton() {
 	return (
 		<main className="max-w-6xl mx-auto px-6 py-12">

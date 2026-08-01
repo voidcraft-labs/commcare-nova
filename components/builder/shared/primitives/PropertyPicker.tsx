@@ -2,7 +2,7 @@
 //
 // Searchable case-property picker. Shows all properties of the
 // editor's `currentCaseType` (or, optionally, a caller-supplied
-// case type — used by `ExistsCard` when picking properties on the
+// case type: used by `ExistsCard` when picking properties on the
 // destination of a relation walk). The picker drives every
 // property-shaped slot across the card editor: comparison `left`,
 // match `property`, multi-select-contains `property`,
@@ -10,7 +10,7 @@
 // `left`, etc.
 //
 // Implementation: Nova's shadcn dropdown-menu primitive. Optional filter narrows the
-// shown properties to a subset by data type — comparison cards
+// shown properties to a subset by data type: comparison cards
 // for ordering operators (gt/lt/...) restrict to ordered types,
 // multi-select-contains restricts to multi_select, etc.
 
@@ -64,7 +64,7 @@ interface PropertyPickerProps {
 	/** Fired when the user selects a property. */
 	readonly onChange: (propertyName: string) => void;
 	/**
-	 * Override case type — when provided, the picker shows
+	 * Override case type: when provided, the picker shows
 	 * properties from this case type rather than the context's
 	 * `currentCaseType`. Used by relation-walk consumers
 	 * (`ExistsCard` after resolving the via's destination) to scope
@@ -81,7 +81,7 @@ interface PropertyPickerProps {
 	readonly admit?: (property: CaseProperty) => ExpressionChangeAdmission;
 	/**
 	 * Optional accessibility label override. Defaults to "Case information"
-	 * — cards that have multiple property slots (none today, but
+	 *: cards that have multiple property slots (none today, but
 	 * the contract is forward-looking) can disambiguate via the
 	 * override.
 	 */

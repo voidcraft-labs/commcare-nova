@@ -25,7 +25,7 @@ const context: OperationSentenceContext = {
 	fieldLabel: (uuid) => names[uuid],
 };
 
-/** Nothing outside the operation resolves — every fallback fires. */
+/** Nothing outside the operation resolves: every fallback fires. */
 const blind: OperationSentenceContext = {
 	operationName: () => undefined,
 	repeatLabel: () => undefined,

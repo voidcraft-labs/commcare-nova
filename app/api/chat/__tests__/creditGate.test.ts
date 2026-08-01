@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { creditGateDecision } from "../creditGate";
 
 /**
- * Minimal `UIMessage` whose only load-bearing field for the gate is `role` —
+ * Minimal `UIMessage` whose only load-bearing field for the gate is `role`:
  * `isChargeableTurn` reads the last message's role and nothing else.
  */
 const message = (role: "user" | "assistant"): UIMessage =>

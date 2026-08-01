@@ -1,5 +1,5 @@
 /**
- * Project settings — the settings that belong to the ACTIVE Project (not the
+ * Project settings: the settings that belong to the ACTIVE Project (not the
  * account). Reached from the header's ProjectSwitcher ("Project settings"), NOT
  * from the account-menu → Settings page: members + invitations are Project-
  * scoped and follow the switcher, so they live on their own page with the

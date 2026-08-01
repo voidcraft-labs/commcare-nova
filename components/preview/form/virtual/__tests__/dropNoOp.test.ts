@@ -12,12 +12,12 @@ describe("isNoOpFieldDrop", () => {
 	const display = [A, B, C];
 
 	it("no-ops a drop before the sibling that already immediately follows", () => {
-		// A dropped before B (its current successor) — already there.
+		// A dropped before B (its current successor): already there.
 		expect(isNoOpFieldDrop(display, A, B, "top")).toBe(true);
 	});
 
 	it("no-ops a drop after the sibling that already immediately precedes", () => {
-		// B dropped after A (its current predecessor) — already there.
+		// B dropped after A (its current predecessor): already there.
 		expect(isNoOpFieldDrop(display, B, A, "bottom")).toBe(true);
 	});
 

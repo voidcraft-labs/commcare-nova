@@ -1,5 +1,5 @@
 /**
- * One chat thread, transcript included — what the client fetches when the
+ * One chat thread, transcript included: what the client fetches when the
  * user opens a thread from the list.
  *
  * GET /api/apps/{id}/threads/{threadId}

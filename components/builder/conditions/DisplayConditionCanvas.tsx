@@ -12,7 +12,7 @@
 //
 // Commits go through the INLINE gate flavor. Every single choice the
 // editor offers is already admissible, but "this condition can never
-// match" is a property of the whole tree rather than of any one choice —
+// match" is a property of the whole tree rather than of any one choice:
 // an author can still compose one deliberately (excluding an
 // always-true rule), and the gate refuses it. Refusing in place, beside
 // the rule, is honest; a toast plus a silent revert is not.
@@ -137,7 +137,7 @@ export function DisplayConditionCanvas({
 					))}
 					<li>{copy.scopeNote}</li>
 				</ul>
-				{/* Not a locus statement, so not a locus bullet — it is the one
+				{/* Not a locus statement, so not a locus bullet: it is the one
 				 *  thing an author must not misread about the whole feature. */}
 				<p className="mt-3 max-w-2xl border-t border-white/[0.06] pt-3 text-[13px] leading-relaxed text-nova-text-muted">
 					{DISPLAY_CONDITION_NOT_A_PERMISSION}

@@ -11,23 +11,23 @@ import {
 import type { Uuid } from "@/lib/doc/types";
 import { ModuleSettingsPanel } from "./ModuleSettingsPanel";
 
-/** Trigger prop shape — the module uuid, carried through to the panel. */
+/** Trigger prop shape: the module uuid, carried through to the panel. */
 interface ModuleSettingsButtonProps {
 	moduleUuid: Uuid;
 }
 
 /**
- * Popover trigger that mounts the module-settings panel — the public
+ * Popover trigger that mounts the module-settings panel: the public
  * mount point rendered on a form-bearing module's home-screen header or beside
  * the existing Search / Results / Details tabs for a bare case-list module.
  * Shows the settings cog and opens the one module-settings panel.
  *
  * Unlike `FormSettingsButton`, this panel hosts no CodeMirror editor, so
- * it needs no outside-press dismissal guard — plain `open` /
+ * it needs no outside-press dismissal guard: plain `open` /
  * `onOpenChange` state suffices. (The form button swallows outside-press
  * dismissals while a `.cm-tooltip-autocomplete` is portaled to the body;
  * there is no such portal here.) The nested media picker / preview
- * popovers don't tear this panel down — they live inside its subtree, so
+ * popovers don't tear this panel down: they live inside its subtree, so
  * Base UI doesn't treat a click on them as an outside press.
  */
 export function ModuleSettingsButton({

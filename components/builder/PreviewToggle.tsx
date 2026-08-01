@@ -1,5 +1,5 @@
 /**
- * PreviewToggle — the single Preview affordance for the whole builder.
+ * PreviewToggle: the single Preview affordance for the whole builder.
  *
  * One toggle runs the app exactly as a worker sees it, wherever the user
  * is: forms fill in live, the case list searches real case data, and both
@@ -8,7 +8,7 @@
  * layout you left.
  *
  * Self-subscribes to `previewing` so the subheader doesn't re-render on
- * toggle. The actual store write goes through the `onSetPreviewing` prop —
+ * toggle. The actual store write goes through the `onSetPreviewing` prop:
  * BuilderLayout wraps it to capture the flipbook scroll anchor before the
  * mode flips.
  */

@@ -2,8 +2,8 @@
 //
 // Field-editor adapter for a `Media` slot (`label_media` / `hint_media`
 // / `help_media` / `validate_msg_media`). Renders the same labeled-item
-// shape every other addable property uses — a quiet section header with the
-// control beneath it (cf. `XPathEditor` / `RequiredEditor`) — including a
+// shape every other addable property uses: a quiet section header with the
+// control beneath it (cf. `XPathEditor` / `RequiredEditor`), including a
 // property-level delete in the header. Media has no "type then blur"
 // gesture that would clear it the way a text/XPath editor self-removes on
 // empty, so without an explicit delete an added-but-empty media property
@@ -36,7 +36,7 @@ export function MediaSlotEditor<F extends Field, K extends keyof F>({
 				>
 					{label}
 				</span>
-				{/* Property-level delete — always available so the property can
+				{/* Property-level delete: always available so the property can
 				    be removed the instant it's added, attached or not. Clearing
 				    the whole value returns the entry to the Add Property pill;
 				    the per-kind chip removes handle one attachment at a time. */}
@@ -53,7 +53,7 @@ export function MediaSlotEditor<F extends Field, K extends keyof F>({
 				value={value as Media | undefined}
 				onChange={(next) => onChange(next as F[K])}
 				kinds={MEDIA_KINDS}
-				// Field uuid (rename-stable) + the `<slot>_media` key — the
+				// Field uuid (rename-stable) + the `<slot>_media` key: the
 				// staged-upload identity for this message slot.
 				slotKey={`field:${field.uuid}:${String(keyName)}`}
 				// Clean group label (no string surgery): the slot's controls

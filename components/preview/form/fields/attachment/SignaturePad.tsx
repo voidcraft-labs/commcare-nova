@@ -25,7 +25,7 @@ import {
 } from "./attachmentClient";
 
 /**
- * A signature pad — the one capture a worker produces in-app rather than
+ * A signature pad: the one capture a worker produces in-app rather than
  * attaching.
  *
  * Hand-rolled rather than pulling a dependency: the whole job is pointer
@@ -39,7 +39,7 @@ import {
  * A drawing surface cannot be operated by keyboard, so the pad is not the
  * only way to answer: `Clear` is a real button, and the surface itself is
  * reachable and describable. This is the honest limit of the interaction
- * — a signature is a physical gesture — and it matches the device, where
+ *: a signature is a physical gesture, and it matches the device, where
  * the canvas is equally pointer-only. What must NOT happen is the pad
  * silently swallowing focus with no way out, so it is focusable and followed
  * by ordinary keyboard actions.
@@ -61,7 +61,7 @@ interface SignaturePadProps {
 	readonly questionLabelledBy?: string;
 	readonly questionLabel?: string;
 	/** Whether an upload is in flight. Deliberately NOT used to disable the
-	 *  drawing surface — see `SIGNATURE_SETTLE_MS`. */
+	 *  drawing surface: see `SIGNATURE_SETTLE_MS`. */
 	readonly uploading: boolean;
 	readonly queued?: boolean;
 	/** A queued destructive clear owns this slot until its answer mutation
@@ -99,7 +99,7 @@ interface SignaturePadProps {
  *
  * A signature is many strokes, not one. Uploading on every `pointerup`
  * would fire a round trip per stroke, each immediately superseded by the
- * next — and, worse, would make the pad unusable if the surface were
+ * next, and, worse, would make the pad unusable if the surface were
  * disabled while a request was in flight: the worker's pen would die
  * partway through their own name and the strokes drawn in that window
  * would be dropped by the browser. So the surface stays live at all times
@@ -108,7 +108,7 @@ interface SignaturePadProps {
  * The real runtime answers on every `endStroke`
  * (`entries.js::SignatureEntry`) and gets away with it because its canvas
  * is never disabled either; what it does not do is block drawing. Nova
- * matches the part that matters — an always-drawable pad — and sends one
+ * matches the part that matters: an always-drawable pad, and sends one
  * upload instead of ten.
  */
 const SIGNATURE_SETTLE_MS = 700;
@@ -228,7 +228,7 @@ export function SignaturePad({
 	 *
 	 * This is the one destructive act in the whole attachment flow. Every
 	 * other capture kind is the OS file picker, so clearing one costs a
-	 * re-pick from a file still sitting on the worker's disk — and replacing
+	 * re-pick from a file still sitting on the worker's disk, and replacing
 	 * one means they already went through the picker and chose something
 	 * else, a deliberate act of its own. A signature has no source file:
 	 * clearing it destroys the only copy that ever existed.
@@ -236,7 +236,7 @@ export function SignaturePad({
 	 * So it gets inverse-action undo rather than a confirmation, which is
 	 * what the contracts prefer for a recoverable edit. A modal in front of
 	 * a gesture a worker repeats is friction; undo costs nothing until it is
-	 * needed. The offer stands until they draw again — deliberately not a
+	 * needed. The offer stands until they draw again: deliberately not a
 	 * timed window, which would punish anyone reading slowly or arriving by
 	 * keyboard.
 	 */
@@ -285,7 +285,7 @@ export function SignaturePad({
 		ctx.lineCap = "round";
 		ctx.lineJoin = "round";
 		// Ink, not a theme token: the PNG is data that leaves the app, so it
-		// must read the same wherever it is later opened — a light-on-dark
+		// must read the same wherever it is later opened: a light-on-dark
 		// signature would be invisible on a white page.
 		ctx.strokeStyle = "#111111";
 		for (const stroke of strokesRef.current) {
@@ -481,8 +481,8 @@ export function SignaturePad({
 							);
 							return;
 						}
-						// The name matters only as a transport label — the server
-						// mints the stored name — but it must carry `.png`, which is
+						// The name matters only as a transport label: the server
+						// mints the stored name, but it must carry `.png`, which is
 						// what the accepted-format check reads.
 						const outcome = await onDrawn(
 							new File([blob], "signature.png", { type: "image/png" }),
@@ -757,7 +757,7 @@ export function SignaturePad({
 					// Invalidate a `toBlob` from the prior stroke set. The next
 					// settled emission captures the complete, newer bitmap.
 					renderGenerationRef.current += 1;
-					// A new stroke supersedes the undo offer — the worker has
+					// A new stroke supersedes the undo offer: the worker has
 					// said what they want by drawing it.
 					if (clearedRef.current !== undefined) {
 						clearedRef.current = undefined;
@@ -824,7 +824,7 @@ export function SignaturePad({
 			<span id={instructionId} className="sr-only">
 				Signature pad. Sign with a finger, stylus, or mouse.
 			</span>
-			{/* The pad stays drawable while this shows — it reports progress,
+			{/* The pad stays drawable while this shows: it reports progress,
 			    it does not gate the surface. */}
 			<fieldset
 				aria-labelledby={effectiveLabelledBy}

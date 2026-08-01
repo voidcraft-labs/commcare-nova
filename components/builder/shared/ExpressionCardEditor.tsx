@@ -3,7 +3,7 @@
 // Top-level ValueExpression AST authoring surface. Renders an
 // arbitrary `ValueExpression` as a tree of cards via the registry-
 // driven dispatch in `expressionEditorSchemas.ts`. Symmetric with
-// `PredicateCardEditor` (the boolean-side editor) — both editors
+// `PredicateCardEditor` (the boolean-side editor): both editors
 // share the same `PredicateEditProvider` context, so a card from
 // either family can mount inside the other's tree (the predicate
 // card's value slots compose `ExpressionPicker` directly; the
@@ -14,7 +14,7 @@
 //
 //   1. Mounts a `PredicateEditProvider` carrying the schema-driven
 //      type-checking context (`caseTypes`, `currentCaseType`,
-//      `knownInputs`) plus the precomputed `validityIndex` —
+//      `knownInputs`) plus the precomputed `validityIndex`:
 //      cards look up their own path's errors via the context.
 //
 //   2. Runs `checkValueExpression` (the public-API wrapper around
@@ -90,7 +90,7 @@ interface ExpressionCardEditorProps {
 	readonly knownInputs?: readonly EditorSearchInputDecl[];
 	/** Current custom worker-information catalog for immutable user refs. */
 	readonly userProperties?: readonly UserProperty[];
-	/** Form answers this expression may read — already narrowed by the
+	/** Form answers this expression may read: already narrowed by the
 	 *  owning surface to the ones its slot admits. */
 	readonly formFields?: readonly EditorFormFieldDecl[];
 	readonly lookupTables?: readonly EditorLookupTableDecl[];
@@ -103,7 +103,7 @@ interface ExpressionCardEditorProps {
 	readonly ownerValues?: boolean;
 	/** When the slot evaluates relative to a case row. `"global"` slots
 	 *  (a search input's starting value) resolve once, before any case
-	 *  is selected — the provider-derived admission oracle drops every
+	 *  is selected: the provider-derived admission oracle drops every
 	 *  case-property / relationship source there. */
 	readonly caseDataScope?: CaseDataScope;
 	/**
@@ -118,8 +118,8 @@ interface ExpressionCardEditorProps {
 	readonly constraint?: SlotConstraint;
 	/**
 	 * Surfaces the boolean validity verdict to the parent on every
-	 * onChange. The editor authors valid by construction — no sequence
-	 * of picker choices yields a type-incorrect expression — so for
+	 * onChange. The editor authors valid by construction: no sequence
+	 * of picker choices yields a type-incorrect expression, so for
 	 * normally-authored trees this stays `true`. The parent gates its save
 	 * affordance on the same verdict, including the root constraint.
 	 */
@@ -182,13 +182,13 @@ export function ExpressionCardEditor({
 		],
 	);
 
-	// Run the type checker on every value change (pure — running
+	// Run the type checker on every value change (pure: running
 	// inside `useMemo` is the right shape). The per-node verdict comes
 	// from `checkValueExpression`; the root-constraint backstop adds a
 	// root error when the whole expression resolves to a type the slot
 	// won't accept. Valid-by-construction editing can't reach that
-	// backstop — the kind menu + value sources only offer admissible
-	// values — but a checker-invalid in-memory draft still surfaces it.
+	// backstop: the kind menu + value sources only offer admissible
+	// values, but a checker-invalid in-memory draft still surfaces it.
 	const errors = useMemo<readonly CheckError[]>(() => {
 		const result = checkValueExpression(value, typeCtx);
 		const collected: CheckError[] = result.ok ? [] : [...result.errors];
@@ -207,7 +207,7 @@ export function ExpressionCardEditor({
 
 	const validityIndex = useMemo(() => buildValidityIndex(errors), [errors]);
 
-	// Standardized parent-validity propagation — fires on mount + on
+	// Standardized parent-validity propagation: fires on mount + on
 	// every transition. The helper ref-stashes the callback so a
 	// fresh-each-render parent identity doesn't trip the effect on
 	// non-transitions.

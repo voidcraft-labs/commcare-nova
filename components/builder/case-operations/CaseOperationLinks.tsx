@@ -1,6 +1,6 @@
 // components/builder/case-operations/CaseOperationLinks.tsx
 //
-// How a change connects its case to another one — and how it breaks a
+// How a change connects its case to another one, and how it breaks a
 // connection.
 //
 // The wire calls this an index and the platform's own UI calls it
@@ -8,12 +8,12 @@
 // something about their data ("this referral belongs to this client"),
 // so the surface asks about relationships and treats unlinking as a
 // target choice rather than a separate mode, which is also exactly what
-// the wire does — an empty target removes the connection.
+// the wire does: an empty target removes the connection.
 //
 // The two relationship kinds are genuinely different and an author has
 // to be able to tell them apart, so each states what the edge means: a
 // child belongs to its parent, while an extension names a host. Do not
-// promise a close cascade here — Nova and a default HQ domain close only
+// promise a close cascade here: Nova and a default HQ domain close only
 // the case explicitly named by the submission.
 
 "use client";

@@ -37,7 +37,7 @@ type RowStatus =
 	| { type: "revoking" }
 	| { type: "error"; message: string };
 
-/** Row data joined with its UI status — single source of truth in state. */
+/** Row data joined with its UI status: single source of truth in state. */
 interface RowData extends AuthorizedClient {
 	status: RowStatus;
 }
@@ -150,12 +150,12 @@ export function ConnectedApps({ initial }: ConnectedAppsProps) {
 			{/* ── Card body ─────────────────────────────────────────── */}
 			{/*
 			 *  The `<ul>` stays mounted unconditionally and the empty
-			 *  state renders as a sibling — gating the whole list on
+			 *  state renders as a sibling: gating the whole list on
 			 *  `rows.length === 0` would unmount AnimatePresence the
 			 *  same render the last row needs to play its exit, killing
 			 *  the collapse animation. Two AnimatePresences in parallel:
 			 *  inner drives per-row exits, outer fades the empty state
-			 *  in as `rows.length` crosses zero — both happening at
+			 *  in as `rows.length` crosses zero: both happening at
 			 *  the same time so it reads as one transition.
 			 */}
 			<div className="p-6">
@@ -345,7 +345,7 @@ function RowActions({
 		);
 	}
 
-	/* `idle` and `error` share the same Revoke button — the error
+	/* `idle` and `error` share the same Revoke button: the error
 	 * message is shown above the actions, so re-showing the plain
 	 * Revoke button makes retry obvious. */
 	return (

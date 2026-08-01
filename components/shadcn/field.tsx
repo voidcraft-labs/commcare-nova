@@ -74,7 +74,7 @@ function Field({
 	...props
 }: React.ComponentProps<"div"> & VariantProps<typeof fieldVariants>) {
 	// `role="group"` is the canonical pattern shadcn ships for the Field
-	// primitive — it groups label + input + description + error semantically
+	// primitive: it groups label + input + description + error semantically
 	// for screen readers without forcing the consumer to use <fieldset>
 	// (which has form-submission semantics this wrapper doesn't carry).
 	// Biome's `useSemanticElements` rule prefers <fieldset>, but the role

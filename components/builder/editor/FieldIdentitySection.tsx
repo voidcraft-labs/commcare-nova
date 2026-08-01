@@ -1,11 +1,11 @@
 /**
- * FieldIdentitySection — the "Field ID" section of the right-rail field
+ * FieldIdentitySection: the "Field ID" section of the right-rail field
  * inspector.
  *
  * Renders the type-icon adornment (from `fieldRegistry[field.kind].icon`),
  * the editable id input with sibling-conflict shake + popover, and the
  * actions menu (move up/down, cross-level moves with Shift, convert-type
- * submenu, duplicate). Deletion is NOT here — it rides the inspector's
+ * submenu, duplicate). Deletion is NOT here: it rides the inspector's
  * shared `RemoveRow` at the body's last row (see `FieldInspectorBody`), the
  * one place every inspector body puts removal.
  *
@@ -129,7 +129,7 @@ export function FieldIdentitySection({ field }: FieldIdentitySectionProps) {
 		duplicateField,
 		convertField,
 		// Rename rejections render in this section's own popover, so the
-		// dispatch is the inline flavor — the toast stays quiet. The menu
+		// dispatch is the inline flavor: the toast stays quiet. The menu
 		// actions (move/duplicate/convert) have no contextual anchor and
 		// stay on the announcing flavor.
 		inline: { renameField: renameFieldAction },
@@ -137,7 +137,7 @@ export function FieldIdentitySection({ field }: FieldIdentitySectionProps) {
 
 	/* Imperative doc handle. The grandparent row (`FieldRow`) subscribes
 	 * to the selected field entity AND receives `parentUuid` + `siblingIndex`
-	 * props — so every reorder of the selected field changes at least one
+	 * props, so every reorder of the selected field changes at least one
 	 * prop and propagates a re-render down to this section. Reading the live
 	 * doc with `docApi.getState()` in the render body then picks up fresh
 	 * adjacency on every relevant render without forcing a reactive
@@ -154,7 +154,7 @@ export function FieldIdentitySection({ field }: FieldIdentitySectionProps) {
 	const requestConvert = useCallback(
 		(target: FieldKind) => {
 			if (!selectedUuid) return;
-			/* The same plan `convertField` will build — its `dataLossRisk`
+			/* The same plan `convertField` will build, its `dataLossRisk`
 			 * is the one verdict for "can this flip set saved values
 			 * aside". A blocked plan dispatches anyway: the mutation hook
 			 * surfaces the blocker message, and nothing commits. */
@@ -174,7 +174,7 @@ export function FieldIdentitySection({ field }: FieldIdentitySectionProps) {
 	);
 
 	/* Raw session focus-hint. The hint is written by `useUndoRedo` and
-	 * read by whichever editor owns the matching data-field-id — no
+	 * read by whichever editor owns the matching data-field-id, no
 	 * editor clears it; each simply ignores non-matching values. The
 	 * section consumes `focusHint === "id"` by auto-focusing + selecting
 	 * the ID input on mount. */
@@ -202,15 +202,15 @@ export function FieldIdentitySection({ field }: FieldIdentitySectionProps) {
 	/** Runs the shared identifier verdict and, on a clean verdict,
 	 * dispatches the field-id update. The update doesn't change UUID, so no
 	 * selection update is needed. The verdict (`renameFieldIdVerdict`) is the same
-	 * one the SA tools enforce — XML-name legality, the reserved
+	 * one the SA tools enforce: XML-name legality, the reserved
 	 * `__nova_` prefix, the case-property length cap, and the peer-aware
-	 * sibling-conflict scan — so UI and agent renames can't drift. The
+	 * sibling-conflict scan, so UI and agent renames can't drift. The
 	 * outcome classification is owned by `classifyRenameOutcome` so the
 	 * branching is testable without mounting the section.
 	 *
 	 * Wired as `useCommitField`'s `onSave` (NOT `validate`): an
-	 * `ok: false` return runs the hook's draft-preserving restore — the
-	 * typed id stays in the input alongside the shake + popover — where
+	 * `ok: false` return runs the hook's draft-preserving restore, the
+	 * typed id stays in the input alongside the shake + popover, where
 	 * a `validate` false would snap the input back to the old id. */
 	const commitRename = useCallback(
 		(newId: string): CommitOutcome | undefined => {
@@ -225,12 +225,12 @@ export function FieldIdentitySection({ field }: FieldIdentitySectionProps) {
 
 			switch (outcome.kind) {
 				case "noop":
-					/* Hardening only — empty/no-op commits short-circuit inside
+					/* Hardening only: empty/no-op commits short-circuit inside
 					 * the hook before `onSave` fires. A messageless rejection
 					 * reads as a silent revert. */
 					return { ok: false, messages: [] };
 				case "rejected":
-					/* The verdict blocked the rename — an illegal, reserved,
+					/* The verdict blocked the rename: an illegal, reserved,
 					 * over-long, or sibling-conflicting id. Surface it with a
 					 * quick shake on the input wrapper plus an error popover
 					 * anchored to it. The `onAnimationEnd` handler on the
@@ -243,14 +243,14 @@ export function FieldIdentitySection({ field }: FieldIdentitySectionProps) {
 					});
 					return { ok: false, messages: [outcome.message] };
 				case "success": {
-					/* Verdict clean — dispatch the field-id update (the hook re-runs
+					/* Verdict clean: dispatch the field-id update (the hook re-runs
 					 * the conflict scan as its own backstop, and the commit
 					 * gate can still refuse for findings only the whole-doc
 					 * validator sees). Uuid stays the same, selection is
 					 * stable. */
 					const result = renameFieldAction(asUuid(selectedUuid), newId);
 					if (result.rejected && result.rejected.length > 0) {
-						/* The commit gate refused — same shake + popover chrome
+						/* The commit gate refused: same shake + popover chrome
 						 * as an identifier rejection, with the gate's own
 						 * finding. */
 						setShaking(true);
@@ -274,11 +274,11 @@ export function FieldIdentitySection({ field }: FieldIdentitySectionProps) {
 	const idField = useCommitField({
 		value: field.id,
 		// `commitRename` owns the verdict + dispatch and returns the
-		// outcome — a refusal rides the hook's draft-preserving restore.
+		// outcome: a refusal rides the hook's draft-preserving restore.
 		onSave: commitRename,
 	});
 
-	/** Callback ref for the ID input — merges the commit hook ref with
+	/** Callback ref for the ID input: merges the commit hook ref with
 	 *  autoFocus behavior and undo/redo focus restoration. */
 	const setIdInputRef = useCallback(
 		(el: HTMLInputElement | null) => {
@@ -344,7 +344,7 @@ export function FieldIdentitySection({ field }: FieldIdentitySectionProps) {
 	if (!selectedUuid || !formUuid) return null;
 
 	/* Compute adjacency inline so isFirst/isLast always reflect the current
-	 * state. This runs on every render — see the comment on `docApi` above
+	 * state. This runs on every render: see the comment on `docApi` above
 	 * for why parent re-renders always cover the cases we care about. */
 	const liveDoc = docApi.getState();
 	const selectedUuidBranded = asUuid(selectedUuid);
@@ -355,13 +355,13 @@ export function FieldIdentitySection({ field }: FieldIdentitySectionProps) {
 	const isFirst = beforeUuid === undefined;
 	const isLast = afterUuid === undefined;
 
-	/* Cross-level (indent/outdent) targets — shown when Shift is held. */
+	/* Cross-level (indent/outdent) targets: shown when Shift is held. */
 	const { up: crossUp, down: crossDown } = getCrossLevelFieldMoveTargets(
 		liveDoc,
 		selectedUuidBranded,
 	);
 
-	/* Icon + label + conversion targets all resolve from the registry —
+	/* Icon + label + conversion targets all resolve from the registry:
 	 * the single source of truth for per-kind metadata. No parallel map
 	 * lookup, no fallback string: every kind in `fieldRegistry` carries
 	 * both an icon and a label by construction. */
@@ -374,7 +374,7 @@ export function FieldIdentitySection({ field }: FieldIdentitySectionProps) {
 	return (
 		<InspectorSection label="Field ID">
 			<div className="flex items-center gap-2" data-field-id="id">
-				{/* Joined type icon + id input — the icon is a leading adornment
+				{/* Joined type icon + id input: the icon is a leading adornment
 				 *  inside the input's visual boundary, the recessed well every
 				 *  other rail input uses. */}
 				<div className="relative flex-1 min-w-0">
@@ -389,7 +389,7 @@ export function FieldIdentitySection({ field }: FieldIdentitySectionProps) {
 								: "bg-nova-deep/50 border-white/[0.06] hover:border-nova-violet/30"
 						}`}
 					>
-						{/* Icon adornment — violet-tinted badge flush with the input */}
+						{/* Icon adornment: violet-tinted badge flush with the input */}
 						<SimpleTooltip content={typeLabel} side="bottom">
 							<span className="flex items-center justify-center w-10 shrink-0 text-nova-violet-bright border-r border-white/[0.06] rounded-l-lg bg-nova-violet/10">
 								<Icon icon={typeIcon} width="16" height="16" />
@@ -415,7 +415,7 @@ export function FieldIdentitySection({ field }: FieldIdentitySectionProps) {
 							className="self-center mr-2 shrink-0"
 						/>
 					</div>
-					{/* ID notice popover — anchored to the input wrapper, shown
+					{/* ID notice popover: anchored to the input wrapper, shown
 					 *  while `idNotice` is non-null. Carries either an error
 					 *  (sibling conflict) or info (auto-rename) message; the
 					 *  4-second dismissal timer upstream keeps stale notices
@@ -440,7 +440,7 @@ export function FieldIdentitySection({ field }: FieldIdentitySectionProps) {
 										</div>
 									) : (
 										/* Info notices (auto-rename after a cross-level
-										 * move) keep the violet register — nothing was
+										 * move) keep the violet register: nothing was
 										 * refused, the system did something on the
 										 * user's behalf. */
 										<div
@@ -458,7 +458,7 @@ export function FieldIdentitySection({ field }: FieldIdentitySectionProps) {
 					</Popover.Root>
 				</div>
 
-				{/* Actions overflow menu — move / convert / duplicate. Hidden for
+				{/* Actions overflow menu: move / convert / duplicate. Hidden for
 				 *  a view-only Project member: every item is a gated mutation. */}
 				{canEdit && (
 					<Menu.Root>
@@ -519,7 +519,7 @@ export function FieldIdentitySection({ field }: FieldIdentitySectionProps) {
 
 									<Menu.Separator className="mx-2 h-px bg-white/[0.06]" />
 
-									{/* Convert type — submenu with conversion targets. When the
+									{/* Convert type: submenu with conversion targets. When the
 									 *  current kind has no convert targets, the trigger
 									 *  collapses to a disabled item with an explanatory
 									 *  tooltip rather than disappearing, so the menu's
@@ -554,9 +554,9 @@ export function FieldIdentitySection({ field }: FieldIdentitySectionProps) {
 														 *  the reducer swaps the kind and reconciles per-kind
 														 *  properties via `fieldSchema`, keeping undo history
 														 *  and event logging clean. The hook seeds whatever
-														 *  the target kind needs to be born valid — the
+														 *  the target kind needs to be born valid: the
 														 *  starter option pair for a select, the picker's
-														 *  inert `''` default for hidden — so every offered
+														 *  inert `''` default for hidden, so every offered
 														 *  target lands, mirroring the insert picker. A flip
 														 *  that could set saved case values aside detours
 														 *  through the consent dialog first
@@ -618,7 +618,7 @@ export function FieldIdentitySection({ field }: FieldIdentitySectionProps) {
 // ── Reusable menu item ──────────────────────────────────────────────────
 
 /** Single menu item with icon, label, and optional keyboard shortcut hint.
- *  `onClick` is optional so disabled items can omit it — the helper drops
+ *  `onClick` is optional so disabled items can omit it: the helper drops
  *  any handler whenever `disabled` is true regardless of what callers pass. */
 function MenuItem({
 	icon,

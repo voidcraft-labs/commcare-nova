@@ -9,7 +9,7 @@
 // The reseed CARRIES the typed content where the new accept-set can
 // hold it (an int `5` becomes the text `"5"`; a "42" string becomes
 // the number `42`) and otherwise drops to an empty typed literal of an
-// accepted type — never a value the new constraint would reject. The
+// accepted type: never a value the new constraint would reject. The
 // accept-set itself comes from the same checker rule the slot's picker
 // gates on (`compatibleTypesFor` → `typesCompatible`), so a reseed can
 // never land outside what the editor would have offered.
@@ -44,7 +44,7 @@ import {
 import { resolveRelationDestination } from "../relationDestination";
 
 /** The editor context shape a card already holds via
- *  `usePredicateEditContext()` — enough to drive a checker pass. It is
+ *  `usePredicateEditContext()`: enough to drive a checker pass. It is
  *  the SHARED vocabulary type, not a narrower local one: resolving a
  *  reseed against fewer axes than the pickers offer is exactly how a
  *  form answer resolves to `undefined`, widens the dependent slot's
@@ -55,7 +55,7 @@ type ResolveContext = EditorTypeVocabulary;
  * Resolve a value expression's type against the editor scope, the same
  * way `useResolvedType` does, but callable from inside an event
  * handler (where hooks can't run). Returns `undefined` for an absent
- * or unresolved expression — the constraint factories read that as
+ * or unresolved expression: the constraint factories read that as
  * "no narrowing", so an incomplete subject never forces a reseed.
  */
 export function resolveExpressionType(
@@ -69,7 +69,7 @@ export function resolveExpressionType(
 // The literal types the editor can construct an EMPTY typed value for,
 // in the order a reseed prefers them. `geopoint` has no literal widget
 // (a coordinate is authored as text or read from a property), and the
-// null sentinel (`_any`) never carries user content — a slot
+// null sentinel (`_any`) never carries user content: a slot
 // that admits only those falls through to the universally-compatible
 // `null` literal.
 const BUILDABLE_TYPES: readonly ResolvedType[] = [
@@ -94,7 +94,7 @@ function setHasAny(
 	return types.some((t) => accepts.has(t));
 }
 
-/** An empty literal whose resolved type IS `t` — the seed for a slot
+/** An empty literal whose resolved type IS `t`: the seed for a slot
  *  whose old value can't carry into the new accept-set. */
 function emptyLiteralForType(t: ResolvedType): Literal {
 	switch (t) {
@@ -162,13 +162,13 @@ export function reseedValueForConstraint(
 }
 
 /**
- * A type-valid EMPTY seed literal for a property slot — an empty value
+ * A type-valid EMPTY seed literal for a property slot: an empty value
  * of the property's OWN type (text `""`, numeric `0`, date / datetime /
  * time empty-string, geopoint `null`). A default-built comparison /
  * membership / range pairs this with the property so the seed lands
  * type-correct rather than the bug class where a text `literal("")` sits
  * opposite an ordered or non-text property. An absent property (no
- * resolvable type) seeds plain text — the unresolved property surfaces
+ * resolvable type) seeds plain text: the unresolved property surfaces
  * its own completeness error, and the value is never type-checked
  * against an unresolved left.
  */

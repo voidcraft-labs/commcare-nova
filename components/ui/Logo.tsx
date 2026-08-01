@@ -1,14 +1,14 @@
 /**
  * The CommCare Nova logo: the "first light sphere" logomark + the
  * lowercase wordmark. The mark is a dusk world whose limb catches first
- * light — a violet energy ring warming to dawn at the lower right,
+ * light: a violet energy ring warming to dawn at the lower right,
  * softly breathing (light waxes and wanes; nothing moves, nothing
- * pings) — with the sphere's own edge lit to match. The wordmark is
+ * pings): with the sphere's own edge lit to match. The wordmark is
  * two-tone, no gradient: "commcare" in the text tier, "nova" in
  * violet-bright.
  *
- * `variant="flat"` swaps in the flattened sibling — a violet body with a
- * bold dawn crescent, two flat shapes that survive 16px — for tiny
+ * `variant="flat"` swaps in the flattened sibling: a violet body with a
+ * bold dawn crescent, two flat shapes that survive 16px: for tiny
  * contexts (the favicon is exported from this variant).
  *
  * Alignment: the mark's box is centered on the lowercase ink band, which

@@ -1,27 +1,27 @@
 /**
- * FormRenderer — dispatcher between the edit-mode virtualized list and
+ * FormRenderer: dispatcher between the edit-mode virtualized list and
  * the interactive (preview) recursive renderer.
  *
  * The form editor has two fundamentally different presentations:
  *
  *   1. Edit view: structural editing with
  *      selection, insertion points, drag-to-reorder, per-field panels.
- *      Performance critical — rendered via `VirtualFormList` over a flat
+ *      Performance critical: rendered via `VirtualFormList` over a flat
  *      row model.
  *
  *   2. Interactive view (preview mode): the form as the
- *      end-user will fill it in — answer-driven visibility, real repeat
+ *      end-user will fill it in: answer-driven visibility, real repeat
  *      instances, validation feedback. Rendered recursively by
  *      `InteractiveFormRenderer`, which preserves CommCare's runtime
  *      semantics.
  *
  * This component owns the branch. Both render paths are full subtrees,
- * so toggling between them unmounts one and mounts the other — a clean
+ * so toggling between them unmounts one and mounts the other, a clean
  * break that avoids cross-contaminating hook orders and makes the two
  * renderers totally independent.
  *
  * Callers (the single entry point is `FormScreen`) don't need to know
- * which path is active — they always render `<FormRenderer parentEntityId
+ * which path is active: they always render `<FormRenderer parentEntityId
  * ={formUuid} />` and the branch picks the right implementation.
  */
 
@@ -34,7 +34,7 @@ import { InteractiveFormRenderer } from "./InteractiveFormRenderer";
 import { VirtualFormList } from "./virtual/VirtualFormList";
 
 interface FormRendererProps {
-	/** Entity uuid owning this level's children — at the form root this
+	/** Entity uuid owning this level's children: at the form root this
 	 *  is the form's uuid; nested calls (from `InteractiveFormRenderer`
 	 *  via GroupField/RepeatField) pass the group or repeat uuid. */
 	readonly parentEntityId: string;
@@ -51,7 +51,7 @@ export const FormRenderer = memo(function FormRenderer({
 }: FormRendererProps) {
 	const mode = useEditMode();
 
-	// The virtualized path applies only at the form root — nested calls
+	// The virtualized path applies only at the form root: nested calls
 	// come from `GroupField` / `RepeatField` inside the interactive tree
 	// and must go recursively. The root-only gate is the `parentPath`
 	// check: nested calls always pass one.
@@ -59,7 +59,7 @@ export const FormRenderer = memo(function FormRenderer({
 	const useVirtualized = isRoot && mode === "edit";
 
 	if (useVirtualized) {
-		// `parentEntityId` at the root is the form uuid — cast to the
+		// `parentEntityId` at the root is the form uuid: cast to the
 		// branded type here so `VirtualFormList`'s domain API stays tight.
 		return <VirtualFormList formUuid={asUuid(parentEntityId)} />;
 	}

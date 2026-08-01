@@ -26,7 +26,7 @@ export default function Layout({ children }: { children: ReactNode }) {
 					/* Static search: `/api/search` exports the prebuilt
 					 * Orama index via `createFromSource(...).staticGET`;
 					 * the client downloads it once and searches in-browser.
-					 * Both halves must agree — `type: "static"` here is the
+					 * Both halves must agree: `type: "static"` here is the
 					 * matching client-side configuration. */
 					options: {
 						type: "static",

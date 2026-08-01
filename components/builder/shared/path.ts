@@ -5,7 +5,7 @@
 // `checkPredicate` (in `lib/domain/predicate/typeChecker.ts`) emits
 // `CheckError.path: (string | number)[]` segments locating each
 // violation inside the AST. The shape matches the walker's structure
-// in `walk(...)` — recursive wrappers (`and` / `or` / `not` /
+// in `walk(...)`: recursive wrappers (`and` / `or` / `not` /
 // `when-input-present` / `exists` / `missing`) push their `kind`
 // segment first, then either an array index (`and` / `or`) or a slot
 // name (`clause` / `where` / `input`); leaf operators push only the
@@ -17,7 +17,7 @@
 // into a `validityIndex` keyed by the path's serialized form;
 // individual cards look up their own path's errors when rendering
 // inline diagnostics. Cards do NOT recompute paths from the AST
-// shape directly — they receive their own path as a prop and pass
+// shape directly: they receive their own path as a prop and pass
 // extended copies to nested children, mirroring the walker's
 // `[...path, ...]` accumulation pattern.
 
@@ -32,7 +32,7 @@
 export type EditorPath = readonly (string | number)[];
 
 /**
- * Empty path — the root of the predicate AST. Operator-level errors
+ * Empty path: the root of the predicate AST. Operator-level errors
  * (e.g. "between has lower > upper") attach here.
  */
 export const ROOT_PATH: EditorPath = [];
@@ -98,7 +98,7 @@ export function appendSlotIndex(
  *   `walk(c.then, ctx, errors, [...path, "switch", "cases", i, "then"])`
  *
  * The four-arity helper exists so the editor's path-building stays
- * a single function call per descent — mirrors the walker's
+ * a single function call per descent: mirrors the walker's
  * `[...path, "switch", "cases", i, "then"]` accumulation. Used
  * specifically for the `switch.cases[i].when` and `.then` slots
  * inside SwitchCard.
@@ -116,7 +116,7 @@ export function appendKindIndexSlot(
 /**
  * Append only an operator-kind segment with no slot suffix. Used for
  * operator-level errors that the type checker emits at the kind
- * boundary itself — `[...path, "if"]` (branch type-mismatch on
+ * boundary itself: `[...path, "if"]` (branch type-mismatch on
  * `if`), `[...path, "switch"]` (operator-level error inside the
  * `switch.cases[i]` block at the `cases` array level), `[...path,
  * "count"]` (count's "no current case-type scope" error). Matches
@@ -131,7 +131,7 @@ export function appendKind(path: EditorPath, kind: string): EditorPath {
  * paths with identical segments produce identical strings; segments
  * are joined by `\0` (the null byte) which never appears in a CCHQ
  * identifier or a slot name, so collisions are structurally
- * impossible. The `\0` separator is a stricter choice than `/` —
+ * impossible. The `\0` separator is a stricter choice than `/`:
  * neither character appears in slot names today, but the null
  * byte's absence from the ASCII printable range makes the
  * separator unambiguously non-content.
@@ -141,7 +141,7 @@ export function serializePath(path: EditorPath): string {
 }
 
 /**
- * Reverse of `serializePath` — used in tests / debugging only. The
+ * Reverse of `serializePath`: used in tests / debugging only. The
  * runtime editor never deserializes; it routes through map lookups
  * by serialized key.
  */

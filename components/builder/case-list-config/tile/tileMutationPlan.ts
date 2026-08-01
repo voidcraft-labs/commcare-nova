@@ -12,7 +12,7 @@
 //     did not ask to discard.
 //
 // Placement writes go through `columnTileMutations`, the shared planner
-// that makes a cell its own independently mergeable write — a peer
+// that makes a cell its own independently mergeable write: a peer
 // relabelling the same column while this author drags it are edits to
 // different things and must merge.
 
@@ -126,7 +126,7 @@ export function planTileLayoutEnable(args: {
 }
 
 /**
- * Turn the tile layout off. Only the layout slot clears — every cell
+ * Turn the tile layout off. Only the layout slot clears: every cell
  * stays exactly where the author put it, inert until the tile comes
  * back.
  */
@@ -140,7 +140,7 @@ export function planTileLayoutDisable(moduleUuid: Uuid): readonly Mutation[] {
  * `patch.tile` replaces the layout object wholesale, so this rebuilds it
  * from the current one rather than writing a bare `{ persistOnForms }`.
  * The layout carries exactly one slot today and the two spellings are
- * identical — but a second slot added later would be silently erased by
+ * identical, but a second slot added later would be silently erased by
  * every toggle of this switch, and that failure is invisible until an
  * author notices a setting gone.
  */

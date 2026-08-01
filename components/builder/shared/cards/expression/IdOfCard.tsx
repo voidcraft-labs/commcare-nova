@@ -3,8 +3,8 @@
 // "The case an earlier change made" as a value.
 //
 // The offered set is the creates already in scope at this point in the
-// sequence — the same set the type checker admits
-// (`TypeContext.operationIds`) — so the picker cannot author a reference
+// sequence: the same set the type checker admits
+// (`TypeContext.operationIds`), so the picker cannot author a reference
 // to a case that does not exist yet. Outside a case operation the
 // context carries no scope at all, and the card preserves the saved
 // reference read-only rather than pretending it can be retargeted here.

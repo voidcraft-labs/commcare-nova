@@ -1,6 +1,6 @@
 // app/api/chat/__tests__/streamFailure.test.ts
 //
-// Pins the chat route's fatal-vs-recoverable failure classification — the exact
+// Pins the chat route's fatal-vs-recoverable failure classification, the exact
 // distinction a code review caught the route getting wrong. The route's forward
 // loop calls `failRun` (refund + flip the app to `error`) when it sees a fatal
 // stream error, but the SDK's `toUIMessageStream({onError})` ALSO fires for

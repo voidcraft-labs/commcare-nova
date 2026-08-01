@@ -2,8 +2,8 @@
  * Module-row card in the AppTree sidebar.
  *
  * Renders the module header (icon tile, name, optional case-type slug,
- * collapse chevron), a calm entry point for the case workspace, and —
- * when expanded — the nested list of FormCards.
+ * collapse chevron), a calm entry point for the case workspace, and:
+ * when expanded: the nested list of FormCards.
  *
  * Subscribes by UUID to exactly this module's entity + its
  * `formOrder` array. Other modules' edits do not re-render this card.
@@ -69,13 +69,13 @@ export const ModuleCard = memo(function ModuleCard({
 	const mod = useModuleDoc(moduleUuid);
 
 	/** Subscribe to this module's form IDs from the doc store. `undefined`
-	 *  while the module row is mounted without a formOrder entry — the
+	 *  while the module row is mounted without a formOrder entry, the
 	 *  component returns null below in that case. */
 	const formIds = useFormIds(moduleUuid);
 
 	const connectType = useConnectTypeOrUndefined();
 
-	/** Boolean selection — URL-driven via useIsModuleSelected.
+	/** Boolean selection: URL-driven via useIsModuleSelected.
 	 *  Only this module + the previously selected re-render on change. */
 	const isSelected = useIsModuleSelected(moduleUuid);
 	const isCaseListSelected = useIsCaseListSelected(moduleUuid);
@@ -113,7 +113,7 @@ export const ModuleCard = memo(function ModuleCard({
 				selected={isSelected}
 				className={`group flex min-h-11 items-center justify-between gap-1.5 py-1.5 pr-3 pl-2 ${locked ? "text-nova-text-secondary" : "cursor-pointer"}`}
 				// A `caseListOnly` module IS its case list (no forms anywhere in
-				// the app), so the module screen would be an empty form menu —
+				// the app), so the module screen would be an empty form menu:
 				// open the case-list config instead. Selecting it still tints this
 				// row (useIsModuleSelected covers `cases`) AND borders the Case
 				// List & Search node below, so the two read as one unit.
@@ -166,7 +166,7 @@ export const ModuleCard = memo(function ModuleCard({
 						)}
 					</div>
 				</div>
-				{/* Trailing cluster — the peer marker is the OUTERMOST element on
+				{/* Trailing cluster: the peer marker is the OUTERMOST element on
 				 *  every tree-row type, so it sits at one constant offset from the
 				 *  right edge whatever other meta (count, hover-delete) a row
 				 *  carries; the delete fades in just inboard of it. */}
@@ -180,7 +180,7 @@ export const ModuleCard = memo(function ModuleCard({
 
 			{!isCollapsed && (
 				<ul aria-label={`${mod.name} contents`} className="m-0 list-none p-0">
-					{/* Cases — the workspace's entry point. Lives
+					{/* Cases: the workspace's entry point. Lives
 					 *  here in the tree (not on the module screen) so it's
 					 *  one click from anywhere, including via the collapsed
 					 *  icon rail. Its summary matches the three authoring
@@ -196,7 +196,7 @@ export const ModuleCard = memo(function ModuleCard({
 						<ul className="m-0 list-none p-0" aria-label={`${mod.name} forms`}>
 							<AnimatePresence mode="sync">
 								{/* Form insertion points interleave between forms (and a
-								 *  leading one, so a form can be added to an empty module) —
+								 *  leading one, so a form can be added to an empty module):
 								 *  hidden while filtering or locked. */}
 								{interleaveInsertions(formIds, {
 									suppress: !!locked || !!searchResult,

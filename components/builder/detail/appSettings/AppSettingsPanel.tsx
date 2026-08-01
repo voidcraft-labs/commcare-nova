@@ -7,7 +7,7 @@ import { AppConnectSection } from "./AppConnectSection";
 import { AppDataSourcesSection } from "./AppDataSourcesSection";
 
 /** Shell prop shape: just a dismiss callback wired from the popover
- *  trigger. The app surface is a singleton — there is no entity uuid to
+ *  trigger. The app surface is a singleton: there is no entity uuid to
  *  thread through, unlike the form / module panels. */
 interface AppSettingsPanelProps {
 	onClose: () => void;
@@ -15,7 +15,7 @@ interface AppSettingsPanelProps {
 
 /**
  * App-settings drawer body rendered inside the Popover popup. Pure
- * chrome — a labeled header with a dismiss button and a content region
+ * chrome: a labeled header with a dismiss button and a content region
  * composing the app-level sections (logo appearance + CommCare Connect
  * mode + the conditional data-sources row). Mirrors
  * `FormSettingsPanel`'s `w-80` drawer layout and section stacking.

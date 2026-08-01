@@ -404,7 +404,7 @@ describe("placementForJoiningTile", () => {
 
 describe("planColumnTilePlacement", () => {
 	it("adjudicates a field the grid cannot draw against the tile's members", () => {
-		// A Details-only field's cell is inert, so it is not a member — but
+		// A Details-only field's cell is inert, so it is not a member, but
 		// a typed number still has to land somewhere no member occupies.
 		const inert = column("inert", "Notes", {
 			visibleInList: false,

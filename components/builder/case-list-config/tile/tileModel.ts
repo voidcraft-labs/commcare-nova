@@ -1,7 +1,7 @@
 // components/builder/case-list-config/tile/tileModel.ts
 //
 // The pure placement model behind the tile layout editor. Every gesture
-// — a pointer drag, an arrow key, a typed number, a preset — resolves to
+//: a pointer drag, an arrow key, a typed number, a preset, resolves to
 // the same verdict here: one placement, or one refusal stated in the
 // author's words. The editor never lands a refused placement, which is
 // what keeps the `CASE_LIST_TILE_*` validator findings unreachable from
@@ -49,7 +49,7 @@ export interface TileMembership {
 	readonly unplaced: readonly TileVacancy[];
 }
 
-/** Just the four coordinates — what a gesture changes. Presentation
+/** Just the four coordinates: what a gesture changes. Presentation
  *  slots travel with the cell they already sit on. */
 export interface TileGeometry {
 	readonly x: number;
@@ -63,7 +63,7 @@ export type TilePlacementVerdict =
 	| { readonly ok: false; readonly reason: string };
 
 /**
- * Whether the tile lays this column out — that is, whether a worker sees
+ * Whether the tile lays this column out: that is, whether a worker sees
  * it. A column hidden from Results draws nothing on a tile whether or
  * not it still orders the list, so it needs no square.
  */
@@ -72,7 +72,7 @@ export function tileShowsColumn(column: Column): boolean {
 }
 
 /**
- * The tile's membership in Results order — the same sequence the short
+ * The tile's membership in Results order: the same sequence the short
  * detail emits its fields in.
  */
 export function tileMembership(config: CaseListConfig): TileMembership {
@@ -91,7 +91,7 @@ export function tileMembership(config: CaseListConfig): TileMembership {
 }
 
 /**
- * Every member of the tile, placed or not, in Results order — the
+ * Every member of the tile, placed or not, in Results order, the
  * sequence a preset arranges against.
  */
 export function tileMemberUuids(config: CaseListConfig): readonly Uuid[] {
@@ -101,7 +101,7 @@ export function tileMemberUuids(config: CaseListConfig): readonly Uuid[] {
 }
 
 /**
- * The accessible name of one cell — the field and the squares it holds,
+ * The accessible name of one cell: the field and the squares it holds,
  * so a screen reader announces a move as a change of place rather than
  * an unexplained focus event.
  */
@@ -139,7 +139,7 @@ export function describeTilePlace(cell: TileCell): string {
  *
  * `others` is every OTHER member's placement; the moving field is never
  * compared against itself. The refusal is the whole explanation a
- * gesture surfaces — the canvas and the numeric inputs both show it
+ * gesture surfaces: the canvas and the numeric inputs both show it
  * verbatim rather than composing their own.
  */
 export function evaluateTilePlacement(args: {
@@ -236,9 +236,9 @@ export function planTilePlacement(
 /**
  * Adjudicate a placement for ANY column, member or not.
  *
- * The numeric controls reach cells the grid cannot draw — a saved place
+ * The numeric controls reach cells the grid cannot draw: a saved place
  * on a field currently hidden from Results, or on any field while the
- * case list is showing rows — so they cannot go through the member list
+ * case list is showing rows, so they cannot go through the member list
  * the way a drag does. Everything else is identical: the same bounds,
  * the same overlap check against the tile's members, the same words.
  */
@@ -314,7 +314,7 @@ export type TileKeyboardGesture =
 /**
  * The keyboard equivalent of dragging a cell: an arrow key moves it one
  * square, and Shift with an arrow key moves the edge the arrow points
- * at — right and down grow the field, left and up shrink it.
+ * at: right and down grow the field, left and up shrink it.
  *
  * Returns `null` for every other key so the grid never swallows Tab,
  * Escape, or activation keys.
@@ -360,7 +360,7 @@ export function planTileKeyboardGesture(
 
 /**
  * The first free rectangle of the requested size, scanning left to
- * right then top to bottom — where a newly placed field lands so it
+ * right then top to bottom, where a newly placed field lands so it
  * reads in the order the author added it.
  */
 export function firstFreeTilePlacement(
@@ -395,7 +395,7 @@ export function nextFreeTilePlacement(
 }
 
 /**
- * The place a column takes when it joins the tile — showing a field the
+ * The place a column takes when it joins the tile: showing a field the
  * tile had hidden, or adding a new one.
  *
  * A saved cell is honored only while it still WORKS. A column hidden
@@ -404,7 +404,7 @@ export function nextFreeTilePlacement(
  * column on top of whatever moved in and refuse the author's own reveal
  * at the commit gate, with no way to repair it from the panel the
  * refusal opens. So a saved cell that no longer fits falls back to free
- * space — at the size the author chose, if that size fits anywhere.
+ * space: at the size the author chose, if that size fits anywhere.
  *
  * Returns `null` only when the tile is genuinely full, which callers
  * state as the reason rather than dispatching a doomed batch.
@@ -450,7 +450,7 @@ export interface TileIssue {
  * Every tile problem in one config, in the workspace's voice.
  *
  * This mirrors `lib/commcare/validator/rules/case-list/caseTileLayout.ts`
- * exactly — geometry is checked on every stored cell whether or not the
+ * exactly: geometry is checked on every stored cell whether or not the
  * layout is on (so switching the tile back on is always accepted), while
  * coverage is checked only while it is on (it is a statement about what
  * the Results detail emits).

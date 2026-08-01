@@ -8,7 +8,7 @@ import {
 } from "@/lib/signalGridController";
 import { PIECES } from "@/lib/tetrisProgressSolver";
 
-// Standalone test page — no builder dependency, simulates energy directly.
+// Standalone test page: no builder dependency, simulates energy directly.
 
 interface Scenario {
 	name: string;
@@ -754,7 +754,7 @@ export default function SignalTestPage() {
 	}, []);
 
 	// Resize the controller when the width slider changes. `width` drives the
-	// container's inline style — once React applies the new width to the DOM,
+	// container's inline style: once React applies the new width to the DOM,
 	// we tell the controller to re-measure its grid dimensions.
 	useEffect(() => {
 		if (width > 0) controllerRef.current?.resize();
@@ -772,7 +772,7 @@ export default function SignalTestPage() {
 					</p>
 				</div>
 
-				{/* Piece gallery — all pieces × all rotations on a 3-row mini grid */}
+				{/* Piece gallery: all pieces × all rotations on a 3-row mini grid */}
 				<div className="space-y-2">
 					<span className="text-xs text-nova-text-muted uppercase tracking-wider font-mono">
 						Piece Catalogue
@@ -788,7 +788,7 @@ export default function SignalTestPage() {
 										const maxR = Math.max(...shape.map(([r]) => r));
 										const maxC = Math.max(...shape.map(([, c]) => c));
 										const cells = new Set(shape.map(([r, c]) => `${r},${c}`));
-										/* Each rotation is a unique cell arrangement — serialize coordinates
+										/* Each rotation is a unique cell arrangement: serialize coordinates
                        to produce a stable content-derived key instead of the array index. */
 										const shapeKey = shape.map(([r, c]) => `${r}${c}`).join("");
 										return (
@@ -995,7 +995,7 @@ export default function SignalTestPage() {
 					</div>
 				</div>
 
-				{/* Edit focus control — only visible in editing mode */}
+				{/* Edit focus control: only visible in editing mode */}
 				{mode === "editing" && (
 					<div className="space-y-2">
 						<span className="text-xs text-nova-text-muted uppercase tracking-wider font-mono">
@@ -1025,7 +1025,7 @@ export default function SignalTestPage() {
 					</div>
 				)}
 
-				{/* Scaffold progress control — only visible in scaffolding mode */}
+				{/* Scaffold progress control: only visible in scaffolding mode */}
 				{mode === "scaffolding" && (
 					<div className="space-y-2">
 						<span className="text-xs text-nova-text-muted uppercase tracking-wider font-mono">

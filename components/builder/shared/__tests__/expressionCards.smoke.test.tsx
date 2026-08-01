@@ -96,7 +96,7 @@ function valueForKind(kind: ValueExpression["kind"]): ValueExpression {
 	return expressionCardSchemas[kind].defaultValue(ctx);
 }
 
-// ── Round-trip parsing — every default is schema-valid AST ─────────────
+// ── Round-trip parsing: every default is schema-valid AST ─────────────
 
 describe("expression cards smoke — defaultValue parses through valueExpressionSchema", () => {
 	for (const kind of allKinds) {
@@ -107,7 +107,7 @@ describe("expression cards smoke — defaultValue parses through valueExpression
 	}
 });
 
-// ── Mount-and-render — every card mounts without throwing ──────────────
+// ── Mount-and-render: every card mounts without throwing ──────────────
 
 describe("expression cards smoke — mount via ExpressionCardEditor", () => {
 	for (const kind of allKinds) {

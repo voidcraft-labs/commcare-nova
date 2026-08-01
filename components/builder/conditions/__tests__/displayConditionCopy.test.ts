@@ -94,7 +94,7 @@ describe("displayConditionCopy", () => {
 		expect(copy.locus.join(" ")).not.toContain("undefined");
 	});
 
-	// Stated as the always-true fact — what a condition decides — rather
+	// Stated as the always-true fact: what a condition decides, rather
 	// than by naming a bypass Nova does not author today.
 	it("says a condition governs what is offered, not who may see the data", () => {
 		expect(DISPLAY_CONDITION_NOT_A_PERMISSION).toContain(

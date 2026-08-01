@@ -1,8 +1,8 @@
 /**
- * AppTreeRail — the structure sidebar's collapsed state: a slim icon
+ * AppTreeRail: the structure sidebar's collapsed state: a slim icon
  * rail instead of nothing. Every top-level destination stays one
- * click away — module screens, each case-typed module's Case List &
- * Search workspace, and every form — so collapsing the tree trades
+ * click away: module screens, each case-typed module's Case List &
+ * Search workspace, and every form, so collapsing the tree trades
  * width for labels, never for reach.
  *
  * Rows mirror the expanded tree's order: module tile, then its
@@ -110,7 +110,7 @@ const RailModuleGroup = memo(function RailModuleGroup({
 	const onSelect = useAppTreeSelection();
 	const loc = useLocation();
 	const isCaseListSelected = useIsCaseListSelected(moduleUuid);
-	/* Exact-module selection (not the descendant-inclusive predicate) —
+	/* Exact-module selection (not the descendant-inclusive predicate):
 	 * the rail highlights the precise destination, so a form screen
 	 * lights its form icon, not the parent module's. */
 	const isModuleScreen = loc.kind === "module" && loc.moduleUuid === moduleUuid;

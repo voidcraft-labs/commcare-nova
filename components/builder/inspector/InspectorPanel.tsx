@@ -1,13 +1,13 @@
 /**
- * InspectorPanel — the right-rail properties chrome: a fixed identity header
+ * InspectorPanel: the right-rail properties chrome: a fixed identity header
  * (kicker + title + close) over a single scroll container that holds the active
  * inspector body.
  *
  * It is a PLAIN child of the always-mounted rail (`ChatSidebar` renders it in
- * place of the chat conversation while something is selected) — not a portal and
+ * place of the chat conversation while something is selected), not a portal and
  * not a claim. Because the rail never unmounts and merely parks off-screen during
  * a preview flip, this scroll container is never torn down across the flip, so
- * its scroll position survives for free — the same guarantee chat and the app
+ * its scroll position survives for free: the same guarantee chat and the app
  * tree already have. The rail supplies the body + header text through
  * `useActiveInspector` (see `activeInspector.tsx`); the body itself lives with
  * whatever surface owns the selection (a field, or the case-list controller).
@@ -21,9 +21,9 @@ import { Button } from "@/components/shadcn/button";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
 
 interface InspectorPanelProps {
-	/** Friendly context above the title — e.g. "Search field", "Information". */
+	/** Friendly context above the title: e.g. "Search field", "Information". */
 	readonly kicker: string;
-	/** Entity title — the field label, column header, input label, etc. */
+	/** Entity title: the field label, column header, input label, etc. */
 	readonly title: string;
 	/** Clear the owning surface's selection. The close button, the dock's
 	 *  expand-chat affordance, and Escape all land here. */
@@ -85,7 +85,7 @@ export function InspectorPanel({
 					</Button>
 				</SimpleTooltip>
 			</div>
-			{/* `@container` so editor bodies can adapt to the rail's width — the
+			{/* `@container` so editor bodies can adapt to the rail's width, the
 			 *  predicate/expression cards stack their operand grids in narrow
 			 *  containers and go multi-column only with real room. */}
 			<div className="flex-1 min-h-0 overflow-y-auto px-4 py-4 space-y-4 @container">

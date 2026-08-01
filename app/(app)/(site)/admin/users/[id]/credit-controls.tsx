@@ -1,5 +1,5 @@
 /**
- * Credit controls — the admin reset/grant surface for a single user.
+ * Credit controls: the admin reset/grant surface for a single user.
  *
  * This is the highest-stakes control in the admin app: confirming either
  * dialog fires a real, credit-mutating Postgres write (and an append-only
@@ -8,12 +8,12 @@
  *
  *   1. Every credit mutation goes through a confirm dialog, so a mis-click
  *      can't zero a user's month or hand out bonus credits silently.
- *   2. The dialog is CONTROLLED and stays open until the request settles —
+ *   2. The dialog is CONTROLLED and stays open until the request settles:
  *      see `runCreditAction` for why the in-flight state is a flag, not a
  *      never-resolving promise, and why every dismiss path is gated on it.
  *
  * After a successful write we `navigate.refresh()` to re-stream the parent
- * server section, which re-reads Postgres — so the balance summary and the
+ * server section, which re-reads Postgres, so the balance summary and the
  * audit list below update from source rather than from optimistic local
  * state we'd otherwise have to keep in sync.
  */
@@ -52,7 +52,7 @@ import { useExternalNavigate } from "@/lib/routing/hooks";
 import { showToast } from "@/lib/ui/toastStore";
 import { formatPeriodLabel } from "@/lib/utils/format";
 
-/** Which action is currently in flight (mutually exclusive — one dialog at a time). */
+/** Which action is currently in flight (mutually exclusive: one dialog at a time). */
 type PendingAction = "reset" | "grant";
 
 interface CreditControlsProps {
@@ -98,7 +98,7 @@ export function CreditControls({
 	// The grant amount is held as the raw input string (not a number) so the
 	// validity check below can reject an empty field, a fractional value, or a
 	// non-positive value uniformly. `Number("")` is `0`, which fails the
-	// positive-integer test naturally — no special-casing of the empty case.
+	// positive-integer test naturally: no special-casing of the empty case.
 	const [grantAmount, setGrantAmount] = useState("");
 	const grantAmountValue = Number(grantAmount);
 	const grantAmountValid =
@@ -110,12 +110,12 @@ export function CreditControls({
 	 * The leak-safe contract this function enforces:
 	 *   - `setPending(action)` BEFORE the fetch, `setPending(null)` in `finally`
 	 *     so the flag clears on the success path, the error path, AND a thrown
-	 *     network error — there is no branch that leaves a control stuck disabled.
+	 *     network error: there is no branch that leaves a control stuck disabled.
 	 *   - The dialog stays open for the entire request. We close it (and reset
 	 *     the form) ONLY after a 2xx; on any failure it stays open so the admin
 	 *     can read the toast and retry without re-opening.
 	 *   - On success, `navigate.refresh()` re-streams the parent server section,
-	 *     which re-reads Postgres — fresh balance + the new audit row, no
+	 *     which re-reads Postgres: fresh balance + the new audit row, no
 	 *     optimistic local mutation to keep consistent.
 	 */
 	const runCreditAction = async (
@@ -155,7 +155,7 @@ export function CreditControls({
 				.catch(() => ({ error: "Something went wrong." }));
 			showToast("error", "Couldn't update credits", error);
 		} catch {
-			// A network-level failure (fetch rejected) — still toast, still fall
+			// A network-level failure (fetch rejected): still toast, still fall
 			// through to `finally`. The dialog stays open for a retry.
 			showToast(
 				"error",
@@ -163,7 +163,7 @@ export function CreditControls({
 				"The request didn't go through. Check your connection and try again.",
 			);
 		} finally {
-			// Clears on EVERY path above — the single place the in-flight flag
+			// Clears on EVERY path above: the single place the in-flight flag
 			// is released, so no control can be left permanently disabled.
 			setPending(null);
 		}
@@ -197,7 +197,7 @@ export function CreditControls({
 			<h3 className="text-lg font-display font-semibold">Credits</h3>
 
 			<div className="bg-nova-deep border border-nova-border rounded-xl p-6 space-y-6">
-				{/* ── Balance summary — remaining is the headline figure ───────── */}
+				{/* ── Balance summary: remaining is the headline figure ───────── */}
 				<div className="flex flex-wrap items-end justify-between gap-6">
 					<div>
 						<p className="text-xs font-medium text-nova-text-muted">
@@ -211,7 +211,7 @@ export function CreditControls({
 						</p>
 					</div>
 
-					{/* Supporting figures — emphasis comes from weight + position,
+					{/* Supporting figures: emphasis comes from weight + position,
 					    not decorative color. Bonus is shown only when nonzero so a
 					    clean account doesn't carry a meaningless "0 bonus" line. */}
 					<dl className="grid grid-cols-2 gap-x-8 gap-y-2 text-sm">
@@ -238,7 +238,7 @@ export function CreditControls({
 					</dl>
 				</div>
 
-				{/* ── Actions — each behind a confirm dialog ───────────────────── */}
+				{/* ── Actions: each behind a confirm dialog ───────────────────── */}
 				<div className="flex flex-wrap gap-3 border-t border-nova-border pt-5">
 					{/* Reset: zeroes this month's consumed; allowance + bonus kept. */}
 					<AlertDialog
@@ -292,7 +292,7 @@ export function CreditControls({
 									Cancel
 								</AlertDialogCancel>
 								{/* This repo's AlertDialogAction is a plain Button (not the
-								    primitive Close), so it does NOT auto-close — we just
+								    primitive Close), so it does NOT auto-close: we just
 								    attach the async handler. The dialog closes only when the
 								    handler succeeds. */}
 								<AlertDialogAction
@@ -371,8 +371,8 @@ export function CreditControls({
 								</AlertDialogCancel>
 								<AlertDialogAction
 									onClick={handleGrant}
-									// Disabled until the amount is a positive whole number —
-									// the same shape the endpoint validates — so an invalid
+									// Disabled until the amount is a positive whole number:
+									// the same shape the endpoint validates, so an invalid
 									// grant can't even be submitted.
 									disabled={pending !== null || !grantAmountValid}
 								>
@@ -384,7 +384,7 @@ export function CreditControls({
 				</div>
 			</div>
 
-			{/* ── Audit trail — every reset/grant, newest first ──────────────── */}
+			{/* ── Audit trail: every reset/grant, newest first ──────────────── */}
 			<div>
 				<h4 className="text-sm font-display font-semibold text-nova-text-secondary mb-3">
 					Credit interventions
@@ -402,7 +402,7 @@ export function CreditControls({
 								// timestamp, the acting admin, the action, and the amount.
 								// The list is append-only and server-ordered (never reordered
 								// or filtered client-side), so this composite is stable for
-								// React's reconciliation — no array index needed.
+								// React's reconciliation: no array index needed.
 								key={`${grant.created_at}-${grant.actor_email}-${grant.type}-${grant.amount}`}
 								className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-nova-border bg-nova-surface px-4 py-3 text-sm"
 							>

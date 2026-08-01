@@ -1,5 +1,5 @@
 /**
- * FieldPickerContext — shared menu handle for InsertionPoints.
+ * FieldPickerContext: shared menu handle for InsertionPoints.
  *
  * Instead of N+1 independent `Menu.Root` + `FieldTypePickerPopup` instances
  * (one per InsertionPoint per form), a single shared `Menu.Root` at the root
@@ -11,7 +11,7 @@
  * where to insert the new field.
  *
  * `activeTarget` is the payload the menu is CURRENTLY open for (null when
- * closed) — the popup reports it from inside `Menu.Popup`, whose mount is
+ * closed): the popup reports it from inside `Menu.Popup`, whose mount is
  * exactly the menu's open lifetime, so it is correct for every open path
  * (click, pointerdown-and-drag-into-menu, keyboard) and every close path
  * (select, Escape, outside click, re-anchor). The anchor InsertionPoint pins

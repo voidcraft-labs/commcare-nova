@@ -2,7 +2,7 @@
 //
 // Renders the `between` predicate. Property picker on the left
 // (ordered-typed only) + lower bound input + upper bound input
-// (each independently optional — leaving one blank produces a
+// (each independently optional: leaving one blank produces a
 // half-bounded range) + per-bound inclusivity toggles.
 
 "use client";
@@ -60,7 +60,7 @@ export function betweenDefault(
 	const ct = ctx.caseTypes.find((c) => c.name === ctx.currentCaseType);
 	const property = ct?.properties.find(isOrdered);
 	const propName = property?.name ?? "";
-	// Seed bounds of the ordered property's OWN type — text `literal("")`
+	// Seed bounds of the ordered property's OWN type: text `literal("")`
 	// bounds opposite a numeric / temporal property would be a soundness
 	// error (an ordered subject is never text-compatible).
 	return between(prop(ctx.currentCaseType, propName), {
@@ -122,7 +122,7 @@ function reseedBoundIfNeeded(
 export function BetweenCard({ value, onChange, path }: BetweenCardProps) {
 	const ctx = usePredicateEditContext();
 
-	// The anchor (left) drives both bounds — each bound offers only
+	// The anchor (left) drives both bounds: each bound offers only
 	// types compatible with the anchor, and a change of anchor reseeds
 	// any now-incompatible bound in the same onChange.
 	const subjectType = useResolvedType(value.left);
@@ -151,7 +151,7 @@ export function BetweenCard({ value, onChange, path }: BetweenCardProps) {
 
 			<div className="grid grid-cols-1 @md:grid-cols-2 gap-2">
 				{/* The schema's `.refine(...)` rejects a between with no
-				 *  bounds — at least one of `lower` / `upper` must be
+				 *  bounds: at least one of `lower` / `upper` must be
 				 *  present. The editor enforces the same invariant via
 				 *  the boundless guards on each editor: a clear toggle
 				 *  on the only-enabled bound is disabled until the
@@ -197,9 +197,9 @@ interface BoundEditorProps {
 	readonly inclusive: boolean;
 	readonly setInclusive: (next: boolean) => void;
 	readonly path: EditorPath;
-	/** The bound's type constraint — compatible with the anchor. */
+	/** The bound's type constraint: compatible with the anchor. */
 	readonly constraint: SlotConstraint;
-	/** When false, the bound's enable-toggle is locked on — the
+	/** When false, the bound's enable-toggle is locked on: the
 	 *  sibling bound is currently disabled, and clearing this one
 	 *  too would yield a no-bounds shape the schema rejects. */
 	readonly canDisable: boolean;

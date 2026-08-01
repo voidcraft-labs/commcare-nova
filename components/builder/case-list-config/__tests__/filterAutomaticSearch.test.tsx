@@ -508,7 +508,9 @@ describe("Results Cases available composer", () => {
 		expect(logicalHeader).not.toBeNull();
 		expect(logicalHeader?.className).toContain("flex-col");
 		expect(logicalHeader?.className).toContain("@sm:flex-row");
-		expect(showAll.className).toContain("min-h-11");
+		// The 44px control height is the system button's own guarantee now,
+		// not something a call site re-states.
+		expect(showAll.className).toContain("h-11");
 		expect(showAll.className).toContain("w-full");
 		expect(showAll.className).toContain("@sm:w-auto");
 		expect(screen.queryByRole("button", { name: "Delete group" })).toBeNull();

@@ -3,7 +3,7 @@
  * auth router.
  *
  * Mounting MCP as a Better Auth plugin endpoint is what brings the
- * route under `auth.handler`'s middleware chain — most importantly,
+ * route under `auth.handler`'s middleware chain: most importantly,
  * `onRequestRateLimit` (`node_modules/better-auth/dist/api/index.mjs`,
  * called for every routed request). Without this plugin the MCP
  * route would sit at a Next.js route handler that calls
@@ -19,7 +19,7 @@
  * Better Auth's basePath strip (`/api/auth`) yields `/mcp`, which
  * matches the endpoint registered here.
  *
- * `disableBody: true` is load-bearing — better-call's router would
+ * `disableBody: true` is load-bearing, better-call's router would
  * otherwise consume `request.body` via `getBody()` at context
  * construction time, leaving `mcp-handler` with nothing to read for
  * the JSON-RPC payload. Disabling the pre-read keeps the body
@@ -37,7 +37,7 @@ import { handleApiKeyMcp } from "./api-key-auth";
 import { handleJwtMcp } from "./jwt-auth";
 
 /**
- * RFC 6750 §2.1 ("auth-scheme is case-insensitive") — accept
+ * RFC 6750 §2.1 ("auth-scheme is case-insensitive"): accept
  * `Bearer` / `bearer` / `BEARER` / mixed case for the scheme. The
  * prefix peek that follows still matches case-sensitively against
  * `NOVA_API_KEY_PREFIX`, which is the actual identification token.
@@ -49,7 +49,7 @@ const BEARER_PATTERN = /^Bearer\s+(.+)$/i;
  * external surface is `mcp.commcare.app/mcp`; any other host hitting
  * `/api/auth/mcp` (notably the main host, which admits the
  * `/api/auth` prefix for sign-in / session / OAuth-provider
- * endpoints) is denied at the proxy edge — see `proxy.ts`'s main-
+ * endpoints) is denied at the proxy edge: see `proxy.ts`'s main-
  * host branch. This in-endpoint check is defense-in-depth for the
  * paths a request can take that bypass the proxy: direct Cloud Run
  * service URLs, container-local requests, or any future routing
@@ -65,7 +65,7 @@ const ALLOWED_HOSTS: ReadonlySet<string> = new Set([
 
 /**
  * Read the wire hostname (no port) from the Request. Prefer the
- * `Host` header — Cloud Load Balancer forwards it intact; most
+ * `Host` header: Cloud Load Balancer forwards it intact; most
  * clients set it. Fall back to the URL's host when the header is
  * missing (hand-crafted Request shapes don't always include one).
  *
@@ -84,7 +84,7 @@ function readWireHost(req: Request): string {
 		try {
 			normalized = normalizeHost(new URL(req.url).host);
 		} catch {
-			/* fall through to empty host — caller treats as rejected */
+			/* fall through to empty host: caller treats as rejected */
 		}
 	}
 	return normalized.split(":")[0] ?? "";
@@ -97,7 +97,7 @@ function readWireHost(req: Request): string {
 export const NOVA_MCP_PLUGIN_ID = "nova-mcp";
 
 /**
- * Prefix-peek + dispatch. Pure function — takes a Request, returns a
+ * Prefix-peek + dispatch. Pure function: takes a Request, returns a
  * Response. Exported so unit tests can drive the auth fork without
  * spinning up the full Better Auth router. The plugin endpoint below
  * is a thin adapter that calls this with the endpoint context's
@@ -115,7 +115,7 @@ export const NOVA_MCP_PLUGIN_ID = "nova-mcp";
 export async function dispatchMcpAuthRequest(req: Request): Promise<Response> {
 	const wireHost = readWireHost(req);
 	if (!ALLOWED_HOSTS.has(wireHost)) {
-		/* Defense-in-depth host check — see `ALLOWED_HOSTS` docblock.
+		/* Defense-in-depth host check: see `ALLOWED_HOSTS` docblock.
 		 * Reject without a `WWW-Authenticate` header: this isn't an
 		 * auth failure, it's the wrong wire endpoint. 404 mirrors the
 		 * proxy-edge denial shape so the wire response matches across
@@ -139,7 +139,7 @@ export async function dispatchMcpAuthRequest(req: Request): Promise<Response> {
 
 /**
  * Define Nova's MCP plugin. Single endpoint mounted at `/mcp`
- * relative to the `/api/auth` basePath — i.e., wire path
+ * relative to the `/api/auth` basePath: i.e., wire path
  * `/api/auth/mcp` after the route shim's URL synthesis.
  *
  * The endpoint accepts POST/GET/DELETE because `mcp-handler`'s
@@ -162,7 +162,7 @@ export const novaMcpPlugin = (): BetterAuthPlugin => ({
 			},
 			async (ctx): Promise<Response> => {
 				/* `ctx.request` is always present for HTTP-mounted
-				 * endpoints — the `request` field is only undefined for
+				 * endpoints: the `request` field is only undefined for
 				 * direct typed-API invocations (`auth.api.novaMcp({...})`),
 				 * which we never use for this endpoint. The defense-in-
 				 * depth check matches the existing pattern at the entry

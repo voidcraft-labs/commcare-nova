@@ -1,13 +1,13 @@
 // components/builder/case-list-config/CaseListConfigWorkspace.tsx
 //
-// The unified case-list authoring workspace — three focused config tabs
+// The unified case-list authoring workspace: three focused config tabs
 // (Search / Results / Details). Each canvas is a direct composition surface:
 // drag the visible rows where workers will see them, add information
 // in place, and compose the default case ordering as a readable sentence.
 // Selecting one item opens its data source and formatting in the right rail.
 // The tab IS the URL (`/search`, `/results`, `/details`), so tab switches are ordinary
 // history navigation and deep links land on the right canvas. The
-// run-through lives behind the chrome's global Preview toggle —
+// run-through lives behind the chrome's global Preview toggle:
 // this surface carries no preview affordance of its own.
 //
 // Selection is workspace-local state (case-list entities have no
@@ -155,7 +155,7 @@ import type { WorkspaceSelection } from "./workspaceSelection";
 
 // ── Public types ──────────────────────────────────────────────────
 
-/** Which canvas is showing — derived from the URL location kind. */
+/** Which canvas is showing: derived from the URL location kind. */
 export type CaseListWorkspaceTab = "search" | "list" | "detail";
 
 type SearchInputRemovalReviewSession =
@@ -258,14 +258,14 @@ function markInspectorReturnFocus(target: HTMLElement): void {
 const PROPERTYLESS_HINT = "Add case information before adding fields";
 
 /** Stable empty config for modules whose `caseListConfig` slot is
- *  still absent — first edit persists the seeded shape. */
+ *  still absent: first edit persists the seeded shape. */
 const EMPTY_CONFIG: CaseListConfig = emptyCaseListConfig();
 
-/** Stable empty tile-issue list — a fresh array per render would defeat
+/** Stable empty tile-issue list: a fresh array per render would defeat
  *  the inspector body's memoization. */
 const NO_TILE_ISSUES: readonly string[] = [];
 
-/** Stable no-case-type verdicts — a fresh object per render would
+/** Stable no-case-type verdicts: a fresh object per render would
  *  defeat the canvases' memoization. */
 const EMPTY_VERDICTS = {
 	errorAreas: { search: false, list: false, detail: false },
@@ -335,7 +335,7 @@ function surfaceDisplayName(
 // The workspace controller runs ONCE, mounted above the builder row by
 // `CaseListWorkspaceProvider` (wired in `BuilderProvider`). The center canvas
 // (`CaseListWorkspaceCanvas`, in the preview shell) and the right-rail inspector
-// are two CONSUMERS of this one controller — so the inspector body lives in the
+// are two CONSUMERS of this one controller, so the inspector body lives in the
 // always-mounted rail and rides it off-screen during a preview flip without
 // unmounting (the scroll-survives-for-free guarantee chat and the app tree
 // already have). Selection is retained per module across navigation because the
@@ -380,7 +380,7 @@ function useController(
 	const tab = stickyTabRef.current;
 
 	const mod = useModule(moduleUuid);
-	/* The EFFECTIVE view — the same property admission set + types the
+	/* The EFFECTIVE view: the same property admission set + types the
 	 * commit gate validates against (see the hook doc). */
 	const caseTypes = useEffectiveCaseTypes();
 	const userProperties = useUserProperties();
@@ -389,7 +389,7 @@ function useController(
 	const { moveColumnOnSurface, moveSearchInputToIndex, commitMany, inline } =
 		useBlueprintMutations();
 	/* This controller lives ABOVE the preview boundary, so entering preview does
-	 * not navigate — `target` stays a case-list URL and the retained selection
+	 * not navigate: `target` stays a case-list URL and the retained selection
 	 * survives, invisibly, behind the running app. Gate the Escape shortcut below
 	 * on this so it stands down in preview (Escape must exit preview, not clear a
 	 * hidden selection). */
@@ -542,7 +542,7 @@ function useController(
 		if (target !== null) markInspectorReturnFocus(target);
 		leaveSearchCondition(null);
 	}, [leaveSearchCondition, sel, tab]);
-	/* Tab switches deselect — covers in-app tab clicks AND browser
+	/* Tab switches deselect: covers in-app tab clicks AND browser
 	 * back/forward, since both arrive as a `tab` prop change. */
 	const prevTabRef = useRef(tab);
 	useEffect(() => {
@@ -676,7 +676,7 @@ function useController(
 	}, [sel]);
 
 	/* Escape closes the inspector. Routed through the shared keyboard
-	 * manager (not a raw listener — the manager preventDefaults every
+	 * manager (not a raw listener: the manager preventDefaults every
 	 * matched key, and later registrations win) so it layers over the
 	 * builder-layout shortcuts and stays quiet while an input or
 	 * CodeMirror editor has focus. Registered only while something is
@@ -825,7 +825,7 @@ function useController(
 		(ct?.properties.length ?? 0) === 0 ? PROPERTYLESS_HINT : undefined;
 
 	/* Joining Results while the case list is a tile means taking a place on
-	 * it — an unplaced field the tile shows is a commit-gate rejection, so
+	 * it: an unplaced field the tile shows is a commit-gate rejection, so
 	 * every add and reveal carries its placement in the same batch. A SAVED
 	 * cell is re-adjudicated rather than trusted: a hidden column leaves the
 	 * tile's membership, so its square is free for anything else to take,
@@ -1379,8 +1379,8 @@ function useController(
 	// ── Inspector resolution ──
 	//
 	// Computed only while the workspace is actually on-screen (`active`). When
-	// it isn't — the module has no case type, or the URL moved on while the
-	// controller is retained — there is nothing to inspect and the rail shows
+	// it isn't: the module has no case type, or the URL moved on while the
+	// controller is retained: there is nothing to inspect and the rail shows
 	// chat. `caseType` is re-narrowed here (a bare `active` boolean can't do it).
 	let inspector: { kicker: string; title: string; body: ReactNode } | null =
 		null;
@@ -1572,7 +1572,7 @@ const CaseListWorkspaceContext = createContext<CaseListWorkspace | null>(null);
  * Read the single case-list workspace controller. Non-null for the whole life of
  * the builder (the provider always mounts it); `controller.active` is false until
  * a case-list URL is open. Consumed by the center canvas, which needs the full
- * controller — inspector-only consumers use `useCaseListInspector` so they don't
+ * controller: inspector-only consumers use `useCaseListInspector` so they don't
  * re-render on every controller change.
  */
 export function useCaseListWorkspace(): CaseListWorkspace | null {
@@ -1582,7 +1582,7 @@ export function useCaseListWorkspace(): CaseListWorkspace | null {
 /**
  * The slice the right rail + layout consume: just the resolved inspector
  * descriptor and its close handler. Split from the full controller context so
- * the rail (chat) and layout don't re-render on every workspace change — while
+ * the rail (chat) and layout don't re-render on every workspace change, while
  * the workspace is off-screen `inspector` is a stable `null`, so this value's
  * identity holds and its consumers stay put.
  */
@@ -1602,7 +1602,7 @@ export function useCaseListInspector(): CaseListInspectorSlice | null {
 /**
  * Mounts the workspace controller ONCE, above the builder row (wired in
  * `BuilderProvider`), so the center canvas and the right-rail inspector share one
- * instance. It renders `ActiveHost` UNCONDITIONALLY — the child element type must
+ * instance. It renders `ActiveHost` UNCONDITIONALLY: the child element type must
  * stay stable, because swapping it (e.g. gating the controller behind a
  * first-visit flag) remounts the whole `children` subtree, severing chat's live
  * run. The controller is simply inert (`active` false) until a case-list URL
@@ -1642,7 +1642,7 @@ function ActiveHost({
 
 // ── Canvas (center) ───────────────────────────────────────────────
 //
-// The composition surface for the active workspace — a consumer of the shared
+// The composition surface for the active workspace: a consumer of the shared
 // controller, mounted by `PreviewShell` (which Activity-hides it during a
 // preview flip, when the running CaseListScreen takes over). The inspector body
 // is NOT rendered here; the rail renders it from `controller.inspector`.
@@ -2012,7 +2012,7 @@ interface ResolveInspectorArgs {
 /**
  * Selection → inspector chrome + body. Returns `null` when nothing is
  * selected OR the selected entity no longer exists (e.g. the agent
- * removed it mid-session) — a dangling selection renders no inspector
+ * removed it mid-session): a dangling selection renders no inspector
  * rather than a broken one.
  */
 function resolveInspector(args: ResolveInspectorArgs): {
@@ -2192,7 +2192,7 @@ function ColumnInspectorBody({
 }: {
 	readonly column: Column;
 	readonly config: CaseListConfig;
-	/** The whole case list — a tile placement is adjudicated against the
+	/** The whole case list: a tile placement is adjudicated against the
 	 * other fields on the tile, so the rail needs more than one column. */
 	readonly surface: CaseDisplaySurface;
 	readonly visibleCount: number;
@@ -2211,7 +2211,7 @@ function ColumnInspectorBody({
 }) {
 	const canEdit = useCanEdit();
 	const [confirmingDelete, setConfirmingDelete] = useState(false);
-	/* Focus lands here when the tile section removes itself — its own button
+	/* Focus lands here when the tile section removes itself, its own button
 	 * goes with it, and an unmounted action never drops focus on the page. */
 	const hideRef = useRef<HTMLButtonElement>(null);
 	const screenName = surfaceDisplayName(surface);
@@ -2539,7 +2539,7 @@ interface WorkspaceTabsProps {
 const TAB_DEFS: ReadonlyArray<{
 	id: CaseListWorkspaceTab;
 	icon: IconifyIcon;
-	/** Concise visible label — the workspace is commonly only ~560px wide. */
+	/** Concise visible label: the workspace is commonly only ~560px wide. */
 	label: string;
 	/** Full accessible name + tooltip copy. */
 	accessibleLabel: string;
@@ -2565,7 +2565,7 @@ const TAB_DEFS: ReadonlyArray<{
 ];
 
 /**
- * Peer config tabs — no numbering, no implied order. The run-through
+ * Peer config tabs: no numbering, no implied order. The run-through
  * lives behind the chrome's global Preview toggle, so the strip is
  * pure workbench navigation.
  */
@@ -2649,7 +2649,7 @@ export function WorkspaceTabs({
 										 *  unit against the icon. */}
 										<span className="flex min-w-0 flex-col">
 											{/* Grid stacks the visible label over an invisible bold
-											 *  ghost, so the slot is always as wide as the bold form —
+											 *  ghost, so the slot is always as wide as the bold form:
 											 *  selecting a tab must never nudge its neighbors. */}
 											<span className="grid text-sm leading-tight">
 												<span

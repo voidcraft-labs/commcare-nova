@@ -30,7 +30,7 @@ import { useConnectLintContext } from "./useConnectLintContext";
 
 /**
  * Default minutes-to-complete for a freshly enabled Connect learn module.
- * Seeds the staged draft's time-estimate field — a config value with a
+ * Seeds the staged draft's time-estimate field: a config value with a
  * sensible default, unlike the name/description content the user writes.
  */
 export const DEFAULT_LEARN_TIME_ESTIMATE = 5;
@@ -43,7 +43,7 @@ export const DEFAULT_LEARN_TIME_ESTIMATE = 5;
  */
 interface ConnectSubConfigProps {
 	connect: ConnectLearnConfig;
-	/** Persist the new config through the gated form update —
+	/** Persist the new config through the gated form update:
 	 *  returns the commit outcome so a refused edit keeps the
 	 *  inline editor's draft + finding on screen. */
 	save: (c: ConnectLearnConfig | null) => CommitOutcome;
@@ -51,7 +51,7 @@ interface ConnectSubConfigProps {
 	formUuid: Uuid;
 }
 
-/** The learn-module staged draft — strings as typed, committed whole. */
+/** The learn-module staged draft: strings as typed, committed whole. */
 interface LearnDraft {
 	name: string;
 	description: string;
@@ -64,11 +64,11 @@ interface LearnDraft {
  * sub-toggle preserves the last-seen value in a ref so toggling off +
  * on restores the user's fields rather than regenerating defaults.
  *
- * With no restorable value, the learn toggle STAGES the block — the same
+ * With no restorable value, the learn toggle STAGES the block, the same
  * collect-before-commit pattern the app-level enable dialog uses, scaled
  * to one sub-config: a name and description are content the user writes,
  * not placeholders Nova invents, so nothing commits until they exist.
- * The assessment toggle commits immediately — its block carries only the
+ * The assessment toggle commits immediately, its block carries only the
  * derived identifier (autofilled, like every connect id) and an optional
  * `user_score` the wire layer defaults when unset, so there is no content
  * to collect.
@@ -94,11 +94,11 @@ export function LearnConfig({
 	// commit parses against the doc of the moment.
 	const userScoreText = useXPathText(assessment?.user_score);
 	const parseForForm = useParseXPathForForm(formUuid);
-	/** The in-flight staged learn block — exists only until the user
+	/** The in-flight staged learn block: exists only until the user
 	 *  commits it (or toggles the staging off, which discards it). */
 	const [stagedLearn, setStagedLearn] = useState<LearnDraft | undefined>();
-	/** A refusal from a gesture with no input of its own — the sub-toggles,
-	 *  restores, and the staged Add — rendered beneath the cards. The field
+	/** A refusal from a gesture with no input of its own: the sub-toggles,
+	 *  restores, and the staged Add: rendered beneath the cards. The field
 	 *  editors present their own outcomes and bypass this. */
 	const [saveRejection, setSaveRejection] = useState<string | null>(null);
 	const dispatchSave = useCallback(
@@ -112,7 +112,7 @@ export function LearnConfig({
 
 	// Every connect id set anywhere in the app. Connect ids share one
 	// app-wide namespace (each keys a per-kind DB slug + an XForm element
-	// name), so the uniqueness scope is app-wide — not just this form's
+	// name), so the uniqueness scope is app-wide, not just this form's
 	// co-located block. Same scope the SA tools + the commit gate enforce.
 	const appConnectIds = useAppConnectIds();
 	const appWideExcept = useCallback(
@@ -150,7 +150,7 @@ export function LearnConfig({
 
 	const toggleLearn = useCallback(() => {
 		if (stagedLearn) {
-			/* Toggling a STAGED block off discards the uncommitted draft —
+			/* Toggling a STAGED block off discards the uncommitted draft:
 			 * nothing ever reached the doc, so nothing refused remains. */
 			setStagedLearn(undefined);
 			setSaveRejection(null);
@@ -162,7 +162,7 @@ export function LearnConfig({
 			if (restored?.name.trim()) {
 				dispatchSave({ ...connect, learn_module: restored });
 			} else {
-				/* No prior work to restore — stage the block and collect its
+				/* No prior work to restore: stage the block and collect its
 				 * content from the user before anything commits. Only the
 				 * time estimate seeds (a config default); name/description
 				 * start empty because they are the user's content. */
@@ -216,7 +216,7 @@ export function LearnConfig({
 				dispatchSave({ ...connect, assessment: restored });
 			} else {
 				const { assessmentId } = defaultIds();
-				/* The block lands with its derived identifier alone —
+				/* The block lands with its derived identifier alone:
 				 * `user_score` is optional on the doc and the wire layer
 				 * substitutes the canonical default, so there is no content
 				 * to collect (or invent) before committing. */
@@ -250,7 +250,7 @@ export function LearnConfig({
 									<>
 										<InlineField
 											label="Module ID"
-											// Show the real stored id — autofill stamps a valid one
+											// Show the real stored id: autofill stamps a valid one
 											// when the block is enabled, so this is never blank in
 											// practice. The commit guard rejects an invalid OR
 											// duplicate id (against every other connect id in the
@@ -292,7 +292,7 @@ export function LearnConfig({
 										/>
 									</>
 								) : stagedLearn ? (
-									/* STAGED — the user writes the block's content here;
+									/* STAGED: the user writes the block's content here;
 									 * nothing reaches the doc until the commit row below.
 									 * The id is not collected: the commit derives a valid,
 									 * app-unique one, same as agent-side creation. */
@@ -378,7 +378,7 @@ export function LearnConfig({
 									 * domain and the wire layer substitutes the canonical
 									 * default expression when the doc carries no explicit
 									 * value. Saving an empty value clears the key outright
-									 * so that fallback kicks in — writing `""` would trip
+									 * so that fallback kicks in: writing `""` would trip
 									 * `CONNECT_EMPTY_XPATH`. */
 									value={userScoreText}
 									onSave={(v) => {
@@ -392,7 +392,7 @@ export function LearnConfig({
 											});
 										const { user_score: _removed, ...rest } = assessment;
 										/* The clear has no editor left open to anchor a
-										 * refusal to — route it to the section notice,
+										 * refusal to: route it to the section notice,
 										 * matching DeliverConfig's clear arm. */
 										dispatchSave({ ...connect, assessment: rest });
 										return undefined;
@@ -405,7 +405,7 @@ export function LearnConfig({
 				</AnimatePresence>
 			</div>
 
-			{/* A refused toggle/restore/Add explains itself here — those
+			{/* A refused toggle/restore/Add explains itself here: those
 			 * gestures have no input to anchor the finding to. */}
 			<RejectionInline message={saveRejection} />
 		</div>

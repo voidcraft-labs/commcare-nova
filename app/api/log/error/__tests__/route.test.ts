@@ -2,7 +2,7 @@
  * Tests for the public `/api/log/error` relay.
  *
  * Aggregate request-rate flood control lives at the EDGE (Cloud Armor on the
- * load balancer), not in this route — see `scripts/infra/setup-cloud-armor-lb.sh`.
+ * load balancer), not in this route: see `scripts/infra/setup-cloud-armor-lb.sh`.
  * The route keeps the per-request body-size cap + schema validation; these
  * cover the happy path and a schema-invalid body. The logger is mocked so the
  * test never touches Cloud Logging.

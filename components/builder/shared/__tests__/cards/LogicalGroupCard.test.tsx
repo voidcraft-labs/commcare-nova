@@ -9,7 +9,7 @@
 //     reordering + clause-removal collapse correctly; the editor's
 //     behavior reduces to "the builders do the right thing,"
 //     which is the load-bearing invariant the editor relies on.
-//   - drag-handle wiring — confirms the grip button reaches the
+//   - drag-handle wiring: confirms the grip button reaches the
 //     DOM when a card sits inside an `and` / `or` clause list, and
 //     does NOT reach the DOM at the top-level / inside a `not`
 //     wrapper. The grip's presence is the structural signal that
@@ -68,14 +68,14 @@ describe("logical group — clause reorder preserves AST structure", () => {
 		expect(original.kind).toBe("and");
 		expect(original.clauses).toEqual([a, b, c]);
 
-		// Reorder to [c, a, b] — equivalent to dragging `c` to
+		// Reorder to [c, a, b]: equivalent to dragging `c` to
 		// position 0. The card editor's `onDrop` constructs a new
 		// `and(...)` with the rearranged list; the result is the
 		// canonical envelope per the reductions module.
 		const reordered = and(c, a, b);
 		expect(reordered.kind).toBe("and");
 		expect(reordered.clauses).toEqual([c, a, b]);
-		// Reordering preserves clause references — same a / b / c
+		// Reordering preserves clause references: same a / b / c
 		// references appear in the new envelope's clauses.
 		expect(reordered.clauses[0]).toBe(c);
 		expect(reordered.clauses[1]).toBe(a);
@@ -102,7 +102,7 @@ describe("logical group — boolean-algebra reductions", () => {
 	//   - not(not(x)) → x
 	//
 	// Sentinels INSIDE multi-clause and/or lists are NOT dropped
-	// or absorbed by the reductions — the canonical shape preserves
+	// or absorbed by the reductions: the canonical shape preserves
 	// the literal clause list. The assertion locks the contract so
 	// a regression that adds an absorbing-element rewrite is caught
 	// here rather than silently changing AST shape.
@@ -113,7 +113,7 @@ describe("logical group — boolean-algebra reductions", () => {
 		const result = and(a, matchAll(), b);
 		expect(result.kind).toBe("and");
 		if (result.kind === "and") {
-			// All three clauses are preserved — the reductions module
+			// All three clauses are preserved: the reductions module
 			// does NOT collapse identity / absorbing elements inside
 			// a multi-clause list. Authors who want a flat list build
 			// it via the SA tool surface or by editing each clause.
@@ -151,7 +151,7 @@ describe("logical group — clause removal collapses correctly", () => {
 		const a = eq(prop("patient", "x"), literal(1));
 		// Simulate the card editor's removeClause: filter out one
 		// clause and re-construct via the builder. The single-
-		// clause unwrap is the reduction's contract — `and(a)`
+		// clause unwrap is the reduction's contract: `and(a)`
 		// returns `a` referentially.
 		const remaining = and(a);
 		expect(remaining).toBe(a);
@@ -159,7 +159,7 @@ describe("logical group — clause removal collapses correctly", () => {
 
 	it("removing both clauses from and(a, b) leaves match-all", () => {
 		// The card editor's removeClause callback emits match-all
-		// when the clause list empties — match-all is the
+		// when the clause list empties: match-all is the
 		// conjunction's identity, mirroring `and()` reducing to
 		// match-all.
 		const empty = and();
@@ -208,7 +208,7 @@ describe("logical group — drag handle wiring", () => {
 			/>,
 		);
 		// The grip button is rendered by `CardShell` whenever a
-		// `dragHandleRef` prop is threaded — `LogicalGroupCard`
+		// `dragHandleRef` prop is threaded: `LogicalGroupCard`
 		// passes one for every clause inside an and/or group.
 		// The label is the grip's `aria-label`.
 		const grips = container.querySelectorAll(
@@ -236,7 +236,7 @@ describe("logical group — drag handle wiring", () => {
 	});
 
 	it("no grip button on a card inside a not wrapper", () => {
-		// `not.clause` is a single-clause slot — no reorder affordance.
+		// `not.clause` is a single-clause slot: no reorder affordance.
 		const value = not(eq(prop("patient", "x"), literal(1)));
 		const { container } = render(
 			<PredicateCardEditor

@@ -40,7 +40,7 @@ function column(
  * A case list showing exactly these columns, in the order written.
  *
  * The plans read a whole `CaseListConfig` because Results order is the
- * config's `listColumnOrder`, not a per-column slot — so a fixture that
+ * config's `listColumnOrder`, not a per-column slot, so a fixture that
  * wants a particular arrangement writes the columns in that arrangement.
  */
 function config(columns: readonly Column[]): CaseListConfig {

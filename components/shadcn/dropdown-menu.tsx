@@ -15,8 +15,8 @@ import {
 import { cn } from "@/lib/utils";
 
 /* Nova chrome throughout: the frosted-glass surface classes come from
- * `lib/styles.ts` — the same constants the raw `@base-ui/react` menu call
- * sites use — so shadcn menus and hand-composed menus cannot drift apart.
+ * `lib/styles.ts`: the same constants the raw `@base-ui/react` menu call
+ * sites use, so shadcn menus and hand-composed menus cannot drift apart.
  * Glass lives on the POSITIONER (Base UI's `will-change: transform` there
  * creates a compositing boundary that would break a descendant
  * `backdrop-filter`); the popup only carries the open/close animation. */
@@ -246,7 +246,7 @@ function DropdownMenuSubContent({
 }) {
 	return (
 		// Submenus stack ABOVE a glass parent, so they take the near-opaque
-		// elevated tier — glass-on-glass loses the backdrop blur.
+		// elevated tier: glass-on-glass loses the backdrop blur.
 		<MenuPrimitive.Portal>
 			<DropdownMenuPositioner
 				surface="elevated"

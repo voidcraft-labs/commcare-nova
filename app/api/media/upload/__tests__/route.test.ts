@@ -1,5 +1,5 @@
 /**
- * `POST /api/media/upload` — signed-PUT initiate tests.
+ * `POST /api/media/upload`: signed-PUT initiate tests.
  *
  * The browser upload path must write untrusted bytes to a per-attempt
  * pending object, not the final content-hash key. Confirm validation
@@ -107,7 +107,7 @@ describe("POST /api/media/upload", () => {
 		expect(body.assetId).toBe(ASSET_ID);
 		expect(body.uploadUrl).toBe("https://storage.example/signed");
 		// The signed `x-goog-content-length-range` header the browser MUST echo on
-		// the PUT — the most deploy-fragile wire of this change. If the route
+		// the PUT: the most deploy-fragile wire of this change. If the route
 		// stopped forwarding `requiredHeaders` as `uploadHeaders`, every upload
 		// would 403 the V4 signature; this is the tripwire.
 		expect(body.uploadHeaders).toEqual({
@@ -130,7 +130,7 @@ describe("POST /api/media/upload", () => {
 	});
 
 	it("refuses a personal upload when the caller can't EDIT the active Project (a viewer)", async () => {
-		// Uploading is a write — a read-only member of a shared active Project must
+		// Uploading is a write: a read-only member of a shared active Project must
 		// not seed pending rows/objects there. resolveProjectAccess throws
 		// AppAccessError, which handleApiError collapses to a 404, and nothing is
 		// written.

@@ -1,12 +1,12 @@
 // components/builder/appTree/insertion/AddModulePopover.tsx
 //
 // The "+ add module" popover opened from a tree insertion point. Two steps:
-//   1. Pick an archetype — Case List (case-managing) or Survey (menu, no case).
+//   1. Pick an archetype: Case List (case-managing) or Survey (menu, no case).
 //   2. (Case List only) pick or create the case type, embedding
 //      `CaseTypePickerContent` inline.
 // On commit it dispatches the atomic, born-valid scaffold through the gated
 // hook (`createCaseListModule` / `createSurveyModule`) and navigates to the new
-// module. A gate rejection (rare — the scaffolds are valid by construction) is
+// module. A gate rejection (rare: the scaffolds are valid by construction) is
 // surfaced inline rather than only as a toast.
 
 "use client";
@@ -49,13 +49,13 @@ export function AddModulePopover({
 	const [step, setStep] = useState<"choose" | "caselist">("choose");
 	const [error, setError] = useState<string | null>(null);
 	// Inline flavor: a (rare) gate rejection surfaces in this popover's own
-	// error line, not as a toast — the popover owns the feedback.
+	// error line, not as a toast: the popover owns the feedback.
 	const { inline } = useBlueprintMutations();
 	const { openModule, openCaseList } = useNavigate();
 	const { revealed, progress, ref } = useTreeInsertionZone(open);
 	const canEdit = useCanEdit();
 
-	// Reset transient state whenever the popover closes — by dismiss
+	// Reset transient state whenever the popover closes: by dismiss
 	// (Base UI calls `onOpenChange`) OR by a programmatic close after a
 	// successful create (`close()`, which sets `open` directly). Both routes
 	// go through here so the next open always starts at "choose".
@@ -88,7 +88,7 @@ export function AddModulePopover({
 		const outcome = inline.createCaseListModule({ caseType, index: atIndex });
 		if (outcome.ok) {
 			// Born a `caseListOnly` viewer (no forms), so its home is the case
-			// list, not an empty form menu — land on the config directly.
+			// list, not an empty form menu: land on the config directly.
 			openCaseList(outcome.uuid);
 			close();
 		} else {
@@ -96,7 +96,7 @@ export function AddModulePopover({
 		}
 	};
 
-	// A view-only Project member can't add modules — drop the "+" strip.
+	// A view-only Project member can't add modules: drop the "+" strip.
 	if (!canEdit) return null;
 
 	return (

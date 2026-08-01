@@ -10,7 +10,7 @@ import { useCanEdit } from "@/lib/session/hooks";
 import { useCommitField } from "@/lib/ui/hooks/useCommitField";
 import { useRejectionShake } from "@/lib/ui/hooks/useShake";
 
-// Shared className constants — single source of truth for the typographic and box-model
+// Shared className constants: single source of truth for the typographic and box-model
 // properties that must be identical across the readOnly and editable render paths.
 // Any divergence here would produce a layout shift when toggling between design/preview.
 const MEASURE_SPAN_CLASS =
@@ -30,7 +30,7 @@ interface EditableTitleBaseProps {
 	/**
 	 * When true, renders the input non-interactively using the exact same element
 	 * and box model as the editable version. This ensures pixel-perfect flipbook
-	 * consistency when switching between design and preview modes — no layout shift.
+	 * consistency when switching between design and preview modes, no layout shift.
 	 */
 	readOnly?: boolean;
 }
@@ -60,15 +60,15 @@ type EditableTitleProps = EditableTitleBaseProps &
  * textarea for fixed headers that must absorb long authored names. Both commit
  * on Enter/blur and cancel on Escape.
  *
- * Commit/cancel/checkmark behavior comes from `useCommitField` — the same
- * model every inline editor in the builder uses — so a commit the validity
+ * Commit/cancel/checkmark behavior comes from `useCommitField`, the same
+ * model every inline editor in the builder uses, so a commit the validity
  * gate refuses restores editing with the draft intact, shows the finding
  * inline below the input, and never fires the saved checkmark. The
  * checkmark renders here (driven by the hook's `saved` window) rather than
  * via a parent callback, so a parent can't animate "saved" for a rename
  * that never committed.
  *
- * Pass `readOnly` to render the same element in a frozen, non-interactive state —
+ * Pass `readOnly` to render the same element in a frozen, non-interactive state:
  * used by preview mode so the title occupies identical space to the design-mode input.
  */
 export function EditableTitle({
@@ -104,7 +104,7 @@ export function EditableTitle({
 	} = useCommitField({
 		value,
 		onSave: onSave ?? (() => undefined),
-		// Committing an empty title reverts to the previous value — a screen
+		// Committing an empty title reverts to the previous value: a screen
 		// title must never blank out an entity's display name.
 		required: true,
 		selectAll: false,
@@ -169,7 +169,7 @@ export function EditableTitle({
 
 	// Read-only path: same element and box model as the editable input, just frozen.
 	// Using the identical span+input structure guarantees pixel-perfect alignment
-	// with design mode — no layout shift when flipping between modes. A view-only
+	// with design mode: no layout shift when flipping between modes. A view-only
 	// Project member (`!canEdit`) renders this same frozen title in BOTH modes.
 	if (readOnly || !canEdit) {
 		return (
@@ -237,7 +237,7 @@ export function EditableTitle({
 				data-testid="editable-title"
 			/>
 			<SavedCheck visible={saved && !focused} />
-			{/* The validity gate refused the rename — the draft is still in
+			{/* The validity gate refused the rename: the draft is still in
 			 * the input (useCommitField restored editing); the callout tells
 			 * the user what to fix, in the rule's own words. Floats below so
 			 * the header row's layout never jumps. */}

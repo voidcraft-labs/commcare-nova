@@ -106,7 +106,7 @@ export function RowInspectorBody({
 				setFailure(outcome.failure.message);
 				return;
 			}
-			/* Handed to the controller, which renders it as its own body — this one
+			/* Handed to the controller, which renders it as its own body, this one
 			 * unmounts the moment the row leaves the table, which is exactly what a
 			 * co-member's delete does. */
 			workspace.setRowConflict(outcome.conflict);

@@ -1,6 +1,6 @@
 // components/builder/shared/cards/expression/ConcatCard.tsx
 //
-// Renders the `concat` ValueExpression — variadic string
+// Renders the `concat` ValueExpression: variadic string
 // concatenation. Each `parts[i]` is a recursive `ValueExpression`;
 // the result type is always `text`. Drag-and-drop reorders the
 // parts in place via the shared `useReorderableList`
@@ -37,7 +37,7 @@ import {
 } from "../../useReorderableList";
 import { useStableListIdentity } from "../../useStableListIdentity";
 
-/** Default `concat` — two empty text literals. The schema rejects
+/** Default `concat`: two empty text literals. The schema rejects
  *  empty parts; seeding two rows lets the user immediately see the
  *  multi-row structure rather than having to discover the "Add part"
  *  affordance. */
@@ -48,7 +48,7 @@ export function concatDefault(
 }
 
 /** Every part casts to text at evaluation, so the part slot accepts
- *  any value type — module-const for a stable identity across renders. */
+ *  any value type: module-const for a stable identity across renders. */
 const PART_CONSTRAINT = concatPartConstraint();
 
 interface ConcatCardProps {
@@ -69,7 +69,7 @@ export function ConcatCard({ value, onChange, path }: ConcatCardProps) {
 	// runtime; the `concat` builder's variadic-with-required-first
 	// signature ties the call together. `concat`'s declared return
 	// type is the precise `Extract<ValueExpression, { kind: "concat" }>`
-	// arm — no narrowing cast needed.
+	// arm: no narrowing cast needed.
 	const apply = (
 		parts: readonly ValueExpression[],
 	): Extract<ValueExpression, { kind: "concat" }> => {
@@ -242,7 +242,7 @@ function PartRow({
 	path,
 }: PartRowProps) {
 	// Per-part errors render via the `ExpressionPicker` shell's
-	// `CardShell` footer at the matching slot path — no parallel
+	// `CardShell` footer at the matching slot path: no parallel
 	// `<InlineError>` is needed here.
 	return (
 		<ExpressionPicker
@@ -250,7 +250,7 @@ function PartRow({
 			onChange={onUpdate}
 			path={path}
 			// Each part casts to text at evaluation, so every value type
-			// is admissible here — the constraint admits everything.
+			// is admissible here: the constraint admits everything.
 			constraint={PART_CONSTRAINT}
 			variant="nested"
 			dragHandleRef={setHandleEl}

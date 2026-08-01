@@ -13,7 +13,7 @@
  *   2. User picks a name + scopes + expiry, hits Mint → Server Action
  *      returns `{ key, keyId, displayPrefix, expiresAt }` exactly once.
  *   3. Dialog flips to a "reveal" screen: full plaintext key with a
- *      Copy button. The key lives in component state only — closing
+ *      Copy button. The key lives in component state only: closing
  *      the dialog clears it.
  *   4. User clicks "I've saved this key" → dialog closes, the new row
  *      appears in the list with the masked prefix only.
@@ -103,7 +103,7 @@ interface RowData extends ApiKeySummary {
 /**
  * Set view of the floor scopes (read + write) for O(1) lookup in the
  * checkbox-locked-checked predicate. Sourced from
- * `NOVA_MCP_FLOOR_SCOPES` — the single literal lives in
+ * `NOVA_MCP_FLOOR_SCOPES`: the single literal lives in
  * `lib/auth-public.ts` and is shared by the MCP route, the Server
  * Actions, and this UI, so the "what's required" answer cannot drift
  * across surfaces.
@@ -127,7 +127,7 @@ const RELATIVE_FORMATTER = new Intl.RelativeTimeFormat("en-US", {
 /**
  * Convert a past ISO timestamp to a short relative label
  * ("2 hours ago", "yesterday", "3 days ago"). Anything older than a
- * week falls back to absolute date — at that distance the relative
+ * week falls back to absolute date: at that distance the relative
  * label loses information without saving any space.
  */
 function formatRelativePast(iso: string): string {
@@ -152,7 +152,7 @@ function formatRelativePast(iso: string): string {
  * `keyExpiration.maxExpiresIn` cap configured in `lib/auth.ts`), so
  * the row's actual expiry sits ~100 years out. A 50-day buffer below
  * that ceiling covers clock skew and mint-vs-read time gaps without
- * admitting any realistic finite-expiry choice — the next-longest
+ * admitting any realistic finite-expiry choice: the next-longest
  * mintable expiry is 1 year, two orders of magnitude away.
  */
 const NEVER_EXPIRES_THRESHOLD_SECONDS = (36500 - 50) * 24 * 60 * 60;
@@ -167,7 +167,7 @@ function isEffectivelyNeverExpiring(iso: string): boolean {
  * Convert a future ISO timestamp to a short "in N days" / "in 2 months"
  * label. Used for the per-row expiry strip. Caller is responsible for
  * detecting the never-expires sentinel via
- * `isEffectivelyNeverExpiring` first — this formatter only handles
+ * `isEffectivelyNeverExpiring` first: this formatter only handles
  * realistic distances and would emit "in 73 years" for the 100-year
  * sentinel otherwise.
  */
@@ -261,7 +261,7 @@ export function ApiKeys({ initial }: ApiKeysProps) {
 	}, []);
 
 	const handleScopesEdited = useCallback((keyId: string, scopes: string[]) => {
-		/* Reset the row's status to idle alongside the scope update — a
+		/* Reset the row's status to idle alongside the scope update, a
 		 * successful edit should clear any stale error from a previous
 		 * revoke attempt on the same row. Without this, the error
 		 * message would persist visually until the next revoke, which
@@ -323,7 +323,7 @@ export function ApiKeys({ initial }: ApiKeysProps) {
 									 * (idle ↔ confirming ↔ revoking) routed through
 									 * motion's layout system and triggered a height
 									 * bounce on the entire row even with
-									 * `layout="position"` — motion snapshots
+									 * `layout="position"`: motion snapshots
 									 * children's bounding boxes on every render and
 									 * any subtree resize spills into the
 									 * `<motion.li>`'s tracked geometry.
@@ -359,7 +359,7 @@ export function ApiKeys({ initial }: ApiKeysProps) {
 								 * minted first row during the swap. Without the
 								 * height collapse, a new row mounts at the top of
 								 * the `<ul>` while this div is still occupying
-								 * full height below it, opacity dropping — the
+								 * full height below it, opacity dropping: the
 								 * "stack flash" the user reported. `overflow:
 								 * hidden` clips the contents while the wrapper
 								 * shrinks. `height: "auto"` on entry/idle is what
@@ -465,7 +465,7 @@ function Row({
 				<div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-nova-text-muted">
 					{/* Both labels are "now"-relative (down to seconds for a
 					 *  just-used key), so the server render and the hydration
-					 *  pass legitimately disagree — same contract as
+					 *  pass legitimately disagree: same contract as
 					 *  `RelativeTime`, which these can't reuse because they
 					 *  format through Intl with their own prefixes. */}
 					<span suppressHydrationWarning>{lastUsedLabel}</span>
@@ -521,7 +521,7 @@ interface ScopeCheckboxGridProps {
 /**
  * Two-column scope picker, shared by `MintForm` and
  * `EditScopesDialog`. Floor scopes (`nova.read` + `nova.write`) are
- * locked-checked via Base UI's `disabled` prop — Base UI handles the
+ * locked-checked via Base UI's `disabled` prop: Base UI handles the
  * disabled-state styling, ARIA, focus rings, and keyboard semantics
  * (Space toggles, Tab traverses) automatically; we just style off the
  * `data-checked` / `data-disabled` attributes Base UI sets.
@@ -692,7 +692,7 @@ interface MintDialogProps {
 /**
  * Two-phase dialog. Phase 1: form (name + scopes + expiry). Phase 2:
  * key reveal (full plaintext + Copy + acknowledgment). The reveal phase
- * is reachable only via a successful mint — there is no "regenerate"
+ * is reachable only via a successful mint: there is no "regenerate"
  * affordance because the plugin doesn't store the plaintext to
  * regenerate from.
  */
@@ -720,7 +720,7 @@ function MintDialog({ open, onOpenChange, onComplete }: MintDialogProps) {
 	 * reclaim it; under a same-origin debugger or React DevTools the
 	 * value is recoverable for the duration of the user's session
 	 * regardless. This is the surface the "show the key once" flow
-	 * actually defends — not in-process JS introspection (which
+	 * actually defends, not in-process JS introspection (which
 	 * isn't a meaningful threat for an authenticated settings page).
 	 */
 	useEffect(() => {
@@ -731,7 +731,7 @@ function MintDialog({ open, onOpenChange, onComplete }: MintDialogProps) {
 	}, [open]);
 
 	/* Reset the form (and any error from the previous mint) when the
-	 * dialog opens fresh — keeps the next mint from inheriting stale
+	 * dialog opens fresh: keeps the next mint from inheriting stale
 	 * state if the user closed mid-form last time. */
 	useEffect(() => {
 		if (!open) return;
@@ -747,7 +747,7 @@ function MintDialog({ open, onOpenChange, onComplete }: MintDialogProps) {
 		setSelectedScopes((prev) => {
 			const next = new Set(prev);
 			if (next.has(scope)) {
-				/* Floor scopes can't be unchecked — both are required for any
+				/* Floor scopes can't be unchecked: both are required for any
 				 * MCP call, and silently re-adding them on submit would
 				 * mislead the user about what their key can do. The checkbox
 				 * is rendered as disabled-but-checked in the form. */
@@ -818,7 +818,7 @@ function MintDialog({ open, onOpenChange, onComplete }: MintDialogProps) {
 	 *
 	 *   1. **Reveal phase.** The plaintext key lives in component
 	 *      state only; once the dialog closes the reset effect clears
-	 *      `revealedKey` and the user has no recovery path — the row
+	 *      `revealedKey` and the user has no recovery path: the row
 	 *      exists hashed in Postgres but the plaintext is
 	 *      unrecoverable, costing a credential and a slot toward the
 	 *      per-user limit. The "I've saved this key" button is the
@@ -829,7 +829,7 @@ function MintDialog({ open, onOpenChange, onComplete }: MintDialogProps) {
 	 *      never sees the response. The Cancel and X buttons are
 	 *      disabled during submit (button-level guard), but Escape /
 	 *      outside-press / focus-out skip the buttons and would
-	 *      otherwise close — this branch closes that race.
+	 *      otherwise close: this branch closes that race.
 	 *
 	 * Imperative closes (the "I've saved this key" acknowledgment)
 	 * carry `reason: "none"` and pass through.
@@ -1067,7 +1067,7 @@ interface RevealedKeyProps {
 	copied: boolean;
 	/** Error surfaced from `handleCopy` (e.g., clipboard permission
 	 *  denied, insecure context). Rendered below the copy button so
-	 *  the user has a recovery path — without this, a clipboard
+	 *  the user has a recovery path: without this, a clipboard
 	 *  failure looks identical to a slow click and the key appears
 	 *  uncopyable. */
 	error: string | null;
@@ -1237,7 +1237,7 @@ function EditScopesDialog({
 	}, [target, selectedScopes, onComplete]);
 
 	/**
-	 * Block accidental dismissal during a save — same data-loss-class
+	 * Block accidental dismissal during a save: same data-loss-class
 	 * race as `MintDialog`, smaller surface (no plaintext key, but the
 	 * inline error from a failed save would unmount mid-await and
 	 * vanish). Cancels Escape / outside-press / focus-out only while

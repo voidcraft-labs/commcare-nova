@@ -40,7 +40,7 @@ export function InlineField({
 	 * Optional field-level validity check. Return a human-readable reason
 	 * to reject the value, or `null` when it's valid. A non-null result
 	 * blocks the commit (the value reverts, `onChange` never fires) AND
-	 * renders the reason inline while the field is focused — a visible
+	 * renders the reason inline while the field is focused: a visible
 	 * "can't save, here's why" rather than a silent revert. Mirrors how the
 	 * builder blocks invalid XPath at the field. Absent → unchanged.
 	 */
@@ -76,10 +76,10 @@ export function InlineField({
 	const shakeProps = useRejectionShake(rejectionNonce);
 
 	// Compute the reason against the in-progress draft so the message
-	// tracks what the user is typing. Only surfaced while focused — at rest
+	// tracks what the user is typing. Only surfaced while focused, at rest
 	// the field shows the persisted (valid) value, so no error chrome
 	// lingers. A gate `rejection` (the commit bounced AFTER local
-	// validation passed) shares the same display channel — but only the
+	// validation passed) shares the same display channel, but only the
 	// bounced commit carries the "Not saved" register line; a live reason
 	// is a pre-commit hint, nothing was refused yet.
 	const liveReason = validate && focused ? validate(draft) : null;

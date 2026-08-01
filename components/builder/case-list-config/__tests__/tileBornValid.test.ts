@@ -2,8 +2,8 @@
 //
 // The arrangement switch against the REAL commit gate. "Turning the tile
 // on lands a working layout" is only true if the gate agrees, so these
-// run the planner's batch through `mutationCommitVerdict` — the same
-// adjudication `useBlueprintMutations` performs — rather than trusting
+// run the planner's batch through `mutationCommitVerdict`: the same
+// adjudication `useBlueprintMutations` performs, rather than trusting
 // the planner's own arithmetic.
 
 import { describe, expect, it } from "vitest";
@@ -191,7 +191,7 @@ describe("joining Results while it is a tile", () => {
 
 	it("re-places a hidden field whose saved square was taken while it was away", () => {
 		// Hiding a field frees its square; the next field added lands on it.
-		// Showing the first one again must not hand back the stale cell —
+		// Showing the first one again must not hand back the stale cell:
 		// the gate refuses it, and the panel that refusal opens cannot move
 		// a cell the tile no longer draws.
 		const { doc, moduleUuid } = docWithColumns([

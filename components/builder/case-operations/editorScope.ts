@@ -20,7 +20,7 @@ import {
  *
  * `rules/caseOperations.ts::validateCaseSnapshotUse` refuses a case
  * property, a relationship count, and a presence test in ANY operation
- * slot unless the module selects a case before opening its forms — and
+ * slot unless the module selects a case before opening its forms, and
  * that refusal is spelled with exactly the walks `expressionReadsCaseData`
  * performs, which is the `"global"` scope's own admission oracle. So a
  * module holding a registration form (not case-first) gets `"global"`:
@@ -35,7 +35,7 @@ export function operationCaseDataScope(caseFirst: boolean): CaseDataScope {
 }
 
 /**
- * The constraint the three TEXT FACET slots mount with — an operation's
+ * The constraint the three TEXT FACET slots mount with: an operation's
  * case name, its rename, and its explicit owner.
  *
  * `nonEmpty` is the load-bearing part. `rules/caseOperations.ts::validateTextExpression`
@@ -60,20 +60,20 @@ export function caseOperationRuntimeTargetConstraint(): SlotConstraint {
 }
 
 /**
- * The operation scope a RUNTIME TARGET slot mounts with — the
+ * The operation scope a RUNTIME TARGET slot mounts with: the
  * operation's own "which case to change" expression and a link's
  * "work out the id of the case at the other end".
  *
  * Empty `creates` is the load-bearing part, and `id-of` is the only
  * thing it governs: `caseOperations.ts` refuses an `id-of` anywhere
- * inside a runtime target tree (`CASE_OPERATION_TARGET_INVALID` — an
+ * inside a runtime target tree (`CASE_OPERATION_TARGET_INVALID`, an
  * already-known create should be targeted directly so type, order, and
  * repeat correlation stay explicit), and link targets route through the
  * same check. An empty create list is what makes `id-of` unauthorable.
  *
  * The owner sentinels (`acting-user`, `unowned`) are NOT governed here.
  * They key on the separate `ownerValues` axis, which is set in exactly
- * two places and both are the owner slot — the canvas's "Who owns the
+ * two places and both are the owner slot: the canvas's "Who owns the
  * case" section and `caseOperations.ts`'s `operation.owner` facet. A
  * runtime target mounts without it, so both sentinels are withheld by
  * the editor and refused by the gate, which is the agreement that keeps

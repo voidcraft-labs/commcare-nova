@@ -1,7 +1,7 @@
 // components/builder/case-list-config/ColumnEditor.tsx
 //
 // Inspector body for one `Column`. The rail owns the field's data source and
-// formatting — the properties that cannot be manipulated in the running-app
+// formatting: the properties that cannot be manipulated in the running-app
 // composition. Results/Details membership and order, and the list's default
 // ordering, each live once in the center canvas where their effect is visible.
 //
@@ -68,7 +68,7 @@ import { NO_SEARCH_INPUTS } from "./searchInputResolution";
  * `useEditorErrorsAt` lookup the predicate / expression editors
  * use), so the index is unused at this level. Calculated columns'
  * inner `ExpressionCardEditor` builds its own validity index
- * downstream — this one only governs the column-card pickers.
+ * downstream: this one only governs the column-card pickers.
  */
 const EMPTY_VALIDITY_INDEX = new Map<string, readonly string[]>();
 
@@ -84,7 +84,7 @@ interface ColumnEditorProps {
 	/**
 	 * The case-type the column reads against. The case list
 	 * always reads against the module's case-type, so the editor
-	 * doesn't take a relation walk — properties resolve against
+	 * doesn't take a relation walk: properties resolve against
 	 * the originating scope only.
 	 */
 	readonly currentCaseType: string;
@@ -136,7 +136,7 @@ export function ColumnEditor({
 		] as const;
 	}, [ctx, value, projectProse]);
 
-	// Standardized parent-validity propagation — fires on mount + on
+	// Standardized parent-validity propagation: fires on mount + on
 	// every transition. The helper ref-stashes the callback so a
 	// fresh-each-render parent identity doesn't trip the effect on
 	// non-transitions.
@@ -192,7 +192,7 @@ export function ColumnEditor({
 /**
  * Map a kind to the field-and-header-preserving rebuild for the
  * target kind. The six non-calc kinds carry `field: string`, so a
- * kind swap among them ALWAYS preserves the field verbatim — non-
+ * kind swap among them ALWAYS preserves the field verbatim, non-
  * twin transitions reset the kind-specific extras (date pattern,
  * threshold, mapping table) to the target schema's defaults.
  *
@@ -201,10 +201,10 @@ export function ColumnEditor({
  * schema's default-value factory; swapping TO calc drops the
  * field entirely. Header is preserved on every transition. The
  * column's `uuid` and optional common slots (`sort`, visibility,
- * and tile presentation) thread through verbatim — they're
+ * and tile presentation) thread through verbatim: they're
  * identity / surface-presentation shape, not kind-specific.
  *
- * Exported as part of the module's tested surface — the
+ * Exported as part of the module's tested surface: the
  * transformation is the contract (the emitted Column shape), so the
  * unit tests call it directly rather than driving the menu chrome.
  */
@@ -223,7 +223,7 @@ export function preservedColumnSwap(
 	if (targetKind === "calculated") {
 		// Twin: source is already calculated → preserve the
 		// expression verbatim. Non-twin sources seed an empty-
-		// string literal expression — the same shape the schema's
+		// string literal expression: the same shape the schema's
 		// `defaultValue` factory uses, kept inline here so a kind
 		// swap doesn't pull a fresh uuid via the factory.
 		const expression =
@@ -313,7 +313,7 @@ export function preservedColumnSwap(
 }
 
 /**
- * Full-width "Display as" picker — swaps the column's kind while
+ * Full-width "Display as" picker: swaps the column's kind while
  * preserving the header (every kind shares the slot) and the
  * kind-specific extras across structural-twin transitions (see
  * `preservedColumnSwap`).

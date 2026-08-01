@@ -3,7 +3,7 @@
 // Adding a change lands one the validator already accepts.
 //
 // The app is valid by construction, so "born valid" cannot be a hope
-// about the seed shapes — it has to be proved against the same commit
+// about the seed shapes: it has to be proved against the same commit
 // gate the dispatch runs through. Each seed goes through
 // `mutationCommitVerdict` here for exactly that reason; a seed that
 // forgets a required facet fails this test rather than the author.
@@ -42,7 +42,7 @@ const NAME = testUuid("44444444-4444-4444-8444-444444444444");
 const ANSWER = testUuid("55555555-5555-4555-8555-555555555555");
 
 /** A seed carries no lookup carrier, so the explicit no-snapshot context
- *  is the honest one — the same one every client-side gate passes. */
+ *  is the honest one: the same one every client-side gate passes. */
 const NO_LOOKUPS = LOOKUP_CONTEXT_UNAVAILABLE;
 
 /** A case-first module: every form loads a case, so a change may act on
@@ -251,7 +251,7 @@ describe("the value a fresh write starts from", () => {
 	// A STORED value is stricter than a compared one, and the gap is where a
 	// plausible seed goes wrong: `seedLiteralForProperty` (the comparison
 	// seed) produces an empty temporal literal, a text literal for a
-	// multi-select, and a null for a geopoint — all three refused as
+	// multi-select, and a null for a geopoint: all three refused as
 	// assignments. Every type below goes through the real validator.
 	const TYPES = [
 		"text",
@@ -348,7 +348,7 @@ describe("the value a fresh write starts from", () => {
 	for (const dataType of TYPES) {
 		it(`is accepted by the gate for a ${dataType} property, or is not offered`, () => {
 			const verdict = writeCommits(dataType, []);
-			// Either it seeds something the gate accepts, or it declines — and
+			// Either it seeds something the gate accepts, or it declines, and
 			// declining is only honest for the three types with no storable
 			// constant, so the second arm cannot pass vacuously for the rest.
 			// What it must never do is seed a write the gate refuses.
@@ -387,7 +387,7 @@ describe("changing what a change does", () => {
 			"patient",
 		);
 		// Close forbids a new target, a name, an owner, a rename, a retype,
-		// and links — and keeps its writes, so "record and close" is one change.
+		// and links, and keeps its writes, so "record and close" is one change.
 		expect(asClose.action).toBe("close");
 		expect(asClose.target).toEqual({ kind: "session" });
 		expect(asClose.name).toBeUndefined();

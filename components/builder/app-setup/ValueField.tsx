@@ -4,7 +4,7 @@
  *
  * A property with an accepted-values list gets a chooser rather than a
  * text box, because CommCare rejects a worker whose value is off the list
- * — offering free text there would let an author type a value that only
+ *: offering free text there would let an author type a value that only
  * fails much later, when the account is created.
  */
 "use client";

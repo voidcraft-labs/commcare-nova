@@ -53,7 +53,7 @@ import type { FieldEditorSchema } from "@/lib/domain/kinds";
 // the key is set" pattern for each optional XPath/text key. The
 // factories below keep the per-kind schema declarations readable by
 // collapsing the boilerplate while preserving the discriminated-union
-// typing — each factory returns the entry at its concrete key type so
+// typing: each factory returns the entry at its concrete key type so
 // the `FieldEditorSchema<F>` array accepts it without a cast.
 
 function xpathEntry<F extends Field, K extends keyof F & string>(
@@ -85,7 +85,7 @@ function xpathEntry<F extends Field, K extends keyof F & string>(
 }
 
 // `required` is the one editor whose "added but empty" state is
-// meaningless — a freshly-added Required toggle that's off conveys no
+// meaningless: a freshly-added Required toggle that's off conveys no
 // user intent. `valueOnAdd: ALWAYS_REQUIRED_EXPRESSION` makes the pill click write
 // the always-required sentinel directly, so the toggle lands on the
 // moment the user clicks "+ Required". The pending-activation +
@@ -96,7 +96,7 @@ function xpathEntry<F extends Field, K extends keyof F & string>(
 // aid: it lets `valueOnAdd: F["required"]` and the body's
 // `field.required` access typecheck cleanly without scattered
 // `"required" & keyof F` widening or `field as F & {…}` casts. It does
-// NOT prevent call-site misuse — TS treats absence of an optional
+// NOT prevent call-site misuse: TS treats absence of an optional
 // property as structurally satisfying it, so `requiredEntry<GroupField>()`
 // would still compile. The runtime contract that `required` only wires
 // into kinds that actually carry it is enforced by convention (each
@@ -208,7 +208,7 @@ function caseWriteEntry<F extends Field>(): {
 // discriminated union only resolves against a concrete field type, so a
 // `<F>`-generic helper can't construct entries that typecheck (it's the
 // same reason the existing `xpathEntry` calls pass concrete kinds).
-// `validate_msg` is deliberately absent as a sibling entry — XPathEditor
+// `validate_msg` is deliberately absent as a sibling entry, XPathEditor
 // renders it as a nested affordance under `validate`. `validate_msg_media`
 // IS a sibling logic entry (the nested XPath affordance has no media tier),
 // labelled to read as the validation message's media.
@@ -384,7 +384,7 @@ const barcodeFieldEditorSchema: FieldEditorSchema<BarcodeField> = {
 	],
 };
 
-// Geopoint is input-capable but has no `validate` / `validate_msg` —
+// Geopoint is input-capable but has no `validate` / `validate_msg`:
 // so it carries no validation-message media entry.
 const geopointFieldEditorSchema: FieldEditorSchema<GeopointField> = {
 	data: [caseWriteEntry<GeopointField>()],
@@ -468,7 +468,7 @@ const multiSelectFieldEditorSchema: FieldEditorSchema<MultiSelectField> = {
 };
 
 // Capture kinds (image/audio/video/signature/file) carry a display `label`
-// + `label_media` but no help/required/validate message slots — the
+// + `label_media` but no help/required/validate message slots, the
 // label-media entry joins each kind's pre-existing hint entry.
 const imageFieldEditorSchema: FieldEditorSchema<ImageField> = {
 	data: [],
@@ -530,7 +530,7 @@ const signatureFieldEditorSchema: FieldEditorSchema<SignatureField> = {
 	],
 };
 
-// Hidden's value comes from `calculate` OR `default_value` — both optional,
+// Hidden's value comes from `calculate` OR `default_value`, both optional,
 // both addable (the `HIDDEN_NO_VALUE` validator enforces at least one). No
 // `required` entry: a hidden field is never shown, so it can't be required
 // (the `requiredOnHidden` validator enforces this, mirroring Vellum's
@@ -563,7 +563,7 @@ const groupFieldEditorSchema: FieldEditorSchema<GroupField> = {
 // conditional XPath editors (count visible iff
 // `repeat_mode === "count_bound"`, ids_query visible iff
 // `repeat_mode === "query_bound"`) with clear-on-mode-change semantics
-// — a custom widget tier this schema's flat-key entry vocabulary doesn't
+//: a custom widget tier this schema's flat-key entry vocabulary doesn't
 // directly support.
 const repeatFieldEditorSchema: FieldEditorSchema<RepeatField> = {
 	data: [],

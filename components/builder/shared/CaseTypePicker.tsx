@@ -2,15 +2,15 @@
 //
 // Reusable "pick an existing case type or create a new one" surface. Two
 // exports:
-//   - `CaseTypePickerContent` — the inner list + create-new UI, embedded
+//   - `CaseTypePickerContent`: the inner list + create-new UI, embedded
 //     inline by the add-module flow (no popover wrapper, so it nests cleanly
 //     inside the module-creation popover).
-//   - `CaseTypePicker` — a trigger button + its own popover wrapping the
+//   - `CaseTypePicker`: a trigger button + its own popover wrapping the
 //     content, used by module settings as a compact dropdown.
 //
 // Valid by construction: the create-new name is adjudicated live by
 // `caseTypeNameVerdict` (the same wire identifier rules the commit gate
-// enforces), so an illegal or duplicate name can't be committed — the Create
+// enforces), so an illegal or duplicate name can't be committed, the Create
 // control disables with the reason rather than letting the gate reject after.
 
 "use client";
@@ -155,7 +155,7 @@ export function CaseTypePickerContent({
 		() => caseTypeNameVerdict(candidate, existingNames),
 		[candidate, existingNames],
 	);
-	// Only surface the reason once the user has typed something — an empty
+	// Only surface the reason once the user has typed something, an empty
 	// field shouldn't read as an error before they start.
 	const excludedCandidate = exclude?.has(candidate) === true;
 	const candidateChoiceVerdict =

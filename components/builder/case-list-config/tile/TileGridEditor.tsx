@@ -2,7 +2,7 @@
 //
 // The tile's arrangement, drawn where its effect is visible. Each field
 // is a rectangle on a 12 x 12 grid: drag it to move, drag its corner to
-// resize, or use the arrow keys — Shift with an arrow moves the edge the
+// resize, or use the arrow keys: Shift with an arrow moves the edge the
 // arrow points at.
 //
 // Two things this surface refuses to fake:
@@ -99,7 +99,7 @@ export function TileGridEditor({
 	});
 
 	const { placed, unplaced } = tileMembership(config);
-	// A place outside the grid can't be drawn on it — CSS would grow
+	// A place outside the grid can't be drawn on it: CSS would grow
 	// implicit tracks and the canvas would stop being 12 x 12. Those
 	// fields move to the attention strip below, where their reason and
 	// their repair are both reachable.
@@ -251,8 +251,8 @@ export function TileGridEditor({
 			<div className="overflow-x-auto overscroll-x-contain [scrollbar-gutter:auto]">
 				{/* A fieldset: the grid is one labelled group of the tile's own
 				 * controls. The sizing is arithmetic, not a guess. A single grid
-				 * square IS the pointer target — the chip owning the grid area
-				 * fills it and insets only its drawn box — so a 48px square gives
+				 * square IS the pointer target: the chip owning the grid area
+				 * fills it and insets only its drawn box, so a 48px square gives
 				 * a 48 x 48 target, the size the baseline review asks for rather
 				 * than the 44px floor. 12 x 48 = 36rem of width and a 3rem row;
 				 * below that the group scrolls sideways rather than shrinking,
@@ -331,7 +331,7 @@ export function TileGridEditor({
 											applyKeyboardGesture(event, placement, true)
 										}
 										/* The handle hangs half outside its cell so a
-										 * single square keeps a draggable middle — but
+										 * single square keeps a draggable middle, but
 										 * only where there is grid to hang into. At the
 										 * right or bottom edge it tucks fully inside,
 										 * so it can never overflow the fieldset into a
@@ -482,7 +482,7 @@ function TileCellChip({
 	// separates one cell from the next is padding on that element, and the
 	// bordered box is drawn inside. Keeping the inset off the outer element is
 	// what makes a single grid square a full 48 x 48 pointer target instead of
-	// 44 x 44 — and because the targets then tile the grid without gaps, the
+	// 44 x 44, and because the targets then tile the grid without gaps, the
 	// "separate adjacent targets" rule is satisfied structurally rather than by
 	// spending pixels on a gutter. Nothing about the drawn result changes.
 	const cellClassName = `flex min-w-0 p-0.5 ${dragging ? "z-10" : ""} ${

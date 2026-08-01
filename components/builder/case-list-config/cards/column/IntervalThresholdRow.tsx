@@ -2,9 +2,9 @@
 //
 // Shared `(threshold, unit)` editor row for `interval` columns. The
 // numeric threshold input + unit dropdown live here so the card
-// body (`IntervalCard`) focuses on the per-display extras — the
+// body (`IntervalCard`) focuses on the per-display extras: the
 // `display` segmented toggle and the `text` slot whose label flips
-// between "decoration" and "flag text" — rather than re-implementing
+// between "decoration" and "flag text", rather than re-implementing
 // the threshold-plus-unit pair inline.
 //
 // `TimeSinceUnit` is a closed enum (`days` / `weeks` / `months` /
@@ -29,7 +29,7 @@ import { TIME_SINCE_UNITS, type TimeSinceUnit } from "@/lib/domain";
 
 /**
  * Per-unit display label. The `Record<TimeSinceUnit, string>` shape
- * forces an entry for every variant — adding `"hours"` to
+ * forces an entry for every variant: adding `"hours"` to
  * `TIME_SINCE_UNITS` (the source of truth in
  * `lib/domain/modules.ts`) breaks the build here until a label
  * lands. The dropdown options below iterate `TIME_SINCE_UNITS`
@@ -100,8 +100,8 @@ interface ThresholdInputProps {
 /**
  * Numeric threshold input. Local draft state preserves incomplete
  * and invalid edits so the author can correct them in place. Blur
- * commits only a finite, positive whole number — exactly the domain
- * schema's `int().positive()` contract — and otherwise exposes a
+ * commits only a finite, positive whole number: exactly the domain
+ * schema's `int().positive()` contract, and otherwise exposes a
  * friendly inline action without changing the document.
  */
 function ThresholdInput({ id, value, onChange }: ThresholdInputProps) {

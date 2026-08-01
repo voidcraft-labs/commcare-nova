@@ -6,7 +6,7 @@
 // the type checker (`checkValueExpression`), the validity-index
 // plumbing, the registry-driven dispatch, and the recursive shell.
 // Per-card visual chrome is covered by the smoke + per-card test
-// files; this file pins the editor's structural contract — what
+// files; this file pins the editor's structural contract: what
 // reaches the parent's `onChange` / `onValidityChange`, and how
 // nested errors land on the right card.
 
@@ -86,7 +86,7 @@ describe("ExpressionCardEditor — validity propagation", () => {
 	});
 
 	it("reports invalid when an arith operand is text-typed", () => {
-		// `arith("+", "string", 1)` — left operand resolves to text.
+		// `arith("+", "string", 1)`: left operand resolves to text.
 		// The type checker rejects with "arith requires numeric
 		// operands". The editor surfaces the verdict via
 		// `onValidityChange`.
@@ -126,7 +126,7 @@ describe("ExpressionCardEditor — validity propagation", () => {
 	it("reports invalid when the resolved type disagrees with the root constraint", () => {
 		// `today()` resolves to date; a numeric root constraint can't
 		// accept it, so the root-constraint display backstop fires. A
-		// legacy/hypothetical AST — valid-by-construction editing can't
+		// legacy/hypothetical AST: valid-by-construction editing can't
 		// author a date here when the slot accepts only numbers.
 		const value = today();
 		const onValidityChange = vi.fn();
@@ -183,7 +183,7 @@ describe("ExpressionCardEditor — recursive nesting", () => {
 
 	it("renders a `count` card with a where clause that pins the destination scope", () => {
 		// `count(subcasePath("parent"), eq(prop("visit", "kind"), ...))`
-		// — the where-clause property reference resolves against the
+		//: the where-clause property reference resolves against the
 		// destination scope (`visit`, the subcase walk's destination).
 		// The editor flips `currentCaseType` for the inner clause.
 		const value = count(subcasePath("parent"));
@@ -198,7 +198,7 @@ describe("ExpressionCardEditor — recursive nesting", () => {
 			/>,
 		);
 		expect(container).toBeTruthy();
-		// Count of subcases — type-check produces a clean verdict
+		// Count of subcases: type-check produces a clean verdict
 		// since the walk resolves to `visit` and there's no where.
 		expect(onValidityChange).toHaveBeenCalledWith(true);
 	});

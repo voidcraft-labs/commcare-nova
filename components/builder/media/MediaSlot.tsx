@@ -2,19 +2,19 @@
 //
 // The media-attach affordances every carrier mounts:
 //
-//  - `MediaSlot` — the `Media` bundle (image / audio / video, each
+//  - `MediaSlot`: the `Media` bundle (image / audio / video, each
 //    independent). Renders the attached assets as removable chips plus a
 //    single "Attach" control that opens the picker. The picker's type
 //    filter is how a carrier with several allowed kinds chooses what to
-//    add — one entry point, not one pill per kind.
-//  - `SingleAssetSlot` — one `MediaAssetId` of a fixed kind (module icon,
+//    add: one entry point, not one pill per kind.
+//  - `SingleAssetSlot`: one `MediaAssetId` of a fixed kind (module icon,
 //    case-list icon, app logo). One chip, one "Attach" control.
 //
 // The doc never references an asset that isn't `ready`, so picking a
 // FILE doesn't attach: the picker hands it off (`onUploadStart`), the
 // slot stages it in the session store (`stagedUploads`, keyed by
 // `slotKey`), and a `StagedUploadChip` shows progress + cancel while the
-// upload runs. Only the confirm response — a ready asset — dispatches
+// upload runs. Only the confirm response: a ready asset, dispatches
 // the carrier's `onChange`; a failure shows on the chip with nothing
 // committed. Picking an already-ready LIBRARY asset attaches
 // immediately. `slotKey` is the carrier slot's stable identity (field
@@ -22,14 +22,14 @@
 // remounted slot re-renders its staged chip from the store.
 //
 // BOTH attach entry points run the export-ceiling budget check
-// (`useAttachBudget.ts`) before dispatching — a library pick rejects as
+// (`useAttachBudget.ts`) before dispatching: a library pick rejects as
 // a toast, a staged confirm rejects on its chip, each with the same
-// prose the SA/MCP verdict speaks — so an over-budget app is something
+// prose the SA/MCP verdict speaks, so an over-budget app is something
 // an honest user can't build toward an export-time surprise.
 //
 // Controls name themselves by kind ("Remove image", "Preview audio");
 // `ariaLabel`, when a carrier passes it, names the GROUP those controls
-// belong to (the field/option/slot) — so a screen reader hears "Label
+// belong to (the field/option/slot), so a screen reader hears "Label
 // Media group, Remove image" without any name being stitched together
 // from substrings. The picker derives its own title from its kinds.
 //
@@ -97,7 +97,7 @@ import { useStagedSlotUpload } from "./useStagedUpload";
 
 /**
  * Record a picker's loaded library pages into the session's asset
- * registry — the "already-loaded library rows" the attach budget check
+ * registry: the "already-loaded library rows" the attach budget check
  * resolves referenced ids against without a fetch.
  */
 function useRecordLoadedAssets(): (assets: MediaAssetView[]) => void {
@@ -114,7 +114,7 @@ function useRecordLoadedAssets(): (assets: MediaAssetView[]) => void {
 	);
 }
 
-// ── MediaSlot — the image/audio/video bundle ─────────────────────
+// ── MediaSlot: the image/audio/video bundle ─────────────────────
 
 export interface MediaSlotProps {
 	value: Media | undefined;
@@ -122,7 +122,7 @@ export interface MediaSlotProps {
 	/** Which kinds this carrier can hold. Menu carriers omit "video". */
 	kinds: readonly MediaKind[];
 	/**
-	 * Stable identity of this carrier slot — keys the session store's
+	 * Stable identity of this carrier slot: keys the session store's
 	 * staged-upload records (per kind, under `<slotKey>/<kind>`), so a
 	 * remounted slot re-renders its in-flight chip and cancel still
 	 * reaches the transfer. Carriers derive it from their entity's uuid
@@ -130,7 +130,7 @@ export interface MediaSlotProps {
 	 */
 	slotKey: string;
 	/**
-	 * Accessible name for the control GROUP — the field, option, or slot
+	 * Accessible name for the control GROUP: the field, option, or slot
 	 * these controls belong to (e.g. "Label Media", "Option 1"). Not
 	 * stitched into each control's name; it labels the group so the
 	 * per-kind control names stay clean. Omitted when an adjacent visible
@@ -167,7 +167,7 @@ export function MediaSlot({
 
 	// The confirm-time attach must compose against the carrier's CURRENT
 	// bundle (another kind may have attached while the upload ran), and the
-	// upload outlives any single render — latest-value refs bridge that.
+	// upload outlives any single render: latest-value refs bridge that.
 	const valueRef = useRef(value);
 	const onChangeRef = useRef(onChange);
 	useEffect(() => {
@@ -224,7 +224,7 @@ export function MediaSlot({
 			{canEdit && !allBusy && (
 				<AttachButton
 					// Once something is attached, the control adds another kind
-					// rather than the first — "Add" reads truer than a second
+					// rather than the first: "Add" reads truer than a second
 					// "Attach".
 					label={attached.length === 0 ? "Attach" : "Add"}
 					onClick={() => setPicker({ open: true, kinds })}
@@ -240,7 +240,7 @@ export function MediaSlot({
 				// always a media kind; the `isMediaKind` narrow makes that
 				// type-safe (`setMediaSlot` keys the bundle by `MediaKind`) and
 				// is an inert guard at runtime. The attach budget check runs
-				// BEFORE the dispatch — a pick that would breach the export
+				// BEFORE the dispatch: a pick that would breach the export
 				// ceiling never reaches the doc; the shared prose lands as a
 				// toast (the picker has already closed).
 				onPick={(asset) => {
@@ -285,17 +285,17 @@ export function MediaSlot({
 	);
 }
 
-// ── SingleAssetSlot — one fixed-kind id ──────────────────────────
+// ── SingleAssetSlot: one fixed-kind id ──────────────────────────
 
 interface SingleAssetSlotBase {
 	kind: MediaKind;
-	/** Stable identity of this carrier slot — see `MediaSlotProps.slotKey`.
+	/** Stable identity of this carrier slot: see `MediaSlotProps.slotKey`.
 	 *  Single slots stage directly under it (the kind is fixed). */
 	slotKey: string;
 	/**
 	 * Accessible name for the control group. Standalone slots (form icon,
 	 * app logo) live outside a labelled editor section, so the kind alone
-	 * ("Image") doesn't say WHICH slot — pass e.g. "Form menu icon".
+	 * ("Image") doesn't say WHICH slot: pass e.g. "Form menu icon".
 	 */
 	ariaLabel?: string;
 }
@@ -412,7 +412,7 @@ export function SingleAssetSlot(props: SingleAssetSlotProps) {
 				appId={appId}
 				iconLibrary={props.iconLibrary}
 				onAssetsLoaded={recordLoadedAssets}
-				// Budget BEFORE dispatch — an over-ceiling pick never reaches
+				// Budget BEFORE dispatch: an over-ceiling pick never reaches
 				// the doc; the shared prose lands as a toast (the picker has
 				// already closed).
 				onPick={(selection: MediaPickerSelection) => {
@@ -478,9 +478,9 @@ function AttachButton({
 
 /**
  * A staged slot upload: kind glyph + filename with a live progress bar
- * and a cancel — or, after a failure, the error with a dismiss. The chip
+ * and a cancel, or, after a failure, the error with a dismiss. The chip
  * is pure session state (`stagedUploads`); nothing it shows is in the
- * doc, which is exactly the contract — the doc gets the reference only
+ * doc, which is exactly the contract: the doc gets the reference only
  * when the upload confirms.
  */
 /** @internal Exported for focused state/accessibility coverage. */
@@ -652,7 +652,7 @@ function ThumbBox({ kind, assetId }: { kind: MediaKind; assetId: IconRef }) {
 	);
 }
 
-/** Larger preview inside the popover — image bitmap or a native player. */
+/** Larger preview inside the popover: image bitmap or a native player. */
 function AssetPreview({
 	kind,
 	assetId,

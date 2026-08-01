@@ -226,7 +226,7 @@ describe("InteractiveFormRenderer repeated-field accessibility", () => {
 			NUMBER_QUESTION,
 		);
 		// A date question is the design system's calendar picker, so its
-		// labelled element is the popover trigger — there is no native
+		// labelled element is the popover trigger: there is no native
 		// `<input type="date">` in the previewed app.
 		expectCollisionFreeVisibleLabels(
 			screen.getAllByRole("button", { name: nameContaining(DATE_QUESTION) }),
@@ -253,7 +253,7 @@ describe("InteractiveFormRenderer repeated-field accessibility", () => {
 
 /**
  * Every instance must carry the visible question in its accessible name, and
- * each must point at its OWN label node — that pair is what makes a repeated
+ * each must point at its OWN label node: that pair is what makes a repeated
  * question unambiguous to a screen reader.
  *
  * Matching is by containment, not equality: the renderer wraps the question in

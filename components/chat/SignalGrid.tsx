@@ -15,7 +15,7 @@ import { signalGrid } from "@/lib/signalGrid/store";
 import type { SignalGridController } from "@/lib/signalGridController";
 
 interface SignalGridProps {
-	/** Controller instance — created and owned by the parent (ChatSidebar). */
+	/** Controller instance: created and owned by the parent (ChatSidebar). */
 	controller: SignalGridController;
 	messages: UIMessage[];
 }
@@ -30,7 +30,7 @@ export function SignalGrid({ controller, messages }: SignalGridProps) {
 	sessionApiRef.current = sessionApi;
 	const docStoreRef = useRef<BlueprintDocStore | null>(docStore);
 	docStoreRef.current = docStore;
-	/** Null on mount — the first effect records the baseline content length
+	/** Null on mount: the first effect records the baseline content length
 	 *  without injecting energy, preventing a massive brightness spike from
 	 *  all existing message content being treated as a delta on remount. */
 	const prevContentLenRef = useRef<number | null>(null);

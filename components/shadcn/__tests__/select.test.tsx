@@ -43,7 +43,7 @@ describe("Select value layout", () => {
 
 	it("centers the value at every height, wrapping or not", () => {
 		// A trigger that grows for a two-line value must still center a value
-		// that happens to fit on one line — top-aligning it leaves the label
+		// that happens to fit on one line: top-aligning it leaves the label
 		// hanging under the top edge of a `min-h-*` touch target.
 		const view = render(<SelectFixture />);
 		let trigger = screen.getByRole("combobox", { name: "Status" });

@@ -2,7 +2,7 @@
 //
 // The module- and form-settings row for a display condition: what it
 // currently does, plus Add / Edit / Clear. Editing opens the centre
-// canvas at the item's own condition URL — the settings popover is too
+// canvas at the item's own condition URL: the settings popover is too
 // narrow for a recursive condition, and the URL makes the editor
 // deep-linkable and previewable.
 

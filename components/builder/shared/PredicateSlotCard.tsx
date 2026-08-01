@@ -4,7 +4,7 @@
 // `OptionalSlotCard<T>` primitive, fixing `T` to `Predicate` and
 // supplying:
 //
-//   - The `matchAll()` add-seed — the canonical "always true"
+//   - The `matchAll()` add-seed: the canonical "always true"
 //     sentinel for an optional Predicate slot. `match-all()` mounts
 //     as a sentinel card whose kind-replace menu lets the author
 //     swap in any concrete operator on first interaction without
@@ -15,7 +15,7 @@
 //   - A `renderEditor` wrapping `<PredicateCardEditor>` with the
 //     inner-validity callback piped to the primitive's shadow.
 //
-// The card does NOT enable collapse — when the slot is defined, the
+// The card does NOT enable collapse: when the slot is defined, the
 // editor mounts and stays mounted until the consumer's
 // `onChange(undefined)` flips it. Consumers that need a collapse
 // affordance specialize `OptionalSlotCard` directly instead of
@@ -31,17 +31,17 @@ import type { EditorSearchInputDecl } from "./searchInputPresentation";
 // ── Public types ──────────────────────────────────────────────────
 
 export interface PredicateSlotCardProps {
-	/** Header title — short label rendered as the section's etched
+	/** Header title: short label rendered as the section's etched
 	 *  console eyebrow. */
 	readonly title: string;
-	/** Header hint — single-line description below the title that
+	/** Header hint: single-line description below the title that
 	 *  tells the author what the slot does. */
 	readonly description: string;
-	/** Empty-state CTA label — visible button text + `aria-label`. */
+	/** Empty-state CTA label: visible button text + `aria-label`. */
 	readonly addLabel: string;
 	/** Header Clear button's short visible text. */
 	readonly clearLabel: string;
-	/** Screen-reader name for the Clear button — the specific action. */
+	/** Screen-reader name for the Clear button: the specific action. */
 	readonly clearAriaLabel: string;
 	/** Current Predicate slot value. `undefined` ≡ slot empty. */
 	readonly value: Predicate | undefined;
@@ -49,7 +49,7 @@ export interface PredicateSlotCardProps {
 	 *  receives a `Predicate` on Add (seeded with `matchAll()`) and on
 	 *  every inner edit. */
 	readonly onChange: (next: Predicate | undefined) => void;
-	/** Blueprint case-type definitions — drives the property pickers
+	/** Blueprint case-type definitions: drives the property pickers
 	 *  inside the predicate editor. */
 	readonly caseTypes: readonly CaseType[];
 	/** The case-type the predicate runs against. Property references
@@ -71,7 +71,7 @@ export interface PredicateSlotCardProps {
 /**
  * Optional-Predicate slot card. Specializes `OptionalSlotCard<Predicate>`
  * with the `matchAll()` add-seed and a `<PredicateCardEditor>` body.
- * No collapse — the editor mounts when the slot is defined and stays
+ * No collapse: the editor mounts when the slot is defined and stays
  * mounted until cleared.
  */
 export function PredicateSlotCard({

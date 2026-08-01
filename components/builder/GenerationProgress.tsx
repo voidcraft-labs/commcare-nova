@@ -1,8 +1,8 @@
 /**
- * GenerationProgress — self-subscribing progress card for app generation.
+ * GenerationProgress: self-subscribing progress card for app generation.
  *
  * Subscribes directly to agentStage, agentError, and statusMessage from the
- * session store via named hooks. No props needed — BuilderLayout just controls
+ * session store via named hooks. No props needed: BuilderLayout just controls
  * mount/unmount visibility, this component owns its own data.
  */
 "use client";

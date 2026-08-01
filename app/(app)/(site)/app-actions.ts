@@ -1,5 +1,5 @@
 /**
- * Server Actions for the home-page app list — soft-delete, restore, and the
+ * Server Actions for the home-page app list: soft-delete, restore, and the
  * Project-placement boundary.
  *
  * Mirrors the discriminated-union pattern in `settings/oauth-actions.ts`:
@@ -9,7 +9,7 @@
  *
  * Delete and restore follow the same path: session → input validation → one
  * app-locked, freshly authorized write → `revalidatePath("/")`. The revalidate is the primary refresh
- * mechanism — it re-runs the home page's RSC, both lists re-fetch, and
+ * mechanism: it re-runs the home page's RSC, both lists re-fetch, and
  * the row drops out of (or into) the appropriate list naturally. No
  * client-side optimistic moves to coordinate.
  */
@@ -66,7 +66,7 @@ export type MoveAppResult =
 /**
  * Discriminated authorization result. Returns the same `App not found`
  * message whether the row is genuinely missing or owned by another user
- * — surfacing a different message on cross-tenant probes would leak
+ *: surfacing a different message on cross-tenant probes would leak
  * existence information about other users' apps.
  */
 type AuthResult = { ok: true } | { ok: false; error: string };
@@ -78,8 +78,8 @@ type AuthResult = { ok: true } | { ok: false; error: string };
  * action can map malformed Server Action payloads without throwing.
  *
  * Server Actions deserialize JSON and the `string` annotation alone
- * does NOT enforce shape at runtime — a malformed client could send
- * anything — so the trim guard is real, not theatre.
+ * does NOT enforce shape at runtime: a malformed client could send
+ * anything, so the trim guard is real, not theatre.
  */
 function validateAppMutationInput(appId: string): AuthResult {
 	if (typeof appId !== "string" || !appId.trim()) {
@@ -123,7 +123,7 @@ export async function deleteApp(appId: string): Promise<DeleteAppResult> {
 }
 
 /**
- * Restore a soft-deleted app the user may administer. Inverse of `deleteApp` —
+ * Restore a soft-deleted app the user may administer. Inverse of `deleteApp`:
  * clears the two soft-delete fields without touching lifecycle status,
  * so a deleted `error` app comes back as `error`. Cross-tenant restore
  * probes hit the same `App not found` branch as unknown ids.
@@ -158,7 +158,7 @@ export async function restoreApp(appId: string): Promise<RestoreAppResult> {
  * response, so a caller cannot use a refusal message to distinguish another
  * tenant's app from a missing id. The move switch is read here for
  * person-readable copy; the move transaction re-reads it `FOR SHARE` and is the
- * authority. An exact same-Project call is not a move at all — it is the
+ * authority. An exact same-Project call is not a move at all, it is the
  * atomic, app-locked case-tenancy repair path.
  */
 export async function moveApp(
@@ -229,7 +229,7 @@ export async function moveApp(
 					"This app is being generated right now. Try again once it finishes.",
 			};
 		}
-		/* The move transaction's own refusals already carry person-readable copy —
+		/* The move transaction's own refusals already carry person-readable copy:
 		 * an app that references lookup tables, out-of-sync edges, a destination
 		 * role the actor lacks, a source Owner who is not a member there. Passing
 		 * them through keeps an ordinary expected outcome out of Sentry and off

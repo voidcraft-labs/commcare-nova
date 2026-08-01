@@ -1,13 +1,13 @@
 // components/builder/case-list-config/cards/column/DateColumnCard.tsx
 //
-// Renders the `date` Column kind — formats a date / datetime
+// Renders the `date` Column kind: formats a date / datetime
 // property through a CCHQ format-date pattern.
 //
 // Slots:
-//   - `field` — case-property name. Filtered to `date` /
+//   - `field`: case-property name. Filtered to `date` /
 //     `datetime` typed properties.
-//   - `header` — column display label.
-//   - `pattern` — non-empty CCHQ wire-form date pattern. The
+//   - `header`: column display label.
+//   - `pattern`: non-empty CCHQ wire-form date pattern. The
 //     pattern slot surfaces through the shared
 //     `CustomDatePatternInput` primitive
 //     (`primitives/CustomDatePatternInput.tsx`): segmented preset
@@ -36,7 +36,7 @@ import { FORMAT_DATE_PRESETS } from "@/lib/domain/predicate";
 import type { ColumnEditContext } from "../../columnEditorSchemas";
 import { ColumnFieldRow } from "./ColumnFieldRow";
 
-/** The gate's own accept-set (`columnKindAcceptsPropertyType`) — an
+/** The gate's own accept-set (`columnKindAcceptsPropertyType`), an
  *  unknown-typed property is admissible, so the dropdown must offer
  *  it; a stricter picker would refuse a selection every verdict
  *  accepts. */

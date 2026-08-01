@@ -22,7 +22,7 @@ interface SelectMenuProps<T extends string> {
 	 *  in `options` for the default trigger label. */
 	value: T;
 	/** Selectable options. Corner rounding on the popup is derived from
-	 *  index + length — first item gets `rounded-t-xl`, last gets
+	 *  index + length: first item gets `rounded-t-xl`, last gets
 	 *  `rounded-b-xl`, a single-item list gets full `rounded-xl`. */
 	options: ReadonlyArray<SelectMenuOption<T>>;
 	/** Invoked when the user picks a new value. Firing on Menu.Item click
@@ -89,8 +89,8 @@ function cornerClass(index: number, last: number): string {
  * aligns under the trigger regardless of content width.
  *
  * Callers customize two surfaces only:
- *   - `renderTrigger` — trigger body (default: active option's label).
- *   - `renderItem` — item body (default: option's label in a `<span>`).
+ *   - `renderTrigger`: trigger body (default: active option's label).
+ *   - `renderItem`: item body (default: option's label in a `<span>`).
  *
  * The chevron, corner-rounding, active-row styling, and ARIA wiring all
  * live here so a tweak to any of them touches one file instead of four.

@@ -21,11 +21,11 @@ const AUTO_DISMISS_MS: Record<ToastSeverity, number> = {
 	info: 5000,
 };
 
-/* Each severity gets an icon in a soft tinted chip — the icon names the
+/* Each severity gets an icon in a soft tinted chip: the icon names the
  * register (guarded / caution / informational) so the title doesn't have
  * to, and the tint keeps the semantic hue an accent rather than a wash.
  * Error uses the alert-hexagon: in this app an error toast almost always
- * means the validity gate kept a change out — the same guardrail icon the
+ * means the validity gate kept a change out: the same guardrail icon the
  * contextual rejection surfaces use (`RejectionNotice`), so the semantic
  * reads the same wherever a refused commit surfaces. */
 const SEVERITY_CHROME: Record<
@@ -120,7 +120,7 @@ function ToastItem({
 						{lines.map((line, i) => (
 							// biome-ignore lint/suspicious/noArrayIndexKey: static finding list for one render; messages can legitimately repeat across forms
 							<li key={i} className="flex gap-2">
-								{/* Row marker only when there are rows to tell apart —
+								{/* Row marker only when there are rows to tell apart:
 								 * a single finding reads as the toast's one sentence. */}
 								{lines.length > 1 && (
 									<span
@@ -158,9 +158,9 @@ function ToastItem({
 }
 
 /**
- * ToastContainer — fixed-position toast stack rendered as a normal component.
+ * ToastContainer: fixed-position toast stack rendered as a normal component.
  *
- * Placed in the root layout as a client component leaf — `position: fixed`
+ * Placed in the root layout as a client component leaf: `position: fixed`
  * renders at the viewport level regardless of DOM position. No portal needed,
  * which avoids the server/client hydration mismatch that `createPortal` to
  * `document.body` would cause (body doesn't exist during SSR).

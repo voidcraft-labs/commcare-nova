@@ -49,7 +49,7 @@ interface LandingProps {
  *
  * The `?error=…` value is either a code Nova explicitly emitted (one
  * of `SIGN_IN_ERROR`, matched by exact equality against the imported
- * constant — typos on either side fail at build time) or some other
+ * constant: typos on either side fail at build time) or some other
  * code from Better Auth's internal protocol surface that we do not
  * control. We do not pattern-match the latter; everything outside our
  * own code list collapses to a single generic sentence rather than
@@ -67,7 +67,7 @@ function formatSignInError(raw: string | null): string | null {
 }
 
 /**
- * Landing page client component — Google OAuth sign-in.
+ * Landing page client component: Google OAuth sign-in.
  *
  * Rendered by the root page when the user is not authenticated.
  * Sign-in is restricted to the email-domain allowlist enforced by
@@ -80,7 +80,7 @@ export function Landing({ signInError }: LandingProps) {
 	const [signingIn, setSigningIn] = useState(false);
 	const errorMessage = formatSignInError(signInError);
 
-	/** Google OAuth entry — sign in and redirect to builder on success. */
+	/** Google OAuth entry: sign in and redirect to builder on success. */
 	const signInWithGoogle = async () => {
 		setSigningIn(true);
 		await signIn();
@@ -114,7 +114,7 @@ export function Landing({ signInError }: LandingProps) {
 						initial={{ opacity: 0, y: -8 }}
 						animate={{ opacity: 1, y: 0 }}
 						transition={{ duration: 0.4 }}
-						/* `role="status"` (== `aria-live="polite"`) — this banner is
+						/* `role="status"` (== `aria-live="polite"`): this banner is
 						 * server-rendered into the initial HTML when `?error=…` is
 						 * present, so by the time a screen reader reaches it the
 						 * content is part of normal page flow. `role="alert"` would
@@ -122,7 +122,7 @@ export function Landing({ signInError }: LandingProps) {
 						 * is the wrong semantic for first-paint static content. */
 						role="status"
 						/* Body text uses `text-nova-text` rather than `text-nova-rose`
-						 * for WCAG AA contrast against the `bg-nova-rose/10` tint —
+						 * for WCAG AA contrast against the `bg-nova-rose/10` tint:
 						 * the rose color sits ~4:1 on the composite background, just
 						 * below the 4.5:1 threshold for normal text. The rose border
 						 * + tint still convey the error semantic visually. */

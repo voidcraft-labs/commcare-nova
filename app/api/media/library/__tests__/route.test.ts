@@ -1,9 +1,9 @@
 /**
- * `GET /api/media/library` — query acceptance tests for both modes.
+ * `GET /api/media/library`: query acceptance tests for both modes.
  *
  * List mode: the library backs both the carrier pickers (media kinds) and the
  * chat file manager (document kinds), so the repeated `kind` query param must
- * accept any `AssetKind` — including `pdf`/`text`/`docx`/`xlsx` — and collect
+ * accept any `AssetKind`, including `pdf`/`text`/`docx`/`xlsx`, and collect
  * SEVERAL into a kind set (`?kind=image&kind=pdf`) for a picker's "All" view.
  * This pins that the kinds reach the Project-scoped query as a set, that no
  * `kind` param means "every kind" (an empty set, never an `in []`), and that a

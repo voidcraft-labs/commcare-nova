@@ -1,11 +1,11 @@
 /**
- * StructureSidebar — collapsible panel showing the app's module/form/field
- * tree. Fully self-sufficient — subscribes to store state directly, no props
+ * StructureSidebar: collapsible panel showing the app's module/form/field
+ * tree. Fully self-sufficient: subscribes to store state directly, no props
  * needed from BuilderLayout. Calls store actions to close itself.
  *
  * The header is the app row: collapse control, then the app's name
  * titling the tree, with the app-level settings gear beside it
- * (`AppSettingsButton` — renders only for a ready editor). Before the
+ * (`AppSettingsButton`: renders only for a ready editor). Before the
  * app is named, the row falls back to naming the panel itself.
  */
 "use client";
@@ -53,13 +53,13 @@ export function StructureSidebar() {
 				<AppSettingsButton />
 			</div>
 
-			{/* Structure tree — reads all state from hooks internally */}
+			{/* Structure tree: reads all state from hooks internally */}
 			<div className="flex-1 overflow-hidden flex flex-col relative">
 				<ErrorBoundary>
 					<AppTree />
 				</ErrorBoundary>
 
-				{/* Dim overlay — blocks interaction until generation completes */}
+				{/* Dim overlay: blocks interaction until generation completes */}
 				<AnimatePresence>
 					{!isReady && (
 						<motion.div

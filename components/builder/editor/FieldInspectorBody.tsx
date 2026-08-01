@@ -1,19 +1,19 @@
 /**
- * FieldInspectorBody — the right-rail inspector body for a selected form
+ * FieldInspectorBody: the right-rail inspector body for a selected form
  * field. Rendered by the rail from shared selection state (`useActiveInspector`
  * builds the descriptor, `InspectorPanel` owns the kicker/title/close header),
  * it stacks the field's editing surface:
  *
- *   - `FieldIdentitySection` — the "Field ID" section (id editor + actions).
- *   - `FieldEditorPanel`     — Data / Logic / Appearance, registry-driven.
- *   - shared `RemoveRow`     — deletion, always the body's last row.
+ *   - `FieldIdentitySection`: the "Field ID" section (id editor + actions).
+ *   - `FieldEditorPanel`       Data / Logic / Appearance, registry-driven.
+ *   - shared `RemoveRow`       deletion, always the body's last row.
  *
  * The wrapper `div` owns two things beyond layout:
- *   - `space-y-4` — the rail's section rhythm. A wrapper (not a fragment) so
+ *   - `space-y-4`: the rail's section rhythm. A wrapper (not a fragment) so
  *     the delegated focus handler has one ancestor to listen on; the sections
  *     are still direct children of this div, so they get the same `space-y-4`
  *     + `first:` divider treatment as the case-list inspector's sections.
- *   - the delegated `onFocus` — tracks which `[data-field-id]` element holds
+ *   - the delegated `onFocus`: tracks which `[data-field-id]` element holds
  *     focus so the history entry captures the right field even for blur-triggered
  *     saves (where `document.activeElement` has already moved).
  */
@@ -52,7 +52,7 @@ export function FieldInspectorBody({ field }: FieldInspectorBodyProps) {
 			className="space-y-4"
 			// Stable uuid tag (survives renames) so undo/redo's
 			// `findFieldElement` can locate this field's property element in the
-			// rail to flash it — see `lib/routing/domQueries.ts`.
+			// rail to flash it: see `lib/routing/domQueries.ts`.
 			data-field-inspector={field.uuid}
 		>
 			{canEdit ? (
@@ -63,7 +63,7 @@ export function FieldInspectorBody({ field }: FieldInspectorBodyProps) {
 				</>
 			) : (
 				<>
-					{/* A view-only Project member sees the field's full config —
+					{/* A view-only Project member sees the field's full config:
 					 *  it just can't take focus or be changed, and the delete +
 					 *  identity-actions menu are gone (see `FieldIdentitySection`). */}
 					<div aria-disabled className="space-y-4 pointer-events-none">
