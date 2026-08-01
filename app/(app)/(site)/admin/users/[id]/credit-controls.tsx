@@ -26,6 +26,7 @@ import { tablerCredits } from "@/components/icons/tablerExtras";
 import {
 	AlertDialog,
 	AlertDialogAction,
+	AlertDialogBody,
 	AlertDialogCancel,
 	AlertDialogContent,
 	AlertDialogDescription,
@@ -270,22 +271,22 @@ export function CreditControls({
 									gets a full balance for the rest of the period.
 								</AlertDialogDescription>
 							</AlertDialogHeader>
-
-							<Field>
-								<FieldLabel htmlFor="reset-reason">
-									Reason (optional)
-								</FieldLabel>
-								<Input
-									id="reset-reason"
-									value={resetReason}
-									onChange={(e) => setResetReason(e.target.value)}
-									placeholder="Why are you resetting their credits?"
-									autoComplete="off"
-									data-1p-ignore
-									disabled={pending !== null}
-								/>
-							</Field>
-
+							<AlertDialogBody>
+								<Field>
+									<FieldLabel htmlFor="reset-reason">
+										Reason (optional)
+									</FieldLabel>
+									<Input
+										id="reset-reason"
+										value={resetReason}
+										onChange={(e) => setResetReason(e.target.value)}
+										placeholder="Why are you resetting their credits?"
+										autoComplete="off"
+										data-1p-ignore
+										disabled={pending !== null}
+									/>
+								</Field>
+							</AlertDialogBody>
 							<AlertDialogFooter>
 								<AlertDialogCancel disabled={pending !== null}>
 									Cancel
@@ -330,40 +331,40 @@ export function CreditControls({
 									Bonus credits stay available until they're used.
 								</AlertDialogDescription>
 							</AlertDialogHeader>
+							<AlertDialogBody>
+								<Field>
+									<FieldLabel htmlFor="grant-amount">Amount</FieldLabel>
+									<Input
+										id="grant-amount"
+										type="number"
+										min={1}
+										step={1}
+										inputMode="numeric"
+										value={grantAmount}
+										onChange={(e) => setGrantAmount(e.target.value)}
+										placeholder="e.g. 500"
+										autoComplete="off"
+										data-1p-ignore
+										disabled={pending !== null}
+										required
+									/>
+								</Field>
 
-							<Field>
-								<FieldLabel htmlFor="grant-amount">Amount</FieldLabel>
-								<Input
-									id="grant-amount"
-									type="number"
-									min={1}
-									step={1}
-									inputMode="numeric"
-									value={grantAmount}
-									onChange={(e) => setGrantAmount(e.target.value)}
-									placeholder="e.g. 500"
-									autoComplete="off"
-									data-1p-ignore
-									disabled={pending !== null}
-									required
-								/>
-							</Field>
-
-							<Field>
-								<FieldLabel htmlFor="grant-reason">
-									Reason (optional)
-								</FieldLabel>
-								<Input
-									id="grant-reason"
-									value={grantReason}
-									onChange={(e) => setGrantReason(e.target.value)}
-									placeholder="Why are you granting bonus credits?"
-									autoComplete="off"
-									data-1p-ignore
-									disabled={pending !== null}
-								/>
-							</Field>
-
+								<Field>
+									<FieldLabel htmlFor="grant-reason">
+										Reason (optional)
+									</FieldLabel>
+									<Input
+										id="grant-reason"
+										value={grantReason}
+										onChange={(e) => setGrantReason(e.target.value)}
+										placeholder="Why are you granting bonus credits?"
+										autoComplete="off"
+										data-1p-ignore
+										disabled={pending !== null}
+									/>
+								</Field>
+							</AlertDialogBody>
 							<AlertDialogFooter>
 								<AlertDialogCancel disabled={pending !== null}>
 									Cancel

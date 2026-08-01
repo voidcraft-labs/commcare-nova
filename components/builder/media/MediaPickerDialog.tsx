@@ -28,6 +28,7 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
 	AlertDialog,
 	AlertDialogAction,
+	AlertDialogBody,
 	AlertDialogCancel,
 	AlertDialogContent,
 	AlertDialogDescription,
@@ -1306,18 +1307,20 @@ function MediaDeleteConfirmDialog({
 						will be deleted from your library and can't be recovered
 					</AlertDialogDescription>
 				</AlertDialogHeader>
-				{attached && (
-					<div className="flex items-start gap-3 rounded-lg border border-nova-amber/30 bg-nova-amber/[0.06] px-4 py-3 text-left text-sm leading-relaxed text-nova-text-secondary">
-						<Icon
-							icon={tablerAlertTriangle}
-							className="mt-0.5 size-5 shrink-0 text-nova-amber"
-						/>
-						<span>
-							This file is attached to your current message. Deleting it also
-							removes it from the message.
-						</span>
-					</div>
-				)}
+				<AlertDialogBody>
+					{attached && (
+						<div className="flex items-start gap-3 rounded-lg border border-nova-amber/30 bg-nova-amber/[0.06] px-4 py-3 text-left text-sm leading-relaxed text-nova-text-secondary">
+							<Icon
+								icon={tablerAlertTriangle}
+								className="mt-0.5 size-5 shrink-0 text-nova-amber"
+							/>
+							<span>
+								This file is attached to your current message. Deleting it also
+								removes it from the message.
+							</span>
+						</div>
+					)}
+				</AlertDialogBody>
 				<AlertDialogFooter>
 					<AlertDialogCancel className="h-11" disabled={deleting}>
 						Cancel

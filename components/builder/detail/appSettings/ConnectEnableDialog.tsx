@@ -912,7 +912,7 @@ export function ConnectEnableDialog({
 				className="flex max-h-[85vh] flex-col gap-0 p-0 sm:max-w-lg"
 			>
 				{request && (
-					<DialogBody
+					<ConnectEnableBody
 						request={request}
 						onCancel={onCancel}
 						onConfirm={onConfirm}
@@ -923,7 +923,7 @@ export function ConnectEnableDialog({
 	);
 }
 
-function DialogBody({
+function ConnectEnableBody({
 	request,
 	onCancel,
 	onConfirm,

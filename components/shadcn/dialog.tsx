@@ -53,8 +53,18 @@ function DialogContent({
 			<DialogOverlay />
 			<DialogPrimitive.Popup
 				data-slot="dialog-content"
+				// A column, not a scroller: the panel caps its own height and
+				// `DialogBody` takes the leftover and scrolls INSIDE it, so the
+				// title, the close button, and the actions stay put. Scrolling the
+				// whole panel puts the actions below the fold and carries the X off
+				// the top — the user has to scroll back up to dismiss.
+				//
+				// `overflow-y-auto` stays as the fallback for a dialog whose middle
+				// isn't wrapped in `DialogBody`: it then behaves exactly as it always
+				// did rather than clipping. Wrap the middle and it never engages,
+				// because a `min-h-0 flex-1` body can shrink to fit.
 				className={cn(
-					"group/dialog-content fixed top-1/2 left-1/2 z-modal grid max-h-[calc(100dvh-2rem)] w-full max-w-[calc(100%-2rem)] min-w-0 -translate-x-1/2 -translate-y-1/2 gap-4 overflow-x-hidden overflow-y-auto overscroll-contain rounded-xl border border-nova-border bg-nova-deep p-5 text-sm text-nova-text shadow-xl outline-none transition-[transform,opacity] sm:max-w-md data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0",
+					"group/dialog-content fixed top-1/2 left-1/2 z-modal flex max-h-[calc(100dvh-2rem)] w-full max-w-[calc(100%-2rem)] min-w-0 -translate-x-1/2 -translate-y-1/2 flex-col gap-4 overflow-x-hidden overflow-y-auto overscroll-contain rounded-xl border border-nova-border bg-nova-deep p-5 [scrollbar-gutter:auto] text-sm text-nova-text shadow-xl outline-none transition-[transform,opacity] sm:max-w-md data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0",
 					className,
 				)}
 				{...props}
@@ -85,7 +95,37 @@ function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
 		<div
 			data-slot="dialog-header"
 			className={cn(
-				"flex min-w-0 flex-col gap-1.5 group-has-data-[slot=dialog-close]/dialog-content:pr-11",
+				// Sitting directly on the footer means there is no body to absorb a
+				// short viewport, so the header becomes the scroller rather than
+				// pushing the actions past the fold. With a body between them the
+				// selector doesn't match and the header stays fixed.
+				"flex min-w-0 shrink-0 flex-col gap-1.5 group-has-data-[slot=dialog-close]/dialog-content:pr-11 [&:has(+[data-slot=dialog-footer])]:min-h-0 [&:has(+[data-slot=dialog-footer])]:shrink [&:has(+[data-slot=dialog-footer])]:overflow-y-auto",
+				className,
+			)}
+			{...props}
+		/>
+	);
+}
+
+/**
+ * The scrolling middle of a dialog.
+ *
+ * Wrap whatever sits between the header and the footer. It takes the height the
+ * panel has left and scrolls inside it, which is what keeps the actions and the
+ * close button on screen no matter how long the content runs.
+ *
+ * The negative inline margin cancels the panel's own `p-5` and the padding puts
+ * it back on the CONTENT, so the scroll track lands where you expect it — hard
+ * against the panel's inside edge — instead of floating 20px in from it. A
+ * panel that sets its own padding (`p-0` and custom chrome) passes
+ * `className="mx-0 px-0"` to opt out.
+ */
+function DialogBody({ className, ...props }: React.ComponentProps<"div">) {
+	return (
+		<div
+			data-slot="dialog-body"
+			className={cn(
+				"-mx-5 min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-5",
 				className,
 			)}
 			{...props}
@@ -105,7 +145,7 @@ function DialogFooter({
 		<div
 			data-slot="dialog-footer"
 			className={cn(
-				"flex min-w-0 flex-row justify-end gap-2 [&_[data-slot=button]]:min-h-11 [&_[data-slot=dialog-close]]:min-h-11",
+				"flex min-w-0 shrink-0 flex-row justify-end gap-2 [&_[data-slot=button]]:min-h-11 [&_[data-slot=dialog-close]]:min-h-11",
 				className,
 			)}
 			{...props}
@@ -151,6 +191,7 @@ function DialogDescription({
 
 export {
 	Dialog,
+	DialogBody,
 	DialogClose,
 	DialogContent,
 	DialogDescription,

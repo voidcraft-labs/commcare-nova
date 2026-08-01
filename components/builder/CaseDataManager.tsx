@@ -20,6 +20,7 @@ import { NameChip } from "@/components/builder/data-review/NameChip";
 import {
 	AlertDialog,
 	AlertDialogAction,
+	AlertDialogBody,
 	AlertDialogCancel,
 	AlertDialogContent,
 	AlertDialogDescription,
@@ -745,24 +746,26 @@ export function CaseDataManager({
 							You can't undo this.
 						</AlertDialogDescription>
 					</AlertDialogHeader>
-					{operation === "replace" && (
-						<p
-							role="status"
-							aria-live="polite"
-							aria-atomic="true"
-							className="sr-only"
-						>
-							Replacing case data…
-						</p>
-					)}
-					{error && (
-						<p
-							role="alert"
-							className="rounded-lg border border-nova-rose/30 bg-nova-rose/[0.06] p-3 text-sm leading-relaxed text-nova-rose"
-						>
-							{error}
-						</p>
-					)}
+					<AlertDialogBody>
+						{operation === "replace" && (
+							<p
+								role="status"
+								aria-live="polite"
+								aria-atomic="true"
+								className="sr-only"
+							>
+								Replacing case data…
+							</p>
+						)}
+						{error && (
+							<p
+								role="alert"
+								className="rounded-lg border border-nova-rose/30 bg-nova-rose/[0.06] p-3 text-sm leading-relaxed text-nova-rose"
+							>
+								{error}
+							</p>
+						)}
+					</AlertDialogBody>
 					<AlertDialogFooter>
 						<AlertDialogCancel disabled={loading}>Cancel</AlertDialogCancel>
 						<AlertDialogAction

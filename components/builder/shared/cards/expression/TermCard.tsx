@@ -53,6 +53,7 @@ import {
 import {
 	AlertDialog,
 	AlertDialogAction,
+	AlertDialogBody,
 	AlertDialogCancel,
 	AlertDialogContent,
 	AlertDialogDescription,
@@ -491,54 +492,58 @@ function EditableTermCard({
 							{pendingCopy?.description}
 						</AlertDialogDescription>
 					</AlertDialogHeader>
-					{pendingUserField !== undefined ? (
-						<div className="space-y-2">
-							<label
-								htmlFor={replacementUserFieldId}
-								className="text-sm font-medium text-nova-text"
-							>
-								User field name
-							</label>
-							<Input
-								id={replacementUserFieldId}
-								type="text"
-								required
-								value={pendingUserField}
-								onChange={(event) =>
-									setPendingModeChange((current) =>
-										current === null
-											? null
-											: {
-													...current,
-													userFieldDraft: event.target.value,
-												},
-									)
-								}
-								autoComplete="off"
-								data-1p-ignore
-								aria-invalid={pendingUserFieldError !== undefined || undefined}
-								aria-describedby={replacementUserFieldHelpId}
-								className={userFieldInputClass(
-									pendingUserFieldError !== undefined,
+					<AlertDialogBody>
+						{pendingUserField !== undefined ? (
+							<div className="space-y-2">
+								<label
+									htmlFor={replacementUserFieldId}
+									className="text-sm font-medium text-nova-text"
+								>
+									User field name
+								</label>
+								<Input
+									id={replacementUserFieldId}
+									type="text"
+									required
+									value={pendingUserField}
+									onChange={(event) =>
+										setPendingModeChange((current) =>
+											current === null
+												? null
+												: {
+														...current,
+														userFieldDraft: event.target.value,
+													},
+										)
+									}
+									autoComplete="off"
+									data-1p-ignore
+									aria-invalid={
+										pendingUserFieldError !== undefined || undefined
+									}
+									aria-describedby={replacementUserFieldHelpId}
+									className={userFieldInputClass(
+										pendingUserFieldError !== undefined,
+									)}
+								/>
+								{pendingUserFieldError === undefined ? (
+									<p
+										id={replacementUserFieldHelpId}
+										className="text-[13px] leading-5 text-nova-text-secondary"
+									>
+										Use the field name saved on the user, like assigned_region
+									</p>
+								) : (
+									<FieldError
+										id={replacementUserFieldHelpId}
+										className="text-[13px] leading-5 text-nova-rose"
+									>
+										{pendingUserFieldError}
+									</FieldError>
 								)}
-							/>
-							{pendingUserFieldError === undefined ? (
-								<p
-									id={replacementUserFieldHelpId}
-									className="text-[13px] leading-5 text-nova-text-secondary"
-								>
-									Use the field name saved on the user, like assigned_region
-								</p>
-							) : (
-								<FieldError
-									id={replacementUserFieldHelpId}
-									className="text-[13px] leading-5 text-nova-rose"
-								>
-									{pendingUserFieldError}
-								</FieldError>
-							)}
-						</div>
-					) : null}
+							</div>
+						) : null}
+					</AlertDialogBody>
 					<AlertDialogFooter>
 						<AlertDialogCancel>Cancel</AlertDialogCancel>
 						<AlertDialogAction

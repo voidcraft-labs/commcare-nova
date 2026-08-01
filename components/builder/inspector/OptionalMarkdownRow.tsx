@@ -37,6 +37,7 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/shadcn/button";
 import {
 	Dialog,
+	DialogBody,
 	DialogClose,
 	DialogContent,
 	DialogDescription,
@@ -433,7 +434,7 @@ function ImageFormattingDialog({
 		<Dialog open={open} onOpenChange={onOpenChange}>
 			<DialogContent showCloseButton={false} data-inline-toolbar>
 				<form
-					className="grid gap-5"
+					className="flex min-h-0 flex-1 flex-col gap-5"
 					onSubmit={(event) => {
 						event.preventDefault();
 						onInsert();
@@ -445,7 +446,7 @@ function ImageFormattingDialog({
 							Add an image from a web address
 						</DialogDescription>
 					</DialogHeader>
-					<div className="grid gap-4">
+					<DialogBody className="grid gap-4">
 						<div className="grid gap-2">
 							<Label htmlFor="markdown-image-url">Image address</Label>
 							<Input
@@ -474,7 +475,7 @@ function ImageFormattingDialog({
 								Helps people who can’t see the image
 							</p>
 						</div>
-					</div>
+					</DialogBody>
 					<DialogFooter>
 						<DialogClose
 							render={<Button type="button" variant="outline" size="xl" />}
@@ -517,7 +518,7 @@ function TableFormattingDialog({
 		<Dialog open={open} onOpenChange={onOpenChange}>
 			<DialogContent showCloseButton={false} data-inline-toolbar>
 				<form
-					className="grid gap-5"
+					className="flex min-h-0 flex-1 flex-col gap-5"
 					onSubmit={(event) => {
 						event.preventDefault();
 						if (rowCount === undefined || columnCount === undefined) return;
@@ -530,7 +531,7 @@ function TableFormattingDialog({
 							Choose 1 to 6 rows and columns
 						</DialogDescription>
 					</DialogHeader>
-					<div className="grid grid-cols-2 gap-3">
+					<DialogBody className="grid grid-cols-2 gap-3">
 						<div className="grid gap-2">
 							<Label htmlFor="markdown-table-rows">Rows</Label>
 							<Input
@@ -565,7 +566,7 @@ function TableFormattingDialog({
 								className="min-h-11"
 							/>
 						</div>
-					</div>
+					</DialogBody>
 					<DialogFooter>
 						<DialogClose
 							render={<Button type="button" variant="outline" size="xl" />}

@@ -47,6 +47,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/shadcn/button";
 import {
 	Dialog,
+	DialogBody,
 	DialogContent,
 	DialogDescription,
 	DialogTitle,
@@ -920,12 +921,13 @@ function MintForm({
 
 	return (
 		<form
+			className="flex min-h-0 flex-1 flex-col"
 			onSubmit={(e) => {
 				e.preventDefault();
 				if (canSubmit) onSubmit();
 			}}
 		>
-			<div className="flex items-start justify-between border-b border-nova-border/40 px-6 py-4">
+			<div className="flex shrink-0 items-start justify-between border-b border-nova-border/40 px-6 py-4">
 				<div>
 					<DialogTitle className="font-display">New API key</DialogTitle>
 					<DialogDescription className="mt-0.5 text-xs text-nova-text-muted">
@@ -944,7 +946,7 @@ function MintForm({
 				</Button>
 			</div>
 
-			<div className="space-y-5 px-6 py-5">
+			<DialogBody className="mx-0 space-y-5 px-6 py-5">
 				{/* Name */}
 				<Field.Root name="name" className="block">
 					<Field.Label className="text-xs font-medium text-nova-text">
@@ -1019,7 +1021,7 @@ function MintForm({
 						</motion.p>
 					)}
 				</AnimatePresence>
-			</div>
+			</DialogBody>
 
 			{/*
 			 * Cancel + X disabled during submit. Two layers cover the
@@ -1035,7 +1037,7 @@ function MintForm({
 			 *     dismiss reasons during reveal-phase AND during
 			 *     form-phase + submitting.
 			 */}
-			<div className="flex items-center justify-end gap-2 border-t border-nova-border/40 bg-nova-surface/10 px-6 py-3.5">
+			<div className="flex shrink-0 items-center justify-end gap-2 border-t border-nova-border/40 bg-nova-surface/10 px-6 py-3.5">
 				<Button
 					type="button"
 					variant="ghost"
@@ -1283,7 +1285,7 @@ function EditScopesDialog({
 					</Button>
 				</div>
 
-				<div className="space-y-3 px-6 py-5">
+				<DialogBody className="mx-0 space-y-3 px-6 py-5">
 					<ScopeCheckboxGrid
 						selectedScopes={selectedScopes}
 						onToggle={toggleScope}
@@ -1303,9 +1305,9 @@ function EditScopesDialog({
 							</motion.p>
 						)}
 					</AnimatePresence>
-				</div>
+				</DialogBody>
 
-				<div className="flex items-center justify-end gap-2 border-t border-nova-border/40 bg-nova-surface/10 px-6 py-3.5">
+				<div className="flex shrink-0 items-center justify-end gap-2 border-t border-nova-border/40 bg-nova-surface/10 px-6 py-3.5">
 					<Button
 						type="button"
 						variant="ghost"

@@ -30,6 +30,7 @@ import { useEffect, useState } from "react";
 import {
 	AlertDialog,
 	AlertDialogAction,
+	AlertDialogBody,
 	AlertDialogCancel,
 	AlertDialogContent,
 	AlertDialogDescription,
@@ -167,114 +168,114 @@ export function DestructiveChangeDialog({
 						{PROJECT_DATA_SHARED_NOTICE} {consequence}
 					</AlertDialogDescription>
 				</AlertDialogHeader>
-
-				{checking ? (
-					<p
-						role="status"
-						className="flex items-center gap-2 text-[13px] text-nova-text-secondary"
-					>
-						<Icon
-							icon={tablerLoader2}
-							width="16"
-							height="16"
-							className="animate-spin motion-reduce:animate-none"
-							aria-hidden="true"
-						/>
-						Checking which apps use this…
-					</p>
-				) : preflight.kind === "failed" ? (
-					<div
-						role="alert"
-						className="rounded-lg border border-nova-rose/30 bg-nova-rose/[0.06] p-3"
-					>
-						<p className="text-[13px] leading-relaxed text-nova-text-secondary">
-							{preflight.message} Nothing can be changed until this check
-							succeeds.
-						</p>
-						<Button
-							type="button"
-							variant="outline"
-							className="mt-2 min-h-11"
-							onClick={() => setRetryGeneration((current) => current + 1)}
+				<AlertDialogBody>
+					{checking ? (
+						<p
+							role="status"
+							className="flex items-center gap-2 text-[13px] text-nova-text-secondary"
 						>
-							<Icon icon={tablerRefresh} aria-hidden="true" />
-							Try again
-						</Button>
-					</div>
-				) : blocked ? (
-					<div
-						role={refusedBy === null ? undefined : "alert"}
-						className="space-y-2 rounded-lg border border-nova-rose/30 bg-nova-rose/[0.06] p-3"
-					>
-						<p className="flex items-start gap-2 text-[13px] font-medium text-nova-text">
 							<Icon
-								icon={tablerAlertTriangle}
+								icon={tablerLoader2}
 								width="16"
 								height="16"
-								className="mt-0.5 shrink-0 text-nova-rose"
+								className="animate-spin motion-reduce:animate-none"
 								aria-hidden="true"
 							/>
-							{unnamedReferenceRefusal
-								? "An app still uses this, so it can’t be changed"
-								: named.length === 1
-									? "One app still uses this, so it can’t be changed"
-									: `${named.length} apps still use this, so it can’t be changed`}
+							Checking which apps use this…
 						</p>
-						{!unnamedReferenceRefusal && (
-							<ul className="space-y-1 text-[13px] text-nova-text-secondary">
-								{named.map((app) => (
-									<li key={app.appId} className="[overflow-wrap:anywhere]">
-										{app.appName}
-										{app.deleted && (
-											<span className="text-nova-text-muted">
-												{" "}
-												— in the trash, but it still counts
-											</span>
-										)}
-									</li>
-								))}
-							</ul>
-						)}
-						<p className="text-[13px] leading-relaxed text-nova-text-secondary">
-							{unnamedReferenceRefusal
-								? "Nova could not load the app’s name. Nothing changed. Check references again before trying this action."
-								: `Point ${named.length === 1 ? "that app" : "those apps"} somewhere else first, then come back.`}
-						</p>
-						{unnamedReferenceRefusal && (
+					) : preflight.kind === "failed" ? (
+						<div
+							role="alert"
+							className="rounded-lg border border-nova-rose/30 bg-nova-rose/[0.06] p-3"
+						>
+							<p className="text-[13px] leading-relaxed text-nova-text-secondary">
+								{preflight.message} Nothing can be changed until this check
+								succeeds.
+							</p>
 							<Button
 								type="button"
 								variant="outline"
-								className="min-h-11"
-								onClick={() => {
-									setPreflight({ kind: "loading" });
-									setUnnamedReferenceRefusal(false);
-									setRefusal(null);
-									setRetryGeneration((current) => current + 1);
-								}}
+								className="mt-2 min-h-11"
+								onClick={() => setRetryGeneration((current) => current + 1)}
 							>
 								<Icon icon={tablerRefresh} aria-hidden="true" />
-								Check references again
+								Try again
 							</Button>
-						)}
-					</div>
-				) : (
-					<p
-						role="status"
-						className="text-[13px] leading-relaxed text-nova-text-secondary"
-					>
-						No app in this project uses it right now.
-					</p>
-				)}
+						</div>
+					) : blocked ? (
+						<div
+							role={refusedBy === null ? undefined : "alert"}
+							className="space-y-2 rounded-lg border border-nova-rose/30 bg-nova-rose/[0.06] p-3"
+						>
+							<p className="flex items-start gap-2 text-[13px] font-medium text-nova-text">
+								<Icon
+									icon={tablerAlertTriangle}
+									width="16"
+									height="16"
+									className="mt-0.5 shrink-0 text-nova-rose"
+									aria-hidden="true"
+								/>
+								{unnamedReferenceRefusal
+									? "An app still uses this, so it can’t be changed"
+									: named.length === 1
+										? "One app still uses this, so it can’t be changed"
+										: `${named.length} apps still use this, so it can’t be changed`}
+							</p>
+							{!unnamedReferenceRefusal && (
+								<ul className="space-y-1 text-[13px] text-nova-text-secondary">
+									{named.map((app) => (
+										<li key={app.appId} className="[overflow-wrap:anywhere]">
+											{app.appName}
+											{app.deleted && (
+												<span className="text-nova-text-muted">
+													{" "}
+													— in the trash, but it still counts
+												</span>
+											)}
+										</li>
+									))}
+								</ul>
+							)}
+							<p className="text-[13px] leading-relaxed text-nova-text-secondary">
+								{unnamedReferenceRefusal
+									? "Nova could not load the app’s name. Nothing changed. Check references again before trying this action."
+									: `Point ${named.length === 1 ? "that app" : "those apps"} somewhere else first, then come back.`}
+							</p>
+							{unnamedReferenceRefusal && (
+								<Button
+									type="button"
+									variant="outline"
+									className="min-h-11"
+									onClick={() => {
+										setPreflight({ kind: "loading" });
+										setUnnamedReferenceRefusal(false);
+										setRefusal(null);
+										setRetryGeneration((current) => current + 1);
+									}}
+								>
+									<Icon icon={tablerRefresh} aria-hidden="true" />
+									Check references again
+								</Button>
+							)}
+						</div>
+					) : (
+						<p
+							role="status"
+							className="text-[13px] leading-relaxed text-nova-text-secondary"
+						>
+							No app in this project uses it right now.
+						</p>
+					)}
 
-				{refusal !== null && !blocked && (
-					<p
-						role="alert"
-						className="text-[13px] leading-relaxed text-nova-rose"
-					>
-						{refusal}
-					</p>
-				)}
-
+					{refusal !== null && !blocked && (
+						<p
+							role="alert"
+							className="text-[13px] leading-relaxed text-nova-rose"
+						>
+							{refusal}
+						</p>
+					)}
+				</AlertDialogBody>
 				<AlertDialogFooter>
 					<AlertDialogCancel disabled={working} onClick={onCancel}>
 						Cancel

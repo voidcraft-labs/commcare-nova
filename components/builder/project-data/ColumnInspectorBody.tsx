@@ -255,7 +255,9 @@ export function ColumnInspectorBody({
 							}
 						}}
 					>
-						<SelectTrigger id={typeId} className="mt-1 h-11 w-full">
+						{/* `min-h-11`, not `h-11`: the trigger's height is a `data-[size=…]`
+						 * variant, which outranks a bare `h-*` from a call site. */}
+						<SelectTrigger id={typeId} className="mt-1 min-h-11 w-full">
 							<SelectValue>
 								{(selected) => COLUMN_TYPE_LABELS[selected as LookupDataType]}
 							</SelectValue>

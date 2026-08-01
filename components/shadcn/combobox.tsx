@@ -168,8 +168,10 @@ function ComboboxContent({
 				align={align}
 				alignOffset={alignOffset}
 				anchor={anchor}
-				className={cn("isolate", POPOVER_POSITIONER_GLASS_CLS)}
-				style={{ zIndex: "var(--z-modal)" }}
+				// `z-modal` replaces the glass constant's `z-popover`: `cn` knows
+				// Nova's named z scale (`lib/utils.ts`), so the last token wins and
+				// a combobox opened inside a dialog stays above it.
+				className={cn("isolate", POPOVER_POSITIONER_GLASS_CLS, "z-modal")}
 			>
 				<ComboboxPrimitive.Popup
 					data-slot="combobox-content"

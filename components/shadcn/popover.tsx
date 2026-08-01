@@ -47,9 +47,9 @@ function PopoverContent({
 		// `lib/styles.ts`) lives on the POSITIONER — `will-change: transform`
 		// there creates a compositing boundary that would break a descendant
 		// `backdrop-filter` — while the popup carries only the animation.
-		// The shared glass constant supplies `z-popover` for direct Base UI users.
-		// An inline token is intentional here: Tailwind's generated utility order,
-		// not class-string order, otherwise lets that shared class beat `z-modal`.
+		// The shared glass constant supplies `z-popover` for direct Base UI users;
+		// the trailing `z-modal` replaces it, because `cn` knows Nova's named
+		// z scale (`lib/utils.ts`) and resolves the pair to the last one.
 		<PopoverPrimitive.Portal>
 			<PopoverPrimitive.Positioner
 				align={align}
@@ -58,8 +58,7 @@ function PopoverContent({
 				sideOffset={sideOffset}
 				collisionAvoidance={collisionAvoidance}
 				collisionPadding={collisionPadding}
-				className={cn("isolate", POPOVER_POSITIONER_GLASS_CLS)}
-				style={{ zIndex: "var(--z-modal)" }}
+				className={cn("isolate", POPOVER_POSITIONER_GLASS_CLS, "z-modal")}
 			>
 				<PopoverPrimitive.Popup
 					data-slot="popover-content"
