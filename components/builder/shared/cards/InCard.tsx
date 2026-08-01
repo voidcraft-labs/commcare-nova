@@ -202,10 +202,10 @@ export function InCard({ value, onChange, path }: InCardProps) {
 				))}
 				<Button
 					type="button"
-					variant="outline"
+					variant="ghost"
 					onClick={append}
 					data-removal-focus-fallback
-					className="w-full border-dashed border-white/[0.10] bg-transparent px-3 text-sm text-nova-text-muted not-disabled:hover:border-nova-violet/30 not-disabled:hover:bg-transparent not-disabled:hover:text-nova-violet-bright dark:bg-transparent dark:not-disabled:hover:bg-transparent"
+					className="nova-add-slot w-full"
 				>
 					<Icon icon={tablerPlus} width="14" height="14" />
 					<span>Add value</span>

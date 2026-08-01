@@ -459,8 +459,8 @@ export function OptionsSourceEditor<
 								) : canEdit ? (
 									<Button
 										type="button"
-										variant="outline"
-										className="w-full border-dashed"
+										variant="ghost"
+										className="nova-add-slot w-full"
 										onClick={() => {
 											if (tableScope === undefined) return;
 											changeFilter(

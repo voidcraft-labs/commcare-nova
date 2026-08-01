@@ -44,7 +44,7 @@ export function AddMappingButton({ onClick }: { onClick: () => void }) {
 			variant="ghost"
 			onClick={onClick}
 			data-mapping-add
-			className="w-full gap-2 border border-dashed border-white/[0.10] px-3 text-[14px] text-nova-text-muted not-disabled:hover:border-nova-violet/30 not-disabled:hover:bg-transparent not-disabled:hover:text-nova-violet-bright dark:not-disabled:hover:bg-transparent"
+			className="nova-add-slot w-full gap-2"
 		>
 			<Icon icon={tablerPlus} width="14" height="14" />
 			<span>Add value</span>

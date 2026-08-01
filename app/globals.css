@@ -626,6 +626,30 @@ body {
 	box-shadow: var(--focus-ring);
 }
 
+/* ── Add slots ──────────────────────────────────────────────────────
+   "Add something here" is an empty place, not a solid control, so it is
+   flat and dashed rather than a keycap: a keycap says "press me", and a
+   dashed outline says "this is where the next one goes". It rides the
+   Button so it still gets the one 44px height, the radius, and the
+   keyboard focus ring; only the skin differs. Hover brightens, like
+   everything else. Compose it with `variant="ghost"`, and let the call
+   site keep layout only (width, gap, margin). */
+.nova-add-slot {
+	border-style: dashed;
+	border-color: var(--nova-border-bright);
+	background: transparent;
+	color: var(--nova-text-secondary);
+	box-shadow: none;
+}
+.nova-add-slot:not(:disabled):not([data-disabled]):hover {
+	border-color: var(--nova-violet);
+	background: var(--nova-violet-wash);
+	color: var(--nova-violet-bright);
+}
+.nova-add-slot:not(:disabled):not([data-disabled]):active {
+	transform: translateY(1px);
+}
+
 /* ── Keycap buttons ─────────────────────────────────────────────────
    The anatomy of Nova's soft-keycap buttons: a lit crown gradient over
    a 3px darker side wall, real travel on press (the cap sinks as the

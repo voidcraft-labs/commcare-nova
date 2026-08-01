@@ -111,9 +111,15 @@ describe("IdMappingCard — table mutations", () => {
 		expect(
 			screen.getByLabelText("Value 1 saved value").className,
 		).not.toContain("font-mono");
+		// The add affordance is ordinary UI text, not a code chip. It takes
+		// the system button's own control text size now rather than pinning
+		// a one-off, so assert what the rule actually is: not mono.
 		expect(
 			screen.getByRole("button", { name: "Add value" }).className,
-		).toContain("text-[14px]");
+		).not.toContain("font-mono");
+		expect(
+			screen.getByRole("button", { name: "Add value" }).className,
+		).toContain("nova-add-slot");
 	});
 
 	it("keeps a new row local until its saved value is complete", () => {

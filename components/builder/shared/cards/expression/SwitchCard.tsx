@@ -333,10 +333,10 @@ export function SwitchCard({
 				))}
 				<Button
 					type="button"
-					variant="outline"
+					variant="ghost"
 					onClick={appendCase}
 					data-removal-focus-fallback
-					className="w-full border-dashed text-nova-text-muted not-disabled:hover:border-nova-violet/30 not-disabled:hover:text-nova-violet-bright"
+					className="nova-add-slot w-full"
 				>
 					<Icon icon={tablerPlus} width="14" height="14" />
 					<span>Add choice</span>

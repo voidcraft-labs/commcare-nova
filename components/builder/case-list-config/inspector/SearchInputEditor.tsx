@@ -1541,8 +1541,8 @@ function DefaultValueSlot({
 				<Button
 					type="button"
 					onClick={() => onChange(seedDefaultExpression(inputType))}
-					variant="outline"
-					className="w-full border-dashed border-white/[0.10] bg-transparent px-3 text-[14px] text-nova-text-muted not-disabled:hover:border-nova-violet/30 not-disabled:hover:bg-transparent not-disabled:hover:text-nova-violet-bright dark:bg-transparent dark:not-disabled:hover:bg-transparent"
+					variant="ghost"
+					className="nova-add-slot w-full"
 					aria-label={`Add a starting value for search field ${rowIndex + 1}`}
 				>
 					<Icon icon={tablerPlus} width="13" height="13" />

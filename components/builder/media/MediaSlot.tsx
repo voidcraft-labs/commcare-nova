@@ -466,9 +466,9 @@ function AttachButton({
 	return (
 		<Button
 			type="button"
-			variant="outline"
+			variant="ghost"
 			onClick={onClick}
-			className="self-start border-dashed px-3 text-sm text-nova-text-secondary not-disabled:hover:border-nova-violet not-disabled:hover:text-nova-text"
+			className="nova-add-slot self-start"
 		>
 			<Icon icon={tablerPaperclip} className="size-4" />
 			{label}

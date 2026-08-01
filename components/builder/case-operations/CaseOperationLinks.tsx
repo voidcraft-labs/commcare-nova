@@ -171,11 +171,11 @@ export function CaseOperationLinks({
 				<Button
 					ref={rowFocus.addRef}
 					type="button"
-					variant="outline"
+					variant="ghost"
 					data-case-operation-add-link
 					disabled={!addVerdict.ok}
 					onClick={() => onChange([...links, addedLink])}
-					className="w-full gap-2 rounded-lg border-dashed bg-transparent px-4 text-sm text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.06] dark:bg-transparent dark:not-disabled:hover:bg-nova-violet/[0.06]"
+					className="nova-add-slot w-full gap-2"
 				>
 					<Icon icon={tablerPlus} width="14" height="14" />
 					<span className="flex-1 text-left">

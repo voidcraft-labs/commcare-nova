@@ -152,9 +152,9 @@ export function OptionalSlotCard<T>({
 	) : (
 		<Button
 			type="button"
-			variant="outline"
+			variant="ghost"
 			onClick={handleAdd}
-			className="w-full rounded-lg border-dashed border-white/[0.10] bg-transparent px-3 text-sm text-nova-text-muted not-disabled:hover:border-nova-violet/30 not-disabled:hover:bg-nova-violet/[0.05] not-disabled:hover:text-nova-violet-bright dark:bg-transparent dark:not-disabled:hover:bg-nova-violet/[0.05]"
+			className="nova-add-slot w-full"
 			aria-label={addLabel}
 		>
 			<Icon icon={tablerPlus} width="14" height="14" />

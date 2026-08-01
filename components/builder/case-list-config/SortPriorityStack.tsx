@@ -509,7 +509,7 @@ export function CaseOrderingComposer({
 										aria-describedby={
 											orderChoices.length === 0 ? orderAddReasonId : undefined
 										}
-										className="w-full border border-dashed border-nova-border-bright px-4 text-[14px] text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.06] dark:not-disabled:hover:bg-nova-violet/[0.06]"
+										className="nova-add-slot w-full"
 									/>
 								}
 								triggerLabel="Add to default order"

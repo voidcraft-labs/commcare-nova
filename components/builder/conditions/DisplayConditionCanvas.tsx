@@ -195,7 +195,7 @@ export function DisplayConditionCanvas({
 						<Button
 							ref={addButtonRef}
 							type="button"
-							variant="outline"
+							variant="ghost"
 							disabled={!canEdit}
 							onClick={() =>
 								change(
@@ -207,7 +207,7 @@ export function DisplayConditionCanvas({
 									}),
 								)
 							}
-							className="w-full border-dashed border-white/[0.10] bg-transparent text-[14px] text-nova-text-muted not-disabled:hover:border-nova-violet/30 not-disabled:hover:bg-nova-violet/[0.05] not-disabled:hover:text-nova-violet-bright dark:bg-transparent dark:not-disabled:hover:bg-nova-violet/[0.05]"
+							className="nova-add-slot w-full"
 						>
 							Add condition
 						</Button>

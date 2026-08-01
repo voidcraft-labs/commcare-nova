@@ -468,9 +468,9 @@ export function AddSearchFieldControl({
 			trigger={
 				<Button
 					type="button"
-					variant="outline"
+					variant="ghost"
 					data-case-add-search-field
-					className="mb-1 mt-3 w-full gap-2 rounded-lg border-dashed bg-transparent px-4 text-sm text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.06] dark:bg-transparent dark:not-disabled:hover:bg-nova-violet/[0.06]"
+					className="nova-add-slot mb-1 mt-3 w-full gap-2"
 				/>
 			}
 			triggerLabel="Add search field"

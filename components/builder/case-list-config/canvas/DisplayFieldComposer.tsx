@@ -498,9 +498,9 @@ export function AddInformationControl({
 			trigger={
 				<Button
 					type="button"
-					variant="outline"
+					variant="ghost"
 					data-case-add={surface}
-					className="w-full gap-2 rounded-lg border-dashed bg-transparent px-4 text-sm text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.06] dark:bg-transparent dark:not-disabled:hover:bg-nova-violet/[0.06]"
+					className="nova-add-slot w-full gap-2"
 				/>
 			}
 			triggerLabel="Add information"
