@@ -1144,10 +1144,10 @@ function AncestorSteps({
 			{addParentPath !== undefined ? (
 				<Button
 					type="button"
-					variant="outline"
+					variant="ghost"
 					onClick={() => onChange(addParentPath)}
 					disabled={!addParentAdmission.admitted}
-					className="w-full"
+					className="nova-add-slot w-full"
 					data-removal-focus-fallback
 				>
 					<Icon icon={tablerPlus} />

@@ -315,8 +315,8 @@ export function CreateTableDialog({
 							})}
 							<Button
 								type="button"
-								variant="outline"
-								className="gap-2 self-start"
+								variant="ghost"
+								className="nova-add-slot gap-2 self-start"
 								disabled={working}
 								onClick={() =>
 									setColumns((current) => [...current, newColumnDraft()])

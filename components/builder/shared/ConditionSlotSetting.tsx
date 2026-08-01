@@ -139,7 +139,7 @@ export function ConditionSlotSetting({
 							type="button"
 							variant="outline"
 							onClick={() => onEdit()}
-							className="min-w-0 flex-1 border-white/[0.08] bg-transparent text-[14px] text-nova-text-secondary not-disabled:hover:border-nova-violet/30 not-disabled:hover:bg-nova-violet/[0.05] not-disabled:hover:text-nova-violet-bright dark:bg-transparent dark:not-disabled:hover:bg-nova-violet/[0.05]"
+							className="min-w-0 flex-1"
 						>
 							{canEdit ? editLabel : "View condition"}
 						</Button>

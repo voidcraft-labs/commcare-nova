@@ -270,8 +270,8 @@ export function AddConditionMenu({
 				render={
 					<Button
 						type="button"
-						variant="outline"
-						className={`border-white/[0.09] px-4 text-sm text-nova-text-secondary not-disabled:hover:border-nova-violet/30 not-disabled:hover:bg-nova-violet/[0.05] not-disabled:hover:text-nova-violet-bright ${className}`}
+						variant="ghost"
+						className={`nova-add-slot ${className}`}
 					/>
 				}
 			>
