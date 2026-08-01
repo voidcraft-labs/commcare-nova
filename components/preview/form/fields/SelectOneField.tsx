@@ -84,7 +84,7 @@ export function SelectOneField({
 					return (
 						<label
 							key={opt.key}
-							className={`flex min-h-11 items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition-colors ${
+							className={`flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition-colors ${
 								isSelected
 									? "bg-pv-accent/10 border border-pv-accent/30"
 									: showError

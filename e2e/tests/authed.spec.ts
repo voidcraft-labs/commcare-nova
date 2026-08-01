@@ -1679,7 +1679,7 @@ test.describe("authenticated builder", () => {
 			// is looking, and the live region announces the same words.
 			await expect(
 				page.getByText(
-					"Patient would sit on top of Village. Two fields can’t share a square on a tile — one would be drawn over the other.",
+					"Patient would sit on top of Village. Two fields can’t share a square on a tile: one would be drawn over the other.",
 				),
 			).toHaveCount(2);
 			// Refused means unmoved, not moved-and-reverted.
@@ -1733,11 +1733,13 @@ test.describe("authenticated builder", () => {
 		};
 		await page.goto(fixture.identityProjectionRoute);
 		await expect(
-			page.getByRole("button", { name: "Form settings" }),
+			page.getByRole("button", { name: "Form settings", exact: true }),
 		).toBeVisible({ timeout: 20_000 });
 
 		await test.step("Always becomes a complete conditional reference without an empty saved identity", async () => {
-			await page.getByRole("button", { name: "Form settings" }).click();
+			await page
+				.getByRole("button", { name: "Form settings", exact: true })
+				.click();
 			await page.getByRole("button", { name: "Close Behavior" }).click();
 			await page
 				.getByRole("menuitem", { name: "When condition is met" })
@@ -1784,7 +1786,9 @@ test.describe("authenticated builder", () => {
 
 		await test.step("reopening and Preview show names, never UUID-shaped XPath", async () => {
 			await page.goto(fixture.identityProjectionRoute);
-			await page.getByRole("button", { name: "Form settings" }).click();
+			await page
+				.getByRole("button", { name: "Form settings", exact: true })
+				.click();
 			const field = page.getByPlaceholder("Search fields");
 			await expect(field).toHaveValue("given_name", { timeout: 20_000 });
 			const settings = page
@@ -1796,7 +1800,9 @@ test.describe("authenticated builder", () => {
 				`#form/${identity.firstNameUuid}`,
 			);
 
-			await page.getByRole("button", { name: "Form settings" }).click();
+			await page
+				.getByRole("button", { name: "Form settings", exact: true })
+				.click();
 			await page.getByRole("button", { name: "Preview", exact: true }).click();
 			await expect(
 				page.getByRole("textbox", { name: "First name" }),
@@ -1811,7 +1817,9 @@ test.describe("authenticated builder", () => {
 
 		await test.step("returning to Always clears the reference cleanly", async () => {
 			await page.getByRole("button", { name: "Back to edit" }).click();
-			await page.getByRole("button", { name: "Form settings" }).click();
+			await page
+				.getByRole("button", { name: "Form settings", exact: true })
+				.click();
 			await page.getByRole("button", { name: "Close Behavior" }).click();
 			await waitForSavedMutation('"closeCondition":null', async () => {
 				await page.getByRole("menuitem", { name: "Always" }).click();
