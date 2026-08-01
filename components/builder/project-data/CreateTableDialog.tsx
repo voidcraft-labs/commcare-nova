@@ -49,6 +49,7 @@ import { LOOKUP_DATA_TYPES } from "@/lib/lookup/constants";
 import type { LookupDataType } from "@/lib/lookup/types";
 import { useNavigate } from "@/lib/routing/hooks";
 import { useProjectId } from "@/lib/session/hooks";
+import { useAppendedRowReveal } from "@/lib/ui/hooks/useAppendedRowReveal";
 import { COLUMN_TYPE_LABELS, suggestWireName } from "./projectDataModel";
 
 interface ColumnDraft {
@@ -119,6 +120,7 @@ export function CreateTableDialog({
 	]);
 	const [failure, setFailure] = useState<string | null>(null);
 	const [working, setWorking] = useState(false);
+	const reveal = useAppendedRowReveal(columns.length);
 
 	const effectiveTag = tagTouched ? tag : suggestWireName(name);
 	const ready =
@@ -205,6 +207,7 @@ export function CreateTableDialog({
 									 * removal sits at the foot of the card, under its own name. */
 									<FieldSet
 										key={column.key}
+										ref={reveal.register(index)}
 										className="gap-4 rounded-lg border border-nova-border p-3"
 									>
 										<FieldLegend

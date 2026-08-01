@@ -24,6 +24,16 @@ ref and consume it in an effect once the slot or list has actually re-rendered.
 Pass `finalFocus` as well; it costs nothing and covers an already-mounted
 replacement.
 
+**The mirror case is an action that adds a row BELOW the fold —
+`hooks/useAppendedRowReveal`.** An Add control sits under its own list, so the
+list grows above it and in a dialog (whose body is a fixed-height scroll region)
+the new row lands out of sight; the only visible change is the button shifting
+down, and the press reads as "nothing happened". It scrolls the new row into
+view, `block: "start"` so a row taller than the scrollport shows its heading
+rather than its foot, and honors `prefers-reduced-motion`. Same family, same
+rule below — and `onAppended` reads the live length off a ref precisely so a
+call site may freeze it in a `useCallback([])` without recording a stale count.
+
 **The intent is armed before the commit, so it must expire after exactly ONE
 render.** These gestures can be REFUSED — a stale edit, a read-only carrier, the
 commit gate — and a refusal renders without emptying the slot or shortening the

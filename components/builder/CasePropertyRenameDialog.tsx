@@ -70,6 +70,7 @@ import type {
 	CasePropertyRenameStorageImpact,
 } from "@/lib/preview/engine/casePropertyRenamePreflightTypes";
 import { useCasePropertyRenamePreflight } from "@/lib/preview/hooks/useCasePropertyRenamePreflight";
+import { useAppendedRowReveal } from "@/lib/ui/hooks/useAppendedRowReveal";
 
 type Stage = "overview" | "compose" | "review";
 
@@ -222,6 +223,7 @@ export function CasePropertyRenameDialog({
 		[rows],
 	);
 	const review = useCasePropertyRenameReview(renames);
+	const reveal = useAppendedRowReveal(rows.length);
 	const rowNameErrors = rows.map((row) => destinationError(row.to));
 	const relationReady =
 		rows.length > 0 &&
@@ -507,6 +509,7 @@ export function CasePropertyRenameDialog({
 									return (
 										<div
 											key={`${row.caseType}\0${row.property}`}
+											ref={reveal.register(index)}
 											className="grid gap-3 rounded-xl border border-nova-border bg-nova-elevated/35 p-3 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto] sm:items-end"
 										>
 											<div className="grid min-w-0 gap-1.5 text-xs font-medium text-nova-text-secondary">
