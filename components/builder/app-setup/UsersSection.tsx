@@ -1,5 +1,5 @@
 /**
- * Users & personas — the first App setup section.
+ * Users and personas: the first App setup section.
  *
  * Three collections on one screen, in the order they build on each other:
  * worker information is the vocabulary, a role fills it with defaults, and
@@ -25,7 +25,7 @@ export function UsersSection() {
 				id="app-setup-users-heading"
 				className="text-base font-semibold text-nova-text"
 			>
-				Users &amp; personas
+				Users and personas
 			</h2>
 			<p className="mt-2 max-w-prose text-[13px] leading-relaxed text-nova-text-secondary">
 				Describe the people who will run this app: what they carry with them,

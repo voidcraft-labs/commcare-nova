@@ -1641,6 +1641,50 @@ html.dark {
 	border-color: var(--nova-border-bright);
 }
 
+/* ─── docs chrome: the 44px floor ──────────────────────────────────
+ * fumadocs sizes its own nav from a 30-36px scale. Nova has one
+ * control height, and the docs site is the same product, so the
+ * sidebar links, the search trigger, the sidebar/search toggles, and
+ * the page-action buttons all meet --hit-target. These are the
+ * library's own elements, so they are reached by structure rather
+ * than by a class we could put on them. */
+#nd-sidebar a[href],
+#nd-sidebar button,
+#nd-subnav button,
+#nd-toc a[href],
+#nd-docs-layout button,
+#nd-page [class*="rounded-md"]:is(button, a) {
+	min-height: var(--hit-target);
+}
+
+#nd-sidebar button[aria-label],
+#nd-docs-layout button[aria-label],
+#nd-page button[aria-label] {
+	min-width: var(--hit-target);
+}
+
+/* A linked heading is a heading, not a control: fumadocs wraps the
+   whole h2 in an anchor so it can be deep-linked. It keeps its own
+   type metrics. */
+#nd-page :is(h1, h2, h3, h4, h5, h6) > a {
+	min-height: 0;
+}
+
+/* The breadcrumb trail shares its row with the 44px page actions, so
+   its links reach the floor for free. */
+.nova-docs-breadcrumb a {
+	display: inline-flex;
+	align-items: center;
+	min-height: var(--hit-target);
+}
+
+/* The breadcrumb link fades on hover in the library's default. In
+ * Nova hover is always more light, never less. */
+.nova-docs-breadcrumb a:hover {
+	opacity: 1;
+	color: var(--nova-violet-bright);
+}
+
 /* ─── shadcn token bindings → Nova color system ─────────────────────
  * shadcn writes neutral oklch defaults during init. Nova runs dark-
  * only (html.dark is hard-set in the root layout), so the .dark

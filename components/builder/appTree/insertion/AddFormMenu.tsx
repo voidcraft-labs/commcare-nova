@@ -82,6 +82,9 @@ export function AddFormMenu({
 				<DropdownMenuTrigger
 					ref={ref}
 					className={`${INSERTION_TRIGGER_CLS} ${prominent ? "h-11" : "h-2"}`}
+					/* A seam rests as a thin line and expands to the 44px
+					 * floor as it reveals; the marker says so out loud. */
+					data-insertion-affordance={prominent ? "persistent" : "seam"}
 					style={insertionTriggerStyle(revealed, prominent)}
 					tabIndex={prominent ? 0 : -1}
 					aria-hidden={prominent ? undefined : true}

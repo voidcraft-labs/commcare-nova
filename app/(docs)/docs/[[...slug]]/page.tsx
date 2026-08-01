@@ -92,9 +92,17 @@ export default async function Page({ params }: PageProps) {
 			{/* Header row: breadcrumb on the left, AI page-actions on
 			 * the right. */}
 			<div className="flex flex-row items-center justify-between gap-4">
-				<PageBreadcrumb />
+				{/* The trail shares this row with the 44px page actions, so
+				 * its links reach the hit-target floor for free. */}
+				<div className="nova-docs-breadcrumb">
+					<PageBreadcrumb />
+				</div>
 				<div className="flex flex-row items-center gap-2">
-					<MarkdownCopyButton markdownUrl={markdownUrl} />
+					{/* fumadocs labels this "Copy Markdown"; Nova writes
+					 * every action in sentence case. */}
+					<MarkdownCopyButton markdownUrl={markdownUrl}>
+						Copy markdown
+					</MarkdownCopyButton>
 					<ViewOptionsPopover markdownUrl={markdownUrl} />
 				</div>
 			</div>

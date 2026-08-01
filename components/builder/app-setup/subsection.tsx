@@ -1,5 +1,5 @@
 /**
- * Shared chrome for the three collections in Users & personas: one heading
+ * Shared chrome for the three collections in Users and personas: one heading
  * with its explanation, a list, and an add action. Keeping the frame in one
  * place is what lets the three read as one system rather than three
  * unrelated panels.

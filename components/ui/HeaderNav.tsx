@@ -49,11 +49,12 @@ const NAV_ITEMS: NavItem[] = [
 // ── Styles ────────────────────────────────────────────────────────────
 
 /** Active state uses `bg-white/[0.08]` for a visible indicator against the
- *  void header background (the previous `bg-nova-surface` produced only 1.1:1).
- *  `active:scale-[0.97]` provides tactile press feedback on click. */
+ *  void header background (`bg-nova-surface` produced only 1.1:1). A nav link
+ *  is a text-tier control, so it meets the 44px floor and presses with the
+ *  1px nudge text-tier controls use, not a scale. */
 function navLinkClass(active: boolean): string {
 	const base =
-		"flex items-center gap-1.5 px-2.5 py-2.5 text-sm rounded-lg transition-all active:scale-[0.97] cursor-pointer";
+		"flex min-h-11 items-center gap-1.5 px-3 text-sm rounded-lg transition-all active:translate-y-px cursor-pointer";
 	return active
 		? `${base} text-nova-text bg-white/[0.08]`
 		: `${base} text-nova-text-secondary hover:text-nova-text hover:bg-white/[0.06]`;

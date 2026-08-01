@@ -5,22 +5,26 @@
  * global default and render unstyled outside the docs subtree.
  */
 import Link from "next/link";
+import { Button } from "@/components/shadcn/button";
 
 export default function DocsNotFound() {
 	return (
 		<main className="flex flex-col items-center justify-center gap-4 px-6 py-24 text-center">
-			<p className="font-mono text-sm text-fd-muted-foreground">404</p>
-			<h1 className="font-display text-3xl text-fd-foreground">No such page</h1>
+			<p className="text-sm text-fd-muted-foreground">404</p>
+			<h1 className="font-display text-3xl text-fd-foreground">
+				I couldn&rsquo;t find that page
+			</h1>
 			<p className="max-w-md text-fd-muted-foreground">
-				The page you tried to open isn't here. It may have moved, or the link
-				you followed might be out of date.
+				It may have moved, or the link you followed might be out of date. The
+				docs home has everything that is here now.
 			</p>
-			<Link
-				href="/"
-				className="rounded-md border border-fd-border bg-fd-secondary px-4 py-2 text-sm text-fd-foreground transition-colors hover:bg-fd-accent hover:text-fd-accent-foreground"
+			<Button
+				render={<Link href="/" />}
+				nativeButton={false}
+				variant="secondary"
 			>
 				Back to docs
-			</Link>
+			</Button>
 		</main>
 	);
 }
