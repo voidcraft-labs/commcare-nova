@@ -600,13 +600,18 @@ function projectSearchProperties(
 /**
  * Project the `caseListConfig.filter` + every advanced-arm predicate +
  * every simple-arm input whose semantics need the explicit predicate route
- * into the CCHQ-side `default_properties` array. This includes relations,
- * prompt/target name mismatches, non-exact modes, reserved paths, and exact
- * whole-day date inputs. The single
- * `_xpath_query` slot is the only entry produced — non-grammar
- * value expressions inline as on-device XPath fragments inside the
- * wrapper concat at the CSQL emitter, matching the canonical CCHQ
- * pattern documented at
+ * into the CCHQ-side `default_properties` array — ONE `_xpath_query` row
+ * per composed clause. This includes relations, prompt/target name
+ * mismatches, non-exact modes, reserved paths, and exact whole-day date
+ * inputs. CCHQ's suite generator loops every row into its own `<data>`
+ * element (`remote_requests.py::_remote_request_query_datums` —
+ * `QueryData(key=c.property, ref=c.defaultValue)` per entry) and the
+ * search endpoint ANDs every `_xpath_query` value it receives
+ * (`case_search/utils.py::_apply_filter`), so the per-clause rows filter
+ * identically to one fused expression while each stays readable in HQ's
+ * app manager. Non-grammar value expressions inline as on-device XPath
+ * fragments inside their clause's wrapper at the CSQL emitter, matching
+ * the canonical CCHQ pattern documented at
  * `commcare-hq/docs/case_search_query_language.rst`.
  *
  * `caseType` threads through `composeXPathQueryEmission` so the
@@ -615,23 +620,20 @@ function projectSearchProperties(
  * simple-arm derivation; the validator surfaces the structural
  * error separately.
  *
- * Empty-list output when there is nothing to AND-compose — the
- * absent `_xpath_query` slot is how CCHQ encodes "no server-side
- * filter."
+ * Empty-list output when there is nothing to compose — absent
+ * `_xpath_query` rows are how CCHQ encodes "no server-side filter."
  */
 function projectDefaultProperties(
 	emission: ComposedXPathQuery | undefined,
 ): DefaultCaseSearchProperty[] {
 	if (emission === undefined) return [];
-	// CCHQ's special `_xpath_query` key routes the value through the
-	// CSQL parser at runtime; the wrapper string is the on-device
-	// concat expression that builds the CSQL query.
-	return [
-		{
-			property: "_xpath_query",
-			defaultValue: emission.wrapper,
-		},
-	];
+	// CCHQ's special `_xpath_query` key routes each value through the
+	// CSQL parser at search time; every wrapper string is one on-device
+	// expression that builds one CSQL query.
+	return emission.clauseWrappers.map((wrapper) => ({
+		property: "_xpath_query",
+		defaultValue: wrapper,
+	}));
 }
 
 /**

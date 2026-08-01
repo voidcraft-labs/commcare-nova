@@ -1,38 +1,54 @@
 // lib/commcare/suite/case-search/xpathQuery.ts
 //
 // Shared `_xpath_query` composer. Two wire surfaces consume the
-// composition: the suite-XML emitter at `searchSession.ts` (slots
-// the result into a `<data key="_xpath_query">` element on
-// `<query>`) and the HQ-JSON emitter at `lib/commcare/hqJson/caseList.ts`
-// (slots the same result into
-// `module.search_config.default_properties[]` per CCHQ's
-// `DefaultCaseSearchProperty` shape). Both surfaces export the
-// same authored content to CCHQ — keeping the AND-composition rule
-// in one place makes drift between them structurally impossible.
+// composition: the suite-XML emitter at `searchSession.ts` (emits one
+// `<data key="_xpath_query">` element per clause on `<query>`) and the
+// HQ-JSON emitter at `lib/commcare/hqJson/caseList.ts` (emits one
+// `search_config.default_properties[]` row per clause — CCHQ's
+// `DefaultCaseSearchProperty` is a `SchemaListProperty`, and CCHQ's own
+// suite generator loops every row into its own `<data>` element at
+// `commcare-hq/.../suite_xml/post_process/remote_requests.py::_remote_request_query_datums`).
+// Both surfaces export the same authored content to CCHQ — keeping the
+// composition rule in one place makes drift between them structurally
+// impossible.
 //
-// CCHQ accepts at most one `_xpath_query` per `<query>` (the
-// runtime CSQL parser treats it as a single source); the AST-level
-// `and(...)` reducer folds the unified `caseListConfig.filter`,
-// every advanced-arm `searchInputs[i].predicate`, AND every simple-arm
+// CCHQ AND-composes every `_xpath_query` value it receives: the client
+// sends one query param per `<data>` element
+// (`commcare-core .../session/RemoteQuerySessionManager.java::getRawQueryParams`
+// returns a `Multimap`, and formplayer forwards it as repeated params),
+// Django folds the repeats into a list
+// (`commcare-hq/corehq/apps/ota/views.py::app_aware_search` —
+// `request.GET.lists()`),
+// and the server applies each value as its own AND-composed ES filter —
+// `commcare-hq/corehq/apps/case_search/utils.py::_apply_filter`'s
+// `CASE_SEARCH_XPATH_QUERY_KEY` arm loops
+// `xpaths = criteria.value if criteria.has_multiple_terms else [...]`.
+// The composer therefore emits ONE CLAUSE PER CONJUNCT — the unified
+// `caseListConfig.filter` (split at its top-level `and` boundaries),
+// each advanced-arm `searchInputs[i].predicate`, and each simple-arm
 // input whose authored shape cannot ride Core's implicit exact matcher
-// (derived through `deriveSimpleArmPredicate`) into ONE Predicate before
-// the CSQL emitter walks the result. That includes related targets,
-// prompt/target name mismatches, non-exact match modes, reserved wire-path
-// aliases, and every exact date input. Exact date uses an explicit typed
-// half-open day interval; a bare prompt cannot preserve that meaning.
+// (derived through `deriveSimpleArmPredicate`; that covers related
+// targets, prompt/target name mismatches, non-exact match modes,
+// reserved wire-path aliases, and every exact date input — exact date
+// uses an explicit typed half-open day interval a bare prompt cannot
+// preserve). Small independent expressions replace one fused
+// mega-expression while the server's AND loop preserves the combined
+// meaning. A clause never evaluates to the empty string (a blank value
+// among several `_xpath_query` params is a server-side parse error);
+// an input-gated clause with no answer evaluates to `match-all()`, the
+// AND identity.
 //
 // Non-grammar value expressions (`if`, `switch`, `arith`, `concat`,
 // `coalesce`, `format-date`, non-LHS `count`) inline as runtime
-// on-device XPath fragments inside the `concat(...)` wrapper at the
+// on-device XPath fragments inside the clause wrapper at the
 // CSQL emitter — the canonical CCHQ pattern documented in
-// `commcare-hq/docs/case_search_query_language.rst`. Both surfaces
-// therefore carry exactly one slot per module: the `_xpath_query`
-// slot. CCHQ's `RemoteQuerySessionManager` only threads `<prompt>`
-// values into the `search-input:results` instance — sibling
-// `<data>` slots would resolve to the empty string at evaluation
-// time AND silently filter case data on the server, so the inline
-// shape is the only wire-correct option.
-
+// `commcare-hq/docs/case_search_query_language.rst`. Only `_xpath_query`
+// slots are emitted: CCHQ's `RemoteQuerySessionManager` only threads
+// `<prompt>` values into the `search-input:results` instance — a
+// synthetic non-`_xpath_query` `<data>` slot would resolve to the empty
+// string at evaluation time AND silently filter case data on the
+// server, so the inline shape is the only wire-correct option for
+// computed values.
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import {
 	type CaseListConfig,
@@ -40,14 +56,13 @@ import {
 } from "@/lib/domain";
 import { and, effectiveFilterForEmission } from "@/lib/domain/predicate";
 import { compilerBugMessage } from "@/lib/domain/predicate/errors";
-import { normalizeRelationEvaluationScopes } from "@/lib/domain/predicate/normalizeRelationEvaluationScopes";
 import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
 import type { Predicate, ValueExpression } from "@/lib/domain/predicate/types";
 import {
-	type CsqlEmissionResult,
 	checkCsqlRepresentability,
+	dedupeRuntimeRejections,
 	emitCsql,
-	normalizeCsqlPredicate,
+	type RuntimeCsqlRejection,
 } from "../../predicate";
 import {
 	combineRuntimeCsqlPromptValidations,
@@ -61,18 +76,21 @@ import {
 } from "./simpleArmDerivation";
 
 /**
- * Emission output. `wrapper` is the on-device XPath expression that
- * runtime-evaluates to the CSQL query string interpolated into the
- * `_xpath_query` slot. The shape mirrors `CsqlEmissionResult`
- * exactly; the type alias keeps the contract symmetric across both
- * consumers.
+ * Emission output. Each entry of `clauseWrappers` is one on-device
+ * XPath expression that runtime-evaluates to one CSQL query string —
+ * one `<data key="_xpath_query">` element in local suite XML, one
+ * `default_properties[]` row in HQ JSON, in the same order on both
+ * surfaces. The server ANDs the resulting values
+ * (`commcare-hq/corehq/apps/case_search/utils.py::_apply_filter`).
+ *
+ * `runtimeRejections` is the deduplicated union of every clause's
+ * fail-closed obligations; prompt validation and Preview consume it so
+ * every surface rejects the identical runtime state before dispatch
+ * when a worker can repair it.
  */
-export interface ComposedXPathQuery extends CsqlEmissionResult {
-	/** The exact effective predicate after emission simplification and CSQL's
-	 * reversible operand normalization. Derived consumers (prompt validation,
-	 * Preview parity) inspect this same tree rather than reconstructing a subtly
-	 * different query from the authored slots. */
-	readonly predicate: Predicate;
+export interface ComposedXPathQuery {
+	readonly clauseWrappers: readonly string[];
+	readonly runtimeRejections?: readonly RuntimeCsqlRejection[];
 }
 
 /**
@@ -158,20 +176,24 @@ export function buildRuntimeCsqlPromptValidations(
 }
 
 /**
- * Compose the unified `_xpath_query`. Returns `undefined` when
+ * Compose the `_xpath_query` clause list. Returns `undefined` when
  * nothing narrows the case list (no filter authored, no advanced-arm
  * predicates, no cross-walk simple inputs, OR every clause is a
- * `match-all` identity) — consumers omit the slot entirely rather
- * than emitting `_xpath_query = "true()"`, which CCHQ accepts but
+ * `match-all` identity) — consumers emit no `_xpath_query` slots at
+ * all rather than `_xpath_query = "true()"`, which CCHQ accepts but
  * reads as noise.
  *
  * Composition policy: collect the filter + advanced-arm predicates +
- * derived simple-arm predicates, AND-compose them, then run
- * `simplifyForEmission` so boolean identities never reach the wire
- * (see the body comment for why the normalize lives here, not in the
- * shared `and(...)` reducer). A composition that reduces to `match-all`
- * (nothing narrows) returns `undefined` and the consumer omits the
- * slot.
+ * derived simple-arm predicates, AND-compose them, run
+ * `effectiveFilterForEmission` so boolean identities never reach the
+ * wire (see the body comment for why the normalize lives here, not in
+ * the shared `and(...)` reducer), then emit ONE WRAPPER PER top-level
+ * conjunct. The server AND-composes the values back together
+ * (`utils.py::_apply_filter` — see the file header for the end-to-end
+ * citation chain), so N small clause expressions and one fused
+ * expression filter identically; the split is what keeps each emitted
+ * expression readable and each input's presence gate / value guard
+ * scoped to its own clause.
  *
  * `caseType` is the module's `caseType`; it threads to every
  * derived `prop(...)` reference for simple-arm inputs that need
@@ -228,12 +250,21 @@ export function composeXPathQueryEmission(
 	assertNoBareSearchInputRefs(composed);
 	assertCsqlRepresentable(composed);
 
+	// One clause per top-level conjunct. `composeXPathQueryPredicate`
+	// AND-composes the sources and `effectiveFilterForEmission` already
+	// dropped boolean identities at every depth, so a top-level `and`
+	// root's clause list IS the conjunct list; any other root is one
+	// clause. Each conjunct emits independently — its own presence
+	// gate, its own value guards — and the server's AND loop restores
+	// the combined meaning.
+	const clauses = composed.kind === "and" ? composed.clauses : [composed];
+	const emissions = clauses.map((clause) => emitCsql(clause, csqlContext));
+	const runtimeRejections = dedupeRuntimeRejections(
+		emissions.flatMap((emission) => emission.runtimeRejections ?? []),
+	);
 	return {
-		...emitCsql(composed, csqlContext),
-		predicate: normalizeRelationEvaluationScopes(
-			normalizeCsqlPredicate(composed),
-			emissionTypeContext,
-		),
+		clauseWrappers: emissions.map((emission) => emission.wrapper),
+		...(runtimeRejections.length === 0 ? {} : { runtimeRejections }),
 	};
 }
 

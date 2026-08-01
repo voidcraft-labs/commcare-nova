@@ -175,11 +175,12 @@ describe("composeXPathQueryEmission — Project data lookup", () => {
 			LOOKUP_NAMING,
 		);
 
-		expect(emission?.wrapper).toContain(
+		const wrappers = emission?.clauseWrappers.join("\n") ?? "";
+		expect(wrappers).toContain(
 			"instance('item-list:regions')/regions_list/regions[value = 'north'][1]/name",
 		);
-		expect(emission?.wrapper).not.toContain(LOOKUP_TABLE);
-		expect(emission?.wrapper).not.toContain(LOOKUP_NAME);
+		expect(wrappers).not.toContain(LOOKUP_TABLE);
+		expect(wrappers).not.toContain(LOOKUP_NAME);
 	});
 });
 
@@ -409,7 +410,7 @@ describe("emitSearchPrompts — per-input-type attribute mapping", () => {
 		expect(validations.get("sibling")?.test).not.toContain("@name='owner'");
 	});
 
-	it.each<SearchInputType>(["text", "date", "date-range", "barcode"])(
+	it.each<SearchInputType>(["text", "date-range", "barcode"])(
 		"attaches the same CSQL quote guard to an explicitly bound %s prompt",
 		(type) => {
 			const inputName = `query_${type.replace("-", "_")}`;
@@ -448,6 +449,36 @@ describe("emitSearchPrompts — per-input-type attribute mapping", () => {
 			expect(xml.match(/<validation /g)).toHaveLength(1);
 		},
 	);
+
+	it("emits no quote guard for a date prompt — the picker value is quote-free", () => {
+		// A `date`-widget input binds picker-formatted `yyyy-MM-dd` text on
+		// every runtime that renders it (web apps' date picker; Android
+		// omits `date` from its supported prompts entirely), so the CSQL
+		// interpolation uses fixed double-quote delimiters with no
+		// fail-closed obligation and the prompt carries no validation.
+		const predicate = whenInput(
+			input(INPUT_UUIDS.a),
+			eq(prop("patient", "case_name"), input(INPUT_UUIDS.a)),
+		);
+		const inputDef = advancedSearchInputDef(
+			INPUT_UUIDS.a,
+			"query_date",
+			"Query",
+			"date",
+			predicate,
+		);
+		const config: CaseListConfig = resolveCaseListConfig({
+			columns: [],
+			searchInputs: [inputDef],
+		});
+		const validations = buildRuntimeCsqlPromptValidations(
+			composeXPathQueryEmission(config, "patient"),
+		);
+		const { xml } = emitSearchPrompts([inputDef], MODULE_ID, validations);
+
+		expect(validations.size).toBe(0);
+		expect(xml).not.toContain("<validation");
+	});
 
 	it("text type omits both @input and @appearance (CCHQ default)", () => {
 		const inputs: SearchInputDef[] = [

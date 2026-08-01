@@ -295,9 +295,11 @@ describe("compileCcz", () => {
 		});
 
 		const hq = expandDoc(temporalDoc);
-		const hqQuery = hq.modules[0].search_config.default_properties.find(
-			(entry) => entry.property === "_xpath_query",
-		)?.defaultValue;
+		// One `_xpath_query` row per date input; the server ANDs the values.
+		const hqQuery = hq.modules[0].search_config.default_properties
+			.filter((entry) => entry.property === "_xpath_query")
+			.map((entry) => entry.defaultValue)
+			.join("\n");
 		expect(hqQuery).toContain("date-add(");
 		expect(hqQuery).not.toContain("datetime-add(");
 
@@ -373,9 +375,11 @@ describe("compileCcz", () => {
 		});
 
 		const hq = expandDoc(temporalDoc);
-		const hqQuery = hq.modules[0].search_config.default_properties.find(
-			(entry) => entry.property === "_xpath_query",
-		)?.defaultValue;
+		// One `_xpath_query` row per date input; the server ANDs the values.
+		const hqQuery = hq.modules[0].search_config.default_properties
+			.filter((entry) => entry.property === "_xpath_query")
+			.map((entry) => entry.defaultValue)
+			.join("\n");
 		// CCHQ's server query grammar only admits case properties on the left
 		// side of a comparison. `date(property)` is invalid (`unwrap_value`
 		// rejects a property Step), so all three targets use legal half-open
@@ -464,9 +468,11 @@ describe("compileCcz", () => {
 		});
 
 		const hq = expandDoc(temporalDoc);
-		const hqQuery = hq.modules[0].search_config.default_properties.find(
-			(entry) => entry.property === "_xpath_query",
-		)?.defaultValue;
+		// One `_xpath_query` row per date input; the server ANDs the values.
+		const hqQuery = hq.modules[0].search_config.default_properties
+			.filter((entry) => entry.property === "_xpath_query")
+			.map((entry) => entry.defaultValue)
+			.join("\n");
 		expect(hqQuery).toContain("datetime-add(datetime(");
 		const suite = new AdmZip(
 			compileCcz(hq, "Datetime Search", temporalDoc),

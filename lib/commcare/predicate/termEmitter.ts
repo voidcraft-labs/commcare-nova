@@ -535,19 +535,44 @@ export type RuntimeTermEmission = {
 	readonly kind: "runtime";
 	readonly xpath: string;
 	readonly inputNames?: readonly string[];
+	/**
+	 * The runtime value structurally cannot contain a quote character, so a
+	 * fixed double-quote CSQL delimiter is safe and no quote-choice `if` or
+	 * fail-closed obligation is needed. Set for `date`-widget search inputs:
+	 * on web apps `<prompt input="date">` binds the date picker's
+	 * `yyyy-MM-dd` text (`commcare-core .../util/screen/QueryScreen.java::getSupportedPrompts`
+	 * registers `INPUT_TYPE_DATE`), and Android omits `date` from its
+	 * supported-prompt list entirely
+	 * (`commcare-android .../activities/QueryRequestActivity.java::getSupportedPrompts`),
+	 * so there the value is always absent and the interpolation is never
+	 * reached. No runtime lets a worker type free text into the slot.
+	 */
+	readonly quoteFree?: boolean;
 };
 export type TermEmission = ConstantTermEmission | RuntimeTermEmission;
 
 /**
  * Fixed CSQL expression returned instead of an authored query when a runtime
  * string contains both quote delimiters. CCHQ's CSQL parser accepts either
- * single- or double-quoted XPath literals but has no escape syntax and does
+ * single- or double-quoted XPath literals but has no escape syntax
+ * (`eulxml/xpath/lexrules.py::t_LITERAL` is `"[^"]*"|'[^']*'`) and does
  * not whitelist `concat()` as a value function, so such a value is inherently
  * unrepresentable. A fixed unknown function makes the remote query fail
- * explicitly without allowing any runtime bytes to reach the CSQL grammar.
+ * explicitly without allowing any runtime bytes to reach the CSQL grammar —
+ * CCHQ's `filter_dsl.py::build_filter_from_ast` raises
+ * `XPathFunctionException` ("'search-value-mixes-quote-marks' is not a valid
+ * standalone function") for any unregistered call, at any nesting depth, so
+ * the name doubles as the only message channel the server error offers.
+ *
+ * Prompt validation normally stops this value at the search screen (web apps
+ * block the query on `<validation>` failures at
+ * `formplayer .../services/MenuSessionRunnerService.java::doQuery` —
+ * `isDefaultSearch || screen.getErrors().isEmpty()`); Android parses but never
+ * enforces prompt validation, so this device-side fail-closed arm is the
+ * injection defense on that runtime.
  */
 export const CSQL_UNREPRESENTABLE_RUNTIME_STRING =
-	"nova-runtime-value-contains-both-quote-types()";
+	"search-value-mixes-quote-marks()";
 
 export type RuntimeCsqlQuoteStyle = "single" | "double";
 
@@ -568,28 +593,23 @@ export function emitTermSegment(
 	switch (t.kind) {
 		case "prop":
 			return { kind: "constant", text: emitCsqlPropertyRefText(t) };
-		case "input":
+		case "input": {
+			const searchInputNames = new Map(
+				(context.knownInputs ?? []).map((input) => [input.uuid, input.name]),
+			);
+			const declaredType = (context.knownInputs ?? []).find(
+				(input) => input.uuid === t.searchInputUuid,
+			)?.data_type;
 			return {
 				kind: "runtime",
-				xpath: emitSearchInputXPath(t, {
-					searchInputNames: new Map(
-						(context.knownInputs ?? []).map((input) => [
-							input.uuid,
-							input.name,
-						]),
-					),
-				}),
-				inputNames: [
-					resolveSearchInputName(t, {
-						searchInputNames: new Map(
-							(context.knownInputs ?? []).map((input) => [
-								input.uuid,
-								input.name,
-							]),
-						),
-					}),
-				],
+				xpath: emitSearchInputXPath(t, { searchInputNames }),
+				inputNames: [resolveSearchInputName(t, { searchInputNames })],
+				// A `date`-widget input's runtime value is picker-formatted
+				// `yyyy-MM-dd` text on every runtime that binds it — see the
+				// `quoteFree` slot's JSDoc for the per-platform citations.
+				...(declaredType === "date" ? { quoteFree: true } : {}),
 			};
+		}
 		case "session-user":
 			return { kind: "runtime", xpath: emitSessionUserXPath(t) };
 		case "session-user-property": {
@@ -743,6 +763,14 @@ export function emitCsqlLiteralSegment(
  * through `quoteRuntimeCsqlValue` so the runtime XPath result becomes a
  * complete CSQL string literal with a delimiter chosen after evaluation.
  *
+ * Quote-free runtime emissions (a `date`-widget input — see the
+ * `RuntimeTermEmission.quoteFree` JSDoc) skip the delimiter choice
+ * entirely: the fixed double-quote delimiters emit as their own constant
+ * segments around the raw value read, so the merge pass folds them into
+ * the neighbouring CSQL text and the final wire form is the flat
+ * doc-canonical `concat('… >= date("', <value>, '") …')` shape with no
+ * `if` and no fail-closed obligation.
+ *
  * Centralising the wrap shape here keeps every operand emission path
  * — comparison operands, `in` values, `between` bounds, expression-
  * emitter operand sites — consistent on the runtime-bracketing rule.
@@ -751,7 +779,23 @@ export function wrapTermAsSegmentList(term: TermEmission): CsqlSegment[] {
 	if (term.kind === "constant") {
 		return [{ kind: "constant", text: term.text }];
 	}
+	if (term.quoteFree === true) {
+		return quoteFreeRuntimeCsqlValue(term.xpath);
+	}
 	return quoteRuntimeCsqlValue(term.xpath, "double", term.inputNames);
+}
+
+/**
+ * Emit a structurally quote-free runtime value as raw interpolation between
+ * fixed double-quote CSQL delimiters. The delimiters are constant segments so
+ * adjacent CSQL text merges around the value at the wrap layer.
+ */
+export function quoteFreeRuntimeCsqlValue(xpath: string): CsqlSegment[] {
+	return [
+		{ kind: "constant", text: '"' },
+		{ kind: "runtime", xpath },
+		{ kind: "constant", text: '"' },
+	];
 }
 
 /**
@@ -788,6 +832,11 @@ export function quoteRuntimeCsqlValue(
 		{
 			kind: "runtime",
 			xpath: quoted,
+			// The raw value read lets the clause wrap layer restructure a
+			// single-string-value clause into the flat quote cascade. Only the
+			// double-preferred form participates — the cascade's arm order
+			// assumes CCHQ's documented double-quoted runtime scalar default.
+			...(preferredStyle === "double" ? { stringValueXPath: xpath } : {}),
 			rejectWhen: `${containsSingle} and ${containsDouble}`,
 			rejectionInputNames: inputNames,
 		},

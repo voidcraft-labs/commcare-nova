@@ -433,10 +433,12 @@ describe("emitSearchSession — _xpath_query AND-composition", () => {
 		expect(instances.has("casedb")).toBe(true);
 	});
 
-	it("AND-composes a filter and an advanced-arm predicate into a single _xpath_query slot", () => {
-		// One <data> slot regardless of how many AST predicates
-		// contributed; the wire layer carries one `<data
-		// key="_xpath_query">` element with the AND-composed CSQL.
+	it("emits the filter and an advanced-arm predicate as sibling _xpath_query slots", () => {
+		// One <data> element PER composed clause. The server AND-composes
+		// every `_xpath_query` value it receives
+		// (`commcare-hq/corehq/apps/case_search/utils.py::_apply_filter`
+		// loops the multi-term criteria into one ES filter each), so two
+		// small static expressions replace one fused `A and B` string.
 		const filter = eq(prop("patient", "full_name"), literal("Alice"));
 		const { xml } = emitSearchSession({
 			caseListConfig: makeListConfig({
@@ -457,13 +459,16 @@ describe("emitSearchSession — _xpath_query AND-composition", () => {
 			moduleIndex: 0,
 		});
 		const matches = xml.match(/key="_xpath_query"/g) ?? [];
-		expect(matches.length).toBe(1);
-		// Both predicate fragments compose into the same wire string
-		// via CSQL's `and` operator. XPath single-quote literals
-		// round-trip as `&apos;`.
-		expect(xml).toContain(`full_name = &apos;Alice&apos;`);
-		expect(xml).toContain(`status = &apos;active&apos;`);
-		expect(xml).toContain(` and `);
+		expect(matches.length).toBe(2);
+		// Each clause emits as its own bare XPath string literal — no
+		// concat() wrapper, no ` and ` token joining them on the wire.
+		// XPath quote literals round-trip as `&apos;` / `&quot;`.
+		expect(xml).toContain(
+			`<data key="_xpath_query" ref="&quot;full_name = &apos;Alice&apos;&quot;"/>`,
+		);
+		expect(xml).toContain(
+			`<data key="_xpath_query" ref="&quot;@status = &apos;active&apos;&quot;"/>`,
+		);
 	});
 
 	it("drops a `match-all` filter (conjunction identity) instead of prefixing _xpath_query with `match-all() and`", () => {
@@ -536,7 +541,7 @@ describe("emitSearchSession — _xpath_query AND-composition", () => {
 		expect(xml).toContain(`<data key="_xpath_query"`);
 		expect(xml).toContain("fuzzy-match(case_name");
 		expect(xml).toContain("name_fuzzy");
-		expect(xml).toContain("nova-runtime-value-contains-both-quote-types()");
+		expect(xml).toContain("search-value-mixes-quote-marks()");
 		expect(xml).toContain("<validation");
 	});
 
@@ -1099,7 +1104,7 @@ describe("emitSearchSession — non-exact mode routing on self-walk inputs", () 
 		expect(xml).toContain(`<data key="_xpath_query"`);
 		expect(xml).toContain("fuzzy-match(case_name");
 		expect(xml).toContain("name_fuzzy");
-		expect(xml).toContain("nova-runtime-value-contains-both-quote-types()");
+		expect(xml).toContain("search-value-mixes-quote-marks()");
 		expect(xml).toContain("<validation");
 	});
 
@@ -1129,7 +1134,7 @@ describe("emitSearchSession — non-exact mode routing on self-walk inputs", () 
 		expect(xml).toContain(`<data key="_xpath_query"`);
 		expect(xml).toContain("starts-with(case_name");
 		expect(xml).toContain("name_starts");
-		expect(xml).toContain("nova-runtime-value-contains-both-quote-types()");
+		expect(xml).toContain("search-value-mixes-quote-marks()");
 		expect(xml).toContain("<validation");
 	});
 
@@ -1155,7 +1160,7 @@ describe("emitSearchSession — non-exact mode routing on self-walk inputs", () 
 		expect(xml).toContain(`<data key="_xpath_query"`);
 		expect(xml).toContain("phonetic-match(case_name");
 		expect(xml).toContain("name_phon");
-		expect(xml).toContain("nova-runtime-value-contains-both-quote-types()");
+		expect(xml).toContain("search-value-mixes-quote-marks()");
 		expect(xml).toContain("<validation");
 	});
 
@@ -1181,8 +1186,13 @@ describe("emitSearchSession — non-exact mode routing on self-walk inputs", () 
 		expect(xml).toContain(`<data key="_xpath_query"`);
 		expect(xml).toContain("fuzzy-date(dob");
 		expect(xml).toContain("dob_fdate");
-		expect(xml).toContain("nova-runtime-value-contains-both-quote-types()");
-		expect(xml).toContain("<validation");
+		// A `date`-widget input's value is picker-formatted `yyyy-MM-dd`
+		// text on every runtime that binds it, so the interpolation is
+		// quote-free: fixed double-quote delimiters, no delimiter-choice
+		// `if`, no fail-closed sentinel, and no prompt validation.
+		expect(xml).toContain("concat(&apos;fuzzy-date(dob, &quot;&apos;, ");
+		expect(xml).not.toContain("search-value-mixes-quote-marks()");
+		expect(xml).not.toContain("<validation");
 	});
 
 	it("does NOT route a self-walk `exact` simple input with `name === property` into _xpath_query (rides on bare prompt)", () => {

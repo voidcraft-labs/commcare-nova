@@ -1061,7 +1061,10 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 		expect(composeRuntimeFilter([advanced], new Map(), PATIENT)).toEqual(
 			eq(prop(PATIENT, "status"), literal("active")),
 		);
-		const wire = composeXPathQueryEmission(config, PATIENT)?.wrapper;
+		const wire = composeXPathQueryEmission(
+			config,
+			PATIENT,
+		)?.clauseWrappers.join("\n");
 		expect(wire).toContain("status = 'active'");
 		expect(wire).not.toContain("unused_prompt");
 	});
@@ -1101,7 +1104,10 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 				eq(prop(PATIENT, "region"), literal("north")),
 			),
 		);
-		const wire = composeXPathQueryEmission(config, PATIENT)?.wrapper;
+		const wire = composeXPathQueryEmission(
+			config,
+			PATIENT,
+		)?.clauseWrappers.join("\n");
 		expect(wire).toContain("@name='region'");
 		expect(wire).not.toContain("unused_prompt");
 	});

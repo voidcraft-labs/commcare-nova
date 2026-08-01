@@ -57,6 +57,8 @@ export {
 	type CsqlOnDeviceNodeVisitor,
 	walkCsqlOnDeviceNodes,
 } from "./csqlRuntimeWalk";
+export type { RuntimeCsqlRejection } from "./csqlSegment";
+export { dedupeRuntimeRejections } from "./csqlSegment";
 export {
 	collectRuntimeGeopointInputNames,
 	isValidStaticGeopointCenter,

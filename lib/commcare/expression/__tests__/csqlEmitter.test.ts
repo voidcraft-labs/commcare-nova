@@ -272,16 +272,21 @@ describe("emitCsqlExpressionSegments — date-add", () => {
 		]);
 	});
 
-	it("quotes a typed runtime date and keeps date-add", () => {
+	it("interpolates a typed runtime date quote-free and keeps date-add", () => {
 		const expr = dateAdd(
 			term(input(testUuid("base_date"))),
 			"days",
 			term(literal(7)),
 		);
 		const xpath = `instance('search-input:results')/input/field[@name='base_date']`;
+		// A `date`-widget input's value is picker text that cannot carry a
+		// quote character, so it interpolates between fixed double-quote
+		// delimiters with no delimiter-choice `if` and no obligation.
 		expect(emitCsqlExpressionSegments(expr, TEMPORAL_CONTEXT)).toEqual([
 			{ kind: "constant", text: "date-add(" },
-			...quoteRuntimeCsqlValue(xpath, "double", ["base_date"]),
+			{ kind: "constant", text: '"' },
+			{ kind: "runtime", xpath },
+			{ kind: "constant", text: '"' },
 			{ kind: "constant", text: ", 'days', " },
 			{ kind: "constant", text: "7" },
 			{ kind: "constant", text: ")" },
@@ -320,7 +325,10 @@ describe("emitCsqlExpressionSegments — date-add", () => {
 		expect(emitCsqlExpressionSegments(dateExpr)).toEqual([
 			{ kind: "constant", text: "date-add(" },
 			{ kind: "constant", text: "date(" },
-			...quoteRuntimeCsqlValue(dateInput, "double", ["base_date"]),
+			// `base_date` is a `date`-widget input — quote-free interpolation.
+			{ kind: "constant", text: '"' },
+			{ kind: "runtime", xpath: dateInput },
+			{ kind: "constant", text: '"' },
 			{ kind: "constant", text: ")" },
 			{ kind: "constant", text: ", 'days', " },
 			{ kind: "constant", text: "1" },

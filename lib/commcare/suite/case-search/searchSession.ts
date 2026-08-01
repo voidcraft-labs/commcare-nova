@@ -53,9 +53,10 @@ const SEARCH_URL_TEMPLATE =
 const EXCLUDED_OWNER_IDS_WIRE_KEY = "commcare_blacklisted_owner_ids";
 
 /**
- * CCHQ wire-key for the AND-composed CSQL query string, lifted
- * from `CASE_SEARCH_XPATH_QUERY_KEY`. Centralized so a CCHQ-
- * upstream key change is one edit.
+ * CCHQ wire-key for a CSQL query value, lifted from
+ * `CASE_SEARCH_XPATH_QUERY_KEY`. The key repeats — one `<data>` per
+ * composed clause; the server ANDs every value it receives under this
+ * key. Centralized so a CCHQ-upstream key change is one edit.
  */
 const XPATH_QUERY_KEY = "_xpath_query";
 
@@ -131,21 +132,25 @@ export function buildSearchSession(args: {
 	// time (`&apos;`).
 	dataElements.push(el("data", { key: "case_type", ref: `'${caseType}'` }));
 
-	// `_xpath_query` — AND-composition of the unified filter with
-	// every advanced-arm search input's predicate plus every
-	// simple-arm input routed through the explicit predicate path (related
-	// targets, renamed prompt keys, non-exact modes, reserved paths, and
-	// exact whole-day date inputs). CCHQ
-	// accepts at most one `_xpath_query` per `<query>`; the
-	// AST-level `and(...)` reduces to one Predicate before the CSQL
-	// emitter walks it. Non-grammar value expressions inline as
-	// on-device XPath fragments inside the wrapper concat — CCHQ's
-	// `RemoteQuerySessionManager.initUserAnswers` only seeds the
-	// `search-input:results` instance from `<prompt>` defaults, so a
-	// sibling `<data>` slot's value would resolve to the empty string
-	// at evaluation time AND silently add a server-side property
-	// filter against case data that matches no cases. The single
-	// `_xpath_query` slot carries everything.
+	// `_xpath_query` — one `<data>` element per composed clause: the
+	// unified filter's top-level conjuncts, every advanced-arm search
+	// input's predicate, and every simple-arm input routed through the
+	// explicit predicate path (related targets, renamed prompt keys,
+	// non-exact modes, reserved paths, and exact whole-day date
+	// inputs). The server AND-composes repeated `_xpath_query` values
+	// (`commcare-hq/corehq/apps/case_search/utils.py::_apply_filter`
+	// loops the multi-term criteria into one ES filter each; the
+	// client sends one query param per element because
+	// `RemoteQuerySessionManager.getRawQueryParams` accumulates a
+	// `Multimap`), so the split preserves the fused meaning while each
+	// emitted expression stays small enough to read. Non-grammar value
+	// expressions inline as on-device XPath fragments inside their
+	// clause's wrapper — CCHQ's `RemoteQuerySessionManager.initUserAnswers`
+	// only seeds the `search-input:results` instance from `<prompt>`
+	// defaults, so a synthetic non-`_xpath_query` `<data>` slot's value
+	// would resolve to the empty string at evaluation time AND silently
+	// add a server-side property filter against case data that matches
+	// no cases.
 	const xpathQueryEmission = composeXPathQueryEmission(
 		caseListConfig,
 		caseType,
@@ -153,12 +158,14 @@ export function buildSearchSession(args: {
 		args.lookupNaming,
 	);
 	if (xpathQueryEmission !== undefined) {
-		dataElements.push(
-			el("data", {
-				key: XPATH_QUERY_KEY,
-				ref: xpathQueryEmission.wrapper,
-			}),
-		);
+		for (const wrapper of xpathQueryEmission.clauseWrappers) {
+			dataElements.push(
+				el("data", {
+					key: XPATH_QUERY_KEY,
+					ref: wrapper,
+				}),
+			);
+		}
 	}
 
 	// Authoring → wire vocabulary translation. Schema slot reads

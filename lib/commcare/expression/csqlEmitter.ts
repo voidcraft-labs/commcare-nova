@@ -78,6 +78,7 @@ import { collectRuntimeCsqlStringExpressionInputNames } from "../predicate/runti
 import { quoteLiteral } from "../predicate/stringQuoting";
 import {
 	emitTermSegment,
+	quoteFreeRuntimeCsqlValue,
 	quoteRuntimeCsqlValue,
 	type RuntimeCsqlQuoteStyle,
 } from "../predicate/termEmitter";
@@ -120,6 +121,13 @@ export function emitCsqlExpressionSegments(
 			const inner = emitTermSegment(expr.term, typeContext);
 			if (inner.kind === "constant") {
 				return [{ kind: "constant", text: inner.text }];
+			}
+			if (inner.quoteFree === true) {
+				// Structurally quote-free value (a `date`-widget input): fixed
+				// double-quote delimiters as constant segments, no delimiter
+				// choice, no fail-closed obligation. See
+				// `RuntimeTermEmission.quoteFree`.
+				return quoteFreeRuntimeCsqlValue(inner.xpath);
 			}
 			return quoteRuntimeCsqlValue(
 				inner.xpath,

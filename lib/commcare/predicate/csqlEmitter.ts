@@ -30,12 +30,15 @@
 //      via `emitOnDeviceExpression`, NOT as separate `<data>` slots —
 //      see the file header for why a sibling `<data>` slot is
 //      structurally wrong on the CCHQ runtime.
-//   3. Map the segment list into a `concat(...)` XPath expression — the
-//      canonical CCHQ pattern documented in
-//      `commcare-hq/docs/case_search_query_language.rst`. Every
-//      CSQL value is wrapped in `concat(...)`, even predicates with no
-//      runtime interpolation, so the downstream wire layer reads one
-//      uniform shape.
+//   3. Map the segment list into the shortest on-device XPath
+//      expression that builds the CSQL string — the canonical CCHQ
+//      pattern documented in
+//      `commcare-hq/docs/case_search_query_language.rst`. A constant-
+//      only predicate emits as a bare XPath string literal (the same
+//      static shape CCHQ's own suite generator writes into a
+//      `<data ref>`); runtime interpolations emit through `concat(...)`
+//      with presence gates and value guards per `wrapClause` /
+//      `emitPresenceGatedClause`.
 //
 // `mergeAdjacentConstants` runs once at the wrap layer; per-arm
 // emitters produce raw segment lists without internal merging. This
@@ -121,6 +124,7 @@ import type { LookupWireNaming } from "../lookup/naming";
 import { normalizeCsqlPredicate } from "./csqlRepresentability";
 import {
 	type CsqlSegment,
+	dedupeRuntimeRejections,
 	mergeAdjacentConstants,
 	quoteConstantSegmentForXPath,
 	type RuntimeCsqlRejection,
@@ -156,15 +160,16 @@ interface TypeContext extends DomainTypeContext {
 /**
  * Output of the CSQL emission pipeline. `wrapper` is the on-device
  * XPath expression that builds the CSQL `_xpath_query` string at
- * runtime. It is always a `concat(...)` call regardless of whether
- * any segments interpolate a runtime value, so the wire layer can
- * drop it into a `<data key="_xpath_query" ref="...">` slot
- * uniformly.
+ * runtime — a bare XPath string literal when the predicate has no
+ * runtime interpolation, otherwise a presence-gated / guard-wrapped
+ * `concat(...)` shape. Either way it drops into a
+ * `<data key="_xpath_query" ref="...">` slot (or an HQ JSON
+ * `default_properties[].defaultValue`) as one value.
  *
- * No sibling `<data>` slots are produced — non-grammar value
- * expressions inline as runtime XPath fragments inside the concat.
- * See the file header's inline-runtime contract for the CCHQ
- * runtime reason this is the only correct shape.
+ * No sibling non-`_xpath_query` `<data>` slots are produced —
+ * non-grammar value expressions inline as runtime XPath fragments
+ * inside the concat. See the file header's inline-runtime contract
+ * for the CCHQ runtime reason this is the only correct shape.
  */
 export interface CsqlEmissionResult {
 	readonly wrapper: string;
@@ -225,7 +230,8 @@ const PREC_AND = 2;
 type OperandPosition = "comparison-operand" | "value";
 
 /**
- * Top-level entry point. Lifts vias, emits, wraps in `concat(...)`.
+ * Top-level entry point. Lifts vias, emits, wraps into the on-device
+ * wrapper expression (see `emitLiftedResult` for the shapes).
  * The lift pass is total — every input AST reaches native segment
  * emission with via-free property refs. Non-native value expressions
  * retain their vias because they evaluate through the on-device
@@ -256,38 +262,109 @@ export function emitCsql(
 
 /**
  * Internal entry that takes a pre-lifted predicate and produces the
- * `concat(...)` wrapper string. Used by the recursive emitter for
- * `when-input-present` (where the inner clause is already lifted as
- * part of the outer via-lift walk).
+ * on-device wrapper string for one `_xpath_query` value.
+ *
+ * A root-level `when-input-present` gets the flat presence cascade —
+ * `if(count(<trigger>), <guarded-inner>, 'match-all()')` — with its
+ * value guards INSIDE the presence branch: when the trigger is empty,
+ * no runtime byte enters CSQL, so the guards have nothing to protect
+ * and the emitted expression stays the doc-canonical
+ * `case_search_query_language.rst::"Filtering on related cases"` shape.
+ * The rejection obligations reported outward still carry the
+ * `count(<trigger>) and (…)` prefix so prompt validation never rejects
+ * an answer whose clause is inert.
  */
 function emitLiftedResult(
 	predicate: Predicate,
 	typeContext?: TypeContext,
 ): CsqlEmissionResult {
-	const segments = emitPredicateSegments(predicate, 0, typeContext);
-	return wrapInConcat(segments);
+	if (predicate.kind === "when-input-present") {
+		return emitPresenceGatedClause(predicate, typeContext);
+	}
+	return wrapClause(emitPredicateSegments(predicate, 0, typeContext));
 }
 
 /**
- * Wrap a segment list in a `concat(...)` XPath expression. The wrap
- * is unconditional: even a predicate with no runtime interpolation
- * produces `concat('<full csql>')` so the wire layer reads one
- * uniform shape per `_xpath_query` value.
+ * Emit a root-level `when-input-present` clause as the flat presence
+ * cascade. Chained envelopes (`whenInput(a, whenInput(b, …))`) recurse
+ * so each trigger contributes one `if(count(…), …, 'match-all()')`
+ * level; every other inner shape routes through the ordinary clause
+ * wrap, whose guards then sit inside the presence branch.
+ */
+function emitPresenceGatedClause(
+	p: Extract<Predicate, { kind: "when-input-present" }>,
+	typeContext?: TypeContext,
+): CsqlEmissionResult {
+	const triggerXPath = emitSearchInputXPath(p.input, {
+		searchInputNames: new Map(
+			(typeContext?.knownInputs ?? []).map((input) => [input.uuid, input.name]),
+		),
+	});
+	const inner =
+		p.clause.kind === "when-input-present"
+			? emitPresenceGatedClause(p.clause, typeContext)
+			: wrapClause(emitPredicateSegments(p.clause, 0, typeContext));
+	const wrapper = `if(count(${triggerXPath}), ${inner.wrapper}, 'match-all()')`;
+	if (
+		inner.runtimeRejections === undefined ||
+		inner.runtimeRejections.length === 0
+	) {
+		return { wrapper };
+	}
+	// When the trigger is empty the inner query is not evaluated, so its
+	// value obligations must not reject an otherwise valid search.
+	const runtimeRejections = inner.runtimeRejections.map((rejection) => ({
+		...rejection,
+		condition: `count(${triggerXPath}) and (${rejection.condition})`,
+	}));
+	return {
+		wrapper,
+		rejectionCondition: runtimeRejections
+			.map(({ condition }) => `(${condition})`)
+			.join(" or "),
+		runtimeRejections,
+	};
+}
+
+/**
+ * Wrap a clause's segment list into its on-device wrapper expression.
+ * Three forms, most specific first:
+ *
+ *   1. **Constant-only** — no runtime interpolation. Emits the CSQL
+ *      text as a bare XPath string literal (`'status = "open"'`), the
+ *      same static shape CCHQ's own suite generator writes into a
+ *      `<data ref>` (`remote_requests.py::_remote_request_query_datums`
+ *      emits `ref="\"ancestor-exists(…)\""` for the inline-search
+ *      parent filter). A constant whose text carries both quote styles
+ *      falls back to the alternating-quote `concat(...)` idiom.
+ *   2. **Single string value** — exactly one runtime segment, and it is
+ *      a delimiter-chosen string interpolation (`stringValueXPath`).
+ *      Restructures into the flat quote cascade (see
+ *      `buildQuoteCascade`) so the delimiter choice reads top-down
+ *      instead of nesting a second `concat(...)` inside the first.
+ *   3. **General** — the `concat(...)` of all segments, wrapped in the
+ *      fail-closed guards: quote obligations replace the whole clause
+ *      with the invalid sentinel, typed obligations (numeric shape,
+ *      geopoint) replace it with `'match-none()'`.
  *
  * The wrap layer is the single merge point for adjacent constant
  * segments; per-arm emitters produce raw segment lists without
- * internal merging. After merging, each constant segment lifts via
- * `quoteConstantSegmentForXPath`, which can produce one or more
- * comma-separated XPath args depending on whether the constant
- * contains both `'` and `"` — XPath 1.0 has no string-escape syntax
- * and the wrap is itself a `concat(...)` argument list, so a
- * both-quotes constant splits into a sequence of single- or
- * double-quoted runs joined by `"'"` separators (the `concat()`
- * alternating-quote idiom). Runtime segments pass through verbatim
- * as their own concat args.
+ * internal merging.
  */
-function wrapInConcat(segments: readonly CsqlSegment[]): CsqlEmissionResult {
-	const { query, runtimeRejections } = buildConcatExpression(segments);
+function wrapClause(segments: readonly CsqlSegment[]): CsqlEmissionResult {
+	const merged = mergeAdjacentConstants(segments);
+	if (merged.every((seg) => seg.kind === "constant")) {
+		const text = merged
+			.map((seg) => (seg.kind === "constant" ? seg.text : ""))
+			.join("");
+		return {
+			wrapper: renderCsqlStringExpression(quoteConstantSegmentForXPath(text)),
+		};
+	}
+	const cascade = buildQuoteCascade(merged);
+	if (cascade !== undefined) return cascade;
+
+	const { query, runtimeRejections } = buildConcatExpression(merged);
 	if (runtimeRejections.length === 0) return { wrapper: query };
 
 	const rejectionCondition = runtimeRejections
@@ -317,6 +394,89 @@ function wrapInConcat(segments: readonly CsqlSegment[]): CsqlEmissionResult {
 }
 
 /**
+ * One or more already-XPath-quoted args → the shortest expression
+ * producing their concatenation. A single arg stands alone (a bare
+ * literal, or a runtime expression that is the whole value);
+ * several args wrap in `concat(...)`.
+ */
+function renderCsqlStringExpression(args: readonly string[]): string {
+	if (args.length === 1) return args[0] as string;
+	return `concat(${args.join(", ")})`;
+}
+
+/**
+ * Restructure a clause whose ONLY runtime interpolation is one
+ * delimiter-chosen string value into the flat quote cascade:
+ *
+ *   `if(contains(v, '"'),
+ *       if(contains(v, "'"), '<sentinel>', concat("…'", v, "'…")),
+ *       concat('…"', v, '"…'))`
+ *
+ * Reading top-down: a value with no double quote takes CCHQ's
+ * documented double-quoted scalar form; a value with a double quote
+ * flips to single-quote delimiters; a value with both is
+ * unrepresentable (`eulxml/xpath/lexrules.py::t_LITERAL` admits no
+ * escape) and the whole clause becomes the invalid sentinel. The
+ * emitted CSQL bytes for a valid value are identical to the general
+ * path's — only the on-device expression shape changes, from a
+ * delimiter-`if` nested inside a `concat(...)` argument to one flat
+ * cascade around two plain concats.
+ *
+ * Applies only when the delimiter choice is the clause's sole
+ * obligation: a second runtime segment or a typed (numeric / geopoint)
+ * obligation falls back to the general guard shape, where each
+ * obligation composes independently.
+ */
+function buildQuoteCascade(
+	merged: readonly CsqlSegment[],
+): CsqlEmissionResult | undefined {
+	const runtimeIndex = merged.findIndex((seg) => seg.kind === "runtime");
+	if (runtimeIndex === -1) return undefined;
+	if (merged.some((seg, i) => i !== runtimeIndex && seg.kind === "runtime")) {
+		return undefined;
+	}
+	const seg = merged[runtimeIndex];
+	if (
+		seg.kind !== "runtime" ||
+		seg.stringValueXPath === undefined ||
+		seg.rejectWhen === undefined ||
+		(seg.rejectionKind ?? "quote") !== "quote"
+	) {
+		return undefined;
+	}
+	const value = seg.stringValueXPath;
+	const constantText = (list: readonly CsqlSegment[]): string =>
+		list.map((s) => (s.kind === "constant" ? s.text : "")).join("");
+	const prefix = constantText(merged.slice(0, runtimeIndex));
+	const suffix = constantText(merged.slice(runtimeIndex + 1));
+	const doubleArm = renderCsqlStringExpression([
+		...quoteConstantSegmentForXPath(`${prefix}"`),
+		value,
+		...quoteConstantSegmentForXPath(`"${suffix}`),
+	]);
+	const singleArm = renderCsqlStringExpression([
+		...quoteConstantSegmentForXPath(`${prefix}'`),
+		value,
+		...quoteConstantSegmentForXPath(`'${suffix}`),
+	]);
+	const wrapper = `if(contains(${value}, '"'), if(contains(${value}, "'"), '${CSQL_UNREPRESENTABLE_RUNTIME_STRING}', ${singleArm}), ${doubleArm})`;
+	const runtimeRejections: RuntimeCsqlRejection[] = [
+		{
+			condition: seg.rejectWhen,
+			kind: "quote",
+			...(seg.rejectionInputNames === undefined
+				? {}
+				: { inputNames: [...seg.rejectionInputNames].sort() }),
+		},
+	];
+	return {
+		wrapper,
+		rejectionCondition: `(${seg.rejectWhen})`,
+		runtimeRejections,
+	};
+}
+
+/**
  * Render a segment list without consuming its representability obligations.
  *
  * Most callers immediately route the result through `wrapInConcat`, which
@@ -334,30 +494,29 @@ function buildConcatExpression(segments: readonly CsqlSegment[]): {
 } {
 	const merged = mergeAdjacentConstants(segments);
 	const args: string[] = [];
-	const rejectionByKey = new Map<string, RuntimeCsqlRejection>();
+	const rejections: RuntimeCsqlRejection[] = [];
 	for (const seg of merged) {
 		if (seg.kind === "runtime") {
 			args.push(seg.xpath);
 			if (seg.rejectWhen !== undefined) {
-				const rejection = {
+				rejections.push({
 					condition: seg.rejectWhen,
 					kind: seg.rejectionKind ?? "quote",
 					...(seg.rejectionInputNames === undefined
 						? {}
 						: { inputNames: [...seg.rejectionInputNames].sort() }),
-				} as const;
-				rejectionByKey.set(
-					`${rejection.kind}\u0000${rejection.condition}\u0000${rejection.inputNames?.join("\u0000") ?? ""}`,
-					rejection,
-				);
+				});
 			}
 			continue;
 		}
 		args.push(...quoteConstantSegmentForXPath(seg.text));
 	}
 	return {
-		query: `concat(${args.join(", ")})`,
-		runtimeRejections: [...rejectionByKey.values()],
+		// A single arg stands alone — a bare XPath string literal for a
+		// constant-only body, or the runtime expression itself when it is
+		// the whole value. Several args wrap in `concat(...)`.
+		query: renderCsqlStringExpression(args),
+		runtimeRejections: dedupeRuntimeRejections(rejections),
 	};
 }
 
@@ -458,11 +617,16 @@ function emitPredicateSegments(
 }
 
 /**
- * Emit `when-input-present(trigger, clause)` as the canonical CCHQ
- * pattern at
+ * Emit a NESTED `when-input-present(trigger, clause)` — one sitting
+ * below the clause root, inside an `and` / `or` / `not` / relation
+ * filter — as the canonical CCHQ pattern at
  * `case_search_query_language.rst::"Filtering on related cases" → "Examples"`:
  *
  *   `if(count(<trigger-xpath>), <inner-csql>, 'match-all()')`
+ *
+ * A ROOT-level envelope never reaches this walker; `emitLiftedResult`
+ * routes it through `emitPresenceGatedClause`, which places the value
+ * guards inside the presence branch instead of bubbling them.
  *
  * Where `<inner-csql>` is the CSQL emission of the inner clause as a
  * complete `concat(...)` XPath expression. When the trigger input is
