@@ -195,8 +195,8 @@
 	--tt-border-color-tint: var(--tt-gray-dark-a-100);
 	--tt-sidebar-bg-color: var(--tt-gray-dark-100);
 	--tt-scrollbar-color: var(--tt-gray-dark-a-200);
-	--tt-cursor-color: var(--tt-brand-color-400);
-	--tt-selection-color: rgba(122, 82, 255, 0.2);
+	--tt-cursor-color: var(--nova-violet-bright);
+	--tt-selection-color: rgba(150, 120, 242, 0.2);
 	--tt-card-bg-color: var(--tt-gray-dark-50);
 	--tt-card-border-color: var(--tt-gray-dark-a-50);
 

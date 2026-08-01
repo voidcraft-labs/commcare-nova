@@ -105,9 +105,9 @@ export const REF_TYPE_CONFIG: Record<ReferenceType, ReferenceTypeConfig> = {
 		bgClass: "bg-nova-violet/15",
 		textClass: "text-nova-violet-bright",
 		borderClass: "border-nova-violet/20",
-		cssColor: "#a78bfa",
-		cssBg: "rgba(139, 92, 246, 0.15)",
-		cssBorder: "rgba(139, 92, 246, 0.2)",
+		cssColor: "#b6a0fb",
+		cssBg: "rgba(150, 120, 242, 0.15)",
+		cssBorder: "rgba(150, 120, 242, 0.2)",
 	},
 	user: {
 		type: "user",

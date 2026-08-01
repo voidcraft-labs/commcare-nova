@@ -9,7 +9,7 @@
  *   shortcutLabel("mod", "Z")           → "⌘Z" / "Ctrl+Z"
  *   shortcutLabel("mod", "shift", "Z")  → "⌘⇧Z" / "Ctrl+Shift+Z"
  *   MOD_SYMBOL                           → "⌘" / "Ctrl"
- *   ENTER_LABEL                          → "RETURN" / "ENTER"
+ *   ENTER_LABEL                          → "Return" / "Enter"
  */
 
 /** Cached platform detection — safe in client code (only runs in the browser). */
@@ -46,7 +46,7 @@ const SYMBOLS: Record<string, string> = IS_MAC
 export const MOD_SYMBOL = SYMBOLS.mod;
 
 /** Platform-aware enter key label — "RETURN" on Mac, "ENTER" on non-Mac (uppercase for hint UIs). */
-export const ENTER_LABEL = IS_MAC ? "RETURN" : "ENTER";
+export const ENTER_LABEL = IS_MAC ? "Return" : "Enter";
 
 /**
  * Format a keyboard shortcut for display.

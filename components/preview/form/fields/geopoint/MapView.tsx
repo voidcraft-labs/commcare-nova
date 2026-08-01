@@ -35,7 +35,7 @@ const FOCUS_ZOOM = 16;
  *  put them (no needless camera motion). */
 const TOP_SAFE_FRACTION = 0.2;
 /** Nova-violet pin (brand accent) for the Advanced Marker. */
-const PIN_BG = "#8b5cf6";
+const PIN_BG = "#9678f2";
 const PIN_BORDER = "#6d28d9";
 const PIN_GLYPH = "#ede9fe";
 

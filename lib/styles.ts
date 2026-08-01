@@ -5,7 +5,7 @@
  * like a glass edge.
  */
 export const POPOVER_GLASS =
-	"nova-floating rounded-xl bg-[rgba(10,10,26,0.4)] backdrop-blur-[10px] [-webkit-backdrop-filter:blur(10px)] border border-white/[0.06] shadow-[inset_0_0_0_1px_rgba(200,200,255,0.18),0_24px_48px_rgba(0,0,0,0.5)]";
+	"nova-floating rounded-xl bg-nova-glass backdrop-blur-[10px] [-webkit-backdrop-filter:blur(10px)] border border-nova-glass-border shadow-glass";
 
 /* ── Base UI Menu shared styles ────────────────────────────────────────────
  * Glass/elevated surfaces live on the Positioner, not the Popup — Base UI's
@@ -61,18 +61,18 @@ export const MENU_ITEM_BASE =
 	"flex min-h-11 w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm whitespace-normal outline-none select-none transition-colors";
 
 /** Interactive item: subtle highlight on hover / keyboard focus. */
-export const MENU_ITEM_CLS = `${MENU_ITEM_BASE} cursor-pointer text-nova-text data-[highlighted]:bg-white/[0.06] data-disabled:cursor-not-allowed data-disabled:opacity-40`;
+export const MENU_ITEM_CLS = `${MENU_ITEM_BASE} cursor-pointer text-nova-text data-[highlighted]:bg-white/[0.06] data-disabled:cursor-not-allowed data-disabled:opacity-(--disabled-opacity)`;
 
 /** Disabled item: muted and non-interactive. */
-export const MENU_ITEM_DISABLED_CLS = `${MENU_ITEM_BASE} opacity-40 cursor-not-allowed`;
+export const MENU_ITEM_DISABLED_CLS = `${MENU_ITEM_BASE} opacity-(--disabled-opacity) cursor-not-allowed`;
 
 /** Glass-surfaced positioner (L1) for primary menu panels. */
 export const MENU_POSITIONER_CLS =
-	"nova-floating outline-none rounded-xl bg-[rgba(10,10,26,0.4)] backdrop-blur-[10px] [-webkit-backdrop-filter:blur(10px)] outline-[rgba(255,255,255,0.06)] outline-1 shadow-[inset_0_0_0_1px_rgba(200,200,255,0.18),0_24px_48px_rgba(0,0,0,0.5)]";
+	"nova-floating outline-none rounded-xl bg-nova-glass backdrop-blur-[10px] [-webkit-backdrop-filter:blur(10px)] outline-nova-glass-border outline-1 shadow-glass";
 
 /** Elevated positioner (L2) for submenus stacked above a glass parent. */
 export const MENU_SUBMENU_POSITIONER_CLS =
-	"nova-floating outline-none rounded-xl bg-[rgba(16,16,36,0.95)] outline-[rgba(255,255,255,0.06)] outline-1 shadow-[inset_0_0_0_1px_rgba(200,200,255,0.15),0_16px_40px_rgba(0,0,0,0.6)]";
+	"nova-floating outline-none rounded-xl bg-nova-overlay outline-nova-glass-border outline-1 shadow-overlay-float";
 
 /** Popup animation — scale + fade entrance/exit via Base UI data attributes. */
 export const MENU_POPUP_CLS =
@@ -83,11 +83,11 @@ export const MENU_POPUP_CLS =
 
 /** Glass-surfaced positioner (L1) for primary popover panels. */
 export const POPOVER_POSITIONER_GLASS_CLS =
-	"nova-floating outline-none rounded-xl bg-[rgba(10,10,26,0.4)] backdrop-blur-[10px] [-webkit-backdrop-filter:blur(10px)] outline-[rgba(255,255,255,0.06)] outline-1 shadow-[inset_0_0_0_1px_rgba(200,200,255,0.18),0_24px_48px_rgba(0,0,0,0.5)]";
+	"nova-floating outline-none rounded-xl bg-nova-glass backdrop-blur-[10px] [-webkit-backdrop-filter:blur(10px)] outline-nova-glass-border outline-1 shadow-glass";
 
 /** Elevated positioner (L2) for popovers stacked above a glass parent. */
 export const POPOVER_POSITIONER_ELEVATED_CLS =
-	"nova-floating outline-none rounded-xl bg-[rgba(16,16,36,0.95)] outline-[rgba(255,255,255,0.06)] outline-1 shadow-[inset_0_0_0_1px_rgba(200,200,255,0.15),0_16px_40px_rgba(0,0,0,0.6)]";
+	"nova-floating outline-none rounded-xl bg-nova-overlay outline-nova-glass-border outline-1 shadow-overlay-float";
 
 /** Popup animation — scale + fade, same motion language as menus. */
 export const POPOVER_POPUP_CLS =

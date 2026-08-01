@@ -19,78 +19,216 @@
 }
 
 :root {
-	/* Nova color system */
-	--nova-void: #050510;
-	--nova-deep: #0a0a1a;
-	--nova-surface: #12122a;
-	--nova-elevated: #1a1a3e;
+	/* ── Nova color system: "Twilight & first light" ─────────────────────
+	   The sky is a warm plum dusk, never a cold blue void, and the light in
+	   it is Nova: a soft lilac accent with a wash of dawn peach-rose for
+	   warmth. LIGHT IS ACTION: accent fills are luminous and carry dusk
+	   text; there are no white-text fills and no borrowed blues. Violet is
+	   the single non-semantic accent; emerald / amber / rose are reserved
+	   for state, never decoration. */
+	--nova-void: #171221; /* page background, a soft plum dusk */
+	--nova-deep: #1d1729; /* quiet wells, sidebars */
+	--nova-surface: #251d34; /* default card surface */
+	--nova-elevated: #2f2543; /* hover + raised floating surfaces */
 	/* Near-opaque elevated floating surface — the tier that stacks above the
 	   frosted-glass popovers (tooltips, rejection notice, autocomplete, inline
-	   popovers). Consolidates several hand-written bg-[rgba(16,16,36,…)] /
-	   bg-[#0d0d24] one-offs into one token so the floating-surface fill lives
-	   in a single place. */
-	--nova-overlay: rgba(16, 16, 36, 0.97);
-	--nova-border: rgba(139, 92, 246, 0.15);
-	--nova-border-bright: rgba(139, 92, 246, 0.3);
+	   popovers). The one floating-surface fill token. */
+	--nova-overlay: rgba(34, 26, 49, 0.97);
+	--nova-border: rgba(150, 120, 242, 0.17);
+	--nova-border-bright: rgba(150, 120, 242, 0.34);
 
-	--nova-text: #ededf4;
-	--nova-text-secondary: #9494b8;
-	/* Lightened from #6b6b8a so muted body text clears WCAG AA (4.5:1) on every
-	   surface in the stack — the old value only reached ~3.3:1 on the elevated
-	   surface, failing normal-size text everywhere. Still perceptibly dimmer
-	   than --nova-text-secondary, so the three-step text hierarchy holds. */
-	--nova-text-muted: #8888aa;
+	--nova-text: #f9f6fd; /* primary copy, warm lavender-white */
+	--nova-text-secondary: #bdb3d8; /* supporting copy, labels — AA on every surface */
+	--nova-text-muted: #978cb3; /* hints, metadata, still AA on the whole stack */
 
-	/* Brand violet — the single non-semantic accent (borders, glows, the logo,
-	   violet-tinted fills, selected states). NOT used as a fill behind white text:
-	   white on #8b5cf6 is only 4.23:1. White-text CTAs use --nova-action instead;
-	   violet text and links use --nova-violet-bright. */
-	--nova-violet: #8b5cf6;
-	--nova-violet-bright: #a78bfa;
-	/* Hover for filled violet controls = the base mixed one interaction step
-	   (14%) toward black in oklab. See the interaction-state model below: every
-	   solid-fill hover uses this same perceptual step so the hover distance reads
-	   identically regardless of the fill's color. */
-	--nova-violet-hover: color-mix(in oklab, var(--nova-violet), black 14%);
-	/* Faint violet wash for decorative fills (skeleton shimmer midpoint, editor
-	   active-line). Consolidates the repeated rgba(139,92,246,0.06) literals. */
-	--nova-violet-wash: rgba(139, 92, 246, 0.06);
+	/* Brand accent — the only decorative hue. A softened lilac: borders,
+	   glow, the logo, active state, violet TEXT/links, and, as
+	   --nova-action, the luminous primary CTA fill. Accent fills carry
+	   DUSK text (--nova-action-ink), never white. */
+	--nova-violet: #9678f2;
+	--nova-violet-bright: #b6a0fb;
+	/* Solid-fill hover = one perceptual step toward LIGHT (10% white in
+	   oklch — the hue holds, nothing washes out). In Nova, light is action:
+	   hover is always more light, never less. */
+	--nova-violet-hover: color-mix(in oklch, var(--nova-violet), white 10%);
+	/* Faint violet wash for decorative fills (skeleton shimmer midpoint,
+	   editor active-line). */
+	--nova-violet-wash: rgba(150, 120, 242, 0.07);
+
+	/* Dawn — Nova's second light: the warm peach-rose of first light, used
+	   ONLY as light (the logomark's crescent, the low warm bloom on hero
+	   surfaces, rare quiet celebrations). Never a border, never a control
+	   fill, never semantic. As a text-carrying fill it takes dusk text. */
+	--nova-dawn: #f5b0a5;
+	--nova-dawn-wash: rgba(245, 176, 165, 0.07);
 
 	/* ── Interaction-state model ─────────────────────────────────────────
-	 * State distance is measured in perceptual lightness (oklab L), so a step
-	 * looks like the same amount of change on any color — WCAG relative
-	 * luminance is NOT perceptually uniform and is wrong for this. Two families:
-	 *   • Solid fills (buttons): hover = base mixed 14% toward black in oklab
-	 *     (one step darker — white text stays legible; lightening can't, since
-	 *     white only clears AA on light fills up to a point). See *-hover tokens.
-	 *   • Foreground icon/text controls: a 3-rung ladder, ~0.3 oklab L apart at
-	 *     each step — idle = text-nova-text-muted, hover = text-nova-text,
-	 *     disabled = idle at opacity 0.40.
-	 * Disabled everywhere = opacity 0.40 (one value; opacity is the universal,
-	 * color-independent "inactive" signal). */
+	 * State distance is measured in perceptual steps, so every control's
+	 * hover reads as the same amount of change:
+	 *   • Solid fills (buttons, toggles): hover = base mixed 10% toward
+	 *     WHITE in oklch (the *-hover tokens) — fills BRIGHTEN, never dim,
+	 *     and dusk text gains contrast as the fill lifts. CTAs add a glow
+	 *     swell.
+	 *   • Foreground icon/text controls: idle = text-nova-text-secondary,
+	 *     hover = text-nova-text, disabled = idle at opacity 0.6.
+	 * Disabled everywhere = opacity 0.6 (--disabled-opacity, one value,
+	 * calibrated so keycap labels hold ≥3.6:1 and secondary-base text ≥3:1
+	 * on every surface), keeps pointer events, shows cursor: not-allowed,
+	 * and gates hover restyles off. */
 
-	/* Primary action / CTA fill — indigo. Distinct from the brand violet accent
-	   yet cohesive on the dark theme, and dark enough to carry white text at AA
-	   (6.29:1). Drives Nova-chrome CTAs (the previewed CommCare app keeps violet
-	   via --pv-accent). */
-	--nova-action: #4f46e5;
-	--nova-action-hover: color-mix(in oklab, var(--nova-action), black 14%);
+	/* Primary action / CTA fill — luminous. The primary button is the
+	   brightest thing on the page: the lilac itself, lit, carrying dusk
+	   text (--nova-action-ink, 8.2:1). There is no separate "blue'd"
+	   button hue anywhere in the system. */
+	--nova-action: var(--nova-violet-bright);
+	--nova-action-ink: var(--nova-void); /* the text on any accent fill */
+	--nova-action-hover: color-mix(in oklch, var(--nova-action), white 10%);
+
+	/* ── Keycap buttons (crown gradients + walls) ────────────────────────
+	   Buttons are soft KEYCAPS: a crown gradient lit from above, a darker
+	   side wall below (drawn as a `0 3px 0` shadow, --key-wall tall), and
+	   real travel on press: the cap sinks as the wall collapses. The
+	   rest→hover crown pair brightens one perceptual step. Ghost/link stay
+	   text-only (no crown, no wall) so keycaps gain contrast against them. */
+	--nova-key-action: linear-gradient(
+		180deg,
+		color-mix(in oklch, var(--nova-action), white 14%),
+		var(--nova-action) 58%,
+		color-mix(in oklch, var(--nova-action), black 9%)
+	);
+	--nova-key-action-hover: linear-gradient(
+		180deg,
+		color-mix(in oklch, var(--nova-action), white 24%),
+		color-mix(in oklch, var(--nova-action), white 10%) 58%,
+		var(--nova-action)
+	);
+	--nova-wall-action: color-mix(in oklch, var(--nova-action), black 45%);
+	--nova-key-surface: linear-gradient(180deg, #342a48, #251d34);
+	--nova-key-surface-hover: linear-gradient(180deg, #3b3052, #2c2340);
+	--nova-wall-surface: #0b0813;
+	--nova-key-violet-wash: linear-gradient(
+		180deg,
+		rgba(178, 152, 255, 0.2),
+		rgba(150, 120, 242, 0.07)
+	);
+	--nova-key-violet-wash-hover: linear-gradient(
+		180deg,
+		rgba(178, 152, 255, 0.28),
+		rgba(150, 120, 242, 0.13)
+	);
+	--nova-wall-violet: rgba(150, 120, 242, 0.3);
+	--nova-key-rose: linear-gradient(
+		180deg,
+		rgba(212, 112, 143, 0.3),
+		rgba(212, 112, 143, 0.16)
+	);
+	--nova-key-rose-hover: linear-gradient(
+		180deg,
+		rgba(212, 112, 143, 0.38),
+		rgba(212, 112, 143, 0.24)
+	);
+	--nova-wall-rose: color-mix(in srgb, var(--nova-rose) 30%, #0b0813);
+	--nova-key-amber: linear-gradient(
+		180deg,
+		color-mix(in oklch, var(--nova-amber), white 14%),
+		var(--nova-amber) 58%,
+		color-mix(in oklch, var(--nova-amber), black 9%)
+	);
+	--nova-key-amber-hover: linear-gradient(
+		180deg,
+		color-mix(in oklch, var(--nova-amber), white 24%),
+		color-mix(in oklch, var(--nova-amber), white 10%) 58%,
+		var(--nova-amber)
+	);
+	--nova-wall-amber: color-mix(in oklch, var(--nova-amber), black 45%);
+
+	/* Semantic state hues — soft and quiet, reserved for state. Amber is
+	   apricot sunset caution (warning / recovering), not mustard. */
 	--nova-emerald: #86cebc;
-	--nova-amber: #d4a76a;
-	--nova-amber-hover: color-mix(in oklab, var(--nova-amber), black 14%);
+	--nova-amber: #eaa06a;
+	--nova-amber-hover: color-mix(in oklch, var(--nova-amber), white 10%);
 	--nova-rose: #d4708f;
-	--nova-orchid: #cda0d4;
+	--nova-orchid: #cda0d4; /* code strings · peer presence; NOT an accent */
 
-	/* Peer-presence hues, drawn from the XPath editor's syntax family (the
-	   violet-monochrome identity) so decorative peer colors never borrow the
-	   semantic success/warning/error hues above. All light enough to carry
-	   dark text (text-nova-void) at AA. --nova-orchid doubles as one (it IS
-	   the XPath string color). */
+	/* Peer-presence hues, drawn from the XPath editor's syntax family so
+	   decorative peer colors never borrow the semantic hues above. All
+	   light enough to carry dark text (text-nova-void) at AA. */
 	--nova-periwinkle: #928fd6;
 	--nova-iris: #7e79b9;
 	--nova-lavender: #dfdeed;
 
-	--nova-glow-violet: 0 0 40px rgba(139, 92, 246, 0.15);
+	/* ── Code / XPath syntax palette ("lavender milk bath") ─────────────
+	   Consumed by the CodeMirror theme (lib/codemirror/xpath-theme.ts) and
+	   any inline formula rendering. All syntax colors live in the purple /
+	   lavender / orchid family; differentiation comes from lightness and
+	   warmth shifts, not clashing hues. */
+	--nova-code-fg: #bebcdc;
+	--nova-code-ref: #b6b2e6;
+	--nova-code-var: #928fd6;
+	--nova-code-name: #dfdeed;
+	--nova-code-fn: #a08ae0;
+	--nova-code-string: #cda0d4;
+	--nova-code-number: #d9b8e0;
+	--nova-code-keyword: #a797ce;
+	--nova-code-op: #7e79b9;
+	--nova-code-paren: #9e9bca;
+	--nova-code-bracket: #8974be;
+	--nova-code-sep: #5d58a7;
+
+	/* Glow — light is Nova's substitute for elevation. */
+	--nova-glow-violet: 0 0 40px rgba(150, 120, 242, 0.16);
+	--nova-glow-violet-strong: 0 0 64px rgba(150, 120, 242, 0.26);
+	--nova-glow-dawn: 0 0 48px rgba(245, 176, 165, 0.12); /* rare, warm; hero moments only */
+
+	/* ── Floating surfaces (two tiers) ───────────────────────────────────
+	   L1 frosted glass for primary floating panels (menus, popovers); L2 is
+	   --nova-overlay above: near-opaque, stacks over glass (glass-on-glass
+	   loses its blur). Pair with --shadow-glass / --shadow-overlay-float. */
+	--nova-glass: rgba(23, 18, 33, 0.42); /* + backdrop-filter: blur(10px) */
+	--nova-glass-border: rgba(255, 255, 255, 0.07);
+
+	/* Floating-tier shadows: a faint bright rim that reads as a lit glass
+	   edge, plus a deep soft drop. */
+	--shadow-glass:
+		inset 0 0 0 1px rgba(226, 217, 255, 0.17), 0 24px 48px rgba(0, 0, 0, 0.45);
+	--shadow-overlay-float:
+		inset 0 0 0 1px rgba(226, 217, 255, 0.14), 0 16px 40px rgba(0, 0, 0, 0.55);
+
+	/* Keyboard focus — violet-bright border + a soft 3px ring, keyboard
+	   only (:focus-visible); a mouse press never leaves a standing ring. */
+	--nova-ring: var(--nova-violet-bright);
+	--focus-ring: 0 0 0 3px rgba(182, 160, 251, 0.45);
+
+	/* Hit targets — THE control height: buttons, inputs, and toggles are
+	   all exactly this tall (one size each, no ladders), and it's the floor
+	   for menu items, composer controls, dialog actions, and icon buttons. */
+	--hit-target: 2.75rem; /* 44px */
+
+	/* Keycap depth: the wall height and the press travel distance.
+	   Text-only controls (ghost, link, icon buttons) keep a 1px nudge. */
+	--key-wall: 3px;
+
+	/* Disabled — one value everywhere, calibrated so disabled labels keep
+	   ≥3:1 contrast on every surface in the stack. */
+	--disabled-opacity: 0.6;
+
+	/* Motion — unhurried and gentle. Things settle, never snap. Ambient
+	   motion (breath, blooms) is slow enough to ignore. */
+	--duration-fast: 0.1s;
+	--duration-default: 0.2s;
+	--duration-slow: 0.64s;
+	--duration-breathe: 3.6s; /* ambient presence pulse */
+	--ease-default: cubic-bezier(0.46, 0.03, 0.52, 0.96);
+	--ease-out: cubic-bezier(0.16, 1, 0.3, 1); /* entrance, decel */
+	--ease-back: cubic-bezier(
+		0.68,
+		-0.55,
+		0.27,
+		1.55
+	); /* overshoot; rare, playful */
+
+	/* Selection */
+	--nova-selection: rgba(150, 120, 242, 0.32);
 
 	/* Z-index layers — single source of truth for stacking order */
 	--z-ground: 10; /* Inline interactive elements: hover zones, sidebar dividers, page backgrounds */
@@ -101,14 +239,23 @@
 	--z-tooltip: 110; /* Tooltips — above popovers AND modals (a tooltip on a control inside a dialog must never be occluded by it) */
 	--z-system: 9999; /* System overlays: noise texture */
 
-	/* Preview theme defaults (overridden by .preview-theme) */
-	--pv-bg: #0c0c1e;
-	--pv-surface: #141430;
-	--pv-elevated: #1c1c40;
-	--pv-input-bg: #10102a;
-	--pv-input-border: rgba(139, 92, 246, 0.2);
-	--pv-input-focus: rgba(139, 92, 246, 0.4);
-	--pv-accent: color-mix(in oklab, var(--nova-violet), black 14%);
+	/* Preview theme defaults (overridden by .preview-theme) — the user's
+	   app inside the builder runs its own slightly-lifted plum family so
+	   the authored app reads as distinct from Nova chrome. Its accent is
+	   lit and carries dusk ink, like every Nova fill. */
+	--pv-bg: #1b1428;
+	--pv-surface: #241b36;
+	--pv-elevated: #2d2244;
+	--pv-input-bg: #201830;
+	--pv-input-border: rgba(150, 120, 242, 0.22);
+	--pv-input-focus: rgba(150, 120, 242, 0.42);
+	--pv-input-border-design: rgba(
+		151,
+		140,
+		179,
+		0.15
+	); /* edit-mode neutral control border */
+	--pv-accent: var(--nova-violet-bright);
 	--pv-accent-bright: var(--nova-violet-bright);
 	--background: oklch(1 0 0);
 	--foreground: oklch(0.145 0 0);
@@ -133,7 +280,7 @@
 	--chart-3: oklch(0.439 0 0);
 	--chart-4: oklch(0.371 0 0);
 	--chart-5: oklch(0.269 0 0);
-	--radius: 0.625rem;
+	--radius: 0.75rem;
 	--sidebar: oklch(0.985 0 0);
 	--sidebar-foreground: oklch(0.145 0 0);
 	--sidebar-primary: oklch(0.205 0 0);
@@ -161,8 +308,13 @@
 	--color-nova-violet: var(--nova-violet);
 	--color-nova-violet-bright: var(--nova-violet-bright);
 	--color-nova-violet-hover: var(--nova-violet-hover);
+	--color-nova-dawn: var(--nova-dawn);
+	--color-nova-dawn-wash: var(--nova-dawn-wash);
 	--color-nova-action: var(--nova-action);
+	--color-nova-action-ink: var(--nova-action-ink);
 	--color-nova-action-hover: var(--nova-action-hover);
+	--color-nova-glass: var(--nova-glass);
+	--color-nova-glass-border: var(--nova-glass-border);
 	--color-nova-emerald: var(--nova-emerald);
 	--color-nova-amber: var(--nova-amber);
 	--color-nova-amber-hover: var(--nova-amber-hover);
@@ -190,7 +342,21 @@
 	--z-index-modal: var(--z-modal);
 	--z-index-system: var(--z-system);
 	--animate-shimmer: nova-shimmer 1.5s ease-in-out infinite;
+	--animate-breathe: nova-breathe var(--duration-breathe, 3.6s) ease-in-out
+		infinite;
 	--font-heading: var(--font-sans);
+	/* Floating-tier + ambient shadows (soft, paper-in-low-light; the glass
+	   tiers wear a faint lit rim). shadow-md/lg keep Tailwind's names but
+	   resolve to Nova's ambient set. */
+	--shadow-md:
+		0 6px 16px rgba(0, 0, 0, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.02);
+	--shadow-lg:
+		0 12px 32px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(150, 120, 242, 0.08);
+	--shadow-elevated:
+		0 16px 48px rgba(0, 0, 0, 0.45), 0 12px 24px rgba(0, 0, 0, 0.22),
+		0 6px 8px rgba(0, 0, 0, 0.2), 0 2px 3px rgba(0, 0, 0, 0.1);
+	--shadow-glass: var(--shadow-glass);
+	--shadow-overlay-float: var(--shadow-overlay-float);
 	--color-sidebar-ring: var(--sidebar-ring);
 	--color-sidebar-border: var(--sidebar-border);
 	--color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -220,13 +386,17 @@
 	--color-popover: var(--popover);
 	--color-card-foreground: var(--card-foreground);
 	--color-card: var(--card);
-	--radius-sm: calc(var(--radius) * 0.6);
-	--radius-md: calc(var(--radius) * 0.8);
-	--radius-lg: var(--radius);
-	--radius-xl: calc(var(--radius) * 1.4);
-	--radius-2xl: calc(var(--radius) * 1.8);
-	--radius-3xl: calc(var(--radius) * 2.2);
-	--radius-4xl: calc(var(--radius) * 2.6);
+	/* Radius — everything is soft. Inputs and cards sit at lg (12px);
+	   buttons, dialogs, menus, and popovers at xl (18px); the composer at
+	   2xl (24px); badges are full pills. Genuinely round stays reserved for
+	   toggles and the brand dot. */
+	--radius-sm: 0.5rem; /* 8px: chips, nested wells, small controls */
+	--radius-md: 0.625rem; /* 10px: compact controls, code chips */
+	--radius-lg: 0.75rem; /* 12px: inputs, cards (Nova default) */
+	--radius-xl: 1.125rem; /* 18px: buttons, dialogs, menus, popovers */
+	--radius-2xl: 1.5rem; /* 24px: hero composer */
+	--radius-3xl: 1.75rem; /* 28px: large friendly surfaces */
+	--radius-4xl: 2rem; /* 32px: badge pill */
 }
 
 /* Global styles */
@@ -271,8 +441,285 @@ body {
 
 /* Selection color */
 ::selection {
-	background: rgba(139, 92, 246, 0.3);
-	color: white;
+	background: var(--nova-selection);
+	color: #fff;
+}
+
+/* ── First-light bloom ──────────────────────────────────────────────
+   The ambient light behind hero surfaces: a lilac glow overhead and a
+   low warm dawn on the horizon. Apply to a positioned, overflow-hidden
+   container; renders as three soft radial washes. */
+.nova-bloom {
+	position: relative;
+}
+.nova-bloom::before {
+	content: "";
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+	z-index: 0;
+	background:
+		radial-gradient(
+			42rem 42rem at 50% -10rem,
+			rgba(150, 120, 242, 0.11),
+			transparent 70%
+		),
+		radial-gradient(
+			36rem 28rem at 12% 108%,
+			rgba(245, 176, 165, 0.06),
+			transparent 70%
+		),
+		radial-gradient(
+			30rem 30rem at 88% 100%,
+			rgba(150, 120, 242, 0.05),
+			transparent 70%
+		);
+}
+
+/* ── Breath ─────────────────────────────────────────────────────────
+   Nova's presence pulse: a slow, calm swell for the brand mark and
+   presence indicators. Deliberately slower than a resting heartbeat;
+   it reads as company, never as urgency. Replaces every ping. */
+@keyframes nova-breathe {
+	0%,
+	100% {
+		opacity: 0.45;
+		transform: scale(1);
+	}
+	50% {
+		opacity: 1;
+		transform: scale(1.12);
+	}
+}
+
+/* The logomark's limb-light variant: light waxes and wanes in place. */
+@keyframes nova-logo-breathe {
+	0%,
+	100% {
+		opacity: 0.55;
+	}
+	50% {
+		opacity: 0.95;
+	}
+}
+
+/* ── Floating surfaces, two tiers ───────────────────────────────────
+   L1 `.nova-glass`: frosted glass for primary floating panels (menus,
+   popovers, pickers). L2 `.nova-float-elevated`: near-opaque, stacks
+   ABOVE glass (glass-on-glass loses its blur). Both wear a faint lit
+   rim, like glass catching the light. The Tailwind chrome constants in
+   `lib/styles.ts` consume the same tokens. */
+.nova-glass {
+	border-radius: var(--radius-xl);
+	background: var(--nova-glass);
+	backdrop-filter: blur(10px);
+	-webkit-backdrop-filter: blur(10px);
+	border: 1px solid var(--nova-glass-border);
+	box-shadow: var(--shadow-glass);
+}
+.nova-float-elevated {
+	border-radius: var(--radius-xl);
+	background: var(--nova-overlay);
+	border: 1px solid var(--nova-glass-border);
+	box-shadow: var(--shadow-overlay-float);
+}
+
+/* ── Keycap buttons ─────────────────────────────────────────────────
+   The anatomy of Nova's soft-keycap buttons: a lit crown gradient over
+   a 3px darker side wall, real travel on press (the cap sinks as the
+   wall collapses), hover one perceptual step brighter, keyboard-only
+   focus ring, disabled at the one 0.6 opacity with hover gated off.
+   `components/shadcn/button.tsx` composes these; a call-site className
+   may set layout (width, margin, grid placement), never anatomy. */
+.nova-keycap {
+	transition: all 0.15s var(--ease-default);
+}
+.nova-keycap:active:not(:disabled):not([data-disabled]) {
+	transform: translateY(var(--key-wall));
+}
+.nova-keycap:disabled,
+.nova-keycap[data-disabled] {
+	cursor: not-allowed;
+	opacity: var(--disabled-opacity);
+}
+
+.nova-keycap-action {
+	background: var(--nova-key-action);
+	color: var(--nova-action-ink);
+	box-shadow:
+		inset 0 1px 0 rgba(255, 255, 255, 0.5),
+		0 var(--key-wall) 0 var(--nova-wall-action),
+		0 7px 16px rgba(10, 6, 20, 0.4),
+		var(--nova-glow-violet);
+}
+.nova-keycap-action:hover:not(:disabled):not([data-disabled]) {
+	background: var(--nova-key-action-hover);
+	box-shadow:
+		inset 0 1px 0 rgba(255, 255, 255, 0.55),
+		0 var(--key-wall) 0 var(--nova-wall-action),
+		0 7px 18px rgba(10, 6, 20, 0.42),
+		var(--nova-glow-violet-strong);
+}
+.nova-keycap-action:active:not(:disabled):not([data-disabled]) {
+	background: var(--nova-key-action);
+	box-shadow:
+		inset 0 1px 0 rgba(255, 255, 255, 0.35),
+		0 0 0 var(--nova-wall-action),
+		0 1px 3px rgba(10, 6, 20, 0.35),
+		var(--nova-glow-violet);
+}
+/* Hero CTAs (`glow`): the standing strong halo. */
+.nova-keycap-action.nova-keycap-glow {
+	box-shadow:
+		inset 0 1px 0 rgba(255, 255, 255, 0.5),
+		0 var(--key-wall) 0 var(--nova-wall-action),
+		0 7px 16px rgba(10, 6, 20, 0.4),
+		var(--nova-glow-violet-strong);
+}
+.nova-keycap-action.nova-keycap-glow:active:not(:disabled):not(
+	[data-disabled]
+) {
+	box-shadow:
+		inset 0 1px 0 rgba(255, 255, 255, 0.35),
+		0 0 0 var(--nova-wall-action),
+		0 1px 3px rgba(10, 6, 20, 0.35),
+		var(--nova-glow-violet-strong);
+}
+
+.nova-keycap-surface {
+	background: var(--nova-key-surface);
+	color: var(--nova-text);
+	box-shadow:
+		inset 0 1px 0 rgba(255, 255, 255, 0.07),
+		0 var(--key-wall) 0 var(--nova-wall-surface),
+		0 7px 16px rgba(10, 6, 20, 0.36);
+}
+.nova-keycap-surface:hover:not(:disabled):not([data-disabled]) {
+	background: var(--nova-key-surface-hover);
+	box-shadow:
+		inset 0 1px 0 rgba(255, 255, 255, 0.09),
+		0 var(--key-wall) 0 var(--nova-wall-surface),
+		0 7px 18px rgba(10, 6, 20, 0.38);
+}
+.nova-keycap-surface:active:not(:disabled):not([data-disabled]) {
+	background: var(--nova-key-surface);
+	box-shadow:
+		inset 0 1px 0 rgba(255, 255, 255, 0.05),
+		0 0 0 var(--nova-wall-surface),
+		0 1px 3px rgba(10, 6, 20, 0.3);
+}
+
+.nova-keycap-outline {
+	background: var(--nova-key-violet-wash);
+	color: var(--nova-text);
+	border-color: var(--nova-border-bright);
+	box-shadow:
+		inset 0 1px 0 rgba(255, 255, 255, 0.12),
+		0 var(--key-wall) 0 var(--nova-wall-violet),
+		0 7px 16px rgba(10, 6, 20, 0.3);
+}
+.nova-keycap-outline:hover:not(:disabled):not([data-disabled]) {
+	background: var(--nova-key-violet-wash-hover);
+	box-shadow:
+		inset 0 1px 0 rgba(255, 255, 255, 0.15),
+		0 var(--key-wall) 0 var(--nova-wall-violet),
+		0 7px 18px rgba(10, 6, 20, 0.32);
+}
+.nova-keycap-outline:active:not(:disabled):not([data-disabled]) {
+	background: var(--nova-key-violet-wash);
+	box-shadow:
+		inset 0 1px 0 rgba(255, 255, 255, 0.08),
+		0 0 0 var(--nova-wall-violet),
+		0 1px 3px rgba(10, 6, 20, 0.25);
+}
+
+.nova-keycap-rose {
+	background: var(--nova-key-rose);
+	color: var(--nova-rose);
+	box-shadow:
+		inset 0 1px 0 rgba(255, 255, 255, 0.1),
+		0 var(--key-wall) 0 var(--nova-wall-rose),
+		0 7px 16px rgba(10, 6, 20, 0.34);
+}
+.nova-keycap-rose:hover:not(:disabled):not([data-disabled]) {
+	background: var(--nova-key-rose-hover);
+	box-shadow:
+		inset 0 1px 0 rgba(255, 255, 255, 0.12),
+		0 var(--key-wall) 0 var(--nova-wall-rose),
+		0 7px 18px rgba(10, 6, 20, 0.36);
+}
+.nova-keycap-rose:active:not(:disabled):not([data-disabled]) {
+	background: var(--nova-key-rose);
+	box-shadow:
+		inset 0 1px 0 rgba(255, 255, 255, 0.06),
+		0 0 0 var(--nova-wall-rose),
+		0 1px 3px rgba(10, 6, 20, 0.3);
+}
+
+.nova-keycap-amber {
+	background: var(--nova-key-amber);
+	color: var(--nova-action-ink);
+	box-shadow:
+		inset 0 1px 0 rgba(255, 255, 255, 0.5),
+		0 var(--key-wall) 0 var(--nova-wall-amber),
+		0 7px 16px rgba(10, 6, 20, 0.4);
+}
+.nova-keycap-amber:hover:not(:disabled):not([data-disabled]) {
+	background: var(--nova-key-amber-hover);
+	box-shadow:
+		inset 0 1px 0 rgba(255, 255, 255, 0.55),
+		0 var(--key-wall) 0 var(--nova-wall-amber),
+		0 7px 18px rgba(10, 6, 20, 0.42);
+}
+.nova-keycap-amber:active:not(:disabled):not([data-disabled]) {
+	background: var(--nova-key-amber);
+	box-shadow:
+		inset 0 1px 0 rgba(255, 255, 255, 0.35),
+		0 0 0 var(--nova-wall-amber),
+		0 1px 3px rgba(10, 6, 20, 0.35);
+}
+
+/* Keyboard focus on a keycap: the ring joins the variant's shadow
+   stack. Applied per variant so the stack stays complete. */
+.nova-keycap:focus-visible {
+	outline: none;
+	border-color: var(--nova-ring);
+}
+.nova-keycap-action:focus-visible {
+	box-shadow:
+		inset 0 1px 0 rgba(255, 255, 255, 0.5),
+		0 var(--key-wall) 0 var(--nova-wall-action),
+		0 7px 16px rgba(10, 6, 20, 0.4),
+		var(--nova-glow-violet),
+		var(--focus-ring);
+}
+.nova-keycap-surface:focus-visible {
+	box-shadow:
+		inset 0 1px 0 rgba(255, 255, 255, 0.07),
+		0 var(--key-wall) 0 var(--nova-wall-surface),
+		0 7px 16px rgba(10, 6, 20, 0.36),
+		var(--focus-ring);
+}
+.nova-keycap-outline:focus-visible {
+	box-shadow:
+		inset 0 1px 0 rgba(255, 255, 255, 0.12),
+		0 var(--key-wall) 0 var(--nova-wall-violet),
+		0 7px 16px rgba(10, 6, 20, 0.3),
+		var(--focus-ring);
+}
+.nova-keycap-rose:focus-visible {
+	box-shadow:
+		inset 0 1px 0 rgba(255, 255, 255, 0.1),
+		0 var(--key-wall) 0 var(--nova-wall-rose),
+		0 7px 16px rgba(10, 6, 20, 0.34),
+		var(--focus-ring);
+}
+.nova-keycap-amber:focus-visible {
+	box-shadow:
+		inset 0 1px 0 rgba(255, 255, 255, 0.5),
+		0 var(--key-wall) 0 var(--nova-wall-amber),
+		0 7px 16px rgba(10, 6, 20, 0.4),
+		var(--focus-ring);
 }
 
 /* Nova Panel — recessed hardware enclosure for the neural display */
@@ -282,23 +729,23 @@ body {
 	user-select: none;
 	background: linear-gradient(
 		180deg,
-		rgba(10, 10, 26, 0.6),
-		rgba(5, 5, 16, 0.8)
+		rgba(29, 23, 41, 0.6),
+		rgba(23, 18, 33, 0.8)
 	);
-	border: 1px solid rgba(139, 92, 246, 0.08);
+	border: 1px solid rgba(150, 120, 242, 0.08);
 	box-shadow:
 		inset 0 1px 3px rgba(0, 0, 0, 0.4),
-		0 1px 0 rgba(139, 92, 246, 0.04);
+		0 1px 0 rgba(150, 120, 242, 0.04);
 	transition:
 		border-color 0.6s ease,
 		box-shadow 0.8s ease;
 }
 .nova-panel[data-active] {
-	border-color: rgba(139, 92, 246, 0.15);
+	border-color: rgba(150, 120, 242, 0.15);
 	box-shadow:
 		inset 0 1px 3px rgba(0, 0, 0, 0.4),
-		0 1px 0 rgba(139, 92, 246, 0.06),
-		0 0 12px rgba(139, 92, 246, 0.04);
+		0 1px 0 rgba(150, 120, 242, 0.06),
+		0 0 12px rgba(150, 120, 242, 0.04);
 }
 
 /* Bezel — top and bottom frame edges */
@@ -320,7 +767,7 @@ body {
 .nova-panel-groove {
 	flex: 1;
 	height: 1px;
-	background: rgba(139, 92, 246, 0.12);
+	background: rgba(150, 120, 242, 0.12);
 }
 
 /* Corner notches — small square cutouts at the bezel edges */
@@ -328,7 +775,7 @@ body {
 	width: 3px;
 	height: 3px;
 	border-radius: 1px;
-	background: rgba(139, 92, 246, 0.12);
+	background: rgba(150, 120, 242, 0.12);
 }
 
 /* Status indicator — small LED recessed into the top bezel */
@@ -336,7 +783,7 @@ body {
 	width: 4px;
 	height: 4px;
 	border-radius: 50%;
-	background: rgba(85, 85, 119, 0.25);
+	background: rgba(94, 84, 122, 0.25);
 	box-shadow: inset 0 0.5px 1px rgba(0, 0, 0, 0.3);
 	transition:
 		background 1.5s ease,
@@ -347,7 +794,7 @@ body {
 	background: var(--nova-violet);
 	box-shadow:
 		inset 0 0.5px 1px rgba(0, 0, 0, 0.1),
-		0 0 5px rgba(139, 92, 246, 0.5);
+		0 0 5px rgba(150, 120, 242, 0.5);
 	animation: indicator-pulse 3s ease-in-out infinite;
 }
 @keyframes indicator-pulse {
@@ -416,7 +863,7 @@ body {
 	transition: color 0.5s ease;
 }
 .nova-panel[data-active] .nova-panel-etch {
-	color: rgba(180, 180, 208, 0.8);
+	color: rgba(189, 179, 216, 0.8);
 }
 
 /* Error recovering — amber LED and label */
@@ -424,10 +871,10 @@ body {
 	background: var(--nova-amber);
 	box-shadow:
 		inset 0 0.5px 1px rgba(0, 0, 0, 0.1),
-		0 0 5px rgba(212, 167, 106, 0.5);
+		0 0 5px rgba(234, 160, 106, 0.5);
 }
 .nova-panel[data-recovering] .nova-panel-etch {
-	color: rgba(212, 167, 106, 0.7);
+	color: rgba(234, 160, 106, 0.7);
 }
 
 /* Error fatal — rose LED and label */
@@ -460,7 +907,7 @@ body {
 	margin: 0 6px;
 	padding: 2px;
 	border-radius: 3px;
-	background: rgba(3, 3, 10, 0.5);
+	background: rgba(16, 12, 24, 0.5);
 	box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.5);
 }
 
@@ -484,8 +931,8 @@ body {
 		0deg,
 		transparent,
 		transparent 2px,
-		rgba(5, 5, 16, 0.15) 2px,
-		rgba(5, 5, 16, 0.15) 4px
+		rgba(23, 18, 33, 0.15) 2px,
+		rgba(23, 18, 33, 0.15) 4px
 	);
 	pointer-events: none;
 	border-radius: inherit;
@@ -539,8 +986,8 @@ body {
 .chat-markdown code {
 	font-family: var(--font-mono);
 	font-size: 0.85em;
-	background: rgba(139, 92, 246, 0.1);
-	border: 1px solid rgba(139, 92, 246, 0.15);
+	background: rgba(150, 120, 242, 0.1);
+	border: 1px solid rgba(150, 120, 242, 0.15);
 	border-radius: 4px;
 	padding: 0.1em 0.35em;
 }
@@ -584,7 +1031,7 @@ body {
 }
 .chat-markdown th {
 	font-weight: 600;
-	background: rgba(139, 92, 246, 0.08);
+	background: rgba(150, 120, 242, 0.08);
 }
 
 /* Preview markdown (form labels, hints, display text) — pure content namespace.
@@ -725,15 +1172,14 @@ body {
 	text-align: center;
 }
 .preview-markdown a {
-	/* Bright accent for link text — the base --pv-accent is the darkened fill
-	   violet (white-safe but ~4.2:1 as text), so links use the lighter variant
-	   to clear AA, brightening to white on hover. */
+	/* Bright accent for link text — links use the bright variant to clear
+	   AA, lifting to the full text tier on hover (more light, never less). */
 	color: var(--pv-accent-bright);
 	text-decoration: underline;
 	text-underline-offset: 2px;
 }
 .preview-markdown a:hover {
-	color: #ffffff;
+	color: var(--nova-text);
 }
 .preview-markdown img {
 	max-width: 100%;
@@ -742,22 +1188,23 @@ body {
 	margin: 0.6em 0;
 }
 
-/* Preview mode theme — violet accent, warmer surfaces */
+/* Preview mode theme — violet accent, warm plum surfaces. The accent is
+   lit and carries dusk ink, like every Nova fill. */
 .preview-theme {
-	--pv-bg: #0c0c1e;
-	--pv-surface: #141430;
-	--pv-elevated: #1c1c40;
-	--pv-input-bg: #10102a;
-	--pv-input-border: rgba(139, 92, 246, 0.2);
-	--pv-input-focus: rgba(139, 92, 246, 0.4);
-	--pv-accent: color-mix(in oklab, var(--nova-violet), black 14%);
+	--pv-bg: #1b1428;
+	--pv-surface: #241b36;
+	--pv-elevated: #2d2244;
+	--pv-input-bg: #201830;
+	--pv-input-border: rgba(150, 120, 242, 0.22);
+	--pv-input-focus: rgba(150, 120, 242, 0.42);
+	--pv-accent: var(--nova-violet-bright);
 	--pv-accent-bright: var(--nova-violet-bright);
 }
 
 /* Design mode — neutral input borders so violet edit chrome stands out */
 .design-theme {
-	--pv-input-border: rgba(136, 136, 170, 0.15);
-	--pv-input-focus: rgba(136, 136, 170, 0.25);
+	--pv-input-border: var(--pv-input-border-design);
+	--pv-input-focus: rgba(151, 140, 179, 0.25);
 }
 
 /* Edit mode — text-editable zones punch through the pointer-events-none
@@ -851,14 +1298,14 @@ html.dark {
 	 * highlights. `--color-fd-accent` is the hover/active-item fill;
 	 * keep it transparent-ish so it tints over the surface gradient. */
 	--color-fd-primary: var(--nova-violet-bright);
-	--color-fd-primary-foreground: #ffffff;
+	--color-fd-primary-foreground: var(--nova-action-ink);
 	--color-fd-ring: var(--nova-violet-bright);
 	--color-fd-accent: color-mix(
 		in srgb,
 		var(--nova-violet-bright) 16%,
 		transparent
 	);
-	--color-fd-accent-foreground: #ffffff;
+	--color-fd-accent-foreground: var(--nova-text);
 }
 
 /* ─── docs-page-only treatments ────────────────────────────────────── */
@@ -889,15 +1336,15 @@ html.dark {
 	background:
 		radial-gradient(
 			60rem 24rem at 30% -4rem,
-			rgba(139, 92, 246, 0.12),
+			rgba(150, 120, 242, 0.12),
 			transparent 70%
 		),
 		radial-gradient(
 			36rem 24rem at 92% 4rem,
-			rgba(139, 92, 246, 0.08),
+			rgba(150, 120, 242, 0.08),
 			transparent 70%
 		),
-		linear-gradient(180deg, rgba(18, 18, 42, 0.6), transparent 28rem);
+		linear-gradient(180deg, rgba(37, 29, 52, 0.6), transparent 28rem);
 }
 
 /* Display font on docs headings, matching the rest of Nova. */
@@ -911,7 +1358,7 @@ html.dark {
 .nova-docs #nd-sidebar,
 .nova-docs #nd-subnav {
 	background:
-		linear-gradient(180deg, rgba(18, 18, 42, 0.85), rgba(5, 5, 16, 0.95)),
+		linear-gradient(180deg, rgba(37, 29, 52, 0.85), rgba(23, 18, 33, 0.95)),
 		var(--nova-void);
 	border-color: var(--nova-border);
 	backdrop-filter: blur(8px);
@@ -919,7 +1366,7 @@ html.dark {
 
 .nova-docs #nd-sidebar {
 	box-shadow:
-		inset -1px 0 0 rgba(139, 92, 246, 0.06),
+		inset -1px 0 0 rgba(150, 120, 242, 0.06),
 		0 0 24px rgba(0, 0, 0, 0.3);
 }
 
@@ -928,10 +1375,10 @@ html.dark {
  * affordance, which read as a stray border on the dark surface. */
 .nova-docs #nd-sidebar a[data-active="true"] {
 	background: color-mix(in srgb, var(--nova-violet-bright) 12%, transparent);
-	color: #ffffff;
+	color: var(--nova-text);
 	box-shadow:
 		inset 0 0 0 1px var(--nova-border-bright),
-		0 0 16px rgba(139, 92, 246, 0.12);
+		0 0 16px rgba(150, 120, 242, 0.12);
 }
 
 .nova-docs #nd-sidebar a:not([data-active="true"]):hover {
@@ -949,12 +1396,12 @@ html.dark {
 .nova-docs button[data-search] {
 	background: linear-gradient(
 		180deg,
-		rgba(18, 18, 42, 0.7),
-		rgba(10, 10, 26, 0.7)
+		rgba(37, 29, 52, 0.7),
+		rgba(29, 23, 41, 0.7)
 	);
 	border-color: var(--nova-border);
 	color: var(--nova-text-secondary);
-	box-shadow: inset 0 1px 0 rgba(139, 92, 246, 0.04);
+	box-shadow: inset 0 1px 0 rgba(150, 120, 242, 0.04);
 }
 
 .nova-docs button[data-search-full]:hover,
@@ -965,7 +1412,7 @@ html.dark {
 		var(--nova-deep)
 	);
 	border-color: var(--nova-border-bright);
-	color: #ffffff;
+	color: var(--nova-text);
 }
 
 /* Body prose — Nova text colors, violet links. */
@@ -979,7 +1426,7 @@ html.dark {
 
 .nova-docs #nd-page .prose a {
 	color: var(--nova-violet-bright);
-	text-decoration-color: rgba(167, 139, 250, 0.4);
+	text-decoration-color: rgba(182, 160, 251, 0.4);
 	text-underline-offset: 3px;
 	transition:
 		color 0.15s ease,
@@ -987,7 +1434,7 @@ html.dark {
 }
 
 .nova-docs #nd-page .prose a:hover {
-	color: #ffffff;
+	color: var(--nova-text);
 	text-decoration-color: var(--nova-violet-bright);
 }
 
@@ -1005,11 +1452,11 @@ html.dark {
  * Matches the recessed-hardware look of `nova-panel` blocks elsewhere. */
 .nova-docs figure.shiki {
 	background:
-		linear-gradient(180deg, rgba(18, 18, 42, 0.8), rgba(5, 5, 16, 0.95)),
+		linear-gradient(180deg, rgba(37, 29, 52, 0.8), rgba(23, 18, 33, 0.95)),
 		var(--nova-deep);
 	border: 1px solid var(--nova-border);
 	box-shadow:
-		inset 0 1px 0 rgba(139, 92, 246, 0.08),
+		inset 0 1px 0 rgba(150, 120, 242, 0.08),
 		0 12px 32px rgba(0, 0, 0, 0.35);
 }
 
@@ -1056,8 +1503,8 @@ html.dark {
 	border: 1px solid var(--nova-border-bright);
 	color: var(--nova-violet-bright);
 	box-shadow:
-		inset 0 1px 0 rgba(139, 92, 246, 0.15),
-		0 0 12px rgba(139, 92, 246, 0.08);
+		inset 0 1px 0 rgba(150, 120, 242, 0.15),
+		0 0 12px rgba(150, 120, 242, 0.08);
 }
 
 /* Tables — Nova chrome on header + zebra. */
@@ -1071,7 +1518,7 @@ html.dark {
 }
 
 .nova-docs #nd-page .prose tr:nth-child(2n) td {
-	background: rgba(18, 18, 42, 0.4);
+	background: rgba(37, 29, 52, 0.4);
 }
 
 /* Pre/next page footer cards — Nova surface treatment. */
@@ -1116,7 +1563,8 @@ html.dark {
 	--popover: var(--nova-deep);
 	--popover-foreground: var(--nova-text);
 	--primary: var(--nova-action);
-	--primary-foreground: #ffffff;
+	/* Accent fills carry dusk ink, never white — light is action. */
+	--primary-foreground: var(--nova-action-ink);
 	--secondary: var(--nova-surface);
 	--secondary-foreground: var(--nova-text);
 	--muted: var(--nova-surface);
@@ -1135,7 +1583,7 @@ html.dark {
 	--sidebar: var(--nova-deep);
 	--sidebar-foreground: var(--nova-text);
 	--sidebar-primary: var(--nova-violet);
-	--sidebar-primary-foreground: #ffffff;
+	--sidebar-primary-foreground: var(--nova-action-ink);
 	--sidebar-accent: var(--nova-elevated);
 	--sidebar-accent-foreground: var(--nova-text);
 	--sidebar-border: var(--nova-border);
