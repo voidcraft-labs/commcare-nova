@@ -29,7 +29,11 @@ import { useState } from "react";
 import { authClient } from "@/lib/auth-client";
 import type { ProjectSummary } from "@/lib/projects/membership";
 import { useExternalNavigate } from "@/lib/routing/hooks";
-import { POPOVER_POPUP_CLS, POPOVER_POSITIONER_GLASS_CLS } from "@/lib/styles";
+import {
+	FLOATING_LAYER_CLS,
+	POPOVER_POPUP_CLS,
+	POPOVER_POSITIONER_GLASS_CLS,
+} from "@/lib/styles";
 import { showToast } from "@/lib/ui/toastStore";
 
 interface ProjectSwitcherProps {
@@ -155,7 +159,7 @@ export function ProjectSwitcher({
 					side="bottom"
 					align="start"
 					sideOffset={6}
-					className={POPOVER_POSITIONER_GLASS_CLS}
+					className={`${FLOATING_LAYER_CLS} ${POPOVER_POSITIONER_GLASS_CLS}`}
 				>
 					<Popover.Popup className={POPOVER_POPUP_CLS}>
 						<div style={{ minWidth: "248px" }}>

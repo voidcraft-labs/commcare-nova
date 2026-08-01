@@ -20,7 +20,11 @@ import { Button } from "@/components/shadcn/button";
 import { authClient } from "@/lib/auth-client";
 import { deriveCapabilities } from "@/lib/oauth/capabilities";
 import { deriveOAuthClientDisclosure } from "@/lib/oauth/client-display";
-import { POPOVER_POPUP_CLS, POPOVER_POSITIONER_GLASS_CLS } from "@/lib/styles";
+import {
+	FLOATING_LAYER_CLS,
+	POPOVER_POPUP_CLS,
+	POPOVER_POSITIONER_GLASS_CLS,
+} from "@/lib/styles";
 
 interface ConsentFormProps {
 	clientName: string;
@@ -593,7 +597,7 @@ function HqPendingFootnote() {
 					side="top"
 					align="end"
 					sideOffset={10}
-					className={POPOVER_POSITIONER_GLASS_CLS}
+					className={`${FLOATING_LAYER_CLS} ${POPOVER_POSITIONER_GLASS_CLS}`}
 				>
 					<Popover.Popup className={`${POPOVER_POPUP_CLS} w-[18.5rem]`}>
 						<div className="px-4 pt-3.5 pb-4">

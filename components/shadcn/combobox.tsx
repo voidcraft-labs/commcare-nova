@@ -15,7 +15,11 @@ import {
 	InputGroupButton,
 	InputGroupInput,
 } from "@/components/shadcn/input-group";
-import { POPOVER_POPUP_CLS, POPOVER_POSITIONER_GLASS_CLS } from "@/lib/styles";
+import {
+	FLOATING_LAYER_CLS,
+	POPOVER_POPUP_CLS,
+	POPOVER_POSITIONER_GLASS_CLS,
+} from "@/lib/styles";
 import { cn } from "@/lib/utils";
 
 const Combobox = ComboboxPrimitive.Root;
@@ -168,10 +172,13 @@ function ComboboxContent({
 				align={align}
 				alignOffset={alignOffset}
 				anchor={anchor}
-				// `z-modal` replaces the glass constant's `z-popover`: `cn` knows
-				// Nova's named z scale (`lib/utils.ts`), so the last token wins and
-				// a combobox opened inside a dialog stays above it.
-				className={cn("isolate", POPOVER_POSITIONER_GLASS_CLS, "z-modal")}
+				// The shared floating plane keeps a combobox opened inside a dialog
+				// above it — co-planar, settled by portal order.
+				className={cn(
+					"isolate",
+					FLOATING_LAYER_CLS,
+					POPOVER_POSITIONER_GLASS_CLS,
+				)}
 			>
 				<ComboboxPrimitive.Popup
 					data-slot="combobox-content"

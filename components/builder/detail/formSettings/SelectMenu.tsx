@@ -2,6 +2,7 @@
 import { Menu } from "@base-ui/react/menu";
 import { type ReactNode, useRef } from "react";
 import {
+	FLOATING_LAYER_CLS,
 	MENU_ITEM_BASE,
 	MENU_ITEM_CLS,
 	MENU_POPUP_CLS,
@@ -127,7 +128,7 @@ export function SelectMenu<T extends string>({
 					align="start"
 					sideOffset={4}
 					anchor={triggerRef}
-					className={MENU_SUBMENU_POSITIONER_CLS}
+					className={`${FLOATING_LAYER_CLS} ${MENU_SUBMENU_POSITIONER_CLS}`}
 					style={{ minWidth: "var(--anchor-width)" }}
 				>
 					<Menu.Popup className={MENU_POPUP_CLS}>

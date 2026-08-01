@@ -22,7 +22,33 @@ export const POPOVER_GLASS =
  * Every constant carries `nova-floating`: scroll containers inside a floating
  * surface drop the app-wide reserved scrollbar gutter (`globals.css`) — these
  * surfaces are self-sized, so a reserved gutter beside a short list reads as
- * dead space right of the items. */
+ * dead space right of the items.
+ *
+ * These constants describe a SURFACE — glass or elevated, its radius, blur,
+ * outline and shadow. They deliberately carry no `z-*`: which plane a floating
+ * element occupies depends on where it is opened from, not on what it looks
+ * like, so the positioner states it (`FLOATING_LAYER_CLS`). Folding a tier back
+ * in here would mean every call site that wants a different plane appends a
+ * second `z-*` and leaves tailwind-merge to arbitrate the pair — which is how a
+ * Select popup meant for `z-modal` shipped at `z-popover-top`, behind the very
+ * dialog that opened it. */
+
+/**
+ * The one plane every portaled floating surface occupies.
+ *
+ * Base UI portals menus, selects, popovers and comboboxes to `document.body`,
+ * so they all stack in the root context against dialogs. Co-planar with a
+ * dialog (`z-modal`) is what lets a select opened INSIDE one float above it,
+ * with portal order — later mount paints later — settling any tie between two
+ * floating surfaces. Tooltips are the deliberate exception: `z-tooltip` sits
+ * above this, because a tooltip on a control inside a dialog must never be
+ * occluded by it.
+ *
+ * The named tiers below `z-modal` (`z-popover`, `z-popover-top`) are for
+ * IN-FLOW overlays — an absolutely-positioned notice that stacks inside its own
+ * ancestor rather than escaping to the body.
+ */
+export const FLOATING_LAYER_CLS = "z-modal";
 
 /** Base classes shared by every menu item (normal, disabled, submenu trigger).
  *  An item wraps and grows past the 44px touch floor when its content needs a
@@ -42,11 +68,11 @@ export const MENU_ITEM_DISABLED_CLS = `${MENU_ITEM_BASE} opacity-40 cursor-not-a
 
 /** Glass-surfaced positioner (L1) for primary menu panels. */
 export const MENU_POSITIONER_CLS =
-	"nova-floating outline-none z-popover-top rounded-xl bg-[rgba(10,10,26,0.4)] backdrop-blur-[10px] [-webkit-backdrop-filter:blur(10px)] outline-[rgba(255,255,255,0.06)] outline-1 shadow-[inset_0_0_0_1px_rgba(200,200,255,0.18),0_24px_48px_rgba(0,0,0,0.5)]";
+	"nova-floating outline-none rounded-xl bg-[rgba(10,10,26,0.4)] backdrop-blur-[10px] [-webkit-backdrop-filter:blur(10px)] outline-[rgba(255,255,255,0.06)] outline-1 shadow-[inset_0_0_0_1px_rgba(200,200,255,0.18),0_24px_48px_rgba(0,0,0,0.5)]";
 
 /** Elevated positioner (L2) for submenus stacked above a glass parent. */
 export const MENU_SUBMENU_POSITIONER_CLS =
-	"nova-floating outline-none z-popover-top rounded-xl bg-[rgba(16,16,36,0.95)] outline-[rgba(255,255,255,0.06)] outline-1 shadow-[inset_0_0_0_1px_rgba(200,200,255,0.15),0_16px_40px_rgba(0,0,0,0.6)]";
+	"nova-floating outline-none rounded-xl bg-[rgba(16,16,36,0.95)] outline-[rgba(255,255,255,0.06)] outline-1 shadow-[inset_0_0_0_1px_rgba(200,200,255,0.15),0_16px_40px_rgba(0,0,0,0.6)]";
 
 /** Popup animation — scale + fade entrance/exit via Base UI data attributes. */
 export const MENU_POPUP_CLS =
@@ -57,11 +83,11 @@ export const MENU_POPUP_CLS =
 
 /** Glass-surfaced positioner (L1) for primary popover panels. */
 export const POPOVER_POSITIONER_GLASS_CLS =
-	"nova-floating outline-none z-popover rounded-xl bg-[rgba(10,10,26,0.4)] backdrop-blur-[10px] [-webkit-backdrop-filter:blur(10px)] outline-[rgba(255,255,255,0.06)] outline-1 shadow-[inset_0_0_0_1px_rgba(200,200,255,0.18),0_24px_48px_rgba(0,0,0,0.5)]";
+	"nova-floating outline-none rounded-xl bg-[rgba(10,10,26,0.4)] backdrop-blur-[10px] [-webkit-backdrop-filter:blur(10px)] outline-[rgba(255,255,255,0.06)] outline-1 shadow-[inset_0_0_0_1px_rgba(200,200,255,0.18),0_24px_48px_rgba(0,0,0,0.5)]";
 
 /** Elevated positioner (L2) for popovers stacked above a glass parent. */
 export const POPOVER_POSITIONER_ELEVATED_CLS =
-	"nova-floating outline-none z-popover rounded-xl bg-[rgba(16,16,36,0.95)] outline-[rgba(255,255,255,0.06)] outline-1 shadow-[inset_0_0_0_1px_rgba(200,200,255,0.15),0_16px_40px_rgba(0,0,0,0.6)]";
+	"nova-floating outline-none rounded-xl bg-[rgba(16,16,36,0.95)] outline-[rgba(255,255,255,0.06)] outline-1 shadow-[inset_0_0_0_1px_rgba(200,200,255,0.15),0_16px_40px_rgba(0,0,0,0.6)]";
 
 /** Popup animation — scale + fade, same motion language as menus. */
 export const POPOVER_POPUP_CLS =

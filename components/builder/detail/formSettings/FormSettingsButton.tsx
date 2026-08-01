@@ -7,7 +7,11 @@ import { ConnectLogomark } from "@/components/icons/ConnectLogomark";
 import { useConnectType } from "@/lib/doc/hooks/useConnectType";
 import { useForm } from "@/lib/doc/hooks/useEntity";
 import type { Uuid } from "@/lib/doc/types";
-import { POPOVER_POPUP_CLS, POPOVER_POSITIONER_GLASS_CLS } from "@/lib/styles";
+import {
+	FLOATING_LAYER_CLS,
+	POPOVER_POPUP_CLS,
+	POPOVER_POSITIONER_GLASS_CLS,
+} from "@/lib/styles";
 import { FormSettingsPanel } from "./FormSettingsPanel";
 
 /** Trigger prop shape — the same `{ moduleUuid, formUuid }` pair the
@@ -72,7 +76,7 @@ export function FormSettingsButton({
 					side="bottom"
 					align="end"
 					sideOffset={8}
-					className={POPOVER_POSITIONER_GLASS_CLS}
+					className={`${FLOATING_LAYER_CLS} ${POPOVER_POSITIONER_GLASS_CLS}`}
 				>
 					<Popover.Popup className={POPOVER_POPUP_CLS}>
 						<FormSettingsPanel

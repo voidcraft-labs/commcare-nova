@@ -41,7 +41,7 @@ import {
 	useCurrentFormUuid,
 	useReferenceProvider,
 } from "@/lib/references/ReferenceContext";
-import { POPOVER_POPUP_CLS } from "@/lib/styles";
+import { FLOATING_LAYER_CLS, POPOVER_POPUP_CLS } from "@/lib/styles";
 
 // ── Read-only theme ────────────────────────────────────────────────────
 
@@ -694,7 +694,11 @@ function InlineXPathEditor({
 						sideOffset={6}
 						collisionPadding={8}
 						anchor={wrapperRef}
-						className="z-popover-top"
+						// The shared floating plane, not a popover tier: this notice
+						// portals to the body, and an XPath field inside a dialog (the
+						// Connect settings dialog embeds one) would otherwise raise its
+						// alert BEHIND the panel that hosts the field.
+						className={FLOATING_LAYER_CLS}
 					>
 						<Popover.Popup className={POPOVER_POPUP_CLS}>
 							<div

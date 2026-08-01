@@ -15,7 +15,11 @@ import tablerHelpCircle from "@iconify-icons/tabler/help-circle";
 import tablerMessage from "@iconify-icons/tabler/message";
 import Link from "next/link";
 import { useState } from "react";
-import { POPOVER_POPUP_CLS, POPOVER_POSITIONER_GLASS_CLS } from "@/lib/styles";
+import {
+	FLOATING_LAYER_CLS,
+	POPOVER_POPUP_CLS,
+	POPOVER_POSITIONER_GLASS_CLS,
+} from "@/lib/styles";
 
 const FEEDBACK_FORM_URL =
 	"https://docs.google.com/forms/d/e/1FAIpQLSdUHQuE9kYhG-py9pojdCDc5ChSrl2LnhLofY4kDlOQi6ghGw/viewform";
@@ -61,7 +65,7 @@ export function HelpMenu() {
 					side="bottom"
 					align="end"
 					sideOffset={6}
-					className={POPOVER_POSITIONER_GLASS_CLS}
+					className={`${FLOATING_LAYER_CLS} ${POPOVER_POSITIONER_GLASS_CLS}`}
 				>
 					<Popover.Popup className={POPOVER_POPUP_CLS}>
 						<div style={{ minWidth: "200px" }}>

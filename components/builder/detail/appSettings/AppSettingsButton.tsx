@@ -7,7 +7,11 @@ import { ConnectLogomark } from "@/components/icons/ConnectLogomark";
 import { useConnectTypeOrUndefined } from "@/lib/doc/hooks/useConnectType";
 import { useDocHasData } from "@/lib/doc/hooks/useDocHasData";
 import { useBuilderIsReady, useCanEdit } from "@/lib/session/hooks";
-import { POPOVER_POPUP_CLS, POPOVER_POSITIONER_GLASS_CLS } from "@/lib/styles";
+import {
+	FLOATING_LAYER_CLS,
+	POPOVER_POPUP_CLS,
+	POPOVER_POSITIONER_GLASS_CLS,
+} from "@/lib/styles";
 import { AppSettingsPanel } from "./AppSettingsPanel";
 
 /**
@@ -53,7 +57,7 @@ export function AppSettingsButton() {
 					side="bottom"
 					align="end"
 					sideOffset={6}
-					className={POPOVER_POSITIONER_GLASS_CLS}
+					className={`${FLOATING_LAYER_CLS} ${POPOVER_POSITIONER_GLASS_CLS}`}
 				>
 					<Popover.Popup className={POPOVER_POPUP_CLS}>
 						<AppSettingsPanel onClose={() => setOpen(false)} />

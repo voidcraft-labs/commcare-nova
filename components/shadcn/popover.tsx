@@ -3,7 +3,11 @@
 import { Popover as PopoverPrimitive } from "@base-ui/react/popover";
 import type * as React from "react";
 
-import { POPOVER_POPUP_CLS, POPOVER_POSITIONER_GLASS_CLS } from "@/lib/styles";
+import {
+	FLOATING_LAYER_CLS,
+	POPOVER_POPUP_CLS,
+	POPOVER_POSITIONER_GLASS_CLS,
+} from "@/lib/styles";
 import { cn } from "@/lib/utils";
 
 function Popover({ ...props }: PopoverPrimitive.Root.Props) {
@@ -38,18 +42,16 @@ function PopoverContent({
 		| "collisionPadding"
 	>) {
 	return (
-		// Portals to document.body (Base UI default) and positions at `z-modal`,
-		// co-planar with dialogs. A popover opened from inside a Dialog stacks on
-		// top because its portal mounts after the dialog's; a page-level popover is
-		// still covered when a dialog opens afterward, by the same portal ordering.
+		// Portals to document.body (Base UI default) and takes the shared floating
+		// plane, co-planar with dialogs. A popover opened from inside a Dialog
+		// stacks on top because its portal mounts after the dialog's; a page-level
+		// popover is still covered when a dialog opens afterward, by the same
+		// portal ordering.
 		//
 		// Nova chrome: the frosted-glass surface (shared constant from
 		// `lib/styles.ts`) lives on the POSITIONER — `will-change: transform`
 		// there creates a compositing boundary that would break a descendant
 		// `backdrop-filter` — while the popup carries only the animation.
-		// The shared glass constant supplies `z-popover` for direct Base UI users;
-		// the trailing `z-modal` replaces it, because `cn` knows Nova's named
-		// z scale (`lib/utils.ts`) and resolves the pair to the last one.
 		<PopoverPrimitive.Portal>
 			<PopoverPrimitive.Positioner
 				align={align}
@@ -58,7 +60,11 @@ function PopoverContent({
 				sideOffset={sideOffset}
 				collisionAvoidance={collisionAvoidance}
 				collisionPadding={collisionPadding}
-				className={cn("isolate", POPOVER_POSITIONER_GLASS_CLS, "z-modal")}
+				className={cn(
+					"isolate",
+					FLOATING_LAYER_CLS,
+					POPOVER_POSITIONER_GLASS_CLS,
+				)}
 			>
 				<PopoverPrimitive.Popup
 					data-slot="popover-content"
