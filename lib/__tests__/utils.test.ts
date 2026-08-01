@@ -2,10 +2,18 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+	FLOATING_LAYER_CLS,
 	MENU_POSITIONER_CLS,
 	POPOVER_POSITIONER_GLASS_CLS,
 } from "@/lib/styles";
 import { cn, getInitials, Z_INDEX_SCALE } from "@/lib/utils";
+
+/** The z utilities left standing in a class string, in order. */
+function zTokensIn(classes: string): string[] {
+	return classes
+		.split(/\s+/)
+		.filter((cls) => /^z-(?!index)/.test(cls) && cls !== "z-auto");
+}
 
 describe("cn — Nova's z-index scale", () => {
 	it("lets the last z token win", () => {
@@ -30,16 +38,18 @@ describe("cn — Nova's z-index scale", () => {
 	});
 
 	it("resolves the shapes the floating primitives actually compose", () => {
-		// `select.tsx` layers `z-modal` over MENU_POSITIONER_CLS's `z-popover-top`;
-		// `popover.tsx` / `combobox.tsx` layer it over the glass constant's
-		// `z-popover`. Both must end up at `z-modal` alone — a surviving pair
-		// resolves to the LOWER tier and the surface hides behind its own dialog.
-		expect(cn(MENU_POSITIONER_CLS, "z-modal")).toContain("z-modal");
-		expect(cn(MENU_POSITIONER_CLS, "z-modal")).not.toMatch(/z-popover-top/);
-		expect(cn(POPOVER_POSITIONER_GLASS_CLS, "z-modal")).toContain("z-modal");
-		expect(cn(POPOVER_POSITIONER_GLASS_CLS, "z-modal")).not.toMatch(
-			/z-popover\b/,
-		);
+		// The surface constants no longer carry a tier (`lib/styles.ts`), so these
+		// compositions have nothing to arbitrate — one token in, one token out.
+		// The scale stays taught to `cn` anyway: it is what makes a LATER `z-*`
+		// genuinely replace an earlier one, so a call site that does need to
+		// override a plane gets the tier it asked for instead of whichever token
+		// happens to sort last in the generated stylesheet.
+		for (const surface of [MENU_POSITIONER_CLS, POPOVER_POSITIONER_GLASS_CLS]) {
+			expect(zTokensIn(cn(FLOATING_LAYER_CLS, surface))).toEqual(["z-modal"]);
+			expect(zTokensIn(cn(FLOATING_LAYER_CLS, surface, "z-tooltip"))).toEqual([
+				"z-tooltip",
+			]);
+		}
 	});
 
 	it("matches the --z-index-* keys declared in globals.css", () => {

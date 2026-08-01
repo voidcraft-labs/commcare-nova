@@ -21,6 +21,7 @@ import {
 	VALUE_PRODUCING_TYPES,
 } from "@/lib/references/provider";
 import {
+	FLOATING_LAYER_CLS,
 	MENU_ITEM_BASE,
 	MENU_POPUP_CLS,
 	MENU_SUBMENU_POSITIONER_CLS,
@@ -159,7 +160,7 @@ export function FieldPicker({
 						side="bottom"
 						align="start"
 						sideOffset={4}
-						className={MENU_SUBMENU_POSITIONER_CLS}
+						className={`${FLOATING_LAYER_CLS} ${MENU_SUBMENU_POSITIONER_CLS}`}
 						style={{ minWidth: "var(--anchor-width)", maxWidth: 320 }}
 					>
 						<Autocomplete.Popup className={`${MENU_POPUP_CLS} w-full`}>
