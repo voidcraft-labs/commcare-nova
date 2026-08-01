@@ -86,21 +86,19 @@ export function Landing({ signInError }: LandingProps) {
 		await signIn();
 	};
 
+	/* The first-light bloom is the brand's ambient light: a lilac glow
+	 * overhead and a low dawn wash on the horizon. It is the one place dawn
+	 * appears at page scale, so the front door reads as twilight with a
+	 * sunrise in it rather than as a violet void. */
 	return (
-		<div className="min-h-screen flex flex-col items-center justify-center relative overflow-hidden">
-			{/* Cosmic background */}
-			<div className="fixed inset-0 pointer-events-none">
-				<div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[800px] h-[800px] rounded-full bg-nova-violet/5 blur-[120px]" />
-				<div className="absolute bottom-0 left-1/4 w-[600px] h-[600px] rounded-full bg-nova-violet/3 blur-[100px]" />
-			</div>
-
+		<div className="nova-bloom min-h-screen flex flex-col items-center justify-center relative overflow-hidden">
 			<motion.div
 				initial={{ opacity: 0, y: 20 }}
 				animate={{ opacity: 1, y: 0 }}
 				transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
 				className="relative z-10 flex flex-col items-center gap-8 max-w-md w-full px-6"
 			>
-				<Logo size="lg" />
+				<Logo size="hero" />
 
 				<motion.p
 					initial={{ opacity: 0 }}
