@@ -69,8 +69,8 @@ function UncarriedLogoNotice() {
 				CommCare doesn't carry an app logo by itself when you upload. Logos are
 				set inside <span className="text-nova-text">CommCare HQ</span>. Your app
 				still works; it just won't show this logo until you add it there. Tip:
-				if you also use this image somewhere in a form — like a question or a
-				menu icon — it gets carried with the app automatically.
+				if you also use this image somewhere in a form, like a question or a
+				menu icon, it gets carried with the app automatically.
 			</InfoPopover>
 		</div>
 	);

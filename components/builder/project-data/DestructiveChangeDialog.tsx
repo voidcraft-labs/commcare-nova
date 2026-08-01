@@ -229,7 +229,7 @@ export function DestructiveChangeDialog({
 											{app.deleted && (
 												<span className="text-nova-text-muted">
 													{" "}
-													— in the trash, but it still counts
+													(in the trash, but it still counts
 												</span>
 											)}
 										</li>

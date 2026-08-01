@@ -404,14 +404,14 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 	return (
 		<ContentFrame width="5xl" className="px-6 pt-7 pb-16">
 			<div className="min-w-0">
-				<h1 className="font-display text-2xl font-semibold tracking-tight text-nova-text">
+				<h1 className="font-display text-2xl font-semibold tracking-tighter text-nova-text">
 					Data to review
 				</h1>
 				<p className="mt-2 max-w-2xl text-sm leading-relaxed text-pretty text-nova-text-secondary">
 					When a property changes and a saved value no longer fits, its case is
-					held out of the app and waits here. Decide each value — put it back,
-					overwrite it, or dismiss it — and once nothing is left waiting, the
-					case returns to the app. If the property changes back, values that fit
+					held out of the app and waits here. Decide each value: put it back,
+					overwrite it, or dismiss it. Once nothing is left waiting, the case
+					returns to the app. If the property changes back, values that fit
 					again return on their own.
 				</p>
 			</div>
@@ -811,7 +811,7 @@ function ReplaceEditor({
 				/>
 				{/* The commit is warning-styled and names the consequence:
 				    saving discards the waiting original (it archives under
-				    Dismissed — the toast reports that after the fact; no
+				    Dismissed. The toast reports that after the fact; no
 				    forward-explaining footnote). */}
 				<Button
 					type="button"

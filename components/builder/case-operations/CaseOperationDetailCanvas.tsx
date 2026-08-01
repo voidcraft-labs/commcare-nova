@@ -256,7 +256,7 @@ export function CaseOperationDetailCanvas({
 				<h1
 					ref={headingRef}
 					tabIndex={-1}
-					className="mt-1 font-display text-2xl font-semibold tracking-tight text-nova-text outline-none"
+					className="mt-1 font-display text-2xl font-semibold tracking-tighter text-nova-text outline-none"
 				>
 					{sentence.lead}
 				</h1>

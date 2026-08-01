@@ -372,7 +372,7 @@ function EmptyState() {
 			/>
 			<p className="text-sm text-nova-text">No connected applications</p>
 			<p className="max-w-xs text-xs text-nova-text-muted leading-relaxed">
-				Apps appear here after you authorize them via OAuth — for example, when
+				Apps appear here after you authorize them via OAuth, for example when
 				you connect a coding agent.
 			</p>
 		</div>

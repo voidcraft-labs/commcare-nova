@@ -39,15 +39,15 @@ export function ProjectDataTableListScreen() {
 		<section aria-labelledby="project-data-tables-heading" className="min-w-0">
 			<h1
 				id="project-data-tables-heading"
-				className="font-display text-2xl font-semibold tracking-tight text-nova-text"
+				className="font-display text-2xl font-semibold tracking-tighter text-nova-text"
 			>
 				Data tables
 			</h1>
 			<p className="mt-2 max-w-2xl text-sm leading-relaxed text-pretty text-nova-text-secondary">
-				A data table holds a list you reuse across forms — facilities,
-				districts, products, anything a question should offer as choices instead
-				of asking someone to type. Point a question at a column here and
-				everyone answering that question sees the same list.
+				A data table holds a list you reuse across forms: facilities, districts,
+				products, anything a question should offer as choices instead of asking
+				someone to type. Point a question at a column here and everyone
+				answering that question sees the same list.
 			</p>
 
 			{canEdit && (

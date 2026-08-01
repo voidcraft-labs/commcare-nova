@@ -55,7 +55,7 @@ export const EmptyContainerRow = memo(function EmptyContainerRow({
 				style={{ height: EMPTY_CONTAINER_HEIGHT_PX }}
 			>
 				<Icon icon={tablerDragDrop} width="14" height="14" />
-				Empty — drag a field here
+				Empty: drag a field here
 			</div>
 		</div>
 	);

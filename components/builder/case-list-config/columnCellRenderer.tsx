@@ -583,7 +583,7 @@ function renderEmptyCell(): React.ReactNode {
 	return (
 		<span>
 			<span aria-hidden="true" className="text-nova-text-muted">
-				—
+				–
 			</span>
 			<span className="sr-only">No value</span>
 		</span>

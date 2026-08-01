@@ -8,7 +8,7 @@ import { DOCS_BASE_URL } from "@/lib/docs/source";
  */
 export const docsLayoutProps = {
 	nav: {
-		title: "CommCare Nova Docs",
+		title: "commcare nova docs",
 		/* Anchored to the same root fumadocs uses for page-tree hrefs so
 		 * the nav "home" link resolves to the correct URL in both prod
 		 * (`/`) and dev (`/docs`). */

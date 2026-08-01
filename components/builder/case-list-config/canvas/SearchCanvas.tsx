@@ -182,7 +182,7 @@ export function SearchCanvas({
 		<ContentFrame width="3xl" className="px-6 pt-8 pb-24">
 			<header className="mb-9">
 				<div className="min-w-0">
-					<h1 className="font-display text-2xl font-semibold tracking-tight text-nova-text">
+					<h1 className="font-display text-2xl font-semibold tracking-tighter text-nova-text">
 						Search
 					</h1>
 					<p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-nova-text-muted">

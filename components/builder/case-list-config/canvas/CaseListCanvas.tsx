@@ -139,7 +139,7 @@ export function CaseListCanvas({
 			<div data-case-list-layout>
 				<header className="mb-9">
 					<div className="min-w-0 flex-1">
-						<h1 className="font-display text-2xl font-semibold tracking-tight text-nova-text">
+						<h1 className="font-display text-2xl font-semibold tracking-tighter text-nova-text">
 							Results
 						</h1>
 						<p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-nova-text-muted">

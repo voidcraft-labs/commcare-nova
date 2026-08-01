@@ -30,7 +30,7 @@ export function UsersSection() {
 			<p className="mt-2 max-w-prose text-[13px] leading-relaxed text-nova-text-secondary">
 				Describe the people who will run this app: what they carry with them,
 				the roles they fill, and named workers you can preview as. Nothing here
-				creates a real CommCare account — that happens when you deploy.
+				creates a real CommCare account: that happens when you deploy.
 			</p>
 
 			<div className="mt-8 flex flex-col gap-10">

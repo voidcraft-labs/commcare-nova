@@ -77,7 +77,7 @@ export function FieldInspectorBody({ field }: FieldInspectorBodyProps) {
 							height="13"
 							className="shrink-0"
 						/>
-						View only — ask a Project admin for edit access.
+						View only. Ask a Project admin for edit access.
 					</p>
 				</>
 			)}

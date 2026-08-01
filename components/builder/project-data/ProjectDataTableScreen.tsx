@@ -138,7 +138,7 @@ export function ProjectDataTableScreen() {
 			{backToList}
 			<h1
 				id="project-data-table-heading"
-				className="mt-2 font-display text-2xl font-semibold tracking-tight text-nova-text [overflow-wrap:anywhere]"
+				className="mt-2 font-display text-2xl font-semibold tracking-tighter text-nova-text [overflow-wrap:anywhere]"
 			>
 				{table.name}
 			</h1>

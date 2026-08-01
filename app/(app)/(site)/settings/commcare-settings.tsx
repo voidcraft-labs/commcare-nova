@@ -297,8 +297,8 @@ export function CommCareSettings({
 						</Select>
 						{!fieldsLocked && (
 							<span className="text-xs text-nova-text-muted">
-								Pick where your CommCare account lives — an API key only works
-								on the server that issued it.
+								Pick where your CommCare account lives: an API key only works on
+								the server that issued it.
 							</span>
 						)}
 					</div>
@@ -323,7 +323,7 @@ export function CommCareSettings({
 					{/* API Key — masked when locked, plaintext when editable */}
 					<label htmlFor="commcare-api-key" className="flex flex-col gap-1.5">
 						<span className="text-sm font-medium text-nova-text-secondary">
-							API Key
+							API key
 						</span>
 						{fieldsLocked ? (
 							<Input
@@ -334,7 +334,7 @@ export function CommCareSettings({
 								tabIndex={-1}
 								autoComplete="off"
 								data-1p-ignore
-								className="tracking-wider"
+								className="tracking-wide"
 							/>
 						) : (
 							<Input
@@ -400,7 +400,7 @@ export function CommCareSettings({
 									Verifying...
 								</>
 							) : (
-								"Test & Save"
+								"Test and save"
 							)}
 						</Button>
 					)}

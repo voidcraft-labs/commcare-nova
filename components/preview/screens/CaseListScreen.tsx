@@ -981,7 +981,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			</Button>
 			<h1
 				data-case-detail-title
-				className="mb-4 min-w-0 font-display font-bold text-xl whitespace-normal break-words tracking-tight text-nova-text [overflow-wrap:anywhere]"
+				className="mb-4 min-w-0 font-display font-bold text-xl whitespace-normal break-words tracking-tighter text-nova-text [overflow-wrap:anywhere]"
 			>
 				{displayedOpenCase.case_name || "Case"}
 			</h1>
@@ -1112,7 +1112,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			</Button>
 			<h1
 				data-form-menu-case-title
-				className="mb-1 min-w-0 font-display font-bold text-xl whitespace-normal break-words tracking-tight text-nova-text [overflow-wrap:anywhere]"
+				className="mb-1 min-w-0 font-display font-bold text-xl whitespace-normal break-words tracking-tighter text-nova-text [overflow-wrap:anywhere]"
 			>
 				{displayedFormMenuCase.case_name || "Case"}
 			</h1>
@@ -1171,7 +1171,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 					ref={resultsTitleRef}
 					tabIndex={-1}
 					data-results-title
-					className="min-w-0 flex-1 font-display font-bold text-xl whitespace-normal break-words tracking-tight text-nova-text [overflow-wrap:anywhere]"
+					className="min-w-0 flex-1 font-display font-bold text-xl whitespace-normal break-words tracking-tighter text-nova-text [overflow-wrap:anywhere]"
 				>
 					{mod.name}
 				</h1>

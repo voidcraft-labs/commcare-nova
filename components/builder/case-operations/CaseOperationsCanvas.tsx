@@ -249,13 +249,13 @@ export function CaseOperationsCanvas({
 				<h1
 					ref={headingRef}
 					tabIndex={-1}
-					className="font-display text-2xl font-semibold tracking-tight text-nova-text outline-none"
+					className="font-display text-2xl font-semibold tracking-tighter text-nova-text outline-none"
 				>
 					Case changes
 				</h1>
 				<p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-nova-text-muted">
 					Everything submitting this form does to your cases, in the order it
-					happens. Each change can create a case, update one, or close one — and
+					happens. Each change can create a case, update one, or close one, and
 					a later change can use a case an earlier one made.
 				</p>
 			</header>

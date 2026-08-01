@@ -633,7 +633,7 @@ function HqPendingFootnote() {
 								<span className="font-medium text-nova-text">
 									Settings &rarr; CommCare HQ
 								</span>{" "}
-								— you won&rsquo;t need to come back here.
+								you won&rsquo;t need to come back here.
 							</Popover.Description>
 						</div>
 					</Popover.Popup>

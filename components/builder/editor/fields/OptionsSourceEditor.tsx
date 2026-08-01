@@ -486,8 +486,8 @@ export function OptionsSourceEditor<
 								<p className="text-[13px] leading-relaxed text-nova-text-secondary">
 									Only matching rows are offered. These choices are built before
 									there is a case row or a search screen, so case data and
-									case-search answers are unavailable here — as are later
-									answers and answers inside a child or sibling repeat.
+									case-search answers are unavailable here, as are later answers
+									and answers inside a child or sibling repeat.
 								</p>
 								<fieldset disabled={!canEdit} className="contents">
 									<PredicateWorkbench

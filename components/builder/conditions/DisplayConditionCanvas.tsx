@@ -106,7 +106,7 @@ export function DisplayConditionCanvas({
 				<h1
 					ref={headingRef}
 					tabIndex={-1}
-					className="font-display text-2xl font-semibold tracking-tight text-nova-text outline-none"
+					className="font-display text-2xl font-semibold tracking-tighter text-nova-text outline-none"
 				>
 					{copy.title}
 				</h1>
