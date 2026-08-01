@@ -264,9 +264,7 @@ describe("case workspace chrome", () => {
 		expect(screen.queryByText(/example value/i)).toBeNull();
 		const selectField = screen.getByRole("button", { name: "Patient name" });
 		expect(selectField.getAttribute("data-case-column-select")).toBe(NAME.uuid);
-		expect(selectField.classList.contains("focus-visible:ring-inset")).toBe(
-			true,
-		);
+		expect(selectField.classList.contains("nova-focusable-inset")).toBe(true);
 		fireEvent.click(selectField);
 		expect(onSelect).toHaveBeenCalledWith(NAME);
 	});

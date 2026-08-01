@@ -57,10 +57,7 @@ export function AppHeader({
 
 	return (
 		<header className="border-b border-nova-border px-4 py-2.5 flex items-center bg-nova-void shrink-0">
-			<Link
-				href="/"
-				className="rounded-lg focus-visible:ring-2 focus-visible:ring-nova-violet focus-visible:outline-none"
-			>
+			<Link href="/" className="nova-focusable rounded-lg">
 				<Logo size="sm" />
 			</Link>
 			<div className="ml-4">

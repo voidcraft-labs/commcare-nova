@@ -596,7 +596,7 @@ function CaseOrderingRuleRow({
 						aria-keyshortcuts="ArrowUp ArrowDown Home End"
 						aria-label={`Move ${label}. ${connector} in the order. Use arrow keys or drag.`}
 						data-case-ordering-focus-key={column.uuid}
-						className="h-auto min-h-11 w-11 shrink-0 cursor-grab rounded-l-lg rounded-r-none px-0 text-nova-text-muted hover:bg-white/[0.035] hover:text-nova-text focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-nova-violet dark:hover:bg-white/[0.035]"
+						className="nova-focusable-inset h-auto min-h-11 w-11 shrink-0 cursor-grab rounded-l-lg rounded-r-none px-0 text-nova-text-muted hover:bg-white/[0.035] hover:text-nova-text dark:hover:bg-white/[0.035]"
 					>
 						<Icon icon={tablerGripVertical} width="16" height="16" />
 					</Button>

@@ -57,7 +57,7 @@ describe("structure tree controls", () => {
 		expect(INSERTION_TRIGGER_CLS).not.toContain("-my-");
 		expect(INSERTION_TRIGGER_CLS).not.toContain("-mt-");
 		expect(INSERTION_TRIGGER_CLS).not.toContain("-mb-");
-		expect(INSERTION_TRIGGER_CLS).toContain("focus-visible:ring-2");
+		expect(INSERTION_TRIGGER_CLS).toContain("nova-focusable-inset");
 		expect(INSERTION_TRIGGER_CLS).toContain("group");
 		expect(insertionTriggerStyle(false, false)?.height).toBe(8);
 		expect(insertionTriggerStyle(true, false)?.height).toBe(44);

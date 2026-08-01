@@ -370,7 +370,7 @@ function BuiltInReference() {
 			className="mt-1 rounded-lg border border-nova-border/60"
 		>
 			<CollapsibleTrigger
-				className="flex min-h-11 w-full items-center px-3 py-2 text-left text-[13px] text-nova-text-secondary hover:text-nova-text focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-nova-violet-bright"
+				className="nova-focusable-inset flex min-h-11 w-full items-center px-3 py-2 text-left text-[13px] text-nova-text-secondary hover:text-nova-text"
 				render={<button type="button" />}
 			>
 				{open ? "Hide" : "Show"} what CommCare provides on its own

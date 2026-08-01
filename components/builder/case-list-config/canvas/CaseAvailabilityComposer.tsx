@@ -190,7 +190,7 @@ export function CaseAvailabilityComposer({
 				data-case-availability-composer
 				aria-label="Case availability"
 				tabIndex={-1}
-				className={`overflow-hidden rounded-2xl border bg-nova-surface/20 outline-none focus-visible:ring-2 focus-visible:ring-nova-violet/65 focus-visible:ring-offset-2 focus-visible:ring-offset-nova-deep ${
+				className={`nova-focusable overflow-hidden rounded-2xl border bg-nova-surface/20 outline-none ${
 					filterBroken || excludedOwnerIdsBroken
 						? "border-nova-rose/35"
 						: "border-white/[0.08]"

@@ -112,7 +112,7 @@ export function BuilderHeader({
 				<Link
 					href="/"
 					aria-label="Back to applications"
-					className={`${ultraCompactHeader ? "justify-center" : "-ml-2 px-2"} inline-flex min-h-11 min-w-11 items-center rounded-lg focus-visible:ring-2 focus-visible:ring-nova-violet focus-visible:outline-none`}
+					className={`nova-focusable ${ultraCompactHeader ? "justify-center" : "-ml-2 px-2"} inline-flex min-h-11 min-w-11 items-center rounded-lg outline-none`}
 				>
 					<Logo size="sm" markOnly={ultraCompactHeader} />
 				</Link>
@@ -170,7 +170,7 @@ export function BuilderHeader({
 									<SimpleTooltip content="Edit history" side="bottom">
 										<DropdownMenuTrigger
 											aria-label="Edit history"
-											className="flex size-11 items-center justify-center rounded-lg text-nova-text-muted outline-none transition-colors hover:bg-white/5 hover:text-nova-text focus-visible:ring-3 focus-visible:ring-ring/50"
+											className="nova-focusable flex size-11 items-center justify-center rounded-lg text-nova-text-muted outline-none transition-colors hover:bg-white/5 hover:text-nova-text"
 										>
 											<Icon icon={tablerDotsVertical} width="18" height="18" />
 										</DropdownMenuTrigger>

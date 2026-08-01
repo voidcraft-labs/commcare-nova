@@ -90,7 +90,7 @@ export function ListFilterBox({
 					onChange={(e) => onChange(e.target.value)}
 					autoComplete="off"
 					data-1p-ignore
-					className="min-h-11 w-full rounded-lg border-pv-input-border bg-pv-surface pr-11 pl-9 text-[14px] text-nova-text focus-visible:border-nova-violet/40 focus-visible:ring-1 focus-visible:ring-nova-violet/30 dark:bg-pv-surface"
+					className="nova-focusable min-h-11 w-full rounded-lg border-pv-input-border bg-pv-surface pr-11 pl-9 text-[14px] text-nova-text dark:bg-pv-surface"
 				/>
 				{value !== "" && (
 					<Button

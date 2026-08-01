@@ -19,7 +19,7 @@ function Input({ className, type, ...props }: React.ComponentProps<"input">) {
 				"h-11 w-full min-w-0 rounded-lg border border-nova-border-bright bg-nova-violet/[0.09] px-3.5 py-1 text-[15px] transition-colors outline-none",
 				"not-disabled:not-focus-visible:hover:bg-nova-violet/[0.14]",
 				"file:inline-flex file:h-8 file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-nova-text-muted",
-				"focus-visible:border-nova-ring focus-visible:shadow-(--focus-ring)",
+				"nova-focusable",
 				"disabled:cursor-not-allowed disabled:opacity-(--disabled-opacity)",
 				"aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20",
 				className,

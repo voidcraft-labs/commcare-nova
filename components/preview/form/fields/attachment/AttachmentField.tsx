@@ -799,7 +799,7 @@ function AttachmentControl({
 					<label
 						htmlFor={inputId}
 						aria-disabled={interactionBlocked}
-						className={`relative inline-flex min-h-12 min-w-0 max-w-full touch-manipulation items-center gap-2 overflow-hidden rounded-md border border-pv-input-border bg-pv-surface px-4 text-sm font-medium text-nova-text transition-colors focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-pv-input-focus ${
+						className={`nova-focusable-within relative inline-flex min-h-12 min-w-0 max-w-full touch-manipulation items-center gap-2 overflow-hidden rounded-md border border-pv-input-border bg-pv-surface px-4 text-sm font-medium text-nova-text transition-colors ${
 							interactionBlocked
 								? "cursor-default opacity-(--disabled-opacity)"
 								: "cursor-pointer hover:border-pv-input-focus"

@@ -280,10 +280,8 @@ export function LiteralValueInput({
 
 const INPUT_BASE_CLS =
 	"h-auto min-h-11 w-full rounded-lg border bg-nova-deep/50 px-3 text-sm text-nova-text placeholder:text-nova-text-muted md:text-sm dark:bg-nova-deep/50";
-const INPUT_VALID_CLS =
-	"border-white/[0.06] focus-visible:border-nova-violet/40 focus-visible:ring-nova-violet/30";
-const INPUT_INVALID_CLS =
-	"border-nova-rose/40 focus-visible:border-nova-rose/60 focus-visible:ring-nova-rose/30";
+const INPUT_VALID_CLS = "nova-focusable border-white/[0.06]";
+const INPUT_INVALID_CLS = "nova-focusable border-nova-rose/40";
 
 function inputCls(invalid: boolean): string {
 	return `${INPUT_BASE_CLS} ${invalid ? INPUT_INVALID_CLS : INPUT_VALID_CLS}`;

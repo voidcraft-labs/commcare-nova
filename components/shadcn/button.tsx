@@ -41,8 +41,8 @@ const buttonVariants = cva(
 				warning: "nova-keycap nova-keycap-amber",
 				// Text-tier: foreground ladder secondary → text, 1px press nudge.
 				ghost:
-					"text-nova-text-secondary not-disabled:hover:bg-white/[0.06] not-disabled:hover:text-nova-text aria-expanded:bg-white/[0.06] aria-expanded:text-nova-text not-disabled:active:not-aria-[haspopup]:translate-y-px focus-visible:border-nova-ring focus-visible:shadow-(--focus-ring)",
-				link: "text-nova-violet-bright underline-offset-4 not-disabled:hover:underline not-disabled:active:translate-y-px focus-visible:border-nova-ring focus-visible:shadow-(--focus-ring)",
+					"nova-focusable text-nova-text-secondary not-disabled:hover:bg-white/[0.06] not-disabled:hover:text-nova-text aria-expanded:bg-white/[0.06] aria-expanded:text-nova-text not-disabled:active:not-aria-[haspopup]:translate-y-px",
+				link: "nova-focusable text-nova-violet-bright underline-offset-4 not-disabled:hover:underline not-disabled:active:translate-y-px",
 			},
 			size: {
 				default: "px-5",

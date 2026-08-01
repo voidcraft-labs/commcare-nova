@@ -74,7 +74,7 @@ export function useTreeInsertionZone(open: boolean): TreeInsertionZone {
 /** The insertion trigger's static className: a full-width, pointer-cursor
  *  strip so the WHOLE line is clickable, not just the "+". */
 export const INSERTION_TRIGGER_CLS =
-	"group relative block w-full cursor-pointer rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-nova-violet/70";
+	"nova-focusable-inset group relative block w-full cursor-pointer rounded-lg outline-none";
 
 /** Persistent end-of-list Add action versus the optional precise insertion
  * seam. Both expand to a 44px hit area when visible; only the persistent action

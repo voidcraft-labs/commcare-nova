@@ -405,7 +405,7 @@ export function CasePropertyRenameDialog({
 					<DialogTitle
 						ref={titleRef}
 						tabIndex={-1}
-						className="outline-none focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-nova-violet-bright/75"
+						className="nova-focusable outline-none"
 					>
 						{stage === "overview"
 							? "Case properties"

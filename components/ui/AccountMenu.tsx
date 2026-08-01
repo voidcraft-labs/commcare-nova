@@ -162,7 +162,7 @@ export function AccountMenu({
 			<Popover open={open} onOpenChange={setOpen}>
 				{/* ── Trigger: avatar or initials ──────────────────────── */}
 				<PopoverTrigger
-					className="flex size-11 items-center justify-center rounded-full cursor-pointer transition-all duration-150 ring-1 ring-transparent hover:ring-nova-border-bright focus-visible:ring-nova-violet outline-none"
+					className="nova-focusable flex size-11 items-center justify-center rounded-full cursor-pointer transition-all duration-150 ring-1 ring-transparent hover:ring-nova-border-bright outline-none"
 					aria-label="Account menu"
 				>
 					<UserAvatar user={user} size="sm" />

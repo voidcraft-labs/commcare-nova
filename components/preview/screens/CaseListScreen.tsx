@@ -1795,7 +1795,7 @@ const INTERACTIVE_RESULT_CELL_CLASSES =
 	"pointer-events-none [&_a]:pointer-events-auto [&_a]:relative [&_a]:z-20 [&_button]:pointer-events-auto [&_button]:relative [&_button]:z-20";
 
 const INTERACTIVE_RESULT_ROW_CLASSES =
-	"cursor-pointer transition-colors hover:bg-nova-violet/[0.05] focus-within:bg-nova-violet/[0.05] [&_a]:rounded-sm [&_a]:focus-visible:outline-none [&_a]:focus-visible:ring-2 [&_a]:focus-visible:ring-nova-violet-bright/75 [&_a]:focus-visible:ring-offset-2 [&_a]:focus-visible:ring-offset-pv-surface";
+	"nova-focusable cursor-pointer transition-colors hover:bg-nova-violet/[0.05] focus-within:bg-nova-violet/[0.05] [&_a]:rounded-sm [&_a]: [&_a]: [&_a]: [&_a]: [&_a]:";
 
 function resultsLayoutClasses(columnCount: number): ResultsLayoutClasses {
 	if (columnCount <= 3) return XL_RESULTS;
@@ -1929,7 +1929,7 @@ function ResultsTable({
 								data-case-result-action={row.case_id}
 								onClick={(event) => onOpenCase(row, event.currentTarget)}
 								disabled={busy}
-								className="absolute inset-0 z-0 h-auto w-auto rounded-none border-0 p-0 focus-visible:border-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-nova-violet-bright/75 not-disabled:hover:bg-transparent dark:not-disabled:hover:bg-transparent"
+								className="nova-focusable-inset absolute inset-0 z-0 h-auto w-auto rounded-none border-0 p-0 not-disabled:hover:bg-transparent dark:not-disabled:hover:bg-transparent"
 							/>
 							{content}
 						</li>
@@ -2091,7 +2091,7 @@ function ResultsTiles({
 								data-case-result-action={row.case_id}
 								onClick={(event) => onOpenCase(row, event.currentTarget)}
 								disabled={busy}
-								className="absolute inset-0 z-0 h-auto w-auto rounded-none border-0 p-0 focus-visible:border-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-nova-violet-bright/75 not-disabled:hover:bg-transparent dark:not-disabled:hover:bg-transparent"
+								className="nova-focusable-inset absolute inset-0 z-0 h-auto w-auto rounded-none border-0 p-0 not-disabled:hover:bg-transparent dark:not-disabled:hover:bg-transparent"
 							/>
 							{content}
 						</li>

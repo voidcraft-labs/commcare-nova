@@ -343,7 +343,7 @@ export function ProjectMembers({
 				<Popover>
 					<PopoverTrigger
 						aria-label="What the roles mean"
-						className="shrink-0 inline-flex items-center justify-center rounded-md p-1 text-nova-text-muted transition-colors cursor-pointer hover:text-nova-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nova-violet"
+						className="nova-focusable shrink-0 inline-flex items-center justify-center rounded-md p-1 text-nova-text-muted transition-colors cursor-pointer hover:text-nova-text"
 					>
 						<Icon icon={tablerInfoCircle} width="16" height="16" />
 					</PopoverTrigger>

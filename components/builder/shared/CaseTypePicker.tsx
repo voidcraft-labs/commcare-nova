@@ -296,10 +296,8 @@ export function CaseTypePickerContent({
 						data-1p-ignore
 						aria-invalid={showError}
 						aria-describedby={showError ? errorId : undefined}
-						className={`min-h-11 bg-nova-deep/50 px-2.5 text-sm text-nova-text placeholder:text-nova-text-muted ${
-							showError
-								? "border-nova-rose/50 focus-visible:border-nova-rose focus-visible:ring-nova-rose/20"
-								: "border-white/[0.06] focus-visible:border-nova-violet"
+						className={`nova-focusable min-h-11 bg-nova-deep/50 px-2.5 text-sm text-nova-text placeholder:text-nova-text-muted ${
+							showError ? "border-nova-rose/50" : "border-white/[0.06]"
 						}`}
 					/>
 					<Button

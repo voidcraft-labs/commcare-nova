@@ -180,7 +180,7 @@ interface PendingStandardReplacement {
 }
 
 const PICKER_TRIGGER_CLS =
-	"flex h-auto min-h-11 w-full cursor-pointer items-center gap-2 rounded-lg border border-white/[0.08] bg-nova-deep/30 px-3 py-2 text-[14px] text-nova-text-secondary whitespace-normal transition-colors outline-none not-disabled:hover:border-nova-violet/30 not-disabled:hover:bg-nova-violet/[0.04] focus-visible:border-nova-violet/50 focus-visible:ring-2 focus-visible:ring-nova-violet/20";
+	"nova-focusable flex h-auto min-h-11 w-full cursor-pointer items-center gap-2 rounded-lg border border-white/[0.08] bg-nova-deep/30 px-3 py-2 text-[14px] text-nova-text-secondary whitespace-normal transition-colors outline-none not-disabled:hover:border-nova-violet/30 not-disabled:hover:bg-nova-violet/[0.04]";
 
 function classifyVia(via: RelationPath | undefined): BindingScope {
 	if (via === undefined || via.kind === "self") return "self";

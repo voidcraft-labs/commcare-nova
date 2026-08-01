@@ -1990,9 +1990,9 @@ function LiteralShapeSubmenu({
 }
 
 const LITERAL_INPUT_CLS_VALID =
-	"h-auto min-h-11 w-full rounded-lg border border-white/[0.06] bg-nova-deep/50 px-3 text-sm text-nova-text placeholder:text-nova-text-muted focus-visible:border-nova-violet/40 focus-visible:ring-nova-violet/30 md:text-sm dark:bg-nova-deep/50";
+	"nova-focusable h-auto min-h-11 w-full rounded-lg border border-white/[0.06] bg-nova-deep/50 px-3 text-sm text-nova-text placeholder:text-nova-text-muted md:text-sm dark:bg-nova-deep/50";
 const LITERAL_INPUT_CLS_INVALID =
-	"h-auto min-h-11 w-full rounded-lg border border-nova-rose/40 bg-nova-deep/50 px-3 text-sm text-nova-text placeholder:text-nova-text-muted focus-visible:border-nova-rose/60 focus-visible:ring-nova-rose/30 md:text-sm dark:bg-nova-deep/50";
+	"nova-focusable h-auto min-h-11 w-full rounded-lg border border-nova-rose/40 bg-nova-deep/50 px-3 text-sm text-nova-text placeholder:text-nova-text-muted md:text-sm dark:bg-nova-deep/50";
 
 function literalInputCls(invalid: boolean): string {
 	return invalid ? LITERAL_INPUT_CLS_INVALID : LITERAL_INPUT_CLS_VALID;
@@ -2436,8 +2436,8 @@ function userFieldInputClass(invalid: boolean): string {
 	return [
 		"h-auto min-h-11 w-full rounded-lg border bg-nova-deep/50 px-3 text-sm text-nova-text md:text-sm dark:bg-nova-deep/50",
 		invalid
-			? "border-nova-rose/40 focus-visible:border-nova-rose/60 focus-visible:ring-nova-rose/30"
-			: "border-white/[0.06] focus-visible:border-nova-violet/40 focus-visible:ring-nova-violet/30",
+			? "nova-focusable border-nova-rose/40"
+			: "nova-focusable border-white/[0.06]",
 	].join(" ");
 }
 

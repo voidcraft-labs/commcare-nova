@@ -150,10 +150,8 @@ function ThresholdInput({ id, value, onChange }: ThresholdInputProps) {
 				data-1p-ignore
 				aria-invalid={showError || undefined}
 				aria-describedby={showError ? errorId : undefined}
-				className={`h-auto min-h-11 w-full border bg-nova-deep/50 px-3 text-[14px] text-nova-text placeholder:text-nova-text-muted focus-visible:ring-1 md:text-[14px] dark:bg-nova-deep/50 ${
-					showError
-						? "border-nova-rose/40 focus-visible:border-nova-rose/60 focus-visible:ring-nova-rose/30"
-						: "border-white/[0.06] focus-visible:border-nova-violet/40 focus-visible:ring-nova-violet/30"
+				className={`nova-focusable h-auto min-h-11 w-full border bg-nova-deep/50 px-3 text-[14px] text-nova-text placeholder:text-nova-text-muted md:text-[14px] dark:bg-nova-deep/50 ${
+					showError ? "border-nova-rose/40" : "border-white/[0.06]"
 				}`}
 			/>
 			{showError ? (

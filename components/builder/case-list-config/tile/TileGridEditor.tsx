@@ -538,7 +538,7 @@ function TileCellChip({
 			onPointerUp={onPointerUp}
 			onPointerCancel={onPointerCancel}
 			onKeyDown={onKeyDown}
-			className={`${cellClassName} rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-nova-violet`}
+			className={`nova-focusable-inset ${cellClassName} rounded-lg`}
 			style={{ gridArea: tileCellGridArea(cell) }}
 		>
 			{body}

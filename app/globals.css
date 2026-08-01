@@ -598,6 +598,34 @@ body {
 	box-shadow: var(--shadow-overlay-float);
 }
 
+/* ── Keyboard focus ─────────────────────────────────────────────────
+   ONE focus treatment for the whole product: a violet-bright border and
+   a soft 3px ring at 45% alpha, keyboard only. A mouse press never
+   leaves a standing ring. Anything focusable that is not already a
+   Button, Input, Textarea, or Select (which carry it in their own
+   variants) wears one of these three classes rather than inventing a
+   ring, so tabbing across the app never changes appearance.
+
+   `.nova-focusable` is the default. `.nova-focusable-inset` draws the
+   same ring inward, for controls inside a clipped or scrolling parent
+   that would crop an outer ring (tree rows, list cells, drag handles).
+   `.nova-focusable-within` lights a wrapper when the real control
+   inside it takes focus. */
+.nova-focusable:focus-visible {
+	outline: none;
+	border-color: var(--nova-ring);
+	box-shadow: var(--focus-ring);
+}
+.nova-focusable-inset:focus-visible {
+	outline: none;
+	box-shadow: inset 0 0 0 3px rgba(182, 160, 251, 0.45);
+}
+.nova-focusable-within:focus-within {
+	outline: none;
+	border-color: var(--nova-ring);
+	box-shadow: var(--focus-ring);
+}
+
 /* ── Keycap buttons ─────────────────────────────────────────────────
    The anatomy of Nova's soft-keycap buttons: a lit crown gradient over
    a 3px darker side wall, real travel on press (the cap sinks as the

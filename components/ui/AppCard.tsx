@@ -303,7 +303,7 @@ export function AppCard({
 										<PopoverTitle
 											ref={moveTitleRef}
 											tabIndex={-1}
-											className="rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-nova-violet-bright/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nova-surface"
+											className="nova-focusable rounded-sm outline-none"
 										>
 											Moving between Projects
 										</PopoverTitle>
@@ -327,7 +327,7 @@ export function AppCard({
 												{projectMove.targets.map((target) => (
 													<label
 														key={target.id}
-														className="flex min-h-11 w-full cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-nova-text transition-colors hover:bg-white/[0.06] has-checked:bg-nova-violet/10 has-focus-visible:ring-2 has-focus-visible:ring-nova-violet-bright/60"
+														className="flex min-h-11 w-full cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-nova-text transition-colors hover:bg-white/[0.06] has-checked:bg-nova-violet/10 has-focus-visible:shadow-(--focus-ring)"
 													>
 														<input
 															type="radio"
@@ -337,7 +337,7 @@ export function AppCard({
 															onChange={() => setMoveTargetId(target.id)}
 															autoComplete="off"
 															data-1p-ignore
-															className="size-4 shrink-0 cursor-pointer appearance-none rounded-full border border-nova-border transition-all checked:border-[5px] checked:border-nova-violet-bright focus-visible:outline-none"
+															className="size-4 shrink-0 cursor-pointer appearance-none rounded-full border border-nova-border transition-all checked:border-[5px] checked:border-nova-violet-bright nova-focusable"
 														/>
 														<span className="flex-1 truncate font-medium">
 															{target.name}
@@ -399,7 +399,7 @@ export function AppCard({
 					<Link
 						href={openHref}
 						aria-label={`Open ${displayName}`}
-						className="absolute inset-0 rounded-lg outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+						className="nova-focusable absolute inset-0 rounded-lg outline-none"
 					/>
 				)}
 				<div className="pointer-events-none relative z-10">{content}</div>

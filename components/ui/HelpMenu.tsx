@@ -43,7 +43,7 @@ export function HelpMenu() {
 		<Popover.Root open={open} onOpenChange={setOpen}>
 			<Popover.Trigger
 				aria-label="Help"
-				className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm text-nova-text-muted transition-colors hover:text-nova-text hover:bg-white/5 focus-visible:ring-2 focus-visible:ring-nova-violet focus-visible:outline-none cursor-pointer"
+				className="nova-focusable flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm text-nova-text-muted transition-colors hover:text-nova-text hover:bg-white/5 cursor-pointer"
 			>
 				<Icon
 					icon={tablerHelpCircle}

@@ -257,7 +257,7 @@ function FieldRow({
 						}}
 						aria-keyshortcuts="ArrowUp ArrowDown Home End"
 						aria-label={`Move ${label} in ${screenName}. Position ${position} of ${total}. Use arrow keys or drag.`}
-						className="h-auto w-11 shrink-0 cursor-grab rounded-l-xl rounded-r-none px-0 text-nova-text-muted hover:bg-white/[0.035] hover:text-nova-text focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-nova-violet dark:hover:bg-white/[0.035]"
+						className="nova-focusable-inset h-auto w-11 shrink-0 cursor-grab rounded-l-xl rounded-r-none px-0 text-nova-text-muted hover:bg-white/[0.035] hover:text-nova-text dark:hover:bg-white/[0.035]"
 					>
 						<Icon icon={tablerGripVertical} width="17" height="17" />
 					</Button>
@@ -271,7 +271,7 @@ function FieldRow({
 					onClick={onSelect}
 					aria-pressed={selected}
 					data-case-column-select={column.uuid}
-					className="h-auto min-w-0 flex-1 justify-start rounded-none px-4 py-3 text-left whitespace-normal active:not-aria-[haspopup]:translate-y-0 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-nova-violet not-disabled:hover:bg-transparent dark:not-disabled:hover:bg-transparent"
+					className="nova-focusable-inset h-auto min-w-0 flex-1 justify-start rounded-none px-4 py-3 text-left whitespace-normal active:not-aria-[haspopup]:translate-y-0 not-disabled:hover:bg-transparent dark:not-disabled:hover:bg-transparent"
 				>
 					{rowContent}
 				</Button>

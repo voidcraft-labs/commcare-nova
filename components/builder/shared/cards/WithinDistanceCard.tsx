@@ -210,10 +210,10 @@ function DistanceInput({
 				aria-label="Distance"
 				aria-invalid={error !== undefined || undefined}
 				aria-describedby={error !== undefined ? errorId : undefined}
-				className={`h-auto min-h-11 w-full border bg-nova-deep/50 px-3 text-sm text-nova-text focus-visible:ring-1 md:text-sm dark:bg-nova-deep/50 ${
+				className={`nova-focusable h-auto min-h-11 w-full border bg-nova-deep/50 px-3 text-sm text-nova-text md:text-sm dark:bg-nova-deep/50 ${
 					error !== undefined
-						? "border-nova-rose/40 focus-visible:border-nova-rose/60 focus-visible:ring-nova-rose/30"
-						: "border-white/[0.06] focus-visible:border-nova-violet/40 focus-visible:ring-nova-violet/30"
+						? "nova-focusable border-nova-rose/40"
+						: "nova-focusable border-white/[0.06]"
 				}`}
 			/>
 			{error !== undefined ? (
@@ -295,7 +295,7 @@ function UnitMenu({
 					className={`h-auto min-h-11 bg-nova-deep/50 px-3 text-sm text-nova-violet-bright dark:bg-nova-deep/50 dark:not-disabled:hover:bg-nova-deep/50 ${
 						error === undefined
 							? "border-white/[0.06] not-disabled:hover:border-nova-violet/30"
-							: "border-nova-rose/40 focus-visible:border-nova-rose/60 focus-visible:ring-nova-rose/30"
+							: "nova-focusable border-nova-rose/40"
 					}`}
 				>
 					<SelectValue>{UNIT_LABELS[unit]}</SelectValue>

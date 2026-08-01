@@ -1176,7 +1176,7 @@ describe("CaseListScreen — calculated columns", () => {
 		// the row with the same missing-value treatment as every other column.
 		const row = caseResultRowFor(screen.getByRole("button", { name: /Alice/ }));
 		expect(row.textContent).toContain("No value");
-		expect(row.textContent).toContain("—");
+		expect(row.textContent).toContain("–");
 	});
 });
 
@@ -1230,8 +1230,7 @@ describe("CaseListScreen — responsive results", () => {
 		expect(row.className).toContain("@xl/results:grid");
 		// The Results shell clips row hover/background paint. Keep keyboard focus
 		// inside that clipping boundary so the indicator remains fully visible.
-		expect(rowAction.className).toContain("focus-visible:ring-inset");
-		expect(rowAction.className).toContain("focus-visible:ring-2");
+		expect(rowAction.className).toContain("nova-focusable-inset");
 		expect(
 			results
 				?.querySelector("[data-case-results-header]")

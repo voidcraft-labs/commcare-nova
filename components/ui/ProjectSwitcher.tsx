@@ -143,7 +143,7 @@ export function ProjectSwitcher({
 		>
 			<Popover.Trigger
 				aria-label="Switch Project"
-				className="flex items-center gap-1.5 max-w-[200px] rounded-lg px-2.5 py-1.5 text-sm text-nova-text-muted transition-colors hover:text-nova-text hover:bg-white/5 focus-visible:ring-2 focus-visible:ring-nova-violet focus-visible:outline-none cursor-pointer"
+				className="nova-focusable flex items-center gap-1.5 max-w-[200px] rounded-lg px-2.5 py-1.5 text-sm text-nova-text-muted transition-colors hover:text-nova-text hover:bg-white/5 cursor-pointer"
 			>
 				<Icon icon={tablerUsers} width="16" height="16" className="shrink-0" />
 				<span className="truncate font-medium">{active.name}</span>
@@ -213,7 +213,7 @@ export function ProjectSwitcher({
 										}}
 										placeholder="Project name"
 										maxLength={64}
-										className="w-full rounded-lg border border-nova-border bg-nova-void px-2.5 py-1.5 text-sm text-nova-text placeholder:text-nova-text-muted focus-visible:ring-2 focus-visible:ring-nova-violet focus-visible:outline-none"
+										className="nova-focusable w-full rounded-lg border border-nova-border bg-nova-void px-2.5 py-1.5 text-sm text-nova-text placeholder:text-nova-text-muted"
 									/>
 									<div className="mt-2 flex items-center justify-end gap-2">
 										<Button

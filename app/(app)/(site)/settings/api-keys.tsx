@@ -548,7 +548,7 @@ function ScopeCheckboxGrid({
 						checked={selectedScopes.has(scope)}
 						disabled={locked}
 						onCheckedChange={() => onToggle(scope)}
-						className="group flex w-full cursor-pointer items-center gap-2 rounded-md border border-nova-border bg-transparent px-2.5 py-2 text-sm text-nova-text outline-none transition-colors not-data-[disabled]:hover:border-nova-violet/30 not-data-[disabled]:hover:bg-nova-violet/[0.05] data-[checked]:border-nova-violet/40 data-[checked]:bg-nova-violet/[0.10] data-[disabled]:cursor-not-allowed data-[disabled]:opacity-(--disabled-opacity) focus-visible:border-nova-violet focus-visible:ring-1 focus-visible:ring-nova-violet/40"
+						className="nova-focusable group flex w-full cursor-pointer items-center gap-2 rounded-md border border-nova-border bg-transparent px-2.5 py-2 text-sm text-nova-text outline-none transition-colors not-data-[disabled]:hover:border-nova-violet/30 not-data-[disabled]:hover:bg-nova-violet/[0.05] data-[checked]:border-nova-violet/40 data-[checked]:bg-nova-violet/[0.10] data-[disabled]:cursor-not-allowed data-[disabled]:opacity-(--disabled-opacity)"
 					>
 						<span
 							aria-hidden

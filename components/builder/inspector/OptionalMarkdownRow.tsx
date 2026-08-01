@@ -200,7 +200,7 @@ export function OptionalMarkdownRow({
 				{label}
 			</label>
 			<Tiptap editor={editor}>
-				<div className="rounded-lg border border-white/[0.06] bg-nova-deep/50 focus-within:border-nova-violet/40 focus-within:ring-1 focus-within:ring-nova-violet/30 transition-colors overflow-hidden">
+				<div className="nova-focusable-within rounded-lg border border-white/[0.06] bg-nova-deep/50 transition-colors overflow-hidden">
 					{/* The compact toolbar shows the three everyday actions and one
 					 *  clearly named progressive-disclosure menu. Its floating variant
 					 *  clips instead of creating a horizontal scroll region, and the

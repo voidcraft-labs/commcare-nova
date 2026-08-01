@@ -97,7 +97,7 @@ export function EntryRow({
 			className="rounded-lg border border-nova-border bg-nova-deep"
 		>
 			<CollapsibleTrigger
-				className="group flex min-h-12 w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left hover:bg-white/[0.03] focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-nova-violet-bright"
+				className="nova-focusable-inset group flex min-h-12 w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left hover:bg-white/[0.03]"
 				render={<button type="button" />}
 			>
 				<Icon

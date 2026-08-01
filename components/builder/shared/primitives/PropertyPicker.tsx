@@ -293,7 +293,7 @@ export function PropertyPicker({
 							<label htmlFor={`${triggerId}-search`} className="sr-only">
 								Search information
 							</label>
-							<div className="flex min-h-11 items-center gap-2 rounded-lg border border-white/[0.08] bg-nova-deep/70 px-3 transition-colors focus-within:border-nova-violet/40 focus-within:ring-1 focus-within:ring-nova-violet/25">
+							<div className="nova-focusable-within flex min-h-11 items-center gap-2 rounded-lg border border-white/[0.08] bg-nova-deep/70 px-3 transition-colors">
 								<Icon
 									icon={tablerSearch}
 									width="15"
@@ -310,7 +310,7 @@ export function PropertyPicker({
 									placeholder="Search information"
 									autoComplete="off"
 									data-1p-ignore
-									className="h-auto min-w-0 flex-1 rounded-none border-0 bg-transparent p-0 text-[14px] text-nova-text shadow-none outline-none placeholder:text-nova-text-muted focus-visible:border-transparent focus-visible:ring-0 md:text-[14px] dark:bg-transparent"
+									className="nova-focusable h-auto min-w-0 flex-1 rounded-none border-0 bg-transparent p-0 text-[14px] text-nova-text shadow-none outline-none placeholder:text-nova-text-muted md:text-[14px] dark:bg-transparent"
 								/>
 							</div>
 						</div>

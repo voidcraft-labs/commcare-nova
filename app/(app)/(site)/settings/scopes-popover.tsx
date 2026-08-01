@@ -67,7 +67,7 @@ export function ScopesPopover({
 				delay={150}
 				closeDelay={120}
 				aria-label={`Permissions granted to ${subjectName}`}
-				className="inline-flex cursor-pointer items-center rounded-md border border-nova-violet/20 bg-nova-violet/[0.08] px-2 py-[2px] text-[11px] font-medium text-nova-violet-bright outline-none transition-all duration-150 hover:border-nova-violet/40 hover:bg-nova-violet/[0.14] focus-visible:border-nova-violet/40 focus-visible:bg-nova-violet/[0.14] focus-visible:ring-1 focus-visible:ring-nova-violet/40"
+				className="nova-focusable inline-flex cursor-pointer items-center rounded-md border border-nova-violet/20 bg-nova-violet/[0.08] px-2 py-[2px] text-[11px] font-medium text-nova-violet-bright outline-none transition-all duration-150 hover:border-nova-violet/40 hover:bg-nova-violet/[0.14] focus-visible:bg-nova-violet/[0.14]"
 			>
 				Permissions
 			</Popover.Trigger>

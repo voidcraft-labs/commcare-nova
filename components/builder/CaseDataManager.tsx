@@ -443,7 +443,7 @@ export function CaseDataManager({
 						<PopoverTitle
 							ref={popoverTitleRef}
 							tabIndex={operation === "create" ? 0 : -1}
-							className="font-display text-base font-semibold text-nova-text outline-none focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-nova-violet-bright/75 focus-visible:ring-offset-2 focus-visible:ring-offset-nova-deep"
+							className="nova-focusable font-display text-base font-semibold text-nova-text outline-none"
 						>
 							Case data
 						</PopoverTitle>
@@ -728,7 +728,7 @@ export function CaseDataManager({
 						<AlertDialogTitle
 							ref={confirmTitleRef}
 							tabIndex={operation === "replace" ? 0 : -1}
-							className="font-display outline-none focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-nova-violet-bright/75 focus-visible:ring-offset-2 focus-visible:ring-offset-nova-deep"
+							className="nova-focusable font-display outline-none"
 						>
 							Replace all {caseLabel(count ?? 0)}?
 						</AlertDialogTitle>

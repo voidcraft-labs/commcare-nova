@@ -154,7 +154,7 @@ function CompactRosterChip({
 		<DropdownMenu>
 			<DropdownMenuTrigger
 				aria-label={label}
-				className="group/button relative flex size-11 items-center justify-center rounded-full bg-transparent p-0 outline-none transition-all focus-visible:ring-3 focus-visible:ring-ring/50"
+				className="nova-focusable group/button relative flex size-11 items-center justify-center rounded-full bg-transparent p-0 outline-none transition-all"
 			>
 				<span
 					className={`flex size-7 items-center justify-center rounded-full ring-2 ${first.peerColor.ring} ring-offset-1 ring-offset-nova-void transition-transform group-hover/button:scale-110`}
@@ -314,7 +314,7 @@ function OverflowChip({
 		<DropdownMenu>
 			<DropdownMenuTrigger
 				aria-label={`${peers.length} more collaborators`}
-				className="group/button flex size-11 items-center justify-center rounded-full bg-transparent p-0 text-[11px] font-semibold leading-none text-nova-text outline-none transition-all focus-visible:ring-3 focus-visible:ring-ring/50"
+				className="nova-focusable group/button flex size-11 items-center justify-center rounded-full bg-transparent p-0 text-[11px] font-semibold leading-none text-nova-text outline-none transition-all"
 			>
 				<span className="flex size-7 items-center justify-center rounded-full bg-nova-surface ring-2 ring-nova-border ring-offset-1 ring-offset-nova-void transition-transform group-hover/button:scale-110">
 					+{peers.length}

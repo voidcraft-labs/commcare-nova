@@ -94,7 +94,7 @@ export function AppTree() {
 							placeholder="Find in app"
 							autoComplete="off"
 							data-1p-ignore
-							className="h-11 bg-nova-surface pl-9 pr-11 text-sm text-nova-text placeholder:text-nova-text-muted focus-visible:border-nova-violet focus-visible:ring-nova-violet/30 dark:bg-nova-surface"
+							className="nova-focusable h-11 bg-nova-surface pl-9 pr-11 text-sm text-nova-text placeholder:text-nova-text-muted dark:bg-nova-surface"
 						/>
 						{searchQuery && (
 							<Button

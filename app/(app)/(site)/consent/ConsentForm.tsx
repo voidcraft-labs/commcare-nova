@@ -571,7 +571,7 @@ function HqPendingFootnote() {
 				openOnHover
 				closeDelay={120}
 				aria-label="Awaiting CommCare HQ setup. Open for details."
-				className="group flex w-full cursor-pointer items-center gap-2 border-t border-nova-amber/25 bg-nova-amber/[0.05] px-3.5 py-2 text-left outline-none transition-colors duration-150 hover:bg-nova-amber/[0.12] focus-visible:bg-nova-amber/[0.12] focus-visible:ring-1 focus-visible:ring-nova-amber/40 focus-visible:ring-inset"
+				className="nova-focusable-inset group flex w-full cursor-pointer items-center gap-2 border-t border-nova-amber/25 bg-nova-amber/[0.05] px-3.5 py-2 text-left outline-none transition-colors duration-150 hover:bg-nova-amber/[0.12] focus-visible:bg-nova-amber/[0.12]"
 			>
 				<Icon
 					icon={tablerCircleDashed}
