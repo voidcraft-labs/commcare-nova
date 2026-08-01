@@ -101,7 +101,7 @@ export function ListFilterBox({
 							requestAnimationFrame(() => inputRef.current?.focus());
 						}}
 						aria-label="Clear the filter"
-						className="absolute inset-y-0 right-0 h-full w-11 rounded-lg text-nova-text-muted not-disabled:hover:bg-transparent not-disabled:hover:text-nova-text"
+						className="absolute inset-y-0 right-0 h-full w-11 rounded-lg text-nova-text-muted not-disabled:hover:bg-transparent"
 					>
 						<Icon icon={tablerX} width="14" height="14" />
 					</Button>

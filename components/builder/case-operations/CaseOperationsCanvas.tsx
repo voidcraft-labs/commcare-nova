@@ -239,7 +239,7 @@ export function CaseOperationsCanvas({
 				type="button"
 				variant="ghost"
 				onClick={() => navigate.push({ kind: "form", moduleUuid, formUuid })}
-				className="-ml-2 mb-5 text-nova-text-secondary"
+				className="-ml-2 mb-5"
 			>
 				<Icon icon={tablerArrowLeft} width="16" height="16" />
 				Back to the form
@@ -542,7 +542,7 @@ function AddChangeControl({
 						type="button"
 						variant="outline"
 						data-case-operations-add
-						className="w-full gap-2 rounded-lg border-dashed border-nova-border-bright bg-transparent px-4 text-sm text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.06] dark:bg-transparent dark:not-disabled:hover:bg-nova-violet/[0.06]"
+						className="w-full gap-2 rounded-lg border-dashed bg-transparent px-4 text-sm text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.06] dark:bg-transparent dark:not-disabled:hover:bg-nova-violet/[0.06]"
 					/>
 				}
 			>
@@ -571,7 +571,7 @@ function AddChangeControl({
 							type="button"
 							variant="ghost"
 							onClick={() => setMode("intent")}
-							className="w-full justify-start text-[13px] text-nova-text-secondary"
+							className="w-full justify-start text-[13px]"
 						>
 							<Icon icon={tablerArrowLeft} width="14" height="14" />
 							Back

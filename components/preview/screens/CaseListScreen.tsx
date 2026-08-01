@@ -917,7 +917,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 								type="button"
 								variant="ghost"
 								onClick={clearSearch}
-								className="ml-auto shrink-0 gap-1 rounded-md px-2 text-[14px] text-nova-text-muted not-disabled:hover:bg-transparent not-disabled:hover:text-nova-text"
+								className="ml-auto shrink-0 gap-1 rounded-md px-2 text-[14px] text-nova-text-muted not-disabled:hover:bg-transparent"
 							>
 								<Icon icon={tablerX} width="13" height="13" />
 								Clear search

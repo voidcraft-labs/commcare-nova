@@ -174,7 +174,7 @@ export function CardShell({
 								onMove === undefined ? undefined : "ArrowUp ArrowDown Home End"
 							}
 							onKeyDown={(event) => handleReorderKey(event, onMove)}
-							className="cursor-grab rounded-md text-nova-text-muted not-disabled:hover:bg-white/[0.04] not-disabled:hover:text-nova-text"
+							className="cursor-grab rounded-md text-nova-text-muted not-disabled:hover:bg-white/[0.04]"
 						>
 							<Icon icon={tablerGripVertical} width="16" height="16" />
 						</Button>
@@ -316,7 +316,7 @@ export function PredicateRowShell({
 							onMove === undefined ? undefined : "ArrowUp ArrowDown Home End"
 						}
 						onKeyDown={(event) => handleReorderKey(event, onMove)}
-						className="absolute inset-y-0 left-0 h-auto w-11 cursor-grab rounded-l-md rounded-r-none text-nova-text-muted not-disabled:hover:bg-white/[0.04] not-disabled:hover:text-nova-text"
+						className="absolute inset-y-0 left-0 h-auto w-11 cursor-grab rounded-l-md rounded-r-none text-nova-text-muted not-disabled:hover:bg-white/[0.04]"
 					>
 						<Icon icon={tablerGripVertical} width="16" height="16" />
 					</Button>

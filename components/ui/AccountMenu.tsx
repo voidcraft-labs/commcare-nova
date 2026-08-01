@@ -234,7 +234,7 @@ export function AccountMenu({
 								setOpen(false);
 								setFileManagerOpen(true);
 							}}
-							className="w-full justify-start gap-2.5 rounded-none px-3 text-nova-text-secondary not-disabled:hover:bg-white/[0.06] not-disabled:hover:text-nova-text dark:not-disabled:hover:bg-white/[0.06]"
+							className="w-full justify-start gap-2.5 rounded-none px-3 dark:not-disabled:hover:bg-white/[0.06]"
 						>
 							<Icon icon={tablerFiles} width="16" height="16" />
 							Files
@@ -247,7 +247,7 @@ export function AccountMenu({
 							role="link"
 							variant="ghost"
 							onClick={() => setOpen(false)}
-							className="w-full justify-start gap-2.5 rounded-none px-3 text-nova-text-secondary not-disabled:hover:bg-white/[0.06] not-disabled:hover:text-nova-text dark:not-disabled:hover:bg-white/[0.06]"
+							className="w-full justify-start gap-2.5 rounded-none px-3 dark:not-disabled:hover:bg-white/[0.06]"
 						>
 							<Icon icon={tablerSettings} width="16" height="16" />
 							Settings
@@ -265,7 +265,7 @@ export function AccountMenu({
 									signOut();
 									setOpen(false);
 								}}
-								className="w-full justify-start gap-2.5 rounded-t-none rounded-b-xl px-3 text-nova-text-secondary not-disabled:hover:bg-nova-rose/[0.06] not-disabled:hover:text-nova-rose dark:not-disabled:hover:bg-nova-rose/[0.06]"
+								className="w-full justify-start gap-2.5 rounded-t-none rounded-b-xl px-3 not-disabled:hover:bg-nova-rose/[0.06] not-disabled:hover:text-nova-rose dark:not-disabled:hover:bg-nova-rose/[0.06]"
 							>
 								<Icon
 									icon={tablerLogout}

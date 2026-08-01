@@ -43,7 +43,7 @@ export function StructureSidebar() {
 					onClick={() => setSidebarOpen("structure", false)}
 					aria-label="Collapse structure sidebar"
 					data-builder-sidebar-toggle="collapse-structure"
-					className="text-nova-text-muted hover:bg-white/[0.05] hover:text-nova-text"
+					className="text-nova-text-muted hover:bg-white/[0.05]"
 				>
 					<Icon icon={tablerLayoutSidebarLeftCollapse} width="17" height="17" />
 				</Button>

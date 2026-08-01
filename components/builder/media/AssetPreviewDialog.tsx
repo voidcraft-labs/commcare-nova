@@ -189,12 +189,7 @@ function PreviewBody({ target }: { target: AssetPreviewTarget }) {
 					)}
 				</div>
 				<DialogClose
-					render={
-						<Button
-							variant="ghost"
-							className="shrink-0 px-3 text-nova-text-secondary"
-						/>
-					}
+					render={<Button variant="ghost" className="shrink-0 px-3" />}
 				>
 					<Icon icon={tablerX} className="size-4" />
 					Close

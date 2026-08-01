@@ -37,7 +37,7 @@ export function HiddenItemsReveal({
 				variant="ghost"
 				aria-expanded={open}
 				onClick={() => setOpen((v) => !v)}
-				className="gap-2 rounded-md px-2 py-1.5 text-[13px] text-nova-text-muted not-disabled:hover:text-nova-text"
+				className="gap-2 rounded-md px-2 py-1.5 text-[13px] text-nova-text-muted"
 			>
 				<Icon
 					icon={open ? tablerChevronDown : tablerChevronRight}

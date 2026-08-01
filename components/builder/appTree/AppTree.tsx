@@ -104,7 +104,7 @@ export function AppTree() {
 								disabled={locked}
 								aria-label="Clear search"
 								onClick={() => setSearchQuery("")}
-								className="absolute right-0 top-1/2 -translate-y-1/2 text-nova-text-muted not-disabled:hover:text-nova-text"
+								className="absolute right-0 top-1/2 -translate-y-1/2 text-nova-text-muted"
 							>
 								<Icon icon={tablerX} />
 							</Button>

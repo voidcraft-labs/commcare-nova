@@ -476,7 +476,7 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 								aria-pressed={filter === value}
 								disabled={count === 0 && value === "dismissed"}
 								onClick={() => setFilter(value)}
-								className={`rounded-full border px-4 text-[13px] ${filter === value ? "border-nova-border-bright bg-nova-violet/[0.12] text-nova-text" : "border-nova-border text-nova-text-secondary not-disabled:hover:border-nova-border-bright"}`}
+								className={`rounded-full border px-4 text-[13px] ${filter === value ? "border-nova-border-bright bg-nova-violet/[0.12] text-nova-text" : "border-nova-border not-disabled:hover:border-nova-border-bright"}`}
 							>
 								{label} · {count}
 							</Button>
@@ -589,7 +589,7 @@ function ReviewCaseCard({
 				<Button
 					type="button"
 					variant="ghost"
-					className="text-[13px] text-nova-text-secondary"
+					className="text-[13px]"
 					onClick={onViewCase}
 				>
 					<Icon icon={tablerEye} width="15" height="15" />
@@ -741,7 +741,7 @@ function ReviewEntryRow({
 									<Button
 										type="button"
 										variant="ghost"
-										className="text-[13px] text-nova-text-secondary"
+										className="text-[13px]"
 										disabled={busy}
 										onClick={onDismiss}
 									>

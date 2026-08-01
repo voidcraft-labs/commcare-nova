@@ -353,7 +353,7 @@ export function ChatInput({
 										}}
 										disabled={disabled || answerPending}
 										aria-label="Attach a file"
-										className="text-nova-text-muted not-disabled:hover:bg-white/[0.06] not-disabled:hover:text-nova-text"
+										className="text-nova-text-muted"
 									>
 										<Icon icon={tablerPaperclip} className="size-4" />
 									</Button>

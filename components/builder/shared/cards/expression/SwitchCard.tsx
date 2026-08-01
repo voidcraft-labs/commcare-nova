@@ -433,7 +433,7 @@ function CaseRow({
 							event.preventDefault();
 							onMove(event.key);
 						}}
-						className="cursor-grab rounded-md text-nova-text-muted not-disabled:hover:bg-white/[0.04] not-disabled:hover:text-nova-text"
+						className="cursor-grab rounded-md text-nova-text-muted not-disabled:hover:bg-white/[0.04]"
 					>
 						<Icon icon={tablerGripVertical} width="16" height="16" />
 					</Button>

@@ -203,7 +203,7 @@ export function CaseOperationDetailCanvas({
 					type="button"
 					variant="ghost"
 					onClick={backToList}
-					className="-ml-2 text-nova-text-secondary"
+					className="-ml-2"
 				>
 					<Icon icon={tablerArrowLeft} width="16" height="16" />
 					All case changes

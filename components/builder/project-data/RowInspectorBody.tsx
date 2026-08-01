@@ -285,7 +285,7 @@ export function RowInspectorBody({
 							ref={triggerRef}
 							type="button"
 							variant="ghost"
-							className="gap-2 text-nova-text-muted hover:text-nova-text"
+							className="gap-2 text-nova-text-muted"
 							disabled={saving || deleting || dirty}
 							onClick={() => setConfirmingDelete(true)}
 						>

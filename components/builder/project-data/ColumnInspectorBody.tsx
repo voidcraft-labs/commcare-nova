@@ -302,7 +302,7 @@ export function ColumnInspectorBody({
 						type="button"
 						variant="ghost"
 						disabled={lastColumn || settingWrite !== null}
-						className="gap-2 text-nova-text-muted not-disabled:hover:text-nova-text"
+						className="gap-2 text-nova-text-muted"
 						onClick={() =>
 							setPending({
 								kind: "remove",

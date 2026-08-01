@@ -206,7 +206,7 @@ export function TableActions({
 						<Button
 							type="button"
 							variant="ghost"
-							className="gap-2 text-nova-text-muted hover:text-nova-text"
+							className="gap-2 text-nova-text-muted"
 							disabled={tableBusy}
 							onClick={() => setDeleting(table.tableRevision)}
 						>

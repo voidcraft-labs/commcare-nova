@@ -470,7 +470,7 @@ export function AddSearchFieldControl({
 					type="button"
 					variant="outline"
 					data-case-add-search-field
-					className="mb-1 mt-3 w-full gap-2 rounded-lg border-dashed border-nova-border-bright bg-transparent px-4 text-sm text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.06] dark:bg-transparent dark:not-disabled:hover:bg-nova-violet/[0.06]"
+					className="mb-1 mt-3 w-full gap-2 rounded-lg border-dashed bg-transparent px-4 text-sm text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.06] dark:bg-transparent dark:not-disabled:hover:bg-nova-violet/[0.06]"
 				/>
 			}
 			triggerLabel="Add search field"
@@ -566,7 +566,7 @@ function InputRow({
 						}}
 						aria-keyshortcuts="ArrowUp ArrowDown Home End"
 						aria-label={`Move ${label} in Search. Position ${position} of ${total}. Use arrow keys or drag.`}
-						className="nova-focusable-inset h-auto w-11 shrink-0 cursor-grab rounded-l-xl rounded-r-none px-0 text-nova-text-muted hover:bg-white/[0.035] hover:text-nova-text dark:hover:bg-white/[0.035]"
+						className="nova-focusable-inset h-auto w-11 shrink-0 cursor-grab rounded-l-xl rounded-r-none px-0 text-nova-text-muted hover:bg-white/[0.035] dark:hover:bg-white/[0.035]"
 					>
 						<Icon icon={tablerGripVertical} width="17" height="17" />
 					</Button>

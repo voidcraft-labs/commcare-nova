@@ -56,7 +56,7 @@ export function ProjectDataTableScreen() {
 			variant="ghost"
 			onClick={() => navigate.openProjectData()}
 			data-project-data-focus-fallback
-			className="-ml-2 gap-2 text-[13px] text-nova-text-muted hover:text-nova-text"
+			className="-ml-2 gap-2 text-[13px] text-nova-text-muted"
 		>
 			<Icon icon={tablerArrowLeft} width="16" height="16" aria-hidden="true" />
 			All data tables

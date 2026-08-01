@@ -30,7 +30,7 @@ export function ChatRail({ onExpand }: { onExpand: () => void }) {
 						onClick={onExpand}
 						aria-label="Expand chat sidebar"
 						data-builder-sidebar-toggle="expand-chat"
-						className="text-nova-text-muted not-disabled:hover:bg-white/[0.05] not-disabled:hover:text-nova-text"
+						className="text-nova-text-muted not-disabled:hover:bg-white/[0.05]"
 					>
 						<Icon
 							icon={tablerLayoutSidebarRightExpand}

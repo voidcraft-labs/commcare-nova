@@ -576,7 +576,7 @@ export function BuilderContentArea({
 						variant="ghost"
 						onClick={expandStructure}
 						aria-label="Open app structure"
-						className="min-w-0 gap-2 px-3 text-nova-text-secondary not-disabled:hover:bg-white/[0.05] not-disabled:hover:text-nova-text"
+						className="min-w-0 gap-2 px-3 not-disabled:hover:bg-white/[0.05]"
 					>
 						<Icon icon={tablerLayoutSidebarLeftExpand} width="18" height="18" />
 						<span>App</span>
@@ -586,7 +586,7 @@ export function BuilderContentArea({
 						variant="ghost"
 						onClick={expandChat}
 						aria-label="Open chat"
-						className="min-w-0 gap-2 px-3 text-nova-text-secondary not-disabled:hover:bg-white/[0.05] not-disabled:hover:text-nova-text"
+						className="min-w-0 gap-2 px-3 not-disabled:hover:bg-white/[0.05]"
 					>
 						<Icon icon={tablerMessageChatbot} width="18" height="18" />
 						<span>Chat</span>

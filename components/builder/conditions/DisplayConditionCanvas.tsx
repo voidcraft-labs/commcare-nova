@@ -96,7 +96,7 @@ export function DisplayConditionCanvas({
 				type="button"
 				variant="ghost"
 				onClick={back}
-				className="-ml-2 mb-5 text-nova-text-secondary"
+				className="-ml-2 mb-5"
 			>
 				<Icon icon={tablerArrowLeft} width="16" height="16" />
 				{copy.backLabel}

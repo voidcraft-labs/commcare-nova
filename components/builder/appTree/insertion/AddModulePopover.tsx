@@ -157,7 +157,7 @@ export function AddModulePopover({
 										setStep("choose");
 										setError(null);
 									}}
-									className="w-full justify-start gap-1 px-2 text-sm text-nova-text-muted hover:text-nova-text"
+									className="w-full justify-start gap-1 px-2 text-sm text-nova-text-muted"
 								>
 									<Icon icon={tablerChevronLeft} width="12" height="12" />
 									Back to module choices
@@ -191,7 +191,7 @@ function ArchetypeRow({
 			type="button"
 			variant="ghost"
 			onClick={onClick}
-			className="h-auto min-h-14 w-full justify-start gap-2.5 whitespace-normal px-2.5 py-2 text-left hover:bg-white/[0.06]"
+			className="h-auto min-h-14 w-full justify-start gap-2.5 whitespace-normal px-2.5 py-2 text-left"
 		>
 			<div className="w-7 h-7 shrink-0 rounded-lg bg-nova-violet/10 flex items-center justify-center">
 				<Icon

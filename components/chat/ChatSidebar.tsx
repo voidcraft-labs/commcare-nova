@@ -501,7 +501,7 @@ export function ChatSidebar({
 										data-builder-sidebar-toggle="collapse-chat"
 										variant="ghost"
 										size="icon"
-										className="text-nova-text-muted not-disabled:hover:text-nova-text"
+										className="text-nova-text-muted"
 									>
 										<Icon icon={tablerLayoutSidebarRightCollapse} />
 									</Button>
@@ -516,7 +516,7 @@ export function ChatSidebar({
 										onClick={handleNewChat}
 										disabled={interactionBlocked || openingThreadId !== null}
 										variant="ghost"
-										className="justify-start text-nova-text-secondary not-disabled:hover:text-nova-text"
+										className="justify-start"
 									>
 										<Icon icon={tablerMessagePlus} />
 										New chat
@@ -528,7 +528,7 @@ export function ChatSidebar({
 									disabled={interactionBlocked || openingThreadId !== null}
 									aria-pressed={listVisible}
 									variant="ghost"
-									className="justify-start text-nova-text-secondary not-disabled:hover:text-nova-text aria-pressed:bg-nova-violet/10 aria-pressed:text-nova-violet-bright"
+									className="justify-start aria-pressed:bg-nova-violet/10 aria-pressed:text-nova-violet-bright"
 								>
 									<Icon
 										icon={listVisible ? tablerMessageCircle : tablerHistory}

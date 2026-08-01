@@ -152,7 +152,7 @@ export function CaseOperationRow({
 						}}
 						aria-keyshortcuts="ArrowUp ArrowDown Home End"
 						aria-label={`Move ${operation.id}. Runs ${position} of ${total}. Use arrow keys or drag.`}
-						className="nova-focusable-inset h-auto w-11 shrink-0 cursor-grab rounded-l-xl rounded-r-none px-0 text-nova-text-muted hover:bg-white/[0.035] hover:text-nova-text dark:hover:bg-white/[0.035]"
+						className="nova-focusable-inset h-auto w-11 shrink-0 cursor-grab rounded-l-xl rounded-r-none px-0 text-nova-text-muted hover:bg-white/[0.035] dark:hover:bg-white/[0.035]"
 					>
 						<Icon icon={tablerGripVertical} width="17" height="17" />
 					</Button>

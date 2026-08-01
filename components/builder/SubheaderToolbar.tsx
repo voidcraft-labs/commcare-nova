@@ -182,7 +182,7 @@ function BreadcrumbPathMenu({
 							part.onClick();
 							onOpenChange(false);
 						}}
-						className="h-auto min-h-11 w-full justify-start rounded-lg px-3 py-2 text-left text-sm text-nova-text-muted hover:text-nova-text"
+						className="h-auto min-h-11 w-full justify-start rounded-lg px-3 py-2 text-left text-sm text-nova-text-muted"
 					>
 						<span className="min-w-0 flex-1 break-words whitespace-normal">
 							{part.label}

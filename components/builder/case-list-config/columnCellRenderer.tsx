@@ -562,7 +562,7 @@ function renderPreviewValue(value: PreviewFormattedValue): React.ReactNode {
 					<Button
 						type="button"
 						variant="link"
-						className="h-auto min-h-11 min-w-11 max-w-full justify-start whitespace-normal rounded-sm p-0 text-left font-normal text-inherit underline decoration-dotted decoration-nova-text-muted underline-offset-4 [overflow-wrap:anywhere]"
+						className="h-auto min-h-11 min-w-11 max-w-full justify-start whitespace-normal rounded-sm p-0 text-left font-normal text-inherit underline decoration-dotted decoration-nova-text-muted [overflow-wrap:anywhere]"
 					/>
 				}
 				aria-label={`${value.text}. More information`}

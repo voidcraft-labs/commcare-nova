@@ -84,7 +84,7 @@ export function TreeRowDelete({
 						e.stopPropagation();
 						setArmed(false);
 					}}
-					className="text-nova-text-muted hover:bg-white/[0.06] hover:text-nova-text"
+					className="text-nova-text-muted"
 				>
 					<Icon icon={tablerX} width="16" height="16" />
 				</Button>

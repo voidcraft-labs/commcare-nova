@@ -777,7 +777,7 @@ function WorkbenchNavigation({
 				variant="ghost"
 				onClick={() => onReturn(parentPath, activePath)}
 				aria-label={`Back to ${parentLabel.toLocaleLowerCase()}`}
-				className="shrink-0 self-start text-nova-text-secondary"
+				className="shrink-0 self-start"
 			>
 				<Icon icon={tablerArrowLeft} />
 				Back
@@ -1420,7 +1420,7 @@ function PredicateRowActions({
 							type="button"
 							variant="ghost"
 							aria-label={triggerLabel}
-							className="px-3 text-sm text-nova-text-muted not-disabled:hover:bg-white/[0.04] not-disabled:hover:text-nova-text"
+							className="px-3 text-sm text-nova-text-muted not-disabled:hover:bg-white/[0.04]"
 						/>
 					}
 				>

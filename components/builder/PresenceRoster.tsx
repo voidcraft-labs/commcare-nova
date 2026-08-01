@@ -289,7 +289,7 @@ function PeerAvatar({ peer, onFollow }: { peer: Peer; onFollow: () => void }) {
 				variant="ghost"
 				onClick={onFollow}
 				aria-label={`Follow ${peer.name || "collaborator"}`}
-				className="size-11 rounded-full bg-transparent p-0 not-disabled:hover:bg-transparent"
+				className="size-11 rounded-full p-0 not-disabled:hover:bg-transparent"
 			>
 				<span
 					className={`flex size-7 items-center justify-center rounded-full ring-2 ${peer.peerColor.ring} ring-offset-1 ring-offset-nova-void transition-transform group-hover/button:scale-110`}
