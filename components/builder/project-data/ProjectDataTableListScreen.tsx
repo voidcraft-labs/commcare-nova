@@ -54,7 +54,7 @@ export function ProjectDataTableListScreen() {
 				<Button
 					type="button"
 					variant="outline"
-					className="mt-4 min-h-11 gap-2"
+					className="mt-4 gap-2"
 					onClick={() => setCreating(true)}
 				>
 					<Icon icon={tablerPlus} width="16" height="16" aria-hidden="true" />
@@ -105,7 +105,7 @@ export function ProjectDataTableListScreen() {
 									<Button
 										type="button"
 										variant="outline"
-										className="min-h-11 shrink-0"
+										className="shrink-0"
 										onClick={() => workspace.openRetainedRow(retained)}
 									>
 										Review

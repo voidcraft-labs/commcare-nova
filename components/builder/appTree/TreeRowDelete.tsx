@@ -70,7 +70,7 @@ export function TreeRowDelete({
 						e.stopPropagation();
 						if (!onDelete()) setArmed(false);
 					}}
-					className="h-11 rounded-lg px-3 text-xs"
+					className="rounded-lg px-3 text-xs"
 				>
 					Delete
 				</Button>
@@ -84,7 +84,7 @@ export function TreeRowDelete({
 						e.stopPropagation();
 						setArmed(false);
 					}}
-					className="size-11 text-nova-text-muted hover:bg-white/[0.06] hover:text-nova-text"
+					className="text-nova-text-muted hover:bg-white/[0.06] hover:text-nova-text"
 				>
 					<Icon icon={tablerX} width="16" height="16" />
 				</Button>
@@ -106,7 +106,7 @@ export function TreeRowDelete({
 					restoreFocusRef.current = true;
 					setArmed(true);
 				}}
-				className="size-11 shrink-0 text-nova-text-muted opacity-0 hover:bg-nova-rose/[0.08] hover:text-nova-rose focus-visible:opacity-100 group-hover:opacity-100"
+				className="shrink-0 text-nova-text-muted opacity-0 hover:bg-nova-rose/[0.08] hover:text-nova-rose focus-visible:opacity-100 group-hover:opacity-100"
 			>
 				<Icon icon={tablerTrash} width="16" height="16" />
 			</Button>

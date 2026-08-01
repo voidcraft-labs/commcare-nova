@@ -138,7 +138,7 @@ function CaseUnavailableNotice({
 					type="button"
 					variant="ghost"
 					onClick={onRetry}
-					className="min-h-11 gap-1.5 rounded-md px-2 text-[13px] text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.08] not-disabled:hover:text-nova-violet-bright"
+					className="gap-1.5 rounded-md px-2 text-[13px] text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.08] not-disabled:hover:text-nova-violet-bright"
 				>
 					<Icon icon={tablerRefresh} width="14" height="14" />
 					Try again

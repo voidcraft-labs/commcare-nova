@@ -254,7 +254,7 @@ export function DraftLinesField({
 					variant="ghost"
 					disabled={disabled || !dirty}
 					onClick={commit}
-					className="min-h-11 shrink-0 text-nova-violet-bright"
+					className="shrink-0 text-nova-violet-bright"
 				>
 					Apply accepted values
 				</Button>

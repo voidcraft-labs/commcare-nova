@@ -56,7 +56,7 @@ export function ProjectDataTableScreen() {
 			variant="ghost"
 			onClick={() => navigate.openProjectData()}
 			data-project-data-focus-fallback
-			className="-ml-2 min-h-11 gap-2 text-[13px] text-nova-text-muted hover:text-nova-text"
+			className="-ml-2 gap-2 text-[13px] text-nova-text-muted hover:text-nova-text"
 		>
 			<Icon icon={tablerArrowLeft} width="16" height="16" aria-hidden="true" />
 			All data tables
@@ -105,7 +105,7 @@ export function ProjectDataTableScreen() {
 							<Button
 								type="button"
 								variant="outline"
-								className="min-h-11"
+								className=""
 								onClick={workspace.openPendingDraft}
 							>
 								Review{" "}
@@ -167,7 +167,7 @@ export function ProjectDataTableScreen() {
 					<Button
 						type="button"
 						variant="ghost"
-						className="min-h-11"
+						className=""
 						onClick={workspace.openPendingDraft}
 					>
 						Review row work
@@ -433,7 +433,7 @@ function TableGrid({
 										variant="ghost"
 										data-project-data-row-open={row.id}
 										onClick={() => onSelectRow(row.id)}
-										className="min-h-11 whitespace-nowrap text-[13px] text-nova-violet-bright"
+										className="whitespace-nowrap text-[13px] text-nova-violet-bright"
 									>
 										Open
 										<span className="sr-only"> row {rowLabel(table, row)}</span>
@@ -453,7 +453,7 @@ function TableGrid({
 					<Button
 						type="button"
 						variant="outline"
-						className="min-h-11"
+						className=""
 						disabled={currentPage === 0}
 						onClick={() => setPage(currentPage - 1)}
 					>
@@ -472,7 +472,7 @@ function TableGrid({
 					<Button
 						type="button"
 						variant="outline"
-						className="min-h-11"
+						className=""
 						disabled={currentPage >= pageCount - 1}
 						onClick={() => setPage(currentPage + 1)}
 					>

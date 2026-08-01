@@ -468,7 +468,7 @@ function AttachButton({
 			type="button"
 			variant="outline"
 			onClick={onClick}
-			className="h-11 self-start border-dashed px-3 text-sm text-nova-text-secondary not-disabled:hover:border-nova-violet not-disabled:hover:text-nova-text"
+			className="self-start border-dashed px-3 text-sm text-nova-text-secondary not-disabled:hover:border-nova-violet not-disabled:hover:text-nova-text"
 		>
 			<Icon icon={tablerPaperclip} className="size-4" />
 			{label}
@@ -548,7 +548,7 @@ export function StagedUploadChip({
 							? `Dismiss failed upload of ${upload.filename}`
 							: `Cancel upload of ${upload.filename}`
 					}
-					className="size-11 shrink-0 text-nova-text-muted not-disabled:hover:text-nova-rose"
+					className="shrink-0 text-nova-text-muted not-disabled:hover:text-nova-rose"
 				>
 					<Icon icon={tablerX} className="size-4" />
 				</Button>
@@ -582,7 +582,7 @@ function AssetChip({
 					render={
 						<Button
 							variant="ghost"
-							className="h-11 gap-2 px-1.5 text-nova-text-secondary"
+							className="gap-2 px-1.5 text-nova-text-secondary"
 						/>
 					}
 					aria-label={`Preview ${noun}`}
@@ -608,7 +608,7 @@ function AssetChip({
 							size="icon"
 							onClick={onReplace}
 							aria-label={`Replace ${noun}`}
-							className="size-11 text-nova-text-muted"
+							className="text-nova-text-muted"
 						>
 							<Icon icon={tablerReplace} className="size-4" />
 						</Button>
@@ -620,7 +620,7 @@ function AssetChip({
 							size="icon"
 							onClick={onRemove}
 							aria-label={`Remove ${noun}`}
-							className="size-11 text-nova-text-muted not-disabled:hover:text-nova-rose"
+							className="text-nova-text-muted not-disabled:hover:text-nova-rose"
 						>
 							<Icon icon={tablerTrash} className="size-4" />
 						</Button>

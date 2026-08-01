@@ -523,7 +523,7 @@ export function CaseWriteEditor<F extends Field>(
 						<Button
 							type="button"
 							variant="ghost"
-							className="min-h-11"
+							className=""
 							onClick={() => {
 								setCreating(false);
 								requestAnimationFrame(() => triggerRef.current?.focus());
@@ -533,7 +533,7 @@ export function CaseWriteEditor<F extends Field>(
 						</Button>
 						<Button
 							type="button"
-							className="min-h-11"
+							className=""
 							disabled={!canCreate}
 							onClick={() => {
 								if (!parsedNewName.success) return;

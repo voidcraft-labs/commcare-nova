@@ -66,11 +66,7 @@ export function ThreadList({
 							disabled={disabled || openingThreadId !== null}
 							aria-current={active ? "true" : undefined}
 							aria-busy={opening || undefined}
-							className={`nova-focusable-inset relative h-auto min-h-11 w-full flex-col items-stretch gap-0 whitespace-normal rounded-none border-b border-nova-border px-4 py-3 text-left focus-visible:z-10 ${
-								active
-									? "bg-nova-violet/[0.08] before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-nova-violet"
-									: "not-disabled:hover:bg-nova-surface/40"
-							}`}
+							className={`nova-focusable-inset relative h-auto min-h-11 w-full flex-col items-stretch gap-0 whitespace-normal rounded-none border-b border-nova-border px-4 py-3 text-left focus-visible:z-10 ${active ? "bg-nova-violet/[0.08] before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-nova-violet" : "not-disabled:hover:bg-nova-surface/40"}`}
 						>
 							<div className="flex items-start gap-2">
 								<Icon

@@ -885,7 +885,7 @@ function FocusedStructure({
 								type="button"
 								variant="destructive"
 								onClick={onRemove}
-								className="min-h-11 w-full shrink-0 justify-start px-3 text-sm @sm:w-auto @sm:justify-center"
+								className="w-full shrink-0 justify-start px-3 text-sm @sm:w-auto @sm:justify-center"
 							>
 								{removeLabel}
 							</Button>

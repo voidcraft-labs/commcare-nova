@@ -192,7 +192,7 @@ function PreviewBody({ target }: { target: AssetPreviewTarget }) {
 					render={
 						<Button
 							variant="ghost"
-							className="h-11 shrink-0 px-3 text-nova-text-secondary"
+							className="shrink-0 px-3 text-nova-text-secondary"
 						/>
 					}
 				>
@@ -343,7 +343,7 @@ function DownloadOriginal({
 			<Button
 				nativeButton={false}
 				render={<a href={src} download={name} />}
-				className="h-11 px-4"
+				className="px-4"
 			>
 				<Icon icon={tablerDownload} className="size-4" />
 				Download original
@@ -497,7 +497,7 @@ function ExtractStatePanel({
 			<Button
 				type="button"
 				variant="outline"
-				className="h-11 px-4"
+				className="px-4"
 				onClick={onAction}
 			>
 				{action}

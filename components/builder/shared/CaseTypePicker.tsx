@@ -228,11 +228,7 @@ export function CaseTypePickerContent({
 										? `${display.label}, saved as ${ct.name}`
 										: display.label
 								}
-								className={`${ROW_BASE} ${
-									active
-										? "bg-nova-violet/10 text-nova-violet-bright not-disabled:hover:bg-nova-violet/15"
-										: "text-nova-text not-disabled:hover:bg-white/[0.06]"
-								}`}
+								className={`${ROW_BASE} ${active ? "bg-nova-violet/10 text-nova-violet-bright not-disabled:hover:bg-nova-violet/15" : "text-nova-text not-disabled:hover:bg-white/[0.06]"}`}
 							>
 								<Icon
 									icon={tablerDatabase}
@@ -307,7 +303,7 @@ export function CaseTypePickerContent({
 						disabled={
 							!verdict.ok || excludedCandidate || !candidateChoiceVerdict.ok
 						}
-						className="min-h-11 w-full gap-1 bg-nova-violet/15 px-3 text-sm text-nova-violet-bright not-disabled:hover:bg-nova-violet/25"
+						className="w-full gap-1 bg-nova-violet/15 px-3 text-sm text-nova-violet-bright not-disabled:hover:bg-nova-violet/25"
 					>
 						<Icon icon={tablerPlus} width="15" height="15" />
 						Create

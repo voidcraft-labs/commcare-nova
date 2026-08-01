@@ -180,7 +180,7 @@ export function XPathEditor<F extends Field, K extends XPathExpressionKeys<F>>(
 			{showValidateMsgEditor && (
 				<div className="mt-1">
 					<RefLabelInput
-						label="Validation Message"
+						label="Validation message"
 						dataFieldId="validate_msg"
 						value={validateMsg ?? { parts: [] }}
 						onSave={saveValidateMsg}
@@ -195,7 +195,7 @@ export function XPathEditor<F extends Field, K extends XPathExpressionKeys<F>>(
 			{showValidateMsgPill && (
 				<div className="mt-1">
 					<AddPropertyButton
-						label="Validation Message"
+						label="Validation message"
 						onClick={() => setAddingMsg(true)}
 					/>
 				</div>

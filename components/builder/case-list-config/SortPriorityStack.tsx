@@ -391,7 +391,7 @@ export function CaseOrderingComposer({
 													? "Change default order"
 													: "View full default order"
 									}
-									className="min-h-11 w-full shrink-0 px-3 text-[14px] text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.08] dark:not-disabled:hover:bg-nova-violet/[0.08] @min-[28rem]:w-auto"
+									className="w-full shrink-0 px-3 text-[14px] text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.08] dark:not-disabled:hover:bg-nova-violet/[0.08] @min-[28rem]:w-auto"
 								/>
 							}
 						>
@@ -663,7 +663,7 @@ function CaseOrderingRuleRow({
 						size="icon"
 						onClick={onRemove}
 						aria-label={`Remove ${label} from default order`}
-						className="min-h-11 w-11 rounded-l-none rounded-r-lg text-nova-text-muted not-disabled:hover:bg-transparent not-disabled:hover:text-nova-rose dark:not-disabled:hover:bg-transparent"
+						className="w-11 rounded-l-none rounded-r-lg text-nova-text-muted not-disabled:hover:bg-transparent not-disabled:hover:text-nova-rose dark:not-disabled:hover:bg-transparent"
 					>
 						<Icon icon={tablerX} width="15" height="15" />
 					</Button>

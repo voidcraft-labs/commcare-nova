@@ -283,7 +283,7 @@ function MoreFormattingMenu({ editor }: { readonly editor: Editor }) {
 							type="button"
 							variant="ghost"
 							tabIndex={-1}
-							className="min-h-11 shrink-0 px-2 text-[14px] text-nova-text-secondary not-disabled:hover:bg-white/[0.04] not-disabled:hover:text-nova-text"
+							className="shrink-0 px-2 text-[14px] text-nova-text-secondary not-disabled:hover:bg-white/[0.04] not-disabled:hover:text-nova-text"
 						/>
 					}
 				>

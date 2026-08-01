@@ -76,11 +76,7 @@ export function AppSetupWorkspace({ section }: { section: AppSetupSection }) {
 									variant="ghost"
 									aria-current={active ? "page" : undefined}
 									onClick={() => navigate.openAppSetup(id)}
-									className={`h-11 min-w-0 shrink gap-2 rounded-lg px-2.5 text-[13px] font-medium @sm:px-3 ${
-										active
-											? "bg-nova-violet/[0.15] text-nova-violet-bright shadow-[inset_0_0_0_1px_rgba(150,120,242,0.35)]"
-											: "text-nova-text-muted hover:bg-white/[0.05] hover:text-nova-text"
-									}`}
+									className={`min-w-0 shrink gap-2 rounded-lg px-2.5 text-[13px] font-medium @sm:px-3 ${active ? "bg-nova-violet/[0.15] text-nova-violet-bright shadow-[inset_0_0_0_1px_rgba(150,120,242,0.35)]" : "text-nova-text-muted hover:bg-white/[0.05] hover:text-nova-text"}`}
 								>
 									<Icon
 										icon={SECTION_ICONS[id]}

@@ -113,7 +113,7 @@ export function ExtractionStatusBadgeView({
 				<Button
 					type="button"
 					variant="destructive"
-					className="h-11 px-3"
+					className="px-3"
 					onClick={retry}
 				>
 					<Icon icon={tablerAlertTriangle} />

@@ -278,7 +278,7 @@ export function LearnConfig({
 											required
 										/>
 										<InlineField
-											label="Time Estimate"
+											label="Time estimate"
 											value={String(lm.time_estimate)}
 											onChange={(v) =>
 												updateLearnModule(
@@ -313,7 +313,7 @@ export function LearnConfig({
 											multiline
 										/>
 										<DraftField
-											label="Time Estimate"
+											label="Time estimate"
 											value={stagedLearn.timeEstimate}
 											onChange={(v) =>
 												setStagedLearn((d) => d && { ...d, timeEstimate: v })
@@ -373,7 +373,7 @@ export function LearnConfig({
 									required
 								/>
 								<LabeledXPathField
-									label="User Score"
+									label="User score"
 									/* No `required` flag: the field is optional on the
 									 * domain and the wire layer substitutes the canonical
 									 * default expression when the doc carries no explicit

@@ -132,7 +132,7 @@ export function TableActions({
 						<Button
 							type="button"
 							variant="outline"
-							className="min-h-11 gap-2"
+							className="gap-2"
 							disabled={full !== undefined || tableBusy}
 							onClick={() => void addRow()}
 						>
@@ -147,7 +147,7 @@ export function TableActions({
 						<Button
 							type="button"
 							variant="outline"
-							className="min-h-11 gap-2"
+							className="gap-2"
 							disabled={tableBusy || projectId === undefined}
 							onClick={() => {
 								if (projectId === undefined) return;
@@ -169,7 +169,7 @@ export function TableActions({
 						<Button
 							type="button"
 							variant="outline"
-							className="min-h-11 gap-2"
+							className="gap-2"
 							disabled={tableBusy}
 							onClick={() => setImporting(true)}
 						>
@@ -184,7 +184,7 @@ export function TableActions({
 						<Button
 							type="button"
 							variant="ghost"
-							className="min-h-11"
+							className=""
 							disabled={settingWrite !== null}
 							onClick={() => setRenaming(true)}
 						>
@@ -197,7 +197,7 @@ export function TableActions({
 						<Button
 							type="button"
 							variant="ghost"
-							className="min-h-11"
+							className=""
 							disabled={settingWrite !== null}
 							onClick={() => setEditingTag(true)}
 						>
@@ -206,7 +206,7 @@ export function TableActions({
 						<Button
 							type="button"
 							variant="ghost"
-							className="min-h-11 gap-2 text-nova-text-muted hover:text-nova-text"
+							className="gap-2 text-nova-text-muted hover:text-nova-text"
 							disabled={tableBusy}
 							onClick={() => setDeleting(table.tableRevision)}
 						>
@@ -260,7 +260,7 @@ export function TableActions({
 						<Button
 							type="button"
 							variant="default"
-							className="min-h-11"
+							className=""
 							disabled={!name.dirty || name.conflicted || settingWrite !== null}
 							onClick={async () => {
 								if (
@@ -300,7 +300,7 @@ export function TableActions({
 						<Button
 							type="button"
 							variant="ghost"
-							className="min-h-11"
+							className=""
 							disabled={settingWrite !== null}
 							onClick={() => {
 								setName((current) => discardRevisionedTextDraft(current));
@@ -344,7 +344,7 @@ export function TableActions({
 						<Button
 							type="button"
 							variant="default"
-							className="min-h-11"
+							className=""
 							disabled={!tag.dirty || tag.conflicted || settingWrite !== null}
 							onClick={async () => {
 								if (
@@ -384,7 +384,7 @@ export function TableActions({
 						<Button
 							type="button"
 							variant="ghost"
-							className="min-h-11"
+							className=""
 							disabled={settingWrite !== null}
 							onClick={() => {
 								setTag((current) => discardRevisionedTextDraft(current));
@@ -522,7 +522,7 @@ function DraftDriftNotice({
 				<Button
 					type="button"
 					variant="ghost"
-					className="min-h-11"
+					className=""
 					disabled={disabled}
 					onClick={() => onChange(discardRevisionedTextDraft(draft))}
 				>
@@ -531,7 +531,7 @@ function DraftDriftNotice({
 				<Button
 					type="button"
 					variant="outline"
-					className="min-h-11"
+					className=""
 					disabled={disabled}
 					onClick={() => onChange(keepRevisionedTextDraft(draft))}
 				>

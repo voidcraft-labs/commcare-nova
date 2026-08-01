@@ -500,7 +500,7 @@ export function AddInformationControl({
 					type="button"
 					variant="outline"
 					data-case-add={surface}
-					className="min-h-11 w-full gap-2 rounded-lg border-dashed border-nova-border-bright bg-transparent px-4 text-sm text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.06] dark:bg-transparent dark:not-disabled:hover:bg-nova-violet/[0.06]"
+					className="w-full gap-2 rounded-lg border-dashed border-nova-border-bright bg-transparent px-4 text-sm text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.06] dark:bg-transparent dark:not-disabled:hover:bg-nova-violet/[0.06]"
 				/>
 			}
 			triggerLabel="Add information"
@@ -540,7 +540,7 @@ export function AddInformationControl({
 									clearSearch();
 									setMode("main");
 								}}
-								className="-ml-1 size-11 shrink-0 text-nova-text-muted not-disabled:hover:bg-white/[0.05] not-disabled:hover:text-nova-text dark:not-disabled:hover:bg-white/[0.05]"
+								className="-ml-1 shrink-0 text-nova-text-muted not-disabled:hover:bg-white/[0.05] not-disabled:hover:text-nova-text dark:not-disabled:hover:bg-white/[0.05]"
 							>
 								<Icon icon={tablerArrowLeft} width="15" height="15" />
 							</Button>

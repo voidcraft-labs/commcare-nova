@@ -428,7 +428,7 @@ export function TileGridEditor({
 											pendingCellFocusRef.current = entry.uuid;
 											onPlaceUnplaced(entry.uuid);
 										}}
-										className="min-h-11 gap-2 rounded-lg border-white/[0.10] bg-transparent px-3 text-[14px] dark:bg-transparent"
+										className="gap-2 rounded-lg border-white/[0.10] bg-transparent px-3 text-[14px] dark:bg-transparent"
 									>
 										<Icon icon={tablerPlus} width="14" height="14" />
 										{entry.reason === undefined

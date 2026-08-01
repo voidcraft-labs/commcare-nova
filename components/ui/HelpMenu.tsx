@@ -34,7 +34,7 @@ const DOCS_HREF =
 		: "https://docs.commcare.app/";
 
 const ITEM_CLS =
-	"flex w-full items-center gap-2.5 px-3 py-2 text-sm text-nova-text transition-colors hover:bg-white/[0.06] cursor-pointer";
+	"flex min-h-11 w-full items-center gap-2.5 px-3 text-sm text-nova-text transition-colors hover:bg-white/[0.06] cursor-pointer";
 
 export function HelpMenu() {
 	const [open, setOpen] = useState(false);
@@ -103,7 +103,7 @@ export function HelpMenu() {
 									height="16"
 									className="shrink-0 text-nova-text-muted"
 								/>
-								<span className="flex-1 text-left">Give Feedback</span>
+								<span className="flex-1 text-left">Give feedback</span>
 								<Icon
 									icon={externalLinkIcon}
 									width="14"

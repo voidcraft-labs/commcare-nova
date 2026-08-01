@@ -2,6 +2,7 @@
 import { Icon } from "@iconify/react/offline";
 import tablerX from "@iconify-icons/tabler/x";
 import { DisplayConditionSection } from "@/components/builder/conditions/DisplayConditionSection";
+import { Button } from "@/components/shadcn/button";
 import { AfterSubmitSection } from "./AfterSubmitSection";
 import { CaseChangesSection } from "./CaseChangesSection";
 import { CloseConditionSection } from "./CloseConditionSection";
@@ -34,15 +35,18 @@ export function FormSettingsPanel({
 			{/* Header */}
 			<div className="flex items-center justify-between px-3.5 py-2.5 border-b border-white/[0.06]">
 				<span className="text-xs font-medium text-nova-text-secondary">
-					Form Settings
+					Form settings
 				</span>
-				<button
+				<Button
 					type="button"
+					variant="ghost"
+					size="icon"
+					aria-label="Close form settings"
+					className="-mr-2"
 					onClick={onClose}
-					className="p-1 -mr-1 rounded-md text-nova-text-muted hover:text-nova-text hover:bg-white/[0.06] transition-colors cursor-pointer"
 				>
-					<Icon icon={tablerX} width="14" height="14" />
-				</button>
+					<Icon icon={tablerX} width="16" height="16" />
+				</Button>
 			</div>
 
 			{/* Content */}

@@ -301,7 +301,7 @@ export function CsvImportDialog({
 								<Button
 									type="button"
 									variant="outline"
-									className="mt-2 min-h-11"
+									className="mt-2"
 									disabled={busy}
 									onClick={() => void reviewAgainstLatest()}
 								>
@@ -342,7 +342,7 @@ export function CsvImportDialog({
 					<Button
 						type="button"
 						variant="outline"
-						className="min-h-11"
+						className=""
 						disabled={busy}
 						onClick={close}
 					>
@@ -351,7 +351,7 @@ export function CsvImportDialog({
 					<Button
 						type="button"
 						variant="destructive"
-						className="min-h-11"
+						className=""
 						disabled={
 							selection === undefined ||
 							!current ||

@@ -433,7 +433,7 @@ function CaseRow({
 							event.preventDefault();
 							onMove(event.key);
 						}}
-						className="size-11 cursor-grab rounded-md text-nova-text-muted not-disabled:hover:bg-white/[0.04] not-disabled:hover:text-nova-text"
+						className="cursor-grab rounded-md text-nova-text-muted not-disabled:hover:bg-white/[0.04] not-disabled:hover:text-nova-text"
 					>
 						<Icon icon={tablerGripVertical} width="16" height="16" />
 					</Button>
@@ -453,7 +453,7 @@ function CaseRow({
 								removeAndRestoreFocus(event.currentTarget, onRemove)
 							}
 							data-removal-action
-							className="size-11 rounded-md text-nova-text-muted not-disabled:hover:bg-nova-rose/[0.08] not-disabled:hover:text-nova-rose"
+							className="rounded-md text-nova-text-muted not-disabled:hover:bg-nova-rose/[0.08] not-disabled:hover:text-nova-rose"
 						>
 							<Icon icon={tablerTrash} width="13" height="13" />
 						</Button>

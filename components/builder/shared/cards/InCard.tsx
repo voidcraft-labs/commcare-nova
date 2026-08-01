@@ -259,7 +259,7 @@ function ValueRow({
 								removeAndRestoreFocus(event.currentTarget, onRemove)
 							}
 							data-removal-action
-							className="size-11 rounded-md text-nova-text-muted not-disabled:hover:bg-white/[0.05] not-disabled:hover:text-nova-rose dark:not-disabled:hover:bg-white/[0.05]"
+							className="rounded-md text-nova-text-muted not-disabled:hover:bg-white/[0.05] not-disabled:hover:text-nova-rose dark:not-disabled:hover:bg-white/[0.05]"
 						>
 							<Icon icon={tablerX} width="13" height="13" />
 						</Button>

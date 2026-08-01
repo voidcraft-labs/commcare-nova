@@ -5,7 +5,7 @@
  * The builder is deliberately OUTSIDE this group: it renders its own
  * chrome (`BuilderHeader`) with the document tools and the Preview
  * toggle, so it doesn't carry the site nav (Apps/Admin links, Docs,
- * Give Feedback) that has no job mid-build. Splitting at the route
+ * Give feedback) that has no job mid-build. Splitting at the route
  * group keeps the suppression structural — no pathname checks.
  */
 import { AppHeader } from "@/components/ui/AppHeader";

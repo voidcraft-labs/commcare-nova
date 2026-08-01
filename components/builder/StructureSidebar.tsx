@@ -43,7 +43,7 @@ export function StructureSidebar() {
 					onClick={() => setSidebarOpen("structure", false)}
 					aria-label="Collapse structure sidebar"
 					data-builder-sidebar-toggle="collapse-structure"
-					className="size-11 text-nova-text-muted hover:bg-white/[0.05] hover:text-nova-text"
+					className="text-nova-text-muted hover:bg-white/[0.05] hover:text-nova-text"
 				>
 					<Icon icon={tablerLayoutSidebarLeftCollapse} width="17" height="17" />
 				</Button>
@@ -129,11 +129,7 @@ function WorkspaceNavEntry({
 			variant="ghost"
 			aria-current={active ? "page" : undefined}
 			onClick={onClick}
-			className={`h-11 w-full justify-start gap-2.5 px-2.5 text-[13px] font-medium ${
-				active
-					? "bg-nova-violet/[0.15] text-nova-violet-bright shadow-[inset_0_0_0_1px_rgba(150,120,242,0.35)]"
-					: "text-nova-text-muted hover:bg-white/[0.05] hover:text-nova-text"
-			}`}
+			className={`w-full justify-start gap-2.5 px-2.5 text-[13px] font-medium ${active ? "bg-nova-violet/[0.15] text-nova-violet-bright shadow-[inset_0_0_0_1px_rgba(150,120,242,0.35)]" : "text-nova-text-muted hover:bg-white/[0.05] hover:text-nova-text"}`}
 		>
 			<Icon
 				icon={icon}

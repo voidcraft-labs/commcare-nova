@@ -1,6 +1,8 @@
 "use client";
 import { useState } from "react";
 import { ConnectLogomark } from "@/components/icons/ConnectLogomark";
+import { Badge } from "@/components/shadcn/badge";
+import { Button } from "@/components/shadcn/button";
 import { useConnectTypeOrUndefined } from "@/lib/doc/hooks/useConnectType";
 import { ConnectManagerDialog } from "./ConnectManagerDialog";
 
@@ -9,8 +11,8 @@ import { ConnectManagerDialog } from "./ConnectManagerDialog";
  * ("Connect" + the brand logomark), the app's Connect status
  * (Off / Learn / Deliver) as a chip, plus one button that opens the
  * {@link ConnectManagerDialog}. The manager owns the whole app-level story
- * — enabling, switching Learn ⇄ Deliver, choosing which forms participate,
- * editing them, and turning Connect off — so this row carries no toggle or
+ * (enabling, switching Learn to Deliver, choosing which forms participate,
+ * editing them, and turning Connect off) so this row carries no toggle or
  * mode pills of its own. (Per-form deep configuration still lives in each
  * form's own settings `ConnectSection`.)
  */
@@ -33,22 +35,16 @@ export function AppConnectSection() {
 					    quiet neutral when off — so status is the only thing that
 					    changes. The logomark lives in the label, not here. */}
 					{connectType ? (
-						<span className="flex h-[18px] items-center rounded border border-nova-violet/20 bg-nova-violet/15 px-1.5 text-[10px] font-medium capitalize text-nova-violet-bright">
+						<Badge variant="violet" className="capitalize">
 							{connectType}
-						</span>
+						</Badge>
 					) : (
-						<span className="flex h-[18px] items-center rounded border border-nova-border/60 bg-nova-surface px-1.5 text-[10px] font-medium text-nova-text-muted">
-							Off
-						</span>
+						<Badge variant="muted">Off</Badge>
 					)}
 				</div>
-				<button
-					type="button"
-					onClick={() => setOpen(true)}
-					className="cursor-pointer rounded-md border border-nova-border px-2 py-1 text-[11px] font-medium text-nova-text-secondary transition-colors hover:border-nova-violet/50 hover:text-nova-text"
-				>
+				<Button type="button" variant="ghost" onClick={() => setOpen(true)}>
 					{enabled ? "Manage" : "Set up"}
-				</button>
+				</Button>
 			</div>
 
 			{/* Always mounted so Base UI animates the open AND close. */}

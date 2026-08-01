@@ -476,7 +476,7 @@ export function CasePropertyRenameDialog({
 														<Button
 															type="button"
 															variant="outline"
-															className="min-h-11 shrink-0"
+															className="shrink-0"
 															onClick={() => addSource(caseType.name, property)}
 														>
 															<Icon icon={tablerEdit} />
@@ -623,7 +623,7 @@ export function CasePropertyRenameDialog({
 												type="button"
 												variant="ghost"
 												size="icon"
-												className="min-h-11 min-w-11 self-end text-nova-text-muted"
+												className="min-w-11 self-end text-nova-text-muted"
 												aria-label={`Remove rename for ${row.property}`}
 												onClick={() =>
 													setRows((current) =>

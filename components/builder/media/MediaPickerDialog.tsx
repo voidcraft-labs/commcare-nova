@@ -501,7 +501,7 @@ function PickerBody({
 					render={
 						<Button
 							variant="ghost"
-							className="h-11 shrink-0 px-3 text-nova-text-secondary"
+							className="shrink-0 px-3 text-nova-text-secondary"
 						/>
 					}
 				>
@@ -768,7 +768,7 @@ function UploadTab({
 				</div>
 				<Button
 					type="button"
-					className="h-11 px-4"
+					className="px-4"
 					onClick={() => inputRef.current?.click()}
 					disabled={status.state === "uploading"}
 				>
@@ -929,7 +929,7 @@ function LibraryTab({
 					<Button
 						type="button"
 						variant="outline"
-						className="h-11 shrink-0"
+						className="shrink-0"
 						onClick={retry}
 					>
 						Retry
@@ -1048,7 +1048,7 @@ function LibraryTab({
 												size="icon"
 												onClick={() => onPreview(asset)}
 												aria-label={`Preview ${fileName}`}
-												className="pointer-events-none absolute top-1 right-1 z-10 size-11 bg-nova-overlay text-nova-text-muted opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
+												className="pointer-events-none absolute top-1 right-1 z-10 bg-nova-overlay text-nova-text-muted opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
 											>
 												<Icon icon={tablerEye} className="size-4" />
 											</Button>
@@ -1066,7 +1066,7 @@ function LibraryTab({
 												size="icon"
 												onClick={() => onDelete(asset)}
 												aria-label={`Delete ${fileName}`}
-												className="pointer-events-none absolute top-1 left-1 z-10 size-11 bg-nova-overlay text-nova-text-muted opacity-0 not-disabled:hover:text-nova-rose group-hover:pointer-events-auto group-hover:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
+												className="pointer-events-none absolute top-1 left-1 z-10 bg-nova-overlay text-nova-text-muted opacity-0 not-disabled:hover:text-nova-rose group-hover:pointer-events-auto group-hover:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
 											>
 												<Icon icon={tablerTrash} className="size-4" />
 											</Button>
@@ -1111,7 +1111,7 @@ function LibraryTab({
 				<Button
 					type="button"
 					variant="outline"
-					className="h-11 self-center px-4"
+					className="self-center px-4"
 					onClick={loadMore}
 					disabled={isLoading}
 				>
@@ -1145,7 +1145,7 @@ function FilterChip({
 			variant={active ? "secondary" : "outline"}
 			aria-pressed={active}
 			onClick={onClick}
-			className="h-11 rounded-full px-4 text-sm"
+			className="rounded-full px-4 text-sm"
 		>
 			{children}
 		</Button>
@@ -1178,7 +1178,7 @@ function LibraryState({
 				<Button
 					type="button"
 					variant="outline"
-					className="h-11 px-4"
+					className="px-4"
 					onClick={onAction}
 				>
 					{action}

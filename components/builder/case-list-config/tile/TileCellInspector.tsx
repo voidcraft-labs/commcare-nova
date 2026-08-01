@@ -113,7 +113,7 @@ export function TileCellInspector({
 							setFocusPlaceOnMount(true);
 							onPutOnTile();
 						}}
-						className="min-h-11 w-full gap-2 rounded-lg border-white/[0.10] bg-transparent px-3 text-[14px] dark:bg-transparent"
+						className="w-full gap-2 rounded-lg border-white/[0.10] bg-transparent px-3 text-[14px] dark:bg-transparent"
 					>
 						<Icon icon={tablerLayoutGrid} width="15" height="15" />
 						Put it on the tile
@@ -313,7 +313,7 @@ function SavedPlaceSection({
 						type="button"
 						variant="outline"
 						onClick={onClearPlace}
-						className="min-h-11 w-full rounded-lg border-white/[0.10] bg-transparent px-3 text-[14px] dark:bg-transparent"
+						className="w-full rounded-lg border-white/[0.10] bg-transparent px-3 text-[14px] dark:bg-transparent"
 					>
 						Remove the saved place
 					</Button>

@@ -519,7 +519,7 @@ export function CaseDataManager({
 							<Button
 								type="button"
 								variant="outline"
-								className="mt-2.5 min-h-11 w-full"
+								className="mt-2.5 w-full"
 								onClick={() => {
 									setPopoverOpen(false);
 									// The review screen is an edit surface — in preview the
@@ -551,7 +551,7 @@ export function CaseDataManager({
 						<Button
 							type="button"
 							variant="outline"
-							className="mt-3 min-h-11 w-full"
+							className="mt-3 w-full"
 							onClick={() => {
 								setPopoverOpen(false);
 								setPropertiesOpen(true);
@@ -601,7 +601,7 @@ export function CaseDataManager({
 										<Button
 											type="button"
 											variant="outline"
-											className="mt-4 min-h-11 w-full"
+											className="mt-4 w-full"
 											disabled={loading}
 											onClick={() => void createSamples()}
 										>
@@ -623,7 +623,7 @@ export function CaseDataManager({
 										<Button
 											type="button"
 											variant="destructive"
-											className="mt-4 min-h-11 w-full"
+											className="mt-4 w-full"
 											disabled={loading}
 											onClick={() => {
 												setError(null);
@@ -655,7 +655,7 @@ export function CaseDataManager({
 								<Button
 									type="button"
 									variant="outline"
-									className="mt-3 min-h-11"
+									className="mt-3"
 									onClick={() => void retryCount()}
 								>
 									<Icon icon={tablerRefresh} />
@@ -671,7 +671,7 @@ export function CaseDataManager({
 								<Button
 									type="button"
 									variant="outline"
-									className="mt-3 min-h-11"
+									className="mt-3"
 									onClick={() => window.location.reload()}
 								>
 									<Icon icon={tablerRefresh} />

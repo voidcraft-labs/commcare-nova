@@ -917,7 +917,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 								type="button"
 								variant="ghost"
 								onClick={clearSearch}
-								className="ml-auto min-h-11 shrink-0 gap-1 rounded-md px-2 text-[14px] text-nova-text-muted not-disabled:hover:bg-transparent not-disabled:hover:text-nova-text"
+								className="ml-auto shrink-0 gap-1 rounded-md px-2 text-[14px] text-nova-text-muted not-disabled:hover:bg-transparent not-disabled:hover:text-nova-text"
 							>
 								<Icon icon={tablerX} width="13" height="13" />
 								Clear search
@@ -974,7 +974,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 				type="button"
 				variant="ghost"
 				onClick={closeCaseDetail}
-				className="-ml-2 mb-3 min-h-11 gap-1.5 rounded-md px-2 py-1.5 text-[14px] text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.08] not-disabled:hover:text-nova-violet-bright"
+				className="-ml-2 mb-3 gap-1.5 rounded-md px-2 py-1.5 text-[14px] text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.08] not-disabled:hover:text-nova-violet-bright"
 			>
 				<Icon icon={tablerChevronLeft} width="15" height="15" />
 				Back to results
@@ -1019,7 +1019,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 				<Button
 					type="button"
 					onClick={() => proceedWithCase(displayedOpenCase)}
-					className="mt-4 min-h-11 gap-2 rounded-lg bg-pv-accent px-4 text-[14px] font-semibold text-nova-void not-disabled:hover:bg-pv-accent not-disabled:hover:brightness-110"
+					className="mt-4 gap-2 rounded-lg bg-pv-accent px-4 text-[14px] font-semibold text-nova-void not-disabled:hover:bg-pv-accent not-disabled:hover:brightness-110"
 				>
 					Continue
 					<Icon icon={tablerArrowRight} width="15" height="15" />
@@ -1036,7 +1036,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 					type="button"
 					variant="ghost"
 					onClick={closeCaseDetail}
-					className="-ml-2 mb-3 min-h-11 gap-1.5 rounded-md px-2 py-1.5 text-[14px] text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.08] not-disabled:hover:text-nova-violet-bright"
+					className="-ml-2 mb-3 gap-1.5 rounded-md px-2 py-1.5 text-[14px] text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.08] not-disabled:hover:text-nova-violet-bright"
 				>
 					<Icon icon={tablerChevronLeft} width="15" height="15" />
 					Back to results
@@ -1105,7 +1105,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 						restoreResultsFocus();
 					}
 				}}
-				className="-ml-2 mb-3 min-h-11 gap-1.5 rounded-md px-2 py-1.5 text-[14px] text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.08] not-disabled:hover:text-nova-violet-bright"
+				className="-ml-2 mb-3 gap-1.5 rounded-md px-2 py-1.5 text-[14px] text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.08] not-disabled:hover:text-nova-violet-bright"
 			>
 				<Icon icon={tablerChevronLeft} width="15" height="15" />
 				{displayedOpenCase !== null ? "Back" : "Back to results"}
@@ -1278,7 +1278,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 							variant="outline"
 							disabled={fetching || settledPageOffset === 0}
 							onClick={() => choosePage(settledPageIndex - 1)}
-							className="min-h-11"
+							className=""
 						>
 							Previous
 						</Button>
@@ -1287,7 +1287,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 							variant="outline"
 							disabled={fetching || pageEnd >= totalMatchingCases}
 							onClick={() => choosePage(settledPageIndex + 1)}
-							className="min-h-11"
+							className=""
 						>
 							Next
 						</Button>
@@ -1618,7 +1618,7 @@ function CaseListEmptyNotice({
 				<Button
 					type="button"
 					variant="outline"
-					className="mt-4 min-h-11"
+					className="mt-4"
 					data-case-list-empty-action
 					onClick={(event) => action.onClick(event.currentTarget)}
 				>

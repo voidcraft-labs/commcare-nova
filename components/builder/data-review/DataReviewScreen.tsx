@@ -441,7 +441,7 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 					<Button
 						type="button"
 						variant="outline"
-						className="mt-3 min-h-11"
+						className="mt-3"
 						onClick={() => void reload()}
 					>
 						<Icon icon={tablerRefresh} />
@@ -476,11 +476,7 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 								aria-pressed={filter === value}
 								disabled={count === 0 && value === "dismissed"}
 								onClick={() => setFilter(value)}
-								className={`min-h-11 rounded-full border px-4 text-[13px] ${
-									filter === value
-										? "border-nova-border-bright bg-nova-violet/[0.12] text-nova-text"
-										: "border-nova-border text-nova-text-secondary not-disabled:hover:border-nova-border-bright"
-								}`}
+								className={`rounded-full border px-4 text-[13px] ${filter === value ? "border-nova-border-bright bg-nova-violet/[0.12] text-nova-text" : "border-nova-border text-nova-text-secondary not-disabled:hover:border-nova-border-bright"}`}
 							>
 								{label} · {count}
 							</Button>
@@ -593,7 +589,7 @@ function ReviewCaseCard({
 				<Button
 					type="button"
 					variant="ghost"
-					className="min-h-11 text-[13px] text-nova-text-secondary"
+					className="text-[13px] text-nova-text-secondary"
 					onClick={onViewCase}
 				>
 					<Icon icon={tablerEye} width="15" height="15" />
@@ -745,7 +741,7 @@ function ReviewEntryRow({
 									<Button
 										type="button"
 										variant="ghost"
-										className="min-h-11 text-[13px] text-nova-text-secondary"
+										className="text-[13px] text-nova-text-secondary"
 										disabled={busy}
 										onClick={onDismiss}
 									>
@@ -816,7 +812,7 @@ function ReplaceEditor({
 				<Button
 					type="button"
 					variant="warning"
-					className="min-h-11"
+					className=""
 					disabled={!submittable || draft.saving}
 					onClick={onSave}
 				>
@@ -828,7 +824,7 @@ function ReplaceEditor({
 				<Button
 					type="button"
 					variant="ghost"
-					className="min-h-11"
+					className=""
 					disabled={draft.saving}
 					onClick={onCancel}
 				>

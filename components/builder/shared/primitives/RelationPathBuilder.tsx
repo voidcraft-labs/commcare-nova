@@ -1032,7 +1032,7 @@ function AncestorSteps({
 									disabled={!removalAdmission.admitted}
 									aria-label={`Remove connection from ${originLabel} to ${destinationLabel}`}
 									data-removal-action
-									className="min-h-11 text-nova-text-muted not-disabled:hover:text-nova-rose"
+									className="text-nova-text-muted not-disabled:hover:text-nova-rose"
 								>
 									<Icon icon={tablerTrash} />
 									Remove

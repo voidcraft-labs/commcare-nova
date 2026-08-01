@@ -271,7 +271,7 @@ export function OptionsSourceEditor<
 					<Button
 						type="button"
 						variant="outline"
-						className="mt-2 min-h-11"
+						className="mt-2"
 						onClick={() => void catalog.retry()}
 					>
 						Try again
@@ -460,7 +460,7 @@ export function OptionsSourceEditor<
 									<Button
 										type="button"
 										variant="outline"
-										className="min-h-11 w-full border-dashed"
+										className="w-full border-dashed"
 										onClick={() => {
 											if (tableScope === undefined) return;
 											changeFilter(

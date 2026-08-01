@@ -454,7 +454,7 @@ describe("case-list Preview cell formatting", () => {
 	it("preserves calculated missing, invalid-date, and structured fallbacks", () => {
 		const missing = renderToStaticMarkup(renderCalculatedCell(null));
 		expect(missing).toContain('aria-hidden="true"');
-		expect(missing).toContain("—");
+		expect(missing).toContain("–");
 		expect(missing).toContain("No value");
 		expect(
 			renderToStaticMarkup(renderCalculatedCell(new Date(Number.NaN))),

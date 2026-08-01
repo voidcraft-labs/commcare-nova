@@ -280,7 +280,7 @@ export function SearchCanvas({
 									onClick={() => onSelect({ type: "search-panel" })}
 									aria-expanded={panelSelected}
 									data-case-search-panel
-									className="min-h-11 w-full shrink-0 px-3 text-[14px] text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.08] dark:not-disabled:hover:bg-nova-violet/[0.08] @min-[28rem]:w-auto"
+									className="w-full shrink-0 px-3 text-[14px] text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.08] dark:not-disabled:hover:bg-nova-violet/[0.08] @min-[28rem]:w-auto"
 								>
 									Edit Search screen
 								</Button>
@@ -291,7 +291,7 @@ export function SearchCanvas({
 									onClick={openSearchSettings}
 									aria-expanded={panelSelected}
 									data-case-search-panel
-									className="min-h-11 w-full shrink-0 px-3 text-[14px] text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.08] dark:not-disabled:hover:bg-nova-violet/[0.08] @min-[28rem]:w-auto"
+									className="w-full shrink-0 px-3 text-[14px] text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.08] dark:not-disabled:hover:bg-nova-violet/[0.08] @min-[28rem]:w-auto"
 								>
 									Change when people continue
 								</Button>
@@ -470,7 +470,7 @@ export function AddSearchFieldControl({
 					type="button"
 					variant="outline"
 					data-case-add-search-field
-					className="mb-1 mt-3 min-h-11 w-full gap-2 rounded-lg border-dashed border-nova-border-bright bg-transparent px-4 text-sm text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.06] dark:bg-transparent dark:not-disabled:hover:bg-nova-violet/[0.06]"
+					className="mb-1 mt-3 w-full gap-2 rounded-lg border-dashed border-nova-border-bright bg-transparent px-4 text-sm text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.06] dark:bg-transparent dark:not-disabled:hover:bg-nova-violet/[0.06]"
 				/>
 			}
 			triggerLabel="Add search field"

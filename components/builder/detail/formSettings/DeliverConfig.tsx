@@ -283,7 +283,7 @@ export function DeliverConfig({
 											getLintContext={getLintContext}
 										/>
 										<LabeledXPathField
-											label="Entity Name"
+											label="Entity name"
 											value={entityNameText}
 											onSave={(v) => {
 												if (v.trim())
@@ -346,13 +346,13 @@ export function DeliverConfig({
 								{task ? (
 									<>
 										<InlineField
-											label="Task Name"
+											label="Task name"
 											value={task.name}
 											onChange={(v) => updateTask("name", v)}
 											required
 										/>
 										<InlineField
-											label="Task Description"
+											label="Task description"
 											value={task.description}
 											onChange={(v) => updateTask("description", v)}
 											multiline
@@ -362,14 +362,14 @@ export function DeliverConfig({
 								) : stagedTask ? (
 									<>
 										<DraftField
-											label="Task Name"
+											label="Task name"
 											value={stagedTask.name}
 											onChange={(v) =>
 												setStagedTask((d) => d && { ...d, name: v })
 											}
 										/>
 										<DraftField
-											label="Task Description"
+											label="Task description"
 											value={stagedTask.description}
 											onChange={(v) =>
 												setStagedTask((d) => d && { ...d, description: v })

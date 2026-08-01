@@ -301,7 +301,7 @@ function TokenChip({
 							removeAndRestoreFocus(event.currentTarget, onRemove)
 						}
 						data-removal-action
-						className="size-11 rounded-md text-nova-text-muted not-disabled:hover:bg-white/[0.08] not-disabled:hover:text-nova-violet-bright dark:not-disabled:hover:bg-white/[0.08]"
+						className="rounded-md text-nova-text-muted not-disabled:hover:bg-white/[0.08] not-disabled:hover:text-nova-violet-bright dark:not-disabled:hover:bg-white/[0.08]"
 					>
 						<Icon icon={tablerX} width="12" height="12" />
 					</Button>

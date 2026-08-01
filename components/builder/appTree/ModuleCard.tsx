@@ -257,11 +257,7 @@ function CaseListNode({
 				variant="outline"
 				onClick={onClick}
 				aria-current={selected ? "page" : undefined}
-				className={`group mx-4 mb-3 h-auto min-h-14 w-[calc(100%-2rem)] justify-start gap-3 whitespace-normal rounded-xl px-3 py-2.5 text-left ${
-					selected
-						? "border-nova-violet/50 bg-nova-violet/[0.08]"
-						: "border-white/[0.06] bg-white/[0.02] hover:border-nova-violet/30 hover:bg-nova-violet/[0.04] dark:bg-white/[0.02] dark:hover:bg-nova-violet/[0.04]"
-				}`}
+				className={`group mx-4 mb-3 h-auto min-h-14 w-[calc(100%-2rem)] justify-start gap-3 whitespace-normal rounded-xl px-3 py-2.5 text-left ${selected ? "border-nova-violet/50 bg-nova-violet/[0.08]" : "border-white/[0.06] bg-white/[0.02] hover:border-nova-violet/30 hover:bg-nova-violet/[0.04] dark:bg-white/[0.02] dark:hover:bg-nova-violet/[0.04]"}`}
 			>
 				<span
 					className={`flex size-8 shrink-0 items-center justify-center rounded-lg transition-colors ${

@@ -746,7 +746,7 @@ export function FormSubConfigs({
 						required
 					/>
 					<DraftField
-						label="Time Estimate"
+						label="Time estimate"
 						value={draft.learnTimeEstimate}
 						onChange={(v) => onPatch({ learnTimeEstimate: v })}
 						suffix="min"
@@ -769,7 +769,7 @@ export function FormSubConfigs({
 					onCheckedChange={() => toggleSub("assessment")}
 				>
 					<ConnectXPathField
-						label="User Score"
+						label="User score"
 						value={draft.userScoreText}
 						defaultText={DEFAULT_ASSESSMENT_USER_SCORE}
 						onChange={(v) => onPatch({ userScoreText: v })}
@@ -808,7 +808,7 @@ export function FormSubConfigs({
 						getLintContext={getLintContext}
 					/>
 					<ConnectXPathField
-						label="Entity Name"
+						label="Entity name"
 						value={draft.entityNameText}
 						defaultText={DEFAULT_DELIVER_ENTITY_NAME}
 						onChange={(v) => onPatch({ entityNameText: v })}

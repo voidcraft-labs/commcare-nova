@@ -291,7 +291,7 @@ export function CreateTableDialog({
 											<Button
 												type="button"
 												variant="destructive"
-												className="min-h-11 gap-2 self-end"
+												className="gap-2 self-end"
 												disabled={working}
 												onClick={() =>
 													setColumns((current) =>
@@ -316,7 +316,7 @@ export function CreateTableDialog({
 							<Button
 								type="button"
 								variant="outline"
-								className="min-h-11 gap-2 self-start"
+								className="gap-2 self-start"
 								disabled={working}
 								onClick={() =>
 									setColumns((current) => [...current, newColumnDraft()])

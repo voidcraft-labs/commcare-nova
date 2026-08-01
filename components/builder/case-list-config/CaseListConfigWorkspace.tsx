@@ -2264,11 +2264,7 @@ function ColumnInspectorBody({
 					disabled={keepLastResult}
 					aria-disabled={keepLastResult}
 					variant="outline"
-					className={`w-full bg-transparent px-3 text-[14px] dark:bg-transparent ${
-						keepLastResult
-							? "border-white/[0.04] text-nova-text-muted"
-							: "border-white/[0.06] text-nova-text-secondary not-disabled:hover:border-nova-violet/30 not-disabled:hover:bg-nova-violet/[0.06] not-disabled:hover:text-nova-text"
-					}`}
+					className={`w-full bg-transparent px-3 text-[14px] dark:bg-transparent ${keepLastResult ? "border-white/[0.04] text-nova-text-muted" : "border-white/[0.06] text-nova-text-secondary not-disabled:hover:border-nova-violet/30 not-disabled:hover:bg-nova-violet/[0.06] not-disabled:hover:text-nova-text"}`}
 				>
 					<Icon icon={tablerEyeOff} width="15" height="15" />
 					Hide from {screenName}
@@ -2627,11 +2623,7 @@ export function WorkspaceTabs({
 										aria-current={active ? "page" : undefined}
 										onClick={() => onSelectTab(id)}
 										variant="ghost"
-										className={`relative min-w-0 flex-1 gap-1 border px-1.5 py-1.5 text-left @sm:gap-2 @sm:px-2 @2xl:px-3.5 ${
-											active
-												? "bg-nova-violet/[0.13] border-nova-border-bright"
-												: "border-transparent not-disabled:hover:bg-white/[0.03]"
-										}`}
+										className={`relative min-w-0 flex-1 gap-1 border px-1.5 py-1.5 text-left @sm:gap-2 @sm:px-2 @2xl:px-3.5 ${active ? "bg-nova-violet/[0.13] border-nova-border-bright" : "border-transparent not-disabled:hover:bg-white/[0.03]"}`}
 									>
 										{hasErrors && (
 											<span

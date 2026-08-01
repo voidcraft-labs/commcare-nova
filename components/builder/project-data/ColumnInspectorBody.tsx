@@ -129,7 +129,7 @@ export function ColumnInspectorBody({
 							<Button
 								type="button"
 								variant="outline"
-								className="min-h-11"
+								className=""
 								disabled={
 									!label.dirty || label.conflicted || settingWrite !== null
 								}
@@ -193,7 +193,7 @@ export function ColumnInspectorBody({
 							<Button
 								type="button"
 								variant="outline"
-								className="min-h-11"
+								className=""
 								disabled={
 									!wireName.dirty ||
 									wireName.conflicted ||
@@ -302,7 +302,7 @@ export function ColumnInspectorBody({
 						type="button"
 						variant="ghost"
 						disabled={lastColumn || settingWrite !== null}
-						className="min-h-11 gap-2 text-nova-text-muted not-disabled:hover:text-nova-text"
+						className="gap-2 text-nova-text-muted not-disabled:hover:text-nova-text"
 						onClick={() =>
 							setPending({
 								kind: "remove",
@@ -403,7 +403,7 @@ function ColumnDraftDriftNotice({
 				<Button
 					type="button"
 					variant="ghost"
-					className="min-h-11"
+					className=""
 					disabled={disabled}
 					onClick={() => onChange(discardRevisionedTextDraft(draft))}
 				>
@@ -412,7 +412,7 @@ function ColumnDraftDriftNotice({
 				<Button
 					type="button"
 					variant="outline"
-					className="min-h-11"
+					className=""
 					disabled={disabled}
 					onClick={() => onChange(keepRevisionedTextDraft(draft))}
 				>

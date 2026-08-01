@@ -48,7 +48,7 @@ export function PersonaRemoveConfirm({
 				type="button"
 				variant="ghost"
 				onClick={() => setConfirming(true)}
-				className="h-11 self-start px-2.5 text-[13px] text-nova-rose hover:bg-nova-rose/[0.1] hover:text-nova-rose"
+				className="self-start px-2.5 text-[13px] text-nova-rose hover:bg-nova-rose/[0.1] hover:text-nova-rose"
 			>
 				Remove persona
 			</Button>
@@ -142,7 +142,7 @@ function ConfirmPanel({
 				<Button
 					type="button"
 					variant="outline"
-					className="h-11 self-start"
+					className="self-start"
 					onClick={() => setAttempt((value) => value + 1)}
 				>
 					Try again
@@ -152,7 +152,7 @@ function ConfirmPanel({
 				<Button
 					type="button"
 					variant="destructive"
-					className="h-11"
+					className=""
 					disabled={owned.state !== "known"}
 					onClick={() => {
 						if (owned.state !== "known") return;
@@ -163,12 +163,7 @@ function ConfirmPanel({
 				>
 					Remove
 				</Button>
-				<Button
-					type="button"
-					variant="ghost"
-					className="h-11"
-					onClick={onCancel}
-				>
+				<Button type="button" variant="ghost" className="" onClick={onCancel}>
 					Cancel
 				</Button>
 			</div>

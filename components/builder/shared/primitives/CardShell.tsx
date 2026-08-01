@@ -62,7 +62,7 @@ function RemoveConditionButton({
 				onClick={(event) => removeAndRestoreFocus(event.currentTarget, onClick)}
 				aria-label={label}
 				data-removal-action
-				className={`size-11 rounded-lg text-nova-text-muted not-disabled:hover:bg-nova-rose/[0.08] not-disabled:hover:text-nova-rose ${className}`}
+				className={`rounded-lg text-nova-text-muted not-disabled:hover:bg-nova-rose/[0.08] not-disabled:hover:text-nova-rose ${className}`}
 			>
 				<Icon icon={tablerTrash} width="16" height="16" />
 			</Button>
@@ -174,7 +174,7 @@ export function CardShell({
 								onMove === undefined ? undefined : "ArrowUp ArrowDown Home End"
 							}
 							onKeyDown={(event) => handleReorderKey(event, onMove)}
-							className="size-11 cursor-grab rounded-md text-nova-text-muted not-disabled:hover:bg-white/[0.04] not-disabled:hover:text-nova-text"
+							className="cursor-grab rounded-md text-nova-text-muted not-disabled:hover:bg-white/[0.04] not-disabled:hover:text-nova-text"
 						>
 							<Icon icon={tablerGripVertical} width="16" height="16" />
 						</Button>

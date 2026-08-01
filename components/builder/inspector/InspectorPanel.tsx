@@ -79,7 +79,7 @@ export function InspectorPanel({
 						onClick={onClose}
 						aria-label="Close properties"
 						aria-keyshortcuts="Escape"
-						className="size-11 shrink-0 border-nova-border bg-transparent text-nova-text-muted hover:border-nova-border-bright hover:text-nova-text dark:bg-transparent"
+						className="shrink-0 border-nova-border bg-transparent text-nova-text-muted hover:border-nova-border-bright hover:text-nova-text dark:bg-transparent"
 					>
 						<Icon icon={tablerX} width="16" height="16" />
 					</Button>

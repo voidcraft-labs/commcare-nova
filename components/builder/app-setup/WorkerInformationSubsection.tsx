@@ -302,7 +302,7 @@ function PropertyRow({
 									<Button
 										type="button"
 										variant="destructive"
-										className="h-11"
+										className=""
 										onClick={() => {
 											if (!sessionApi.getState().canEdit) return;
 											const outcome = mutations.inline.removeUserProperty(
@@ -324,7 +324,7 @@ function PropertyRow({
 								<Button
 									type="button"
 									variant="ghost"
-									className="h-11"
+									className=""
 									onClick={() => {
 										setRemovalPlan(null);
 										setRemovalError(undefined);
@@ -345,7 +345,7 @@ function PropertyRow({
 									mutations.inspectUserPropertyRemoval(property.uuid),
 								);
 							}}
-							className="h-11 self-start px-2.5 text-[13px] text-nova-rose hover:bg-nova-rose/[0.1] hover:text-nova-rose"
+							className="self-start px-2.5 text-[13px] text-nova-rose hover:bg-nova-rose/[0.1] hover:text-nova-rose"
 						>
 							Remove worker information
 						</Button>

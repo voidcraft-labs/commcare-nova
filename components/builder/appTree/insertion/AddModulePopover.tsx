@@ -157,7 +157,7 @@ export function AddModulePopover({
 										setStep("choose");
 										setError(null);
 									}}
-									className="h-11 w-full justify-start gap-1 px-2 text-sm text-nova-text-muted hover:text-nova-text"
+									className="w-full justify-start gap-1 px-2 text-sm text-nova-text-muted hover:text-nova-text"
 								>
 									<Icon icon={tablerChevronLeft} width="12" height="12" />
 									Back to module choices

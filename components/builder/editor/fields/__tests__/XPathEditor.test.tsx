@@ -16,7 +16,7 @@
 //
 //   2. Add-pill state reset (`setAddingMsg(false)`) — local UI state
 //      cleanup. Always fires so a user backing out of "Add
-//      Validation Message" can close the editor and bring the pill
+//      Validation message" can close the editor and bring the pill
 //      back, regardless of whether the slot ever held a value.
 //
 // The test below pins the two arms together: rendering with
@@ -159,13 +159,13 @@ describe("XPathEditor — validate_msg clear-arm split", () => {
 
 		// Pre-state: the Add pill is rendered because `validate` is
 		// non-empty and `validate_msg` is absent.
-		const addPill = screen.getByRole("button", { name: /Validation Message/i });
+		const addPill = screen.getByRole("button", { name: /Validation message/i });
 		expect(addPill).toBeDefined();
 
 		// User clicks Add — the editor mounts in place of the pill.
 		fireEvent.click(addPill);
 		const messageInput = screen.getByLabelText(
-			"Validation Message",
+			"Validation message",
 		) as HTMLInputElement;
 		expect(messageInput.value).toBe("");
 
@@ -177,9 +177,9 @@ describe("XPathEditor — validate_msg clear-arm split", () => {
 		fireEvent.blur(messageInput);
 
 		// Editor closed → input gone, Add pill back.
-		expect(screen.queryByLabelText("Validation Message")).toBeNull();
+		expect(screen.queryByLabelText("Validation message")).toBeNull();
 		expect(
-			screen.getByRole("button", { name: /Validation Message/i }),
+			screen.getByRole("button", { name: /Validation message/i }),
 		).toBeDefined();
 
 		// Slot-clear arm did not fire — the slot was already absent.
@@ -209,7 +209,7 @@ describe("XPathEditor — validate_msg clear-arm split", () => {
 		// `validate_msg` populated → editor mounts directly (no Add
 		// pill click needed).
 		const messageInput = screen.getByLabelText(
-			"Validation Message",
+			"Validation message",
 		) as HTMLInputElement;
 		expect(messageInput.value).toBe("Must be greater than zero.");
 

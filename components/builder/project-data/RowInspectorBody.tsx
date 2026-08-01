@@ -167,7 +167,7 @@ export function RowInspectorBody({
 				<Button
 					type="button"
 					variant="ghost"
-					className="min-h-11"
+					className=""
 					onClick={() => {
 						workspace.discardRowEdit(row.id);
 						setErrors(new Map());
@@ -198,7 +198,7 @@ export function RowInspectorBody({
 					<Button
 						type="button"
 						variant="default"
-						className="min-h-11"
+						className=""
 						disabled={!dirty || saving || deleting || confirmingDelete}
 						onClick={() => void save()}
 					>
@@ -208,7 +208,7 @@ export function RowInspectorBody({
 						<Button
 							type="button"
 							variant="ghost"
-							className="min-h-11"
+							className=""
 							disabled={saving || deleting || confirmingDelete}
 							onClick={() => {
 								workspace.discardRowEdit(row.id);
@@ -241,7 +241,7 @@ export function RowInspectorBody({
 							<Button
 								type="button"
 								variant="ghost"
-								className="min-h-11"
+								className=""
 								disabled={deleting}
 								onClick={() => setConfirmingDelete(false)}
 							>
@@ -250,7 +250,7 @@ export function RowInspectorBody({
 							<Button
 								type="button"
 								variant="destructive"
-								className="min-h-11"
+								className=""
 								disabled={deleting}
 								onClick={async () => {
 									if (deleting) return;
@@ -285,7 +285,7 @@ export function RowInspectorBody({
 							ref={triggerRef}
 							type="button"
 							variant="ghost"
-							className="min-h-11 gap-2 text-nova-text-muted hover:text-nova-text"
+							className="gap-2 text-nova-text-muted hover:text-nova-text"
 							disabled={saving || deleting || dirty}
 							onClick={() => setConfirmingDelete(true)}
 						>

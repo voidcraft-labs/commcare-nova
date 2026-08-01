@@ -172,11 +172,7 @@ export function ExistsCard({ value, onChange, path }: ExistsCardProps) {
 						onClick={() =>
 							value.where === undefined ? addWhere() : setWhere(undefined)
 						}
-						className={`px-2 text-sm ${
-							value.where === undefined
-								? "text-nova-text-muted not-disabled:hover:text-nova-violet-bright"
-								: "text-nova-rose not-disabled:hover:bg-nova-rose/[0.08] not-disabled:hover:text-nova-rose"
-						}`}
+						className={`px-2 text-sm ${value.where === undefined ? "text-nova-text-muted not-disabled:hover:text-nova-violet-bright" : "text-nova-rose not-disabled:hover:bg-nova-rose/[0.08] not-disabled:hover:text-nova-rose"}`}
 					>
 						{value.where === undefined ? "Add condition" : "Delete condition"}
 					</Button>

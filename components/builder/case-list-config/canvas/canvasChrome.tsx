@@ -105,7 +105,7 @@ export function AddGhostButton({
 					aria-describedby={disabledReason === undefined ? undefined : reasonId}
 					data-case-add={dataCaseAdd}
 					data-case-add-search-field={dataCaseAddSearchField ? "" : undefined}
-					className={`min-h-11 gap-2 border border-dashed border-nova-border-bright px-4 text-[14px] text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.06] dark:not-disabled:hover:bg-nova-violet/[0.06] ${className}`}
+					className={`gap-2 border border-dashed border-nova-border-bright px-4 text-[14px] text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.06] dark:not-disabled:hover:bg-nova-violet/[0.06] ${className}`}
 				>
 					<Icon icon={icon} width="14" height="14" />
 					<span>{label}</span>

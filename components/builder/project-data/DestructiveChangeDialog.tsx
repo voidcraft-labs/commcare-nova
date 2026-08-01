@@ -195,7 +195,7 @@ export function DestructiveChangeDialog({
 							<Button
 								type="button"
 								variant="outline"
-								className="mt-2 min-h-11"
+								className="mt-2"
 								onClick={() => setRetryGeneration((current) => current + 1)}
 							>
 								<Icon icon={tablerRefresh} aria-hidden="true" />
@@ -245,7 +245,7 @@ export function DestructiveChangeDialog({
 								<Button
 									type="button"
 									variant="outline"
-									className="min-h-11"
+									className=""
 									onClick={() => {
 										setPreflight({ kind: "loading" });
 										setUnnamedReferenceRefusal(false);
