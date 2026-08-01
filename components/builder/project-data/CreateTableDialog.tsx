@@ -26,8 +26,16 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/shadcn/dialog";
+import {
+	Field,
+	FieldDescription,
+	FieldError,
+	FieldGroup,
+	FieldLabel,
+	FieldLegend,
+	FieldSet,
+} from "@/components/shadcn/field";
 import { Input } from "@/components/shadcn/input";
-import { Label } from "@/components/shadcn/label";
 import {
 	Select,
 	SelectContent,
@@ -73,6 +81,10 @@ export function CreateTableDialog({
 }) {
 	const nameId = useId();
 	const tagId = useId();
+	/* One base per dialog; each column's three controls derive their id from it
+	 * plus the draft key, so a label stays bound to its own input across adds
+	 * and removals (the key is stable, the index is not). */
+	const columnIds = useId();
 	const projectId = useProjectId();
 	const projectAtOpen = useRef(projectId);
 	const latestProject = useRef(projectId);
@@ -85,13 +97,18 @@ export function CreateTableDialog({
 	}
 	const operation = useRef(0);
 	const mounted = useRef(true);
-	useEffect(
-		() => () => {
+	useEffect(() => {
+		/* Claim the flag on every mount, not just the first. A cleanup-only
+		 * version leaves it false forever the moment React mounts, unmounts and
+		 * remounts the same instance — StrictMode's development double-invoke does
+		 * exactly that — and then every `mounted.current` guard below returns
+		 * early, stranding the dialog on "Creating…" after a successful write. */
+		mounted.current = true;
+		return () => {
 			mounted.current = false;
 			operation.current += 1;
-		},
-		[],
-	);
+		};
+	}, []);
 	const navigate = useNavigate();
 	const [name, setName] = useState("");
 	const [tag, setTag] = useState("");
@@ -129,7 +146,7 @@ export function CreateTableDialog({
 				if (!next && !working) onClose();
 			}}
 		>
-			<DialogContent className="max-h-[85vh] overflow-y-auto">
+			<DialogContent>
 				<DialogHeader>
 					<DialogTitle>Create a data table</DialogTitle>
 					<DialogDescription>
@@ -137,11 +154,9 @@ export function CreateTableDialog({
 					</DialogDescription>
 				</DialogHeader>
 
-				<div className="space-y-4">
-					<div>
-						<Label htmlFor={nameId} className="text-[13px]">
-							Table name
-						</Label>
+				<FieldGroup>
+					<Field>
+						<FieldLabel htmlFor={nameId}>Table name</FieldLabel>
 						<Input
 							id={nameId}
 							value={name}
@@ -150,13 +165,11 @@ export function CreateTableDialog({
 							data-1p-ignore
 							disabled={working}
 							onChange={(event) => setName(event.target.value)}
-							className="mt-1 h-11"
+							className="h-11"
 						/>
-					</div>
-					<div>
-						<Label htmlFor={tagId} className="text-[13px]">
-							Name in exports
-						</Label>
+					</Field>
+					<Field>
+						<FieldLabel htmlFor={tagId}>Name in exports</FieldLabel>
 						<Input
 							id={tagId}
 							value={effectiveTag}
@@ -167,34 +180,111 @@ export function CreateTableDialog({
 								setTagTouched(true);
 								setTag(event.target.value);
 							}}
-							className="mt-1 h-11"
+							className="h-11"
 						/>
-						<p className="mt-1 text-[12px] leading-snug text-nova-text-muted">
+						<FieldDescription>
 							Letters, digits, and underscores. Changing it later needs admin
 							access.
-						</p>
-					</div>
+						</FieldDescription>
+					</Field>
 
-					<fieldset className="space-y-3">
-						<legend className="text-[13px] font-medium text-nova-text">
-							Columns
-						</legend>
-						{columns.map((column, index) => (
-							<div
-								key={column.key}
-								className="space-y-2 rounded-lg border border-nova-border p-3"
-							>
-								<div className="flex items-center justify-between gap-2">
-									<span className="text-[12px] text-nova-text-muted">
+					<FieldSet>
+						<FieldLegend variant="label">Columns</FieldLegend>
+						{columns.map((column, index) => {
+							const labelId = `${columnIds}-${column.key}-label`;
+							const wireNameId = `${columnIds}-${column.key}-wire`;
+							const typeId = `${columnIds}-${column.key}-type`;
+							return (
+								/* A real fieldset per column: its legend captions the group, so
+								 * "Name people see" is announced inside "Column 2" rather than
+								 * arriving as the third identically-labelled input on screen.
+								 * The legend carries text only — the browser renders it into
+								 * the border line, which a 44px control would straddle — so
+								 * removal sits at the foot of the card, under its own name. */
+								<FieldSet
+									key={column.key}
+									className="gap-4 rounded-lg border border-nova-border p-3"
+								>
+									<FieldLegend
+										variant="label"
+										className="mb-0 text-nova-text-muted"
+									>
 										Column {index + 1}
-									</span>
+									</FieldLegend>
+									<Field>
+										<FieldLabel htmlFor={labelId}>Name people see</FieldLabel>
+										<Input
+											id={labelId}
+											value={column.label}
+											autoComplete="off"
+											data-1p-ignore
+											disabled={working}
+											onChange={(event) =>
+												patch(column.key, { label: event.target.value })
+											}
+											className="h-11"
+										/>
+									</Field>
+									<Field>
+										<FieldLabel htmlFor={wireNameId}>
+											Name in exports and CSV
+										</FieldLabel>
+										<Input
+											id={wireNameId}
+											value={
+												column.wireNameTouched
+													? column.wireName
+													: suggestWireName(column.label)
+											}
+											autoComplete="off"
+											data-1p-ignore
+											disabled={working}
+											onChange={(event) =>
+												patch(column.key, {
+													wireNameTouched: true,
+													wireName: event.target.value,
+												})
+											}
+											className="h-11"
+										/>
+										<FieldDescription>
+											This is the heading a CSV import must use.
+										</FieldDescription>
+									</Field>
+									<Field>
+										<FieldLabel htmlFor={typeId}>Type of value</FieldLabel>
+										<Select
+											value={column.dataType}
+											disabled={working}
+											onValueChange={(next) =>
+												patch(column.key, { dataType: next as LookupDataType })
+											}
+										>
+											{/* `min-h-11`, not `h-11`: the trigger's own height is a
+											 * `data-[size=…]` variant, which outranks a bare `h-*`
+											 * from a call site and would leave it 32px beside these
+											 * 44px inputs. */}
+											<SelectTrigger id={typeId} className="min-h-11 w-full">
+												<SelectValue>
+													{(selected) =>
+														COLUMN_TYPE_LABELS[selected as LookupDataType]
+													}
+												</SelectValue>
+											</SelectTrigger>
+											<SelectContent>
+												{LOOKUP_DATA_TYPES.map((candidate) => (
+													<SelectItem key={candidate} value={candidate}>
+														{COLUMN_TYPE_LABELS[candidate]}
+													</SelectItem>
+												))}
+											</SelectContent>
+										</Select>
+									</Field>
 									{columns.length > 1 && (
 										<Button
 											type="button"
-											variant="ghost"
-											size="icon-lg"
-											aria-label={`Remove column ${index + 1}`}
-											className="size-11 text-nova-text-muted hover:text-nova-text"
+											variant="destructive"
+											className="min-h-11 gap-2 self-end"
 											disabled={working}
 											onClick={() =>
 												setColumns((current) =>
@@ -204,72 +294,22 @@ export function CreateTableDialog({
 												)
 											}
 										>
-											<Icon icon={tablerTrash} width="16" height="16" />
+											<Icon
+												icon={tablerTrash}
+												width="16"
+												height="16"
+												aria-hidden="true"
+											/>
+											Remove column {index + 1}
 										</Button>
 									)}
-								</div>
-								<Input
-									value={column.label}
-									placeholder="Name people see"
-									aria-label={`Column ${index + 1} name`}
-									autoComplete="off"
-									data-1p-ignore
-									disabled={working}
-									onChange={(event) =>
-										patch(column.key, { label: event.target.value })
-									}
-									className="h-11"
-								/>
-								<Input
-									value={
-										column.wireNameTouched
-											? column.wireName
-											: suggestWireName(column.label)
-									}
-									placeholder="Name in exports"
-									aria-label={`Column ${index + 1} export name`}
-									autoComplete="off"
-									data-1p-ignore
-									disabled={working}
-									onChange={(event) =>
-										patch(column.key, {
-											wireNameTouched: true,
-											wireName: event.target.value,
-										})
-									}
-									className="h-11"
-								/>
-								<Select
-									value={column.dataType}
-									disabled={working}
-									onValueChange={(next) =>
-										patch(column.key, { dataType: next as LookupDataType })
-									}
-								>
-									<SelectTrigger
-										aria-label={`Column ${index + 1} type`}
-										className="h-11 w-full"
-									>
-										<SelectValue>
-											{(selected) =>
-												COLUMN_TYPE_LABELS[selected as LookupDataType]
-											}
-										</SelectValue>
-									</SelectTrigger>
-									<SelectContent>
-										{LOOKUP_DATA_TYPES.map((candidate) => (
-											<SelectItem key={candidate} value={candidate}>
-												{COLUMN_TYPE_LABELS[candidate]}
-											</SelectItem>
-										))}
-									</SelectContent>
-								</Select>
-							</div>
-						))}
+								</FieldSet>
+							);
+						})}
 						<Button
 							type="button"
 							variant="outline"
-							className="min-h-11 gap-2"
+							className="min-h-11 gap-2 self-start"
 							disabled={working}
 							onClick={() =>
 								setColumns((current) => [...current, newColumnDraft()])
@@ -283,23 +323,15 @@ export function CreateTableDialog({
 							/>
 							Add another column
 						</Button>
-					</fieldset>
+					</FieldSet>
 
-					{failure !== null && (
-						<p
-							role="alert"
-							className="text-[13px] leading-relaxed text-nova-rose"
-						>
-							{failure}
-						</p>
-					)}
-				</div>
+					<FieldError>{failure}</FieldError>
+				</FieldGroup>
 
 				<DialogFooter>
 					<Button
 						type="button"
 						variant="outline"
-						className="min-h-11"
 						disabled={working}
 						onClick={onClose}
 					>
@@ -308,7 +340,6 @@ export function CreateTableDialog({
 					<Button
 						type="button"
 						variant="default"
-						className="min-h-11"
 						disabled={
 							!ready ||
 							working ||

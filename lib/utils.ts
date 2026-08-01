@@ -1,5 +1,36 @@
 import { type ClassValue, clsx } from "clsx";
-import { twMerge } from "tailwind-merge";
+import { extendTailwindMerge } from "tailwind-merge";
+
+/**
+ * Nova's z-index scale (`app/globals.css` → the `--z-index-*` theme keys).
+ *
+ * tailwind-merge treats `z-index` as a class group whose values are integers or
+ * `auto`, so it does not recognize these NAMED tokens as members of it. Left
+ * unextended, `cn("z-popover-top", "z-modal")` keeps BOTH classes and the winner
+ * falls to generated-stylesheet order — which sorts the tokens alphabetically,
+ * so `z-popover-top` beats `z-modal` and a menu opened from inside a dialog
+ * paints behind it. Listing the scale here restores the contract every call site
+ * assumes: the last z token wins.
+ *
+ * Keep in sync with the `--z-index-*` keys in `app/globals.css`; the unit test
+ * beside this file reads that file and fails when the two drift.
+ */
+export const Z_INDEX_SCALE = [
+	"ground",
+	"raised",
+	"popover",
+	"popover-top",
+	"tooltip",
+	"modal",
+	"system",
+] as const;
+
+const twMerge = extendTailwindMerge({
+	// `z` is tailwind-merge's own id for the z-index group — extending any other
+	// id would quietly build a SECOND group, where the named tokens resolve
+	// against each other but never against `z-10`.
+	extend: { classGroups: { z: [{ z: [...Z_INDEX_SCALE] }] } },
+});
 
 export function cn(...inputs: ClassValue[]) {
 	return twMerge(clsx(inputs));

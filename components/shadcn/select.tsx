@@ -106,6 +106,12 @@ function SelectContent({
 		// (a centered dialog uses `translate(-50%,-50%)`) anchors to the panel
 		// rather than the viewport and lands in the wrong place.
 		//
+		// The trailing `z-modal` REPLACES the `z-popover-top` the shared glass
+		// constant carries, and only because `cn` knows Nova's named z scale
+		// (`lib/utils.ts`). Untaught, tailwind-merge keeps both classes and
+		// alphabetical stylesheet order hands the win to `z-popover-top` — which
+		// left this popup at 60 behind the dialog's 100, open but invisible.
+		//
 		// Nova chrome: the frosted-glass surface (shared constants from
 		// `lib/styles.ts`, same as every menu) lives on the POSITIONER — see the
 		// compositing-boundary note there — so `alignItemWithTrigger` defaults

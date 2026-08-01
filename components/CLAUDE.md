@@ -56,6 +56,10 @@ Always `@iconify/react/offline` — the default `@iconify/react` export hydrates
 
 Every `<input>` / `<textarea>` gets `autoComplete="off"` and `data-1p-ignore` (keeps password managers off non-credential fields).
 
+A label + control + helper-text + error stack is `Field` / `FieldLabel` / `FieldDescription` / `FieldError` from `components/shadcn/field.tsx` (`FieldGroup` for the stack, `FieldSet` + `FieldLegend` for a named group — a fieldset's legend is also what names the group for a screen reader, and for a Playwright `getByRole("group", { name })`). Hand-rolling that as `div` + `Label` + `p` re-invents the type scale and spacing per surface, which is how one dialog ended up a notch smaller than the rest of the app.
+
+**Raising a control to the 44px touch floor: `Input` takes `h-11`, but `SelectTrigger` needs `min-h-11`.** The trigger's height is a `data-[size=…]` variant, so it outranks a bare `h-*` from a call site on specificity and tailwind-merge can't dedupe across that boundary — an `h-11` there is silently inert and the select stays 32px beside its 44px neighbours.
+
 Authored names, labels, and selected values must remain legible in narrow surfaces. Let the containing row/control grow and wrap (`overflow-wrap: anywhere` for imported values with no natural breaks); do not silently truncate distinct choices into the same-looking label. A genuinely fixed compact surface needs an equally accessible full-value disclosure for pointer and keyboard users.
 
 ## Floating elements
@@ -74,7 +78,7 @@ A client leaf that branches its render on `useAuth().isPending` will hydration-m
 
 ## Theme
 
-Dark "Violet Monochrome": violet is the single non-semantic accent; success / warning / error hues are reserved for semantic states, never decoration. Every color is a CSS custom property in `globals.css`; never hardcode one — if a one-off color appears, promote it to a token (reuse one, or add a new `--nova-*`). Z-index is a semantic token scale — use the Tailwind classes that reference it.
+Dark "Violet Monochrome": violet is the single non-semantic accent; success / warning / error hues are reserved for semantic states, never decoration. Every color is a CSS custom property in `globals.css`; never hardcode one — if a one-off color appears, promote it to a token (reuse one, or add a new `--nova-*`). Z-index is a semantic token scale — use the Tailwind classes that reference it. `cn` is taught that scale (`lib/utils.ts::Z_INDEX_SCALE`), so passing a later `z-*` token genuinely REPLACES an earlier one; add any new `--z-index-*` key there too, or the drift test in `lib/__tests__/utils.test.ts` fails. Without that list tailwind-merge keeps both classes and generated-stylesheet order (alphabetical by token name) picks the winner — which is how a Select popup meant for `z-modal` sat at `z-popover-top` and rendered behind the dialog that opened it, open but invisible.
 
 **Contrast is calibrated into the tokens (WCAG 2.2 AA, 4.5:1 — the theme is dark-only, so every text token must clear it on every surface).** The rules that keep it that way:
 

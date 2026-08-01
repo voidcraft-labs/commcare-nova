@@ -2997,17 +2997,24 @@ test.describe("authenticated builder", () => {
 		await createTable
 			.getByRole("textbox", { name: "Table name" })
 			.fill(temporalTableName);
+		/* `exact` because every column carries a "Name in exports and CSV" field
+		 * that a substring match would also pick up. */
 		await createTable
-			.getByRole("textbox", { name: "Name in exports" })
+			.getByRole("textbox", { name: "Name in exports", exact: true })
 			.fill(`smoke_${Date.now().toString(36)}`);
+		/* Each column is its own fieldset, legend "Column N" — that grouping is
+		 * what tells the fields apart now that they carry ordinary visible
+		 * labels instead of per-column aria-labels. */
 		await createTable
-			.getByRole("textbox", { name: "Column 1 name" })
+			.getByRole("group", { name: "Column 1" })
+			.getByRole("textbox", { name: "Name people see" })
 			.fill("Visit date");
 		await createTable
 			.getByRole("button", { name: "Add another column" })
 			.click();
 		await createTable
-			.getByRole("textbox", { name: "Column 2 name" })
+			.getByRole("group", { name: "Column 2" })
+			.getByRole("textbox", { name: "Name people see" })
 			.fill("Visit moment");
 		await createTable.getByRole("button", { name: "Create table" }).click();
 		await expect(

@@ -19,8 +19,14 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/shadcn/dialog";
+import {
+	Field,
+	FieldDescription,
+	FieldError,
+	FieldGroup,
+	FieldLabel,
+} from "@/components/shadcn/field";
 import { Input } from "@/components/shadcn/input";
-import { Label } from "@/components/shadcn/label";
 import {
 	Select,
 	SelectContent,
@@ -56,13 +62,17 @@ export function AddColumnDialog({
 	const [working, setWorking] = useState(false);
 	const operation = useRef(0);
 	const mounted = useRef(true);
-	useEffect(
-		() => () => {
+	useEffect(() => {
+		/* Claim the flag on every mount, not just the first — a cleanup-only
+		 * version leaves it false forever once React remounts the same instance
+		 * (StrictMode's development double-invoke does exactly that), and the
+		 * guards below then strand the dialog on "Adding…" after a real write. */
+		mounted.current = true;
+		return () => {
 			mounted.current = false;
 			operation.current += 1;
-		},
-		[],
-	);
+		};
+	}, []);
 
 	const effectiveWireName = wireNameTouched ? wireName : suggestWireName(label);
 
@@ -82,11 +92,9 @@ export function AddColumnDialog({
 					</DialogDescription>
 				</DialogHeader>
 
-				<div className="space-y-3">
-					<div>
-						<Label htmlFor={labelId} className="text-[13px]">
-							Name people see
-						</Label>
+				<FieldGroup>
+					<Field>
+						<FieldLabel htmlFor={labelId}>Name people see</FieldLabel>
 						<Input
 							id={labelId}
 							value={label}
@@ -94,13 +102,13 @@ export function AddColumnDialog({
 							data-1p-ignore
 							disabled={working}
 							onChange={(event) => setLabel(event.target.value)}
-							className="mt-1 h-11"
+							className="h-11"
 						/>
-					</div>
-					<div>
-						<Label htmlFor={wireNameId} className="text-[13px]">
+					</Field>
+					<Field>
+						<FieldLabel htmlFor={wireNameId}>
 							Name in exports and CSV
-						</Label>
+						</FieldLabel>
 						<Input
 							id={wireNameId}
 							value={effectiveWireName}
@@ -111,23 +119,24 @@ export function AddColumnDialog({
 								setWireNameTouched(true);
 								setWireName(event.target.value);
 							}}
-							className="mt-1 h-11"
+							className="h-11"
 						/>
-						<p className="mt-1 text-[12px] leading-snug text-nova-text-muted">
+						<FieldDescription>
 							Letters, digits, and underscores; it cannot start with a digit.
 							This is the heading a CSV import must use.
-						</p>
-					</div>
-					<div>
-						<Label htmlFor={typeId} className="text-[13px]">
-							Type of value
-						</Label>
+						</FieldDescription>
+					</Field>
+					<Field>
+						<FieldLabel htmlFor={typeId}>Type of value</FieldLabel>
 						<Select
 							value={dataType}
 							disabled={working}
 							onValueChange={(next) => setDataType(next as LookupDataType)}
 						>
-							<SelectTrigger id={typeId} className="mt-1 h-11 w-full">
+							{/* `min-h-11`, not `h-11`: the trigger's height is a
+							 * `data-[size=…]` variant, which outranks a bare `h-*` from a
+							 * call site and would leave it 32px beside these 44px inputs. */}
+							<SelectTrigger id={typeId} className="min-h-11 w-full">
 								<SelectValue>
 									{(selected) => COLUMN_TYPE_LABELS[selected as LookupDataType]}
 								</SelectValue>
@@ -140,22 +149,14 @@ export function AddColumnDialog({
 								))}
 							</SelectContent>
 						</Select>
-					</div>
-					{failure !== null && (
-						<p
-							role="alert"
-							className="text-[13px] leading-relaxed text-nova-rose"
-						>
-							{failure}
-						</p>
-					)}
-				</div>
+					</Field>
+					<FieldError>{failure}</FieldError>
+				</FieldGroup>
 
 				<DialogFooter>
 					<Button
 						type="button"
 						variant="outline"
-						className="min-h-11"
 						disabled={working}
 						onClick={onClose}
 					>
@@ -164,7 +165,6 @@ export function AddColumnDialog({
 					<Button
 						type="button"
 						variant="default"
-						className="min-h-11"
 						disabled={
 							working || label.trim() === "" || effectiveWireName.trim() === ""
 						}
