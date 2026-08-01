@@ -334,7 +334,6 @@ export function SwitchCard({
 				<Button
 					type="button"
 					variant="outline"
-					size="xl"
 					onClick={appendCase}
 					data-removal-focus-fallback
 					className="w-full border-dashed text-nova-text-muted not-disabled:hover:border-nova-violet/30 not-disabled:hover:text-nova-violet-bright"

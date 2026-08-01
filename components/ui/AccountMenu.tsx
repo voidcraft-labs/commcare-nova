@@ -230,7 +230,6 @@ export function AccountMenu({
 						<Button
 							type="button"
 							variant="ghost"
-							size="xl"
 							onClick={() => {
 								setOpen(false);
 								setFileManagerOpen(true);
@@ -247,7 +246,6 @@ export function AccountMenu({
 							nativeButton={false}
 							role="link"
 							variant="ghost"
-							size="xl"
 							onClick={() => setOpen(false)}
 							className="w-full justify-start gap-2.5 rounded-none px-3 text-nova-text-secondary not-disabled:hover:bg-white/[0.06] not-disabled:hover:text-nova-text dark:not-disabled:hover:bg-white/[0.06]"
 						>
@@ -263,7 +261,6 @@ export function AccountMenu({
 							<Button
 								type="button"
 								variant="ghost"
-								size="xl"
 								onClick={() => {
 									signOut();
 									setOpen(false);

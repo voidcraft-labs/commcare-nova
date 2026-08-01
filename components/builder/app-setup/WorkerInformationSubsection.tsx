@@ -302,7 +302,6 @@ function PropertyRow({
 									<Button
 										type="button"
 										variant="destructive"
-										size="lg"
 										className="h-11"
 										onClick={() => {
 											if (!sessionApi.getState().canEdit) return;
@@ -325,7 +324,6 @@ function PropertyRow({
 								<Button
 									type="button"
 									variant="ghost"
-									size="lg"
 									className="h-11"
 									onClick={() => {
 										setRemovalPlan(null);
@@ -341,7 +339,6 @@ function PropertyRow({
 							ref={triggerRef}
 							type="button"
 							variant="ghost"
-							size="lg"
 							onClick={() => {
 								setRemovalError(undefined);
 								setRemovalPlan(

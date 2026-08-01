@@ -77,7 +77,6 @@ export function SearchConditionCanvas({
 				ref={backRef}
 				type="button"
 				variant="ghost"
-				size="xl"
 				onClick={onBack}
 				data-inspector-return-focus
 				aria-label={

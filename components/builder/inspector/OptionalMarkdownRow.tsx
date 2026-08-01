@@ -282,7 +282,6 @@ function MoreFormattingMenu({ editor }: { readonly editor: Editor }) {
 						<Button
 							type="button"
 							variant="ghost"
-							size="xl"
 							tabIndex={-1}
 							className="min-h-11 shrink-0 px-2 text-[14px] text-nova-text-secondary not-disabled:hover:bg-white/[0.04] not-disabled:hover:text-nova-text"
 						/>
@@ -477,12 +476,10 @@ function ImageFormattingDialog({
 						</div>
 					</DialogBody>
 					<DialogFooter>
-						<DialogClose
-							render={<Button type="button" variant="outline" size="xl" />}
-						>
+						<DialogClose render={<Button type="button" variant="outline" />}>
 							Cancel
 						</DialogClose>
-						<Button type="submit" size="xl" disabled={url.trim() === ""}>
+						<Button type="submit" disabled={url.trim() === ""}>
 							Insert
 						</Button>
 					</DialogFooter>
@@ -568,12 +565,10 @@ function TableFormattingDialog({
 						</div>
 					</DialogBody>
 					<DialogFooter>
-						<DialogClose
-							render={<Button type="button" variant="outline" size="xl" />}
-						>
+						<DialogClose render={<Button type="button" variant="outline" />}>
 							Cancel
 						</DialogClose>
-						<Button type="submit" size="xl" disabled={!canInsert}>
+						<Button type="submit" disabled={!canInsert}>
 							Insert
 						</Button>
 					</DialogFooter>

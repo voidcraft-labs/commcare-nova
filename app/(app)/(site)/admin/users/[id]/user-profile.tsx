@@ -63,7 +63,7 @@ export async function UserProfileSection({ userId }: UserProfileSectionProps) {
 					{!isSelf && (
 						<ImpersonateButton userId={userId} userName={user.name} />
 					)}
-					<Badge variant={user.role === "admin" ? "violet" : "secondary"}>
+					<Badge variant={user.role === "admin" ? "violet" : "muted"}>
 						{user.role}
 					</Badge>
 				</div>

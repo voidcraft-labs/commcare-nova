@@ -196,7 +196,6 @@ export function CountCard({ value, onChange, path }: CountCardProps) {
 					<Button
 						type="button"
 						variant="ghost"
-						size="xl"
 						disabled={addWhereUnavailable}
 						aria-describedby={
 							addWhereUnavailable ? unavailableReasonId : undefined

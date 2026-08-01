@@ -305,7 +305,7 @@ export function ApiKeys({ initial }: ApiKeysProps) {
 							</a>
 						</p>
 					</div>
-					<Button type="button" size="sm" onClick={() => setMintOpen(true)}>
+					<Button type="button" onClick={() => setMintOpen(true)}>
 						<Icon icon={tablerPlus} width="13" height="13" />
 						New key
 					</Button>
@@ -548,7 +548,7 @@ function ScopeCheckboxGrid({
 						checked={selectedScopes.has(scope)}
 						disabled={locked}
 						onCheckedChange={() => onToggle(scope)}
-						className="group flex w-full cursor-pointer items-center gap-2 rounded-md border border-nova-border bg-transparent px-2.5 py-2 text-sm text-nova-text outline-none transition-colors not-data-[disabled]:hover:border-nova-violet/30 not-data-[disabled]:hover:bg-nova-violet/[0.05] data-[checked]:border-nova-violet/40 data-[checked]:bg-nova-violet/[0.10] data-[disabled]:cursor-not-allowed data-[disabled]:opacity-40 focus-visible:border-nova-violet focus-visible:ring-1 focus-visible:ring-nova-violet/40"
+						className="group flex w-full cursor-pointer items-center gap-2 rounded-md border border-nova-border bg-transparent px-2.5 py-2 text-sm text-nova-text outline-none transition-colors not-data-[disabled]:hover:border-nova-violet/30 not-data-[disabled]:hover:bg-nova-violet/[0.05] data-[checked]:border-nova-violet/40 data-[checked]:bg-nova-violet/[0.10] data-[disabled]:cursor-not-allowed data-[disabled]:opacity-(--disabled-opacity) focus-visible:border-nova-violet focus-visible:ring-1 focus-visible:ring-nova-violet/40"
 					>
 						<span
 							aria-hidden
@@ -634,7 +634,7 @@ function RowActions({
 				render={
 					<Button
 						variant="ghost"
-						size="icon-lg"
+						size="icon"
 						aria-label="Actions for this key"
 						className="text-nova-text-muted"
 					/>
@@ -937,7 +937,7 @@ function MintForm({
 				<Button
 					type="button"
 					variant="ghost"
-					size="icon-sm"
+					size="icon"
 					onClick={onCancel}
 					disabled={submitting}
 					aria-label="Close"
@@ -1276,7 +1276,7 @@ function EditScopesDialog({
 					<Button
 						type="button"
 						variant="ghost"
-						size="icon-sm"
+						size="icon"
 						onClick={onCancel}
 						disabled={submitting}
 						aria-label="Close"

@@ -255,7 +255,6 @@ function CaseListNode({
 			<Button
 				type="button"
 				variant="outline"
-				size="xl"
 				onClick={onClick}
 				aria-current={selected ? "page" : undefined}
 				className={`group mx-4 mb-3 h-auto min-h-14 w-[calc(100%-2rem)] justify-start gap-3 whitespace-normal rounded-xl px-3 py-2.5 text-left ${

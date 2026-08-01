@@ -124,7 +124,7 @@ export function AttachmentChip({
 							<Button
 								type="button"
 								variant="ghost"
-								size="icon-lg"
+								size="icon"
 								onClick={removeDisabled ? undefined : onRemove}
 								aria-disabled={removeDisabled || undefined}
 								className={cn(

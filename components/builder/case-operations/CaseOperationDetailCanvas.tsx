@@ -202,7 +202,6 @@ export function CaseOperationDetailCanvas({
 				<Button
 					type="button"
 					variant="ghost"
-					size="xl"
 					onClick={backToList}
 					className="-ml-2 text-nova-text-secondary"
 				>
@@ -216,7 +215,6 @@ export function CaseOperationDetailCanvas({
 					<Button
 						type="button"
 						variant="ghost"
-						size="xl"
 						disabled={index === 0}
 						aria-label="Previous change"
 						onClick={() => {
@@ -236,7 +234,6 @@ export function CaseOperationDetailCanvas({
 					<Button
 						type="button"
 						variant="ghost"
-						size="xl"
 						disabled={index === operations.length - 1}
 						aria-label="Next change"
 						onClick={() => {
@@ -354,7 +351,6 @@ export function CaseOperationDetailCanvas({
 								<Button
 									type="button"
 									variant="ghost"
-									size="xl"
 									onClick={targetDraft.clear}
 								>
 									Cancel
@@ -603,7 +599,6 @@ function AddSlotButton({
 			ref={ref}
 			type="button"
 			variant="outline"
-			size="xl"
 			disabled={disabled}
 			onClick={onClick}
 			className="w-full border-dashed border-white/[0.10] bg-transparent text-[14px] text-nova-text-muted not-disabled:hover:border-nova-violet/30 not-disabled:hover:bg-nova-violet/[0.05] not-disabled:hover:text-nova-violet-bright dark:bg-transparent dark:not-disabled:hover:bg-nova-violet/[0.05]"
@@ -726,7 +721,6 @@ function WriteRow({
 						ref={removeRef}
 						type="button"
 						variant="ghost"
-						size="xl"
 						onClick={onRemove}
 						aria-label={`Stop saving ${write.property}`}
 						className="px-3 text-sm text-nova-rose not-disabled:hover:bg-nova-rose/[0.08] not-disabled:hover:text-nova-rose"

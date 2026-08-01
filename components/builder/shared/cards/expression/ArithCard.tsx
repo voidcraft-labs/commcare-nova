@@ -129,7 +129,6 @@ function OpMenu({ op, setOp }: OpMenuProps) {
 					<Button
 						type="button"
 						variant="outline"
-						size="xl"
 						className="group min-w-12 border-white/[0.06] bg-nova-deep/50 px-3 text-nova-violet-bright not-disabled:hover:border-nova-violet/30 not-disabled:hover:bg-nova-deep/50 dark:bg-nova-deep/50 @max-md:justify-self-start"
 					/>
 				}

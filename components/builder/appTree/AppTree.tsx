@@ -100,7 +100,7 @@ export function AppTree() {
 							<Button
 								type="button"
 								variant="ghost"
-								size="icon-lg"
+								size="icon"
 								disabled={locked}
 								aria-label="Clear search"
 								onClick={() => setSearchQuery("")}

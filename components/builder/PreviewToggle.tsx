@@ -39,13 +39,8 @@ export function PreviewToggle({ onSetPreviewing }: PreviewToggleProps) {
 			<Button
 				type="button"
 				variant={previewing ? "default" : "outline"}
-				size="xl"
+				glow={previewing}
 				onClick={() => transitionPreview(!previewing)}
-				className={`rounded-lg px-4 text-[13px] font-semibold ${
-					previewing
-						? "bg-nova-action border-nova-action text-white shadow-[0_0_16px_rgba(79,70,229,0.4)]"
-						: "border-nova-border-bright bg-nova-violet/[0.12] text-nova-violet-bright hover:bg-nova-violet/[0.2] hover:text-nova-violet-bright dark:bg-nova-violet/[0.12] dark:hover:bg-nova-violet/[0.2]"
-				}`}
 			>
 				{/* Preview is a destination, not a media transport. Once inside,
 				 * the control names the useful return action explicitly. */}

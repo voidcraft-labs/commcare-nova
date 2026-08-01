@@ -73,7 +73,6 @@ function PreviewIdentityMenuBody() {
 					<Button
 						type="button"
 						variant="ghost"
-						size="lg"
 						className="h-11 max-w-52 gap-1.5 px-2.5 text-[13px] font-medium text-nova-text-muted hover:bg-white/[0.05] hover:text-nova-text"
 					/>
 				}

@@ -13,7 +13,6 @@ import { Icon } from "@iconify/react/offline";
 import tablerAlertTriangle from "@iconify-icons/tabler/alert-triangle";
 import { Badge } from "@/components/shadcn/badge";
 import { Button } from "@/components/shadcn/button";
-import { Spinner } from "@/components/shadcn/spinner";
 import {
 	SimpleTooltip,
 	Tooltip,
@@ -86,9 +85,8 @@ export function ExtractionStatusBadgeView({
 			<Tooltip>
 				<TooltipTrigger
 					render={
-						<Badge variant="secondary">
-							<Spinner className="size-3" />
-							Reading…
+						<Badge variant="violet" working>
+							Reading
 						</Badge>
 					}
 				/>
@@ -102,7 +100,7 @@ export function ExtractionStatusBadgeView({
 	if (status === "failed") {
 		if (!canRetry) {
 			return (
-				<Badge variant="destructive" className="min-h-11 gap-1.5 px-3">
+				<Badge variant="rose">
 					<Icon icon={tablerAlertTriangle} />
 					Couldn't read
 				</Badge>
@@ -128,7 +126,7 @@ export function ExtractionStatusBadgeView({
 	// Ready keeps the status and its explanation together. The info trigger gets
 	// the same full-size target as the other media controls.
 	return (
-		<Badge variant="outline" className="min-h-11 gap-1.5 px-2 text-xs">
+		<Badge variant="emerald">
 			<ExtractionInfoPopover />
 			Ready
 		</Badge>

@@ -50,25 +50,25 @@ export async function UserUsageSection({ userId }: UserUsageSectionProps) {
 							<tr className="border-b border-nova-border bg-nova-deep/50">
 								<th
 									scope="col"
-									className="px-4 py-3 text-left text-xs font-display font-semibold uppercase tracking-wide text-nova-text-secondary"
+									className="px-4 py-3 text-left text-xs font-medium text-nova-text-secondary"
 								>
 									Period
 								</th>
 								<th
 									scope="col"
-									className="px-4 py-3 text-left text-xs font-display font-semibold uppercase tracking-wide text-nova-text-secondary"
+									className="px-4 py-3 text-left text-xs font-medium text-nova-text-secondary"
 								>
 									Generations
 								</th>
 								<th
 									scope="col"
-									className="px-4 py-3 text-left text-xs font-display font-semibold uppercase tracking-wide text-nova-text-secondary"
+									className="px-4 py-3 text-left text-xs font-medium text-nova-text-secondary"
 								>
 									Tokens (in / out)
 								</th>
 								<th
 									scope="col"
-									className="px-4 py-3 text-left text-xs font-display font-semibold uppercase tracking-wide text-nova-text-secondary"
+									className="px-4 py-3 text-left text-xs font-medium text-nova-text-secondary"
 								>
 									Cost
 								</th>
@@ -78,25 +78,25 @@ export async function UserUsageSection({ userId }: UserUsageSectionProps) {
 								    stored. */}
 								<th
 									scope="col"
-									className="px-4 py-3 text-left text-xs font-display font-semibold uppercase tracking-wide text-nova-text-secondary"
+									className="px-4 py-3 text-left text-xs font-medium text-nova-text-secondary"
 								>
 									Allowance
 								</th>
 								<th
 									scope="col"
-									className="px-4 py-3 text-left text-xs font-display font-semibold uppercase tracking-wide text-nova-text-secondary"
+									className="px-4 py-3 text-left text-xs font-medium text-nova-text-secondary"
 								>
 									Credits used
 								</th>
 								<th
 									scope="col"
-									className="px-4 py-3 text-left text-xs font-display font-semibold uppercase tracking-wide text-nova-text-secondary"
+									className="px-4 py-3 text-left text-xs font-medium text-nova-text-secondary"
 								>
 									Bonus
 								</th>
 								<th
 									scope="col"
-									className="px-4 py-3 text-left text-xs font-display font-semibold uppercase tracking-wide text-nova-text-secondary"
+									className="px-4 py-3 text-left text-xs font-medium text-nova-text-secondary"
 								>
 									Balance
 								</th>

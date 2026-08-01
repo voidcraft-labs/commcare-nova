@@ -276,7 +276,7 @@ export function AppCard({
 									<PopoverTrigger
 										ref={moveTriggerRef}
 										render={
-											<Button type="button" variant="ghost" size="icon-lg" />
+											<Button type="button" variant="ghost" size="icon" />
 										}
 										aria-label={moveLabel}
 										onClick={(e) => {

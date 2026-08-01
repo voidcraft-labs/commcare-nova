@@ -29,7 +29,7 @@ export function AppAppearanceSection() {
 
 	return (
 		<div>
-			<span className="text-xs font-medium text-nova-text-secondary uppercase tracking-wider mb-1.5 block">
+			<span className="text-xs font-medium text-nova-text-secondary mb-1.5 block">
 				App logo
 			</span>
 			<div>

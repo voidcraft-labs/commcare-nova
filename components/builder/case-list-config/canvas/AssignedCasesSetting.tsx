@@ -148,7 +148,6 @@ export function AssignedCasesSetting({
 							ref={disclosureTriggerRef}
 							type="button"
 							variant="ghost"
-							size="xl"
 							className="w-full justify-start gap-2 rounded-none px-4 text-left not-disabled:hover:bg-white/[0.025] dark:not-disabled:hover:bg-white/[0.025]"
 							aria-invalid={hasError || undefined}
 						/>

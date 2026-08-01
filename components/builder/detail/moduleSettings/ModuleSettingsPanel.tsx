@@ -37,7 +37,7 @@ export function ModuleSettingsPanel({
 				<Button
 					type="button"
 					variant="ghost"
-					size="icon-lg"
+					size="icon"
 					onClick={onClose}
 					aria-label="Close module settings"
 					className="-mr-2 size-11 text-nova-text-muted not-disabled:hover:bg-white/[0.06] not-disabled:hover:text-nova-text"

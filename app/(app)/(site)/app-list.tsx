@@ -64,12 +64,7 @@ export async function AppList({ projectId, userId }: AppListProps) {
 			<div className="flex items-center justify-between mb-8">
 				<h1 className="text-2xl font-display font-semibold">Your Apps</h1>
 				{canCreateApp ? (
-					<Button
-						render={<Link href="/build/new" />}
-						nativeButton={false}
-						size="lg"
-						className="shadow-[var(--nova-glow-violet)]"
-					>
+					<Button render={<Link href="/build/new" />} nativeButton={false}>
 						<Icon icon={tablerPlus} width="14" height="14" />
 						New App
 					</Button>

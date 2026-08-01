@@ -29,7 +29,7 @@ export function CollapseChevron({
 		<Button
 			type="button"
 			variant="ghost"
-			size="icon-lg"
+			size="icon"
 			aria-label={isCollapsed ? "Expand section" : "Collapse section"}
 			aria-expanded={!isCollapsed}
 			className="size-11 shrink-0 text-nova-text-muted hover:bg-white/[0.05] hover:text-nova-text"

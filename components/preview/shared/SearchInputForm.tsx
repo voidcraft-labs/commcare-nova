@@ -276,7 +276,7 @@ export function SearchInputForm({
 					<Button
 						type="submit"
 						data-search-submit
-						className="mt-4 h-auto min-h-11 w-full whitespace-normal break-words rounded-md bg-pv-accent px-4 py-2.5 text-center text-sm font-semibold text-white not-disabled:hover:bg-pv-accent not-disabled:hover:brightness-110"
+						className="mt-4 h-auto min-h-11 w-full whitespace-normal break-words rounded-md bg-pv-accent px-4 py-2.5 text-center text-sm font-semibold text-nova-void not-disabled:hover:bg-pv-accent not-disabled:hover:brightness-110"
 					>
 						<Icon icon={tablerSearch} width="15" height="15" />
 						{submitLabel}
@@ -730,7 +730,6 @@ function BarcodeScannerDialog({
 					<Button
 						type="button"
 						variant="outline"
-						size="xl"
 						aria-label={`Scan ${label}`}
 						className="shrink-0"
 					/>
@@ -789,15 +788,12 @@ function BarcodeScannerDialog({
 					</div>
 				</DialogBody>
 				<DialogFooter>
-					<DialogClose
-						render={<Button type="button" variant="outline" size="xl" />}
-					>
+					<DialogClose render={<Button type="button" variant="outline" />}>
 						Cancel
 					</DialogClose>
 					{status.kind === "error" && (
 						<Button
 							type="button"
-							size="xl"
 							onClick={() => setAttempt((value) => value + 1)}
 						>
 							Try again

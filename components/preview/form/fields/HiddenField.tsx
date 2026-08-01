@@ -28,7 +28,7 @@ export function HiddenField({ field }: { field: HiddenFieldEntity }) {
 					height="14"
 					className="text-nova-text-muted"
 				/>
-				<span className="text-[10px] font-semibold uppercase tracking-wider text-nova-text-muted">
+				<span className="text-[11px] font-medium text-nova-text-muted">
 					Hidden
 				</span>
 			</div>

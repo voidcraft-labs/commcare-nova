@@ -161,7 +161,7 @@ function BreadcrumbPathMenu({
 	return (
 		<Popover open={open} onOpenChange={onOpenChange}>
 			<PopoverTrigger
-				render={<Button variant="ghost" size="icon-lg" />}
+				render={<Button variant="ghost" size="icon" />}
 				aria-label="Show breadcrumb path"
 				className="size-11 shrink-0 text-nova-text-muted hover:text-nova-text"
 			>

@@ -58,7 +58,7 @@ export function UnwrittenPropertiesDialog({
 											case type {card.caseType}
 										</span>
 									</div>
-									<div className="mt-1.5 text-[10px] font-medium uppercase tracking-wider text-nova-text-muted">
+									<div className="mt-1.5 text-xs font-medium text-nova-text-muted">
 										Read by
 									</div>
 									<ul className="mt-0.5 space-y-0.5">

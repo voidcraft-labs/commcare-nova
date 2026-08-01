@@ -93,7 +93,7 @@ export function ThreadList({
 								) : live ? (
 									<span className="shrink-0 flex items-center gap-1.5 mt-0.5">
 										<span className="relative flex size-2">
-											<span className="absolute inline-flex size-full rounded-full bg-nova-emerald/60 animate-ping motion-reduce:hidden" />
+											<span className="absolute inline-flex size-full rounded-full bg-nova-emerald/60 animate-breathe" />
 											<span className="relative inline-flex size-2 rounded-full bg-nova-emerald" />
 										</span>
 										<span className="text-xs font-medium text-nova-text-muted">

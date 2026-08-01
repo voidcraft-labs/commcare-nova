@@ -1087,7 +1087,6 @@ function ModeMenu({
 					<Button
 						type="button"
 						variant="outline"
-						size="xl"
 						className="group min-h-11 justify-start border-white/[0.06] bg-nova-deep/50 px-3 text-sm text-nova-text-muted not-disabled:hover:border-nova-violet/30 not-disabled:hover:bg-nova-deep/50 not-disabled:hover:text-nova-text dark:bg-nova-deep/50"
 					/>
 				}
@@ -1364,7 +1363,6 @@ function TableColumnRefMenu({
 					<Button
 						type="button"
 						variant="outline"
-						size="xl"
 						className={`group h-auto min-h-11 w-full justify-between rounded-lg border bg-nova-deep/50 px-3 py-2 text-sm whitespace-normal dark:bg-nova-deep/50 dark:not-disabled:hover:bg-nova-deep/50 ${
 							invalid || missing
 								? "border-nova-rose/40 text-nova-rose"
@@ -1498,12 +1496,7 @@ function InputRefMenu({
 				aria-label={`Search answer: ${currentLabel ?? "Choose a search answer"}${currentMissing ? ", no longer available" : ""}`}
 				aria-invalid={invalid || undefined}
 				render={
-					<Button
-						type="button"
-						variant="outline"
-						size="xl"
-						className={triggerClass}
-					/>
+					<Button type="button" variant="outline" className={triggerClass} />
 				}
 			>
 				<span className="min-w-0 flex-1 text-left">
@@ -1639,12 +1632,7 @@ function FormFieldRefMenu({
 				aria-label={`Form answer: ${currentLabel ?? "Choose a form answer"}${missing ? ", no longer in this form" : ""}`}
 				aria-invalid={invalid || undefined}
 				render={
-					<Button
-						type="button"
-						variant="outline"
-						size="xl"
-						className={triggerClass}
-					/>
+					<Button type="button" variant="outline" className={triggerClass} />
 				}
 			>
 				<span className="min-w-0 flex-1 text-left">
@@ -1778,12 +1766,7 @@ function SessionContextMenu({
 				aria-label={`App information: ${current.label}`}
 				aria-invalid={invalid || undefined}
 				render={
-					<Button
-						type="button"
-						variant="outline"
-						size="xl"
-						className={triggerClass}
-					/>
+					<Button type="button" variant="outline" className={triggerClass} />
 				}
 			>
 				<span className="text-nova-violet-bright">{current.label}</span>
@@ -2304,7 +2287,6 @@ function LiteralBooleanToggle({
 			<Button
 				type="button"
 				variant="ghost"
-				size="xl"
 				onClick={() => {
 					if (current) return;
 					onChange(rebuildLiteralPreservingDataType(value, true));
@@ -2317,7 +2299,6 @@ function LiteralBooleanToggle({
 			<Button
 				type="button"
 				variant="ghost"
-				size="xl"
 				onClick={() => {
 					if (!current) return;
 					onChange(rebuildLiteralPreservingDataType(value, false));
@@ -2497,12 +2478,7 @@ function UserPropertyMenu({
 				aria-label={`Worker information: ${current.label}, ${current.slug}`}
 				aria-invalid={invalid || undefined}
 				render={
-					<Button
-						type="button"
-						variant="outline"
-						size="xl"
-						className={triggerClass}
-					/>
+					<Button type="button" variant="outline" className={triggerClass} />
 				}
 			>
 				<span className="min-w-0 flex-1 text-left">

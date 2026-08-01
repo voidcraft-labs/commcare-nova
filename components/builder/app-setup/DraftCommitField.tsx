@@ -252,7 +252,6 @@ export function DraftLinesField({
 					ref={applyRef}
 					type="button"
 					variant="ghost"
-					size="sm"
 					disabled={disabled || !dirty}
 					onClick={commit}
 					className="min-h-11 shrink-0 text-nova-violet-bright"

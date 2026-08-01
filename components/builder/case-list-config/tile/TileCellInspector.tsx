@@ -109,7 +109,6 @@ export function TileCellInspector({
 					<Button
 						type="button"
 						variant="outline"
-						size="xl"
 						onClick={() => {
 							setFocusPlaceOnMount(true);
 							onPutOnTile();
@@ -313,7 +312,6 @@ function SavedPlaceSection({
 					<Button
 						type="button"
 						variant="outline"
-						size="xl"
 						onClick={onClearPlace}
 						className="min-h-11 w-full rounded-lg border-white/[0.10] bg-transparent px-3 text-[14px] dark:bg-transparent"
 					>

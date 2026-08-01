@@ -238,12 +238,7 @@ export function PropertyPicker({
 				id={triggerId}
 				aria-label={`${ariaLabel}: ${accessibleDisplayLabel}`}
 				render={
-					<Button
-						type="button"
-						variant="outline"
-						size="xl"
-						className={triggerClass}
-					/>
+					<Button type="button" variant="outline" className={triggerClass} />
 				}
 			>
 				<span className="flex min-w-0 flex-1 items-start gap-1.5 text-left">

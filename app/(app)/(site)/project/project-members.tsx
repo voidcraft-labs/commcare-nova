@@ -267,7 +267,7 @@ export function ProjectMembers({
 										<Button
 											type="button"
 											variant="ghost"
-											size="icon-sm"
+											size="icon"
 											disabled={busy}
 											onClick={() => removeMember(m.memberId)}
 											aria-label={`Remove ${m.name}`}
@@ -303,7 +303,6 @@ export function ProjectMembers({
 											<Button
 												type="button"
 												variant="ghost"
-												size="sm"
 												disabled={busy}
 												onClick={() => cancelInvitation(inv.id)}
 											>
@@ -349,7 +348,7 @@ export function ProjectMembers({
 						<Icon icon={tablerInfoCircle} width="16" height="16" />
 					</PopoverTrigger>
 					<PopoverContent className="w-80">
-						<p className="text-xs font-medium uppercase tracking-wide text-nova-text-muted">
+						<p className="text-xs font-medium text-nova-text-muted">
 							What each role can do
 						</p>
 						{legendRoles.map((r) => (
@@ -438,7 +437,7 @@ export function ProjectMembers({
 											changeRole(m.memberId, next as AssignableRole)
 										}
 									>
-										<SelectTrigger size="sm" aria-label={`Role for ${m.name}`}>
+										<SelectTrigger aria-label={`Role for ${m.name}`}>
 											<SelectValue />
 										</SelectTrigger>
 										<SelectContent>
@@ -458,7 +457,7 @@ export function ProjectMembers({
 									<Button
 										type="button"
 										variant="ghost"
-										size="icon-sm"
+										size="icon"
 										disabled={busy}
 										onClick={() => removeMember(m.memberId)}
 										aria-label={`Remove ${m.name}`}
@@ -493,7 +492,6 @@ export function ProjectMembers({
 										<Button
 											type="button"
 											variant="ghost"
-											size="sm"
 											disabled={busy}
 											onClick={() => cancelInvitation(inv.id)}
 										>

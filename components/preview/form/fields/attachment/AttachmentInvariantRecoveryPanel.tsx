@@ -89,7 +89,7 @@ export function AttachmentInvariantRecoveryPanel({
 										authority: writeAuthority,
 									});
 								}}
-								className="inline-flex min-h-11 items-center rounded-lg border border-nova-amber/50 px-3 py-2 text-sm font-medium text-nova-text transition-colors not-disabled:hover:bg-nova-amber/15 disabled:cursor-not-allowed disabled:opacity-40"
+								className="inline-flex min-h-11 items-center rounded-lg border border-nova-amber/50 px-3 py-2 text-sm font-medium text-nova-text transition-colors not-disabled:hover:bg-nova-amber/15 disabled:cursor-not-allowed disabled:opacity-(--disabled-opacity)"
 							>
 								{action}
 							</button>

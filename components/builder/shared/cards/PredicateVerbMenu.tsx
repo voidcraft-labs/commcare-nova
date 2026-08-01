@@ -1142,7 +1142,6 @@ export function PredicateVerbMenu({
 						<Button
 							type="button"
 							variant="outline"
-							size="xl"
 							data-predicate-verb-trigger
 							className={`group border bg-nova-deep/50 px-3 text-sm dark:bg-nova-deep/50 dark:not-disabled:hover:bg-nova-deep/50 @max-md:justify-self-start ${
 								invalid

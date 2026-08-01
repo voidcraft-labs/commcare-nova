@@ -366,7 +366,7 @@ export function RefLabelInput({
 		<div>
 			<span
 				id={labelId}
-				className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 flex items-center gap-1.5"
+				className="text-xs text-nova-text-muted mb-1 flex items-center gap-1.5"
 			>
 				{fieldLabel}
 				<SavedCheck

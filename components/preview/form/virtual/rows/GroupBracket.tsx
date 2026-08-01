@@ -204,7 +204,7 @@ export const GroupOpenRow = memo(function GroupOpenRow({
 							</button>
 
 							{isRepeat && (
-								<span className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wider text-nova-text-muted">
+								<span className="flex items-center gap-1 text-xs font-medium text-nova-text-muted">
 									<Icon icon={tablerRepeat} width="11" height="11" />
 									Repeat
 									{repeatCount > 1 && (

@@ -135,7 +135,6 @@ function PresetRow({
 					<Button
 						type="button"
 						variant="ghost"
-						size="xl"
 						key={preset.id}
 						onClick={() => {
 							if (!isActive) onChange(preset.pattern);
@@ -150,7 +149,6 @@ function PresetRow({
 			<Button
 				type="button"
 				variant="ghost"
-				size="xl"
 				onClick={() => {
 					if (isPreset) onChange(customSeed);
 				}}
@@ -353,7 +351,6 @@ function DatePieceBuilder({
 					<Button
 						type="button"
 						variant="outline"
-						size="xl"
 						className="group w-full justify-between whitespace-normal px-3 text-left"
 					/>
 				}
@@ -405,7 +402,6 @@ function DatePieceGroup({
 					<Button
 						type="button"
 						variant="ghost"
-						size="xl"
 						key={piece.token}
 						onClick={() => onInsert(piece.token)}
 						aria-label={`Insert ${piece.label.toLowerCase()}, shown as ${piece.example}`}

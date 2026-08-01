@@ -47,7 +47,6 @@ export function PersonaRemoveConfirm({
 				ref={triggerRef}
 				type="button"
 				variant="ghost"
-				size="lg"
 				onClick={() => setConfirming(true)}
 				className="h-11 self-start px-2.5 text-[13px] text-nova-rose hover:bg-nova-rose/[0.1] hover:text-nova-rose"
 			>
@@ -143,7 +142,6 @@ function ConfirmPanel({
 				<Button
 					type="button"
 					variant="outline"
-					size="lg"
 					className="h-11 self-start"
 					onClick={() => setAttempt((value) => value + 1)}
 				>
@@ -154,7 +152,6 @@ function ConfirmPanel({
 				<Button
 					type="button"
 					variant="destructive"
-					size="lg"
 					className="h-11"
 					disabled={owned.state !== "known"}
 					onClick={() => {
@@ -169,7 +166,6 @@ function ConfirmPanel({
 				<Button
 					type="button"
 					variant="ghost"
-					size="lg"
 					className="h-11"
 					onClick={onCancel}
 				>

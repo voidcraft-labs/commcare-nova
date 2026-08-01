@@ -26,7 +26,7 @@ export function ChatRail({ onExpand }: { onExpand: () => void }) {
 					<Button
 						type="button"
 						variant="ghost"
-						size="icon-lg"
+						size="icon"
 						onClick={onExpand}
 						aria-label="Expand chat sidebar"
 						data-builder-sidebar-toggle="expand-chat"
@@ -45,7 +45,7 @@ export function ChatRail({ onExpand }: { onExpand: () => void }) {
 					<Button
 						type="button"
 						variant="ghost"
-						size="icon-lg"
+						size="icon"
 						onClick={onExpand}
 						aria-label="Open chat"
 						data-builder-sidebar-toggle="expand-chat"

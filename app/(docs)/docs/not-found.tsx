@@ -9,9 +9,7 @@ import Link from "next/link";
 export default function DocsNotFound() {
 	return (
 		<main className="flex flex-col items-center justify-center gap-4 px-6 py-24 text-center">
-			<p className="font-mono text-sm tracking-widest text-fd-muted-foreground uppercase">
-				404
-			</p>
+			<p className="font-mono text-sm text-fd-muted-foreground">404</p>
 			<h1 className="font-display text-3xl text-fd-foreground">No such page</h1>
 			<p className="max-w-md text-fd-muted-foreground">
 				The page you tried to open isn't here. It may have moved, or the link

@@ -660,7 +660,6 @@ export function SearchInputEditor({
 								data-condition-origin
 								type="button"
 								variant="outline"
-								size="xl"
 								onClick={onEditCondition}
 								className="mt-3 w-full border-white/[0.08] bg-transparent text-[14px] text-nova-text-secondary not-disabled:hover:border-nova-violet/30 not-disabled:hover:bg-nova-violet/[0.05] not-disabled:hover:text-nova-violet-bright dark:bg-transparent dark:not-disabled:hover:bg-nova-violet/[0.05]"
 							>
@@ -847,7 +846,6 @@ function AdvancedInputSettings({
 						<Button
 							type="button"
 							variant="ghost"
-							size="xl"
 							className="group w-full justify-start gap-2 px-0 text-left not-disabled:hover:bg-transparent"
 						/>
 					}
@@ -1049,7 +1047,6 @@ function BindingPicker({
 					ref={triggerRef}
 					type="button"
 					variant="outline"
-					size="xl"
 					className={PICKER_TRIGGER_CLS}
 				/>
 			}
@@ -1288,7 +1285,7 @@ function TypePicker({
 		<DropdownMenu>
 			<DropdownMenuTrigger
 				ref={triggerRef}
-				render={<Button type="button" variant="outline" size="xl" />}
+				render={<Button type="button" variant="outline" />}
 				aria-label={`Search field ${rowIndex + 1} type: ${SEARCH_INPUT_TYPE_LABELS[value]}`}
 				className={PICKER_TRIGGER_CLS}
 			>
@@ -1410,7 +1407,7 @@ function MatchPicker({
 		<DropdownMenu>
 			<DropdownMenuTrigger
 				ref={triggerRef}
-				render={<Button type="button" variant="outline" size="xl" />}
+				render={<Button type="button" variant="outline" />}
 				aria-label={`Search field ${rowIndex + 1} match: ${triggerLabel}`}
 				className={`${PICKER_TRIGGER_CLS} ${
 					invalid ? "border-nova-rose/40 hover:border-nova-rose/60" : ""
@@ -1545,7 +1542,6 @@ function DefaultValueSlot({
 					type="button"
 					onClick={() => onChange(seedDefaultExpression(inputType))}
 					variant="outline"
-					size="xl"
 					className="w-full border-dashed border-white/[0.10] bg-transparent px-3 text-[14px] text-nova-text-muted not-disabled:hover:border-nova-violet/30 not-disabled:hover:bg-transparent not-disabled:hover:text-nova-violet-bright dark:bg-transparent dark:not-disabled:hover:bg-transparent"
 					aria-label={`Add a starting value for search field ${rowIndex + 1}`}
 				>
@@ -1570,7 +1566,6 @@ function DefaultValueSlot({
 						type="button"
 						onClick={() => onChange(undefined)}
 						variant="destructive"
-						size="xl"
 						className="w-full px-3 text-[14px]"
 						aria-label={`Remove the starting value for search field ${rowIndex + 1}`}
 					>

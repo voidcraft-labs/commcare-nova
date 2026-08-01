@@ -39,7 +39,7 @@ export function StructureSidebar() {
 				<Button
 					type="button"
 					variant="ghost"
-					size="icon-lg"
+					size="icon"
 					onClick={() => setSidebarOpen("structure", false)}
 					aria-label="Collapse structure sidebar"
 					data-builder-sidebar-toggle="collapse-structure"
@@ -127,12 +127,11 @@ function WorkspaceNavEntry({
 		<Button
 			type="button"
 			variant="ghost"
-			size="lg"
 			aria-current={active ? "page" : undefined}
 			onClick={onClick}
 			className={`h-11 w-full justify-start gap-2.5 px-2.5 text-[13px] font-medium ${
 				active
-					? "bg-nova-violet/[0.15] text-nova-violet-bright shadow-[inset_0_0_0_1px_rgba(139,92,246,0.35)]"
+					? "bg-nova-violet/[0.15] text-nova-violet-bright shadow-[inset_0_0_0_1px_rgba(150,120,242,0.35)]"
 					: "text-nova-text-muted hover:bg-white/[0.05] hover:text-nova-text"
 			}`}
 		>

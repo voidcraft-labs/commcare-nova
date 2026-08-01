@@ -287,7 +287,6 @@ function PeerAvatar({ peer, onFollow }: { peer: Peer; onFollow: () => void }) {
 			<Button
 				type="button"
 				variant="ghost"
-				size="xl"
 				onClick={onFollow}
 				aria-label={`Follow ${peer.name || "collaborator"}`}
 				className="size-11 rounded-full bg-transparent p-0 not-disabled:hover:bg-transparent"

@@ -24,7 +24,7 @@ export function AppSettingsPanel({ onClose }: AppSettingsPanelProps) {
 		<div className="w-80">
 			{/* Header */}
 			<div className="flex items-center justify-between px-3.5 py-2.5 border-b border-white/[0.06]">
-				<span className="text-xs font-medium text-nova-text-secondary uppercase tracking-wider">
+				<span className="text-xs font-medium text-nova-text-secondary">
 					App Settings
 				</span>
 				<button

@@ -864,7 +864,7 @@ export function SignaturePad({
 										? undefined
 										: `Undo clear signature for ${questionLabel}`
 							}
-							className="inline-flex min-h-12 touch-manipulation items-center gap-1.5 rounded-md px-2 text-xs font-medium text-nova-violet-bright transition-colors not-disabled:hover:text-nova-text disabled:cursor-not-allowed disabled:opacity-40"
+							className="inline-flex min-h-12 touch-manipulation items-center gap-1.5 rounded-md px-2 text-xs font-medium text-nova-violet-bright transition-colors not-disabled:hover:text-nova-text disabled:cursor-not-allowed disabled:opacity-(--disabled-opacity)"
 						>
 							<Icon
 								icon={tablerArrowBackUp}
@@ -895,7 +895,7 @@ export function SignaturePad({
 								? undefined
 								: `Clear signature for ${questionLabel}`
 					}
-					className="inline-flex min-h-12 touch-manipulation items-center gap-2 rounded-md border border-pv-input-border bg-pv-surface px-4 text-sm font-medium text-nova-text transition-colors not-disabled:hover:border-pv-input-focus disabled:cursor-not-allowed disabled:opacity-40"
+					className="inline-flex min-h-12 touch-manipulation items-center gap-2 rounded-md border border-pv-input-border bg-pv-surface px-4 text-sm font-medium text-nova-text transition-colors not-disabled:hover:border-pv-input-focus disabled:cursor-not-allowed disabled:opacity-(--disabled-opacity)"
 				>
 					<Icon icon={tablerX} width="16" height="16" aria-hidden="true" />
 					<span id={clearActionId}>Clear signature</span>

@@ -38,7 +38,7 @@ export function ModuleSettingsButton({
 	return (
 		<Popover open={open} onOpenChange={setOpen}>
 			<PopoverTrigger
-				render={<Button variant="ghost" size="icon-lg" />}
+				render={<Button variant="ghost" size="icon" />}
 				className="ml-auto size-11 text-nova-text-muted not-disabled:hover:bg-white/5 not-disabled:hover:text-nova-text"
 				aria-label="Module settings"
 			>

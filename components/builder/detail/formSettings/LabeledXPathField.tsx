@@ -32,7 +32,7 @@ export function LabeledXPathField({
 
 	return (
 		<div>
-			<span className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-0.5 flex items-center gap-0.5">
+			<span className="text-xs text-nova-text-muted mb-0.5 flex items-center gap-0.5">
 				{label}
 				{required && <span className="text-nova-rose">*</span>}
 				{editing && <SaveShortcutHint />}

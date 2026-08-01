@@ -25,7 +25,7 @@ export function AppConnectSection() {
 				<div className="flex items-center gap-2">
 					{/* The logomark carries the "CommCare" half of the name, so the
 					    word beside it is just "Connect". */}
-					<span className="flex items-center gap-1.5 text-xs font-medium text-nova-text-secondary uppercase tracking-wider">
+					<span className="flex items-center gap-1.5 text-xs font-medium text-nova-text-secondary">
 						Connect
 						<ConnectLogomark size={12} className="text-nova-violet-bright" />
 					</span>

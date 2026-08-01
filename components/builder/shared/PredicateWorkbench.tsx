@@ -271,7 +271,6 @@ export function AddConditionMenu({
 					<Button
 						type="button"
 						variant="outline"
-						size="xl"
 						className={`border-white/[0.09] px-4 text-sm text-nova-text-secondary not-disabled:hover:border-nova-violet/30 not-disabled:hover:bg-nova-violet/[0.05] not-disabled:hover:text-nova-violet-bright ${className}`}
 					/>
 				}
@@ -728,7 +727,6 @@ export function PredicateWorkbench({
 										<Button
 											type="button"
 											variant="destructive"
-											size="xl"
 											onClick={onRemoveRoot}
 											className="px-3 text-sm"
 										>
@@ -777,7 +775,6 @@ function WorkbenchNavigation({
 			<Button
 				type="button"
 				variant="ghost"
-				size="xl"
 				onClick={() => onReturn(parentPath, activePath)}
 				aria-label={`Back to ${parentLabel.toLocaleLowerCase()}`}
 				className="shrink-0 self-start text-nova-text-secondary"
@@ -817,7 +814,6 @@ function WorkbenchNavigation({
 									<Button
 										type="button"
 										variant="link"
-										size="xl"
 										onClick={() => onReturn(item.path, returnTarget)}
 										className="h-auto min-h-11 min-w-0 shrink break-words px-2 py-2 text-left text-[13px] leading-snug whitespace-normal"
 									>
@@ -888,7 +884,6 @@ function FocusedStructure({
 							<Button
 								type="button"
 								variant="destructive"
-								size="xl"
 								onClick={onRemove}
 								className="min-h-11 w-full shrink-0 justify-start px-3 text-sm @sm:w-auto @sm:justify-center"
 							>
@@ -932,7 +927,6 @@ function FocusedStructure({
 						<Button
 							type="button"
 							variant="destructive"
-							size="xl"
 							onClick={onRemove}
 							className="px-3 text-sm"
 						>
@@ -1246,7 +1240,6 @@ function GroupConnectorMenu({
 					<Button
 						type="button"
 						variant="outline"
-						size="xl"
 						className="w-full justify-between border-white/[0.09] px-3 text-sm text-nova-text-secondary not-disabled:hover:border-nova-violet/30 not-disabled:hover:text-nova-violet-bright"
 					/>
 				}
@@ -1369,7 +1362,6 @@ function StructuralSummaryRow({
 					<Button
 						type="button"
 						variant="outline"
-						size="xl"
 						onClick={onEdit}
 						aria-label={`Edit ${context}`}
 						data-rule-focus-summary
@@ -1409,7 +1401,6 @@ function PredicateRowActions({
 				<Button
 					type="button"
 					variant="ghost"
-					size="xl"
 					onClick={onRemove}
 					className="px-3 text-sm text-nova-rose not-disabled:hover:bg-nova-rose/[0.08] not-disabled:hover:text-nova-rose"
 				>
@@ -1428,7 +1419,6 @@ function PredicateRowActions({
 						<Button
 							type="button"
 							variant="ghost"
-							size="xl"
 							aria-label={triggerLabel}
 							className="px-3 text-sm text-nova-text-muted not-disabled:hover:bg-white/[0.04] not-disabled:hover:text-nova-text"
 						/>

@@ -553,13 +553,7 @@ function RefreshButton({
 	onRefresh: () => void;
 }) {
 	return (
-		<Button
-			type="button"
-			variant="ghost"
-			size="xs"
-			onClick={onRefresh}
-			disabled={busy}
-		>
+		<Button type="button" variant="ghost" onClick={onRefresh} disabled={busy}>
 			<Icon
 				icon={busy ? tablerLoader2 : tablerRefresh}
 				className={busy ? "animate-spin" : undefined}

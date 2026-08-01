@@ -45,7 +45,7 @@ export function AppTreeRail({ onExpand }: { onExpand: () => void }) {
 					<Button
 						type="button"
 						variant="ghost"
-						size="icon-lg"
+						size="icon"
 						onClick={onExpand}
 						aria-label="Expand structure sidebar"
 						data-builder-sidebar-toggle="expand-structure"
@@ -201,12 +201,12 @@ function RailButton({
 			<Button
 				type="button"
 				variant="ghost"
-				size="icon-lg"
+				size="icon"
 				onClick={onClick}
 				aria-label={label}
 				className={`size-11 ${
 					active
-						? "bg-nova-violet/[0.15] text-nova-violet-bright shadow-[inset_0_0_0_1px_rgba(139,92,246,0.35)]"
+						? "bg-nova-violet/[0.15] text-nova-violet-bright shadow-[inset_0_0_0_1px_rgba(150,120,242,0.35)]"
 						: "text-nova-text-muted hover:text-nova-text-secondary hover:bg-white/[0.05]"
 				}`}
 			>

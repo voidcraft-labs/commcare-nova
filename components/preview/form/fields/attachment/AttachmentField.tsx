@@ -801,7 +801,7 @@ function AttachmentControl({
 						aria-disabled={interactionBlocked}
 						className={`relative inline-flex min-h-12 min-w-0 max-w-full touch-manipulation items-center gap-2 overflow-hidden rounded-md border border-pv-input-border bg-pv-surface px-4 text-sm font-medium text-nova-text transition-colors focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-pv-input-focus ${
 							interactionBlocked
-								? "cursor-default opacity-40"
+								? "cursor-default opacity-(--disabled-opacity)"
 								: "cursor-pointer hover:border-pv-input-focus"
 						}`}
 					>
@@ -878,7 +878,7 @@ function AttachmentControl({
 							aria-labelledby={
 								labelledBy ? `${removeActionId} ${labelledBy}` : undefined
 							}
-							className="inline-flex min-h-12 touch-manipulation items-center justify-center gap-1.5 rounded-md px-3 py-2 text-sm text-nova-text-muted transition-colors not-disabled:hover:bg-white/[0.06] not-disabled:hover:text-nova-text disabled:cursor-not-allowed disabled:opacity-40"
+							className="inline-flex min-h-12 touch-manipulation items-center justify-center gap-1.5 rounded-md px-3 py-2 text-sm text-nova-text-muted transition-colors not-disabled:hover:bg-white/[0.06] not-disabled:hover:text-nova-text disabled:cursor-not-allowed disabled:opacity-(--disabled-opacity)"
 						>
 							<Icon icon={tablerX} width="16" height="16" aria-hidden="true" />
 							<span id={removeActionId}>Remove</span>
@@ -962,7 +962,7 @@ function AttachmentControl({
 								aria-labelledby={
 									labelledBy ? `${retryActionId} ${labelledBy}` : undefined
 								}
-								className="inline-flex min-h-11 touch-manipulation items-center rounded-md border border-current px-3 font-medium transition-colors not-disabled:hover:bg-nova-red/10 disabled:cursor-not-allowed disabled:opacity-40"
+								className="inline-flex min-h-11 touch-manipulation items-center rounded-md border border-current px-3 font-medium transition-colors not-disabled:hover:bg-nova-red/10 disabled:cursor-not-allowed disabled:opacity-(--disabled-opacity)"
 							>
 								<span id={retryActionId}>
 									{chooseFileRecovery ? "Choose file" : "Retry"}
@@ -983,7 +983,7 @@ function AttachmentControl({
 										? `${issueRemoveActionId} ${labelledBy}`
 										: undefined
 								}
-								className="inline-flex min-h-11 touch-manipulation items-center rounded-md px-3 font-medium transition-colors not-disabled:hover:bg-nova-red/10 disabled:cursor-not-allowed disabled:opacity-40"
+								className="inline-flex min-h-11 touch-manipulation items-center rounded-md px-3 font-medium transition-colors not-disabled:hover:bg-nova-red/10 disabled:cursor-not-allowed disabled:opacity-(--disabled-opacity)"
 							>
 								<span id={issueRemoveActionId}>Remove attachment</span>
 							</button>

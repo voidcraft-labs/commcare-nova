@@ -75,7 +75,7 @@ export function InspectorPanel({
 					<Button
 						type="button"
 						variant="outline"
-						size="icon-lg"
+						size="icon"
 						onClick={onClose}
 						aria-label="Close properties"
 						aria-keyshortcuts="Escape"

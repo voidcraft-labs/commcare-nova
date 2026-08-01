@@ -2264,7 +2264,6 @@ function ColumnInspectorBody({
 					disabled={keepLastResult}
 					aria-disabled={keepLastResult}
 					variant="outline"
-					size="xl"
 					className={`w-full bg-transparent px-3 text-[14px] dark:bg-transparent ${
 						keepLastResult
 							? "border-white/[0.04] text-nova-text-muted"
@@ -2473,7 +2472,6 @@ function SearchInputInspectorBody({
 									<Button
 										type="button"
 										variant="outline"
-										size="xl"
 										onClick={() => {
 											navigatingReviewRef.current = true;
 											onReviewRemovalDependency(dependency);
@@ -2629,7 +2627,6 @@ export function WorkspaceTabs({
 										aria-current={active ? "page" : undefined}
 										onClick={() => onSelectTab(id)}
 										variant="ghost"
-										size="xl"
 										className={`relative min-w-0 flex-1 gap-1 border px-1.5 py-1.5 text-left @sm:gap-2 @sm:px-2 @2xl:px-3.5 ${
 											active
 												? "bg-nova-violet/[0.13] border-nova-border-bright"

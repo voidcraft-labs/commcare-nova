@@ -57,7 +57,6 @@ export function ImpersonationBanner({
 			<Button
 				type="button"
 				variant="ghost"
-				size="xl"
 				onClick={handleStopImpersonating}
 				disabled={loading}
 				aria-busy={loading || undefined}

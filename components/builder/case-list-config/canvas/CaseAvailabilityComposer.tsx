@@ -178,7 +178,6 @@ export function CaseAvailabilityComposer({
 					<Button
 						type="button"
 						variant="outline"
-						size="xl"
 						onClick={onReturnToSearchField}
 						aria-label={`Back to ${dependencyReview.inputLabel} search field`}
 						className="shrink-0 border-white/[0.09] px-4 text-[14px]"
@@ -550,7 +549,6 @@ function MatchCount({
 						ref={retryButtonRef}
 						type="button"
 						variant="ghost"
-						size="xl"
 						onClick={() => {
 							retryFocusPhaseRef.current = "requested";
 							// The status container survives unavailable -> loading. Move

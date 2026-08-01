@@ -87,7 +87,6 @@ export function StartFromScratch({
 						 *  props, so anything keyed on it can't change during the exit. */}
 						<Button
 							variant="outline"
-							size="xl"
 							onClick={onCreate}
 							aria-busy={creating || undefined}
 						>

@@ -203,7 +203,6 @@ export function InCard({ value, onChange, path }: InCardProps) {
 				<Button
 					type="button"
 					variant="outline"
-					size="xl"
 					onClick={append}
 					data-removal-focus-fallback
 					className="w-full border-dashed border-white/[0.10] bg-transparent px-3 text-sm text-nova-text-muted not-disabled:hover:border-nova-violet/30 not-disabled:hover:bg-transparent not-disabled:hover:text-nova-violet-bright dark:bg-transparent dark:not-disabled:hover:bg-transparent"
@@ -254,7 +253,7 @@ function ValueRow({
 						<Button
 							type="button"
 							variant="ghost"
-							size="icon-lg"
+							size="icon"
 							aria-label="Remove value"
 							onClick={(event) =>
 								removeAndRestoreFocus(event.currentTarget, onRemove)

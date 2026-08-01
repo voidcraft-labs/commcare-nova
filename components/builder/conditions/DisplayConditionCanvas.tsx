@@ -95,7 +95,6 @@ export function DisplayConditionCanvas({
 			<Button
 				type="button"
 				variant="ghost"
-				size="xl"
 				onClick={back}
 				className="-ml-2 mb-5 text-nova-text-secondary"
 			>
@@ -197,7 +196,6 @@ export function DisplayConditionCanvas({
 							ref={addButtonRef}
 							type="button"
 							variant="outline"
-							size="xl"
 							disabled={!canEdit}
 							onClick={() =>
 								change(

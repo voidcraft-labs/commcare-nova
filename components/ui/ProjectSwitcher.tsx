@@ -26,6 +26,7 @@ import tablerSettings from "@iconify-icons/tabler/settings";
 import tablerUsers from "@iconify-icons/tabler/users";
 import Link from "next/link";
 import { useState } from "react";
+import { Button } from "@/components/shadcn/button";
 import { authClient } from "@/lib/auth-client";
 import type { ProjectSummary } from "@/lib/projects/membership";
 import { useExternalNavigate } from "@/lib/routing/hooks";
@@ -163,7 +164,7 @@ export function ProjectSwitcher({
 				>
 					<Popover.Popup className={POPOVER_POPUP_CLS}>
 						<div style={{ minWidth: "248px" }}>
-							<div className="px-3 pt-2.5 pb-1.5 text-xs font-medium uppercase tracking-wide text-nova-text-muted">
+							<div className="px-3 pt-2.5 pb-1.5 text-xs font-medium text-nova-text-muted">
 								Projects
 							</div>
 							<div className="max-h-[280px] overflow-y-auto">
@@ -175,7 +176,7 @@ export function ProjectSwitcher({
 											type="button"
 											disabled={busy}
 											onClick={() => switchTo(p.id)}
-											className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-nova-text not-disabled:hover:bg-white/[0.06] transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-default"
+											className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-nova-text not-disabled:hover:bg-white/[0.06] transition-colors cursor-pointer disabled:opacity-(--disabled-opacity) disabled:cursor-default"
 										>
 											<span className="flex-1 text-left truncate font-medium">
 												{p.name}
@@ -215,21 +216,20 @@ export function ProjectSwitcher({
 										className="w-full rounded-lg border border-nova-border bg-nova-void px-2.5 py-1.5 text-sm text-nova-text placeholder:text-nova-text-muted focus-visible:ring-2 focus-visible:ring-nova-violet focus-visible:outline-none"
 									/>
 									<div className="mt-2 flex items-center justify-end gap-2">
-										<button
+										<Button
 											type="button"
+											variant="ghost"
 											onClick={() => setCreating(false)}
-											className="rounded-lg px-2.5 py-1.5 text-sm text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer"
 										>
 											Cancel
-										</button>
-										<button
+										</Button>
+										<Button
 											type="button"
 											disabled={!newName.trim() || busy}
 											onClick={createProject}
-											className="rounded-lg bg-nova-action px-2.5 py-1.5 text-sm font-medium text-white not-disabled:hover:bg-nova-action-hover transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-default"
 										>
 											Create
-										</button>
+										</Button>
 									</div>
 								</div>
 							) : (

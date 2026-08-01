@@ -218,7 +218,6 @@ export function IdMappingCard({ value, onChange, errors }: IdMappingCardProps) {
 							<Button
 								type="button"
 								variant="secondary"
-								size="xl"
 								disabled={pendingValueIssue !== null}
 								onClick={appendEntry}
 								className="w-full"

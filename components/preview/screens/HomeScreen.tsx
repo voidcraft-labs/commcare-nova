@@ -185,7 +185,7 @@ export function HomeScreen() {
 									{mod.name}
 								</div>
 								{mod.caseType && (
-									<Badge variant="secondary" className="mt-1">
+									<Badge variant="muted" className="mt-1">
 										{mod.caseType}
 									</Badge>
 								)}

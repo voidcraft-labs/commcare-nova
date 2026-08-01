@@ -1026,7 +1026,6 @@ function AncestorSteps({
 								<Button
 									type="button"
 									variant="ghost"
-									size="xl"
 									onClick={(event) =>
 										removeStep(event.currentTarget, removablePath, index)
 									}
@@ -1146,7 +1145,6 @@ function AncestorSteps({
 				<Button
 					type="button"
 					variant="outline"
-					size="xl"
 					onClick={() => onChange(addParentPath)}
 					disabled={!addParentAdmission.admitted}
 					className="w-full"
@@ -1366,7 +1364,6 @@ function RelationshipSettings({
 					<Button
 						type="button"
 						variant="ghost"
-						size="xl"
 						className="group w-full justify-start gap-2 px-0 text-left not-disabled:hover:bg-transparent"
 					/>
 				}

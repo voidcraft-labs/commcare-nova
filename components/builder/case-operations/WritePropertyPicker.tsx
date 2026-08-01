@@ -132,7 +132,6 @@ export function WritePropertyPicker({
 					<Button
 						type="button"
 						variant="outline"
-						size="xl"
 						data-case-operation-add-write
 						className="min-h-11 w-full gap-2 rounded-lg border-dashed border-nova-border-bright bg-transparent px-4 text-sm text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.06] dark:bg-transparent dark:not-disabled:hover:bg-nova-violet/[0.06]"
 					/>
@@ -151,7 +150,6 @@ export function WritePropertyPicker({
 							key={property.name}
 							type="button"
 							variant="ghost"
-							size="xl"
 							disabled={seed === undefined}
 							onClick={() => seed !== undefined && choose(property.name, seed)}
 							className="h-auto min-h-11 w-full justify-start gap-2 rounded-lg px-3 py-2.5 text-left whitespace-normal"
@@ -220,7 +218,6 @@ export function WritePropertyPicker({
 					<Button
 						type="button"
 						variant="outline"
-						size="xl"
 						disabled={!verdict.ok || candidateSeed === undefined}
 						onClick={() =>
 							// A brand-new property is declared by this batch, so it has no

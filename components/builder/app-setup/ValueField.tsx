@@ -134,7 +134,7 @@ export function ValueField({
 					type="button"
 					disabled={disabled}
 					onClick={() => onChange(undefined)}
-					className="min-h-11 self-start text-[12px] font-medium text-nova-accent hover:underline disabled:cursor-not-allowed disabled:opacity-40"
+					className="min-h-11 self-start text-[12px] font-medium text-nova-accent hover:underline disabled:cursor-not-allowed disabled:opacity-(--disabled-opacity)"
 				>
 					{inheritedValue === undefined ? "Remove value" : "Use role value"}
 				</button>

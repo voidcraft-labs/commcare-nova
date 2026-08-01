@@ -1,4 +1,5 @@
 "use client";
+import { Button } from "@/components/shadcn/button";
 
 /**
  * Confirm row for a STAGED Connect sub-config — the sub-toggle scale of
@@ -22,14 +23,9 @@ export function StagedCommitRow({
 	return (
 		<div className="flex items-center justify-between gap-2 pt-0.5">
 			<span className="text-[10px] text-nova-text-muted">{hint}</span>
-			<button
-				type="button"
-				onClick={onCommit}
-				disabled={!ready}
-				className="px-2.5 py-1 text-[11px] font-medium rounded-md bg-nova-action text-white transition-colors enabled:not-disabled:hover:brightness-110 enabled:cursor-pointer disabled:opacity-40"
-			>
+			<Button type="button" onClick={onCommit} disabled={!ready}>
 				Add
-			</button>
+			</Button>
 		</div>
 	);
 }

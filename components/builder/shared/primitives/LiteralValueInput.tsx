@@ -673,12 +673,7 @@ function SelectOptionInput({
 				aria-label={`${ariaLabel}: ${display}`}
 				aria-invalid={invalid || undefined}
 				render={
-					<Button
-						type="button"
-						variant="outline"
-						size="xl"
-						className={triggerClass}
-					/>
+					<Button type="button" variant="outline" className={triggerClass} />
 				}
 			>
 				<span

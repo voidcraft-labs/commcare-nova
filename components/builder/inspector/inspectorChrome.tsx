@@ -130,7 +130,6 @@ export function RemoveRow({
 			<Button
 				type="button"
 				variant="destructive"
-				size="xl"
 				onClick={onClick}
 				disabled={disabledReason !== undefined}
 				aria-describedby={disabledReason === undefined ? undefined : reasonId}
@@ -182,12 +181,11 @@ export function SegmentedRow<T extends string>({
 						key={opt.value}
 						type="button"
 						variant="ghost"
-						size="xl"
 						onClick={() => onChange(opt.value)}
 						aria-pressed={active}
 						className={`min-w-0 flex-1 rounded-md px-2 text-[14px] active:translate-y-0 ${
 							active
-								? "bg-nova-violet/[0.18] text-nova-violet-bright font-medium shadow-[inset_0_0_0_1px_rgba(139,92,246,0.35)]"
+								? "bg-nova-violet/[0.18] text-nova-violet-bright font-medium shadow-[inset_0_0_0_1px_rgba(150,120,242,0.35)]"
 								: "text-nova-text-muted not-disabled:hover:bg-white/[0.04] not-disabled:hover:text-nova-text dark:not-disabled:hover:bg-white/[0.04]"
 						}`}
 					>

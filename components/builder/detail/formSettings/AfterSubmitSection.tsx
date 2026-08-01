@@ -63,7 +63,7 @@ export function AfterSubmitSection({ formUuid }: FormSettingsSectionProps) {
 		<div>
 			<label
 				htmlFor={triggerId}
-				className="text-xs font-medium text-nova-text-secondary uppercase tracking-wider mb-1.5 block"
+				className="text-xs font-medium text-nova-text-secondary mb-1.5 block"
 			>
 				After Submit
 			</label>

@@ -1,6 +1,7 @@
 "use client";
 import { motion } from "motion/react";
 import { useState } from "react";
+import { Button } from "@/components/shadcn/button";
 import { Logo } from "@/components/ui/Logo";
 import { useAuth } from "@/lib/auth/hooks/useAuth";
 import { SIGN_IN_ERROR } from "@/lib/auth-errors";
@@ -139,15 +140,16 @@ export function Landing({ signInError }: LandingProps) {
 					transition={{ delay: 0.5, duration: 0.6 }}
 					className="w-full"
 				>
-					<button
+					<Button
 						type="button"
+						glow
 						onClick={signInWithGoogle}
 						disabled={signingIn}
-						className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-white text-gray-800 font-medium rounded-lg not-disabled:hover:bg-gray-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-sm"
+						className="w-full"
 					>
 						<GoogleLogo />
-						{signingIn ? "Redirecting..." : "Sign in with Google"}
-					</button>
+						{signingIn ? "Redirecting" : "Sign in with Google"}
+					</Button>
 				</motion.div>
 			</motion.div>
 		</div>

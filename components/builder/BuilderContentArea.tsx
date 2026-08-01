@@ -574,7 +574,6 @@ export function BuilderContentArea({
 					<Button
 						type="button"
 						variant="ghost"
-						size="xl"
 						onClick={expandStructure}
 						aria-label="Open app structure"
 						className="h-11 min-w-0 gap-2 px-3 text-nova-text-secondary not-disabled:hover:bg-white/[0.05] not-disabled:hover:text-nova-text"
@@ -585,7 +584,6 @@ export function BuilderContentArea({
 					<Button
 						type="button"
 						variant="ghost"
-						size="xl"
 						onClick={expandChat}
 						aria-label="Open chat"
 						className="h-11 min-w-0 gap-2 px-3 text-nova-text-secondary not-disabled:hover:bg-white/[0.05] not-disabled:hover:text-nova-text"

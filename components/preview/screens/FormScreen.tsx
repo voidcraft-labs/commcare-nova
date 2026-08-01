@@ -1133,7 +1133,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 									(appId !== undefined && !attachmentEntryReady) ||
 									!mayWriteCaseData
 								}
-								className="inline-flex min-h-11 touch-manipulation cursor-pointer items-center gap-2 rounded-lg bg-pv-accent px-4 py-2 text-sm font-medium text-white transition-[filter] not-disabled:hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
+								className="inline-flex min-h-11 touch-manipulation cursor-pointer items-center gap-2 rounded-lg bg-pv-accent px-4 py-2 text-sm font-medium text-nova-void transition-[filter] not-disabled:hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-(--disabled-opacity)"
 							>
 								{submitStatus.kind === "running" && (
 									<Icon
@@ -1154,7 +1154,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 									clearRunning ||
 									!mayWriteCaseData
 								}
-								className="inline-flex min-h-11 touch-manipulation cursor-pointer items-center gap-1.5 rounded-lg px-3 py-2 text-sm text-nova-text-muted transition-colors not-disabled:hover:bg-white/5 not-disabled:hover:text-nova-text disabled:cursor-not-allowed disabled:opacity-40 disabled:not-disabled:hover:bg-transparent"
+								className="inline-flex min-h-11 touch-manipulation cursor-pointer items-center gap-1.5 rounded-lg px-3 py-2 text-sm text-nova-text-muted transition-colors not-disabled:hover:bg-white/5 not-disabled:hover:text-nova-text disabled:cursor-not-allowed disabled:opacity-(--disabled-opacity) disabled:not-disabled:hover:bg-transparent"
 							>
 								<Icon
 									icon={tablerRefresh}

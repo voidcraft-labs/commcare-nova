@@ -209,7 +209,6 @@ function AdvancedSearchSettings({
 						<Button
 							type="button"
 							variant="ghost"
-							size="xl"
 							className="group w-full justify-start gap-2 px-0 text-left not-disabled:hover:bg-transparent"
 						/>
 					}

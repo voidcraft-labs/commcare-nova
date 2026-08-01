@@ -189,7 +189,7 @@ export function ConsentForm({
 				<div className="flex flex-col gap-4">
 					<div className="flex items-center gap-3">
 						<IconChip tone="violet" icon={tablerShieldCheck} size="sm" />
-						<span className="text-[11px] font-medium uppercase tracking-[0.18em] text-nova-text-muted">
+						<span className="text-xs font-medium text-nova-text-muted">
 							Authorization request
 						</span>
 					</div>
@@ -198,7 +198,7 @@ export function ConsentForm({
 							Connect to{" "}
 							<span
 								data-testid="consent-nova-mark"
-								className="bg-gradient-to-r from-nova-text to-nova-violet-bright bg-clip-text font-semibold text-transparent [background-position:right_center] [background-size:325%_100%]"
+								className="font-semibold text-nova-violet-bright"
 							>
 								nova
 							</span>
@@ -206,7 +206,7 @@ export function ConsentForm({
 						</h1>
 						<div className="overflow-hidden rounded-xl border border-nova-border/70 bg-nova-surface/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
 							<div className="grid grid-cols-[6.25rem_1fr] items-center gap-3 border-b border-nova-border/60 bg-nova-elevated/20 px-3.5 py-2.5">
-								<div className="text-[10px] font-medium uppercase leading-none tracking-[0.12em] text-nova-text-muted">
+								<div className="text-xs font-medium leading-none text-nova-text-muted">
 									Application
 								</div>
 								<div
@@ -265,7 +265,7 @@ export function ConsentForm({
 					transition={{ duration: 0.5, ease, delay: 0.08 }}
 					className="flex flex-col gap-2.5"
 				>
-					<p className="text-[11px] font-medium uppercase tracking-[0.14em] text-nova-text-muted">
+					<p className="text-xs font-medium text-nova-text-muted">
 						It will be able to
 					</p>
 					{/* Three rendering shapes share the "It will be able to" slot:
@@ -353,7 +353,6 @@ export function ConsentForm({
 					<Button
 						type="button"
 						variant="secondary"
-						size="xl"
 						disabled={pending !== null}
 						onClick={() => submit(false)}
 						className="flex-1"
@@ -362,10 +361,10 @@ export function ConsentForm({
 					</Button>
 					<Button
 						type="button"
-						size="xl"
+						glow
 						disabled={pending !== null}
 						onClick={() => submit(true)}
-						className="flex-1 shadow-[var(--nova-glow-violet)]"
+						className="flex-1"
 					>
 						{pending === "accept" ? "Approving…" : "Allow"}
 					</Button>
@@ -406,7 +405,7 @@ function ConsentCard({
 	const glow =
 		tone === "error"
 			? "shadow-[0_0_80px_rgba(212,112,143,0.08),inset_0_1px_0_rgba(255,255,255,0.03)]"
-			: "shadow-[0_0_80px_rgba(139,92,246,0.1),inset_0_1px_0_rgba(255,255,255,0.04)]";
+			: "shadow-[0_0_80px_rgba(150,120,242,0.1),inset_0_1px_0_rgba(255,255,255,0.04)]";
 
 	return (
 		<div
@@ -482,7 +481,7 @@ function IdentityRow({
 }) {
 	return (
 		<div className="grid grid-cols-[6.25rem_1fr] items-center gap-3 border-b border-nova-border/50 px-3.5 py-2.5 last:border-b-0">
-			<dt className="text-[10px] font-medium uppercase leading-none tracking-[0.12em] text-nova-text-muted">
+			<dt className="text-xs font-medium leading-none text-nova-text-muted">
 				{label}
 			</dt>
 			<dd className="min-w-0 text-sm leading-snug text-nova-text">
@@ -581,7 +580,7 @@ function HqPendingFootnote() {
 					aria-hidden
 					className="shrink-0 text-nova-amber"
 				/>
-				<span className="flex-1 text-[10px] font-medium uppercase tracking-[0.12em] text-nova-amber">
+				<span className="flex-1 text-xs font-medium text-nova-amber">
 					Awaiting CommCare HQ setup
 				</span>
 				<Icon
@@ -614,12 +613,12 @@ function HqPendingFootnote() {
 								 *   who land focus inside the dialog (touch / tap-to-
 								 *   open path) hear an unlabelled dialog. Default
 								 *   render element is `<h2>`; we override to `<p>`
-								 *   because the text is a small uppercase eyebrow,
+								 *   because the text is a small quiet eyebrow,
 								 *   not a heading users would navigate to via the
 								 *   page's heading outline. */}
 								<Popover.Title
 									render={<p />}
-									className="text-[10px] font-semibold uppercase tracking-[0.12em] text-nova-amber"
+									className="text-xs font-semibold text-nova-amber"
 								>
 									Activates after setup
 								</Popover.Title>

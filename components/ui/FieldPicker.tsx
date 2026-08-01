@@ -134,7 +134,7 @@ export function FieldPicker({
 
 	return (
 		<div>
-			<span className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-0.5 flex items-center gap-0.5">
+			<span className="text-xs text-nova-text-muted mb-0.5 flex items-center gap-0.5">
 				{label}
 				{required && <span className="text-nova-rose ml-0.5">*</span>}
 			</span>
@@ -151,7 +151,7 @@ export function FieldPicker({
 						placeholder={placeholder}
 						autoComplete="off"
 						data-1p-ignore
-						className="w-full text-xs font-mono text-nova-violet-bright px-2 py-1.5 rounded-md border transition-colors outline-none bg-nova-deep/50 border-white/[0.06] hover:border-nova-violet/30 focus:bg-nova-surface focus:border-nova-violet/50 focus:shadow-[0_0_0_1px_rgba(139,92,246,0.1)]"
+						className="w-full text-xs font-mono text-nova-violet-bright px-2 py-1.5 rounded-md border transition-colors outline-none bg-nova-deep/50 border-white/[0.06] hover:border-nova-violet/30 focus:bg-nova-surface focus:border-nova-violet/50 focus:shadow-[0_0_0_1px_rgba(150,120,242,0.1)]"
 					/>
 				</Autocomplete.InputGroup>
 

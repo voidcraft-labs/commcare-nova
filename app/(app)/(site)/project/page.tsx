@@ -40,7 +40,7 @@ export default async function ProjectSettingsPage() {
 	return (
 		<main className="max-w-2xl mx-auto px-6 py-12">
 			<div className="mb-8">
-				<p className="text-xs font-medium uppercase tracking-wide text-nova-text-muted">
+				<p className="text-xs font-medium text-nova-text-muted">
 					Project settings
 				</p>
 				<h1 className="text-2xl font-display font-semibold">

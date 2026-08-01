@@ -50,7 +50,6 @@ export function Subsection({
 					ref={addButtonRef}
 					type="button"
 					variant="ghost"
-					size="lg"
 					onClick={onAdd}
 					className="mt-3 h-11 gap-2 px-2.5 text-[13px] font-medium text-nova-violet-bright hover:bg-nova-violet/[0.12] hover:text-nova-violet-bright"
 				>

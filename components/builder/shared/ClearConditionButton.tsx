@@ -53,7 +53,6 @@ export function ClearConditionButton({
 				ref={triggerRef}
 				type="button"
 				variant="destructive"
-				size="xl"
 				disabled={disabled}
 				onClick={() => setConfirming(true)}
 				className={`shrink-0 px-3 text-[14px] ${className}`}

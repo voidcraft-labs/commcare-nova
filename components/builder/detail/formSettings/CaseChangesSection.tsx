@@ -51,7 +51,6 @@ export function CaseChangesSection({
 			<Button
 				type="button"
 				variant="outline"
-				size="xl"
 				onClick={() => {
 					onNavigateAway?.();
 					navigate.openFormOperations(moduleUuid, formUuid);

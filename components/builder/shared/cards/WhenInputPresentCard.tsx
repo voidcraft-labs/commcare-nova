@@ -140,12 +140,7 @@ export function SearchInputMenu({
 				ref={triggerRef}
 				aria-label={`Search field ${currentLabel ?? "Choose a search field"}`}
 				render={
-					<Button
-						type="button"
-						variant="outline"
-						size="xl"
-						className={triggerClass}
-					/>
+					<Button type="button" variant="outline" className={triggerClass} />
 				}
 			>
 				<span className="flex items-center gap-1.5">

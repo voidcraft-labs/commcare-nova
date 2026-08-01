@@ -200,7 +200,7 @@ export function CreditControls({
 				{/* ── Balance summary — remaining is the headline figure ───────── */}
 				<div className="flex flex-wrap items-end justify-between gap-6">
 					<div>
-						<p className="text-xs uppercase tracking-wide text-nova-text-muted">
+						<p className="text-xs font-medium text-nova-text-muted">
 							Remaining this month
 						</p>
 						<p className="mt-1 text-3xl font-display font-semibold tabular-nums">
@@ -406,9 +406,7 @@ export function CreditControls({
 								key={`${grant.created_at}-${grant.actor_email}-${grant.type}-${grant.amount}`}
 								className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-nova-border bg-nova-surface px-4 py-3 text-sm"
 							>
-								<Badge
-									variant={grant.type === "grant" ? "violet" : "secondary"}
-								>
+								<Badge variant={grant.type === "grant" ? "violet" : "muted"}>
 									{grant.type}
 								</Badge>
 								{grant.type === "grant" && (

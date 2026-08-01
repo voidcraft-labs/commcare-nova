@@ -150,7 +150,6 @@ export function AddModulePopover({
 								<Button
 									type="button"
 									variant="ghost"
-									size="xl"
 									onClick={() => {
 										setStep("choose");
 										setError(null);
@@ -188,7 +187,6 @@ function ArchetypeRow({
 		<Button
 			type="button"
 			variant="ghost"
-			size="xl"
 			onClick={onClick}
 			className="h-auto min-h-14 w-full justify-start gap-2.5 whitespace-normal px-2.5 py-2 text-left hover:bg-white/[0.06]"
 		>

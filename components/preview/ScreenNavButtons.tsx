@@ -23,7 +23,7 @@ export function ScreenNavButtons({ canGoBack, onBack }: ScreenNavButtonsProps) {
 		<Button
 			type="button"
 			variant="ghost"
-			size="icon-lg"
+			size="icon"
 			onClick={onBack}
 			disabled={!canGoBack}
 			className={`-ml-1.5 ${BUTTON_CLASS}`}

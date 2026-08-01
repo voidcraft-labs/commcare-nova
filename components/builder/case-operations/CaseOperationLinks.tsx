@@ -172,7 +172,6 @@ export function CaseOperationLinks({
 					ref={rowFocus.addRef}
 					type="button"
 					variant="outline"
-					size="xl"
 					data-case-operation-add-link
 					disabled={!addVerdict.ok}
 					onClick={() => onChange([...links, addedLink])}
@@ -278,7 +277,6 @@ function LinkRow({
 						ref={removeRef}
 						type="button"
 						variant="ghost"
-						size="xl"
 						onClick={onRemove}
 						aria-label={`Remove the connection “${link.identifier}”`}
 						className="px-3 text-sm text-nova-rose not-disabled:hover:bg-nova-rose/[0.08] not-disabled:hover:text-nova-rose"
@@ -316,7 +314,6 @@ function LinkRow({
 								<Button
 									type="button"
 									variant="ghost"
-									size="xl"
 									onClick={() => {
 										setTargetDraft(undefined);
 										setRejection(undefined);
@@ -416,7 +413,6 @@ function RelationshipMenu({
 					<Button
 						type="button"
 						variant="outline"
-						size="xl"
 						className="group h-auto min-h-11 w-full justify-between rounded-lg border border-white/[0.06] bg-nova-deep/50 px-3 py-2 text-sm whitespace-normal not-disabled:hover:border-nova-violet/30 dark:bg-nova-deep/50 dark:not-disabled:hover:bg-nova-deep/50"
 					/>
 				}

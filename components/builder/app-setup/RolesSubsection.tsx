@@ -253,7 +253,6 @@ function RoleRow({
 								<Button
 									type="button"
 									variant="destructive"
-									size="lg"
 									className="h-11"
 									onClick={() => {
 										if (!sessionApi.getState().canEdit) return;
@@ -267,7 +266,6 @@ function RoleRow({
 								<Button
 									type="button"
 									variant="ghost"
-									size="lg"
 									className="h-11"
 									onClick={() => {
 										setConfirmingRemove(false);
@@ -283,7 +281,6 @@ function RoleRow({
 							ref={triggerRef}
 							type="button"
 							variant="ghost"
-							size="lg"
 							onClick={() => setConfirmingRemove(true)}
 							className="h-11 self-start px-2.5 text-[13px] text-nova-rose hover:bg-nova-rose/[0.1] hover:text-nova-rose"
 						>

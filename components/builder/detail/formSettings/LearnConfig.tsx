@@ -230,13 +230,10 @@ export function LearnConfig({
 			{/* Learn Module sub-toggle */}
 			<div className="rounded-lg bg-white/[0.03] border border-white/[0.05] px-2.5 py-2">
 				<div className="flex items-center justify-between">
-					<span className="text-[10px] text-nova-text-muted uppercase tracking-wider">
-						Learn Module
-					</span>
+					<span className="text-xs text-nova-text-muted">Learn Module</span>
 					<Switch
 						checked={learnEnabled || stagedLearn !== undefined}
 						onCheckedChange={toggleLearn}
-						size="sm"
 					/>
 				</div>
 				<AnimatePresence>
@@ -343,13 +340,10 @@ export function LearnConfig({
 			{/* Assessment sub-toggle */}
 			<div className="rounded-lg bg-white/[0.03] border border-white/[0.05] px-2.5 py-2">
 				<div className="flex items-center justify-between">
-					<span className="text-[10px] text-nova-text-muted uppercase tracking-wider">
-						Assessment
-					</span>
+					<span className="text-xs text-nova-text-muted">Assessment</span>
 					<Switch
 						checked={assessmentEnabled}
 						onCheckedChange={toggleAssessment}
-						size="sm"
 					/>
 				</div>
 				<AnimatePresence>

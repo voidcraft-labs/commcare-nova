@@ -103,7 +103,7 @@ function InstanceDivider({
 		>
 			<span
 				id={instanceLabelId}
-				className="text-[10px] font-semibold uppercase tracking-widest text-nova-text-muted"
+				className="text-xs font-medium text-nova-text-muted"
 			>
 				Instance {idx + 1}
 			</span>
@@ -112,7 +112,7 @@ function InstanceDivider({
 					type="button"
 					onClick={onRemove}
 					disabled={removeDisabled}
-					className="inline-flex min-h-11 min-w-11 touch-manipulation items-center justify-center rounded text-nova-text-muted transition-colors not-disabled:hover:text-nova-rose disabled:cursor-not-allowed disabled:opacity-40"
+					className="inline-flex min-h-11 min-w-11 touch-manipulation items-center justify-center rounded text-nova-text-muted transition-colors not-disabled:hover:text-nova-rose disabled:cursor-not-allowed disabled:opacity-(--disabled-opacity)"
 					aria-labelledby={[
 						removeActionId,
 						accessibleContext,
@@ -260,7 +260,7 @@ export function RepeatField({
 
 						<span
 							id={headerId}
-							className="flex shrink-0 items-center gap-1 text-[10px] font-medium uppercase tracking-wider text-nova-text-muted"
+							className="flex shrink-0 items-center gap-1 text-xs font-medium text-nova-text-muted"
 						>
 							<span className="sr-only">Repeat {position}. </span>
 							<Icon

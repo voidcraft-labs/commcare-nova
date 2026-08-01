@@ -153,7 +153,6 @@ export function OptionalSlotCard<T>({
 		<Button
 			type="button"
 			variant="outline"
-			size="xl"
 			onClick={handleAdd}
 			className="w-full rounded-lg border-dashed border-white/[0.10] bg-transparent px-3 text-sm text-nova-text-muted not-disabled:hover:border-nova-violet/30 not-disabled:hover:bg-nova-violet/[0.05] not-disabled:hover:text-nova-violet-bright dark:bg-transparent dark:not-disabled:hover:bg-nova-violet/[0.05]"
 			aria-label={addLabel}

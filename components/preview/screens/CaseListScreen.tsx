@@ -1019,7 +1019,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 				<Button
 					type="button"
 					onClick={() => proceedWithCase(displayedOpenCase)}
-					className="mt-4 min-h-11 gap-2 rounded-lg bg-pv-accent px-4 text-[14px] font-semibold text-white not-disabled:hover:bg-pv-accent not-disabled:hover:brightness-110"
+					className="mt-4 min-h-11 gap-2 rounded-lg bg-pv-accent px-4 text-[14px] font-semibold text-nova-void not-disabled:hover:bg-pv-accent not-disabled:hover:brightness-110"
 				>
 					Continue
 					<Icon icon={tablerArrowRight} width="15" height="15" />
@@ -1214,7 +1214,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 						submitSearch(EMPTY_SEARCH_INPUT_VALUES);
 						focusNextFrame(() => resultsTitleRef.current);
 					}}
-					className="mb-4 h-auto min-h-11 max-w-full gap-2 whitespace-normal break-words rounded-lg bg-pv-accent px-4 py-2.5 text-center text-[14px] font-semibold text-white not-disabled:hover:bg-pv-accent not-disabled:hover:brightness-110 [overflow-wrap:anywhere]"
+					className="mb-4 h-auto min-h-11 max-w-full gap-2 whitespace-normal break-words rounded-lg bg-pv-accent px-4 py-2.5 text-center text-[14px] font-semibold text-nova-void not-disabled:hover:bg-pv-accent not-disabled:hover:brightness-110 [overflow-wrap:anywhere]"
 				>
 					<Icon icon={tablerSearch} width="16" height="16" />
 					{searchButtonLabel}

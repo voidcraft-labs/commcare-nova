@@ -58,9 +58,7 @@ const columns: ColumnDef<AdminUserRow>[] = [
 		cell: ({ getValue }) => {
 			const role = getValue<"user" | "admin">();
 			return (
-				<Badge variant={role === "admin" ? "violet" : "secondary"}>
-					{role}
-				</Badge>
+				<Badge variant={role === "admin" ? "violet" : "muted"}>{role}</Badge>
 			);
 		},
 	},
@@ -246,7 +244,7 @@ export function UserTable({ users }: { users: AdminUserRow[] }) {
 										key={header.id}
 										onClick={header.column.getToggleSortingHandler()}
 										className={`
-                      px-4 py-3 text-left text-xs font-display font-semibold uppercase tracking-wide
+                      px-4 py-3 text-left text-xs font-medium
                       ${header.column.getIsSorted() ? "text-nova-violet-bright" : "text-nova-text-secondary"}
                       ${header.column.getCanSort() ? "cursor-pointer select-none hover:text-nova-text" : ""}
                     `}

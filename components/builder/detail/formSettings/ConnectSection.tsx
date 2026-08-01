@@ -184,7 +184,7 @@ export function ConnectSection({
 			{/* Header row with toggle */}
 			<div className="flex items-center justify-between">
 				<div className="flex items-center gap-2">
-					<span className="text-xs font-medium text-nova-text-secondary uppercase tracking-wider">
+					<span className="text-xs font-medium text-nova-text-secondary">
 						Connect
 					</span>
 					<span className="h-[18px] px-1.5 text-[10px] font-medium rounded bg-nova-violet/10 text-nova-violet-bright border border-nova-violet/20 flex items-center capitalize">

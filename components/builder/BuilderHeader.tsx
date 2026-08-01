@@ -204,7 +204,7 @@ export function BuilderHeader({
 										<Button
 											type="button"
 											variant="ghost"
-											size="icon-lg"
+											size="icon"
 											onClick={undo}
 											disabled={!canUndo}
 											className="size-11 text-nova-text-muted not-disabled:hover:bg-white/5 not-disabled:hover:text-nova-text"
@@ -219,7 +219,7 @@ export function BuilderHeader({
 										<Button
 											type="button"
 											variant="ghost"
-											size="icon-lg"
+											size="icon"
 											onClick={redo}
 											disabled={!canRedo}
 											className="size-11 text-nova-text-muted not-disabled:hover:bg-white/5 not-disabled:hover:text-nova-text"

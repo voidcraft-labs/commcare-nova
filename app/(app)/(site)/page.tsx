@@ -125,12 +125,7 @@ function GetStarted({ canCreateApp }: { canCreateApp: boolean }) {
 					: "Someone with edit access can create the first app in this Project."}
 			</p>
 			{canCreateApp ? (
-				<Button
-					render={<Link href="/build/new" />}
-					nativeButton={false}
-					size="xl"
-					className="shadow-[var(--nova-glow-violet)]"
-				>
+				<Button render={<Link href="/build/new" />} nativeButton={false} glow>
 					<Icon icon={tablerSparkles} width="16" height="16" />
 					Get Started
 				</Button>

@@ -622,7 +622,7 @@ export function CasePropertyRenameDialog({
 											<Button
 												type="button"
 												variant="ghost"
-												size="icon-lg"
+												size="icon"
 												className="min-h-11 min-w-11 self-end text-nova-text-muted"
 												aria-label={`Remove rename for ${row.property}`}
 												onClick={() =>

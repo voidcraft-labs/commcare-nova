@@ -499,7 +499,6 @@ export function AddInformationControl({
 				<Button
 					type="button"
 					variant="outline"
-					size="xl"
 					data-case-add={surface}
 					className="min-h-11 w-full gap-2 rounded-lg border-dashed border-nova-border-bright bg-transparent px-4 text-sm text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.06] dark:bg-transparent dark:not-disabled:hover:bg-nova-violet/[0.06]"
 				/>

@@ -95,7 +95,6 @@ export function SlotCardHeader({
 						<Button
 							type="button"
 							variant="ghost"
-							size="xl"
 							onClick={collapse.onToggle}
 							aria-expanded={collapse.isOpen}
 							aria-controls={collapse.controlsId}
@@ -127,7 +126,6 @@ export function SlotCardHeader({
 					<Button
 						type="button"
 						variant="destructive"
-						size="xl"
 						onClick={clear.onClick}
 						className="shrink-0 gap-1 rounded-lg px-2.5 text-sm"
 						aria-label={clear.ariaLabel}

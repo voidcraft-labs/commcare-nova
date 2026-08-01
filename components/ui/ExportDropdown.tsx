@@ -58,7 +58,7 @@ export function ExportDropdown({
 		<DropdownMenu open={open} onOpenChange={setOpen}>
 			<SimpleTooltip content="Export">
 				<DropdownMenuTrigger
-					render={<Button type="button" variant="ghost" size="icon-lg" />}
+					render={<Button type="button" variant="ghost" size="icon" />}
 					aria-label="Export"
 					className="size-11 text-nova-text-muted not-disabled:hover:bg-white/5 not-disabled:hover:text-nova-text"
 				>

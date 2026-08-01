@@ -347,7 +347,7 @@ export function ChatInput({
 									<Button
 										type="button"
 										variant="ghost"
-										size="icon-lg"
+										size="icon"
 										onClick={() => {
 											if (ownsCurrentProjectScope()) setPickerOpen(true);
 										}}

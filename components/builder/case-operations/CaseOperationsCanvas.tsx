@@ -238,7 +238,6 @@ export function CaseOperationsCanvas({
 			<Button
 				type="button"
 				variant="ghost"
-				size="xl"
 				onClick={() => navigate.push({ kind: "form", moduleUuid, formUuid })}
 				className="-ml-2 mb-5 text-nova-text-secondary"
 			>
@@ -542,7 +541,6 @@ function AddChangeControl({
 					<Button
 						type="button"
 						variant="outline"
-						size="xl"
 						data-case-operations-add
 						className="min-h-11 w-full gap-2 rounded-lg border-dashed border-nova-border-bright bg-transparent px-4 text-sm text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.06] dark:bg-transparent dark:not-disabled:hover:bg-nova-violet/[0.06]"
 					/>
@@ -572,7 +570,6 @@ function AddChangeControl({
 						<Button
 							type="button"
 							variant="ghost"
-							size="xl"
 							onClick={() => setMode("intent")}
 							className="w-full justify-start text-[13px] text-nova-text-secondary"
 						>
@@ -640,7 +637,6 @@ function IntentRow({
 		<Button
 			type="button"
 			variant="ghost"
-			size="xl"
 			disabled={disabledReason !== undefined}
 			onClick={onClick}
 			className="h-auto min-h-11 w-full justify-start gap-3 rounded-lg px-3 py-2.5 text-left whitespace-normal"

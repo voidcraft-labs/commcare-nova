@@ -431,7 +431,7 @@ function ManagerBody({ onClose }: { onClose: () => void }) {
 					</div>
 				</div>
 				<DialogClose
-					render={<Button variant="ghost" size="icon-sm" />}
+					render={<Button variant="ghost" size="icon" />}
 					aria-label="Close"
 				>
 					<Icon icon={tablerX} className="size-4" />
@@ -486,12 +486,7 @@ function ManagerBody({ onClose }: { onClose: () => void }) {
 					)}
 					<div className="flex items-center gap-3">
 						<span className="text-[11px] text-nova-text-muted">{hint}</span>
-						<Button
-							type="button"
-							size="sm"
-							onClick={apply}
-							disabled={!canApply}
-						>
+						<Button type="button" onClick={apply} disabled={!canApply}>
 							{primaryLabel}
 						</Button>
 					</div>

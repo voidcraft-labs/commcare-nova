@@ -622,7 +622,6 @@ function AddClauseMenu({ onAdd }: AddClauseMenuProps) {
 					<Button
 						type="button"
 						variant="outline"
-						size="xl"
 						className="w-full gap-2 border-dashed border-white/[0.10] bg-transparent px-3 text-sm text-nova-text-muted not-disabled:hover:border-nova-violet/30 not-disabled:hover:bg-transparent not-disabled:hover:text-nova-violet-bright dark:bg-transparent dark:not-disabled:hover:bg-transparent"
 					/>
 				}

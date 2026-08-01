@@ -479,13 +479,13 @@ export function DraftField({
 		"w-full text-xs rounded-md border px-2 py-1.5 outline-none transition-colors placeholder:text-nova-text-muted";
 	const tone = error
 		? "border-nova-rose/60 bg-nova-surface shadow-[0_0_0_1px_rgba(212,112,143,0.15)]"
-		: "border-white/[0.06] bg-nova-deep/50 hover:border-nova-violet/30 focus:border-nova-violet/50 focus:bg-nova-surface focus:shadow-[0_0_0_1px_rgba(139,92,246,0.1)]";
+		: "border-white/[0.06] bg-nova-deep/50 hover:border-nova-violet/30 focus:border-nova-violet/50 focus:bg-nova-surface focus:shadow-[0_0_0_1px_rgba(150,120,242,0.1)]";
 	const text = mono ? "font-mono text-nova-violet-bright" : "text-nova-text";
 	return (
 		<div>
 			<label
 				htmlFor={fieldId}
-				className="mb-0.5 flex items-center gap-0.5 text-[10px] uppercase tracking-wider text-nova-text-muted"
+				className="mb-0.5 flex items-center gap-0.5 text-xs text-nova-text-muted"
 			>
 				{label}
 				{required && <span className="text-nova-rose">*</span>}
@@ -544,7 +544,7 @@ function AdvancedDisclosure({ children }: { children: ReactNode }) {
 			<button
 				type="button"
 				onClick={() => setOpen((o) => !o)}
-				className="flex cursor-pointer items-center gap-1 text-[10px] uppercase tracking-wider text-nova-text-muted transition-colors hover:text-nova-text-secondary"
+				className="flex cursor-pointer items-center gap-1 text-xs text-nova-text-muted transition-colors hover:text-nova-text-secondary"
 			>
 				<Icon
 					icon={tablerChevronRight}
@@ -572,10 +572,10 @@ function SubConfigCard({
 	return (
 		<div className="rounded-lg border border-white/[0.06] bg-white/[0.02]">
 			<div className="flex items-center justify-between px-3 py-2.5">
-				<span className="text-[11px] font-medium uppercase tracking-wider text-nova-text-secondary">
+				<span className="text-xs font-medium text-nova-text-secondary">
 					{title}
 				</span>
-				<Switch checked={checked} onCheckedChange={onCheckedChange} size="sm" />
+				<Switch checked={checked} onCheckedChange={onCheckedChange} />
 			</div>
 			{checked && children && (
 				<div className="space-y-2.5 border-t border-white/[0.06] px-3 pb-3 pt-2.5">
@@ -1024,7 +1024,7 @@ function ConnectEnableBody({
 					</span>
 				</div>
 				<DialogClose
-					render={<Button variant="ghost" size="icon-sm" />}
+					render={<Button variant="ghost" size="icon" />}
 					aria-label="Close"
 				>
 					<Icon icon={tablerX} className="size-4" />
@@ -1073,20 +1073,10 @@ function ConnectEnableBody({
 				<div className="flex items-center justify-between gap-3">
 					<span className="text-[11px] text-nova-text-muted">{hint}</span>
 					<div className="flex gap-2">
-						<Button
-							type="button"
-							variant="outline"
-							size="sm"
-							onClick={onCancel}
-						>
+						<Button type="button" variant="outline" onClick={onCancel}>
 							Cancel
 						</Button>
-						<Button
-							type="button"
-							size="sm"
-							onClick={confirm}
-							disabled={!canConfirm}
-						>
+						<Button type="button" onClick={confirm} disabled={!canConfirm}>
 							Enable Connect
 						</Button>
 					</div>

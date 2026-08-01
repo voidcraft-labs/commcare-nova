@@ -421,7 +421,6 @@ export function TileGridEditor({
 									<Button
 										type="button"
 										variant="outline"
-										size="xl"
 										onClick={() => {
 											// This row (often the whole strip) unmounts as the
 											// field lands on the grid; its new square is the

@@ -199,7 +199,7 @@ export function CloseConditionSection({ formUuid }: FormSettingsSectionProps) {
 		<div>
 			<label
 				htmlFor={triggerId}
-				className="text-xs font-medium text-nova-text-secondary uppercase tracking-wider mb-1.5 block"
+				className="text-xs font-medium text-nova-text-secondary mb-1.5 block"
 			>
 				Close Behavior
 			</label>
@@ -235,7 +235,7 @@ export function CloseConditionSection({ formUuid }: FormSettingsSectionProps) {
 
 							{/* Operator — "is" (=) vs "has selected" (selected) */}
 							<div>
-								<span className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-0.5 block">
+								<span className="text-xs text-nova-text-muted mb-0.5 block">
 									Operator
 								</span>
 								<SelectMenu
@@ -250,7 +250,7 @@ export function CloseConditionSection({ formUuid }: FormSettingsSectionProps) {
 							 * not an XPath expression), so users type plain values like "yes". */}
 							{selectedFieldOptions ? (
 								<div>
-									<span className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-0.5 block">
+									<span className="text-xs text-nova-text-muted mb-0.5 block">
 										Value <span className="text-nova-rose ml-0.5">*</span>
 									</span>
 									<SelectMenu

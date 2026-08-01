@@ -426,7 +426,7 @@ function TraceRecorder() {
 					<button
 						type="button"
 						onClick={() => setRecording(true)}
-						className="px-3 py-1.5 rounded-md bg-nova-action text-white text-xs font-medium cursor-pointer"
+						className="px-3 py-1.5 rounded-md bg-nova-action text-nova-action-ink text-xs font-medium cursor-pointer"
 					>
 						Record
 					</button>
@@ -435,7 +435,7 @@ function TraceRecorder() {
 					type="button"
 					onClick={download}
 					disabled={!lastTrace}
-					className="px-3 py-1.5 rounded-md border border-nova-border text-xs cursor-pointer disabled:opacity-40"
+					className="px-3 py-1.5 rounded-md border border-nova-border text-xs cursor-pointer disabled:opacity-(--disabled-opacity)"
 				>
 					Download JSON
 				</button>

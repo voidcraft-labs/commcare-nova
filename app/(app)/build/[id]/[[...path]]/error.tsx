@@ -44,12 +44,10 @@ export default function BuildError({
 				</p>
 			</div>
 			<div className="flex gap-3">
-				<Button variant="ghost" size="lg" onClick={() => reset()}>
+				<Button variant="ghost" onClick={() => reset()}>
 					Try Again
 				</Button>
 				<Button
-					size="lg"
-					className="shadow-[var(--nova-glow-violet)]"
 					onClick={() => {
 						window.location.href = "/build/new";
 					}}

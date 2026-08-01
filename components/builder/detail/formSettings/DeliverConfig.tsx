@@ -235,13 +235,10 @@ export function DeliverConfig({
 			{/* Deliver Unit sub-toggle */}
 			<div className="rounded-lg bg-white/[0.03] border border-white/[0.05] px-2.5 py-2">
 				<div className="flex items-center justify-between">
-					<span className="text-[10px] text-nova-text-muted uppercase tracking-wider">
-						Deliver Unit
-					</span>
+					<span className="text-xs text-nova-text-muted">Deliver Unit</span>
 					<Switch
 						checked={deliverEnabled || stagedDeliver !== undefined}
 						onCheckedChange={toggleDeliver}
-						size="sm"
 					/>
 				</div>
 				<AnimatePresence>
@@ -330,13 +327,10 @@ export function DeliverConfig({
 			{/* Task sub-toggle */}
 			<div className="rounded-lg bg-white/[0.03] border border-white/[0.05] px-2.5 py-2">
 				<div className="flex items-center justify-between">
-					<span className="text-[10px] text-nova-text-muted uppercase tracking-wider">
-						Task
-					</span>
+					<span className="text-xs text-nova-text-muted">Task</span>
 					<Switch
 						checked={taskEnabled || stagedTask !== undefined}
 						onCheckedChange={toggleTask}
-						size="sm"
 					/>
 				</div>
 				<AnimatePresence>

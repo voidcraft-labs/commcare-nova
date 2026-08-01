@@ -64,7 +64,6 @@ export function TreeRowDelete({
 					ref={confirmRef}
 					type="button"
 					variant="destructive"
-					size="xl"
 					aria-label={`Confirm ${label.toLowerCase()}`}
 					onKeyDown={(event) => event.stopPropagation()}
 					onClick={(e) => {
@@ -78,7 +77,7 @@ export function TreeRowDelete({
 				<Button
 					type="button"
 					variant="ghost"
-					size="icon-lg"
+					size="icon"
 					aria-label="Cancel delete"
 					onKeyDown={(event) => event.stopPropagation()}
 					onClick={(e) => {
@@ -99,7 +98,7 @@ export function TreeRowDelete({
 				ref={idleRef}
 				type="button"
 				variant="ghost"
-				size="icon-lg"
+				size="icon"
 				aria-label={label}
 				onKeyDown={(event) => event.stopPropagation()}
 				onClick={(e) => {

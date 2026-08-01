@@ -326,7 +326,6 @@ function InclusiveToggle({
 					checked={inclusive}
 					onCheckedChange={setInclusive}
 					disabled={disabled}
-					size="sm"
 				/>
 			</label>
 		</SimpleTooltip>

@@ -391,7 +391,7 @@ export function UploadToHqDialog({
 											<Link
 												href="/settings"
 												onClick={onClose}
-												className="inline-flex items-center gap-1 mt-1.5 text-xs font-medium text-nova-violet-bright hover:text-white transition-colors"
+												className="inline-flex items-center gap-1 mt-1.5 text-xs font-medium text-nova-violet-bright hover:text-nova-text transition-colors"
 											>
 												Go to Settings
 												<Icon
@@ -406,12 +406,11 @@ export function UploadToHqDialog({
 
 								{/* Action buttons */}
 								<div className="mt-5 flex justify-end gap-2">
-									<DialogClose render={<Button variant="outline" size="lg" />}>
+									<DialogClose render={<Button variant="outline" />}>
 										Cancel
 									</DialogClose>
 									<Button
 										type="button"
-										size="lg"
 										onClick={handleUpload}
 										disabled={!canUpload}
 									>
@@ -496,7 +495,7 @@ function SuccessView({
 			)}
 
 			<div className="mt-5">
-				<Button type="button" variant="outline" size="lg" onClick={onClose}>
+				<Button type="button" variant="outline" onClick={onClose}>
 					Done
 				</Button>
 			</div>
@@ -519,7 +518,7 @@ function LoadErrorView({
 				<Link
 					href="/settings"
 					onClick={onClose}
-					className="inline-flex items-center gap-1 text-sm font-medium text-nova-violet-bright hover:text-white transition-colors"
+					className="inline-flex items-center gap-1 text-sm font-medium text-nova-violet-bright hover:text-nova-text transition-colors"
 				>
 					Go to Settings
 					<Icon icon={tablerChevronRight} width="14" height="14" />

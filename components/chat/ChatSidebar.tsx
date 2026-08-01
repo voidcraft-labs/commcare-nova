@@ -500,7 +500,7 @@ export function ChatSidebar({
 										aria-label="Collapse chat sidebar"
 										data-builder-sidebar-toggle="collapse-chat"
 										variant="ghost"
-										size="icon-lg"
+										size="icon"
 										className="size-11 text-nova-text-muted not-disabled:hover:text-nova-text"
 									>
 										<Icon icon={tablerLayoutSidebarRightCollapse} />
@@ -516,7 +516,6 @@ export function ChatSidebar({
 										onClick={handleNewChat}
 										disabled={interactionBlocked || openingThreadId !== null}
 										variant="ghost"
-										size="lg"
 										className="min-h-11 justify-start text-nova-text-secondary not-disabled:hover:text-nova-text"
 									>
 										<Icon icon={tablerMessagePlus} />
@@ -529,7 +528,6 @@ export function ChatSidebar({
 									disabled={interactionBlocked || openingThreadId !== null}
 									aria-pressed={listVisible}
 									variant="ghost"
-									size="lg"
 									className="min-h-11 justify-start text-nova-text-secondary not-disabled:hover:text-nova-text aria-pressed:bg-nova-violet/10 aria-pressed:text-nova-violet-bright"
 								>
 									<Icon
@@ -694,7 +692,6 @@ export function ChatSidebar({
 						<Button
 							type="button"
 							variant="outline"
-							size="lg"
 							onClick={interactionBlockedRecovery.onAction}
 							className="min-h-11 shrink-0"
 						>
@@ -795,7 +792,6 @@ export function ShortChatFallback({
 			<Button
 				type="button"
 				variant="outline"
-				size="xl"
 				onClick={onCollapse}
 				className="w-full"
 			>
