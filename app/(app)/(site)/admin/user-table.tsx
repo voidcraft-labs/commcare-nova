@@ -15,6 +15,7 @@ import {
 import Image from "next/image";
 import { useState } from "react";
 import { Badge } from "@/components/shadcn/badge";
+import { Input } from "@/components/shadcn/input";
 import { RelativeTime } from "@/components/ui/RelativeTime";
 import type { AdminUserRow } from "@/lib/admin/types";
 import { useExternalNavigate } from "@/lib/routing/hooks";
@@ -85,7 +86,7 @@ const columns: ColumnDef<AdminUserRow>[] = [
 	},
 	{
 		accessorKey: "credits_used_lifetime",
-		header: "Lifetime cr",
+		header: "Lifetime credits",
 		cell: ({ getValue }) => (
 			<span className="tabular-nums">
 				{getValue<number>().toLocaleString()}
@@ -96,7 +97,7 @@ const columns: ColumnDef<AdminUserRow>[] = [
 		// This month's true dollar cost: tracked for tuning + backstop, no
 		// longer the user-facing gate (the credit columns are the gate now).
 		accessorKey: "cost",
-		header: "$ this mo",
+		header: "$ this month",
 		cell: ({ getValue }) => (
 			<span className="tabular-nums">{formatCurrency(getValue<number>())}</span>
 		),
@@ -110,7 +111,7 @@ const columns: ColumnDef<AdminUserRow>[] = [
 	},
 	{
 		accessorKey: "last_active_at",
-		header: "Last Active",
+		header: "Last active",
 		cell: ({ getValue }) => (
 			<RelativeTime date={new Date(getValue<string>())} />
 		),
@@ -218,7 +219,7 @@ export function UserTable({ users }: { users: AdminUserRow[] }) {
 	return (
 		<div className="space-y-6">
 			{/* Search */}
-			<input
+			<Input
 				type="text"
 				value={globalFilter}
 				onChange={(e) => setGlobalFilter(e.target.value)}
@@ -226,7 +227,6 @@ export function UserTable({ users }: { users: AdminUserRow[] }) {
 				aria-label="Search users"
 				autoComplete="off"
 				data-1p-ignore
-				className="w-full px-4 py-2.5 text-sm bg-nova-deep border border-nova-border rounded-lg text-nova-text placeholder:text-nova-text-muted focus:outline-none focus:border-nova-violet focus:shadow-[var(--nova-glow-violet)] transition-all"
 			/>
 
 			{/* Table */}

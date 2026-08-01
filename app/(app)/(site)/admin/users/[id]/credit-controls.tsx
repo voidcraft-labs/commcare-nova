@@ -36,6 +36,7 @@ import {
 	AlertDialogTrigger,
 } from "@/components/shadcn/alert-dialog";
 import { Badge } from "@/components/shadcn/badge";
+import { Button } from "@/components/shadcn/button";
 import { Field, FieldLabel } from "@/components/shadcn/field";
 import { Input } from "@/components/shadcn/input";
 import { RelativeTime } from "@/components/ui/RelativeTime";
@@ -253,13 +254,10 @@ export function CreditControls({
 					>
 						<AlertDialogTrigger
 							render={
-								<button
-									type="button"
-									className="inline-flex items-center gap-1.5 rounded-lg border border-nova-border bg-nova-surface px-3 py-1.5 text-sm font-medium text-nova-text transition-all hover:border-nova-border-bright hover:bg-nova-elevated cursor-pointer"
-								>
+								<Button type="button" variant="secondary">
 									<Icon icon={tablerRefresh} width="16" height="16" />
 									Reset credits
-								</button>
+								</Button>
 							}
 						/>
 						<AlertDialogContent>
@@ -314,13 +312,10 @@ export function CreditControls({
 					>
 						<AlertDialogTrigger
 							render={
-								<button
-									type="button"
-									className="inline-flex items-center gap-1.5 rounded-lg border border-nova-border bg-nova-surface px-3 py-1.5 text-sm font-medium text-nova-text transition-all hover:border-nova-border-bright hover:bg-nova-elevated cursor-pointer"
-								>
+								<Button type="button" variant="secondary">
 									<Icon icon={tablerCredits} width="16" height="16" />
 									Grant credits
-								</button>
+								</Button>
 							}
 						/>
 						<AlertDialogContent>

@@ -45,7 +45,12 @@ export async function UserProfileSection({ userId }: UserProfileSectionProps) {
 						</div>
 					)}
 					<div>
-						<h2 className="text-lg font-display font-semibold">{user.name}</h2>
+						<h2
+							data-user-content
+							className="text-lg font-display font-semibold"
+						>
+							{user.name}
+						</h2>
 						<p className="text-sm text-nova-text-secondary">{user.email}</p>
 						<p className="text-xs text-nova-text-muted mt-1">
 							Joined{" "}

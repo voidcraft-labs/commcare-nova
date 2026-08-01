@@ -35,7 +35,7 @@ export default async function AdminUserDetailPage({
 			<nav className="flex items-center gap-2 text-sm text-nova-text-muted">
 				<Link
 					href="/admin"
-					className="flex items-center gap-0.5 hover:text-nova-text transition-colors"
+					className="nova-focusable flex min-h-11 items-center gap-0.5 rounded-lg pr-1 hover:text-nova-text transition-colors"
 				>
 					<Icon icon={tablerChevronLeft} width="16" height="16" />
 					Admin
