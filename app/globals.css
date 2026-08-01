@@ -1519,12 +1519,12 @@ html.dark {
 	color: var(--nova-text);
 }
 
-/* TOC active link — violet, with a violet bar to match the marker. */
+/* TOC active link: violet, with a violet bar to match the marker. */
 .nova-docs #nd-toc a[data-active="true"] {
 	color: var(--nova-violet-bright);
 }
 
-/* Search trigger — Nova surface, not the default fumadocs muted gray. */
+/* Search trigger: Nova surface, not the default fumadocs muted gray. */
 .nova-docs button[data-search-full],
 .nova-docs button[data-search] {
 	background: linear-gradient(
@@ -1690,10 +1690,9 @@ html.dark {
 #nd-sidebar button:hover {
 	color: var(--nova-text);
 }
-#nd-sidebar a[data-active="true"],
-#nd-toc a[data-active="true"] {
-	color: var(--nova-violet-bright);
-}
+/* The active sidebar and table-of-contents links already have their violet
+   under `.nova-docs` above, which is more specific; repeating it here,
+   weaker and later, would never apply. */
 
 /* ─── docs chrome: the 44px floor ──────────────────────────────────
  * fumadocs sizes its own nav from a 30-36px scale. Nova has one
