@@ -289,7 +289,7 @@ test.describe("authenticated builder", () => {
 		// landing. (If the session cookie were rejected we'd see "Sign in with
 		// Google" here instead — a silent-auth-break canary.)
 		await expect(
-			page.getByRole("heading", { name: "Your Apps", level: 1 }),
+			page.getByRole("heading", { name: "Your apps", level: 1 }),
 		).toBeVisible();
 		await expect(
 			page.getByRole("heading", { name: seed.openAppName, level: 3 }),
@@ -1432,7 +1432,7 @@ test.describe("authenticated builder", () => {
 			await clocks.nth(0).blur();
 			await expect(clocks.nth(0)).toHaveValue("2:30 PM");
 			await expect(
-				page.getByText("Pick a date — this question needs both."),
+				page.getByText("Pick a date: this question needs both."),
 			).toBeVisible();
 
 			// And clearing the remaining half empties the answer outright.
@@ -1440,7 +1440,7 @@ test.describe("authenticated builder", () => {
 			await clocks.nth(0).blur();
 			await expect(clocks.nth(0)).toHaveValue("");
 			await expect(
-				page.getByText("Pick a date — this question needs both."),
+				page.getByText("Pick a date: this question needs both."),
 			).toBeHidden();
 		});
 
@@ -2269,7 +2269,7 @@ test.describe("authenticated builder", () => {
 		await page.goto("/build/new");
 
 		const startFromScratch = page.getByRole("button", {
-			name: "Start from scratch",
+			name: "Start with a blank app",
 		});
 		await expect(startFromScratch).toBeVisible({ timeout: 20_000 });
 

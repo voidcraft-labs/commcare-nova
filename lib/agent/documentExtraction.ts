@@ -453,7 +453,7 @@ export function assertOfficeArchiveBudget(
 	for (const size of entrySizes) {
 		if (!Number.isFinite(size) || size < 0) {
 			throw new Error(
-				`This ${label} couldn't be read — it declares an invalid internal size. Re-export it from your office app and try again.`,
+				`This ${label} couldn't be read: it declares an invalid internal size. Re-export it from your office app and try again.`,
 			);
 		}
 		total += size;
@@ -474,7 +474,7 @@ function preflightOfficeArchive(buffer: Buffer, kind: "docx" | "xlsx"): void {
 		entries = new AdmZip(buffer).getEntries();
 	} catch {
 		throw new Error(
-			`This ${label} couldn't be read — the file isn't a valid ${kind.toUpperCase()} archive. Re-export it from your office app and try again.`,
+			`This ${label} couldn't be read: the file isn't a valid ${kind.toUpperCase()} archive. Re-export it from your office app and try again.`,
 		);
 	}
 	// `header.size` is each entry's UNCOMPRESSED size from the central directory
@@ -696,7 +696,7 @@ export async function extractDocument(opts: {
 	if (!result.object) {
 		throw new Error(
 			result.truncated
-				? `Extraction of "${filename}" hit the summarizer's output ceiling before it could finish — the document is too large to extract in one pass. Ask the user to split it into smaller documents.`
+				? `Extraction of "${filename}" hit the summarizer's output ceiling before it could finish, and the document is too large to extract in one pass. Ask the user to split it into smaller documents.`
 				: `Extraction of "${filename}" produced no parseable result from the summarizer. Retry, or ask the user to re-save the document in a supported format.`,
 		);
 	}
@@ -731,7 +731,7 @@ export function createExtractionCondenser(): AttachmentCondenser {
 	const apiKey = process.env.OPENAI_API_KEY;
 	if (!apiKey) {
 		throw new Error(
-			"OPENAI_API_KEY is unset — document feature extraction needs the OpenAI key to reach the summarizer model. Set it in the environment so uploaded documents can be condensed into the requirements extract Nova reads.",
+			"OPENAI_API_KEY is unset. Document feature extraction needs the OpenAI key to reach the summarizer model. Set it in the environment so uploaded documents can be condensed into the requirements extract Nova reads.",
 		);
 	}
 	const model = createOpenAI({ apiKey })(CONDENSER_MODEL);

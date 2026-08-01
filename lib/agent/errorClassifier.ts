@@ -45,7 +45,7 @@ export const MESSAGES: Record<ErrorType, string> = {
 	model_error: "Nova returned an unexpected response. Please try again.",
 	stream_broken: "The connection was interrupted. Please try again.",
 	out_of_credits:
-		"You're out of credits for this month — they refresh on the 1st.",
+		"You're out of credits for this month. They refresh on the 1st.",
 	generation_in_progress:
 		"You already have a build in progress. Please wait for it to finish before starting another.",
 	run_released:

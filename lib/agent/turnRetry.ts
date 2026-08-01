@@ -76,11 +76,11 @@ export function shouldRetryTurn(
 	);
 }
 
-/** The user-visible signal while a retry is in flight — a RECOVERABLE
+/** The user-visible signal while a retry is in flight: a RECOVERABLE
  *  conversation event (warning rendering, not a failure): the run has not
  *  failed, it is being re-driven. */
 export const TURN_RETRY_MESSAGE =
-	"A temporary provider error interrupted this run — retrying automatically. Anything already built is saved and will not be redone.";
+	"A temporary provider error interrupted this run, so Nova is retrying automatically. Anything already built is saved and will not be redone.";
 
 /**
  * The continuation message appended to the retry attempt's prompt: the
