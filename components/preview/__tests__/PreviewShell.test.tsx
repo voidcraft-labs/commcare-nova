@@ -406,7 +406,10 @@ describe("PreviewShell — removed selected persona", () => {
 		const view = renderShell();
 
 		const recovery = view.getByRole("button", { name: "Preview as me" });
-		expect(recovery.className.split(/\s+/)).toContain("min-h-11");
+		// The recovery affordance is at the one 44px control height. That is
+		// the system button's own guarantee now, not something this call site
+		// re-states, so assert the primitive's class rather than a duplicate.
+		expect(recovery.className.split(/\s+/)).toContain("h-11");
 		fireEvent.click(recovery);
 
 		expect(setPreviewPersonaUuidMock).toHaveBeenCalledWith(undefined);
