@@ -3187,7 +3187,7 @@ test.describe("authenticated builder", () => {
 		).toHaveCount(2, { timeout: 40_000 });
 		await expect(
 			deletedTableRecovery.getByText(
-				"Original table unavailable — copy or discard this local row",
+				"Original table unavailable. Copy or discard this local row",
 				{ exact: true },
 			),
 		).toHaveCount(2);
