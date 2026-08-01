@@ -84,7 +84,7 @@ function ImageMain({
 					<div className="image-popover-fields">
 						<Input
 							type="url"
-							placeholder="Paste image URL..."
+							placeholder="Paste image URL"
 							value={url}
 							onChange={(e) => setUrl(e.target.value)}
 							onKeyDown={handleKeyDown}

@@ -1743,7 +1743,7 @@ test.describe("authenticated builder", () => {
 				.getByRole("menuitem", { name: "When condition is met" })
 				.click();
 
-			const field = page.getByPlaceholder("Search fields...");
+			const field = page.getByPlaceholder("Search fields");
 			await expect(field).toHaveValue("");
 			await field.click();
 			await page
@@ -1785,11 +1785,11 @@ test.describe("authenticated builder", () => {
 		await test.step("reopening and Preview show names, never UUID-shaped XPath", async () => {
 			await page.goto(fixture.identityProjectionRoute);
 			await page.getByRole("button", { name: "Form settings" }).click();
-			const field = page.getByPlaceholder("Search fields...");
+			const field = page.getByPlaceholder("Search fields");
 			await expect(field).toHaveValue("given_name", { timeout: 20_000 });
 			const settings = page
 				.getByRole("dialog")
-				.filter({ hasText: "Form Settings" });
+				.filter({ hasText: "Form settings" });
 			await expect(settings).toHaveCount(1);
 			await expect(settings).not.toContainText(identity.firstNameUuid);
 			await expect(settings).not.toContainText(
@@ -1816,7 +1816,7 @@ test.describe("authenticated builder", () => {
 			await waitForSavedMutation('"closeCondition":null', async () => {
 				await page.getByRole("menuitem", { name: "Always" }).click();
 			});
-			await expect(page.getByPlaceholder("Search fields...")).toHaveCount(0);
+			await expect(page.getByPlaceholder("Search fields")).toHaveCount(0);
 		});
 	});
 

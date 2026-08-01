@@ -229,7 +229,7 @@ export function CloseConditionSection({ formUuid }: FormSettingsSectionProps) {
 								value={condition.field}
 								onChange={(uuid) => updateConditionWithNotice({ field: uuid })}
 								label="Field"
-								placeholder="Search fields..."
+								placeholder="Search fields"
 								required
 							/>
 
