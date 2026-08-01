@@ -923,8 +923,8 @@ describe("emitSearchPrompts — per-arm dispatch", () => {
 		const advancedPredicates = getAdvancedArmPredicates(inputs);
 
 		// Simple-arm row contributes nothing; only the advanced-arm
-		// row surfaces in the helper's output. The orchestrator
-		// AND-composes these into `<data key="_xpath_query">`.
+		// row surfaces in the helper's output. The orchestrator emits
+		// each as its own `<data key="_xpath_query">` clause.
 		expect(advancedPredicates).toEqual([{ name: "full_name", predicate }]);
 	});
 
@@ -938,10 +938,10 @@ describe("emitSearchPrompts — per-arm dispatch", () => {
 	});
 
 	it("getAdvancedArmPredicates preserves source-array ordering", () => {
-		// The orchestrator AND-composes the predicates into one CSQL
-		// clause; the relative order is observable in the wire string.
-		// The helper preserves source-array order so the orchestrator
-		// can reproduce author intent verbatim.
+		// The orchestrator emits one `_xpath_query` clause per
+		// predicate; the relative order is observable in the emitted
+		// element sequence. The helper preserves source-array order so
+		// the orchestrator can reproduce author intent verbatim.
 		const p1 = eq(prop("patient", "full_name"), literal("A"));
 		const p2 = eq(prop("patient", "age"), literal(10));
 

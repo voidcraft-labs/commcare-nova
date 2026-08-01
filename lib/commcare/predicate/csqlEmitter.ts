@@ -174,15 +174,14 @@ interface TypeContext extends DomainTypeContext {
 export interface CsqlEmissionResult {
 	readonly wrapper: string;
 	/**
-	 * Exact on-device XPath condition under which one of the runtime-resolved
-	 * values cannot be represented safely in CSQL. The wrapper uses this same
-	 * condition to replace the WHOLE query with a fail-closed query (or, for the
-	 * quote case that cannot be expressed as a CSQL literal, an intentionally
-	 * invalid sentinel); prompt validation and Preview consume it so every surface
-	 * rejects the identical runtime state before dispatch when a user can repair it.
+	 * The fail-closed obligations the wrapper enforces on-device, one per
+	 * runtime value that can become unrepresentable (quote mixing) or
+	 * malformed (numeric shape, geopoint). Prompt validation
+	 * (`xpathQuery.ts::buildRuntimeCsqlPromptValidations`) and Preview
+	 * (`lib/preview/engine/searchInputValidation.ts`) evaluate each
+	 * obligation's `condition` individually so every surface rejects the
+	 * identical runtime state before dispatch when a worker can repair it.
 	 */
-	readonly rejectionCondition?: string;
-	/** Structured obligations retained for prompt-specific validation copy. */
 	readonly runtimeRejections?: readonly RuntimeCsqlRejection[];
 }
 
@@ -237,9 +236,10 @@ type OperandPosition = "comparison-operand" | "value";
  * retain their vias because they evaluate through the on-device
  * expression emitter instead.
  *
- * `emitCsql` is the public entry; internal callers that already hold
- * a via-lifted AST (e.g. the `when-input-present` recursive emitter)
- * call `emitLiftedWrapper` directly to skip the redundant scan.
+ * `emitCsql` is the public entry; the internal walkers that already
+ * hold a via-lifted AST (the `when-input-present` emitters) call
+ * `wrapClause` / `buildConcatExpression` directly to skip the
+ * redundant scan.
  */
 export function emitCsql(
 	predicate: Predicate,
@@ -317,13 +317,7 @@ function emitPresenceGatedClause(
 		...rejection,
 		condition: `count(${triggerXPath}) and (${rejection.condition})`,
 	}));
-	return {
-		wrapper,
-		rejectionCondition: runtimeRejections
-			.map(({ condition }) => `(${condition})`)
-			.join(" or "),
-		runtimeRejections,
-	};
+	return { wrapper, runtimeRejections };
 }
 
 /**
@@ -367,9 +361,6 @@ function wrapClause(segments: readonly CsqlSegment[]): CsqlEmissionResult {
 	const { query, runtimeRejections } = buildConcatExpression(merged);
 	if (runtimeRejections.length === 0) return { wrapper: query };
 
-	const rejectionCondition = runtimeRejections
-		.map(({ condition }) => `(${condition})`)
-		.join(" or ");
 	const quoteCondition = runtimeRejections
 		.filter(({ kind }) => kind === "quote")
 		.map(({ condition }) => `(${condition})`)
@@ -386,11 +377,7 @@ function wrapClause(segments: readonly CsqlSegment[]): CsqlEmissionResult {
 		quoteCondition === ""
 			? typedSafeQuery
 			: `if(${quoteCondition}, '${CSQL_UNREPRESENTABLE_RUNTIME_STRING}', ${typedSafeQuery})`;
-	return {
-		wrapper,
-		rejectionCondition,
-		runtimeRejections,
-	};
+	return { wrapper, runtimeRejections };
 }
 
 /**
@@ -469,24 +456,24 @@ function buildQuoteCascade(
 				: { inputNames: [...seg.rejectionInputNames].sort() }),
 		},
 	];
-	return {
-		wrapper,
-		rejectionCondition: `(${seg.rejectWhen})`,
-		runtimeRejections,
-	};
+	return { wrapper, runtimeRejections };
 }
 
 /**
  * Render a segment list without consuming its representability obligations.
  *
- * Most callers immediately route the result through `wrapInConcat`, which
- * lifts every obligation ahead of the complete query. A
- * `when-input-present` clause needs the lower-level shape: its inner query is
+ * `wrapClause`'s general path routes the result through the fail-closed
+ * guard wrap, which lifts every obligation ahead of the complete clause. A
+ * NESTED `when-input-present` needs the lower-level shape: its inner query is
  * one branch of an on-device `if`, while its quote guards must keep travelling
- * outward so the final, outermost wrapper can reject the complete query. If we
- * consumed the guards inside that branch, a dangerous value could produce the
- * invalid sentinel only as a nested `not(...)` / OR operand rather than as the
- * whole `_xpath_query` result.
+ * outward so the clause's outermost wrapper can reject the complete query. If
+ * we consumed the guards inside that branch, a dangerous value could produce
+ * the invalid sentinel only as a nested `not(...)` / OR operand rather than as
+ * the whole `_xpath_query` value.
+ *
+ * The rendered query is the shortest correct expression: a constant-only
+ * segment list renders as a bare XPath string literal, anything else as
+ * `concat(...)`.
  */
 function buildConcatExpression(segments: readonly CsqlSegment[]): {
 	readonly query: string;
@@ -636,13 +623,14 @@ function emitPredicateSegments(
  * returns the inner clause's CSQL fragment, which the server
  * evaluates against the case data.
  *
- * The inner clause is already via-lifted by the outer `liftPropertyVias`
- * call (which walked into `p.clause`), so this emitter calls
- * `emitLiftedWrapper` directly rather than re-running the lift.
+ * The inner clause is already via-lifted by `emitCsql`'s entry pass
+ * (which walked into `p.clause`), so this emitter renders the inner
+ * segments through `buildConcatExpression` directly rather than
+ * re-running the lift. The inner renders as a bare XPath literal when
+ * constant-only, otherwise as a `concat(...)`.
  *
  * The `if(...)` wrapper expression flows out as a single runtime
- * segment in the outer concat, exactly the shape used elsewhere for
- * search-input refs.
+ * segment spliced into the surrounding clause's segment list.
  */
 function emitWhenInputPresentSegments(
 	p: Extract<Predicate, { kind: "when-input-present" }>,

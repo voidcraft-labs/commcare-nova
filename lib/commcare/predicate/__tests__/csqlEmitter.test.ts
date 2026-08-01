@@ -143,12 +143,15 @@ function expectQuoteCascade(
 	prefix: string,
 	suffix: string,
 ): void {
-	expect(result.rejectionCondition).toBeDefined();
+	expect(result.runtimeRejections?.length ?? 0).toBeGreaterThan(0);
 	expect(result.wrapper).toContain(
 		`if(contains(${xpath}, '"'), if(contains(${xpath}, "'"), '${CSQL_UNREPRESENTABLE_RUNTIME_STRING}', `,
 	);
 	expect(result.wrapper).toContain(
 		`concat('${prefix}"', ${xpath}, '"${suffix}')`,
+	);
+	expect(result.wrapper).toContain(
+		`concat("${prefix}'", ${xpath}, "'${suffix}")`,
 	);
 }
 
@@ -164,7 +167,7 @@ function expectRuntimeGuarded(
 	result: CsqlEmissionResult,
 	...fragments: readonly string[]
 ): void {
-	expect(result.rejectionCondition).toBeDefined();
+	expect(result.runtimeRejections?.length ?? 0).toBeGreaterThan(0);
 	expect(result.wrapper).toContain(`'${CSQL_UNREPRESENTABLE_RUNTIME_STRING}'`);
 	for (const fragment of fragments) expect(result.wrapper).toContain(fragment);
 }
@@ -492,6 +495,12 @@ describe("emitCsql — when-input-present conditional dispatch", () => {
 			"full_name = ",
 			"'match-all()'",
 		);
+		// The presence gate is OUTERMOST — value guards live inside the
+		// presence branch, so the emitted expression reads top-down as
+		// "typed? -> quotable? -> query" and an unanswered input never
+		// evaluates its guards. A regression back to guards-outside
+		// (`if((count(…) and …), sentinel, …)`) fails this anchor.
+		expect(result.wrapper).toMatch(/^if\(count\(/);
 	});
 
 	it("emits when-input-present nested inside an and", () => {
@@ -693,9 +702,7 @@ describe("emitCsql — within-distance", () => {
 			),
 		);
 		expect(result.wrapper).toContain("'match-none()'");
-		expect(result.wrapper).not.toContain(
-			"nova-runtime-value-contains-both-quote-types",
-		);
+		expect(result.wrapper).not.toContain(CSQL_UNREPRESENTABLE_RUNTIME_STRING);
 		expect(result.wrapper).toContain("within-distance(location, ");
 		expect(result.wrapper).toContain(
 			`instance('search-input:results')/input/field[@name='user_loc']`,
@@ -763,9 +770,7 @@ describe("emitCsql — within-distance", () => {
 			),
 		);
 		expect(result.wrapper).toContain("'match-none()'");
-		expect(result.wrapper).not.toContain(
-			"nova-runtime-value-contains-both-quote-types",
-		);
+		expect(result.wrapper).not.toContain(CSQL_UNREPRESENTABLE_RUNTIME_STRING);
 		expect(result.runtimeRejections).toEqual([
 			expect.objectContaining({ kind: "geopoint", inputNames: [] }),
 		]);
@@ -1093,14 +1098,19 @@ describe("emitCsql — concat() wrapping shape", () => {
 		expect(result.wrapper).toBe(`"full_name = 'Alice'"`);
 	});
 
-	it("lifts a single input ref as a separate concat() arg", () => {
+	it("restructures a single input-ref clause into the flat quote cascade", () => {
 		const result = emitCsql(
 			eq(prop("patient", "full_name"), input(testUuid("name_query"))),
 		);
-		expectRuntimeGuarded(
+		// The most common search shape — one property compared against one
+		// typed value — pins the full cascade: both delimiter arms and the
+		// fail-closed sentinel, with no delimiter-`if` nested inside a
+		// concat() argument.
+		expectQuoteCascade(
 			result,
-			"full_name = ",
 			`instance('search-input:results')/input/field[@name='name_query']`,
+			"full_name = ",
+			"",
 		);
 	});
 
@@ -1705,12 +1715,11 @@ describe("emitCsql — property-via lift (recursion)", () => {
 	});
 
 	it("lifts a via inside the clause of when-input-present", () => {
-		// `when-input-present` emits via the canonical
-		// `if(count(<trigger>), <inner-csql>, 'match-all()')` pattern.
-		// The inner CSQL emission is a full recursive
-		// `concat(...)` expression carrying the lifted
-		// `ancestor-exists` envelope; the whole `if(...)` flows
-		// through as a single runtime segment in the outer concat.
+		// A root `when-input-present` emits the canonical
+		// `if(count(<trigger>), <inner-csql>, 'match-all()')` cascade
+		// directly — no outer concat. The inner emission carries the
+		// lifted `ancestor-exists` envelope with its value guards inside
+		// the presence branch.
 		const result = emitCsql(
 			whenInput(
 				input(testUuid("q")),
@@ -1726,6 +1735,7 @@ describe("emitCsql — property-via lift (recursion)", () => {
 			"ancestor-exists(parent, full_name = ",
 			"'match-all()'",
 		);
+		expect(result.wrapper).toMatch(/^if\(count\(/);
 	});
 
 	it("lifts vias inside a subcase-count's where clause surviving in comparison-LHS position", () => {
@@ -2009,7 +2019,6 @@ describe("emitCsql — value-function whitelist arms in operand position", () =>
 		// text that cannot contain a quote character, so it interpolates
 		// between fixed double-quote delimiters with no quote-choice `if`
 		// and no fail-closed obligation.
-		expect(result.rejectionCondition).toBeUndefined();
 		expect(result.runtimeRejections ?? []).toEqual([]);
 		expect(result.wrapper).toBe(
 			`concat('due_date = date-add("', ${xpath}, '", ', "'", 'days', "'", ', 7)')`,

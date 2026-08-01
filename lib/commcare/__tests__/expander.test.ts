@@ -4958,12 +4958,13 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 		expect(xpathQueryValues).toContain("starts-with(case_name,");
 	});
 
-	it("AND-composes `caseListConfig.filter` and every advanced-arm predicate into a single `_xpath_query` slot on `default_properties`", () => {
-		// CCHQ accepts one `_xpath_query` per search; the AST-level
-		// `and(...)` collapses the unified filter + every advanced-arm
-		// predicate before the CSQL emitter walks the result. The
-		// suite-XML side does the same — `composeXPathQueryEmission`
-		// is the shared helper.
+	it("projects `caseListConfig.filter` and every advanced-arm predicate as sibling `_xpath_query` rows on `default_properties`", () => {
+		// CCHQ AND-composes every `_xpath_query` value it receives
+		// (`corehq/apps/case_search/utils.py::_apply_filter` loops the
+		// multi-term criteria into one ES filter each), so the filter
+		// and each advanced-arm predicate project as their own rows. The
+		// suite-XML side emits the same clauses as sibling `<data>`
+		// elements — `composeXPathQueryEmission` is the shared helper.
 		const doc = buildHqProjectionDoc({
 			columns: [
 				plainColumn(

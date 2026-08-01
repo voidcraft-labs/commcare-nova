@@ -88,7 +88,7 @@ import { emitOnDeviceExpression } from "./onDeviceEmitter";
  * Compile a `ValueExpression` AST to its CSQL `CsqlSegment[]` IR. The
  * caller composes the segments with surrounding constants (operator
  * tokens, comparison operators, etc.) and routes the final list
- * through the predicate-side wrap layer (`wrapInConcat` in
+ * through the predicate-side wrap layer (`wrapClause` in
  * `../predicate/csqlEmitter.ts`) to produce the on-device XPath
  * `concat(...)` wrapper.
  *

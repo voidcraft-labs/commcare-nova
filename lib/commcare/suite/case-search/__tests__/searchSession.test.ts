@@ -18,15 +18,21 @@
 //      true; both stay on `results` otherwise.
 //
 //   3. `<data>` slot order matches CCHQ's `_remote_request_query_datums`:
-//      `case_type` first, then `commcare_blacklisted_owner_ids` (when
-//      set), then `_xpath_query` (when present and non-trivial). The
-//      `_xpath_query` slot carries everything — non-grammar value
-//      expressions inline as on-device XPath fragments inside the
-//      wrapper concat, so no sibling `<data>` slots accompany it.
+//      `case_type` first, then the `_xpath_query` elements (when any
+//      clause is present and non-trivial — CCHQ's generator loops
+//      `default_properties` right after `case_type`), then
+//      `commcare_blacklisted_owner_ids` (when set). One `_xpath_query`
+//      element PER composed clause; the server AND-composes every
+//      value it receives under the key
+//      (`corehq/apps/case_search/utils.py::_apply_filter`).
+//      Non-grammar value expressions still inline as on-device XPath
+//      fragments inside their clause's wrapper — never as sibling
+//      non-`_xpath_query` `<data>` slots.
 //
-//   4. `_xpath_query` AND-composes `caseListConfig.filter` with every
-//      advanced-arm search input's predicate. A `match-all` composed
-//      result omits the slot entirely.
+//   4. The clause set is `caseListConfig.filter`'s top-level
+//      conjuncts + every advanced-arm search input's predicate +
+//      every derived simple-arm predicate. A `match-all` composed
+//      result omits the `_xpath_query` elements entirely.
 //
 //   5. `<datum nodeset>` carries the `[not(commcare_is_related_case=true())]`
 //      filter from CCHQ's `EXCLUDE_RELATED_CASES_FILTER` constant
@@ -58,6 +64,7 @@ import {
 	eq,
 	literal,
 	matchAll,
+	or,
 	prop,
 	relationStep,
 	subcasePath,
@@ -468,6 +475,33 @@ describe("emitSearchSession — _xpath_query AND-composition", () => {
 		);
 		expect(xml).toContain(
 			`<data key="_xpath_query" ref="&quot;@status = &apos;active&apos;&quot;"/>`,
+		);
+	});
+
+	it("keeps an or-rooted filter as ONE _xpath_query slot — the split is sound only at the AND root", () => {
+		// The server ANDs every `_xpath_query` value it receives
+		// (`corehq/apps/case_search/utils.py::_apply_filter`), so
+		// splitting an authored OR across sibling elements would
+		// silently convert it to AND — strictly fewer matches, no
+		// error. The composer must split only a top-level `and` root;
+		// an `or` root travels whole inside one clause.
+		const { xml } = emitSearchSession({
+			caseListConfig: makeListConfig({
+				filter: or(
+					eq(prop("patient", "region"), literal("North")),
+					eq(prop("patient", "region"), literal("South")),
+				),
+				searchInputs: [],
+			}),
+			caseSearchConfig: {},
+			wire: WEB_LIST_FIRST,
+			caseType: "patient",
+			moduleIndex: 0,
+		});
+		const matches = xml.match(/key="_xpath_query"/g) ?? [];
+		expect(matches.length).toBe(1);
+		expect(xml).toContain(
+			`<data key="_xpath_query" ref="&quot;region = &apos;North&apos; or region = &apos;South&apos;&quot;"/>`,
 		);
 	});
 
