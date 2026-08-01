@@ -800,10 +800,12 @@ export const PromptInput = ({
 				ref={formRef}
 				{...props}
 			>
-				{/* Nova chat-input chrome: surface fill, violet hairline border, and a
-				 * violet focus ring when the textarea is focused: matching the prior
-				 * bespoke ChatInput so the re-skin reads as one design. */}
-				<InputGroup className="overflow-hidden rounded-lg border border-nova-border bg-nova-surface transition-colors has-[[data-slot=input-group-control]:focus-visible]:border-nova-violet has-[[data-slot=input-group-control]:focus-visible]:ring-2 has-[[data-slot=input-group-control]:focus-visible]:ring-nova-violet/30">
+				{/* The composer is the one surface at radius-2xl: it is the
+				 * hero control of the whole product, and the design system
+				 * gives it its own step above the 18px everything else uses.
+				 * InputGroup already carries the surface fill, the hairline,
+				 * and the one focus treatment, so this only sets the radius. */}
+				<InputGroup className="overflow-hidden rounded-2xl border border-nova-border bg-nova-surface transition-colors">
 					{children}
 				</InputGroup>
 			</form>
