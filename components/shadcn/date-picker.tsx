@@ -151,7 +151,6 @@ function DatePicker({
 						<Button
 							type="button"
 							variant="ghost"
-							size="xl"
 							onClick={() => {
 								onValueChange("");
 								setOpen(false);

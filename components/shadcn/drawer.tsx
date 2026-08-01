@@ -49,7 +49,7 @@ function DrawerPopup({ className, ...props }: DrawerPrimitive.Popup.Props) {
 		<DrawerPrimitive.Popup
 			data-slot="drawer-content"
 			className={cn(
-				"pointer-events-auto h-full min-w-0 overflow-hidden bg-nova-deep text-nova-text shadow-2xl outline-none",
+				"pointer-events-auto h-full min-w-0 overflow-hidden bg-nova-deep text-nova-text shadow-elevated outline-none",
 				className,
 			)}
 			{...props}

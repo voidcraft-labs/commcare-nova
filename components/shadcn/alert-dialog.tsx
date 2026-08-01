@@ -64,7 +64,7 @@ function AlertDialogContent({
 					// panel would put the choice below the fold — the one thing a
 					// confirmation must never do. `overflow-y-auto` remains only as the
 					// fallback for a body that isn't wrapped.
-					"group/alert-dialog-content fixed top-1/2 left-1/2 z-modal flex max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] min-w-0 -translate-x-1/2 -translate-y-1/2 flex-col gap-4 overflow-x-hidden overflow-y-auto overscroll-contain rounded-xl border border-nova-border bg-nova-deep p-5 [scrollbar-gutter:auto] text-sm text-nova-text shadow-xl outline-none transition-[transform,opacity] data-[size=default]:max-w-xs data-[size=sm]:max-w-xs data-[size=default]:sm:max-w-sm data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0",
+					"group/alert-dialog-content fixed top-1/2 left-1/2 z-modal flex max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] min-w-0 -translate-x-1/2 -translate-y-1/2 flex-col gap-4 overflow-x-hidden overflow-y-auto overscroll-contain rounded-xl border border-nova-border bg-nova-deep p-5 [scrollbar-gutter:auto] text-sm text-nova-text shadow-elevated outline-none transition-[transform,opacity] data-[size=default]:max-w-xs data-[size=sm]:max-w-xs data-[size=default]:sm:max-w-sm data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0",
 					className,
 				)}
 				{...props}
@@ -188,7 +188,7 @@ function AlertDialogAction({
 	return (
 		<Button
 			data-slot="alert-dialog-action"
-			className={cn("min-h-11 min-w-0", className)}
+			className={cn("min-w-0", className)}
 			{...props}
 		/>
 	);
@@ -204,7 +204,7 @@ function AlertDialogCancel({
 	return (
 		<AlertDialogPrimitive.Close
 			data-slot="alert-dialog-cancel"
-			className={cn("min-h-11 min-w-0", className)}
+			className={cn("min-w-0", className)}
 			render={<Button variant={variant} size={size} />}
 			{...props}
 		/>

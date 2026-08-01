@@ -10,11 +10,12 @@ function Checkbox({ className, ...props }: CheckboxPrimitive.Root.Props) {
 	return (
 		<CheckboxPrimitive.Root
 			data-slot="checkbox"
+			// Checked wears the action fill with a dusk glyph, matching the
+			// Switch — in Nova light is action, and no fill carries white ink.
+			// The `after:` inset stretches the pointer target to the 44px floor
+			// around the 16px visual box.
 			className={cn(
-				// Checked = violet, matching the Switch — violet is the theme's
-				// selected-state accent (the white glyph is a graphical object, so
-				// 4.23:1 on violet clears the 3:1 non-text bar).
-				"peer relative flex size-4 shrink-0 cursor-pointer items-center justify-center rounded-[4px] border border-input bg-nova-deep transition-colors outline-none group-has-disabled/field:opacity-40 after:absolute after:-inset-x-3 after:-inset-y-2 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-40 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 data-checked:border-nova-violet/60 data-checked:bg-nova-violet data-checked:text-white",
+				"peer relative flex size-4 shrink-0 cursor-pointer items-center justify-center rounded-[4px] border border-input bg-nova-deep transition-colors outline-none group-has-disabled/field:opacity-(--disabled-opacity) after:absolute after:-inset-x-3.5 after:-inset-y-3.5 focus-visible:border-nova-ring focus-visible:shadow-(--focus-ring) disabled:cursor-not-allowed disabled:opacity-(--disabled-opacity) aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 data-checked:border-transparent data-checked:bg-nova-action data-checked:text-nova-action-ink not-disabled:data-checked:hover:bg-nova-action-hover",
 				className,
 			)}
 			{...props}

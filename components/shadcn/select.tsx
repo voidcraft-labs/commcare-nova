@@ -38,28 +38,28 @@ function SelectValue({ className, ...props }: SelectPrimitive.Value.Props) {
 
 function SelectTrigger({
 	className,
-	size = "default",
 	wrapValue = false,
 	children,
 	...props
 }: SelectPrimitive.Trigger.Props & {
-	size?: "sm" | "default";
 	/** Allow an authored value to use multiple lines instead of clipping it. */
 	wrapValue?: boolean;
 }) {
+	// One size: the 44px control height (button = input = toggle = select),
+	// wearing the input treatment — violet wash on the bright border, hover
+	// lifting one step toward light, focus ring keyboard-crisp.
 	return (
 		<SelectPrimitive.Trigger
 			data-slot="select-trigger"
-			data-size={size}
 			className={cn(
-				"flex w-fit justify-between gap-1.5 rounded-lg border border-input bg-transparent py-2 pr-2 pl-2.5 text-sm transition-colors outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-40 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 data-placeholder:text-muted-foreground data-[size=sm]:rounded-[min(var(--radius-md),10px)] *:data-[slot=select-value]:flex *:data-[slot=select-value]:gap-1.5 dark:bg-input/30 dark:not-disabled:hover:bg-input/50 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+				"flex w-fit justify-between gap-1.5 rounded-lg border border-nova-border-bright bg-nova-violet/[0.09] py-2 pr-2.5 pl-3.5 text-sm transition-colors outline-none select-none not-disabled:not-focus-visible:hover:bg-nova-violet/[0.14] focus-visible:border-nova-ring focus-visible:shadow-(--focus-ring) disabled:cursor-not-allowed disabled:opacity-(--disabled-opacity) aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 data-placeholder:text-nova-text-muted *:data-[slot=select-value]:flex *:data-[slot=select-value]:gap-1.5 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
 				// A wrapping trigger grows past its fixed height, but it still
 				// CENTERS its value and chevron — an authored value that happens
 				// to fit on one line must not sit top-heavy in a trigger sized by
 				// `min-h-*` for touch.
 				wrapValue
-					? "items-center whitespace-normal data-[size=default]:h-auto data-[size=sm]:h-auto *:data-[slot=select-value]:line-clamp-none *:data-[slot=select-value]:min-w-0 *:data-[slot=select-value]:items-center *:data-[slot=select-value]:break-words *:data-[slot=select-value]:whitespace-normal *:data-[slot=select-value]:[overflow-wrap:anywhere]"
-					: "items-center whitespace-nowrap data-[size=default]:h-8 data-[size=sm]:h-7 *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:items-center",
+					? "min-h-11 items-center whitespace-normal *:data-[slot=select-value]:line-clamp-none *:data-[slot=select-value]:min-w-0 *:data-[slot=select-value]:items-center *:data-[slot=select-value]:break-words *:data-[slot=select-value]:whitespace-normal *:data-[slot=select-value]:[overflow-wrap:anywhere]"
+					: "h-11 items-center whitespace-nowrap *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:items-center",
 				className,
 			)}
 			{...props}
@@ -69,7 +69,7 @@ function SelectTrigger({
 				render={
 					<Icon
 						icon={tablerChevronDown}
-						className="pointer-events-none size-4 text-muted-foreground"
+						className="pointer-events-none size-4 text-nova-text-muted"
 					/>
 				}
 			/>
@@ -174,7 +174,7 @@ function SelectItem({
 			data-slot="select-item"
 			className={cn(
 				MENU_ITEM_CLS,
-				"relative rounded-lg pr-9 data-disabled:cursor-not-allowed data-disabled:opacity-40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 *:[span]:last:flex *:[span]:last:items-center *:[span]:last:gap-2",
+				"relative rounded-lg pr-9 data-disabled:cursor-not-allowed data-disabled:opacity-(--disabled-opacity) [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 *:[span]:last:flex *:[span]:last:items-center *:[span]:last:gap-2",
 				className,
 			)}
 			{...props}
@@ -225,7 +225,7 @@ function SelectScrollUpButton({
 		<SelectPrimitive.ScrollUpArrow
 			data-slot="select-scroll-up-button"
 			className={cn(
-				"top-0 z-10 flex w-full cursor-default items-center justify-center bg-[rgba(10,10,26,0.85)] py-1 text-nova-text-muted [&_svg:not([class*='size-'])]:size-4",
+				"top-0 z-10 flex w-full cursor-default items-center justify-center bg-nova-void/85 py-1 text-nova-text-muted [&_svg:not([class*='size-'])]:size-4",
 				className,
 			)}
 			{...props}
@@ -243,7 +243,7 @@ function SelectScrollDownButton({
 		<SelectPrimitive.ScrollDownArrow
 			data-slot="select-scroll-down-button"
 			className={cn(
-				"bottom-0 z-10 flex w-full cursor-default items-center justify-center bg-[rgba(10,10,26,0.85)] py-1 text-nova-text-muted [&_svg:not([class*='size-'])]:size-4",
+				"bottom-0 z-10 flex w-full cursor-default items-center justify-center bg-nova-void/85 py-1 text-nova-text-muted [&_svg:not([class*='size-'])]:size-4",
 				className,
 			)}
 			{...props}
