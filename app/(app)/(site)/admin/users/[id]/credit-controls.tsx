@@ -416,7 +416,7 @@ export function CreditControls({
 									<span className="text-nova-text-muted">· {grant.reason}</span>
 								)}
 								<RelativeTime
-									className="ml-auto text-xs text-nova-text-muted tabular-nums"
+									className="ml-auto text-xs text-nova-text-muted tabular-nums first-letter:uppercase"
 									date={new Date(grant.created_at)}
 								/>
 							</li>

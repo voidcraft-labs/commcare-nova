@@ -16,7 +16,7 @@ export default function DocsNotFound() {
 			</h1>
 			<p className="max-w-md text-fd-muted-foreground">
 				It may have moved, or the link you followed might be out of date. The
-				docs home has everything that is here now.
+				docs home has everything that's here now.
 			</p>
 			<Button
 				render={<Link href="/" />}

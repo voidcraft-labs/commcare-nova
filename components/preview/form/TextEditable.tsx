@@ -115,7 +115,7 @@ export function TextEditable({
 			data-text-editable
 			onClick={handleClick}
 			onKeyDown={handleKeyDown}
-			className="w-full text-left bg-transparent border-none p-0 font-[inherit] rounded px-[5px] py-[5px] transition-colors hover:bg-nova-violet/[0.06] cursor-pointer"
+			className="nova-focusable w-full text-left bg-transparent border-none p-0 font-[inherit] rounded px-[5px] py-[5px] transition-colors hover:bg-nova-violet/[0.06] cursor-pointer"
 		>
 			{children}
 		</button>

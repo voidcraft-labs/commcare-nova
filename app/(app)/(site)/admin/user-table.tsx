@@ -113,7 +113,10 @@ const columns: ColumnDef<AdminUserRow>[] = [
 		accessorKey: "last_active_at",
 		header: "Last active",
 		cell: ({ getValue }) => (
-			<RelativeTime date={new Date(getValue<string>())} />
+			<RelativeTime
+				date={new Date(getValue<string>())}
+				className="first-letter:uppercase"
+			/>
 		),
 		sortingFn: "datetime",
 	},

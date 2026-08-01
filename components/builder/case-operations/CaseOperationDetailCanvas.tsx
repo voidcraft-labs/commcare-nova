@@ -131,7 +131,7 @@ export function CaseOperationDetailCanvas({
 	 * a session target. */
 	const sessionUnavailableReason = caseFirst
 		? undefined
-		: "This module does not choose a case before opening its forms, so there is no case in hand";
+		: "This module doesn't choose a case before opening its forms, so there is no case in hand";
 	const formFields = useMemo(
 		() => operationFormFieldDecls(fieldEntries, operation?.forEach?.repeat),
 		[fieldEntries, operation?.forEach?.repeat],

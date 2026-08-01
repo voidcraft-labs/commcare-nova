@@ -286,7 +286,7 @@ export function CaseOperationsCanvas({
 
 			{operations.length === 0 ? (
 				<p className="mb-4 rounded-2xl border border-dashed border-white/[0.08] px-4 py-6 text-[14px] leading-relaxed text-nova-text-muted">
-					This form does not change any cases yet. Submitting it records the
+					This form doesn't change any cases yet. Submitting it records the
 					answers and nothing else.
 				</p>
 			) : (
@@ -468,7 +468,7 @@ function AddChangeControl({
 				)
 			: undefined;
 	const sessionReason = !sessionAvailable
-		? "This module does not choose a case before opening its forms, so there is no case in hand to change"
+		? "This module doesn't choose a case before opening its forms, so there is no case in hand to change"
 		: sessionCaseType === undefined
 			? "Nova cannot determine which kind of case this form has in hand at this point"
 			: RESERVED_CASE_OPERATION_TYPES.has(sessionCaseType)

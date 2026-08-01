@@ -1571,7 +1571,15 @@ html.dark {
 	text-decoration-color: var(--nova-violet-bright);
 }
 
-/* Inline `code` — Nova surface chip with a violet border tint. */
+/* Keyboard chips (the search field's Cmd/K hint) fall back to the
+   browser's ui-monospace, so the same kind of chip renders in two faces
+   across the product. Key names are data values, so mono is right; it has
+   to be Nova's mono. */
+.nova-docs kbd {
+	font-family: var(--font-nova-mono);
+}
+
+/* Inline `code`: Nova surface chip with a violet border tint. */
 .nova-docs #nd-page :not(pre) > code {
 	background: var(--nova-deep);
 	border: 1px solid var(--nova-border);

@@ -127,7 +127,7 @@ export function InsertionPoint({
 				type="button"
 				tabIndex={-1}
 				aria-hidden="true"
-				className="absolute inset-0 z-raised cursor-pointer bg-transparent border-none p-0"
+				className="nova-focusable-inset absolute inset-0 z-raised cursor-pointer bg-transparent border-none p-0"
 				onMouseEnter={() => {
 					if (!engaged) setEngaged(true);
 				}}

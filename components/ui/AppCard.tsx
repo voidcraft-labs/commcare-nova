@@ -186,7 +186,10 @@ export function AppCard({
 						<span className="text-nova-rose">Generation failed</span>
 					) : (
 						<>
-							<RelativeTime date={updatedAt} />
+							<RelativeTime
+								date={updatedAt}
+								className="first-letter:uppercase"
+							/>
 							<span className="text-nova-text-muted">
 								{app.module_count} module
 								{app.module_count !== 1 ? "s" : ""}

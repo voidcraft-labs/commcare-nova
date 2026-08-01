@@ -1,5 +1,6 @@
 import { Icon } from "@iconify/react/offline";
 import tablerPlus from "@iconify-icons/tabler/plus";
+import { Button } from "@/components/shadcn/button";
 
 interface AddPropertyButtonProps {
 	label: string;
@@ -7,20 +8,29 @@ interface AddPropertyButtonProps {
 	className?: string;
 }
 
-/** Small pill button with a "+" icon, used to add optional properties/fields. */
+/**
+ * "Add this optional property" in the field inspector.
+ *
+ * It is the same gesture as every other add slot in the builder, so it wears
+ * the same flat dashed affordance and inherits the one control height. It was
+ * a hand-rolled 30px pill at 11px text, which put a second control size in a
+ * rail where everything else is 44px and set its label a step below the type
+ * scale's floor.
+ */
 export function AddPropertyButton({
 	label,
 	onClick,
 	className = "",
 }: AddPropertyButtonProps) {
 	return (
-		<button
+		<Button
 			type="button"
+			variant="ghost"
 			onClick={onClick}
-			className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-medium text-nova-text-muted hover:text-nova-text bg-nova-deep/40 hover:bg-nova-deep/60 border border-white/[0.06] hover:border-nova-violet/30 rounded-lg transition-colors cursor-pointer ${className}`}
+			className={`nova-add-slot ${className}`}
 		>
-			<Icon icon={tablerPlus} width="11" height="11" />
+			<Icon icon={tablerPlus} width="15" height="15" />
 			{label}
-		</button>
+		</Button>
 	);
 }
