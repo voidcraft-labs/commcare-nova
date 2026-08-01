@@ -2,8 +2,8 @@
 //
 // The two-step, no-dialog delete for a tree row (module / form), the app-card
 // delete pattern (`components/ui/AppCard.tsx`) shrunk to fit a tree row. Idle:
-// a hover-revealed trash icon. Armed (after one click): a rose "Delete?" pill +
-// a cancel ✕; a second click on "Delete?" runs `onDelete`. Moving the pointer
+// a hover-revealed trash icon. Armed (after one click): a rose "Delete" pill +
+// a cancel ✕; a second click on it runs `onDelete`. Moving the pointer
 // off the cluster disarms. The parent row must set `group` for the idle reveal.
 //
 // `onDelete` dispatches `removeModule` / `removeForm`: both gated mutations, so
@@ -28,7 +28,7 @@ export function TreeRowDelete({
 	/** Runs the (gated) removal; returns whether it committed. A success
 	 *  unmounts this row with the deleted entity, so on `false` (the gate
 	 *  refused: e.g. a still-referenced case type can't be retired) we disarm
-	 *  rather than leave the row stuck in its "Delete?" state. */
+	 *  rather than leave the row stuck in its armed state. */
 	readonly onDelete: () => boolean;
 }) {
 	const [armed, setArmed] = useState(false);
@@ -70,7 +70,6 @@ export function TreeRowDelete({
 						e.stopPropagation();
 						if (!onDelete()) setArmed(false);
 					}}
-					className="rounded-lg px-3 text-xs"
 				>
 					Delete
 				</Button>

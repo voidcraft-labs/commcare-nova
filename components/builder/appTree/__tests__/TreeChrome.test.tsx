@@ -90,8 +90,11 @@ describe("structure tree controls", () => {
 		});
 		const cancel = screen.getByRole("button", { name: "Cancel delete" });
 		expect(confirm.textContent).toBe("Delete");
+		// "Full-size shared actions" is the point of this test: the confirm is
+		// the system button at its one height and its one text size, not a
+		// downsized copy of it, so there is no text-xs to pin any more.
 		expect(confirm.className).toContain("h-11");
-		expect(confirm.className).toContain("text-xs");
+		expect(confirm.className).toContain("nova-keycap-rose");
 		expect(cancel.className).toContain("size-11");
 		await waitFor(() => expect(document.activeElement).toBe(confirm));
 
