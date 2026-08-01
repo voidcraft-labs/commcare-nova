@@ -4,11 +4,17 @@ The conventions every React component in the app obeys — builder, chat, previe
 
 ## Design-system authority
 
-Nova generally follows **Google Material 3** for foundations, semantic design
-tokens, adaptive layout, interaction states, accessibility, content hierarchy,
-and motion. **Apple HIG** adds platform polish for focus, keyboard/pointer
-behavior, touch ergonomics, and motion where it does not conflict with Material
-3, web semantics, or Nova's established language. Neither is permission to copy
+The **CommCare Nova design system** leads. It is a Claude Design project
+(`719bad67-96ae-4c3a-8d35-f5c2029c9f51`, readable through the claude_design MCP)
+and it owns the palette, the type scale, the control anatomy, the interaction
+model, the brand, and the voice. Where it and this codebase disagree, the design
+system is right and the code is the thing to change. Its `tokens/*.css` are the
+values of record; its `readme.md` is the intent; the `components/core/*.prompt.md`
+files are each primitive's contract.
+
+**Google Material 3** remains useful background for foundations, adaptive
+layout, accessibility, and content hierarchy, and **Apple HIG** for platform
+polish, but neither overrides a Nova rule, and neither is permission to copy
 another product's authoring model or component catalog.
 
 The project owner's current Material 3 distillation is available to Codex at
@@ -20,16 +26,17 @@ then follow the repo-recorded contract; no shipped decision or delegated task ma
 require undocumented access to a personal file.
 
 Precedence is: accessibility and semantic behavior; the feature's explicit Nova
-product/UX contract; Nova's existing tokens and components; Material 3; then
-Apple HIG polish. In practice:
+product/UX contract; the Nova design system's tokens, components, and voice;
+Material 3; then Apple HIG polish. In practice:
 
 - use semantic HTML, landmarks/headings, logical DOM and focus order, visible
   keyboard focus, and trigger-to-surface focus entry/return;
 - design adaptive behavior, not a scaled desktop canvas: review compact, medium,
   expanded, large, and extra-large widths and deliberately show/hide, reflow, or
   swap panes and navigation;
-- aim for 48 x 48 CSS-pixel touch targets and never go below a 44 x 44 pointer
-  target; preserve adequate spacing and keyboard alternatives;
+- give every control the one 44px height (`--hit-target`); it is a floor for
+  pointer targets and the exact height of buttons, inputs, and toggles alike,
+  with adequate spacing and keyboard alternatives;
 - represent enabled, disabled, hover, focus, pressed, selected, and dragged
   states consistently with the established Nova semantic tokens and more than
   color alone; and
@@ -58,7 +65,7 @@ Every `<input>` / `<textarea>` gets `autoComplete="off"` and `data-1p-ignore` (k
 
 A label + control + helper-text + error stack is `Field` / `FieldLabel` / `FieldDescription` / `FieldError` from `components/shadcn/field.tsx` (`FieldGroup` for the stack, `FieldSet` + `FieldLegend` for a named group — a fieldset's legend is also what names the group for a screen reader, and for a Playwright `getByRole("group", { name })`). Hand-rolling that as `div` + `Label` + `p` re-invents the type scale and spacing per surface, which is how one dialog ended up a notch smaller than the rest of the app.
 
-**Raising a control to the 44px touch floor: `Input` takes `h-11`, but `SelectTrigger` needs `min-h-11`.** The trigger's height is a `data-[size=…]` variant, so it outranks a bare `h-*` from a call site on specificity and tailwind-merge can't dedupe across that boundary — an `h-11` there is silently inert and the select stays 32px beside its 44px neighbours.
+**No call site raises a control to the touch floor, because there is nothing to raise.** `Button`, `Input`, `Textarea`, `SelectTrigger`, and `Switch` are each exactly 44px in their one size; none takes a `size` prop except `Button`'s `size="icon"`, which is the same 44px as a square. A `SelectTrigger` that has to show a long authored value across several lines passes `wrapValue`, which swaps its fixed height for `min-h-11` and keeps the value and chevron centred; that is the only height variation in the set.
 
 Authored names, labels, and selected values must remain legible in narrow surfaces. Let the containing row/control grow and wrap (`overflow-wrap: anywhere` for imported values with no natural breaks); do not silently truncate distinct choices into the same-looking label. A genuinely fixed compact surface needs an equally accessible full-value disclosure for pointer and keyboard users.
 
@@ -88,17 +95,26 @@ A client leaf that branches its render on `useAuth().isPending` will hydration-m
 
 ## Theme
 
-Dark "Violet Monochrome": violet is the single non-semantic accent; success / warning / error hues are reserved for semantic states, never decoration. Every color is a CSS custom property in `globals.css`; never hardcode one — if a one-off color appears, promote it to a token (reuse one, or add a new `--nova-*`). Z-index is a semantic token scale — use the Tailwind classes that reference it. `cn` is taught that scale (`lib/utils.ts::Z_INDEX_SCALE`), so passing a later `z-*` token genuinely REPLACES an earlier one; add any new `--z-index-*` key there too, or the drift test in `lib/__tests__/utils.test.ts` fails. Without that list tailwind-merge keeps both classes and generated-stylesheet order (alphabetical by token name) picks the winner — which is how a Select popup meant for `z-modal` sat at `z-popover-top` and rendered behind the dialog that opened it, open but invisible.
+Dark "Twilight and first light": a four-step warm plum surface stack (`#171221` page → `#1d1729` wells → `#251d34` cards → `#2f2543` raised), lit by Nova's lilac and a low wash of dawn. Violet is the single non-semantic accent; emerald / amber / rose are reserved for semantic state, never decoration; dawn and orchid are light and presence, never controls. Every color is a CSS custom property in `globals.css`; never hardcode one — if a one-off color appears, promote it to a token (reuse one, or add a new `--nova-*`). Z-index is a semantic token scale — use the Tailwind classes that reference it. `cn` is taught that scale (`lib/utils.ts::Z_INDEX_SCALE`), so passing a later `z-*` token genuinely REPLACES an earlier one; add any new `--z-index-*` key there too, or the drift test in `lib/__tests__/utils.test.ts` fails. Without that list tailwind-merge keeps both classes and generated-stylesheet order (alphabetical by token name) picks the winner — which is how a Select popup meant for `z-modal` sat at `z-popover-top` and rendered behind the dialog that opened it, open but invisible.
 
-**Contrast is calibrated into the tokens (WCAG 2.2 AA, 4.5:1 — the theme is dark-only, so every text token must clear it on every surface).** The rules that keep it that way:
+**Contrast is calibrated into the tokens (WCAG 2.2 AA, 4.5:1; the theme is dark-only, so every text token must clear it on every surface).** The rules that keep it that way:
 
-- **Brand violet ≠ CTA fill.** `--nova-violet` (#8b5cf6) is the brand *accent* only — borders, glows, the logo, violet-tinted fills, selected states, dots. It is never a fill behind white text (white on it is 4.23:1). White-text CTAs use **`--nova-action`** (indigo, distinct from the brand yet cohesive). Violet *text/links* use `--nova-violet-bright`. The previewed CommCare app keeps violet for its own buttons via `--pv-accent` (a white-safe darkened violet) — that's the user's app, not Nova chrome.
-- **Light accents carry dark text.** rose / emerald / amber / orchid (and violet-bright) are light — as a fill they take **dark** text (`text-nova-void`), never white.
-- **Don't fade text with opacity.** `text-nova-*/NN` and `opacity-*` on a text element drop it below AA on dark surfaces — use a solid token (`text` → `secondary` → `muted`) for de-emphasis instead. Opacity dimming is only for genuinely inactive/disabled affordances (which WCAG exempts).
+- **Light is action.** `--nova-action` (the luminous lilac `--nova-violet-bright`) is the primary CTA fill, and it is the brightest thing on the page. There is no separate "blue'd" button hue. `--nova-violet` stays the brand accent: borders, glow, the logo, violet-tinted fills, selected states, dots.
+- **No fill carries white text.** Every accent fill (action lilac, dawn, emerald, amber, rose, orchid) is luminous and takes dusk text, `--nova-action-ink` (which is `--nova-void`, 8.2:1 under the CTA). `text-white` on a fill is always wrong.
+- **Dawn is light, never a control.** `--nova-dawn` is the logomark's crescent, the low warm bloom behind hero surfaces, and rare quiet celebration. Never a border, never a fill, never semantic.
+- **Don't fade text with opacity.** `text-nova-*/NN` and `opacity-*` on a text element drop it below AA on dark surfaces; step down the solid ladder (`text` → `secondary` → `muted`) instead. Opacity dimming is only for genuinely disabled affordances, which WCAG exempts.
 
-**Interaction states** are measured in *perceptual lightness* (oklab L — WCAG relative luminance is not perceptually uniform, so a fixed luminance/contrast step looks uneven across colors). The model is color-independent:
+**Interaction states** are measured in *perceptual lightness* (oklab/oklch L, because WCAG relative luminance is not perceptually uniform, so a fixed luminance step looks uneven across colors). The model is color-independent:
 
-- **Solid-fill hover** = the base mixed one step (14%) toward black in oklab — `--*-hover` tokens are derived with `color-mix(in oklab, <base>, black 14%)`, so every fill's hover reads as the same perceptual darken regardless of color. (Fills darken, not lighten: white text can't survive lightening a light fill.)
-- **Foreground icon/text controls** use a 3-rung ladder ~0.3 oklab L apart at each step: idle `text-nova-text-muted` → hover `text-nova-text` → disabled = idle at `opacity-40`.
-- **Disabled = `opacity-40` everywhere** (one value; opacity is the universal, color-independent "inactive" signal). Don't reintroduce 30/50/60.
-- **Disabled keeps pointer events and shows `cursor-not-allowed`; hover effects are gated so they never fire while disabled** (`not-disabled:hover:` / `not-data-[disabled]:hover:`). `pointer-events-none` would silence the cursor; an ungated hover restyle on a disabled control falsely signals interactivity. The shadcn button/select/switch already encode this — hand-rolled interactive elements must too.
+- **Hover is always more light, never less.** A solid fill hovers to the base mixed one step (10%) toward white in oklch: the `--*-hover` tokens are `color-mix(in oklch, <base>, white 10%)`. The oklch mix holds the hue so nothing washes out, and dusk text gains contrast as the fill lifts. CTAs add a glow swell. A hover that dims or fades is a bug.
+- **Buttons are soft keycaps.** A crown gradient lit from above over a darker side wall `--key-wall` (3px) tall, and press is real travel: the cap sinks as the wall collapses. The whole anatomy lives in the `.nova-keycap-*` classes in `globals.css`; `components/shadcn/button.tsx` only picks a variant and lays out the label. Ghost and link stay flat text-tier with a 1px press nudge, which is exactly what makes the keycaps read as actionable beside them.
+- **One control height, no ladder.** Button = input = toggle = 44px (`--hit-target`), each in exactly one size. `size="icon"` is that same 44px as a square. The floor also covers menu items, composer controls, dialog actions, and icon buttons near text. **If a layout seems to need a smaller button, change the layout, never the button.**
+- **A className on a Button sets layout, never anatomy.** Width, margin, and grid placement are fine; height, padding, radius, color, and shadow are the variant's job. A surface that genuinely needs different anatomy (a full-bleed menu row, a thumbnail tile) is not a Button.
+- **Foreground icon/text controls** climb a 3-rung ladder: idle `text-nova-text-secondary` → hover `text-nova-text` → disabled = idle at `--disabled-opacity`.
+- **Disabled = `opacity-(--disabled-opacity)` (0.6) everywhere**, one value, calibrated so keycap labels hold ≥3.6:1 and secondary-base text ≥3:1 on every surface in the stack. Don't reintroduce 30/40/50.
+- **Disabled keeps pointer events and shows `cursor-not-allowed`; hover effects are gated so they never fire while disabled** (`not-disabled:hover:` / `not-data-[disabled]:hover:`). `pointer-events-none` would silence the cursor; an ungated hover restyle on a disabled control falsely signals interactivity. The shadcn button/select/switch already encode this, and hand-rolled interactive elements must too.
+- **One keyboard focus ring, keyboard-only.** Violet-bright border plus a soft 3px ring at 45% alpha. Anything focusable that is not already a Button, Input, Textarea, or Select wears `.nova-focusable` (or `.nova-focusable-inset` inside a clipping parent, `.nova-focusable-within` on a wrapper) rather than inventing a ring. A mouse press never leaves a standing ring.
+- **Radius is soft everywhere.** Inputs and cards 12px (`rounded-lg`); buttons, dialogs, menus, and popovers 18px (`rounded-xl`); the composer 24px; badges are full pills. Genuinely round is reserved for toggles and the brand dot.
+- **Motion settles, never snaps.** Default UI transitions are 0.2s; entrances fade and rise on `--ease-out`; ambient motion (the 3.6s breath, blooms) is slow enough to ignore. Reduced motion uses near-zero durations, not `none`, so lifecycles still complete.
+
+**Voice.** Sentence case everywhere except the product name, which is always lowercase `commcare nova`. No em dashes, in UI copy or docs or code comments; a comma, a colon, or a new sentence carries the aside. No ellipsis in buttons, menu items, or placeholders, including in-progress labels ("Creating blank app", not "Creating blank app…"). Skip the period on single-line labels, tooltips, placeholders, and one-sentence dialog bodies. Use contractions, spell out Latin abbreviations, write "and" not "&", and use `·` as the metadata separator. Errors take responsibility and offer the next step. No emoji.
