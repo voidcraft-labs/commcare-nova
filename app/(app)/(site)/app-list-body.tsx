@@ -18,10 +18,14 @@
 import { Icon } from "@iconify/react/offline";
 import tablerArchive from "@iconify-icons/tabler/archive";
 import { useMemo, useState } from "react";
+import {
+	TabsList,
+	Tabs as TabsRoot,
+	TabsTrigger,
+} from "@/components/shadcn/tabs";
 import { AppCard, type AppProjectMoveTarget } from "@/components/ui/AppCard";
 import { DeletedAppCard } from "@/components/ui/DeletedAppCard";
 import type { AppSummary, DeletedAppSummary } from "@/lib/db/apps";
-import { selectableSegmentCls } from "@/lib/styles";
 import { deleteApp, moveApp, restoreApp } from "./app-actions";
 
 interface AppListBodyProps {
@@ -125,60 +129,35 @@ interface TabsProps {
  */
 function Tabs({ view, onChange, deletedCount }: TabsProps) {
 	return (
-		<div
-			role="tablist"
-			aria-label="Filter apps"
-			className="mb-5 inline-flex rounded-lg border border-nova-border bg-nova-surface/40 p-0.5"
+		/* The shared primitive, not a hand-rolled strip. Drawn by hand this was a
+		 * pill inside a pill: the selected segment carried the standalone 18px
+		 * radius while its container carried 12px, so the child was ROUNDER than
+		 * the box holding it. A segmented control's inner radius is derived
+		 * (container minus its inset), not a rung of the scale, and the primitive
+		 * is where that arithmetic already lives. */
+		<TabsRoot
+			value={view}
+			onValueChange={(value) => onChange(value as View)}
+			className="mb-5"
 		>
-			<TabButton
-				active={view === "active"}
-				onClick={() => onChange("active")}
-				label="Active"
-			/>
-			<TabButton
-				active={view === "deleted"}
-				onClick={() => onChange("deleted")}
-				label="Recently deleted"
-				count={deletedCount}
-			/>
-		</div>
-	);
-}
-
-interface TabButtonProps {
-	active: boolean;
-	onClick: () => void;
-	label: string;
-	count?: number;
-}
-
-function TabButton({ active, onClick, label, count }: TabButtonProps) {
-	return (
-		<button
-			type="button"
-			role="tab"
-			aria-selected={active}
-			onClick={onClick}
-			/* The shared selected treatment, not a hand-rolled one. Drawn by
-			 * hand this pair sat at 28px on a 10px radius, which is on no rung
-			 * of the scale, and the SELECTED segment carried no hover at all:
-			 * pointing at the tab you were already on did nothing, while the
-			 * unselected one lit brighter than the selected one, so the
-			 * lightness ladder ran backwards. */
-			className={selectableSegmentCls(active)}
-		>
-			{label}
-			{count !== undefined && count > 0 && (
-				/* The space is real text, not a margin. `ml-1.5` separates the
-				 * two visually and leaves the text layer reading "Recently
-				 * deleted2", which is what an accessible name and any
-				 * text-content assertion actually see. */
-				<>
-					{" "}
-					<span className="text-nova-text-muted">{count}</span>
-				</>
-			)}
-		</button>
+			<TabsList aria-label="Filter apps">
+				<TabsTrigger value="active" className="px-3">
+					Active
+				</TabsTrigger>
+				<TabsTrigger value="deleted" className="px-3">
+					Recently deleted
+					{deletedCount > 0 && (
+						/* A real space, not a gap: `ml-1.5` alone leaves the text layer
+						 * reading "Recently deleted2", which is what an accessible name
+						 * and any text assertion actually see. */
+						<>
+							{" "}
+							<span className="text-nova-text-muted">{deletedCount}</span>
+						</>
+					)}
+				</TabsTrigger>
+			</TabsList>
+		</TabsRoot>
 	);
 }
 

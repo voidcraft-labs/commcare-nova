@@ -311,7 +311,7 @@ export function SearchCanvas({
 						{searchEnabled && (
 							<ol
 								aria-labelledby="search-fields-heading"
-								className="mt-2 list-none space-y-2 p-0"
+								className="mt-2 flex list-none flex-col gap-2 p-0"
 							>
 								{orderedInputs.map((input, i) => {
 									const hasError =
