@@ -9,6 +9,15 @@ Callers must authorize and hydrate the app first, then pass the resulting exact
 Project access, document, and mutation sequence to `prepareExportBoundary`.
 Nothing may expand, compile, import, or upload before the result is `ok: true`.
 
+Feature-flag reporting is follow-up metadata, not another export verdict.
+After the boundary passes, JSON/CCZ callers derive the destination-unknown
+report from the same exact document and attach it without changing artifact
+bytes. Direct HQ callers begin the known-domain probe only after HQ accepts the
+import; probe failures can yield `unverified_flags` but can never turn a valid
+artifact or completed upload into a failure. Detection lives in
+`lib/commcare/featureFlags.ts` and the public report contract lives in
+`lib/publish/hqFeatureFlags.ts`, not in this boundary.
+
 The boundary structurally extracts the complete lookup target set and reads
 one snapshot even when that set is empty: the rows-free definition reader on
 the HQ modes, and `getLookupFixtureData` — definitions plus every referenced

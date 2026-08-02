@@ -1,0 +1,74 @@
+{
+	"source": {
+		"repository": "dimagi/commcare-hq",
+		"toggleRegistryPath": "corehq/toggles/__init__.py",
+		"probeResourcePath": "corehq/apps/api/resources/v0_5.py",
+		"probeEvidence": [
+			"feature_flag = request.GET.get(\"feature_flag\")",
+			"feature_flag not in toggles.all_toggle_slugs()",
+			"toggles.toggles_dict(username=username, domain=domain)"
+		]
+	},
+	"flags": [
+		{
+			"id": "case-search",
+			"slug": "search_claim",
+			"symbol": "SYNC_SEARCH_CASE_CLAIM",
+			"label": "Simple Case Search",
+			"description": "Lets workers search for cases that are not already on their device",
+			"requiredFor": "Any module with a Search action or Search inputs",
+			"docsAnchor": "simple-case-search",
+			"expectedTag": "TAG_FROZEN",
+			"expectedNamespaces": ["NAMESPACE_DOMAIN"],
+			"upstreamEvidence": [
+				{
+					"path": "corehq/apps/ota/views.py",
+					"contains": "SYNC_SEARCH_CASE_CLAIM.required_decorator"
+				}
+			]
+		},
+		{
+			"id": "advanced-case-search",
+			"slug": "case_search_advanced",
+			"symbol": "CASE_SEARCH_ADVANCED",
+			"label": "Advanced Case Search",
+			"description": "Adds more powerful case search options, including filters, flexible matching, and suggested search values",
+			"requiredFor": "A Search action with no inputs, or a case search with filters, flexible or special matching, or a suggested search value",
+			"docsAnchor": "advanced-case-search",
+			"expectedTag": "TAG_FROZEN",
+			"expectedNamespaces": ["NAMESPACE_DOMAIN"],
+			"expectedParents": ["SYNC_SEARCH_CASE_CLAIM"],
+			"upstreamEvidence": [
+				{
+					"path": "corehq/apps/case_search/utils.py",
+					"contains": "if not toggles.CASE_SEARCH_ADVANCED.enabled(domain)"
+				},
+				{
+					"path": "corehq/apps/app_manager/feature_support.py",
+					"contains": "toggles.CASE_SEARCH_ADVANCED.enabled(self.domain)"
+				}
+			]
+		},
+		{
+			"id": "commcare-connect",
+			"slug": "commcare_connect",
+			"symbol": "COMMCARE_CONNECT",
+			"label": "CommCare Connect",
+			"description": "Enables CommCare Connect Learn and Deliver app features",
+			"requiredFor": "An app configured for CommCare Connect Learn or Deliver",
+			"docsAnchor": "commcare-connect",
+			"expectedTag": "TAG_CONNECT_DIVISION",
+			"expectedNamespaces": ["NAMESPACE_DOMAIN"],
+			"upstreamEvidence": [
+				{
+					"path": "corehq/apps/app_manager/views/formdesigner.py",
+					"contains": "toggles.COMMCARE_CONNECT.enabled(domain)"
+				},
+				{
+					"path": "corehq/apps/users/views/mobile/users.py",
+					"contains": "toggles.COMMCARE_CONNECT.enabled(domain)"
+				}
+			]
+		}
+	]
+}

@@ -69,8 +69,16 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { importApp, uploadAppMediaBundle } from "@/lib/commcare/client";
+import {
+	importApp,
+	probeHqFeatureFlags,
+	uploadAppMediaBundle,
+} from "@/lib/commcare/client";
 import { expandDoc } from "@/lib/commcare/expander";
+import {
+	featureFlagReportForUpload,
+	requiredHqFeatureFlags,
+} from "@/lib/commcare/featureFlags";
 import { buildMediaBulkUploadZip } from "@/lib/commcare/multimedia/bulkUploadZip";
 import { errorToString } from "@/lib/commcare/validator/errors";
 import { getCredentialsForUpload } from "@/lib/db/settings";
@@ -80,11 +88,11 @@ import { assetWirePaths } from "@/lib/media/manifest";
 import { reportMediaAttach } from "@/lib/media/uploadOutcome";
 import { initMcpCall } from "../context";
 import {
+	type HqToolErrorType,
 	McpInvalidInputError,
 	type McpToolErrorResult,
 	type McpToolSuccessResult,
 	toMcpErrorResult,
-	type UploadErrorType,
 } from "../errors";
 import { loadAppBlueprint } from "../loadApp";
 import { deriveRunId, timestampToMillis } from "../runId";
@@ -93,8 +101,8 @@ import type { ToolContext } from "../types";
 
 /**
  * Canonical `error_type` strings for each upload-gate failure mode.
- * `satisfies Record<UploadErrorType, UploadErrorType>` forces every
- * variant of `UploadErrorType` to appear as a key — adding a new
+ * `satisfies Record<HqToolErrorType, HqToolErrorType>` forces every
+ * variant of `HqToolErrorType` to appear as a key — adding a new
  * variant to the union without a matching entry here is a compile
  * error, so the wire taxonomy cannot silently drift.
  *
@@ -113,7 +121,7 @@ export const UPLOAD_ERROR_TAGS = {
 	domain_not_authorized: "domain_not_authorized",
 	/** Multi-space key with no `domain` supplied — caller must choose. */
 	domain_ambiguous: "domain_ambiguous",
-} as const satisfies Record<UploadErrorType, UploadErrorType>;
+} as const satisfies Record<HqToolErrorType, HqToolErrorType>;
 
 /**
  * Build an MCP error envelope for a failed upload gate.
@@ -127,7 +135,7 @@ export const UPLOAD_ERROR_TAGS = {
  * model branching) and the user-actionable `message` (for display).
  */
 function makeGateError(
-	errorType: UploadErrorType,
+	errorType: HqToolErrorType,
 	message: string,
 	appId: string,
 ): McpToolErrorResult {
@@ -163,7 +171,7 @@ export function registerUploadAppToHq(
 		"upload_app_to_hq",
 		{
 			description:
-				"Upload an owned app to CommCare HQ as a new app. Pass `domain` to choose the target project space; you can omit it only when the key reaches exactly one space. Call `get_hq_connection` first to list reachable spaces (`available_domains`); when there are several, ask the user which one, a multi-space key with no `domain` returns `domain_ambiguous` (it won't guess). HQ has no atomic update API, so each call creates a fresh HQ app; returns the HQ app id and URL on success.",
+				"Upload an owned app to CommCare HQ as a new app. Call `get_hq_connection` first to list reachable spaces (`available_domains`); when there are several, ask the user which one and never choose for them. Before asking the user to confirm or invoking this tool, call `get_app_hq_feature_flags` with that explicit domain and relay its `feature_flag_requirements`, including confirmed `missing_flags` and any `unverified_flags`; this is informational and must not cause requested app features to be changed or removed. Pass the same `domain` here. You can omit it only when the key reaches exactly one space; a multi-space key with no `domain` returns `domain_ambiguous` (it won't guess). HQ has no atomic update API, so each call creates a fresh HQ app. On success, `feature_flag_requirements` repeats an authoritative post-upload check against the exact target and includes support@dimagi.com guidance. The diagnostic never blocks an otherwise successful upload.",
 			inputSchema: {
 				app_id: z
 					.string()
@@ -338,6 +346,15 @@ export function registerUploadAppToHq(
 						);
 					}
 
+					/* The app now exists. Probe requirements against the exact accepted
+					 * domain while media processing runs. Every probe degrades to
+					 * `unavailable`; it cannot turn this success into an error. */
+					const featureFlagProbes = probeHqFeatureFlags(
+						credResult.creds,
+						targetDomain,
+						requiredHqFeatureFlags(prepared.doc),
+					);
+
 					/* App is created; ship its media as ONE bulk ZIP to HQ's
 					 * api-key-authed `upload_multimedia_api`, which unzips and
 					 * matches each entry to the app's `jr://` references (the
@@ -397,6 +414,10 @@ export function registerUploadAppToHq(
 						`Uploaded. HQ app id ${result.appId}`,
 						{ app_id: appId, hq_app_id: result.appId },
 					);
+					const featureFlagReport = featureFlagReportForUpload(
+						targetDomain,
+						await featureFlagProbes,
+					);
 
 					/* Record the upload success on the event log as a
 					 * `tool-result` conversation event. `toolCallId` is
@@ -411,6 +432,7 @@ export function registerUploadAppToHq(
 							hq_app_id: result.appId,
 							url: result.appUrl,
 							warnings,
+							feature_flag_requirements: featureFlagReport,
 						},
 					});
 
@@ -424,6 +446,7 @@ export function registerUploadAppToHq(
 									hq_app_id: result.appId,
 									url: result.appUrl,
 									warnings,
+									feature_flag_requirements: featureFlagReport,
 								}),
 							},
 						],

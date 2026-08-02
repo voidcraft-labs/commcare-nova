@@ -1,6 +1,11 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { handleApiError } from "@/lib/apiError";
 import { expandDoc } from "@/lib/commcare/expander";
+import {
+	encodeHqFeatureFlagReport,
+	featureFlagReportForDownload,
+	HQ_FEATURE_FLAG_REPORT_HEADER,
+} from "@/lib/commcare/featureFlags";
 import { buildHqJsonExportArchive } from "@/lib/commcare/multimedia/hqJsonExportArchive";
 import { sanitizeFilename } from "@/lib/utils/sanitize";
 import { prepareCompileRequest } from "../prepareCompileRequest";
@@ -38,6 +43,8 @@ export async function POST(req: NextRequest) {
 		// and keeps Unicode, so the download filename can be ASCII while the
 		// member preserves the app's real name.
 		const appName = sanitizeFilename(doc.appName);
+		const featureFlagReport = featureFlagReportForDownload(doc);
+		const featureFlagHeader = encodeHqFeatureFlagReport(featureFlagReport);
 
 		// The HQ-import body (plain JSON, or the zip bundle) stays byte-identical:
 		// it's the artifact the user hands to HQ, and HQ's importer owns its
@@ -51,6 +58,7 @@ export async function POST(req: NextRequest) {
 					"Content-Type": "application/json",
 					"Content-Disposition": `attachment; filename="${appName}.json"`,
 					"X-Compiled-At-Seq": String(compiledAtSeq),
+					[HQ_FEATURE_FLAG_REPORT_HEADER]: featureFlagHeader,
 				},
 			});
 		}
@@ -64,6 +72,7 @@ export async function POST(req: NextRequest) {
 				"Content-Type": "application/zip",
 				"Content-Disposition": `attachment; filename="${appName}.zip"`,
 				"X-Compiled-At-Seq": String(compiledAtSeq),
+				[HQ_FEATURE_FLAG_REPORT_HEADER]: featureFlagHeader,
 			},
 		});
 	} catch (err) {

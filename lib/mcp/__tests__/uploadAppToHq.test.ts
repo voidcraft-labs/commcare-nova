@@ -26,8 +26,13 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testMediaAssetId } from "@/__tests__/helpers/uuid";
-import { importApp, uploadAppMediaBundle } from "@/lib/commcare/client";
+import {
+	importApp,
+	probeHqFeatureFlags,
+	uploadAppMediaBundle,
+} from "@/lib/commcare/client";
 import { expandDoc } from "@/lib/commcare/expander";
+import { HQ_FEATURE_FLAG_REQUIREMENTS } from "@/lib/commcare/featureFlags";
 import type { AssetManifest } from "@/lib/commcare/multimedia/assetWirePath";
 import type { HqApplication } from "@/lib/commcare/types";
 import { validationError } from "@/lib/commcare/validator/errors";
@@ -59,6 +64,7 @@ vi.mock("@/lib/db/settings", () => ({
 }));
 vi.mock("@/lib/commcare/client", () => ({
 	importApp: vi.fn(),
+	probeHqFeatureFlags: vi.fn(),
 	uploadAppMediaBundle: vi.fn(),
 }));
 // The bulk-zip builder needs real bytes; the tool only checks the manifest
@@ -207,6 +213,7 @@ beforeEach(() => {
 	vi.mocked(expandDoc).mockReset();
 	vi.mocked(resolveMediaManifest).mockReset();
 	vi.mocked(uploadAppMediaBundle).mockReset();
+	vi.mocked(probeHqFeatureFlags).mockReset();
 	vi.mocked(prepareExportBoundary).mockReset();
 	LogWriterMock.instances = [];
 
@@ -226,6 +233,7 @@ beforeEach(() => {
 		errors: [],
 		timedOut: false,
 	});
+	vi.mocked(probeHqFeatureFlags).mockResolvedValue([]);
 	/* Neutral export prep is transparent by default. The media-rejection test
 	 * overrides with a rejected boundary result. */
 	vi.mocked(prepareExportBoundary).mockImplementation(
@@ -247,6 +255,20 @@ beforeEach(() => {
 /* --- Tests ----------------------------------------------------------- */
 
 describe("registerUploadAppToHq — happy path", () => {
+	it("instructs bare MCP clients to disclose requirements before upload", () => {
+		const { server, registeredConfig } = makeFakeServer();
+		registerUploadAppToHq(server, toolCtx);
+
+		const config = registeredConfig() as { description?: string };
+		expect(config.description).toContain("call `get_app_hq_feature_flags`");
+		expect(config.description).toContain("with that explicit domain");
+		expect(config.description).toContain(
+			"must not cause requested app features to be changed or removed",
+		);
+		expect(config.description).toContain("confirmed `missing_flags`");
+		expect(config.description).toContain("against the exact target");
+	});
+
 	it("resolves the sole space (no domain arg) and returns the HQ app id + URL", async () => {
 		vi.mocked(importApp).mockResolvedValueOnce({
 			success: true,
@@ -283,6 +305,10 @@ describe("registerUploadAppToHq — happy path", () => {
 			hq_app_id: "hq-123",
 			url: "https://hq.example/app",
 			warnings: [],
+			feature_flag_requirements: expect.objectContaining({
+				verification: "not_required",
+				required_flags: [],
+			}),
 		});
 
 		/* LogWriter allocated + flushed exactly once — the finally block
@@ -320,7 +346,53 @@ describe("registerUploadAppToHq — happy path", () => {
 			FAKE_HQ_JSON,
 		);
 	});
+
+	it("returns flags confirmed missing by the accepted target domain", async () => {
+		const doc = fixtureBlueprint();
+		doc.connectType = "learn";
+		vi.mocked(loadAppBlueprint).mockResolvedValueOnce(
+			fixtureLoadedBlueprintForTest(doc),
+		);
+		vi.mocked(importApp).mockResolvedValueOnce({
+			success: true,
+			appId: "hq-flags",
+			appUrl: "https://hq.example/app",
+			warnings: [],
+		});
+		vi.mocked(probeHqFeatureFlags).mockResolvedValueOnce([
+			{
+				requirement: HQ_FEATURE_FLAG_REQUIREMENTS[2],
+				state: "missing",
+			},
+		]);
+
+		const { server, capture } = makeFakeServer();
+		registerUploadAppToHq(server, toolCtx);
+		const out = (await capture()({ app_id: "a1" }, {})) as {
+			content: Array<{ type: "text"; text: string }>;
+		};
+		const parsed = JSON.parse(out.content[0]?.text ?? "{}") as {
+			feature_flag_requirements: {
+				missing_flags: { slug: string }[];
+				message: string;
+			};
+		};
+		expect(parsed.feature_flag_requirements.missing_flags).toEqual([
+			expect.objectContaining({ slug: "commcare_connect" }),
+		]);
+		expect(parsed.feature_flag_requirements.message).toContain(
+			"support@dimagi.com",
+		);
+	});
 });
+
+function fixtureLoadedBlueprintForTest(doc: BlueprintDoc): LoadedApp {
+	return {
+		...fixtureLoadedApp(),
+		doc,
+		app: fixtureAppDoc({ blueprint: doc, connect_type: doc.connectType }),
+	};
+}
 
 describe("registerUploadAppToHq — media upload ordering", () => {
 	/** A manifest stand-in — its contents don't matter because

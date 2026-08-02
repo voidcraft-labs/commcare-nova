@@ -2,6 +2,11 @@ import { type NextRequest, NextResponse } from "next/server";
 import { handleApiError } from "@/lib/apiError";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
+import {
+	encodeHqFeatureFlagReport,
+	featureFlagReportForDownload,
+	HQ_FEATURE_FLAG_REPORT_HEADER,
+} from "@/lib/commcare/featureFlags";
 import { sanitizeFilename } from "@/lib/utils/sanitize";
 import { prepareCompileRequest } from "./prepareCompileRequest";
 
@@ -47,11 +52,14 @@ export async function POST(req: NextRequest) {
 		// download filename is sanitized because `appName` is user-controlled
 		// and flows into a response header (`Content-Disposition`).
 		const appName = sanitizeFilename(doc.appName);
+		const featureFlagReport = featureFlagReportForDownload(doc);
 		return new NextResponse(new Uint8Array(buffer), {
 			headers: {
 				"Content-Type": "application/octet-stream",
 				"Content-Disposition": `attachment; filename="${appName}.ccz"`,
 				"Content-Length": buffer.length.toString(),
+				[HQ_FEATURE_FLAG_REPORT_HEADER]:
+					encodeHqFeatureFlagReport(featureFlagReport),
 			},
 		});
 	} catch (err) {

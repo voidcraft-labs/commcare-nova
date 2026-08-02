@@ -17,6 +17,10 @@ import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { requireSession } from "@/lib/auth-utils";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
+import {
+	decodeHqFeatureFlagReport,
+	HQ_FEATURE_FLAG_REPORT_HEADER,
+} from "@/lib/commcare/featureFlags";
 import { validationError } from "@/lib/commcare/validator/errors";
 import { resolveAppAccess } from "@/lib/db/appAccess";
 import { proseText } from "@/lib/domain/prose";
@@ -70,6 +74,14 @@ function validDoc() {
 			},
 		],
 	});
+	return doc;
+}
+
+function docWithCaseSearch() {
+	const doc = validDoc();
+	const moduleUuid = doc.moduleOrder[0];
+	if (!moduleUuid) throw new Error("fixture module missing");
+	doc.modules[moduleUuid].caseSearchConfig = {};
 	return doc;
 }
 
@@ -203,5 +215,20 @@ describe("POST /api/compile — inline archive return", () => {
 			expect.anything(),
 			expect.objectContaining({ compiledAtSeq: 99 }),
 		);
+	});
+
+	it("returns unverified destination requirements without changing CCZ bytes", async () => {
+		loadsDoc(docWithCaseSearch());
+		const res = await POST(reqWith({ appId: "a1" }));
+		const report = decodeHqFeatureFlagReport(
+			res.headers.get(HQ_FEATURE_FLAG_REPORT_HEADER),
+		);
+		expect(report?.verification).toBe("not_checked");
+		expect(report?.missing_flags).toEqual([]);
+		expect(report?.required_flags).toEqual([
+			expect.objectContaining({ slug: "search_claim" }),
+		]);
+		expect(report?.message).toContain("support@dimagi.com");
+		expect(Buffer.from(await res.arrayBuffer()).toString()).toBe("ccz-bytes");
 	});
 });

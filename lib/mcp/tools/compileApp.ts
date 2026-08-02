@@ -32,6 +32,10 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
+import {
+	featureFlagReportForDownload,
+	type HqFeatureFlagReport,
+} from "@/lib/commcare/featureFlags";
 import { buildHqJsonExportArchive } from "@/lib/commcare/multimedia/hqJsonExportArchive";
 import { errorToString } from "@/lib/commcare/validator/errors";
 import {
@@ -69,7 +73,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 		"compile_app",
 		{
 			description:
-				'Compile an owned app to CommCare HQ format. `format: "json"` returns the HQ JSON as text, or, when the app has media, a base64-encoded zip bundle (JSON + an HQ multimedia upload) so the media round-trips. `format: "ccz"` returns the binary archive base64-encoded.',
+				'Compile an owned app to CommCare HQ format. Before invoking this tool, call `get_app_hq_feature_flags` without a domain if the user has not already been shown the app requirements, so they can understand them before export. `format: "json"` returns the HQ JSON as text, or, when the app has media, a base64-encoded zip bundle (JSON + an HQ multimedia upload) so the media round-trips. `format: "ccz"` returns the binary archive base64-encoded. When the app uses HQ feature flags, a text block before the artifact repeats the requirements so large base64 results cannot hide them; because a downloaded artifact has no known destination, these are requirements, not flags Nova has confirmed missing.',
 			inputSchema: {
 				app_id: z
 					.string()
@@ -133,6 +137,12 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 					lookupWire,
 				} = boundary.prepared;
 				const hasMedia = assets.size > 0;
+				const featureFlagReport = featureFlagReportForDownload(preparedDoc);
+				const featureFlagContent =
+					featureFlagAdvisoryContent(featureFlagReport);
+				const featureFlagMeta = {
+					"nova/featureFlagRequirements": featureFlagReport,
+				};
 
 				/* Exhaustive switch on the `format` enum: a future third
 				 * enum value becomes a compile error via the `never` check
@@ -150,14 +160,20 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 						 * is the byte-identical HQ-import artifact, so the seq
 						 * names its document version out-of-band. */
 						const compiledAtMeta = {
-							_meta: { "nova/compiledAtSeq": compiledAtSeq },
+							_meta: {
+								"nova/compiledAtSeq": compiledAtSeq,
+								...featureFlagMeta,
+							},
 						};
 						const hqJson = expandDoc(preparedDoc, hasMedia ? { assets } : {});
 						if (!hasMedia) {
 							/* Bare HQ JSON — the caller asked for JSON and, with
 							 * no media to carry, gets JSON. */
 							return {
-								content: [{ type: "text", text: JSON.stringify(hqJson) }],
+								content: [
+									...featureFlagContent,
+									{ type: "text", text: JSON.stringify(hqJson) },
+								],
 								...compiledAtMeta,
 							};
 						}
@@ -174,6 +190,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 						);
 						return {
 							content: [
+								...featureFlagContent,
 								{
 									type: "text",
 									text: JSON.stringify({
@@ -207,6 +224,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 						});
 						return {
 							content: [
+								...featureFlagContent,
 								{
 									type: "text",
 									text: JSON.stringify({
@@ -216,6 +234,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 									}),
 								},
 							],
+							_meta: featureFlagMeta,
 						};
 					}
 					default: {
@@ -237,4 +256,20 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 			}
 		},
 	);
+}
+
+/** Separate leading advisory block keeps the requested artifact byte-identical
+ * while ensuring a host's initial-result preview shows the requirements before
+ * a potentially megabyte-scale artifact. */
+function featureFlagAdvisoryContent(report: HqFeatureFlagReport) {
+	if (report.required_flags.length === 0) return [];
+	return [
+		{
+			type: "text" as const,
+			text: JSON.stringify({
+				kind: "nova_hq_feature_flag_requirements",
+				feature_flag_requirements: report,
+			}),
+		},
+	];
 }
