@@ -31,6 +31,7 @@ import {
 	DialogBody,
 	DialogClose,
 	DialogContent,
+	DialogFooter,
 	DialogTitle,
 } from "@/components/shadcn/dialog";
 import { Input } from "@/components/shadcn/input";
@@ -216,11 +217,42 @@ export function PublishDialog({
 		};
 	}, [open, loadFeatureFlagReport]);
 
-	const handleTargetChange = useCallback((next: PublishTarget) => {
-		operationGenerationRef.current += 1;
-		setTarget(next);
-		setStatus({ type: "idle" });
+	const invalidateFeatureFlagReport = useCallback(() => {
+		const controller = featureFlagControllerRef.current;
+		featureFlagControllerRef.current = null;
+		controller?.abort();
+		setFeatureFlagState({ type: "loading" });
 	}, []);
+	const handleTargetChange = useCallback(
+		(next: PublishTarget) => {
+			const nextDomain =
+				next === "hq"
+					? selectedDomain ||
+						(availableDomains.length === 1
+							? availableDomains[0].name
+							: undefined)
+					: undefined;
+			if (nextDomain !== featureFlagDomain) invalidateFeatureFlagReport();
+			operationGenerationRef.current += 1;
+			setTarget(next);
+			setStatus({ type: "idle" });
+		},
+		[
+			availableDomains,
+			featureFlagDomain,
+			invalidateFeatureFlagReport,
+			selectedDomain,
+		],
+	);
+	const handleSelectedDomainChange = useCallback(
+		(next: string) => {
+			if (next !== featureFlagDomain) invalidateFeatureFlagReport();
+			operationGenerationRef.current += 1;
+			setSelectedDomain(next);
+			setStatus({ type: "idle" });
+		},
+		[featureFlagDomain, invalidateFeatureFlagReport],
+	);
 	const handleRefreshFeatureFlags = useCallback(() => {
 		loadFeatureFlagReport();
 	}, [loadFeatureFlagReport]);
@@ -339,6 +371,9 @@ export function PublishDialog({
 		!isWorking &&
 		!isCheckingFeatureFlags &&
 		appName.trim().length > 0;
+	const downloadTarget = target === "mobile" ? "mobile" : "web";
+	const downloadComplete =
+		status.type === "download-success" && status.target === downloadTarget;
 
 	if (accessPhase !== "authorized") return null;
 
@@ -357,7 +392,7 @@ export function PublishDialog({
 				<Tabs
 					value={target}
 					onValueChange={(value) => handleTargetChange(value as PublishTarget)}
-					className="min-h-0 flex-1 gap-0"
+					className="min-h-0 flex-1 gap-0 overflow-hidden"
 				>
 					<div className="shrink-0 border-b border-nova-border px-5">
 						<TabsList variant="line" className="h-12 w-full">
@@ -384,15 +419,12 @@ export function PublishDialog({
 								{status.type === "upload-success" ? (
 									<PublishSuccess
 										title="App uploaded successfully"
-										appUrl={status.appUrl}
 										warnings={status.warnings}
 										featureFlagReport={status.featureFlagReport}
 										mode="upload"
-										onClose={handleClose}
 									/>
 								) : notConfigured ? (
 									<NotConfigured
-										onClose={handleClose}
 										featureFlagState={featureFlagState}
 										onRefreshFeatureFlags={handleRefreshFeatureFlags}
 									/>
@@ -402,12 +434,10 @@ export function PublishDialog({
 										domainItems={domainItems}
 										isMultiSpace={isMultiSpace}
 										selectedDomain={selectedDomain}
-										onSelectedDomainChange={setSelectedDomain}
+										onSelectedDomainChange={handleSelectedDomainChange}
 										appName={appName}
 										onAppNameChange={setAppName}
 										status={status}
-										canUpload={canUpload}
-										onUpload={handleUpload}
 										featureFlagState={featureFlagState}
 										onRefreshFeatureFlags={handleRefreshFeatureFlags}
 									/>
@@ -421,17 +451,11 @@ export function PublishDialog({
 									title="Web app file downloaded"
 									featureFlagReport={status.featureFlagReport}
 									mode="download"
-									onClose={handleClose}
 								/>
 							) : (
 								<DownloadForm
 									title="CommCare HQ app file"
 									description="Download JSON to import into CommCare HQ yourself. Apps with media download as a ZIP with import instructions."
-									buttonLabel="Download JSON"
-									working={
-										status.type === "downloading" && status.target === "web"
-									}
-									onDownload={() => handleDownload("web")}
 									featureFlagState={featureFlagState}
 									onRefreshFeatureFlags={handleRefreshFeatureFlags}
 								/>
@@ -445,23 +469,118 @@ export function PublishDialog({
 									title="Mobile app file downloaded"
 									featureFlagReport={status.featureFlagReport}
 									mode="download"
-									onClose={handleClose}
 								/>
 							) : (
 								<DownloadForm
 									title="CommCare mobile app file"
 									description="Download a CCZ package for CommCare Android or another mobile deployment workflow."
-									buttonLabel="Download CCZ"
-									working={
-										status.type === "downloading" && status.target === "mobile"
-									}
-									onDownload={() => handleDownload("mobile")}
 									featureFlagState={featureFlagState}
 									onRefreshFeatureFlags={handleRefreshFeatureFlags}
 								/>
 							)}
 						</TabsContent>
 					</DialogBody>
+
+					<DialogFooter
+						className={`border-t border-nova-border px-5 py-4 ${
+							target === "hq" &&
+							(status.type === "upload-success" || notConfigured)
+								? "justify-between"
+								: ""
+						}`}
+					>
+						{target === "hq" ? (
+							status.type === "upload-success" ? (
+								<>
+									{status.appUrl ? (
+										<a
+											href={status.appUrl}
+											target="_blank"
+											rel="noopener noreferrer"
+											className="inline-flex items-center gap-1 text-sm text-nova-violet-bright hover:underline"
+										>
+											Open in CommCare HQ
+											<Icon icon={tablerExternalLink} className="size-3.5" />
+										</a>
+									) : (
+										<span />
+									)}
+									<Button type="button" variant="outline" onClick={handleClose}>
+										Done
+									</Button>
+								</>
+							) : notConfigured ? (
+								<>
+									<Link
+										href="/settings"
+										onClick={handleClose}
+										className="inline-flex items-center gap-1 text-sm font-medium text-nova-violet-bright transition-colors hover:text-nova-text"
+									>
+										Go to Settings
+										<Icon icon={tablerChevronRight} className="size-3.5" />
+									</Link>
+									<DialogClose render={<Button variant="outline" />}>
+										Close
+									</DialogClose>
+								</>
+							) : (
+								<>
+									<DialogClose render={<Button variant="outline" />}>
+										Cancel
+									</DialogClose>
+									<Button
+										type="button"
+										onClick={handleUpload}
+										disabled={!canUpload}
+									>
+										{status.type === "uploading" ? (
+											<>
+												<Icon
+													icon={tablerLoader2}
+													className="size-4 animate-spin"
+												/>
+												Uploading...
+											</>
+										) : (
+											"Upload"
+										)}
+									</Button>
+								</>
+							)
+						) : downloadComplete ? (
+							<Button type="button" variant="outline" onClick={handleClose}>
+								Done
+							</Button>
+						) : (
+							<>
+								<DialogClose render={<Button variant="outline" />}>
+									Cancel
+								</DialogClose>
+								<Button
+									type="button"
+									onClick={() => handleDownload(downloadTarget)}
+									disabled={isWorking || isCheckingFeatureFlags}
+								>
+									{status.type === "downloading" ? (
+										<>
+											<Icon
+												icon={tablerLoader2}
+												className="size-4 animate-spin"
+											/>
+											Preparing...
+										</>
+									) : (
+										<>
+											<Icon icon={tablerDownload} className="size-4" />
+											{downloadTarget === "web"
+												? "Download JSON"
+												: "Download CCZ"}
+										</>
+									)}
+								</Button>
+							</>
+						)}
+					</DialogFooter>
 				</Tabs>
 			</DialogContent>
 		</Dialog>
@@ -477,8 +596,6 @@ function UploadForm({
 	appName,
 	onAppNameChange,
 	status,
-	canUpload,
-	onUpload,
 	featureFlagState,
 	onRefreshFeatureFlags,
 }: {
@@ -490,8 +607,6 @@ function UploadForm({
 	appName: string;
 	onAppNameChange: (value: string) => void;
 	status: PublishStatus;
-	canUpload: boolean;
-	onUpload: () => void;
 	featureFlagState: FeatureFlagState;
 	onRefreshFeatureFlags: () => void;
 }) {
@@ -602,20 +717,6 @@ function UploadForm({
 					)}
 				</div>
 			)}
-
-			<div className="mt-5 flex justify-end gap-2">
-				<DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
-				<Button type="button" onClick={onUpload} disabled={!canUpload}>
-					{uploading ? (
-						<>
-							<Icon icon={tablerLoader2} className="size-4 animate-spin" />
-							Uploading...
-						</>
-					) : (
-						"Upload"
-					)}
-				</Button>
-			</div>
 		</>
 	);
 }
@@ -623,17 +724,11 @@ function UploadForm({
 function DownloadForm({
 	title,
 	description,
-	buttonLabel,
-	working,
-	onDownload,
 	featureFlagState,
 	onRefreshFeatureFlags,
 }: {
 	title: string;
 	description: string;
-	buttonLabel: string;
-	working: boolean;
-	onDownload: () => void;
 	featureFlagState: FeatureFlagState;
 	onRefreshFeatureFlags: () => void;
 }) {
@@ -649,26 +744,6 @@ function DownloadForm({
 					featureFlagState.type === "error" ? onRefreshFeatureFlags : undefined
 				}
 			/>
-			<div className="mt-5 flex justify-end gap-2">
-				<DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
-				<Button
-					type="button"
-					onClick={onDownload}
-					disabled={working || featureFlagState.type === "loading"}
-				>
-					{working ? (
-						<>
-							<Icon icon={tablerLoader2} className="size-4 animate-spin" />
-							Preparing...
-						</>
-					) : (
-						<>
-							<Icon icon={tablerDownload} className="size-4" />
-							{buttonLabel}
-						</>
-					)}
-				</Button>
-			</div>
 		</div>
 	);
 }
@@ -767,18 +842,14 @@ function FeatureFlagPreflight({
 
 function PublishSuccess({
 	title,
-	appUrl,
 	warnings = [],
 	featureFlagReport,
 	mode,
-	onClose,
 }: {
 	title: string;
-	appUrl?: string;
 	warnings?: string[];
 	featureFlagReport?: HqFeatureFlagReport;
 	mode: "upload" | "download";
-	onClose: () => void;
 }) {
 	return (
 		<div className="py-1">
@@ -810,25 +881,6 @@ function PublishSuccess({
 			{featureFlagReport && (
 				<FeatureFlagNotice report={featureFlagReport} mode={mode} />
 			)}
-
-			<div className="mt-5 flex items-center justify-between gap-3">
-				{appUrl ? (
-					<a
-						href={appUrl}
-						target="_blank"
-						rel="noopener noreferrer"
-						className="inline-flex items-center gap-1 text-sm text-nova-violet-bright hover:underline"
-					>
-						Open in CommCare HQ
-						<Icon icon={tablerExternalLink} className="size-3.5" />
-					</a>
-				) : (
-					<span />
-				)}
-				<Button type="button" variant="outline" onClick={onClose}>
-					Done
-				</Button>
-			</div>
 		</div>
 	);
 }
@@ -934,11 +986,9 @@ function FeatureFlagNotice({
 }
 
 function NotConfigured({
-	onClose,
 	featureFlagState,
 	onRefreshFeatureFlags,
 }: {
-	onClose: () => void;
 	featureFlagState: FeatureFlagState;
 	onRefreshFeatureFlags: () => void;
 }) {
@@ -953,17 +1003,6 @@ function NotConfigured({
 					featureFlagState.type === "error" ? onRefreshFeatureFlags : undefined
 				}
 			/>
-			<div className="mt-4 flex items-center justify-between">
-				<Link
-					href="/settings"
-					onClick={onClose}
-					className="inline-flex items-center gap-1 text-sm font-medium text-nova-violet-bright transition-colors hover:text-nova-text"
-				>
-					Go to Settings
-					<Icon icon={tablerChevronRight} className="size-3.5" />
-				</Link>
-				<DialogClose render={<Button variant="outline" />}>Close</DialogClose>
-			</div>
 		</div>
 	);
 }

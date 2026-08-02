@@ -261,6 +261,45 @@ export async function probeHqFeatureFlags(
 	domain: string,
 	requirements: readonly HqFeatureFlagRequirement[],
 ): Promise<HqFeatureFlagProbe[]> {
+	if (requirements.length === 0) return [];
+
+	// An empty filtered response only proves a flag is missing when the same
+	// credentials can still see the target in the unfiltered endpoint. Stored
+	// domain approvals can become stale after HQ membership changes; without
+	// this guard, losing access would be misreported as every flag being off.
+	try {
+		const visibleDomains = await runBoundedFeatureFlagProbe((signal) =>
+			listDomainsMatching(creds, undefined, signal),
+		);
+		if (
+			!Array.isArray(visibleDomains) ||
+			!visibleDomains.some((candidate) => candidate.name === domain)
+		) {
+			log.warn(
+				"[commcare/feature-flags] target domain unavailable to live credentials",
+				{
+					domain,
+					status: Array.isArray(visibleDomains)
+						? undefined
+						: visibleDomains.status,
+				},
+			);
+			return requirements.map((requirement) => ({
+				requirement,
+				state: "unavailable" as const,
+			}));
+		}
+	} catch (error) {
+		log.warn("[commcare/feature-flags] live domain check threw", {
+			domain,
+			error,
+		});
+		return requirements.map((requirement) => ({
+			requirement,
+			state: "unavailable" as const,
+		}));
+	}
+
 	return Promise.all(
 		requirements.map(async (requirement): Promise<HqFeatureFlagProbe> => {
 			if (

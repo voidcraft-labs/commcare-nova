@@ -36,7 +36,7 @@ afterEach(() => {
 });
 
 describe("probeHqFeatureFlags", () => {
-	it("uses one filtered user-domains request per requirement", async () => {
+	it("verifies live domain access before one filtered request per requirement", async () => {
 		const urls: string[] = [];
 		vi.stubGlobal(
 			"fetch",
@@ -46,7 +46,9 @@ describe("probeHqFeatureFlags", () => {
 				return Promise.resolve(
 					response(
 						200,
-						domains(flag === "search_claim" ? ["clinic-space"] : []),
+						domains(
+							flag === null || flag === "search_claim" ? ["clinic-space"] : [],
+						),
 					),
 				);
 			}),
@@ -58,10 +60,36 @@ describe("probeHqFeatureFlags", () => {
 			HQ_FEATURE_FLAG_REQUIREMENTS.slice(0, 2),
 		);
 		expect(result.map((probe) => probe.state)).toEqual(["enabled", "missing"]);
-		expect(urls).toHaveLength(2);
+		expect(urls).toHaveLength(3);
 		expect(
 			urls.map((url) => new URL(url).searchParams.get("feature_flag")),
-		).toEqual(expect.arrayContaining(["search_claim", "case_search_advanced"]));
+		).toEqual(
+			expect.arrayContaining([null, "search_claim", "case_search_advanced"]),
+		);
+	});
+
+	it("keeps every flag unavailable when a stored domain is no longer visible", async () => {
+		const urls: string[] = [];
+		vi.stubGlobal(
+			"fetch",
+			vi.fn((url: string) => {
+				urls.push(url);
+				return Promise.resolve(response(200, domains(["other-space"])));
+			}),
+		);
+
+		const result = await probeHqFeatureFlags(
+			CREDS,
+			"clinic-space",
+			HQ_FEATURE_FLAG_REQUIREMENTS.slice(0, 2),
+		);
+
+		expect(result.map((probe) => probe.state)).toEqual([
+			"unavailable",
+			"unavailable",
+		]);
+		expect(urls).toHaveLength(1);
+		expect(new URL(urls[0]).searchParams.has("feature_flag")).toBe(false);
 	});
 
 	it("keeps a retired slug or transport failure unavailable, never missing", async () => {
@@ -69,6 +97,7 @@ describe("probeHqFeatureFlags", () => {
 			"fetch",
 			vi
 				.fn()
+				.mockResolvedValueOnce(response(200, domains(["clinic-space"])))
 				.mockResolvedValueOnce(response(400, { error: "unknown toggle" }))
 				.mockRejectedValueOnce(new Error("network down")),
 		);
@@ -97,6 +126,7 @@ describe("probeHqFeatureFlags", () => {
 		const secondPage = domains(["clinic-space"]);
 		const fetchMock = vi
 			.fn()
+			.mockResolvedValueOnce(response(200, domains(["clinic-space"])))
 			.mockResolvedValueOnce(response(200, firstPage))
 			.mockResolvedValueOnce(response(200, secondPage));
 		vi.stubGlobal("fetch", fetchMock);
@@ -108,7 +138,7 @@ describe("probeHqFeatureFlags", () => {
 		);
 
 		expect(result[0]?.state).toBe("enabled");
-		expect(fetchMock).toHaveBeenCalledTimes(2);
+		expect(fetchMock).toHaveBeenCalledTimes(3);
 	});
 
 	it("degrades a hung diagnostic to unavailable within a fixed deadline", async () => {

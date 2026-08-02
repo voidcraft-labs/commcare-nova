@@ -121,6 +121,11 @@ describe("PublishDialog", () => {
 		expect(screen.getByRole("tab", { name: "Web" })).toBeTruthy();
 		expect(screen.getByRole("tab", { name: "Mobile" })).toBeTruthy();
 		await screen.findByText("Required feature flags verified");
+		expect(
+			screen
+				.getByRole("button", { name: "Upload" })
+				.closest("[data-slot=dialog-footer]"),
+		).not.toBeNull();
 	});
 
 	it("keeps file publishing available to viewers without exposing HQ writes", async () => {
@@ -184,6 +189,52 @@ describe("PublishDialog", () => {
 		);
 		fireEvent.click(screen.getByRole("button", { name: "Refresh check" }));
 		await waitFor(() => expect(onLoadFeatureFlags).toHaveBeenCalledTimes(2));
+	});
+
+	it("clears an old report while checking a newly selected project space", async () => {
+		let resolveDomainCheck:
+			| ((outcome: Awaited<ReturnType<typeof featureFlagPreflight>>) => void)
+			| undefined;
+		const domainCheck = new Promise<
+			Awaited<ReturnType<typeof featureFlagPreflight>>
+		>((resolve) => {
+			resolveDomainCheck = resolve;
+		});
+		const onLoadFeatureFlags = vi.fn((domain?: string) =>
+			domain ? domainCheck : featureFlagPreflight(),
+		);
+		renderDialog({
+			availableDomains: [
+				{ name: "alpha-space", displayName: "Alpha Space" },
+				{ name: "beta-space", displayName: "Beta Space" },
+			],
+			onLoadFeatureFlags,
+		});
+
+		await screen.findByText("Required in the destination project space");
+		fireEvent.click(screen.getByRole("combobox", { name: "Project space" }));
+		fireEvent.click(await screen.findByRole("option", { name: "Alpha Space" }));
+
+		expect(
+			screen.queryByText("Required in the destination project space"),
+		).toBeNull();
+		expect(
+			screen.getByText("Checking feature flags for this project space..."),
+		).toBeTruthy();
+		expect(
+			screen.getByRole("button", { name: "Upload" }).hasAttribute("disabled"),
+		).toBe(true);
+		await waitFor(() =>
+			expect(onLoadFeatureFlags).toHaveBeenLastCalledWith(
+				"alpha-space",
+				expect.any(AbortSignal),
+			),
+		);
+
+		await act(async () => {
+			resolveDomainCheck?.(await featureFlagPreflight("alpha-space"));
+		});
+		await screen.findByText("Required feature flags verified");
 	});
 
 	it("surfaces flags HQ confirmed missing after a successful upload", async () => {
