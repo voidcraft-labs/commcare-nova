@@ -97,17 +97,25 @@
 	   real travel on press: the cap sinks as the wall collapses. The
 	   rest→hover crown pair brightens one perceptual step. Ghost/link stay
 	   text-only (no crown, no wall) so keycaps gain contrast against them. */
+	/* Every stop is a `color-mix` in the SAME space on purpose, including
+	   the ones that resolve to the base colour (`white 0%`). A gradient
+	   only interpolates when its stops are pairwise interpolable, and the
+	   middle stop used to be a bare `var(--nova-action)` — an rgb hex —
+	   against a `color-mix` oklch on the hover side. That one mismatch
+	   made the whole fill un-tweenable, so every keycap in the product
+	   SNAPPED its cap in a single frame while its shadow eased for the
+	   full 200ms beside it. */
 	--nova-key-action: linear-gradient(
 		180deg,
 		color-mix(in oklch, var(--nova-action), white 14%),
-		var(--nova-action) 58%,
+		color-mix(in oklch, var(--nova-action), white 0%) 58%,
 		color-mix(in oklch, var(--nova-action), black 9%)
 	);
 	--nova-key-action-hover: linear-gradient(
 		180deg,
 		color-mix(in oklch, var(--nova-action), white 24%),
 		color-mix(in oklch, var(--nova-action), white 10%) 58%,
-		var(--nova-action)
+		color-mix(in oklch, var(--nova-action), black 0%)
 	);
 	--nova-wall-action: color-mix(in oklch, var(--nova-action), black 45%);
 	--nova-key-surface: linear-gradient(180deg, #342a48, #251d34);
@@ -138,14 +146,14 @@
 	--nova-key-amber: linear-gradient(
 		180deg,
 		color-mix(in oklch, var(--nova-amber), white 14%),
-		var(--nova-amber) 58%,
+		color-mix(in oklch, var(--nova-amber), white 0%) 58%,
 		color-mix(in oklch, var(--nova-amber), black 9%)
 	);
 	--nova-key-amber-hover: linear-gradient(
 		180deg,
 		color-mix(in oklch, var(--nova-amber), white 24%),
 		color-mix(in oklch, var(--nova-amber), white 10%) 58%,
-		var(--nova-amber)
+		color-mix(in oklch, var(--nova-amber), black 0%)
 	);
 	--nova-wall-amber: color-mix(in oklch, var(--nova-amber), black 45%);
 
@@ -878,10 +886,25 @@ body {
 	   from light ink on a dark cap to dusk ink on a luminous one, and for a
 	   fifth of a second it is pale text on a bright cap, which reads as a
 	   rendering bug rather than as motion. Ink and cap change together. */
+	/* The SKIN changes in one frame; only the travel eases.
+	 *
+	 * Same reasoning one step further. A `linear-gradient` will not
+	 * interpolate here whatever the stops are made of (both crowns were
+	 * rewritten as `color-mix` in a single space and it still resolved to
+	 * two frames), so the crown can only ever snap. Anything easing beside
+	 * it therefore arrives late: measured on the primary keycap, the fill
+	 * changed in 2 frames while its shadow spent 15 crawling after it, so
+	 * hover read as the cap lighting up and its glow catching up.
+	 *
+	 * So the whole skin — fill, border, shadow — is pinned to one frame
+	 * and lands together. `transform` keeps the full duration because it
+	 * is the one thing here that genuinely tweens, and it is the press
+	 * travel, which is the motion the keycap exists to have. */
 	transition-property:
 		background-color, background-image, border-color, box-shadow, transform,
 		opacity;
-	transition-duration: var(--duration-default);
+	transition-duration:
+		0s, 0s, 0s, 0s, var(--duration-default), var(--duration-default);
 	transition-timing-function: var(--ease-default);
 }
 .nova-keycap:active:not(:disabled):not([data-disabled]) {
@@ -1968,6 +1991,71 @@ html.dark {
 .nova-docs-breadcrumb a:hover {
 	opacity: 1;
 	color: var(--nova-violet-bright);
+}
+
+/* ─── The docs wear the product's own keyboard focus ────────────────
+ * Fumadocs ships its links with the browser's default outline, and
+ * remapping `--color-fd-ring` only recolours that outline: the docs
+ * were adopting Nova's hue while keeping someone else's ring. Three
+ * treatments were live on one page — a 1px auto outline on 35 links,
+ * a 1px inset shadow on the active sidebar item, and the product's
+ * real 3px ring on the chrome around them.
+ *
+ * The whole point of publishing ONE focus treatment is that a reader
+ * tabbing from the app into the docs sees the same thing, so this
+ * states it for every focusable the docs own and turns the borrowed
+ * outline off. Keyboard-only, like everywhere else. */
+.nova-docs :is(a, button, summary):focus-visible {
+	outline: none;
+	border-radius: var(--radius-lg);
+	box-shadow: 0 0 0 3px color-mix(in oklch, var(--nova-ring), transparent 55%);
+}
+
+/* The docs' own page actions are 44px already but sit at Tailwind's
+   `rounded-md`, which is 10px and on no rung of the scale. Buttons are
+   18px; the sidebar and search controls around them are already 12px. */
+.nova-docs :is(#nd-page, #nd-subnav) button[class*="rounded-md"],
+.nova-docs #nd-page a[class*="rounded-md"] {
+	border-radius: var(--radius-xl);
+}
+
+/* Table-of-contents anchors are the one docs control still under the
+   floor at 32px. They are ordinary navigation, so they take the same
+   44px every other link in the product does. */
+.nova-docs #nd-toc a {
+	display: flex;
+	align-items: center;
+	min-height: var(--hit-target);
+}
+
+/* `truncate` on a flex container declares an ellipsis that can never
+   render: `text-overflow` applies to a block box, not to a flex one.
+   The library's sidebar title link is the only instance in the docs,
+   and it clips mid-word instead. */
+.nova-docs a.truncate:is(.flex, [class*="inline-flex"]) {
+	display: block;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* The docs header row must yield to its own controls.
+ *
+ * At 320px the brand lockup held its full width and pushed the search
+ * and sidebar buttons past the edge — off a page that does not scroll
+ * sideways and has no ancestor that scrolls either, so they could not
+ * be reached at all. The title is the flexible part and the 44px
+ * controls are not, exactly as in the app's own header. */
+.nova-docs :is(#nd-subnav, #nd-nav) {
+	min-width: 0;
+}
+.nova-docs :is(#nd-subnav, #nd-nav) > a:first-child {
+	min-width: 0;
+	flex-shrink: 1;
+	overflow: hidden;
+}
+.nova-docs :is(#nd-subnav, #nd-nav) button {
+	flex-shrink: 0;
 }
 
 /* ─── shadcn token bindings → Nova color system ─────────────────────

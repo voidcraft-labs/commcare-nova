@@ -5,6 +5,7 @@ import tablerLoader2 from "@iconify-icons/tabler/loader-2";
 import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
 import { Badge } from "@/components/shadcn/badge";
+import { Button } from "@/components/shadcn/button";
 import type { DeletedAppSummary } from "@/lib/db/apps";
 import { STATUS_STYLES } from "@/lib/utils/format";
 import { ConnectBadge } from "./ConnectBadge";
@@ -132,24 +133,28 @@ export function DeletedAppCard({ app, index, onRestore }: DeletedAppCardProps) {
 					<div className="shrink-0 flex items-center gap-2">
 						<Badge variant={style.variant}>{style.label}</Badge>
 						{state.type === "restoring" ? (
-							<span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm text-nova-text-muted">
+							<span className="inline-flex min-h-11 items-center gap-1.5 px-3 text-sm text-nova-text-muted">
 								<Icon
 									icon={tablerLoader2}
 									width="14"
 									height="14"
 									className="animate-spin"
 								/>
-								Restoring…
+								Restoring
 							</span>
 						) : onRestore ? (
-							<button
+							/* The primitive, not a hand-rolled row: drawn by hand this
+							 * sat at 32px on a 10px radius, on no rung of either scale,
+							 * beside a 44px card. Restore is constructive, so it takes
+							 * ghost's lilac sibling rather than a neutral ghost. */
+							<Button
 								type="button"
+								variant="ghost-action"
 								onClick={() => void handleRestore()}
-								className="inline-flex cursor-pointer items-center gap-1.5 rounded-md px-3 py-1.5 text-sm text-nova-text-secondary transition-colors hover:bg-nova-violet/[0.08] hover:text-nova-violet-bright"
 							>
 								<Icon icon={tablerArrowBackUp} width="14" height="14" />
 								Restore
-							</button>
+							</Button>
 						) : null}
 					</div>
 				</div>

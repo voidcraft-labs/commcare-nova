@@ -21,10 +21,11 @@ import { WorkerInformationSubsection } from "./WorkerInformationSubsection";
 export function UsersSection() {
 	return (
 		<section aria-labelledby="app-setup-users-heading" className="pb-10">
-			<h2
-				id="app-setup-users-heading"
-				className="text-base font-semibold text-nova-text"
-			>
+			{/* Named by the breadcrumb and the selected tab already, both within
+			    135px and near-identical in colour and weight. Kept as the
+			    section's accessible name, dropped from the eye, matching every
+			    other App setup section. */}
+			<h2 id="app-setup-users-heading" className="sr-only">
 				Users and personas
 			</h2>
 			<p className="mt-2 max-w-prose text-[13px] leading-relaxed text-nova-text-secondary">

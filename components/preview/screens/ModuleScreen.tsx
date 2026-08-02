@@ -204,7 +204,7 @@ export function ModuleScreen({ screen: _screen }: ModuleScreenProps) {
 								<ProjectMediaImage
 									assetId={form.icon}
 									alt=""
-									className="size-7 rounded-sm object-cover shrink-0"
+									className="size-7 rounded-lg object-cover shrink-0"
 								/>
 							) : (
 								<Icon
