@@ -38,6 +38,7 @@ import {
 	useNavigate,
 } from "@/lib/routing/hooks";
 import { selectableRowCls } from "@/lib/styles";
+import { cn } from "@/lib/utils";
 
 /** Keep the structure tree useful without exposing Nova's stored identifier. */
 export function moduleCaseTypeLabel(caseType: string): string {
@@ -256,7 +257,10 @@ function CaseListNode({
 				type="button"
 				onClick={onClick}
 				aria-current={selected ? "page" : undefined}
-				className={`group mx-4 mb-3 w-[calc(100%-2rem)] gap-3 ${selectableRowCls(selected)}`}
+				className={cn(
+					selectableRowCls(selected),
+					"group mx-4 mb-3 w-[calc(100%-2rem)] gap-3",
+				)}
 			>
 				<span
 					className={`flex size-8 shrink-0 items-center justify-center rounded-lg transition-colors ${

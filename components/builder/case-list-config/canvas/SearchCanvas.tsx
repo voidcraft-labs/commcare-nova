@@ -281,7 +281,7 @@ export function SearchCanvas({
 									onClick={() => onSelect({ type: "search-panel" })}
 									aria-expanded={panelSelected}
 									data-case-search-panel
-									className="w-full shrink-0 @min-[28rem]:w-auto"
+									className="w-full shrink-0 @min-[34rem]:w-auto"
 								>
 									Edit Search screen
 								</Button>
@@ -292,7 +292,7 @@ export function SearchCanvas({
 									onClick={openSearchSettings}
 									aria-expanded={panelSelected}
 									data-case-search-panel
-									className="w-full shrink-0 @min-[28rem]:w-auto"
+									className="w-full shrink-0 @min-[34rem]:w-auto"
 								>
 									Change when people continue
 								</Button>
