@@ -21,6 +21,7 @@ import {
 	POPOVER_POSITIONER_GLASS_CLS,
 	POPOVER_ROW_CLS,
 } from "@/lib/styles";
+import { useMenuArrowKeys } from "@/lib/ui/hooks/useMenuArrowKeys";
 
 const FEEDBACK_FORM_URL =
 	"https://docs.google.com/forms/d/e/1FAIpQLSdUHQuE9kYhG-py9pojdCDc5ChSrl2LnhLofY4kDlOQi6ghGw/viewform";
@@ -38,6 +39,7 @@ const ITEM_CLS = POPOVER_ROW_CLS;
 
 export function HelpMenu() {
 	const [open, setOpen] = useState(false);
+	const onArrowKeys = useMenuArrowKeys();
 
 	return (
 		<Popover.Root open={open} onOpenChange={setOpen}>
@@ -67,7 +69,10 @@ export function HelpMenu() {
 					sideOffset={6}
 					className={`${FLOATING_LAYER_CLS} ${POPOVER_POSITIONER_GLASS_CLS}`}
 				>
-					<Popover.Popup className={`${POPOVER_POPUP_CLS} p-1`}>
+					<Popover.Popup
+						className={`${POPOVER_POPUP_CLS} p-1`}
+						onKeyDown={onArrowKeys}
+					>
 						<div style={{ minWidth: "200px" }}>
 							<Link
 								href={DOCS_HREF}
