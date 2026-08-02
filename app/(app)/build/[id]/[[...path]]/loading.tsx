@@ -8,7 +8,7 @@ export default function BuildLoading() {
 	return (
 		<div className="h-full flex items-center justify-center">
 			<div className="animate-pulse">
-				<Logo size="md" />
+				<Logo size="lg" />
 			</div>
 		</div>
 	);

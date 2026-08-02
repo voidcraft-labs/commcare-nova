@@ -17,7 +17,7 @@ import { Logo } from "@/components/ui/Logo";
 export default function AppNotFound() {
 	return (
 		<div className="flex min-h-screen flex-col items-center justify-center gap-6 bg-nova-void px-6">
-			<Logo size="sm" />
+			<Logo size="lg" />
 			<div className="max-w-md space-y-2 text-center">
 				<h1 className="font-display text-lg font-semibold tracking-tighter text-nova-text">
 					I couldn&rsquo;t find that page

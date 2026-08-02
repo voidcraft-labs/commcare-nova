@@ -94,9 +94,6 @@ interface ChatSidebarProps {
 	/** When `readOnly`, an optional note shown where the composer would be:
 	 *  explains why the user can't send (view-only Project access). */
 	readOnlyNotice?: ReactNode;
-	/** Whether the app was loaded from Postgres (not a new build).
-	 *  Drives the empty-state prompt text. */
-	isExistingApp?: boolean;
 	/** Thread-list projection, most recently active first. */
 	threads?: ThreadMeta[];
 	/** The open conversation's id (the Chat instance id = thread id). */
@@ -157,7 +154,6 @@ export function ChatSidebar({
 	addToolOutput,
 	readOnly,
 	readOnlyNotice,
-	isExistingApp,
 	threads,
 	activeThreadId,
 	onSelectThread,
@@ -635,7 +631,10 @@ export function ChatSidebar({
 						 *  density; override to `gap-4`. Single-source the spacing via gap
 						 *  rather than stacking margins. */}
 						<ConversationContent className="gap-4 p-4">
-							{/* Empty-conversation state */}
+							{/* Empty-conversation state. It says what this space is and
+							 *  points at the composer; it does not ask the question the
+							 *  composer's own placeholder is already asking an inch
+							 *  below it. */}
 							{messages.length === 0 &&
 								!isLoading &&
 								(centered ? (
@@ -643,11 +642,7 @@ export function ChatSidebar({
 								) : (
 									<ConversationEmptyState
 										title=""
-										description={
-											isExistingApp
-												? "What changes would you like to make?"
-												: "Tell me about the app you'd like to build"
-										}
+										description="Your conversation with Nova appears here. Start it in the box below."
 									/>
 								))}
 

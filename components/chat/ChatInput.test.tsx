@@ -88,9 +88,7 @@ describe("ChatInput", () => {
 
 	it("uses real, action-oriented placeholders without decorative ellipses", () => {
 		const { rerender } = render(<ChatInput openingPrompt onSend={vi.fn()} />);
-		expect(
-			screen.getByPlaceholderText("Tell me about the app you'd like to build"),
-		).toBeDefined();
+		expect(screen.getByPlaceholderText("Describe your app")).toBeDefined();
 
 		rerender(<ChatInput openingPrompt={false} onSend={vi.fn()} />);
 		expect(

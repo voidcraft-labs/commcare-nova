@@ -55,24 +55,33 @@ export function AppHeader({
 		activeProject && roleAllowsApp(activeProject.role, "edit"),
 	);
 
+	/* Six 44px controls plus the mark is 300px of real target before any inset,
+	 * so at 320px the row spends its remaining pixels on the controls rather
+	 * than on margins; above that the ordinary insets return. Nothing here
+	 * shrinks a control: the floor is a floor. */
 	return (
-		<header className="border-b border-nova-border px-4 py-2.5 flex items-center bg-nova-void shrink-0">
-			{/* On a phone the header has room for the mark or the nav, not
-			    both, so the wordmark steps aside and the sphere carries the
-			    brand. `markOnly` keeps the accessible name. */}
+		<header className="flex shrink-0 items-center border-b border-nova-border bg-nova-void px-2 py-2.5 sm:px-4">
+			{/* The wordmark appears only where the whole lockup fits beside the
+			    nav and the account cluster. At the mark's chrome size that is
+			    ~470px of lockup, so the breakpoint is the width the row needs,
+			    not a nominal "phone" one: below it the sphere carries the brand
+			    alone and `markOnly` keeps the accessible name. */}
 			<Link
 				href="/"
 				aria-label="commcare nova"
-				className="nova-focusable flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-xl px-1 sm:justify-start"
+				className="nova-focusable flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-xl sm:px-1 lg:justify-start"
 			>
-				<span className="sm:hidden">
-					<Logo size="sm" markOnly />
+				<span className="lg:hidden">
+					<Logo size="chrome" markOnly />
 				</span>
-				<span className="hidden sm:block">
-					<Logo size="sm" />
+				<span className="hidden lg:block">
+					<Logo size="chrome" />
 				</span>
 			</Link>
-			<div className="ml-2 sm:ml-4">
+			{/* No margin at the narrowest width: the nav links carry their own
+			    12px inset, so the gap is still visible without spending a
+			    pixel the row does not have. */}
+			<div className="sm:ml-4">
 				<HeaderNavLinks isAdmin={isAdmin} />
 			</div>
 
@@ -85,7 +94,7 @@ export function AppHeader({
 				</div>
 			) : null}
 
-			<div className="ml-auto flex items-center gap-2">
+			<div className="ml-auto flex items-center gap-1 sm:gap-2">
 				<ProjectSwitcher
 					projects={projects}
 					activeProjectId={activeProjectId}

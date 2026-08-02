@@ -2360,7 +2360,7 @@ test.describe("authenticated builder", () => {
 		await page.getByRole("button", { name: "New chat" }).click();
 		await expect(page.getByText(seed.olderThreadAssistantText)).toHaveCount(0);
 		await expect(
-			page.getByText("What changes would you like to make?"),
+			page.getByText("Your conversation with Nova appears here"),
 		).toBeVisible();
 
 		// The old conversation is one list-click away — nothing was lost.

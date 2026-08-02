@@ -3,10 +3,9 @@ import { Menu } from "@base-ui/react/menu";
 import { type ReactNode, useRef } from "react";
 import {
 	FLOATING_LAYER_CLS,
-	MENU_ITEM_BASE,
-	MENU_ITEM_CLS,
 	MENU_POPUP_CLS,
 	MENU_SUBMENU_POSITIONER_CLS,
+	selectableMenuItemCls,
 } from "@/lib/styles";
 
 /** One selectable row in the menu. Label is rendered as-is when no
@@ -135,11 +134,7 @@ export function SelectMenu<T extends string>({
 						{options.map((opt, i) => {
 							const isActive = opt.value === value;
 							const corners = cornerClass(i, last);
-							const itemClass = `${corners} ${
-								isActive
-									? `${MENU_ITEM_BASE} text-nova-violet-bright bg-nova-violet/10 cursor-pointer`
-									: MENU_ITEM_CLS
-							}`;
+							const itemClass = `${corners} ${selectableMenuItemCls(isActive)}`;
 
 							return (
 								<Menu.Item

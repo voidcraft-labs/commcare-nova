@@ -135,15 +135,19 @@ export const ModuleCard = memo(function ModuleCard({
 						}}
 						hidden={locked}
 					/>
+					{/* `shrink-0` on both arms: the tile is a fixed square, and the
+					 *  name beside it is the flexible part. Without it a long module
+					 *  name squeezes the tile into a sliver instead of ellipsing
+					 *  itself a few characters earlier. */}
 					{mod.icon ? (
 						// Module menu-tile icon, shown on the tree row too.
 						<ProjectMediaImage
 							assetId={mod.icon}
 							alt=""
-							className="w-8 h-8 rounded-lg object-cover"
+							className="size-8 shrink-0 rounded-lg object-cover"
 						/>
 					) : (
-						<div className="w-8 h-8 rounded-lg bg-nova-violet/10 flex items-center justify-center">
+						<div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-nova-violet/10">
 							<Icon
 								icon={tablerGridDots}
 								width="16"

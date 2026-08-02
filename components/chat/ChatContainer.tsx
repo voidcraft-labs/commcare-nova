@@ -1566,7 +1566,6 @@ export function ChatContainer({
 						: "You have view-only access to this Project. Ask a Project admin for edit access to create an app."
 					: undefined
 			}
-			isExistingApp={isExistingApp}
 			threads={threadMetas}
 			activeThreadId={chat.id}
 			onSelectThread={openThread}

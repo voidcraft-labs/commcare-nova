@@ -99,6 +99,7 @@ import {
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import type { Location } from "@/lib/routing/types";
 import { useAppId, useCanEdit, usePreviewing } from "@/lib/session/hooks";
+import { selectableSegmentCls } from "@/lib/styles";
 import { useIsBreakpoint } from "@/lib/ui/hooks/useIsBreakpoint";
 import { useKeyboardShortcuts } from "@/lib/ui/hooks/useKeyboardShortcuts";
 import { ColumnEditor } from "./ColumnEditor";
@@ -2619,13 +2620,19 @@ export function WorkspaceTabs({
 									}
 									side="bottom"
 								>
-									<Button
+									{/* A tab holds a state rather than performing an action, so
+									 *  it wears the shared selected treatment the App setup strip
+									 *  and the sidebar destinations wear: one skin, three
+									 *  geometries. Drawn as a ghost Button it inherited ghost's
+									 *  neutral hover, which REPLACES a selected tab's violet wash
+									 *  with a flat grey, so pointing at the tab you are already on
+									 *  read as dimming it. */}
+									<button
 										type="button"
 										aria-label={accessibleName}
 										aria-current={active ? "page" : undefined}
 										onClick={() => onSelectTab(id)}
-										variant="ghost"
-										className={`relative min-w-0 flex-1 gap-1 border px-1.5 py-1.5 text-left @sm:gap-2 @sm:px-2 @2xl:px-3.5 ${active ? "bg-nova-violet/[0.13] border-nova-border-bright" : "border-transparent not-disabled:hover:bg-white/[0.03]"}`}
+										className={`relative flex-1 gap-1 @sm:gap-2 ${selectableSegmentCls(active)}`}
 									>
 										{hasErrors && (
 											<span
@@ -2638,40 +2645,24 @@ export function WorkspaceTabs({
 											width="17"
 											height="17"
 											className={`hidden shrink-0 @sm:block ${
-												active
-													? "text-nova-violet-bright"
-													: "text-nova-text-muted"
+												active ? "" : "text-nova-text-muted"
 											}`}
 										/>
-										{/* Flex column (not a plain block): a block wrapper carries
-										 *  the inherited 16px/24px line-height strut into the label's
-										 *  anonymous line box, which pads ~5px of dead space above the
-										 *  label and bottom-weights the whole text block. Flex children
-										 *  size to their own line-height, so label + meta center as a
-										 *  unit against the icon. */}
-										<span className="flex min-w-0 flex-col">
-											{/* Grid stacks the visible label over an invisible bold
-											 *  ghost, so the slot is always as wide as the bold form:
-											 *  selecting a tab must never nudge its neighbors. */}
-											<span className="grid text-sm leading-tight">
-												<span
-													className={`col-start-1 row-start-1 ${
-														active
-															? "font-semibold text-nova-text"
-															: "font-medium text-nova-text-secondary"
-													}`}
-												>
-													{label}
-												</span>
-												<span
-													aria-hidden="true"
-													className="col-start-1 row-start-1 font-semibold invisible"
-												>
-													{label}
-												</span>
+										{/* Grid stacks the visible label over an invisible bold
+										 *  ghost, so the slot is always as wide as the selected
+										 *  form: choosing a tab must never nudge its neighbors. */}
+										<span className="grid min-w-0 leading-tight">
+											<span className="col-start-1 row-start-1 truncate">
+												{label}
+											</span>
+											<span
+												aria-hidden="true"
+												className="invisible col-start-1 row-start-1 font-medium"
+											>
+												{label}
 											</span>
 										</span>
-									</Button>
+									</button>
 								</SimpleTooltip>
 							);
 						})}

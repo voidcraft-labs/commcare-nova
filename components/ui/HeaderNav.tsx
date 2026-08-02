@@ -15,6 +15,7 @@ import tablerApps from "@iconify-icons/tabler/apps";
 import tablerUserShield from "@iconify-icons/tabler/user-shield";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { selectableSegmentCls } from "@/lib/styles";
 
 // ── Nav definition ────────────────────────────────────────────────────
 
@@ -48,16 +49,13 @@ const NAV_ITEMS: NavItem[] = [
 
 // ── Styles ────────────────────────────────────────────────────────────
 
-/** Active state uses `bg-white/[0.08]` for a visible indicator against the
- *  void header background (`bg-nova-surface` produced only 1.1:1). A nav link
- *  is a text-tier control, so it meets the 44px floor and presses with the
- *  1px nudge text-tier controls use, not a scale. */
+/** A nav link holds a state rather than performing an action, so it wears the
+ *  shared selected treatment every other selected control wears. The link
+ *  presses with the 1px nudge text-tier controls use, not a scale, and stretches
+ *  to the 44px floor in both dimensions so it stays a touch target while it is
+ *  icon-only on a phone. */
 function navLinkClass(active: boolean): string {
-	const base =
-		"nova-focusable flex min-h-11 min-w-11 items-center justify-center gap-1.5 px-3 text-sm rounded-xl transition-all active:translate-y-px cursor-pointer sm:justify-start";
-	return active
-		? `${base} text-nova-text bg-white/[0.08]`
-		: `${base} text-nova-text-secondary hover:text-nova-text hover:bg-white/[0.06]`;
+	return `${selectableSegmentCls(active)} min-w-11 active:translate-y-px sm:justify-start`;
 }
 
 // ── Component ─────────────────────────────────────────────────────────

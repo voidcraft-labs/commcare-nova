@@ -34,7 +34,7 @@ export default function BuildError({
 
 	return (
 		<div className="min-h-screen bg-nova-void flex flex-col items-center justify-center gap-6 px-6">
-			<Logo size="sm" />
+			<Logo size="lg" />
 			<div className="text-center space-y-2 max-w-md">
 				<h1 className="text-lg font-display font-semibold tracking-tighter text-nova-text">
 					Builder crashed

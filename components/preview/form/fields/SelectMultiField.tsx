@@ -89,7 +89,7 @@ export function SelectMultiField({
 							htmlFor={inputId}
 							className={`flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition-colors ${
 								checked
-									? "bg-pv-accent/10 border border-pv-accent/30"
+									? "bg-pv-accent/10 border border-pv-accent/30 hover:bg-pv-accent/15 hover:border-pv-accent/50"
 									: showError
 										? "bg-pv-input-bg border border-nova-rose/30 hover:border-nova-rose/50"
 										: "bg-pv-input-bg border border-pv-input-border hover:border-pv-input-focus"

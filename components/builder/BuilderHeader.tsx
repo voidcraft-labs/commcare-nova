@@ -2,7 +2,7 @@
  * BuilderHeader: the builder's one chrome row, replacing the site's
  * AppHeader inside `/build/*` (see `(site)/layout.tsx` for the split).
  *
- * Three-column grid: logo (the exit back to the app list) on the left,
+ * Three-column grid: the logomark (the exit back to the app list) on the left,
  * the Preview toggle dead center, document tools + account on the
  * right. The header is site + document-action chrome only: the app's
  * own identity and settings live in the structure sidebar's app row.
@@ -23,10 +23,10 @@ import tablerArrowForwardUp from "@iconify-icons/tabler/arrow-forward-up";
 import tablerDotsVertical from "@iconify-icons/tabler/dots-vertical";
 import Link from "next/link";
 import { BuilderAccessStatus } from "@/components/builder/AccessStatus";
-import { ExportPanel } from "@/components/builder/ExportPanel";
 import { PresenceRoster } from "@/components/builder/PresenceRoster";
 import { PreviewIdentityMenu } from "@/components/builder/PreviewIdentityMenu";
 import { PreviewToggle } from "@/components/builder/PreviewToggle";
+import { PublishPanel } from "@/components/builder/PublishPanel";
 import { SaveIndicator } from "@/components/builder/SaveIndicator";
 import { Button } from "@/components/shadcn/button";
 import {
@@ -109,13 +109,21 @@ export function BuilderHeader({
 						: "flex min-w-0 items-center gap-4"
 				}
 			>
-				<Link
-					href="/"
-					aria-label="Back to applications"
-					className={`nova-focusable ${ultraCompactHeader ? "justify-center" : "-ml-2 px-2"} inline-flex min-h-11 min-w-11 items-center rounded-xl outline-none`}
-				>
-					<Logo size="sm" markOnly={ultraCompactHeader} />
-				</Link>
+				{/* The mark alone. The builder's chrome belongs to the app being
+				 *  built, and the app's own name sits right below in the structure
+				 *  sidebar: a second name on the same screen makes the reader
+				 *  decide which one they are looking at. The sphere is enough to
+				 *  say whose product this is, and the tooltip says where it
+				 *  goes. */}
+				<SimpleTooltip content="Back to your apps" side="bottom">
+					<Link
+						href="/"
+						aria-label="Back to your apps"
+						className={`nova-focusable ${ultraCompactHeader ? "justify-center" : "-ml-2 px-2"} inline-flex min-h-11 min-w-11 items-center rounded-xl outline-none`}
+					>
+						<Logo size="chrome" markOnly />
+					</Link>
+				</SimpleTooltip>
 				{impersonating && !ultraCompactHeader && (
 					<ImpersonationBanner
 						userName={impersonating.userName}
@@ -162,8 +170,8 @@ export function BuilderHeader({
 						 * transitions; only its visual output is conditional internally. */}
 						<SaveIndicator compact={compactHeader} />
 						{/* Edit affordances: hidden for a view-only member. Preview +
-						 *  Export stay (a viewer may preview and download the app);
-						 *  HQ upload inside Export stays gated server-side. */}
+						 *  Publish stay (a viewer may preview and download the app);
+						 *  HQ upload inside Publish stays gated server-side. */}
 						{showToolbar && canEdit ? (
 							compactHeader ? (
 								<DropdownMenu>
@@ -234,7 +242,7 @@ export function BuilderHeader({
 							)
 						) : null}
 						{showToolbar ? (
-							<ExportPanel
+							<PublishPanel
 								commcareConfigured={commcareConfigured}
 								commcareAvailableDomains={commcareAvailableDomains}
 							/>

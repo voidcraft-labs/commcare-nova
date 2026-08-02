@@ -17,17 +17,20 @@ import { Logo } from "@/components/ui/Logo";
 export default function NotFound() {
 	return (
 		<div className="flex min-h-screen flex-col items-center justify-center gap-6 bg-nova-void px-6">
-			<Logo size="sm" />
+			<Logo size="lg" />
 			<div className="max-w-md space-y-2 text-center">
 				<h1 className="font-display text-lg font-semibold tracking-tighter text-nova-text">
 					I couldn&rsquo;t find that page
 				</h1>
 				<p className="text-sm text-nova-text-secondary">
-					The link may be out of date. Try starting from the home page.
+					The link may be out of date, or the page may have moved.
 				</p>
 			</div>
+			{/* Name the destination, not the product. "Go to commcare nova" is a
+			 *  greeting where an address belongs, and it reads as the product
+			 *  introducing itself to someone who is already inside it. */}
 			<Button render={<Link href="/" />} nativeButton={false}>
-				Go to commcare nova
+				Go to the home page
 			</Button>
 		</div>
 	);

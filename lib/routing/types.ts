@@ -61,7 +61,7 @@ export const APP_SETUP_SECTIONS = [
 	"users",
 	"organization",
 	"automations",
-	"deployment",
+	"publishing",
 ] as const;
 export type AppSetupSection = (typeof APP_SETUP_SECTIONS)[number];
 
@@ -79,7 +79,7 @@ export const APP_SETUP_SECTION_LABELS: Readonly<
 	users: "Users and personas",
 	organization: "Organization",
 	automations: "Automations",
-	deployment: "Deployment",
+	publishing: "Publishing",
 };
 
 /** The workspace's own name, wherever it is referred to as a whole. */

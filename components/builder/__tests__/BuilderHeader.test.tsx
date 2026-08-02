@@ -20,8 +20,8 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/components/builder/AccessStatus", () => ({
 	BuilderAccessStatus: () => <span data-testid="access-status" />,
 }));
-vi.mock("@/components/builder/ExportPanel", () => ({
-	ExportPanel: () => <button type="button">Export</button>,
+vi.mock("@/components/builder/PublishPanel", () => ({
+	PublishPanel: () => <button type="button">Publish</button>,
 }));
 vi.mock("@/components/builder/PresenceRoster", () => ({
 	PresenceRoster: ({ compact }: { compact?: boolean }) => (
@@ -45,8 +45,12 @@ vi.mock("@/components/ui/ImpersonationBanner", () => ({
 	ImpersonationBanner: () => null,
 }));
 vi.mock("@/components/ui/Logo", () => ({
-	Logo: ({ markOnly }: { markOnly?: boolean }) => (
-		<span data-testid="logo" data-mark-only={markOnly || undefined}>
+	Logo: ({ markOnly, size }: { markOnly?: boolean; size?: string }) => (
+		<span
+			data-testid="logo"
+			data-mark-only={markOnly || undefined}
+			data-size={size}
+		>
 			commcare nova
 		</span>
 	),
@@ -103,9 +107,14 @@ describe("BuilderHeader responsive actions", () => {
 			/>,
 		);
 
-		const home = screen.getByRole("link", { name: "Back to applications" });
+		const home = screen.getByRole("link", { name: "Back to your apps" });
 		expect(home.className).toContain("min-h-11");
 		expect(home.className).toContain("min-w-11");
+		// The builder wears the mark alone at every width. The app being built
+		// carries the name on this screen, and the sphere needs the `chrome`
+		// rung to be the sphere rather than the flattened favicon form.
+		expect(screen.getByTestId("logo").dataset.markOnly).toBe("true");
+		expect(screen.getByTestId("logo").dataset.size).toBe("chrome");
 		expect(
 			screen.getByRole("button", { name: "5 collaborators here" }).dataset
 				.compact,
@@ -116,11 +125,11 @@ describe("BuilderHeader responsive actions", () => {
 		expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
 		expect(screen.queryByRole("button", { name: "Redo" })).toBeNull();
 		expect(screen.getByRole("button", { name: "Preview" })).toBeTruthy();
-		expect(screen.getByRole("button", { name: "Export" })).toBeTruthy();
+		expect(screen.getByRole("button", { name: "Publish" })).toBeTruthy();
 		expect(screen.getByRole("button", { name: "Account menu" })).toBeTruthy();
 	});
 
-	it("moves document actions to a second row and keeps only the mark beside Preview on very narrow screens", () => {
+	it("moves document actions to a second row and keeps the mark beside Preview on very narrow screens", () => {
 		mocks.ultraCompact = true;
 		const { container } = render(
 			<BuilderHeader
@@ -138,6 +147,7 @@ describe("BuilderHeader responsive actions", () => {
 			"grid-rows-[60px_auto]",
 		);
 		expect(screen.getByTestId("logo").dataset.markOnly).toBe("true");
+		expect(screen.getByTestId("logo").dataset.size).toBe("chrome");
 		const actions = container.querySelector<HTMLElement>(
 			"[data-header-document-actions]",
 		);
@@ -146,7 +156,7 @@ describe("BuilderHeader responsive actions", () => {
 		expect(screen.getByRole("button", { name: "Account menu" })).toBeTruthy();
 		expect(screen.getByRole("button", { name: "Preview" })).toBeTruthy();
 		expect(screen.getByRole("button", { name: "Edit history" })).toBeTruthy();
-		expect(screen.getByRole("button", { name: "Export" })).toBeTruthy();
+		expect(screen.getByRole("button", { name: "Publish" })).toBeTruthy();
 	});
 
 	it("keeps the autosave owner mounted while access refreshes and reconnects", () => {

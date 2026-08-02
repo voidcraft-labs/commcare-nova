@@ -137,7 +137,12 @@ export const DISCLOSURE_ROW_CLS =
  * Radius follows what the control stands NEXT TO, which is the only thing an
  * eye can compare. A segment and a rail icon sit among buttons, so they take
  * the button's 18px; a row sits among menu items, so it takes their 12px. */
-const SELECTED_SKIN = `bg-nova-violet/15 font-medium text-nova-violet-bright shadow-[inset_0_0_0_1px_var(--nova-violet-hairline)]`;
+/* Selected still answers the pointer, and it answers the way everything else
+ * does: one step toward light. A selected control that holds perfectly still
+ * under the cursor is the only unresponsive thing on the screen, and the
+ * shortcut of letting a neutral hover paint over the tint instead makes
+ * pointing at the tab you are already on look like dimming it. */
+const SELECTED_SKIN = `bg-nova-violet/15 font-medium text-nova-violet-bright shadow-[inset_0_0_0_1px_var(--nova-violet-hairline)] not-disabled:hover:bg-nova-violet/25`;
 const IDLE_SKIN = `text-nova-text-secondary not-disabled:hover:bg-white/[0.06] not-disabled:hover:text-nova-text`;
 const skin = (selected: boolean) => (selected ? SELECTED_SKIN : IDLE_SKIN);
 
@@ -154,6 +159,20 @@ export function selectableSegmentCls(selected: boolean): string {
 /** Square icon control, for a collapsed rail where there is no room for a label. */
 export function selectableIconCls(selected: boolean): string {
 	return `nova-focusable flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-xl outline-none transition-colors ${skin(selected)}`;
+}
+
+/** One item in a menu, when the menu records a choice.
+ *
+ *  Base UI drives menu rows through `data-highlighted` rather than `:hover`, so
+ *  the skin is spelled in that vocabulary. The highlight BRIGHTENS the selected
+ *  tint rather than replacing it, which is the whole reason this exists: a
+ *  selected background painted under `MENU_ITEM_CLS` is simply overwritten the
+ *  moment the row is highlighted, so the one chosen item goes neutral under the
+ *  pointer, and dropping the highlight to avoid that leaves the chosen item the
+ *  only row in the menu that never responds. */
+export function selectableMenuItemCls(selected: boolean): string {
+	if (!selected) return MENU_ITEM_CLS;
+	return `${MENU_ITEM_BASE} cursor-pointer ${SELECTED_SKIN} data-[highlighted]:bg-nova-violet/25`;
 }
 
 /* ── Full-bleed list row ──────────────────────────────────────────────────

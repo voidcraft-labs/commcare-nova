@@ -88,7 +88,7 @@ never table tags, export names, or display labels.
 
 | Tool | What it does |
 |---|---|
-| `create_app` | Create an export-ready survey starter and return its app ID, sequence-1 blueprint, and starter module/form/field UUIDs. Continue with those identities; every later change is checked as it lands. |
+| `create_app` | Create a publish-ready survey starter and return its app ID, sequence-1 blueprint, and starter module/form/field UUIDs. Continue with those identities; every later change is checked as it lands. |
 | `delete_app` | Soft-delete an app. Recoverable within the returned window. |
 
 ## Building a new app from a description
@@ -440,7 +440,7 @@ You can attach images, audio, and video to parts of an app, a field's label or h
 | `set_menu_media` | Set or clear menu icons and audio labels on module home-screen tiles and form menu tiles: any mix of both, the whole app's menu in one call. |
 | `set_app_logo` | Set or clear the app logo shown on the login and home screens. |
 
-## Exporting and uploading
+## Publishing
 
 | Tool | What it does |
 |---|---|
@@ -453,7 +453,7 @@ HQ has no atomic update API, so every upload creates a new app on HQ. Your Nova 
 </Callout>
 
 <Callout type="warn">
-Edits are checked as they happen, and exports are checked again at the door. A tool call that would break the app, a bad expression, a duplicate name, a reference to something that doesn't exist, or a piece left unfinished (an empty form, a case list with no columns), fails with a message naming each problem, and nothing is saved. Structure always lands whole: `create_form` requires the form's fields, and `create_module` requires its forms and case-list columns (with its case type already recorded via `generate_schema`), so a rejection is always fixable by adjusting the same call. `compile_app` and `upload_app_to_hq` refuse (`invalid_input`) while the app still has unresolved findings, listing each one.
+Edits are checked as they happen, and publishing is checked again at the door. A tool call that would break the app, a bad expression, a duplicate name, a reference to something that doesn't exist, or a piece left unfinished (an empty form, a case list with no columns), fails with a message naming each problem, and nothing is saved. Structure always lands whole: `create_form` requires the form's fields, and `create_module` requires its forms and case-list columns (with its case type already recorded via `generate_schema`), so a rejection is always fixable by adjusting the same call. `compile_app` and `upload_app_to_hq` refuse (`invalid_input`) while the app still has unresolved findings, listing each one.
 </Callout>
 
 ## System reminders

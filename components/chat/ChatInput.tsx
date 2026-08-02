@@ -328,9 +328,12 @@ export function ChatInput({
 							setHasText(value.trim().length > 0);
 						}}
 						onKeyDown={handleTextareaKeyDown}
+						/* The opening prompt sits directly under a heading that
+						 * already asks what you would like to build, so this names
+						 * the box instead of asking the same question twice. */
 						placeholder={
 							openingPrompt
-								? "Tell me about the app you'd like to build"
+								? "Describe your app"
 								: "What would you like to change?"
 						}
 					/>

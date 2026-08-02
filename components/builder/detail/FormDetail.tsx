@@ -15,11 +15,10 @@ import {
 import { formTypeIcons } from "@/lib/domain/formTypeIcons";
 import {
 	FLOATING_LAYER_CLS,
-	MENU_ITEM_BASE,
-	MENU_ITEM_CLS,
 	MENU_ITEM_DISABLED_CLS,
 	MENU_POPUP_CLS,
 	MENU_POSITIONER_CLS,
+	selectableMenuItemCls,
 } from "@/lib/styles";
 
 // Derived from the domain's single-source labels (lib/domain/forms.ts) so the
@@ -107,9 +106,7 @@ export function FormTypeButton({
 											className={`${corners} ${
 												needsCase
 													? MENU_ITEM_DISABLED_CLS
-													: isActive
-														? `${MENU_ITEM_BASE} text-nova-violet-bright bg-nova-violet/10 cursor-pointer`
-														: MENU_ITEM_CLS
+													: selectableMenuItemCls(isActive)
 											}`}
 										>
 											<span

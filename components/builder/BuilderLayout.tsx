@@ -88,7 +88,7 @@ interface BuilderLayoutProps {
 /**
  * Stable empty reference for the unconfigured / not-yet-loaded case. Reusing
  * one module-level array keeps `commcareAvailableDomains`'s identity constant
- * across renders so `ExportPanel`'s `memo` holds: a fresh `[]` literal each
+ * across renders so `PublishPanel`'s `memo` holds: a fresh `[]` literal each
  * render would defeat it (and re-fire the upload dialog's reset effect).
  */
 const EMPTY_DOMAINS: { name: string; displayName: string }[] = [];
@@ -390,7 +390,7 @@ export function BuilderLayout({
 				/>
 				<div className="flex-1 flex items-center justify-center">
 					<div className="animate-pulse">
-						<Logo size="md" />
+						<Logo size="lg" />
 					</div>
 				</div>
 			</div>

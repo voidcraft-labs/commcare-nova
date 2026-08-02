@@ -36,7 +36,7 @@ const SECTION_ICONS: Readonly<Record<AppSetupSection, IconifyIcon>> = {
 	users: tablerUsers,
 	organization: tablerBuildingCommunity,
 	automations: tablerClockBolt,
-	deployment: tablerCloudUpload,
+	publishing: tablerCloudUpload,
 };
 
 /**
@@ -52,7 +52,7 @@ const SECTION_PENDING_COPY: Readonly<
 		"The places people work, districts, facilities, and the rest of your organization structure, and which of them own cases.",
 	automations:
 		"Rules that run on a schedule against your cases, and the messages they send.",
-	deployment:
+	publishing:
 		"The CommCare project this app is published to, what Nova will create there, and what you set up by hand.",
 };
 
