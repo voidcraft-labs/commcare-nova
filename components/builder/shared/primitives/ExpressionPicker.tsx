@@ -685,13 +685,7 @@ function KindReplaceMenu({
 				<DropdownMenuTrigger
 					ref={setTriggerRef}
 					aria-label="Change value type"
-					render={
-						<Button
-							type="button"
-							variant="ghost"
-							className="group px-2 text-sm text-nova-text-muted not-disabled:hover:bg-white/[0.04] not-disabled:hover:text-nova-violet-bright"
-						/>
-					}
+					render={<Button type="button" variant="ghost" className="group" />}
 				>
 					<span>Change</span>
 					<Icon

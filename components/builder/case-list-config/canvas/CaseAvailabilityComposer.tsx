@@ -180,7 +180,7 @@ export function CaseAvailabilityComposer({
 						variant="outline"
 						onClick={onReturnToSearchField}
 						aria-label={`Back to ${dependencyReview.inputLabel} search field`}
-						className="shrink-0 border-white/[0.09] px-4 text-[14px]"
+						className="shrink-0"
 					>
 						Back to field
 					</Button>

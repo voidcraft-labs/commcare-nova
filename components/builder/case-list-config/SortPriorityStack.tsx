@@ -379,7 +379,7 @@ export function CaseOrderingComposer({
 							render={
 								<Button
 									type="button"
-									variant="ghost"
+									variant="ghost-action"
 									aria-label={
 										expanded
 											? canEdit
@@ -391,7 +391,7 @@ export function CaseOrderingComposer({
 													? "Change default order"
 													: "View full default order"
 									}
-									className="w-full shrink-0 px-3 text-[14px] text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.08] dark:not-disabled:hover:bg-nova-violet/[0.08] @min-[28rem]:w-auto"
+									className="w-full shrink-0 @min-[28rem]:w-auto"
 								/>
 							}
 						>

@@ -298,12 +298,12 @@ export function CaseTypePickerContent({
 					/>
 					<Button
 						type="button"
-						variant="ghost"
+						variant="default"
 						onClick={commitNew}
 						disabled={
 							!verdict.ok || excludedCandidate || !candidateChoiceVerdict.ok
 						}
-						className="w-full gap-1 bg-nova-violet/15 px-3 text-sm text-nova-violet-bright not-disabled:hover:bg-nova-violet/25"
+						className="w-full"
 					>
 						<Icon icon={tablerPlus} width="15" height="15" />
 						Create

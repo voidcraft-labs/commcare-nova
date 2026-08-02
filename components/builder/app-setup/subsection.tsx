@@ -49,9 +49,9 @@ export function Subsection({
 				<Button
 					ref={addButtonRef}
 					type="button"
-					variant="ghost"
+					variant="ghost-action"
 					onClick={onAdd}
-					className="mt-3 gap-2 px-2.5 text-[13px] font-medium text-nova-violet-bright hover:bg-nova-violet/[0.12] hover:text-nova-violet-bright"
+					className="mt-3"
 				>
 					<Icon icon={tablerPlus} width="16" height="16" aria-hidden="true" />
 					{addLabel}

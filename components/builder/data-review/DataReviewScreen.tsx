@@ -586,12 +586,7 @@ function ReviewCaseCard({
 				<h2 className="min-w-0 text-[15px] font-semibold break-words text-nova-text">
 					{group.caseName || "Unnamed case"}
 				</h2>
-				<Button
-					type="button"
-					variant="ghost"
-					className="text-[13px]"
-					onClick={onViewCase}
-				>
+				<Button type="button" variant="ghost" onClick={onViewCase}>
 					<Icon icon={tablerEye} width="15" height="15" />
 					View case
 				</Button>
@@ -741,7 +736,6 @@ function ReviewEntryRow({
 									<Button
 										type="button"
 										variant="ghost"
-										className="text-[13px]"
 										disabled={busy}
 										onClick={onDismiss}
 									>

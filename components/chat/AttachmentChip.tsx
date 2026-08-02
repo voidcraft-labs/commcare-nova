@@ -91,7 +91,7 @@ export function AttachmentChip({
 								onClick={previewDisabled ? undefined : onPreview}
 								aria-disabled={previewDisabled || undefined}
 								className={cn(
-									"h-11 min-w-0 flex-1 justify-start gap-1.5 px-1.5 text-xs font-normal text-nova-text-secondary",
+									"min-w-0 flex-1 justify-start",
 									previewDisabled
 										? "cursor-not-allowed hover:bg-transparent hover:text-nova-text-secondary dark:hover:bg-transparent"
 										: "hover:text-nova-text",
@@ -128,7 +128,7 @@ export function AttachmentChip({
 								onClick={removeDisabled ? undefined : onRemove}
 								aria-disabled={removeDisabled || undefined}
 								className={cn(
-									"size-11 shrink-0 text-nova-text-muted",
+									"shrink-0",
 									removeDisabled
 										? "cursor-not-allowed hover:bg-transparent hover:text-nova-text-muted dark:hover:bg-transparent"
 										: "hover:bg-white/[0.06] hover:text-nova-text",

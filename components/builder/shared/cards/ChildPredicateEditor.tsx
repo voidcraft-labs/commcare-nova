@@ -736,13 +736,7 @@ export function PredicateKindReplaceMenu({
 				<DropdownMenuTrigger
 					ref={triggerRef}
 					aria-label={`${label} type`}
-					render={
-						<Button
-							type="button"
-							variant="ghost"
-							className="group px-2 text-sm text-nova-text-muted not-disabled:hover:bg-white/[0.04] not-disabled:hover:text-nova-violet-bright"
-						/>
-					}
+					render={<Button type="button" variant="ghost" className="group" />}
 				>
 					<span>{label}</span>
 					<Icon

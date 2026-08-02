@@ -728,7 +728,6 @@ export function PredicateWorkbench({
 											type="button"
 											variant="destructive"
 											onClick={onRemoveRoot}
-											className="px-3 text-sm"
 										>
 											{removeRootLabel}
 										</Button>
@@ -885,7 +884,7 @@ function FocusedStructure({
 								type="button"
 								variant="destructive"
 								onClick={onRemove}
-								className="w-full shrink-0 justify-start px-3 text-sm @sm:w-auto @sm:justify-center"
+								className="w-full shrink-0 justify-start @sm:w-auto @sm:justify-center"
 							>
 								{removeLabel}
 							</Button>
@@ -924,12 +923,7 @@ function FocusedStructure({
 						label="Change condition"
 					/>
 					{onRemove !== undefined ? (
-						<Button
-							type="button"
-							variant="destructive"
-							onClick={onRemove}
-							className="px-3 text-sm"
-						>
+						<Button type="button" variant="destructive" onClick={onRemove}>
 							{removeLabel}
 						</Button>
 					) : null}
@@ -1398,12 +1392,7 @@ function PredicateRowActions({
 	if (actions === undefined && onRemove !== undefined) {
 		return (
 			<div className="flex justify-end">
-				<Button
-					type="button"
-					variant="ghost"
-					onClick={onRemove}
-					className="px-3 text-sm text-nova-rose not-disabled:hover:bg-nova-rose/[0.08] not-disabled:hover:text-nova-rose"
-				>
+				<Button type="button" variant="ghost-destructive" onClick={onRemove}>
 					<Icon icon={tablerTrash} />
 					{removeLabel}
 				</Button>
@@ -1416,12 +1405,7 @@ function PredicateRowActions({
 			<DropdownMenu>
 				<DropdownMenuTrigger
 					render={
-						<Button
-							type="button"
-							variant="ghost"
-							aria-label={triggerLabel}
-							className="px-3 text-sm text-nova-text-muted not-disabled:hover:bg-white/[0.04]"
-						/>
+						<Button type="button" variant="ghost" aria-label={triggerLabel} />
 					}
 				>
 					Organize condition

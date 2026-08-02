@@ -276,10 +276,9 @@ function LinkRow({
 					<Button
 						ref={removeRef}
 						type="button"
-						variant="ghost"
+						variant="ghost-destructive"
 						onClick={onRemove}
 						aria-label={`Remove the connection “${link.identifier}”`}
-						className="px-3 text-sm text-nova-rose not-disabled:hover:bg-nova-rose/[0.08] not-disabled:hover:text-nova-rose"
 					>
 						<Icon icon={tablerTrash} width="14" height="14" />
 						Remove

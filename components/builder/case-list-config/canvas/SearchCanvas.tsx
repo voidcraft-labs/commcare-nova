@@ -276,22 +276,22 @@ export function SearchCanvas({
 							{canEdit && searchEnabled ? (
 								<Button
 									type="button"
-									variant="ghost"
+									variant="ghost-action"
 									onClick={() => onSelect({ type: "search-panel" })}
 									aria-expanded={panelSelected}
 									data-case-search-panel
-									className="w-full shrink-0 px-3 text-[14px] text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.08] dark:not-disabled:hover:bg-nova-violet/[0.08] @min-[28rem]:w-auto"
+									className="w-full shrink-0 @min-[28rem]:w-auto"
 								>
 									Edit Search screen
 								</Button>
 							) : canEdit ? (
 								<Button
 									type="button"
-									variant="ghost"
+									variant="ghost-action"
 									onClick={openSearchSettings}
 									aria-expanded={panelSelected}
 									data-case-search-panel
-									className="w-full shrink-0 px-3 text-[14px] text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.08] dark:not-disabled:hover:bg-nova-violet/[0.08] @min-[28rem]:w-auto"
+									className="w-full shrink-0 @min-[28rem]:w-auto"
 								>
 									Change when people continue
 								</Button>

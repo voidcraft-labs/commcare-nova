@@ -69,13 +69,7 @@ function PreviewIdentityMenuBody() {
 		<DropdownMenu>
 			<DropdownMenuTrigger
 				aria-label={`Running as ${currentLabel}. Change who Preview runs as.`}
-				render={
-					<Button
-						type="button"
-						variant="ghost"
-						className="max-w-52 gap-1.5 px-2.5 text-[13px] font-medium text-nova-text-muted hover:bg-white/[0.05]"
-					/>
-				}
+				render={<Button type="button" variant="ghost" className="max-w-52" />}
 			>
 				<Icon
 					icon={tablerUserCircle}
