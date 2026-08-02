@@ -327,9 +327,10 @@ describe("PublishDialog", () => {
 		});
 		const { props } = renderDialog({ onLoadFeatureFlags });
 
-		await screen.findByText(
+		const errorMessage = await screen.findByText(
 			"The feature flag check didn't finish. Try again in this window",
 		);
+		expect(errorMessage.closest('[role="alert"]')).not.toBeNull();
 		const upload = screen.getByRole("button", { name: "Upload" });
 		expect(upload.hasAttribute("disabled")).toBe(true);
 		fireEvent.click(upload);
@@ -347,6 +348,31 @@ describe("PublishDialog", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Try again" }));
 		await screen.findByText("This app uses CommCare HQ feature flags");
 		await waitFor(() => expect(download.hasAttribute("disabled")).toBe(false));
+	});
+
+	it("announces when the app doesn't need feature flags", async () => {
+		const noFlagsReport: HqFeatureFlagReport = {
+			verification: "not_required",
+			target_domain: "project-space",
+			required_flags: [],
+			missing_flags: [],
+			unverified_flags: [],
+			support_email: "support@dimagi.com",
+			docs_url: "https://docs.commcare.app/feature-flags",
+			message:
+				"This app doesn't use any features that need a CommCare HQ feature flag.",
+		};
+		renderDialog({
+			onLoadFeatureFlags: vi.fn().mockResolvedValue({
+				ok: true,
+				report: noFlagsReport,
+			}),
+		});
+
+		const status = await screen.findByRole("status");
+		expect(status.textContent).toContain(
+			"This app doesn't need any CommCare HQ feature flags",
+		);
 	});
 
 	it("waits for an explicit project space before checking HQ flags", async () => {

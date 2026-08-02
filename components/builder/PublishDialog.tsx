@@ -814,7 +814,10 @@ function FeatureFlagPreflight({
 
 	if (state.type === "error") {
 		return (
-			<div className="mt-3 rounded-lg border border-nova-amber/20 bg-nova-amber/[0.06] px-3 py-2.5">
+			<div
+				role="alert"
+				className="mt-3 rounded-lg border border-nova-amber/20 bg-nova-amber/[0.06] px-3 py-2.5"
+			>
 				<p className="text-xs leading-relaxed text-nova-text-secondary">
 					{state.message}
 				</p>
@@ -838,7 +841,10 @@ function FeatureFlagPreflight({
 	if (report.required_flags.length === 0) {
 		return (
 			<div className="mt-3">
-				<div className="flex items-start gap-2 rounded-lg border border-nova-emerald/15 bg-nova-emerald/[0.04] px-3 py-2.5">
+				<div
+					role="status"
+					className="flex items-start gap-2 rounded-lg border border-nova-emerald/15 bg-nova-emerald/[0.04] px-3 py-2.5"
+				>
 					<Icon
 						icon={tablerCircleCheck}
 						className="mt-0.5 size-4 shrink-0 text-nova-emerald"

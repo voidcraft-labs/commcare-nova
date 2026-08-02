@@ -11,9 +11,9 @@ export function FeatureFlagCatalog() {
 					id={flag.docs_url.split("#")[1]}
 					className="scroll-mt-24 rounded-xl border border-fd-border bg-fd-card p-5"
 				>
-					<h2 className="m-0 text-lg font-semibold text-fd-foreground">
+					<h3 className="m-0 text-lg font-semibold text-fd-foreground">
 						{flag.label}
-					</h2>
+					</h3>
 					<p className="mt-2 text-sm leading-relaxed text-fd-muted-foreground">
 						{flag.description}
 					</p>

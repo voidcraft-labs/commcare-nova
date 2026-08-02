@@ -55,7 +55,7 @@
 			"symbol": "COMMCARE_CONNECT",
 			"label": "CommCare Connect",
 			"description": "Enables CommCare Connect Learn and Deliver app features",
-			"requiredFor": "Any Commcare Nova app configured for CommCare Connect Learn or Deliver",
+			"requiredFor": "An app configured for CommCare Connect Learn or Deliver",
 			"docsAnchor": "commcare-connect",
 			"expectedTag": "TAG_CONNECT_DIVISION",
 			"expectedNamespaces": ["NAMESPACE_DOMAIN"],
