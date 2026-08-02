@@ -16,7 +16,7 @@ import { useRejectionShake } from "@/lib/ui/hooks/useShake";
 const MEASURE_SPAN_CLASS =
 	"text-lg font-display tracking-tighter font-semibold px-1 border border-transparent absolute invisible whitespace-pre";
 const INPUT_BASE_CLASS =
-	"nova-focusable min-h-11 text-lg font-display tracking-tighter font-semibold outline-none rounded-lg px-1 -mx-1 border text-nova-text text-ellipsis";
+	"nova-focusable min-h-11 max-w-full text-lg font-display tracking-tighter font-semibold outline-none rounded-lg px-1 -mx-1 border text-nova-text text-ellipsis";
 
 interface EditableTitleBaseProps {
 	value: string;
@@ -84,6 +84,11 @@ export function EditableTitle({
 		null,
 	);
 
+	/* The input sizes itself to its text so the control hugs the name rather
+	 * than sitting in a fixed field. `max-w-full` on the input caps that at the
+	 * column, because an inline width would otherwise let a long name run past
+	 * the canvas; max-width always wins over width, so the cap holds and the
+	 * ellipsis renders inside it. */
 	const syncWidth = useCallback(() => {
 		if (measureRef.current && inputElRef.current) {
 			inputElRef.current.style.width = `${measureRef.current.scrollWidth + 4}px`;
@@ -200,7 +205,7 @@ export function EditableTitle({
 	}
 
 	return (
-		<span className="relative inline-flex items-center gap-2 min-w-0">
+		<span className="relative inline-flex min-w-0 max-w-full items-center gap-2">
 			{/* Hidden span that mirrors the input text for pixel-accurate width measurement */}
 			<span
 				ref={(el) => {
