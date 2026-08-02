@@ -88,7 +88,8 @@ retired name-only projection is rejected. Its authorization transaction locks
 the app, proves fresh Project membership, and reads any durable receipt before
 loading blueprint topology. The SERVER builds
 the case-operation program from the COMMITTED doc
-(`buildSubmissionOperationProgram`: S04 analyses + `buildCaseTypeMap` + the
+(`buildSubmissionOperationProgram`: the shared `lib/doc/caseOperationOrder.ts`
+analyses + `buildCaseTypeMap` + the
 identity's session values, `ordinary.caseType` populated for the rolling
 proof). That same authorized boundary retains the `LookupScope`, projects the
 canonical production lookup occurrences onto the built program's operation

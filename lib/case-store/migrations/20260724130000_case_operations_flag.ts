@@ -1,5 +1,5 @@
 // The fourth lookup-reference activation flag: `case_operations_enabled`
-// admits case-operation-bearing commits (the S07 preview/runtime executor's
+// admits case-operation-bearing commits (the preview/runtime executor's
 // vocabulary). Like its siblings it defaults false, may be switched off
 // freely (the emergency-disable union), and can turn ON only at its floor
 // thresholds — a v2 stream receiver would submit an operation-bearing form

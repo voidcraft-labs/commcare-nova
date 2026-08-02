@@ -1024,8 +1024,8 @@ export function buildSubmissionReceiptIdentity(args: {
  * answer bags for an operation-bearing form rejects the whole submission;
  * none can fall back to ordinary-only effects.
  *
- * Everything structural derives from the S04 analyses over the
- * committed doc: canonical `(order, uuid)` operation sequence,
+ * Everything structural derives from the shared `caseOperationOrder`
+ * analyses over the committed doc: canonical `(order, uuid)` operation sequence,
  * root-then-post-order multiplicity scopes (every scope present even
  * with zero client iterations — the executor requires the entry),
  * transitive producer guards resolved to their condition ASTs, and

@@ -1,6 +1,6 @@
 // lib/case-store/sql/compileLookup.ts
 //
-// Compile the S05 lookup-table carriers to Kysely expressions.
+// Compile the lookup-table carriers to Kysely expressions.
 //
 // A `table-lookup` expression becomes a correlated first-match scalar
 // subquery over the Project's `lookup_rows`: the first row in authored

@@ -547,9 +547,10 @@ function buildSyntheticRow(properties: JsonObject): CaseRow {
 // persona to `withProjectContext`, and the store's own tests prove it
 // stamps `owner_id` from its bound worker. Those are two correct halves,
 // and this is the join between them — read back over real Postgres,
-// because "the persona's uuid IS the owner id" is the precondition unit
-// 8's owner-set assembly and unit 9's restore closure both build on, and
-// a mock at either end would stay green while the middle broke.
+// because "the persona's uuid IS the owner id" is the precondition the
+// complex-app plan's organization unit (owner-set assembly) and usercase
+// unit (restore closure) both build on, and a mock at either end would
+// stay green while the middle broke.
 
 describe("a submission made while previewing as a persona", () => {
 	const PERSONA = "aa000000-0000-4000-8000-00000000000a";

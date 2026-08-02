@@ -1,7 +1,7 @@
-// S07b acceptance: the ENGINE's collected answers flow through the
-// PURE program builder into the REAL storage executor — proving the
-// production supplier produces executor-compatible programs over a
-// real committed-doc shape. Covers the roadmap's absent-value matrix
+// Submission-program acceptance: the ENGINE's collected answers flow
+// through the PURE program builder into the REAL storage executor —
+// proving the production supplier produces executor-compatible programs
+// over a real committed-doc shape. Covers the absent-value matrix
 // (blank answer → absent JSONB key; blank authored key → typed
 // whole-rollback rejection) and effect ordering (iteration-major
 // repeat expansion; the ordinary action landing LAST with its

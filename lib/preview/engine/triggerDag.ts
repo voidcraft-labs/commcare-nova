@@ -327,7 +327,7 @@ export class TriggerDag {
 	 * exclusively while `reportCycles` has swapped in its temporary maps —
 	 * defaults apply once during initialization, so their references are
 	 * cycle-proof surfaces, never runtime triggers. (Lookup-choice filter
-	 * dependencies are RUNTIME edges since S07 — `registerExpressions`
+	 * dependencies are RUNTIME edges — `registerExpressions`
 	 * owns them for build and cycle proof alike.)
 	 */
 	private collectValidationOnlyDependencies(

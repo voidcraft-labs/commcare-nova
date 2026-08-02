@@ -166,8 +166,8 @@ export interface QueryArgs {
 	caseTypeSchemas?: ReadonlyMap<string, CaseType>;
 	/**
 	 * Rows-free lookup definitions (table id → column id → data type)
-	 * for predicates, sort keys, or calculated projections carrying the
-	 * S05 lookup carriers. Required exactly when the ASTs reference a
+	 * for predicates, sort keys, or calculated projections carrying
+	 * lookup-table carriers. Required exactly when the ASTs reference a
 	 * lookup table — a carrier compiling without it throws the
 	 * missing-context invariant. Project the same definitions snapshot
 	 * validation used so casts match the type checker.

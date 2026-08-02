@@ -1,6 +1,7 @@
 // Dormant lookup-reference infrastructure.
 //
-// S02a installs storage and rolling-compatibility guards only. No blueprint
+// This migration installs storage and rolling-compatibility guards only, the
+// state of the world at its install time: no blueprint
 // carrier writes reference edges yet, no destructive lookup operation is
 // enabled, and no cross-Project move is admitted. The tables are nevertheless
 // the final exact-set shape so later slices can activate behavior without a

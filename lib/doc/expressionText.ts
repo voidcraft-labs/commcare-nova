@@ -2,8 +2,8 @@
 //
 // The doc-aware text ⇄ AST bridge for human builder editors. SA/MCP tools
 // receive the canonical AST directly and never call this parser. The operator
-// repair helper also uses this boundary on its private clone; Unit 18's
-// canonical production migration owns a frozen parser copy instead.
+// repair helper also uses this boundary on its private clone; the
+// canonical-identity-foundation migration owns a frozen parser copy instead.
 //
 // Parsing is total as a projection: a reference-shaped span that does not
 // resolve remains text, and a syntax-broken source stays one opaque text run.

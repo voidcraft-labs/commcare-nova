@@ -1,5 +1,5 @@
 /**
- * Lookup-backed choices as engine values — the S07a read-side
+ * Lookup-backed choices as engine values — the read-side
  * lifecycle: computed at init, recomputed when a filter dependency
  * changes (the runtime DAG edges promoted from the cycle proof),
  * dropped selections unselected, downstream dependents cascading in
