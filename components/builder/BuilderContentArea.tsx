@@ -547,6 +547,13 @@ export function BuilderContentArea({
 						key="chat-rail"
 						className="h-full shrink-0 overflow-hidden"
 						data-builder-flank="chat"
+						/* Stepping aside means width 0 while still mounted, which hides
+						 * the rail from the eye and from nobody else: its two 44px
+						 * buttons stayed in the tab order, parked just past the right
+						 * edge, so Tab landed on a control that could not be seen or
+						 * clicked. Staying mounted is deliberate (unmounting chat
+						 * severs the live run), so the rail is made inert instead. */
+						inert={chatRailWidth === 0 ? true : undefined}
 						style={{ width: chatRailWidth }}
 						initial={{ x: "100%" }}
 						animate={{ x: 0, width: chatRailWidth }}

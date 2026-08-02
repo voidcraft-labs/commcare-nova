@@ -814,7 +814,11 @@ function WelcomeIntro() {
 						transition={{ duration: 0.35, ease: [0.4, 0, 0.2, 1] }}
 						className="text-lg font-display tracking-tighter font-medium text-nova-text"
 					>
-						What would you like to build?
+						{/* States the moment rather than asking, because the composer
+						    below already asks and the line under this one already says
+						    what to include. Three requests for the same sentence in
+						    111 vertical pixels reads as a form, not a conversation. */}
+						Let's build your app
 					</motion.h1>
 					<motion.p
 						initial={{ opacity: 0, y: 8 }}
@@ -826,7 +830,7 @@ function WelcomeIntro() {
 						}}
 						className="text-nova-text-secondary text-sm leading-relaxed"
 					>
-						Tell me about the people you support, the work they do, and what you
+						Start with the people you support, the work they do, and what you
 						need to keep track of
 					</motion.p>
 				</div>

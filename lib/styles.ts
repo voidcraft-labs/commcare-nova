@@ -84,8 +84,16 @@ export const MENU_ITEM_DISABLED_CLS = `${MENU_ITEM_BASE} opacity-(--disabled-opa
  * items, so its highlight is the same inset 12px row rather than a square
  * stripe running edge to edge. The panel supplies the inset with `p-1`, the
  * way `MENU_POPUP_CLS` does.
+ *
+ * It answers the KEYBOARD as well as the pointer, and it has to say so itself.
+ * A Base UI menu item gets that for free because the menu drives it through
+ * `data-highlighted`, which fires for arrow keys and pointer alike; these rows
+ * are plain buttons in a popover, so a `:hover`-only highlight leaves arrowing
+ * through them completely silent. Two of the three menus this class serves
+ * record a real choice (switch Project, sign out), which is not a thing to do
+ * blind.
  */
-export const POPOVER_ROW_CLS = `${MENU_ITEM_BASE} cursor-pointer text-nova-text not-disabled:hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-(--disabled-opacity)`;
+export const POPOVER_ROW_CLS = `${MENU_ITEM_BASE} nova-focusable-inset cursor-pointer text-nova-text not-disabled:hover:bg-white/[0.06] not-disabled:focus-visible:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-(--disabled-opacity)`;
 
 /** Glass-surfaced positioner (L1) for primary menu panels. */
 export const MENU_POSITIONER_CLS =

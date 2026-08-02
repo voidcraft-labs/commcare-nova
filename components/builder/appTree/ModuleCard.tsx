@@ -112,7 +112,13 @@ export const ModuleCard = memo(function ModuleCard({
 				label={mod.name}
 				disabled={locked}
 				selected={isSelected}
-				className={`group flex min-h-11 items-center justify-between gap-1.5 py-1.5 pr-3 pl-2 ${locked ? "text-nova-text-secondary" : "cursor-pointer"}`}
+				/* The hover tint belongs on the row itself, matching `FormCard` and
+				 * `FieldRow`. Without it the module was the one row in the tree that
+				 * never answered the pointer, including while it was the SELECTED
+				 * row: its icon and chevron lit on `group-hover` and the row surface
+				 * under them stayed flat, which reads as a dead row with restless
+				 * decorations rather than a row you can click. */
+				className={`group flex min-h-11 items-center justify-between gap-1.5 py-1.5 pr-3 pl-2 transition-colors ${locked ? "text-nova-text-secondary" : "cursor-pointer hover:bg-nova-violet/[0.06]"}`}
 				// A `caseListOnly` module IS its case list (no forms anywhere in
 				// the app), so the module screen would be an empty form menu:
 				// open the case-list config instead. Selecting it still tints this

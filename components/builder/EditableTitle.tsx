@@ -22,6 +22,34 @@ const INPUT_BASE_CLASS =
  *  a 1px border each side, plus a pixel for sub-pixel rounding. */
 const TITLE_WIDTH_ALLOWANCE = 6;
 
+/** Narrower than this and the box is not bounding anything, it has collapsed
+ *  onto the very input we are about to size. Two characters of a title is not
+ *  a cap a real layout would ask for. */
+const MIN_CREDIBLE_BOUND = 64;
+
+/**
+ * The width the title may grow into.
+ *
+ * It walks OUT to the first ancestor wide enough to be a real bound instead of
+ * trusting a fixed number of levels up. The title sits in a chain of
+ * shrink-to-fit boxes that the input itself sizes, and which box first escapes
+ * that chain is a function of the layout: on a roomy canvas the grandparent is
+ * the row and bounds it honestly, while on a narrow one the same grandparent is
+ * shrink-wrapped around the input, reports a couple of pixels, and caps the
+ * input to nothing. That is the whole bug: an object's own title rendered 10px
+ * wide, invisible and uneditable, on every builder screen under 600px.
+ *
+ * Falling back to unbounded is deliberate. An uncapped title can overhang; a
+ * title capped to two pixels cannot be read or fixed, so when no ancestor can
+ * answer, the safe direction is too wide.
+ */
+function boundingWidth(input: HTMLElement): number {
+	for (let box = input.parentElement; box; box = box.parentElement) {
+		if (box.clientWidth >= MIN_CREDIBLE_BOUND) return box.clientWidth;
+	}
+	return Number.POSITIVE_INFINITY;
+}
+
 interface EditableTitleBaseProps {
 	value: string;
 	/**
@@ -105,8 +133,7 @@ export function EditableTitle({
 		const measure = measureRef.current;
 		const input = inputElRef.current;
 		if (!measure || !input) return;
-		const bounds = input.parentElement?.parentElement;
-		const available = bounds ? bounds.clientWidth : Number.POSITIVE_INFINITY;
+		const available = boundingWidth(input);
 		const wanted = measure.scrollWidth + TITLE_WIDTH_ALLOWANCE;
 		input.style.width = `${Math.min(wanted, available)}px`;
 	}, []);

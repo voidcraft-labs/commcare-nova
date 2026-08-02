@@ -158,10 +158,17 @@ export function ProjectDataTableListScreen() {
 								className="h-auto min-h-16 w-full justify-between gap-3 rounded-xl border border-nova-border bg-nova-elevated px-4 py-3 text-left hover:bg-white/[0.05]"
 							>
 								<span className="flex min-w-0 flex-col gap-1">
-									<span className="min-w-0 text-sm font-medium text-nova-text [overflow-wrap:anywhere]">
+									{/* `whitespace-normal` is what makes the wrapping real. The
+									    row is drawn as a Button and the button base sets
+									    `whitespace-nowrap`, which pins the line and leaves
+									    `[overflow-wrap:anywhere]` with nothing to do: a long
+									    authored table name then ran straight off the card,
+									    cut mid-word with no ellipsis, over its own chevron.
+									    An authored name is content, so it wraps. */}
+									<span className="min-w-0 whitespace-normal text-sm font-medium text-nova-text [overflow-wrap:anywhere]">
 										{table.name}
 									</span>
-									<span className="min-w-0 text-[12px] leading-snug text-nova-text-secondary [overflow-wrap:anywhere]">
+									<span className="min-w-0 whitespace-normal text-[12px] leading-snug text-nova-text-secondary [overflow-wrap:anywhere]">
 										{formatLookupCount(table.columnCount, "column")} ·{" "}
 										{formatLookupCount(table.rowCount, "row")} ·{" "}
 										{formatLookupBytes(table.dataBytes)}
