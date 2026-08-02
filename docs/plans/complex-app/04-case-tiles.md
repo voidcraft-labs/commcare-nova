@@ -35,12 +35,19 @@ Author-facing surfaces use Nova relationship vocabulary, never `parentIndex`.
 - The attribute is `header-rows`
   (`commcare-core/.../org/commcare/xml/DetailGroupParser.java::DetailGroupParser.ATTRIBUTE_NAME_HEADER_ROWS`).
   `function` is required and must parse as XPath; `header-rows` is optional and
-  the CLIENT defaults a missing one to `1`, while HQ's
-  `models/case_list.py::CaseTileGroupConfig.header_rows` defaults to `2` — the two
-  defaults disagree, so Nova always emits the attribute explicitly. **Three
-  fixtures misspell it `grid-header-rows`** — `commcare-core/src/test/resources/app_structure/suite.xml`
-  and `formplayer/src/test/resources/archives/case_claim_with_multi_select/suite.xml`
-  among them — which silently reads as one header row. Do not copy that spelling.
+  the two sides default it differently — the CLIENT falls back to `1`
+  (`DetailGroupParser::parse`), while HQ's model defaults to `2`
+  (`models/case_list.py::CaseTileGroupConfig.header_rows`) — so Nova always
+  emits the attribute explicitly; relying on either default silently halves or
+  doubles the header depending on which side you read. **Three of the four
+  `<group>` fixtures in the checkouts misspell it `grid-header-rows`** —
+  `commcare-core/src/test/resources/app_structure/suite.xml` and
+  `formplayer/src/test/resources/archives/case_claim_with_multi_select/suite.xml`
+  among them, plus vendored/build copies — which parses as an unknown attribute
+  and silently takes the default, so those fixtures prove nothing about
+  header-row behavior; do not copy that spelling. The one correctly-spelled
+  fixture, and therefore the byte oracle this unit asserts against, is
+  `formplayer/src/test/resources/archives/case_list_auto_select/suite.xml`.
 - A grouped list additionally needs the companion entry datum
   `<datum id="<caseDatumId>_parent_ids" function="join(' ', distinct-values(instance('casedb')/casedb/case[<predicate>]/index/<id>))"/>`,
   emitted by
@@ -113,20 +120,6 @@ Author-facing surfaces use Nova relationship vocabulary, never `parentIndex`.
   the *settled* server offset, Previous is disabled at offset 0, Next is disabled
   once `pageEnd >= totalMatchingCases`, the setter clamps at `Math.max(0, index)`,
   and no URL path seeds a page index.
-- **`header-rows` has two different defaults, so Nova always emits it
-  explicitly.** The client parser falls back to `1`
-  (`DetailGroupParser::parse`), while HQ's model defaults to `2`
-  (`models/case_list.py::CaseTileGroupConfig.header_rows`). Relying on either
-  silently halves or doubles the header depending on which side you read.
-- **Fixture evidence, and which fixture is actually evidence.** Three of the four
-  `<group>` fixtures in the checkouts misspell the attribute as
-  `grid-header-rows` — it parses as an unknown attribute and silently takes the
-  default — so they prove nothing about header-row behavior. The misspelling is
-  in `commcare-core/src/test/resources/app_structure/suite.xml` and
-  `formplayer/src/test/resources/archives/case_claim_with_multi_select/suite.xml`
-  (plus vendored/build copies). The one correctly-spelled fixture, and therefore
-  the byte oracle this unit asserts against, is
-  `formplayer/src/test/resources/archives/case_list_auto_select/suite.xml`.
 - **Grouped tiles are a Web Apps capability only.** CommCare Android parses
   `<group>` and ignores it, degrading to an ungrouped tile list. That belongs
   where the author chooses grouping, not in a footnote.

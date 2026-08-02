@@ -22,11 +22,13 @@ and honest target prerequisites. Complete the SA and MCP tools and the public
 docs for units 8 through 12, and the cross-facility owner/restore walkthrough
 scenario.
 
-Unit 7 already ships the **user-property, user-type, and persona** vocabulary on
-all three authoring surfaces: builder, Solutions Architect, and MCP. Its shared
-`getUsers` plus granular add/update/remove tools are an existing contract. This
-unit may consume and preserve those tools while completing the remaining App
-setup vocabulary; it must not rebuild, duplicate, defer, or rename them.
+The **user-property, user-type, and persona** vocabulary is already shipped on
+all three authoring surfaces — builder, Solutions Architect, and MCP
+([what is built](../complex-app-plan.md#user-properties-user-types-and-preview-personas)).
+Its shared `getUsers` plus granular add/update/remove tools are an existing
+contract. This unit may consume and preserve those tools while completing the
+remaining App setup vocabulary; it must not rebuild, duplicate, defer, or
+rename them.
 
 **Observed:** every capability from units 8 through 12 is reachable without chat,
 and everything App setup can author is reachable from chat and MCP.
