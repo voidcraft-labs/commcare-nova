@@ -896,7 +896,7 @@ function PublishSuccess({
 }) {
 	return (
 		<div className="py-1">
-			<div className="text-center">
+			<div role="status" className="text-center">
 				<motion.div
 					initial={{ scale: 0 }}
 					animate={{ scale: 1 }}
@@ -946,7 +946,10 @@ function FeatureFlagNotice({
 			.map((flag) => flag.label)
 			.join(", ");
 		return (
-			<div className="mt-3 flex items-start gap-2 rounded-lg border border-nova-emerald/15 bg-nova-emerald/[0.04] px-3 py-2.5">
+			<div
+				role="status"
+				className="mt-3 flex items-start gap-2 rounded-lg border border-nova-emerald/15 bg-nova-emerald/[0.04] px-3 py-2.5"
+			>
 				<Icon
 					icon={tablerCircleCheck}
 					className="mt-0.5 size-4 shrink-0 text-nova-emerald"

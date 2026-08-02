@@ -283,7 +283,10 @@ describe("PublishDialog", () => {
 			await screen.findByRole("button", { name: "Download JSON" }),
 		);
 
-		await screen.findByText("CommCare HQ app file downloaded");
+		const downloadComplete = await screen.findByText(
+			"CommCare HQ app file downloaded",
+		);
+		expect(downloadComplete.closest('[role="status"]')).not.toBeNull();
 		expect(
 			screen.getByText(/destination project space hasn't been checked/i),
 		).toBeTruthy();
@@ -303,7 +306,8 @@ describe("PublishDialog", () => {
 		);
 		renderDialog({ onLoadFeatureFlags });
 
-		await screen.findByText("Feature flags are ready");
+		const readyStatus = await screen.findByText("Feature flags are ready");
+		expect(readyStatus.closest('[role="status"]')).not.toBeNull();
 		expect(onLoadFeatureFlags).toHaveBeenCalledWith(
 			"project-space",
 			expect.any(AbortSignal),
@@ -477,7 +481,9 @@ describe("PublishDialog", () => {
 		fireEvent.click(await screen.findByRole("button", { name: "Upload" }));
 		await screen.findByText("Feature flags aren't enabled");
 		expect(screen.getByRole("alert")).toBeTruthy();
-		expect(screen.queryByRole("status")).toBeNull();
+		expect(
+			screen.getByText("App uploaded successfully").closest('[role="status"]'),
+		).not.toBeNull();
 		expect(
 			screen.getByText(/isn't enabled for the “project-space” project space/i),
 		).toBeTruthy();
