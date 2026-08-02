@@ -70,7 +70,7 @@ describe("POST /api/commcare/feature-flags", () => {
 			body.feature_flag_requirements.required_flags.map((flag) => flag.slug),
 		).toEqual(["search_claim"]);
 		expect(body.feature_flag_requirements.message).toContain(
-			"requirements, not flags known to be off",
+			"requirements, not confirmed missing",
 		);
 		expect(resolveAppAccess).toHaveBeenCalledWith("app-1", "u1", "view");
 		expect(getCredentialsForUpload).not.toHaveBeenCalled();
@@ -104,7 +104,7 @@ describe("POST /api/commcare/feature-flags", () => {
 		expect(
 			body.feature_flag_requirements.missing_flags.map((flag) => flag.slug),
 		).toEqual(["search_claim"]);
-		expect(body.feature_flag_requirements.message).toContain("not enabled");
+		expect(body.feature_flag_requirements.message).toContain("isn't enabled");
 		expect(body.feature_flag_requirements.message).not.toContain("published");
 		expect(getCredentialsForUpload).toHaveBeenCalledWith("u1", "clinic-space");
 		expect(probeHqFeatureFlags).toHaveBeenCalledWith(

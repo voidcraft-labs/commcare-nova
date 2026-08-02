@@ -73,7 +73,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 		"compile_app",
 		{
 			description:
-				'Compile an owned app to CommCare HQ format. Before invoking this tool, call `get_app_hq_feature_flags` without a domain if the user has not already been shown the app requirements, so they can understand them before export. `format: "json"` returns the HQ JSON as text, or, when the app has media, a base64-encoded zip bundle (JSON + an HQ multimedia upload) so the media round-trips. `format: "ccz"` returns the binary archive base64-encoded. When the app uses HQ feature flags, a second text block repeats the requirements; because a downloaded artifact has no known destination, these are requirements, not flags Nova has confirmed missing.',
+				'Compile an owned app to CommCare HQ format. Before invoking this tool, call `get_app_hq_feature_flags` without a domain if the user has not already been shown the app requirements, so they can understand them before export. `format: "json"` returns the HQ JSON as text, or, when the app has media, a base64-encoded zip bundle (JSON + an HQ multimedia upload) so the media round-trips. `format: "ccz"` returns the binary archive base64-encoded. When the app uses HQ feature flags, a text block before the artifact repeats the requirements so large base64 results cannot hide them; because a downloaded artifact has no known destination, these are requirements, not flags Nova has confirmed missing.',
 			inputSchema: {
 				app_id: z
 					.string()
@@ -171,8 +171,8 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 							 * no media to carry, gets JSON. */
 							return {
 								content: [
-									{ type: "text", text: JSON.stringify(hqJson) },
 									...featureFlagContent,
+									{ type: "text", text: JSON.stringify(hqJson) },
 								],
 								...compiledAtMeta,
 							};
@@ -190,6 +190,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 						);
 						return {
 							content: [
+								...featureFlagContent,
 								{
 									type: "text",
 									text: JSON.stringify({
@@ -198,7 +199,6 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 										data: archive.toString("base64"),
 									}),
 								},
-								...featureFlagContent,
 							],
 							...compiledAtMeta,
 						};
@@ -224,6 +224,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 						});
 						return {
 							content: [
+								...featureFlagContent,
 								{
 									type: "text",
 									text: JSON.stringify({
@@ -232,7 +233,6 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 										data: cczBuf.toString("base64"),
 									}),
 								},
-								...featureFlagContent,
 							],
 							_meta: featureFlagMeta,
 						};
@@ -258,8 +258,9 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 	);
 }
 
-/** Separate advisory block keeps the requested artifact byte-identical while
- * still putting the requirements in model-visible MCP content. */
+/** Separate leading advisory block keeps the requested artifact byte-identical
+ * while ensuring a host's initial-result preview shows the requirements before
+ * a potentially megabyte-scale artifact. */
 function featureFlagAdvisoryContent(report: HqFeatureFlagReport) {
 	if (report.required_flags.length === 0) return [];
 	return [

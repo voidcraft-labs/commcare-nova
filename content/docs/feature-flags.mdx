@@ -21,13 +21,13 @@ publish the same app to another project space, that space needs its own check.
 
 ### Uploading directly to CommCare HQ
 
-The **CommCare HQ** tab lets you choose the destination project space. The
-Publish window checks that space as soon as you select it and tells you whether
-the feature flags your app needs are enabled there.
+In the Publish window, choose **CommCare HQ** under **Publish option**, then
+choose the destination project space. Nova checks that space and tells you
+whether the feature flags your app needs are enabled there.
 
 - If everything is enabled, you're ready to continue
-- If a flag isn't enabled, the notice gives you its name and a support code
-  that helps Dimagi Support identify it
+- If a flag isn't enabled, the notice names it and links to its guide. The guide
+  includes the support details Dimagi needs
 - If CommCare HQ can't complete part of the check, the notice marks the result
   as unconfirmed instead of saying that the flag is off
 
@@ -37,10 +37,10 @@ received the app.
 
 ### Downloading an app for later
 
-The **Web** and **Mobile** tabs create a file that you can import elsewhere.
-Because that file isn't connected to its eventual project space, the Publish
-window can tell you which flags the app needs, but it can't tell whether those
-flags are already enabled there.
+Under **Publish option**, choose **CommCare HQ app file** or **CommCare mobile
+app file**. Because a downloaded file isn't connected to its eventual project
+space, the Publish window can tell you which flags the app needs, but it can't
+tell whether those flags are already enabled there.
 
 In this case, the list means **these flags need to be enabled in the destination**.
 It doesn't mean they were checked and found missing.
@@ -51,7 +51,8 @@ To get a flag enabled, email [support@dimagi.com](mailto:support@dimagi.com)
 with:
 
 - The name of the CommCare HQ project space where the app will live
-- The feature flag name and support code shown in the Publish window
+- The feature flag names shown in the Publish window. Open each linked guide to
+  find its support code
 - A note that you're publishing an app from commcare nova
 
 You don't need to change the app or find a hidden setting in CommCare HQ.

@@ -443,7 +443,9 @@ export function PublishDialog({
 				<DialogBody className="mx-0 px-0">
 					<div className="px-5 py-4">
 						<Field className="gap-1.5">
-							<FieldLabel htmlFor="publish-target">Publish option</FieldLabel>
+							<FieldLabel id="publish-target-label" htmlFor="publish-target">
+								Publish option
+							</FieldLabel>
 							<Select
 								items={publishTargetItems}
 								value={target}
@@ -455,7 +457,8 @@ export function PublishDialog({
 								<SelectTrigger
 									id="publish-target"
 									className="w-full"
-									aria-label="Publish option"
+									aria-labelledby="publish-target-label"
+									aria-describedby="publish-target-description"
 								>
 									<SelectValue>
 										<Icon icon={targetOption.icon} className="size-4" />
@@ -470,15 +473,22 @@ export function PublishDialog({
 											<SelectItem
 												key={candidate}
 												value={candidate}
-												aria-label={option.label}
+												aria-labelledby={`publish-target-${candidate}-label`}
+												aria-describedby={`publish-target-${candidate}-description`}
 												wrap
 											>
 												<Icon icon={option.icon} className="mt-0.5 size-4" />
 												<span className="min-w-0">
-													<span className="block text-sm font-medium text-nova-text">
+													<span
+														id={`publish-target-${candidate}-label`}
+														className="block text-sm font-medium text-nova-text"
+													>
 														{option.label}
 													</span>
-													<span className="mt-0.5 block text-xs leading-snug text-nova-text-muted">
+													<span
+														id={`publish-target-${candidate}-description`}
+														className="mt-0.5 block text-xs leading-snug text-nova-text-muted"
+													>
 														{option.description}
 													</span>
 												</span>
@@ -487,7 +497,9 @@ export function PublishDialog({
 									})}
 								</SelectContent>
 							</Select>
-							<FieldDescription>{targetOption.description}</FieldDescription>
+							<FieldDescription id="publish-target-description">
+								{targetOption.description}
+							</FieldDescription>
 						</Field>
 
 						<div className="mt-5 border-t border-nova-border pt-5">

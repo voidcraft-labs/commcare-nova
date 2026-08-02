@@ -131,9 +131,15 @@ describe("PublishDialog", () => {
 		);
 		renderDialog({ onLoadFeatureFlags });
 		expect(screen.getByRole("dialog").textContent).toContain("Publish app");
+		const publishOption = screen.getByRole("combobox", {
+			name: "Publish option",
+		});
+		expect(publishOption.textContent).toContain("CommCare HQ");
+		const publishDescriptionId = publishOption.getAttribute("aria-describedby");
+		expect(publishDescriptionId).toBe("publish-target-description");
 		expect(
-			screen.getByRole("combobox", { name: "Publish option" }).textContent,
-		).toContain("CommCare HQ");
+			document.getElementById(publishDescriptionId ?? "")?.textContent,
+		).toBe("Upload directly to a connected project space");
 		await screen.findByText("Feature flags are ready");
 		expect(
 			screen
@@ -141,7 +147,19 @@ describe("PublishDialog", () => {
 				.closest("[data-slot=dialog-footer]"),
 		).not.toBeNull();
 
-		await choosePublishOption("CommCare HQ app file");
+		fireEvent.click(publishOption);
+		await settleBaseUiTransitions();
+		const hqFileOption = screen.getByRole("option", {
+			name: "CommCare HQ app file",
+		});
+		const hqFileDescriptionId = hqFileOption.getAttribute("aria-describedby");
+		expect(hqFileDescriptionId).toBe("publish-target-web-description");
+		expect(
+			document.getElementById(hqFileDescriptionId ?? "")?.textContent,
+		).toMatch(/Download a JSON file to import into CommCare HQ/i);
+		fireEvent.pointerDown(hqFileOption, { pointerType: "mouse" });
+		fireEvent.click(hqFileOption);
+		await settleBaseUiTransitions();
 		expect(screen.getByRole("button", { name: "Download JSON" })).toBeTruthy();
 		await screen.findByText("This app uses CommCare HQ feature flags");
 		expect(

@@ -311,7 +311,7 @@ describe("registerCompileApp — happy path, ccz format", () => {
 
 describe("registerCompileApp — feature-flag requirements", () => {
 	it.each(["json", "ccz"] as const)(
-		"keeps the %s artifact first and adds a model-visible unverified advisory",
+		"puts the model-visible %s advisory before the artifact preview",
 		async (format) => {
 			vi.mocked(loadAppBlueprint).mockResolvedValueOnce(
 				fixtureLoadedBlueprint(fixtureBlueprintWithCaseSearch()),
@@ -326,7 +326,7 @@ describe("registerCompileApp — feature-flag requirements", () => {
 			};
 
 			expect(out.content).toHaveLength(2);
-			const advisory = JSON.parse(out.content[1]?.text ?? "{}") as {
+			const advisory = JSON.parse(out.content[0]?.text ?? "{}") as {
 				feature_flag_requirements: {
 					verification: string;
 					missing_flags: unknown[];
@@ -346,6 +346,15 @@ describe("registerCompileApp — feature-flag requirements", () => {
 			expect(advisory.feature_flag_requirements.message).toContain(
 				"support@dimagi.com",
 			);
+
+			const artifact = JSON.parse(out.content[1]?.text ?? "{}") as {
+				format?: string;
+			};
+			if (format === "json") {
+				expect(artifact).toEqual(FAKE_HQ_JSON);
+			} else {
+				expect(artifact.format).toBe("ccz");
+			}
 		},
 	);
 });
