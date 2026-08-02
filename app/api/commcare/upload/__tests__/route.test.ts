@@ -18,8 +18,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { requireSession } from "@/lib/auth-utils";
-import { importApp, uploadAppMediaBundle } from "@/lib/commcare/client";
+import {
+	importApp,
+	probeHqFeatureFlags,
+	uploadAppMediaBundle,
+} from "@/lib/commcare/client";
 import { expandDoc } from "@/lib/commcare/expander";
+import { HQ_FEATURE_FLAG_REQUIREMENTS } from "@/lib/commcare/featureFlags";
 import { validationError } from "@/lib/commcare/validator/errors";
 import { resolveAppAccess } from "@/lib/db/appAccess";
 import { getCredentialsForUpload } from "@/lib/db/settings";
@@ -53,6 +58,7 @@ vi.mock("@/lib/commcare/client", async (orig) => ({
 	// network surfaces.
 	...(await orig<typeof import("@/lib/commcare/client")>()),
 	importApp: vi.fn(),
+	probeHqFeatureFlags: vi.fn(),
 	uploadAppMediaBundle: vi.fn(),
 }));
 // The bulk-zip builder needs real bytes; the route only checks the manifest
@@ -99,6 +105,14 @@ function validDoc() {
 			},
 		],
 	});
+	return doc;
+}
+
+function docWithCaseSearch() {
+	const doc = validDoc();
+	const moduleUuid = doc.moduleOrder[0];
+	if (!moduleUuid) throw new Error("fixture module missing");
+	doc.modules[moduleUuid].caseSearchConfig = {};
 	return doc;
 }
 
@@ -175,6 +189,7 @@ beforeEach(() => {
 	vi.mocked(expandDoc).mockReset();
 	vi.mocked(importApp).mockReset();
 	vi.mocked(uploadAppMediaBundle).mockReset();
+	vi.mocked(probeHqFeatureFlags).mockReset();
 
 	vi.mocked(requireSession).mockResolvedValue(SESSION as never);
 	loadsDoc(validDoc());
@@ -210,6 +225,7 @@ beforeEach(() => {
 		errors: [],
 		timedOut: false,
 	});
+	vi.mocked(probeHqFeatureFlags).mockResolvedValue([]);
 });
 
 describe("POST /api/commcare/upload — boundary gate", () => {
@@ -310,6 +326,47 @@ describe("POST /api/commcare/upload — boundary gate", () => {
 
 		expect(res.status).toBe(201);
 		expect(uploadAppMediaBundle).not.toHaveBeenCalled();
+	});
+
+	it("returns flags confirmed missing from the exact uploaded project space", async () => {
+		loadsDoc(docWithCaseSearch());
+		vi.mocked(importApp).mockResolvedValueOnce({
+			success: true,
+			appId: "hq-flags",
+			appUrl: "https://hq.example/app",
+			warnings: [],
+		});
+		vi.mocked(probeHqFeatureFlags).mockResolvedValueOnce([
+			{
+				requirement: HQ_FEATURE_FLAG_REQUIREMENTS[0],
+				state: "missing",
+			},
+		]);
+
+		const res = await POST(
+			reqWith({ domain: DOMAIN, appName: "T", appId: "a1" }),
+		);
+		const body = (await res.json()) as {
+			feature_flag_requirements: {
+				verification: string;
+				missing_flags: { slug: string }[];
+				message: string;
+			};
+		};
+
+		expect(res.status).toBe(201);
+		expect(probeHqFeatureFlags).toHaveBeenCalledWith(
+			expect.anything(),
+			DOMAIN,
+			[expect.objectContaining({ slug: "search_claim" })],
+		);
+		expect(body.feature_flag_requirements.verification).toBe("verified");
+		expect(body.feature_flag_requirements.missing_flags).toEqual([
+			expect.objectContaining({ slug: "search_claim" }),
+		]);
+		expect(body.feature_flag_requirements.message).toContain(
+			"support@dimagi.com",
+		);
 	});
 
 	it("names the carrier when HQ leaves a form's media unmatched", async () => {

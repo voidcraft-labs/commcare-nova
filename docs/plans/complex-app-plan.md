@@ -1221,6 +1221,16 @@ three re-run the full validator with zero tolerance, and
 things the document alone cannot know — Project media membership, and which
 carriers a given export mode can represent. Credentials are KMS-encrypted per
 server, and `lib/commcare/client.ts` resolves its base URL from the selected one.
+Publishing also reports the HQ feature flags required by the emitted app.
+Direct upload checks the selected project space after import and distinguishes
+flags confirmed missing from flags whose state could not be verified; JSON and
+CCZ name the requirements without claiming to know the eventual destination's
+state. The Builder keeps all three choices and their durable follow-up in one
+Publish dialog, MCP returns the same structured distinction, and the public
+feature-flag guide tells users to contact `support@dimagi.com` for a named
+project space. One central manifest drives detection, copy, docs, and a weekly
+audit against current CommCare HQ source so a graduated or renamed flag becomes
+an actionable failing check instead of stale product behavior.
 
 ### Projects, moves, and multiplayer
 

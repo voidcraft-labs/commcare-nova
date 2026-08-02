@@ -18,6 +18,19 @@ A Project **viewer** (the `view`-only role) opens the builder read-only. The bui
 2. **Affordances hide.** The chat composer (the SA is the edit mechanism) hides like replay; `BuilderHeader` swaps the edit cluster (save indicator, undo/redo) for a "View only" badge and the structure sidebar's app-settings gear (`AppSettingsButton`, in its app row) renders nothing; the app-tree "+" insertion strips, `TreeRowDelete`, inline `EditableTitle`/`TextEditable`, form-row drag, and the field-inspector destructive controls all gate on `useCanEdit()`. Preview + local Export stay (a viewer may preview and download), but HQ upload and media upload/delete/attach/replace/remove do not. Their event handlers re-read `session.getState().canEdit` so a stale rendered control still cannot start a Project write. The account file manager stays browse/preview-capable for viewers.
 3. **Server enforcement is the authority.** Every write path (`PUT /api/apps/[id]`, `/api/chat`, MCP) independently re-gates at `edit`, so the UI flag is a UX nicety, never the security boundary.
 
+## Publishing
+
+`PublishPanel` owns one `PublishDialog` with CommCare HQ, Web, and Mobile tabs.
+Keep publish outcomes in this durable modal: direct upload reports feature flags
+Nova confirmed missing (or could not verify) for the selected project space,
+while JSON/CCZ downloads report required flags without claiming to know the
+eventual destination's state. Viewers may use the file tabs but never receive
+the HQ tab. The dialog consumes the shared report from
+`lib/publish/hqFeatureFlags.ts`; do not re-detect app features or copy the flag
+catalog into React. Every actionable flag notice names `support@dimagi.com`, the
+target project space when known, and links to the public feature-flag guide in a
+new tab.
+
 Access is live, not mount-captured. Any reload/gap/typed write-authority response
 immediately pauses editing, masks the Project workspace, clears registered
 Project-scoped client state, and fetches blueprint + access + cursor atomically.

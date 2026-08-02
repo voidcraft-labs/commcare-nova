@@ -8,6 +8,28 @@ The `./index.ts` barrel must stay client-safe: Node-only modules (`./compiler` v
 
 ## Key design decisions
 
+### CommCare HQ feature-flag lifecycle
+
+`config/commcare-hq-feature-flags.json` is the single lifecycle catalog for HQ
+feature flags required by wire Nova emits today. `featureFlags.ts` derives the
+wire-specific requirement detector; `lib/publish/hqFeatureFlags.ts` derives the
+serialized HTTP/MCP contract, public UI/docs catalog, and autonomous FYI without
+giving browser code access to this emission boundary. Add an entry only with an
+actual Nova emitter and exact current HQ source evidence. Remove or update it
+when the upstream flag graduates or changes; never leave a retired flag as
+historical documentation.
+
+Direct HQ upload probes the selected domain only after `import_app` succeeds.
+Each required domain-only flag is queried through the paginated
+`UserDomainsResource` feature-flag filter. A negative result is confirmed
+missing; an HTTP/shape/namespace failure is unverified and never blocks or
+relabels the successful upload. JSON and CCZ have no target domain, so their
+report is always `not_checked`: the flags are requirements, not known missing.
+The weekly `commcare-hq-feature-flags` workflow runs
+`scripts/audit-commcare-hq-feature-flags.mjs` against current upstream HQ and
+fails when symbols, slugs, namespaces, tags, or the recorded emitter evidence
+drift. That failure is the retirement/GA review signal.
+
 ### Shared field-string accessor
 
 `fieldProps.ts::readFieldString(field, key, doc)` is the one expression-reading helper the wire emitters share: expression slots (`relevant`, `validate`, `calculate`, `default_value`, `required`, the repeat slots, `label`, `hint`, …) delegate to the domain's `expressionSource`, which projects typed AST storage to text against `doc` — identity references resolve to CURRENT names at every read. It accepts only the registry's expression-slot IDs; non-expression data uses typed domain accessors. Case bindings use `fieldCaseWrite(field)` and remain independent from the field's friendly id.

@@ -18,6 +18,10 @@ import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { requireSession } from "@/lib/auth-utils";
 import { expandDoc } from "@/lib/commcare/expander";
+import {
+	decodeHqFeatureFlagReport,
+	HQ_FEATURE_FLAG_REPORT_HEADER,
+} from "@/lib/commcare/featureFlags";
 import { validationError } from "@/lib/commcare/validator/errors";
 import { resolveAppAccess } from "@/lib/db/appAccess";
 import { proseText } from "@/lib/domain/prose";
@@ -66,6 +70,14 @@ function validDoc() {
 			},
 		],
 	});
+	return doc;
+}
+
+function docWithCaseSearch() {
+	const doc = validDoc();
+	const moduleUuid = doc.moduleOrder[0];
+	if (!moduleUuid) throw new Error("fixture module missing");
+	doc.modules[moduleUuid].caseSearchConfig = {};
 	return doc;
 }
 
@@ -177,6 +189,22 @@ describe("POST /api/compile/json", () => {
 		const pngEntry = mediaZip.getEntry("commcare/abc123def.png");
 		if (!pngEntry) throw new Error("png entry missing from multimedia.zip");
 		expect(pngEntry.getData().toString()).toBe("PNG-BYTES");
+	});
+
+	it("returns file requirements as unverified response metadata", async () => {
+		loadsDoc(docWithCaseSearch());
+		const res = await POST(reqWith({ appId: "a1" }));
+		const report = decodeHqFeatureFlagReport(
+			res.headers.get(HQ_FEATURE_FLAG_REPORT_HEADER),
+		);
+		expect(report?.verification).toBe("not_checked");
+		expect(report?.missing_flags).toEqual([]);
+		expect(report?.required_flags).toEqual([
+			expect.objectContaining({ slug: "search_claim" }),
+		]);
+		expect(JSON.parse(await res.text())).toMatchObject({
+			name: "Vaccine Tracker",
+		});
 	});
 
 	it("returns 422 (not 500) when a media reference is stale", async () => {

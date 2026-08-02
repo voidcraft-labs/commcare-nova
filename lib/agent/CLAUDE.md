@@ -30,6 +30,17 @@ Every case-writing field carries one complete `caseWrite: { caseType, property }
 
 CommCare wire terms live at one genuine boundary outside `lib/agent/`: `lib/commcare/` (XForm emission, HQ JSON expander, validator, suite-entry derivation). The commit gate feeds `BlueprintDoc` through the validator directly — no wire-format round-trip inside the agent layer.
 
+MCP publish tools return feature-flag follow-up without changing artifact
+validity. `compile_app` keeps the artifact as its first content block and adds a
+model-visible destination-unknown requirement report only when the app needs
+flags. `upload_app_to_hq` returns the known target's post-import report,
+distinguishing confirmed `missing_flags` from `unverified_flags`. Both carry
+the central flag labels/slugs, docs URL, and `support@dimagi.com`; clients must
+relay that distinction rather than infer state. The server-fetched
+`autonomous_build` prompt gives a deliberately non-blocking FYI: use the normal
+completion message when relevant and never create a document or other channel
+solely for the notice.
+
 ## What lives here
 
 - `solutionsArchitect.ts` — the one `ToolLoopAgent` factory. Owns the SA's internal `BlueprintDoc` for the lifetime of a request and emits fine-grained mutations for every tool call. Tool execution is serialized via a promise-chain mutex so parallel `tool_use` blocks see a consistent working `doc` — without it, concurrent branches each read the same pre-batch snapshot and the last `doc = newDoc` assignment silently drops earlier mutations from the SA's view (mutations still stream to the wire; only the SA's own state is corrupted, which surfaces as a wasteful "edits aren't sticking" rework loop). There is no finishing tool: the chat ROUTE finalizes a build at drain end — it drains the run's chained saves, awaits `materializeCaseStoreSchemas` (UPSERTs `case_type_schemas` rows + per-property indexes), flips `generating → complete` WHILE settling the run's kept charge in one transaction (`completeAndSettleRun` — the atomic build-completion writer; a clean EDIT completion is the parallel `clearRunLockAndSettle`, which releases the `run_lock` + settles atomically), and only THEN emits `data-done` — so any user-initiated case-store action (sample-data populate, form submit, live preview) that fires sub-second after the celebration animation sees a synced Postgres schema. A throw out of any finalize step routes through the route's `failRun` (classify + emit + refund + `failApp` for a build). See `lib/db/CLAUDE.md` § finalization invariant for the full claim/settle/reap lifecycle.

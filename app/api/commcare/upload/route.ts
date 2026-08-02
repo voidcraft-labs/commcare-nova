@@ -27,9 +27,14 @@ import { requireSession } from "@/lib/auth-utils";
 import {
 	importApp,
 	isValidDomainSlug,
+	probeHqFeatureFlags,
 	uploadAppMediaBundle,
 } from "@/lib/commcare/client";
 import { expandDoc } from "@/lib/commcare/expander";
+import {
+	featureFlagReportForUpload,
+	requiredHqFeatureFlags,
+} from "@/lib/commcare/featureFlags";
 import { buildMediaBulkUploadZip } from "@/lib/commcare/multimedia/bulkUploadZip";
 import { resolveAppAccess } from "@/lib/db/appAccess";
 import { getCredentialsForUpload } from "@/lib/db/settings";
@@ -168,6 +173,16 @@ export async function POST(req: NextRequest) {
 			userId: session.user.id,
 		});
 
+		/* The app now exists, so start the diagnostic flag checks against the
+		 * exact target HQ just accepted. They settle independently and can never
+		 * fail the upload; running alongside media processing avoids adding their
+		 * latency to the already-successful publish. */
+		const featureFlagProbes = probeHqFeatureFlags(
+			creds,
+			domain,
+			requiredHqFeatureFlags(prepared.doc),
+		);
+
 		/* ── Upload media bytes against the new app ──────────────────── */
 		// The app is created; now ship its media as ONE bulk ZIP to HQ's
 		// api-key-authed `upload_multimedia_api`, which unzips and matches
@@ -218,7 +233,18 @@ export async function POST(req: NextRequest) {
 			}
 		}
 
-		return NextResponse.json({ ...result, warnings }, { status: 201 });
+		const featureFlagReport = featureFlagReportForUpload(
+			domain,
+			await featureFlagProbes,
+		);
+		return NextResponse.json(
+			{
+				...result,
+				warnings,
+				feature_flag_requirements: featureFlagReport,
+			},
+			{ status: 201 },
+		);
 	} catch (err) {
 		return handleApiError(
 			err instanceof Error ? err : new Error("Upload failed"),

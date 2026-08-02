@@ -32,7 +32,7 @@
 
 import AdmZip from "adm-zip";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { testMediaAssetId } from "@/__tests__/helpers/uuid";
+import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
 import type { HqApplication } from "@/lib/commcare/types";
@@ -95,6 +95,21 @@ function fixtureBlueprint(): BlueprintDoc {
 	};
 }
 
+function fixtureBlueprintWithCaseSearch(): BlueprintDoc {
+	const blueprint = fixtureBlueprint();
+	const moduleUuid = testUuid("patients-module");
+	blueprint.modules[moduleUuid] = {
+		uuid: moduleUuid,
+		id: "patients",
+		name: "Patients",
+		caseType: "patient",
+		caseSearchConfig: {},
+	};
+	blueprint.moduleOrder = [moduleUuid];
+	blueprint.formOrder[moduleUuid] = [];
+	return blueprint;
+}
+
 /**
  * A minimal `AppDoc` whose only consumed field in this tool is
  * `app_name`. The timestamps are unread placeholders — any `Date` works.
@@ -135,6 +150,14 @@ function fixtureLoadedApp(appOverrides?: Partial<AppDoc>): LoadedApp {
 			role: "owner",
 			actorUserId: "u1",
 		},
+	};
+}
+
+function fixtureLoadedBlueprint(doc: BlueprintDoc): LoadedApp {
+	return {
+		...fixtureLoadedApp(),
+		doc,
+		app: fixtureAppDoc({ blueprint: doc }),
 	};
 }
 
@@ -272,6 +295,47 @@ describe("registerCompileApp — happy path, ccz format", () => {
 			expect.objectContaining({ compiledAtSeq: 17 }),
 		);
 	});
+});
+
+describe("registerCompileApp — feature-flag requirements", () => {
+	it.each(["json", "ccz"] as const)(
+		"keeps the %s artifact first and adds a model-visible unverified advisory",
+		async (format) => {
+			vi.mocked(loadAppBlueprint).mockResolvedValueOnce(
+				fixtureLoadedBlueprint(fixtureBlueprintWithCaseSearch()),
+			);
+			vi.mocked(expandDoc).mockReturnValueOnce(FAKE_HQ_JSON);
+			vi.mocked(compileCcz).mockReturnValueOnce(Buffer.from("ccz"));
+
+			const { server, capture } = makeFakeServer();
+			registerCompileApp(server, toolCtx);
+			const out = (await capture()({ app_id: "a1", format }, {})) as {
+				content: Array<{ type: "text"; text: string }>;
+			};
+
+			expect(out.content).toHaveLength(2);
+			const advisory = JSON.parse(out.content[1]?.text ?? "{}") as {
+				feature_flag_requirements: {
+					verification: string;
+					missing_flags: unknown[];
+					required_flags: { slug: string }[];
+					message: string;
+				};
+			};
+			expect(advisory.feature_flag_requirements.verification).toBe(
+				"not_checked",
+			);
+			expect(advisory.feature_flag_requirements.missing_flags).toEqual([]);
+			expect(
+				advisory.feature_flag_requirements.required_flags.map(
+					(flag) => flag.slug,
+				),
+			).toEqual(["search_claim"]);
+			expect(advisory.feature_flag_requirements.message).toContain(
+				"support@dimagi.com",
+			);
+		},
+	);
 });
 
 describe("registerCompileApp — ownership failure", () => {

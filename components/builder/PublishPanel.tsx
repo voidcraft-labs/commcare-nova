@@ -1,8 +1,8 @@
 /**
  * PublishPanel: the self-contained flow for putting an app somewhere real.
  *
- * Owns the Publish menu (download JSON or CCZ), the CommCare HQ upload
- * dialog, and the `uploadDialogOpen` state. Colocated so the trigger and
+ * Owns the unified Publish dialog (HQ upload, JSON, or CCZ) and its open
+ * state. Colocated so the trigger and
  * the dialog live in the same component: no state coordination through
  * BuilderLayout needed.
  *
@@ -12,23 +12,26 @@
  * emission boundaries.
  */
 "use client";
-import tablerBrowser from "@iconify-icons/tabler/browser";
-import tablerDeviceMobile from "@iconify-icons/tabler/device-mobile";
 import {
 	memo,
 	useCallback,
 	useContext,
 	useEffect,
-	useMemo,
 	useRef,
 	useState,
 } from "react";
-import { UploadToHqDialog } from "@/components/builder/UploadToHqDialog";
-import type { DownloadOption } from "@/components/ui/PublishMenu";
-import { PublishMenu } from "@/components/ui/PublishMenu";
+import {
+	PublishDialog,
+	type PublishDownloadOutcome,
+} from "@/components/builder/PublishDialog";
+import { PublishButton } from "@/components/ui/PublishButton";
 import { useReconcilerContext } from "@/lib/collab/context";
 import { useProjectToast } from "@/lib/collab/useProjectToast";
 import { BlueprintDocContext } from "@/lib/doc/provider";
+import {
+	decodeHqFeatureFlagReport,
+	HQ_FEATURE_FLAG_REPORT_HEADER,
+} from "@/lib/publish/hqFeatureFlags";
 import { useCanEdit } from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
 import { apiFailureToastBody, describeApiFailure } from "@/lib/ui/apiFailure";
@@ -83,7 +86,7 @@ async function downloadArtifact(opts: {
 		message?: string,
 		options?: ToastOptions,
 	) => string;
-}): Promise<void> {
+}): Promise<PublishDownloadOutcome> {
 	try {
 		const res = await fetch(opts.endpoint, {
 			method: "POST",
@@ -94,11 +97,11 @@ async function downloadArtifact(opts: {
 		});
 		if (!opts.isCurrent()) {
 			void res.body?.cancel();
-			return;
+			return { ok: false };
 		}
 		if (!res.ok) {
 			const body = await res.json().catch(() => null);
-			if (!opts.isCurrent()) return;
+			if (!opts.isCurrent()) return { ok: false };
 			const failure = describeApiFailure(
 				body,
 				`Could not generate ${opts.fileLabel}.`,
@@ -113,23 +116,28 @@ async function downloadArtifact(opts: {
 				toastBody.message,
 				{ lines: toastBody.lines },
 			);
-			return;
+			return { ok: false };
 		}
+		const featureFlagReport = decodeHqFeatureFlagReport(
+			res.headers.get(HQ_FEATURE_FLAG_REPORT_HEADER),
+		);
 		const blob = await res.blob();
-		if (!opts.isCurrent()) return;
+		if (!opts.isCurrent()) return { ok: false };
 		triggerBlobDownload(blob, opts.filename(blob));
+		return { ok: true, featureFlagReport };
 	} catch (error) {
 		if (
 			opts.signal.aborted ||
 			!opts.isCurrent() ||
 			(error instanceof DOMException && error.name === "AbortError")
 		)
-			return;
+			return { ok: false };
 		opts.toast(
 			"error",
 			"Download failed",
 			`Could not generate ${opts.fileLabel}.`,
 		);
+		return { ok: false };
 	}
 }
 
@@ -148,7 +156,7 @@ export const PublishPanel = memo(function PublishPanel({
 	const canEdit = useCanEdit();
 	const reconciler = useReconcilerContext();
 	const projectToast = useProjectToast();
-	const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
+	const [publishDialogOpen, setPublishDialogOpen] = useState(false);
 	const downloadControllersRef = useRef(new Set<AbortController>());
 	useEffect(
 		() =>
@@ -156,7 +164,7 @@ export const PublishPanel = memo(function PublishPanel({
 				for (const controller of downloadControllersRef.current)
 					controller.abort();
 				downloadControllersRef.current.clear();
-				setUploadDialogOpen(false);
+				setPublishDialogOpen(false);
 			}),
 		[reconciler],
 	);
@@ -175,9 +183,9 @@ export const PublishPanel = memo(function PublishPanel({
 				Parameters<typeof downloadArtifact>[0],
 				"signal" | "isCurrent" | "toast"
 			>,
-		) => {
+		): Promise<PublishDownloadOutcome> => {
 			const start = session.getState();
-			if (start.accessPhase !== "authorized") return;
+			if (start.accessPhase !== "authorized") return { ok: false };
 			const epoch = start.scopeEpoch;
 			const controller = new AbortController();
 			downloadControllersRef.current.add(controller);
@@ -190,7 +198,7 @@ export const PublishPanel = memo(function PublishPanel({
 				);
 			};
 			try {
-				await downloadArtifact({
+				return await downloadArtifact({
 					...options,
 					signal: controller.signal,
 					isCurrent,
@@ -209,9 +217,8 @@ export const PublishPanel = memo(function PublishPanel({
 	 * re-renders during form entry.
 	 *
 	 * PublishPanel is only rendered when a real app is loaded: the Publish
-	 * menu is hidden until `hasData` on the layout becomes true, and the
-	 * upload dialog is gated behind a button click that requires the menu
-	 * to be visible. If this callback somehow runs with an
+	 * button is hidden until `hasData` on the layout becomes true, and the
+	 * dialog is gated behind that button. If this callback somehow runs with an
 	 * unmounted doc store, it's a programming error: throw loudly rather
 	 * than fabricate an empty doc that would push a zero-module app.
 	 */
@@ -225,81 +232,61 @@ export const PublishPanel = memo(function PublishPanel({
 		return s.appId;
 	}, [docStore]);
 
-	const handleDownloadCcz = useCallback(async () => {
-		const s = docStore?.getState();
-		if (!s || s.moduleOrder.length === 0 || !s.appId) return;
-		// The compile endpoint returns the `.ccz` bytes inline: one request, no
-		// separate download round-trip.
-		await runDownload({
-			appId: s.appId,
-			endpoint: "/api/compile",
-			fileLabel: "the .ccz file",
-			filename: () => `${s.appName || "app"}.ccz`,
-		});
-	}, [docStore, runDownload]);
+	const handleDownloadCcz =
+		useCallback(async (): Promise<PublishDownloadOutcome> => {
+			const s = docStore?.getState();
+			if (!s || s.moduleOrder.length === 0 || !s.appId) return { ok: false };
+			// The compile endpoint returns the `.ccz` bytes inline: one request, no
+			// separate download round-trip.
+			return runDownload({
+				appId: s.appId,
+				endpoint: "/api/compile",
+				fileLabel: "the .ccz file",
+				filename: () => `${s.appName || "app"}.ccz`,
+			});
+		}, [docStore, runDownload]);
 
-	const handleDownloadJson = useCallback(async () => {
-		const s = docStore?.getState();
-		if (!s || s.moduleOrder.length === 0 || !s.appId) return;
-		await runDownload({
-			appId: s.appId,
-			endpoint: "/api/compile/json",
-			fileLabel: "the JSON file",
-			// Media-aware: a media-free app comes back as a plain `.json`; an app
-			// WITH media comes back as a `.zip` bundle. Name the download from the
-			// response blob's MIME type.
-			filename: (blob) =>
-				`${s.appName || "app"}.${blob.type.includes("zip") ? "zip" : "json"}`,
-		});
-	}, [docStore, runDownload]);
+	const handleDownloadJson =
+		useCallback(async (): Promise<PublishDownloadOutcome> => {
+			const s = docStore?.getState();
+			if (!s || s.moduleOrder.length === 0 || !s.appId) return { ok: false };
+			return runDownload({
+				appId: s.appId,
+				endpoint: "/api/compile/json",
+				fileLabel: "the JSON file",
+				// Media-aware: a media-free app comes back as a plain `.json`; an app
+				// WITH media comes back as a `.zip` bundle. Name the download from the
+				// response blob's MIME type.
+				filename: (blob) =>
+					`${s.appName || "app"}.${blob.type.includes("zip") ? "zip" : "json"}`,
+			});
+		}, [docStore, runDownload]);
 
-	const downloadOptions: DownloadOption[] = useMemo(
-		() => [
-			{
-				label: "Web",
-				description: "JSON",
-				icon: tablerBrowser,
-				onClick: handleDownloadJson,
-			},
-			{
-				label: "Mobile",
-				description: "CCZ",
-				icon: tablerDeviceMobile,
-				onClick: handleDownloadCcz,
-			},
-		],
-		[handleDownloadJson, handleDownloadCcz],
-	);
-
-	/* Stable callbacks: prevent cascading re-renders to PublishMenu and
-	 * UploadToHqDialog when PublishPanel re-renders from parent cascade.
+	/* Stable callbacks prevent cascading re-renders through PublishDialog when
+	 * PublishPanel re-renders from parent cascade.
 	 * Without these, inline arrow functions create new refs on every render,
-	 * causing 3ms+ of wasted re-renders in the dialog tree (profiler shows
-	 * UploadToHqDialog re-rendering from props=['onClose'] on every
-	 * BuilderSubheader hook change). */
-	const handleOpenUpload = useCallback(() => {
+	 * causing avoidable work throughout the dialog tree. */
+	const handleOpenPublish = useCallback(() => {
 		const current = session.getState();
-		if (current.accessPhase === "authorized" && current.canEdit) {
-			setUploadDialogOpen(true);
+		if (current.accessPhase === "authorized") {
+			setPublishDialogOpen(true);
 		}
 	}, [session]);
-	const handleCloseUpload = useCallback(() => setUploadDialogOpen(false), []);
+	const handleClosePublish = useCallback(() => setPublishDialogOpen(false), []);
 
 	return (
 		<>
-			<PublishMenu
-				options={downloadOptions}
-				commcareConfigured={commcareConfigured}
-				canUploadToHq={canEdit}
-				onCommCareUpload={handleOpenUpload}
-			/>
+			<PublishButton onClick={handleOpenPublish} />
 			{/* Dialog stays mounted for Base UI exit animations. Stable onClose
 			 * prevents re-renders when the dialog is closed (the common case). */}
-			<UploadToHqDialog
-				open={uploadDialogOpen}
-				onClose={handleCloseUpload}
+			<PublishDialog
+				open={publishDialogOpen}
+				onClose={handleClosePublish}
 				getAppId={getAppId}
-				availableDomains={commcareAvailableDomains}
+				availableDomains={commcareConfigured ? commcareAvailableDomains : []}
+				canUploadToHq={canEdit}
+				onDownloadJson={handleDownloadJson}
+				onDownloadCcz={handleDownloadCcz}
 			/>
 		</>
 	);

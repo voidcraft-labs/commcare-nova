@@ -1,0 +1,142 @@
+import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import type { BlueprintDoc, Module } from "@/lib/domain";
+import { literal, term } from "@/lib/domain/predicate";
+import {
+	featureFlagReportForDownload,
+	featureFlagReportForUpload,
+	requiredHqFeatureFlags,
+} from "../featureFlags";
+
+function doc(overrides: Partial<BlueprintDoc> = {}): BlueprintDoc {
+	return {
+		appId: "app-1",
+		appName: "Feature flags",
+		connectType: null,
+		caseTypes: null,
+		modules: {},
+		forms: {},
+		fields: {},
+		moduleOrder: [],
+		formOrder: {},
+		fieldOrder: {},
+		fieldParent: {},
+		...overrides,
+	};
+}
+
+function module(overrides: Partial<Module> = {}): Module {
+	return {
+		uuid: testUuid("module-patients"),
+		id: "patients",
+		name: "Patients",
+		caseType: "patient",
+		caseListConfig: {
+			columns: [],
+			listColumnOrder: [],
+			detailColumnOrder: [],
+			searchInputs: [],
+		},
+		...overrides,
+	};
+}
+
+describe("requiredHqFeatureFlags", () => {
+	it("returns no requirements for a plain case list", () => {
+		const patient = module();
+		expect(
+			requiredHqFeatureFlags(doc({ modules: { [patient.uuid]: patient } })),
+		).toEqual([]);
+	});
+
+	it("requires Simple Case Search for a zero-input Search action", () => {
+		const patient = module({ caseSearchConfig: {} });
+		expect(
+			requiredHqFeatureFlags(doc({ modules: { [patient.uuid]: patient } })).map(
+				(flag) => flag.slug,
+			),
+		).toEqual(["search_claim"]);
+	});
+
+	it("does not mistake owner-only case availability for Search", () => {
+		const patient = module({
+			caseSearchConfig: {
+				searchActionEnabled: false,
+				excludedOwnerIds: term(literal("owner-1")),
+			},
+		});
+		expect(
+			requiredHqFeatureFlags(doc({ modules: { [patient.uuid]: patient } })),
+		).toEqual([]);
+	});
+
+	it("adds Advanced Case Search only when advanced wire behavior is used", () => {
+		const patient = module({
+			caseSearchConfig: {},
+			caseListConfig: {
+				columns: [],
+				listColumnOrder: [],
+				detailColumnOrder: [],
+				searchInputs: [
+					{
+						uuid: testUuid("search-name"),
+						kind: "simple",
+						type: "text",
+						name: "name_query",
+						label: "Name",
+						property: "name",
+					},
+				],
+			},
+		});
+		expect(
+			requiredHqFeatureFlags(doc({ modules: { [patient.uuid]: patient } })).map(
+				(flag) => flag.slug,
+			),
+		).toEqual(["search_claim", "case_search_advanced"]);
+	});
+
+	it("requires CommCare Connect from the app-level mode", () => {
+		expect(
+			requiredHqFeatureFlags(doc({ connectType: "learn" })).map((f) => f.slug),
+		).toEqual(["commcare_connect"]);
+	});
+});
+
+describe("feature flag reports", () => {
+	it("keeps downloaded requirements explicitly unverified", () => {
+		const report = featureFlagReportForDownload(
+			doc({ connectType: "deliver" }),
+		);
+		expect(report.verification).toBe("not_checked");
+		expect(report.missing_flags).toEqual([]);
+		expect(report.unverified_flags.map((flag) => flag.slug)).toEqual([
+			"commcare_connect",
+		]);
+		expect(report.message).toContain(
+			"cannot check a downloaded file's destination",
+		);
+		expect(report.message).toContain("support@dimagi.com");
+	});
+
+	it("distinguishes confirmed missing flags from diagnostic failures", () => {
+		const required = requiredHqFeatureFlags(
+			doc({
+				connectType: "learn",
+				modules: { a: module({ caseSearchConfig: {} }) },
+			}),
+		);
+		const report = featureFlagReportForUpload("clinic-space", [
+			{ requirement: required[0], state: "missing" },
+			{ requirement: required[1], state: "unavailable" },
+		]);
+		expect(report.verification).toBe("partial");
+		expect(report.missing_flags.map((flag) => flag.slug)).toEqual([
+			"search_claim",
+		]);
+		expect(report.unverified_flags.map((flag) => flag.slug)).toEqual([
+			"commcare_connect",
+		]);
+		expect(report.message).toContain("The app was still published");
+	});
+});

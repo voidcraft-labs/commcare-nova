@@ -1,0 +1,68 @@
+{
+	"source": {
+		"repository": "dimagi/commcare-hq",
+		"toggleRegistryPath": "corehq/toggles/__init__.py"
+	},
+	"flags": [
+		{
+			"id": "case-search",
+			"slug": "search_claim",
+			"symbol": "SYNC_SEARCH_CASE_CLAIM",
+			"label": "Simple Case Search",
+			"description": "Lets workers search for cases that are not already on their device.",
+			"requiredFor": "Any module with a Search action or Search inputs.",
+			"docsAnchor": "simple-case-search",
+			"expectedTag": "TAG_FROZEN",
+			"expectedNamespaces": ["NAMESPACE_DOMAIN"],
+			"upstreamEvidence": [
+				{
+					"path": "corehq/apps/ota/views.py",
+					"contains": "SYNC_SEARCH_CASE_CLAIM.required_decorator"
+				}
+			]
+		},
+		{
+			"id": "advanced-case-search",
+			"slug": "case_search_advanced",
+			"symbol": "CASE_SEARCH_ADVANCED",
+			"label": "Advanced Case Search",
+			"description": "Supports Nova's predicate-based search filters, special matching, prompt defaults, and search-result sorting.",
+			"requiredFor": "A case search that uses a filter, an advanced or special-matching input, a prompt default, or result sorting.",
+			"docsAnchor": "advanced-case-search",
+			"expectedTag": "TAG_FROZEN",
+			"expectedNamespaces": ["NAMESPACE_DOMAIN"],
+			"expectedParents": ["SYNC_SEARCH_CASE_CLAIM"],
+			"upstreamEvidence": [
+				{
+					"path": "corehq/apps/case_search/utils.py",
+					"contains": "if not toggles.CASE_SEARCH_ADVANCED.enabled(domain)"
+				},
+				{
+					"path": "corehq/apps/app_manager/feature_support.py",
+					"contains": "toggles.CASE_SEARCH_ADVANCED.enabled(self.domain)"
+				}
+			]
+		},
+		{
+			"id": "commcare-connect",
+			"slug": "commcare_connect",
+			"symbol": "COMMCARE_CONNECT",
+			"label": "CommCare Connect",
+			"description": "Enables CommCare Connect Learn and Deliver app features.",
+			"requiredFor": "Any Nova app configured for CommCare Connect Learn or Deliver.",
+			"docsAnchor": "commcare-connect",
+			"expectedTag": "TAG_CONNECT_DIVISION",
+			"expectedNamespaces": ["NAMESPACE_DOMAIN"],
+			"upstreamEvidence": [
+				{
+					"path": "corehq/apps/app_manager/views/formdesigner.py",
+					"contains": "toggles.COMMCARE_CONNECT.enabled(domain)"
+				},
+				{
+					"path": "corehq/apps/users/views/mobile/users.py",
+					"contains": "toggles.COMMCARE_CONNECT.enabled(domain)"
+				}
+			]
+		}
+	]
+}

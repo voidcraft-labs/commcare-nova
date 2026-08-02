@@ -444,13 +444,22 @@ You can attach images, audio, and video to parts of an app, a field's label or h
 
 | Tool | What it does |
 |---|---|
-| `compile_app` | Compile to CommCare HQ format: the JSON shape HQ accepts (a zip bundling that JSON with the media files when your app has media), or a `.ccz` archive. |
+| `compile_app` | Compile to CommCare HQ format: the JSON shape HQ accepts (a zip bundling that JSON with the media files when your app has media), or a `.ccz` archive. If the app needs [feature flags](../feature-flags.mdx), a separate result block lists them as unverified destination requirements. |
 | `get_hq_connection` | Check whether you've added an HQ API key in Nova settings, and if so, which CommCare server it belongs to (US, India, or EU, separate servers with separate accounts) and which project spaces (domains) it can reach. |
-| `upload_app_to_hq` | Push the app to CommCare HQ as a new app. Pass `domain` to choose the target space when your key reaches several; returns the HQ app URL. |
+| `upload_app_to_hq` | Push the app to CommCare HQ as a new app. Pass `domain` to choose the target space when your key reaches several; returns the HQ app URL and checks the app's required [feature flags](../feature-flags.mdx) against that space. |
 
 <Callout type="info">
 HQ has no atomic update API, so every upload creates a new app on HQ. Your Nova copy doesn't change. To retire the previous HQ version, archive it on HQ.
 </Callout>
+
+Feature-flag checks are advisory and never make a valid publish fail. The
+`compile_app` result uses `verification: "not_checked"`: Nova does not know
+where a downloaded artifact will be used, so `required_flags` are requirements,
+not flags known to be off. A successful `upload_app_to_hq` result includes
+`feature_flag_requirements` with `missing_flags` for confirmed missing flags and
+`unverified_flags` if HQ's diagnostic endpoint could not answer. Every
+action-needed message names `support@dimagi.com`; include the target project
+space in the request.
 
 <Callout type="warn">
 Edits are checked as they happen, and publishing is checked again at the door. A tool call that would break the app, a bad expression, a duplicate name, a reference to something that doesn't exist, or a piece left unfinished (an empty form, a case list with no columns), fails with a message naming each problem, and nothing is saved. Structure always lands whole: `create_form` requires the form's fields, and `create_module` requires its forms and case-list columns (with its case type already recorded via `generate_schema`), so a rejection is always fixable by adjusting the same call. `compile_app` and `upload_app_to_hq` refuse (`invalid_input`) while the app still has unresolved findings, listing each one.

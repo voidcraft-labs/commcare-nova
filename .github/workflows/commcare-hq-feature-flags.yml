@@ -1,0 +1,25 @@
+name: Audit CommCare HQ feature flags
+
+on:
+  schedule:
+    - cron: "17 16 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out Nova
+        uses: actions/checkout@v4
+
+      - name: Check out current CommCare HQ
+        uses: actions/checkout@v4
+        with:
+          repository: dimagi/commcare-hq
+          path: .upstream/commcare-hq
+
+      - name: Verify feature-flag lifecycle and gates
+        run: node scripts/audit-commcare-hq-feature-flags.mjs --hq-path .upstream/commcare-hq

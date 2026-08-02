@@ -223,6 +223,22 @@ describe("registerGetAgentPrompt — build modes", () => {
 		});
 	}
 
+	it("gives autonomous builds a non-blocking feature-flag FYI", async () => {
+		const { server, capture } = makeFakeServer();
+		registerGetAgentPrompt(server, toolCtx);
+
+		const out = (await capture()({ mode: "autonomous_build" }, {})) as {
+			content: Array<{ type: "text"; text: string }>;
+		};
+		const text = out.content[0]?.text ?? "";
+
+		expect(text).toContain("Publishing FYI");
+		expect(text).toContain("normal completion message");
+		expect(text).toContain("support@dimagi.com");
+		expect(text).toContain("do not create a document");
+		expect(text).toContain("NOVA-PROMPT-END");
+	});
+
 	it("ignores a spurious app_id quietly (no app load)", async () => {
 		/* Sharp-edge contract: `mode` is the authoritative discriminator,
 		 * so a build-mode call carrying an `app_id` must NOT trigger an

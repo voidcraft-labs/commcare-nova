@@ -27,6 +27,10 @@
  */
 
 import { log } from "@/lib/logger";
+import type {
+	HqFeatureFlagProbe,
+	HqFeatureFlagRequirement,
+} from "@/lib/publish/hqFeatureFlags";
 import { COMMCARE_SERVERS, type CommCareServer } from "./servers";
 
 // ── Types ──────────────────────────────────────────────────────────
@@ -168,9 +172,24 @@ async function logAndReturnError(
 export async function listDomains(
 	creds: CommCareCredentials,
 ): Promise<CommCareDomain[] | CommCareApiError> {
+	return listDomainsMatching(creds);
+}
+
+/**
+ * The user-domains endpoint doubles as HQ's only feature-flag probe. Passing
+ * `feature_flag` returns only domains for which that registered toggle is
+ * enabled. Unknown/retired slugs return 400 — deliberately preserved as an
+ * unavailable diagnostic rather than misreported as "off".
+ */
+async function listDomainsMatching(
+	creds: CommCareCredentials,
+	featureFlag?: string,
+): Promise<CommCareDomain[] | CommCareApiError> {
 	const domains: CommCareDomain[] = [];
 	const base = baseUrl(creds);
-	let url: string | null = `${base}/api/user_domains/v1/?limit=100`;
+	const query = new URLSearchParams({ limit: "100" });
+	if (featureFlag) query.set("feature_flag", featureFlag);
+	let url: string | null = `${base}/api/user_domains/v1/?${query.toString()}`;
 	/** Safety bound — prevents infinite loops from buggy pagination pointers. */
 	const MAX_PAGES = 50;
 	let page = 0;
@@ -205,8 +224,78 @@ export async function listDomains(
 			url = null;
 		}
 	}
+	if (url !== null) {
+		log.warn(
+			"[commcare/feature-flags] domain pagination exceeded safety bound",
+			{
+				featureFlag,
+				pages: MAX_PAGES,
+			},
+		);
+		return { success: false, status: 508 };
+	}
 
 	return domains;
+}
+
+/**
+ * Probe every flag the app requires against one known upload target.
+ *
+ * A probe is diagnostic only: each flag settles independently and every
+ * transport/HQ failure becomes `unavailable`, never a throw that could undo a
+ * successful app upload. The current manifest records domain-only namespaces;
+ * fail closed if a future user-namespaced entry reaches this function because
+ * HQ unions user + domain assignments for that shape and could produce a false
+ * "enabled" result.
+ */
+export async function probeHqFeatureFlags(
+	creds: CommCareCredentials,
+	domain: string,
+	requirements: readonly HqFeatureFlagRequirement[],
+): Promise<HqFeatureFlagProbe[]> {
+	return Promise.all(
+		requirements.map(async (requirement): Promise<HqFeatureFlagProbe> => {
+			if (
+				requirement.namespaces.length !== 1 ||
+				requirement.namespaces[0] !== "domain"
+			) {
+				log.warn("[commcare/feature-flags] unsafe namespace for domain probe", {
+					domain,
+					flag: requirement.slug,
+					namespaces: requirement.namespaces,
+				});
+				return { requirement, state: "unavailable" };
+			}
+
+			try {
+				const enabledDomains = await listDomainsMatching(
+					creds,
+					requirement.slug,
+				);
+				if (!Array.isArray(enabledDomains)) {
+					log.warn("[commcare/feature-flags] HQ probe unavailable", {
+						domain,
+						flag: requirement.slug,
+						status: enabledDomains.status,
+					});
+					return { requirement, state: "unavailable" };
+				}
+				return {
+					requirement,
+					state: enabledDomains.some((candidate) => candidate.name === domain)
+						? "enabled"
+						: "missing",
+				};
+			} catch (error) {
+				log.warn("[commcare/feature-flags] HQ probe threw", {
+					domain,
+					flag: requirement.slug,
+					error,
+				});
+				return { requirement, state: "unavailable" };
+			}
+		}),
+	);
 }
 
 /**
