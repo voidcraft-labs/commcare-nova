@@ -16,7 +16,11 @@ import { useRejectionShake } from "@/lib/ui/hooks/useShake";
 const MEASURE_SPAN_CLASS =
 	"text-lg font-display tracking-tighter font-semibold px-1 border border-transparent absolute invisible whitespace-pre";
 const INPUT_BASE_CLASS =
-	"nova-focusable min-h-11 max-w-full text-lg font-display tracking-tighter font-semibold outline-none rounded-lg px-1 -mx-1 border text-nova-text text-ellipsis";
+	"nova-focusable min-h-11 text-lg font-display tracking-tighter font-semibold outline-none rounded-lg px-1 -mx-1 border text-nova-text text-ellipsis";
+
+/** The input's own chrome that `scrollWidth` on the mirror span leaves out:
+ *  a 1px border each side, plus a pixel for sub-pixel rounding. */
+const TITLE_WIDTH_ALLOWANCE = 6;
 
 interface EditableTitleBaseProps {
 	value: string;
@@ -85,14 +89,26 @@ export function EditableTitle({
 	);
 
 	/* The input sizes itself to its text so the control hugs the name rather
-	 * than sitting in a fixed field. `max-w-full` on the input caps that at the
-	 * column, because an inline width would otherwise let a long name run past
-	 * the canvas; max-width always wins over width, so the cap holds and the
-	 * ellipsis renders inside it. */
+	 * than sitting in a fixed field.
+	 *
+	 * The cap is applied HERE rather than as `max-w-full` on the input: the
+	 * wrapper is an inline-flex box sized by this very input, so a percentage
+	 * max-width on the input resolves against its own result and collapses the
+	 * box, which clipped even an eight-character name. Measuring the row that
+	 * actually bounds the title breaks that loop.
+	 *
+	 * The mirror span carries the same padding, but `scrollWidth` excludes
+	 * borders, so the allowance covers the input's 1px on each side plus a
+	 * pixel of sub-pixel rounding. Undercounting it clips the last glyph and
+	 * shows an ellipsis on a name that fits. */
 	const syncWidth = useCallback(() => {
-		if (measureRef.current && inputElRef.current) {
-			inputElRef.current.style.width = `${measureRef.current.scrollWidth + 4}px`;
-		}
+		const measure = measureRef.current;
+		const input = inputElRef.current;
+		if (!measure || !input) return;
+		const bounds = input.parentElement?.parentElement;
+		const available = bounds ? bounds.clientWidth : Number.POSITIVE_INFINITY;
+		const wanted = measure.scrollWidth + TITLE_WIDTH_ALLOWANCE;
+		input.style.width = `${Math.min(wanted, available)}px`;
 	}, []);
 
 	const {
