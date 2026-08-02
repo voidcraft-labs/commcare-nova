@@ -85,6 +85,42 @@ never table tags, export names, or display labels.
 | `get_app` | Summarize one app: modules, forms, fields, case types, worker information, roles, and personas. |
 | `get_app_hq_feature_flags` | List only the CommCare HQ feature flags the app currently requires, with app-specific reasons, plain-language explanations, and public documentation links. Optionally pass one explicit connected `domain` to separate confirmed missing flags from checks HQ could not answer. |
 
+## Checking CommCare HQ feature flags
+
+`get_app_hq_feature_flags` is a read-only check. An agent can call it without
+publishing or changing the app. Feature-flag checks are advisory and never make
+an otherwise valid compile or upload fail.
+
+With only `app_id`, the tool returns the flags the app requires, why each one is
+needed, a plain-language description, and a link to its public documentation.
+The result has `domain_checked: false`: it describes destination requirements
+and does not claim that any flag is enabled or missing.
+
+With `app_id` and one explicit connected `domain`, the tool checks that exact
+CommCare HQ project space. The result separates:
+
+- `required_flags`: every flag the app uses;
+- `missing_flags`: flags CommCare HQ confirmed are not enabled; and
+- `unverified_flags`: flags the check could not confirm either way.
+
+Use `get_hq_connection` to list the project spaces available to the connection,
+then use the project space the user selected. The tool checks one domain at a
+time and never chooses a destination on the user's behalf. The result includes
+the support address and public documentation links so an agent can pass the
+relevant details to the user before publishing.
+
+The returned `feature_flag_requirements.required_flags` include app-specific
+`reasons`, a plain-language `description`, and a stable `docs_url`. The
+domain-aware path requires `nova.hq.read`; the domainless path requires only
+ordinary app read access.
+
+`compile_app` uses `verification: "not_checked"` because Nova does not know
+where a downloaded artifact will be used. Its `required_flags` are destination
+requirements, not flags known to be off. After a successful direct upload,
+`upload_app_to_hq` returns a new check for the accepted target domain. Every
+action-needed message names `support@dimagi.com`; include the target project
+space in the request.
+
 ## Creating and deleting apps
 
 | Tool | What it does |
@@ -452,26 +488,6 @@ You can attach images, audio, and video to parts of an app, a field's label or h
 <Callout type="info">
 HQ has no atomic update API, so every upload creates a new app on HQ. Your Nova copy doesn't change. To retire the previous HQ version, archive it on HQ.
 </Callout>
-
-Feature-flag checks are advisory and never make a valid publish fail. The
-read-only `get_app_hq_feature_flags` tool can be called at any time. Its
-`feature_flag_requirements.required_flags` include app-specific `reasons`, a
-plain-language `description`, and a stable `docs_url`, so an agent can explain
-or document the requirements without loading the docs page itself. With no
-`domain`, `domain_checked` is `false` and the returned flags are not known to
-be off. With an explicit domain from `get_hq_connection`, `domain_checked` is
-`true`; `missing_flags` contains only flags HQ confirmed are off, while
-`unverified_flags` contains checks the diagnostic endpoint could not answer.
-The domain-aware path requires `nova.hq.read`.
-
-The
-`compile_app` result uses `verification: "not_checked"`: Nova does not know
-where a downloaded artifact will be used, so `required_flags` are requirements,
-not flags known to be off. A successful `upload_app_to_hq` result includes
-`feature_flag_requirements` with `missing_flags` for confirmed missing flags and
-`unverified_flags` if HQ's diagnostic endpoint could not answer. Every
-action-needed message names `support@dimagi.com`; include the target project
-space in the request.
 
 <Callout type="warn">
 Edits are checked as they happen, and publishing is checked again at the door. A tool call that would break the app, a bad expression, a duplicate name, a reference to something that doesn't exist, or a piece left unfinished (an empty form, a case list with no columns), fails with a message naming each problem, and nothing is saved. Structure always lands whole: `create_form` requires the form's fields, and `create_module` requires its forms and case-list columns (with its case type already recorded via `generate_schema`), so a rejection is always fixable by adjusting the same call. `compile_app` and `upload_app_to_hq` refuse (`invalid_input`) while the app still has unresolved findings, listing each one.

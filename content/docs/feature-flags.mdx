@@ -1,56 +1,74 @@
 ---
 title: Feature flags
-description: What CommCare HQ feature flags are, which Nova features use them, and how to get them enabled for a project space.
+description: What CommCare HQ feature flags mean when you publish an app, and how to get one enabled for your project space.
 ---
 
-A feature flag is a switch that Dimagi controls for one CommCare HQ project
-space. It lets that space use a feature that is not yet available everywhere.
-You do not turn these switches on inside Nova or in the ordinary CommCare HQ
-settings.
+Some features you can add in commcare nova are still being rolled out in
+CommCare HQ. Before workers can use one of these features, Dimagi needs to turn
+on a switch called a **feature flag** for the CommCare HQ project space where
+the app will live.
 
-An agent connected to Nova can call `get_app_hq_feature_flags` before
-publishing. The result includes only the CommCare HQ flags the app currently
-uses, the app setting that caused each requirement, a plain-language
-explanation, and the public link for that flag. Without a project space, it
-reports requirements without claiming they are off. When the agent supplies
-one of your connected project spaces, the same tool checks that exact space and
-separates flags confirmed missing from checks HQ could not answer. The agent
-can pass those details to you or include them in an existing deliverable
-without first publishing the app or loading this page.
+The Publish window tells you when your app needs one. Seeing a feature flag
+does not mean the app is broken. It means the destination project space needs
+access to that feature before you roll the app out to workers.
 
-Your Nova app can still be complete and upload successfully when a required
-flag is off. The problem appears later: a worker may not see the expected
-behavior, or a feature such as case search may fail when they try to use it.
-That is why Nova reports these requirements before and at publish time.
+<Callout type="info">
+Feature flags belong to a CommCare HQ project space, not to an app file. If you
+publish the same app to another project space, that space needs its own check.
+</Callout>
 
-## What to do
+## What you will see when you publish
 
-When you open Publish, Nova shows the flags the app requires before you take an
-action. For a connected CommCare HQ project space, Nova checks that space right
-away; you can refresh the check, and Nova checks again after upload. A
-downloaded JSON, ZIP, or CCZ file has no connected destination, so the Web and
-Mobile tabs instead list the flags that the eventual destination needs before
-you download. That list does **not** mean Nova checked and found them off.
+### Uploading directly to CommCare HQ
 
-If a required flag is missing, email
-[support@dimagi.com](mailto:support@dimagi.com). Include:
+Choose the destination project space in the **CommCare HQ** tab. commcare nova
+shows the result as soon as you select it, telling you whether the flags your app
+needs are enabled in that space.
 
-- the CommCare HQ project space name;
-- each feature flag name and code that Nova listed; and
-- a short note that the app was published from CommCare Nova.
+- If everything is enabled, you are ready to continue.
+- If a flag is missing, the notice gives you its name and support code.
+- If CommCare HQ cannot answer part of the check, the notice says that the
+  result is unconfirmed instead of claiming the flag is off.
 
-Flags apply to a project space, not to the app file. Importing the same file
-into a different space means that space needs its own flags checked.
+You can refresh the check at any time. The Publish window also checks again
+after a successful upload, so the final message reflects the project space that
+received the app.
 
-## Feature flags Nova uses
+### Downloading an app for later
+
+The **Web** and **Mobile** tabs create a file that you can import elsewhere.
+Because that file is not connected to its eventual project space, the Publish
+window can tell you which flags the app needs, but it cannot tell whether those
+flags are already enabled there.
+
+In this case, the list means **these flags need to be enabled in the destination**.
+It does not mean they were checked and found missing.
+
+## If a flag needs to be enabled
+
+Email [support@dimagi.com](mailto:support@dimagi.com) and include:
+
+- the name of the CommCare HQ project space where the app will live;
+- the feature flag name and support code shown in the Publish window; and
+- a note that you are publishing an app from commcare nova.
+
+You do not need to change the app or find a hidden setting in CommCare HQ.
+Dimagi Support can enable the flag for the project space you name.
+
+An app may upload successfully while a required flag is missing, but workers
+may not see the feature or may get an error when they try to use it. Arrange to
+have the flag enabled before rolling the app out to workers.
+
+## Feature flags your app may need
 
 <FeatureFlagCatalog />
 
 Advanced Case Search is a child of Simple Case Search in CommCare HQ. When an
-app needs the advanced flag, Nova lists both so the support request is complete.
+app needs the advanced flag, the Publish window lists both so the support
+request is complete.
 
 <Callout type="info">
 Feature flags are different from paid plan features and account permissions.
-Nova's publish check covers the flags on this page; it cannot inspect every
-subscription privilege or worker permission in the destination space.
+The Publish window checks the flags on this page. It cannot inspect every paid
+plan feature or worker permission in the destination project space.
 </Callout>
