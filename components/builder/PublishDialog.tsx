@@ -984,7 +984,7 @@ function FeatureFlagNotice({
 						Feature flags are ready
 					</p>
 					<p className="mt-0.5 text-xs leading-relaxed text-nova-text-muted">
-						{flagLabels} {report.required_flags.length === 1 ? "is" : "are"}
+						{flagLabels} {report.required_flags.length === 1 ? "is" : "are"}{" "}
 						enabled for this project space
 					</p>
 				</div>
