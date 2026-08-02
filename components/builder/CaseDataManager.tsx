@@ -265,12 +265,15 @@ export function CaseDataManager({
 
 	const count = countState.kind === "count" ? countState.count : undefined;
 	const caseTypeDisplayName = humanizeId(caseType.name) || "Case";
+	/* No ellipsis: this is a button's own label, where the design system asks
+	 * for the bare word and lets the spinner or the status row carry progress.
+	 * Standalone in-progress status text is the one place the ellipsis lives. */
 	const triggerSummary =
 		count !== undefined
 			? caseLabel(count)
 			: countState.kind === "error" || countState.kind === "unauthenticated"
 				? "Unavailable"
-				: "Loading…";
+				: "Loading";
 	const triggerCountStatus =
 		count !== undefined
 			? `${caseLabel(count)}${fetching ? ", refreshing" : ""}`
