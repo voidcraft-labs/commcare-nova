@@ -3,14 +3,15 @@ title: Feature flags
 description: Learn why your app may need a CommCare HQ feature flag and how to ask Dimagi Support to enable it.
 ---
 
-Some commcare nova app features are being introduced gradually in CommCare HQ.
-Before workers can use one, it needs to be enabled for the CommCare HQ project
-space that will host your app. This setting is called a **feature flag**, and
-Dimagi Support can enable it for you.
+CommCare HQ uses project-space settings called **feature flags** to control
+access to some features before they become generally available. If your app
+uses one of those features, its flag must be enabled for the CommCare HQ project
+space that will host the app. Dimagi Support can enable it for you.
 
-The Publish window tells you when your app needs one. Seeing a feature flag
-doesn't mean the app is broken. It means the destination project space needs
-access to that feature before you roll the app out to workers.
+Commcare Nova checks your app and tells you when one of these CommCare HQ
+settings may be needed. Seeing a feature flag doesn't mean the app is broken.
+It means the destination project space needs access to that CommCare HQ feature
+before you roll the app out to workers.
 
 <Callout type="info">
 Feature flags belong to a CommCare HQ project space, not to an app file. If you
@@ -53,7 +54,7 @@ with:
 - The name of the CommCare HQ project space where the app will live
 - The feature flag names shown in the Publish window. Open each linked guide to
   find its support code
-- A note that you're publishing an app from commcare nova
+- A note that you're publishing an app from Commcare Nova
 
 You don't need to change the app or find a hidden setting in CommCare HQ.
 Dimagi Support can enable the flag for the project space you name.
