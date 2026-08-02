@@ -128,7 +128,11 @@ export const DISCLOSURE_ROW_CLS =
  * rest; these hold a state, and they are shaped by the strip or column they
  * live in rather than by the keycap. Three boxes share one skin, so a
  * selected tab and a selected sidebar row read as the same idea in
- * different geometry. Call sites style content, never the box. */
+ * different geometry. Call sites style content, never the box.
+ *
+ * Radius follows what the control stands NEXT TO, which is the only thing an
+ * eye can compare. A segment and a rail icon sit among buttons, so they take
+ * the button's 18px; a row sits among menu items, so it takes their 12px. */
 const SELECTED_SKIN = `bg-nova-violet/15 font-medium text-nova-violet-bright shadow-[inset_0_0_0_1px_var(--nova-violet-hairline)]`;
 const IDLE_SKIN = `text-nova-text-secondary not-disabled:hover:bg-white/[0.06] not-disabled:hover:text-nova-text`;
 const skin = (selected: boolean) => (selected ? SELECTED_SKIN : IDLE_SKIN);
@@ -140,12 +144,12 @@ export function selectableRowCls(selected: boolean): string {
 
 /** One segment of a horizontal strip. Shares the strip's width, never wraps. */
 export function selectableSegmentCls(selected: boolean): string {
-	return `nova-focusable flex min-h-11 min-w-0 cursor-pointer items-center justify-center gap-2 rounded-lg px-3 text-sm whitespace-nowrap outline-none transition-colors disabled:cursor-not-allowed disabled:opacity-(--disabled-opacity) ${skin(selected)}`;
+	return `nova-focusable flex min-h-11 min-w-0 cursor-pointer items-center justify-center gap-2 rounded-xl px-3 text-sm whitespace-nowrap outline-none transition-colors disabled:cursor-not-allowed disabled:opacity-(--disabled-opacity) ${skin(selected)}`;
 }
 
 /** Square icon control, for a collapsed rail where there is no room for a label. */
 export function selectableIconCls(selected: boolean): string {
-	return `nova-focusable flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-lg outline-none transition-colors ${skin(selected)}`;
+	return `nova-focusable flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-xl outline-none transition-colors ${skin(selected)}`;
 }
 
 /* ── Full-bleed list row ──────────────────────────────────────────────────
