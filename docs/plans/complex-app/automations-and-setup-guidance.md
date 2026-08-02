@@ -1,8 +1,11 @@
-# Unit 10 — Representable automations and setup guidance
+# Representable automations and setup guidance
 
 **PR:** `Automations as blueprint objects with a regenerated HQ setup artifact`
 
-**Depends on:** unit 8 (location criteria). · **Blocks:** units 11 and 13.
+**Depends on:** [the organization model](organization-model-and-locations-store.md)
+(location criteria). · **Blocks:**
+[deployment core](deployment-core-and-artifact.md) and
+[App setup UI](app-setup-ui-sa-mcp-and-docs.md).
 
 > Read [the binding contracts](00-contracts.md) first — the workspace-structure
 > rule there states that automations never pretend to execute inside Preview.
@@ -68,7 +71,7 @@ Not every criterion in that closed vocabulary can back the "currently matches N
 cases" count, because the count runs through the AST→Kysely compiler over Nova's
 own case rows. Nova makes constructible exactly the criteria it can evaluate
 locally: the nine `MatchPropertyDefinition` match types, `ClosedParentDefinition`,
-and — once unit 8 lands its rows — `LocationFilterDefinition`. `UCRFilterDefinition`
+and — once the organization model lands its rows — `LocationFilterDefinition`. `UCRFilterDefinition`
 references a report config Nova does not model, code-registered customs vary per
 HQ instance, and `filter_on_server_modified` measures HQ server-modified age,
 which has no local counterpart. Those three stay setup-artifact-only: authorable

@@ -25,7 +25,7 @@ The program spans three kinds of file, and each answers exactly one question:
 | --- | --- |
 | this one | what Nova builds today, and which unit owns what remains |
 | [`complex-app/00-contracts.md`](complex-app/00-contracts.md) | the delivery, product, architecture, and UX rules that bind every unit |
-| `complex-app/NN-*.md` | one remaining unit: its contract, its binding CommCare facts, what a user observes |
+| the other `complex-app/*.md` files | one remaining unit each: its contract, its binding CommCare facts, what a user observes |
 
 Three rules govern reading them, in order:
 
@@ -643,8 +643,8 @@ cell cap is what bounds that cardinality.
 Lookup references execute in the preview but have no wire spelling on the HQ
 paths yet, so `lib/export/boundaryValidation.ts` refuses `hq-json` and `hq-upload`
 export for a carrier-bearing document (`LOOKUP_CARRIER_EXPORT_NOT_ACTIVE`). Local
-`.ccz` export carries them. That refusal lifts when unit 12's resource push
-exists.
+`.ccz` export carries them. That refusal lifts when the
+push-and-provisioning-drivers unit's resource push exists.
 
 ### Atomic submission and resolved identity
 
@@ -702,8 +702,9 @@ and its own lifecycle — is deliberately absent. It is owned by a deployment,
 created *from* a type or persona, and is not a blueprint identity.
 The current app export/upload path does not configure HQ's project-level custom
 user-data schema, role templates, role/persona values, or worker accounts; these
-collections remain Nova authoring and Preview state until unit 12's explicit
-provisioning driver applies them.
+collections remain Nova authoring and Preview state until the
+push-and-provisioning-drivers unit's explicit provisioning driver applies
+them.
 
 The builder, Solutions Architect, and MCP API author all three collections
 through the same granular mutations and commit gate. Values cross the JSON
@@ -1114,7 +1115,8 @@ contrast is a docs fact rather than a Nova behavior.
 `lib/commcare/validator/rules/form.ts` rejects a capture kind carrying
 `caseWrite` (`MEDIA_CASE_PROPERTY`), and `formActions.ts` skips capture
 kinds when building the case-update map. Writing a capture onto the case is
-inseparable from emitting its URL column, so the two ship together (unit 6).
+inseparable from emitting its URL column, so the two ship together (the
+attachment-emission-and-link-ux unit).
 
 ### Attachments a worker captures
 
@@ -1268,13 +1270,12 @@ observed outcome live only in the linked file, and each entry names what it is
 withholding so you can tell when you need it. Read that file, and
 [`00-contracts.md`](complex-app/00-contracts.md), before you plan or implement.
 
-Unit numbers are stable identifiers, not positions: a shipped unit's number
-retires with it, so the gaps in the numbering are deliberate and the remaining
-units never renumber.
+Units are named, not numbered: the file's name is the unit's identity, so a
+unit that ships leaves no gap and nothing ever renumbers.
 
-### 4 — Grouped case tiles
+### Grouped case tiles
 
-[`complex-app/04-case-tiles.md`](complex-app/04-case-tiles.md)
+[`complex-app/grouped-case-tiles.md`](complex-app/grouped-case-tiles.md)
 · depends on nothing · blocks nothing
 
 Group a child case list under its shared parent, with the header rows drawn from
@@ -1284,10 +1285,10 @@ companion entry datum, why grouping must happen at the data layer rather than
 after a page is fetched, and why Nova narrows the group key to a case index — a
 Nova choice, not a platform rule.
 
-### 6 — Attachment target-aware emission and link UX
+### Attachment target-aware emission and link UX
 
-[`complex-app/06-attachment-emission-and-link-ux.md`](complex-app/06-attachment-emission-and-link-ux.md)
-· depends on unit 11 · blocks nothing
+[`complex-app/attachment-emission-and-link-ux.md`](complex-app/attachment-emission-and-link-ux.md)
+· depends on deployment core · blocks nothing
 
 Save-to-case attachment shapes, target-aware URL-column emission, explicit link
 presentation, and the opt-in legacy attachment mode. **The file holds** the exact
@@ -1295,10 +1296,11 @@ bytes endpoint and the HTML viewer route that must never be linked instead, the
 calculate that builds the URL, and why Web Apps never displays a case attachment
 in-app.
 
-### 8 — Organization model and locations store
+### Organization model and locations store
 
-[`complex-app/08-organization-model-and-locations-store.md`](complex-app/08-organization-model-and-locations-store.md)
-· depends on nothing · blocks units 9, 10, 11, 13
+[`complex-app/organization-model-and-locations-store.md`](complex-app/organization-model-and-locations-store.md)
+· depends on nothing · blocks the usercase, automations, deployment-core, and
+app-setup-UI units
 
 The app-wide custom-field catalog, stable level and site codes, app-scoped
 location rows, archive and reassignment rules, and role-aware owner validation.
@@ -1306,10 +1308,10 @@ location rows, archive and reassignment rules, and role-aware owner validation.
 the owner-set assembly with its two easily-dropped filters, and what actually
 happens to cases when a location loses its last worker.
 
-### 9 — Usercase, owner sets, restore scope, and wire
+### Usercase, owner sets, restore scope, and wire
 
-[`complex-app/09-usercase-owner-sets-and-wire.md`](complex-app/09-usercase-owner-sets-and-wire.md)
-· depends on unit 8 · blocks unit 13
+[`complex-app/usercase-owner-sets-and-wire.md`](complex-app/usercase-owner-sets-and-wire.md)
+· depends on the organization model · blocks the app-setup-UI unit
 
 Usercase materialization, owner-set derivation, tenant-complete restore closure,
 and the flat location fixture. **The file holds** the three-rule liveness fixpoint
@@ -1317,10 +1319,11 @@ the preview must reproduce rather than approximate, the flat fixture's byte
 contract, and the instance-declaration precondition that silently voids the whole
 fixture when missed.
 
-### 10 — Representable automations and setup guidance
+### Representable automations and setup guidance
 
-[`complex-app/10-automations-and-setup-guidance.md`](complex-app/10-automations-and-setup-guidance.md)
-· depends on unit 8 · blocks units 11 and 13
+[`complex-app/automations-and-setup-guidance.md`](complex-app/automations-and-setup-guidance.md)
+· depends on the organization model · blocks the deployment-core and
+app-setup-UI units
 
 Automation schemas limited to what HQ can represent, plus regenerated setup
 guidance. **The file holds** the closed criteria, action, recipient, and content
@@ -1328,41 +1331,44 @@ vocabularies, the real cadence and cap (and the widely cited figure that is
 wrong), the total absence of a REST surface, and which criteria are constructible
 versus setup-artifact-only.
 
-### 11 — Deployment core and artifact
+### Deployment core and artifact
 
-[`complex-app/11-deployment-core-and-artifact.md`](complex-app/11-deployment-core-and-artifact.md)
-· depends on units 8 and 10 · blocks units 6, 12, 13
+[`complex-app/deployment-core-and-artifact.md`](complex-app/deployment-core-and-artifact.md)
+· depends on the organization model and automations · blocks the
+attachment-emission, push-and-provisioning, and app-setup-UI units
 
 Durable deployment and resource-mapping records, preflight, ownership and
 adoption, independently retryable phases, and the target-aware setup artifact.
 **The file holds** the state machine enumerated end to end, including which state
 a required-phase failure lands in and what it withholds.
 
-### 12 — Push and provisioning drivers
+### Push and provisioning drivers
 
-[`complex-app/12-push-and-provisioning-drivers.md`](complex-app/12-push-and-provisioning-drivers.md)
-· depends on unit 11 · blocks units 13, 16, 17
+[`complex-app/push-and-provisioning-drivers.md`](complex-app/push-and-provisioning-drivers.md)
+· depends on deployment core · blocks the app-setup-UI, session-endpoints, and
+multi-select units
 
 Referenced-table push, location push, and explicit worker provisioning against
-unit 11's ownership mappings. **The file holds** the fixapi workbook's actual
+deployment core's ownership mappings. **The file holds** the fixapi workbook's actual
 format, why a tag rename cannot be an in-place PUT, the v0.6 location API's
 semantics and caps, the user resource's create-only identity, and which part of
 the org model is not pushable at all.
 
-### 13 — App setup UI, SA, MCP, and docs
+### App setup UI, SA, MCP, and docs
 
-[`complex-app/13-app-setup-ui-sa-mcp-and-docs.md`](complex-app/13-app-setup-ui-sa-mcp-and-docs.md)
-· depends on units 8, 9, 10, 11, 12 · blocks nothing
+[`complex-app/app-setup-ui-sa-mcp-and-docs.md`](complex-app/app-setup-ui-sa-mcp-and-docs.md)
+· depends on every other unit in the deployment chain plus the usercase unit
+· blocks nothing
 
 The App setup workspace's three remaining sections — Organization, Automations,
-and Deployment — plus the SA and MCP surfaces and public docs for units 8 through
-12. **The file is deliberately short**: its substance is the prerequisite units'
-files and the baseline UI review in the contracts.
+and Deployment — plus the SA and MCP surfaces and public docs for the five
+prerequisite units. **The file is deliberately short**: its substance is the
+prerequisite units' files and the baseline UI review in the contracts.
 
-### 14 — Exclusive form links and sections
+### Exclusive form links and sections
 
-[`complex-app/14-form-links-and-sections.md`](complex-app/14-form-links-and-sections.md)
-· depends on nothing · blocks unit 15
+[`complex-app/form-links-and-sections.md`](complex-app/form-links-and-sections.md)
+· depends on nothing · blocks the nested-menus unit
 
 An exhaustive-`else` link projection with durable link identity in one release,
 then form sections in authored order. **The file holds** the six end-of-form
@@ -1370,20 +1376,20 @@ workflow mappings and their traps, the closed stack vocabulary, the negative swe
 proving sections have no wire notion, the no-expression-slots design fence, and
 the verified mechanics that make sections beat multi-form chains.
 
-### 15 — Nested menus and linked-form reuse
+### Nested menus and linked-form reuse
 
-[`complex-app/15-nested-menus-and-linked-form-reuse.md`](complex-app/15-nested-menus-and-linked-form-reuse.md)
-· depends on unit 14 · blocks unit 16
+[`complex-app/nested-menus-and-linked-form-reuse.md`](complex-app/nested-menus-and-linked-form-reuse.md)
+· depends on form links and sections · blocks the session-endpoints unit
 
 One-tier menu nesting and native linked-form reuse. **The file holds** what
 `root_module_id` and `put_in_root` each emit, and why shadow modules are
 wire-level duplication rather than reference — which is what lets Nova emit the
 shape with no shadow authoring object and no domain toggle.
 
-### 16 — Session endpoints and deep links
+### Session endpoints and deep links
 
-[`complex-app/16-session-endpoints-and-deep-links.md`](complex-app/16-session-endpoints-and-deep-links.md)
-· depends on units 12 and 15 · blocks nothing
+[`complex-app/session-endpoints-and-deep-links.md`](complex-app/session-endpoints-and-deep-links.md)
+· depends on push-and-provisioning and nested menus · blocks nothing
 
 Session endpoints and shareable deep links resolved against the selected HQ
 server. **The file holds** the emission shape and why it pushes rather than
@@ -1391,10 +1397,10 @@ creates, why `respect_relevancy` exists only on forms, what a case-list endpoint
 excludes, the runtime replay sequence, and the documented divergences that are
 sharp edges rather than Nova bugs.
 
-### 17 — Multi-select, related cases, and profile extensions
+### Multi-select, related cases, and profile extensions
 
-[`complex-app/17-multi-select-related-cases-and-profile.md`](complex-app/17-multi-select-related-cases-and-profile.md)
-· depends on unit 12 · blocks nothing
+[`complex-app/multi-select-related-cases-and-profile.md`](complex-app/multi-select-related-cases-and-profile.md)
+· depends on push-and-provisioning · blocks nothing
 
 Three independent vocabularies that ship as three PRs because they share only a
 dependency. **The file holds** the multi-select datum and its virtual instance,
@@ -1410,33 +1416,37 @@ Each unit's prerequisites, matching the "Depends on" line in its file:
 
 | Unit | Needs |
 | --- | --- |
-| [4 grouped case tiles](complex-app/04-case-tiles.md) | — |
-| [6 attachment emission and link UX](complex-app/06-attachment-emission-and-link-ux.md) | 11 |
-| [8 organization and locations store](complex-app/08-organization-model-and-locations-store.md) | — |
-| [9 usercase, owner sets, wire](complex-app/09-usercase-owner-sets-and-wire.md) | 8 |
-| [10 automations](complex-app/10-automations-and-setup-guidance.md) | 8 |
-| [11 deployment core and artifact](complex-app/11-deployment-core-and-artifact.md) | 8, 10 |
-| [12 push and provisioning drivers](complex-app/12-push-and-provisioning-drivers.md) | 11 |
-| [13 App setup UI, SA, MCP, and docs](complex-app/13-app-setup-ui-sa-mcp-and-docs.md) | 8, 9, 10, 11, 12 |
-| [14 form links and sections](complex-app/14-form-links-and-sections.md) | — |
-| [15 nested menus and linked-form reuse](complex-app/15-nested-menus-and-linked-form-reuse.md) | 14 |
-| [16 session endpoints and deep links](complex-app/16-session-endpoints-and-deep-links.md) | 12, 15 |
-| [17 multi-select, related cases, profile](complex-app/17-multi-select-related-cases-and-profile.md) | 12 |
+| [grouped case tiles](complex-app/grouped-case-tiles.md) | — |
+| [attachment emission and link UX](complex-app/attachment-emission-and-link-ux.md) | deployment core |
+| [organization model and locations store](complex-app/organization-model-and-locations-store.md) | — |
+| [usercase, owner sets, wire](complex-app/usercase-owner-sets-and-wire.md) | organization model |
+| [automations](complex-app/automations-and-setup-guidance.md) | organization model |
+| [deployment core and artifact](complex-app/deployment-core-and-artifact.md) | organization model, automations |
+| [push and provisioning drivers](complex-app/push-and-provisioning-drivers.md) | deployment core |
+| [App setup UI, SA, MCP, and docs](complex-app/app-setup-ui-sa-mcp-and-docs.md) | organization model, usercase, automations, deployment core, push and provisioning |
+| [form links and sections](complex-app/form-links-and-sections.md) | — |
+| [nested menus and linked-form reuse](complex-app/nested-menus-and-linked-form-reuse.md) | form links and sections |
+| [session endpoints and deep links](complex-app/session-endpoints-and-deep-links.md) | push and provisioning, nested menus |
+| [multi-select, related cases, profile](complex-app/multi-select-related-cases-and-profile.md) | push and provisioning |
 
-Three units have no outstanding prerequisites and can start in any order: 4,
-8, and 14. They are the independent entry points — every other unit descends
-from one of them.
+Three units have no outstanding prerequisites and can start in any order:
+grouped case tiles, the organization model, and form links and sections. They
+are the independent entry points — every other unit descends from one of them.
 
-The deployment chain (8 → 10 → 11 → 12) is the critical path: it gates
-units 6, 13, 16, and 17, so anything needing a real HQ target waits on it. The
-navigation chain (14 → 15) runs independently until unit 16, which needs both.
+The deployment chain (organization model → automations → deployment core →
+push and provisioning) is the critical path: it gates attachment emission, the
+App setup UI, session endpoints, and multi-select, so anything needing a real
+HQ target waits on it. The navigation chain (form links → nested menus) runs
+independently until session endpoints, which needs both.
 
-Units 4, 6, 13, 16, and 17 are leaves — nothing waits on them, so each can land
-whenever its own prerequisites are met. Grouped case tiles (unit 4) are both an
-entry point and a leaf: nothing blocks them and nothing waits on them, which makes
-them the natural filler whenever the deployment chain is blocked on something
-external. Unit 9 sits off the critical path too — only the App setup UI waits on
-it, so it can follow unit 8 without holding up unit 11.
+Grouped case tiles, attachment emission, the App setup UI, session endpoints,
+and multi-select are leaves — nothing waits on them, so each can land whenever
+its own prerequisites are met. Grouped case tiles are both an entry point and
+a leaf: nothing blocks them and nothing waits on them, which makes them the
+natural filler whenever the deployment chain is blocked on something external.
+The usercase unit sits off the critical path too — only the App setup UI waits
+on it, so it can follow the organization model without holding up deployment
+core.
 
 ---
 
@@ -1467,7 +1477,8 @@ These files change in the same PR as the behavior they describe. The rules:
 - **Anchor every platform claim.** A CommCare constraint carries its
   `file::function` when it is load-bearing. A claim with no anchor is a claim
   nobody can re-verify when upstream moves.
-- **A new unit is a new file.** Adding one means a file under `complex-app/`, an
-  entry under [What remains](#what-remains), and a dependency row — never a
-  section grafted into this file. It takes the next unused number; numbers are
-  never reused or renumbered.
+- **A new unit is a new file, and its name is its identity.** Adding one means
+  a slug-named file under `complex-app/`, an entry under
+  [What remains](#what-remains), and a dependency row — never a section
+  grafted into this file, and never a numeric label: units are referenced by
+  name everywhere, so shipping one leaves no gap and nothing ever renumbers.

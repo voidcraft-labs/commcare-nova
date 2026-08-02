@@ -1,4 +1,4 @@
-# Unit 4 — Grouped case tiles
+# Grouped case tiles
 
 **PR:** `Grouped case tiles`
 
@@ -54,12 +54,15 @@ Author-facing surfaces use Nova relationship vocabulary, never `parentIndex`.
   emitted by
   `commcare-hq/corehq/apps/app_manager/suite_xml/sections/entries.py::EntriesHelper.get_extra_case_id_datums`.
   The predicate is `@case_id = instance('commcaresession')/session/data/<caseDatumId>`
-  for a single-select datum. Unit 17 later adds the multi-select variant
+  for a single-select datum. The
+  [multi-select unit](multi-select-related-cases-and-profile.md) later adds the
+  multi-select variant
   (`selected(join(' ', instance('<caseDatumId>')/results/value), @case_id)`) when
   it swaps the datum class to `<instance-datum>`; land the datum builder so that
-  variant is an added arm rather than a reshape. Unit 16 must also describe every
-  selection-requiring datum as an endpoint `<argument>`, so a new datum is a new
-  endpoint obligation.
+  variant is an added arm rather than a reshape. The
+  [session-endpoints unit](session-endpoints-and-deep-links.md) must also
+  describe every selection-requiring datum as an endpoint `<argument>`, so a new
+  datum is a new endpoint obligation.
 - **Nova narrows the group key to a case index. That is Nova's choice, not the
   platform's rule.** The group header is the top N rows of the same tile taken
   from the group's **first** case, so a header cell is only honest when its value

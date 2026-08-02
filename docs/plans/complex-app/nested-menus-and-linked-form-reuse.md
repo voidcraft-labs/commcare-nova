@@ -1,8 +1,9 @@
-# Unit 15 — Nested menus and linked-form reuse
+# Nested menus and linked-form reuse
 
 **PR:** `One-tier menu nesting and native linked-form reuse`
 
-**Depends on:** unit 14. · **Blocks:** unit 16.
+**Depends on:** [form links and sections](form-links-and-sections.md). ·
+**Blocks:** [session endpoints](session-endpoints-and-deep-links.md).
 
 > Read [the binding contracts](00-contracts.md) first — the "Nova is not CommCare
 > HQ" rule there is what makes a shadow-module authoring object the wrong answer

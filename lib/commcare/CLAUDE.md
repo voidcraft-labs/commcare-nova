@@ -258,7 +258,8 @@ findings — `environment`-class, since rows change outside the document and
 must never gate a commit. `hq-json` and `hq-upload` read the rows-free
 definitions snapshot alone and derive no wire naming, so they reject every
 authored carrier with the mode-bearing `LOOKUP_CARRIER_EXPORT_NOT_ACTIVE`
-until S20 pushes and maps the resources — a carrier never reaches those
+until the complex-app plan's push-and-provisioning unit pushes and maps the
+resources — a carrier never reaches those
 emitters unresolved.
 
 Every real export surface enters through the Nova-neutral server seam at `lib/export/boundaryValidation.ts`, selecting `ccz`, `hq-json`, or `hq-upload`. That seam loads definitions even for an empty target set (plus complete ordered rows in one snapshot on `ccz`), passes the exact available context into `evaluateBoundary`, and returns the same snapshot with prepared media and lookup resources. Emitters consume that returned generation and never perform a second lookup read; operational lookup failures stop before expansion, compilation, or HQ import.

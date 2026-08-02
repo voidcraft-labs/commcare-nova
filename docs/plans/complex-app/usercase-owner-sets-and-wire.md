@@ -1,8 +1,9 @@
-# Unit 9 — Usercase, owner sets, restore scope, and wire
+# Usercase, owner sets, restore scope, and wire
 
 **PR:** `Usercase materialization, owner sets, restore closure, and the location fixture`
 
-**Depends on:** unit 8. · **Blocks:** unit 13.
+**Depends on:** [the organization model](organization-model-and-locations-store.md).
+· **Blocks:** [App setup UI](app-setup-ui-sa-mcp-and-docs.md).
 
 > Read [the binding contracts](00-contracts.md) first — the restore-scope
 > contract there (authoritative Postgres revision, measured CTE before

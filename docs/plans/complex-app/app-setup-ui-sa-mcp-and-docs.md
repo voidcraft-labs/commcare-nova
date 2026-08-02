@@ -1,8 +1,12 @@
-# Unit 13 — App setup UI, SA, MCP, and docs
+# App setup UI, SA, MCP, and docs
 
 **PR:** `App setup: organization, automations, and deployment`
 
-**Depends on:** units 8, 9, 10, 11, and 12. · **Blocks:** nothing.
+**Depends on:** [the organization model](organization-model-and-locations-store.md),
+[usercase & wire](usercase-owner-sets-and-wire.md),
+[automations](automations-and-setup-guidance.md),
+[deployment core](deployment-core-and-artifact.md), and
+[push and provisioning](push-and-provisioning-drivers.md). · **Blocks:** nothing.
 
 > Read [the binding contracts](00-contracts.md) first — the workspace-structure,
 > baseline-UI-review, and three-surfaces rules there are the acceptance criteria
@@ -19,8 +23,8 @@ not-built-yet state. Filling one is adding its content, not adding a workspace.
 Build the Organization, Automations, and Deployment sections with responsive
 layout, permissions, conflict and recovery states, deployment progress and retry,
 and honest target prerequisites. Complete the SA and MCP tools and the public
-docs for units 8 through 12, and the cross-facility owner/restore walkthrough
-scenario.
+docs for the five prerequisite units, and the cross-facility owner/restore
+walkthrough scenario.
 
 The **user-property, user-type, and persona** vocabulary is already shipped on
 all three authoring surfaces — builder, Solutions Architect, and MCP
@@ -30,5 +34,6 @@ contract. This unit may consume and preserve those tools while completing the
 remaining App setup vocabulary; it must not rebuild, duplicate, defer, or
 rename them.
 
-**Observed:** every capability from units 8 through 12 is reachable without chat,
-and everything App setup can author is reachable from chat and MCP.
+**Observed:** every capability from the five prerequisite units is reachable
+without chat, and everything App setup can author is reachable from chat and
+MCP.
