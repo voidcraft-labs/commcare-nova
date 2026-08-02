@@ -667,7 +667,20 @@ body {
    `components/shadcn/button.tsx` composes these; a call-site className
    may set layout (width, margin, grid placement), never anatomy. */
 .nova-keycap {
-	transition: all var(--duration-default) var(--ease-default);
+	/* Everything a keycap animates, and deliberately NOT `color`. Hover and
+	   press move the cap, never the ink, so nothing here needs an animated
+	   text colour. A control that SWAPS variant does need it left out: the
+	   crown is a gradient and gradients between different colour spaces do
+	   not interpolate, so the fill changes in one frame while an animated
+	   colour crawls for 200ms behind it. That is the Preview toggle going
+	   from light ink on a dark cap to dusk ink on a luminous one, and for a
+	   fifth of a second it is pale text on a bright cap, which reads as a
+	   rendering bug rather than as motion. Ink and cap change together. */
+	transition-property:
+		background-color, background-image, border-color, box-shadow, transform,
+		opacity;
+	transition-duration: var(--duration-default);
+	transition-timing-function: var(--ease-default);
 }
 .nova-keycap:active:not(:disabled):not([data-disabled]) {
 	transform: translateY(var(--key-wall));

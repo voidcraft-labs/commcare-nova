@@ -62,23 +62,24 @@ export function AppHeader({
 	return (
 		<header className="flex shrink-0 items-center border-b border-nova-border bg-nova-void px-2 py-2.5 sm:px-4">
 			{/* The wordmark appears only where the whole lockup fits beside the
-			    nav and the account cluster, which the row measures at 710px, so
-			    the breakpoint is the width this row actually needs rather than a
-			    nominal "phone" one. Below it the sphere carries the brand alone
-			    and `markOnly` keeps the accessible name. */}
+			    nav and the account cluster. That width is a measurement of this
+			    row, not a nominal "phone" breakpoint: the row needs 780px, and
+			    the nearest named breakpoint below that would hide the wordmark
+			    for another 244px of perfectly usable width. Below it the sphere
+			    carries the brand alone and `markOnly` keeps the name. */}
 			<Link
 				href="/"
 				aria-label="commcare nova"
-				className="nova-focusable flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-xl sm:px-1 md:justify-start"
+				className="nova-focusable flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-xl sm:px-1 min-[800px]:justify-start"
 			>
 				{/* `flex`, not `block`: a block wrapper puts the lockup on a line
 				    box, and that line box carries the inherited font's descender
 				    space under it, so the header grows 6px taller than the
 				    44px lockup it contains. */}
-				<span className="flex md:hidden">
+				<span className="flex min-[800px]:hidden">
 					<Logo size="chrome" markOnly />
 				</span>
-				<span className="hidden md:flex">
+				<span className="hidden min-[800px]:flex">
 					<Logo size="chrome" />
 				</span>
 			</Link>

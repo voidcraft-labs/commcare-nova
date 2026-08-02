@@ -47,7 +47,7 @@ const SIZES = {
 	md: { font: 20, mark: 15, gap: 5 },
 	lg: { font: 30, mark: 23, gap: 8 },
 	hero: { font: 48, mark: 37, gap: 13 },
-	chrome: { font: 22, mark: 44, gap: 12 },
+	chrome: { font: 32, mark: 44, gap: 12 },
 } as const;
 
 /**
