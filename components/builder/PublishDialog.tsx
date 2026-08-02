@@ -936,6 +936,31 @@ function FeatureFlagNotice({
 	mode: "upload" | "download" | "prepublish" | "domain-check";
 }) {
 	if (report.required_flags.length === 0) return null;
+	const isDomainResult = mode === "upload" || mode === "domain-check";
+	if (
+		isDomainResult &&
+		report.missing_flags.length > 0 &&
+		report.unverified_flags.length > 0
+	) {
+		const missingReport: HqFeatureFlagReport = {
+			...report,
+			verification: "verified",
+			required_flags: report.missing_flags,
+			unverified_flags: [],
+		};
+		const unverifiedReport: HqFeatureFlagReport = {
+			...report,
+			verification: "unavailable",
+			required_flags: report.unverified_flags,
+			missing_flags: [],
+		};
+		return (
+			<div>
+				<FeatureFlagNotice report={missingReport} mode={mode} />
+				<FeatureFlagNotice report={unverifiedReport} mode={mode} />
+			</div>
+		);
+	}
 	const needsAttention =
 		mode === "download" ||
 		mode === "prepublish" ||
@@ -977,9 +1002,7 @@ function FeatureFlagNotice({
 							!report.missing_flags.some((missing) => missing.id === flag.id),
 					),
 				];
-	const confirmedMissing =
-		(mode === "upload" || mode === "domain-check") &&
-		report.missing_flags.length > 0;
+	const confirmedMissing = isDomainResult && report.missing_flags.length > 0;
 	const noticeMessage = featureFlagNoticeMessage(report, mode);
 	return (
 		<div

@@ -46,6 +46,7 @@ vi.mock("@/lib/session/provider", () => ({
 }));
 
 const caseSearch = HQ_FEATURE_FLAG_REQUIREMENTS[0];
+const advancedCaseSearch = HQ_FEATURE_FLAG_REQUIREMENTS[1];
 const downloadReport: HqFeatureFlagReport = {
 	verification: "not_checked",
 	required_flags: [caseSearch],
@@ -452,6 +453,40 @@ describe("PublishDialog", () => {
 			"CommCare HQ couldn't confirm",
 		);
 		expect(screen.queryByRole("alert")).toBeNull();
+	});
+
+	it("separates confirmed missing flags from flags HQ couldn't verify", async () => {
+		const partialReport: HqFeatureFlagReport = {
+			...prepublishReport,
+			verification: "partial",
+			target_domain: "project-space",
+			required_flags: [caseSearch, advancedCaseSearch],
+			missing_flags: [caseSearch],
+			unverified_flags: [advancedCaseSearch],
+			message:
+				"Simple Case Search isn't enabled. CommCare HQ couldn't confirm Advanced Case Search.",
+		};
+		renderDialog({
+			onLoadFeatureFlags: vi.fn(async () => ({
+				ok: true as const,
+				report: partialReport,
+			})),
+		});
+
+		const missingNotice = await screen.findByRole("alert");
+		const unverifiedTitle = await screen.findByText(
+			"Feature flag check incomplete",
+		);
+		const unverifiedNotice = unverifiedTitle.closest('[role="status"]');
+		expect(unverifiedNotice).not.toBeNull();
+		expect(missingNotice.textContent).toContain("Simple Case Search");
+		expect(missingNotice.textContent).not.toContain("Advanced Case Search");
+		expect(missingNotice.textContent).toContain("To have this flag enabled");
+		expect(unverifiedNotice?.textContent).toContain("Advanced Case Search");
+		expect(unverifiedNotice?.textContent).not.toContain("Simple Case Search");
+		expect(unverifiedNotice?.textContent).toContain(
+			"If this flag needs to be enabled",
+		);
 	});
 
 	it("surfaces flags HQ confirmed missing after a successful upload", async () => {

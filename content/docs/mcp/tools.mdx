@@ -1,19 +1,19 @@
 ---
 title: Tools
-description: What your agent can do once it's connected to Nova.
+description: What your agent can do once it's connected to Commcare Nova.
 ---
 
-These are the tools the Nova MCP server exposes. You don't call them directly, your agent does, in response to natural-language instructions. Knowing what's available helps you write better prompts and understand what your agent is doing.
+These are the tools the Commcare Nova MCP server exposes. You don't call them directly, your agent does, in response to natural-language instructions. Knowing what's available helps you write better prompts and understand what your agent is doing.
 
 ## Easy starting point
 
-`get_agent_prompt` returns the same instructions Nova's own web builder follows when it builds apps. Tell your agent to call it on its first turn (with `mode: "build"` for a new app or `mode: "edit"` for an existing one) and follow the text it returns. You don't have to do this, your agent can drive the tools however it wants, but starting from the instructions Nova already tunes for these tools is the fastest path to good results.
+`get_agent_prompt` returns the same instructions Commcare Nova's own web builder follows when it builds apps. Tell your agent to call it on its first turn (with `mode: "build"` for a new app or `mode: "edit"` for an existing one) and follow the text it returns. You don't have to do this, your agent can drive the tools however it wants, but starting from the instructions Commcare Nova already tunes for these tools is the fastest path to good results.
 
 It's a long result, a whole system prompt. Some agent frameworks cap how much of a tool result they pass through and quietly hand your agent a truncated copy, which reads as a normal short prompt and produces apps that are valid but conventionally off. So the text always ends with the line `NOVA-PROMPT-END`. Have your agent check for it and stop if it's missing, rather than building on a fragment.
 
 ## Stable identities and structured content
 
-Read an app before editing it. Nova returns stable UUIDs for modules, forms,
+Read an app before editing it. Commcare Nova returns stable UUIDs for modules, forms,
 fields, choices, case-list columns, search inputs, worker-information
 properties, roles, personas, case operations, Project data tables, columns, and
 rows. Editing tools address those
@@ -28,14 +28,14 @@ reference.
 When one item in a creation call will be referenced by another item in that
 same call, give it its final UUID in the matching creation slot:
 `moduleUuid`, `formUuid`, `fieldUuid`, `optionUuid`, `columnUuid`,
-`searchInputUuid`, or `operationUuid`. Otherwise, omit that slot and let Nova
+`searchInputUuid`, or `operationUuid`. Otherwise, omit that slot and let Commcare Nova
 mint the UUID. A same-call group or repeat parent must appear earlier in the
 field list and declare `fieldUuid`. An operation whose result is consumed by a
 later operation must likewise appear earlier; predeclaring identity does not
 change execution order.
 
 Every successful creation result returns the final identities it created in
-input order, including identities Nova minted. Field receipts nest their inline
+input order, including identities Commcare Nova minted. Field receipts nest their inline
 choice UUIDs in source order; `create_form` nests all field and choice receipts
 under its form, and `create_module` nests forms, fields, choices, and born
 case-list columns under its module. Continue from that result: no read-after-write
@@ -49,7 +49,7 @@ writer. Lookup-backed choices use the canonical
 there are no `tableUuid` or column-UUID aliases. Option media is changed through
 the dedicated media tools.
 
-MCP expression slots take Nova's typed AST, not an XPath source string. For
+MCP expression slots take Commcare Nova's typed AST, not an XPath source string. For
 example, a field reference is a part such as
 `{ "kind": "field-ref", "uuid": "<field UUID>" }`; a complete XPath value is
 `{ "parts": [/* text and typed reference parts */] }`. Reference-capable prose
@@ -62,11 +62,11 @@ ValueExpression leaves likewise use UUIDs, for example
 `{ "kind": "session-user-property", "userPropertyUuid": "<property UUID>" }`.
 
 There are exactly two name-keyed leaves, both deliberate: a case property, which
-uses `(caseType, property)`, and a CommCare session field Nova does not own,
+uses `(caseType, property)`, and a CommCare session field Commcare Nova does not own,
 which names one field out of a closed framework set.
 
-This is only the machine contract. In Nova's visual XPath editor, people still
-type and read friendly expressions such as `#form/first_name`; Nova resolves
+This is only the machine contract. In Commcare Nova's visual XPath editor, people still
+type and read friendly expressions such as `#form/first_name`; Commcare Nova resolves
 that text to identity when the edit commits and prints the current friendly
 path when it is opened again. Users are never asked to write a UUID-shaped
 XPath.
@@ -114,7 +114,7 @@ The returned `feature_flag_requirements.required_flags` include app-specific
 domain-aware path requires `nova.hq.read`; the domainless path requires only
 ordinary app read access.
 
-`compile_app` uses `verification: "not_checked"` because Nova does not know
+`compile_app` uses `verification: "not_checked"` because Commcare Nova does not know
 where a downloaded artifact will be used. Its `required_flags` are destination
 requirements, not flags known to be off. After a successful direct upload,
 `upload_app_to_hq` returns a new check for the accepted target domain. Every
@@ -176,9 +176,9 @@ on it is cleared.
 ```
 
 The Connect sub-block `id` is an emitted Connect identifier, not the address of
-the Nova form. Usually omit it: Nova derives it once and stores the final value.
+the Commcare Nova form. Usually omit it: Commcare Nova derives it once and stores the final value.
 An explicit id must already be valid and unique, or the whole call is refused;
-Nova never silently rewrites it. The form itself is always selected by UUID.
+Commcare Nova never silently rewrites it. The form itself is always selected by UUID.
 
 To disable Connect and clear every form's Connect block in the same change:
 
@@ -209,12 +209,12 @@ Custom worker-information references use that same identity. In Predicate and
 ValueExpression inputs, use
 `{ "kind": "session-user-property", "userPropertyUuid": "..." }`. The
 name-based `{ "kind": "session-user", "field": "..." }` arm is for
-CommCare-provided or external worker fields that Nova does not own. Textual
+CommCare-provided or external worker fields that Commcare Nova does not own. Textual
 XPath in the visual editor shows the current `#user/<saved-name>` projection.
 In an MCP `XPathExpression`, a custom property is instead an explicit
 `{ "kind": "user-property-ref", "userPropertyUuid": "..." }` part; an
 external property is a `user-ref` part. MCP never submits the projected name
-for Nova to resolve.
+for Commcare Nova to resolve.
 
 On update tools, leaving a field out keeps it and passing `null` clears a
 clearable field. Every batch is checked as one change; if any entry would make
@@ -324,7 +324,7 @@ targeting the operation by `operationUuid`.
 
 Operation `writes` may save custom case properties or the standard
 `external_id` scalar. They may not write `case_name`; create, rename, and
-retype operations expose their dedicated naming fields instead. Nova keeps
+retype operations expose their dedicated naming fields instead. Commcare Nova keeps
 standard scalars out of custom case-property data.
 
 | Tool | What it does |
@@ -382,7 +382,7 @@ it. Changing `id` never renames saved case data.
 Custom property names remain open. The two standard scalar destinations a
 field may use are `case_name` and `external_id`; other reserved system names
 are refused. These scalars store text: use a text field for an entered answer
-or a hidden calculated field for a computed value. Nova trims only boundary
+or a hidden calculated field for a computed value. Commcare Nova trims only boundary
 characters U+0000 through U+0020 and limits the result to 255 UTF-16 units. A
 blank case name is invalid. An active blank external ID clears it, while an
 omitted or irrelevant writer leaves the existing external ID unchanged.
@@ -414,7 +414,7 @@ All entries happen simultaneously, so the example is a swap rather than two
 overwrites. Chains and cycles are also valid. Each source and destination must
 be unique within its case type; merges, self-renames, temporary-property
 sequences, and overwriting an occupied destination are refused with nothing
-saved. Case properties are the intentional name-keyed exception to Nova's
+saved. Case properties are the intentional name-keyed exception to Commcare Nova's
 UUID object addresses, so each entry uses the exact `(caseType, from, to)`
 names, never a form id, field path, field UUID, or slug.
 
@@ -482,11 +482,11 @@ You can attach images, audio, and video to parts of an app, a field's label or h
 | Tool | What it does |
 |---|---|
 | `compile_app` | Compile to CommCare HQ format: the JSON shape HQ accepts (a zip bundling that JSON with the media files when your app has media), or a `.ccz` archive. If the app needs [feature flags](../feature-flags.mdx), a separate result block lists them as unverified destination requirements. |
-| `get_hq_connection` | Check whether you've added an HQ API key in Nova settings, and if so, which CommCare server it belongs to (US, India, or EU, separate servers with separate accounts) and which project spaces (domains) it can reach. |
+| `get_hq_connection` | Check whether you've added an HQ API key in Commcare Nova settings, and if so, which CommCare server it belongs to (US, India, or EU, separate servers with separate accounts) and which project spaces (domains) it can reach. |
 | `upload_app_to_hq` | Push the app to CommCare HQ as a new app. Pass `domain` to choose the target space when your key reaches several; returns the HQ app URL and checks the app's required [feature flags](../feature-flags.mdx) against that space. |
 
 <Callout type="info">
-HQ has no atomic update API, so every upload creates a new app on HQ. Your Nova copy doesn't change. To retire the previous HQ version, archive it on HQ.
+HQ has no atomic update API, so every upload creates a new app on HQ. Your Commcare Nova copy doesn't change. To retire the previous HQ version, archive it on HQ.
 </Callout>
 
 <Callout type="warn">
