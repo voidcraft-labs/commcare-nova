@@ -102,7 +102,7 @@ describe("registerGetAppHqFeatureFlags", () => {
 			support_email: "support@dimagi.com",
 			docs_url: "https://docs.commcare.app/feature-flags",
 		});
-		expect(report.message).toContain("requirements, not flags known to be off");
+		expect(report.message).toContain("requirements, not confirmed missing");
 		expect(loadAppBlueprint).toHaveBeenCalledWith("app-1", "u1");
 		expect(registeredConfig()).toMatchObject({
 			description: expect.stringContaining("With no `domain`"),
@@ -123,7 +123,7 @@ describe("registerGetAppHqFeatureFlags", () => {
 		expect(report.verification).toBe("not_required");
 		expect(payload.domain_checked).toBe(false);
 		expect(report.message).toBe(
-			"This app does not use a Nova feature that needs an HQ feature flag.",
+			"This app doesn't use any features that need a CommCare HQ feature flag.",
 		);
 	});
 

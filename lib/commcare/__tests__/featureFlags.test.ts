@@ -158,9 +158,7 @@ describe("feature flag reports", () => {
 		expect(report.unverified_flags.map((flag) => flag.slug)).toEqual([
 			"commcare_connect",
 		]);
-		expect(report.message).toContain(
-			"cannot check a downloaded file's destination",
-		);
+		expect(report.message).toContain("requirements, not confirmed missing");
 		expect(report.message).toContain("support@dimagi.com");
 	});
 

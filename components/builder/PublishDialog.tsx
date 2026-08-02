@@ -11,9 +11,9 @@
 "use client";
 
 import { Icon } from "@iconify/react/offline";
+import tablerAlertCircle from "@iconify-icons/tabler/alert-circle";
 import tablerBrowser from "@iconify-icons/tabler/browser";
 import tablerCheck from "@iconify-icons/tabler/check";
-import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import tablerCircleCheck from "@iconify-icons/tabler/circle-check";
 import tablerCloudUpload from "@iconify-icons/tabler/cloud-upload";
 import tablerDeviceMobile from "@iconify-icons/tabler/device-mobile";
@@ -72,6 +72,8 @@ interface PublishDialogProps {
 	getAppId: () => string;
 	availableDomains: Domain[];
 	canUploadToHq: boolean;
+	isRefreshingHqConnection: boolean;
+	onRefreshHqConnection: () => void;
 	onLoadFeatureFlags: (
 		domain: string | undefined,
 		signal: AbortSignal,
@@ -108,6 +110,8 @@ export function PublishDialog({
 	getAppId,
 	availableDomains,
 	canUploadToHq,
+	isRefreshingHqConnection,
+	onRefreshHqConnection,
 	onLoadFeatureFlags,
 	onDownloadJson,
 	onDownloadCcz,
@@ -181,6 +185,15 @@ export function PublishDialog({
 			availableDomains.length === 1 ? availableDomains[0].name : "",
 		);
 	}, [open, storeAppName, availableDomains, canUploadToHq]);
+	useEffect(() => {
+		if (!open || availableDomains.length === 0) return;
+		setSelectedDomain((current) => {
+			if (availableDomains.some((domain) => domain.name === current)) {
+				return current;
+			}
+			return availableDomains.length === 1 ? availableDomains[0].name : "";
+		});
+	}, [open, availableDomains]);
 
 	const featureFlagDomain =
 		target === "hq"
@@ -204,8 +217,9 @@ export function PublishDialog({
 			},
 		);
 	}, [featureFlagDomain, onLoadFeatureFlags]);
+	const shouldLoadFeatureFlags = target !== "hq" || Boolean(featureFlagDomain);
 	useEffect(() => {
-		if (!open) {
+		if (!open || !shouldLoadFeatureFlags) {
 			featureFlagControllerRef.current?.abort();
 			featureFlagControllerRef.current = null;
 			return;
@@ -215,7 +229,7 @@ export function PublishDialog({
 			featureFlagControllerRef.current?.abort();
 			featureFlagControllerRef.current = null;
 		};
-	}, [open, loadFeatureFlagReport]);
+	}, [open, loadFeatureFlagReport, shouldLoadFeatureFlags]);
 
 	const invalidateFeatureFlagReport = useCallback(() => {
 		const controller = featureFlagControllerRef.current;
@@ -328,7 +342,8 @@ export function PublishDialog({
 				return;
 			setStatus({
 				type: "error",
-				message: "Network error. Please check your connection and try again.",
+				message:
+					"The upload didn't finish. Check your connection and try again",
 				status: 0,
 				details: [],
 			});
@@ -385,7 +400,7 @@ export function PublishDialog({
 						Publish app
 					</DialogTitle>
 					<p className="mt-1 text-xs leading-relaxed text-nova-text-muted">
-						Upload directly or download a file for another destination.
+						Upload to CommCare HQ, or download a file to publish elsewhere
 					</p>
 				</div>
 
@@ -425,8 +440,8 @@ export function PublishDialog({
 									/>
 								) : notConfigured ? (
 									<NotConfigured
-										featureFlagState={featureFlagState}
-										onRefreshFeatureFlags={handleRefreshFeatureFlags}
+										isRefreshing={isRefreshingHqConnection}
+										onRefresh={onRefreshHqConnection}
 									/>
 								) : (
 									<UploadForm
@@ -455,7 +470,7 @@ export function PublishDialog({
 							) : (
 								<DownloadForm
 									title="CommCare HQ app file"
-									description="Download JSON to import into CommCare HQ yourself. Apps with media download as a ZIP with import instructions."
+									description="Download a JSON file to import into CommCare HQ. Apps with media download as a ZIP file with import instructions."
 									featureFlagState={featureFlagState}
 									onRefreshFeatureFlags={handleRefreshFeatureFlags}
 								/>
@@ -473,7 +488,7 @@ export function PublishDialog({
 							) : (
 								<DownloadForm
 									title="CommCare mobile app file"
-									description="Download a CCZ package for CommCare Android or another mobile deployment workflow."
+									description="Download a CCZ package for CommCare Android or another mobile deployment process"
 									featureFlagState={featureFlagState}
 									onRefreshFeatureFlags={handleRefreshFeatureFlags}
 								/>
@@ -483,8 +498,7 @@ export function PublishDialog({
 
 					<DialogFooter
 						className={`border-t border-nova-border px-5 py-4 ${
-							target === "hq" &&
-							(status.type === "upload-success" || notConfigured)
+							target === "hq" && status.type === "upload-success"
 								? "justify-between"
 								: ""
 						}`}
@@ -510,19 +524,9 @@ export function PublishDialog({
 									</Button>
 								</>
 							) : notConfigured ? (
-								<>
-									<Link
-										href="/settings"
-										onClick={handleClose}
-										className="inline-flex items-center gap-1 text-sm font-medium text-nova-violet-bright transition-colors hover:text-nova-text"
-									>
-										Go to Settings
-										<Icon icon={tablerChevronRight} className="size-3.5" />
-									</Link>
-									<DialogClose render={<Button variant="outline" />}>
-										Close
-									</DialogClose>
-								</>
+								<DialogClose render={<Button variant="outline" />}>
+									Close
+								</DialogClose>
 							) : (
 								<>
 									<DialogClose render={<Button variant="outline" />}>
@@ -539,7 +543,7 @@ export function PublishDialog({
 													icon={tablerLoader2}
 													className="size-4 animate-spin"
 												/>
-												Uploading...
+												Uploading
 											</>
 										) : (
 											"Upload"
@@ -567,7 +571,7 @@ export function PublishDialog({
 												icon={tablerLoader2}
 												className="size-4 animate-spin"
 											/>
-											Preparing...
+											Preparing
 										</>
 									) : (
 										<>
@@ -680,41 +684,58 @@ function UploadForm({
 				</label>
 
 				<p className="text-xs leading-relaxed text-nova-text-muted">
-					Creates a new app in the selected project space. Nova checks the
-					required feature flags now and checks again after upload.
+					Uploading creates a new app in the selected project space. This window
+					checks its feature flags now and again after upload.
 				</p>
 
-				<FeatureFlagPreflight
-					state={featureFlagState}
-					domainChecked={Boolean(selectedDomain)}
-					onRefresh={onRefreshFeatureFlags}
-				/>
+				{selectedDomain && (
+					<FeatureFlagPreflight
+						state={featureFlagState}
+						domainChecked
+						onRefresh={onRefreshFeatureFlags}
+					/>
+				)}
 			</div>
 
 			{status.type === "error" && (
-				<div className="mt-3">
-					<p className="text-sm text-nova-rose">{status.message}</p>
-					{status.details.length > 0 && (
-						<ul className="mt-1.5 list-disc space-y-1 pl-4">
-							{status.details.map((line) => (
-								<li
-									key={line}
-									className="text-xs leading-snug text-nova-text-secondary"
+				<div
+					role="alert"
+					className="mt-3 rounded-lg border border-nova-rose/20 bg-nova-rose/[0.06] px-3 py-3"
+				>
+					<div className="flex items-start gap-2">
+						<Icon
+							icon={tablerAlertCircle}
+							className="mt-0.5 size-4 shrink-0 text-nova-rose"
+						/>
+						<div className="min-w-0">
+							<p className="text-sm font-medium text-nova-text">
+								{status.message}
+							</p>
+							{status.details.length > 0 && (
+								<ul className="mt-1.5 list-disc space-y-1 pl-4">
+									{status.details.map((line) => (
+										<li
+											key={line}
+											className="text-xs leading-snug text-nova-text-secondary"
+										>
+											{line}
+										</li>
+									))}
+								</ul>
+							)}
+							{status.status === 401 && (
+								<Link
+									href="/settings"
+									target="_blank"
+									rel="noopener noreferrer"
+									className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-nova-violet-bright hover:underline"
 								>
-									{line}
-								</li>
-							))}
-						</ul>
-					)}
-					{status.status === 401 && (
-						<Link
-							href="/settings"
-							className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-nova-violet-bright transition-colors hover:text-nova-text"
-						>
-							Go to Settings
-							<Icon icon={tablerChevronRight} className="size-3" />
-						</Link>
-					)}
+									Open Settings
+									<Icon icon={tablerExternalLink} className="size-3" />
+								</Link>
+							)}
+						</div>
+					</div>
 				</div>
 			)}
 		</>
@@ -766,8 +787,8 @@ function FeatureFlagPreflight({
 				/>
 				<p className="text-xs text-nova-text-secondary">
 					{domainChecked
-						? "Checking feature flags for this project space..."
-						: "Checking this app's feature-flag requirements..."}
+						? "Checking feature flags for this project space"
+						: "Checking which feature flags this app needs"}
 				</p>
 			</div>
 		);
@@ -787,7 +808,7 @@ function FeatureFlagPreflight({
 						className="mt-1"
 					>
 						<Icon icon={tablerRefresh} className="size-4" />
-						Retry check
+						Try again
 					</Button>
 				)}
 			</div>
@@ -795,9 +816,7 @@ function FeatureFlagPreflight({
 	}
 
 	const report = state.report;
-	const refreshLabel = report.target_domain
-		? "Refresh check"
-		: "Refresh requirements";
+	const refreshLabel = "Check again";
 	if (report.required_flags.length === 0) {
 		return (
 			<div className="mt-3">
@@ -807,7 +826,7 @@ function FeatureFlagPreflight({
 						className="mt-0.5 size-4 shrink-0 text-nova-emerald"
 					/>
 					<p className="text-xs leading-relaxed text-nova-text-secondary">
-						This app does not require a CommCare HQ feature flag.
+						This app doesn't need any CommCare HQ feature flags
 					</p>
 				</div>
 				{onRefresh && (
@@ -910,11 +929,11 @@ function FeatureFlagNotice({
 				/>
 				<div>
 					<p className="text-xs font-medium text-nova-text">
-						Required feature flags verified
+						Feature flags are ready
 					</p>
 					<p className="mt-0.5 text-xs leading-relaxed text-nova-text-muted">
 						{flagLabels} {report.required_flags.length === 1 ? "is" : "are"}
-						enabled for this project space.
+						enabled for this project space
 					</p>
 				</div>
 			</div>
@@ -931,6 +950,7 @@ function FeatureFlagNotice({
 							!report.missing_flags.some((missing) => missing.id === flag.id),
 					),
 				];
+	const noticeMessage = featureFlagNoticeMessage(report, mode);
 	return (
 		<div className="mt-3 rounded-lg border border-nova-amber/20 bg-nova-amber/[0.06] px-3 py-3">
 			<div className="flex items-start gap-2">
@@ -940,12 +960,10 @@ function FeatureFlagNotice({
 				/>
 				<div className="min-w-0">
 					<p className="text-xs font-semibold text-nova-text">
-						{mode === "download" || mode === "prepublish"
-							? "Required in the destination project space"
-							: "CommCare HQ settings need attention"}
+						{featureFlagNoticeTitle(report, mode)}
 					</p>
 					<p className="mt-1 text-xs leading-relaxed text-nova-text-secondary">
-						{report.message}
+						{noticeMessage}
 					</p>
 				</div>
 			</div>
@@ -954,16 +972,14 @@ function FeatureFlagNotice({
 					<li key={flag.id} className="text-xs leading-relaxed">
 						<div className="flex flex-wrap items-baseline gap-x-1.5">
 							<span className="font-medium text-nova-text">{flag.label}</span>
-							<code className="text-[11px] text-nova-text-muted">
-								{flag.slug}
-							</code>
 							<a
 								href={flag.docs_url}
 								target="_blank"
 								rel="noopener noreferrer"
-								className="text-nova-violet-bright hover:underline"
+								className="inline-flex items-center gap-1 text-nova-violet-bright hover:underline"
 							>
 								Learn more
+								<Icon icon={tablerExternalLink} className="size-3" />
 								<span className="sr-only"> about {flag.label}</span>
 							</a>
 						</div>
@@ -972,37 +988,125 @@ function FeatureFlagNotice({
 				))}
 			</ul>
 			<p className="mt-2 pl-6 text-xs text-nova-text-secondary">
-				Contact{" "}
+				To have {flags.length === 1 ? "this flag" : "these flags"} enabled,
+				contact{" "}
 				<a
 					href={`mailto:${report.support_email}`}
 					className="text-nova-violet-bright hover:underline"
 				>
 					{report.support_email}
 				</a>{" "}
-				and include the project space name.
+				and include{" "}
+				{report.target_domain ? (
+					<>the “{report.target_domain}” project space</>
+				) : (
+					"the destination project space"
+				)}
 			</p>
 		</div>
 	);
 }
 
+function featureFlagNoticeMessage(
+	report: HqFeatureFlagReport,
+	mode: "upload" | "download" | "prepublish" | "domain-check",
+): string {
+	if (mode === "download" || mode === "prepublish") {
+		return "The destination project space needs these feature flags before workers use the app. That space hasn't been checked. If the flags aren't enabled, workers might not see the features or might get an error.";
+	}
+
+	const target = report.target_domain
+		? `the “${report.target_domain}” project space`
+		: "this project space";
+	const hasMissing = report.missing_flags.length > 0;
+	const hasUnverified = report.unverified_flags.length > 0;
+	if (hasMissing && hasUnverified) {
+		const message = `Some feature flags below aren't enabled for ${target}, and CommCare HQ couldn't check the others. If any aren't enabled, workers might not see those features or might get an error.`;
+		return mode === "upload" ? `Your app was uploaded. ${message}` : message;
+	}
+	if (hasMissing) {
+		const subject =
+			report.missing_flags.length === 1
+				? "The feature flag below isn't"
+				: "The feature flags below aren't";
+		const message = `${subject} enabled for ${target}`;
+		const consequence =
+			report.missing_flags.length === 1
+				? "Workers might not see this feature or might get an error until it's enabled."
+				: "Workers might not see these features or might get an error until they're enabled.";
+		return mode === "upload"
+			? `Your app was uploaded, but ${message.toLowerCase()}. ${consequence}`
+			: `${message}. ${consequence}`;
+	}
+	const message = `CommCare HQ couldn't confirm whether the feature flags below are enabled for ${target}. If they aren't enabled, workers might not see those features or might get an error.`;
+	return mode === "upload" ? `Your app was uploaded. ${message}` : message;
+}
+
+function featureFlagNoticeTitle(
+	report: HqFeatureFlagReport,
+	mode: "upload" | "download" | "prepublish" | "domain-check",
+): string {
+	if (mode === "download" || mode === "prepublish") {
+		return "Feature flags needed in CommCare HQ";
+	}
+	if (report.missing_flags.length > 0) {
+		return report.unverified_flags.length > 0
+			? "Some feature flags need attention"
+			: "Feature flags aren't enabled";
+	}
+	return "Feature flag check incomplete";
+}
+
 function NotConfigured({
-	featureFlagState,
-	onRefreshFeatureFlags,
+	isRefreshing,
+	onRefresh,
 }: {
-	featureFlagState: FeatureFlagState;
-	onRefreshFeatureFlags: () => void;
+	isRefreshing: boolean;
+	onRefresh: () => void;
 }) {
 	return (
-		<div className="py-2">
-			<p className="text-sm text-nova-rose">
-				CommCare HQ is not configured. Add your API key in Settings.
-			</p>
-			<FeatureFlagPreflight
-				state={featureFlagState}
-				onRefresh={
-					featureFlagState.type === "error" ? onRefreshFeatureFlags : undefined
-				}
-			/>
+		<div className="rounded-xl border border-nova-amber/20 bg-nova-amber/[0.06] p-4">
+			<div className="flex items-start gap-3">
+				<Icon
+					icon={tablerInfoCircle}
+					className="mt-0.5 size-5 shrink-0 text-nova-amber"
+				/>
+				<div className="min-w-0">
+					<h3 className="text-sm font-semibold text-nova-text">
+						Connect CommCare HQ to upload
+					</h3>
+					<p className="mt-1 text-sm leading-relaxed text-nova-text-secondary">
+						You can add your CommCare HQ API key in Settings to upload directly
+						from commcare nova
+					</p>
+					<p className="mt-2 text-xs leading-relaxed text-nova-text-muted">
+						You can still download your app from the Web or Mobile tab
+					</p>
+				</div>
+			</div>
+			<div className="mt-3 flex flex-wrap items-center gap-2 pl-8">
+				<Link
+					href="/settings"
+					target="_blank"
+					rel="noopener noreferrer"
+					className="nova-focusable inline-flex h-11 items-center gap-1 px-2 text-[15px] font-medium text-nova-violet-bright hover:underline"
+				>
+					Open Settings
+					<Icon icon={tablerExternalLink} className="size-4" />
+				</Link>
+				<Button
+					type="button"
+					variant="outline"
+					onClick={onRefresh}
+					disabled={isRefreshing}
+				>
+					<Icon
+						icon={tablerRefresh}
+						className={`size-4 ${isRefreshing ? "animate-spin" : ""}`}
+					/>
+					{isRefreshing ? "Checking connection" : "Check connection"}
+				</Button>
+			</div>
 		</div>
 	);
 }

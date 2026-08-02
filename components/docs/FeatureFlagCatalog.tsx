@@ -28,10 +28,10 @@ export function FeatureFlagCatalog() {
 						</div>
 						<div>
 							<dt className="font-medium text-fd-foreground">
-								Where it is enabled
+								Where it's enabled
 							</dt>
 							<dd className="mt-1 leading-relaxed text-fd-muted-foreground">
-								For one CommCare HQ project space. It does not automatically
+								For one CommCare HQ project space. It doesn't automatically
 								carry over to another space.
 							</dd>
 						</div>

@@ -1,15 +1,15 @@
 ---
 title: Feature flags
-description: What CommCare HQ feature flags mean when you publish an app, and how to get one enabled for your project space.
+description: Learn why your app may need a CommCare HQ feature flag and how to ask Dimagi Support to enable it.
 ---
 
-Some features you can add in commcare nova are still being rolled out in
-CommCare HQ. Before workers can use one of these features, Dimagi needs to turn
-on a switch called a **feature flag** for the CommCare HQ project space where
-the app will live.
+Some commcare nova app features are being introduced gradually in CommCare HQ.
+Before workers can use one, it needs to be enabled for the CommCare HQ project
+space that will host your app. This setting is called a **feature flag**, and
+Dimagi Support can enable it for you.
 
 The Publish window tells you when your app needs one. Seeing a feature flag
-does not mean the app is broken. It means the destination project space needs
+doesn't mean the app is broken. It means the destination project space needs
 access to that feature before you roll the app out to workers.
 
 <Callout type="info">
@@ -17,18 +17,19 @@ Feature flags belong to a CommCare HQ project space, not to an app file. If you
 publish the same app to another project space, that space needs its own check.
 </Callout>
 
-## What you will see when you publish
+## What you'll see when you publish
 
 ### Uploading directly to CommCare HQ
 
-Choose the destination project space in the **CommCare HQ** tab. commcare nova
-shows the result as soon as you select it, telling you whether the flags your app
-needs are enabled in that space.
+The **CommCare HQ** tab lets you choose the destination project space. The
+Publish window checks that space as soon as you select it and tells you whether
+the feature flags your app needs are enabled there.
 
-- If everything is enabled, you are ready to continue.
-- If a flag is missing, the notice gives you its name and support code.
-- If CommCare HQ cannot answer part of the check, the notice says that the
-  result is unconfirmed instead of claiming the flag is off.
+- If everything is enabled, you're ready to continue
+- If a flag isn't enabled, the notice gives you its name and a support code
+  that helps Dimagi Support identify it
+- If CommCare HQ can't complete part of the check, the notice marks the result
+  as unconfirmed instead of saying that the flag is off
 
 You can refresh the check at any time. The Publish window also checks again
 after a successful upload, so the final message reflects the project space that
@@ -37,27 +38,28 @@ received the app.
 ### Downloading an app for later
 
 The **Web** and **Mobile** tabs create a file that you can import elsewhere.
-Because that file is not connected to its eventual project space, the Publish
-window can tell you which flags the app needs, but it cannot tell whether those
+Because that file isn't connected to its eventual project space, the Publish
+window can tell you which flags the app needs, but it can't tell whether those
 flags are already enabled there.
 
 In this case, the list means **these flags need to be enabled in the destination**.
-It does not mean they were checked and found missing.
+It doesn't mean they were checked and found missing.
 
-## If a flag needs to be enabled
+## Ask Dimagi Support to enable a flag
 
-Email [support@dimagi.com](mailto:support@dimagi.com) and include:
+To get a flag enabled, email [support@dimagi.com](mailto:support@dimagi.com)
+with:
 
-- the name of the CommCare HQ project space where the app will live;
-- the feature flag name and support code shown in the Publish window; and
-- a note that you are publishing an app from commcare nova.
+- The name of the CommCare HQ project space where the app will live
+- The feature flag name and support code shown in the Publish window
+- A note that you're publishing an app from commcare nova
 
-You do not need to change the app or find a hidden setting in CommCare HQ.
+You don't need to change the app or find a hidden setting in CommCare HQ.
 Dimagi Support can enable the flag for the project space you name.
 
-An app may upload successfully while a required flag is missing, but workers
-may not see the feature or may get an error when they try to use it. Arrange to
-have the flag enabled before rolling the app out to workers.
+An app may upload successfully while a required flag isn't enabled. Until it's
+enabled, workers may not see the feature or may get an error when they try to
+use it.
 
 ## Feature flags your app may need
 
@@ -69,6 +71,6 @@ request is complete.
 
 <Callout type="info">
 Feature flags are different from paid plan features and account permissions.
-The Publish window checks the flags on this page. It cannot inspect every paid
+The Publish window checks the flags on this page. It can't inspect every paid
 plan feature or worker permission in the destination project space.
 </Callout>

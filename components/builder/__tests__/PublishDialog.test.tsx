@@ -54,7 +54,7 @@ const downloadReport: HqFeatureFlagReport = {
 	support_email: "support@dimagi.com",
 	docs_url: "https://docs.commcare.app/feature-flags",
 	message:
-		"This app requires Simple Case Search. Nova cannot check a downloaded file's destination.",
+		"This app requires Simple Case Search. The destination project space hasn't been checked.",
 };
 
 const prepublishReport: HqFeatureFlagReport = {
@@ -72,7 +72,7 @@ function featureFlagPreflight(domain?: string) {
 					verification: "verified" as const,
 					target_domain: domain,
 					unverified_flags: [],
-					message: `Nova verified that every required feature flag is enabled for the “${domain}” project space.`,
+					message: `All required feature flags are enabled for the “${domain}” project space.`,
 				}
 			: prepublishReport,
 	});
@@ -87,6 +87,8 @@ function renderDialog(
 		getAppId: () => "app-1",
 		availableDomains: [{ name: "project-space", displayName: "Project Space" }],
 		canUploadToHq: true,
+		isRefreshingHqConnection: false,
+		onRefreshHqConnection: vi.fn(),
 		onLoadFeatureFlags: vi.fn((domain?: string) =>
 			featureFlagPreflight(domain),
 		),
@@ -120,7 +122,7 @@ describe("PublishDialog", () => {
 		expect(screen.getByRole("tab", { name: "CommCare HQ" })).toBeTruthy();
 		expect(screen.getByRole("tab", { name: "Web" })).toBeTruthy();
 		expect(screen.getByRole("tab", { name: "Mobile" })).toBeTruthy();
-		await screen.findByText("Required feature flags verified");
+		await screen.findByText("Feature flags are ready");
 		expect(
 			screen
 				.getByRole("button", { name: "Upload" })
@@ -135,7 +137,46 @@ describe("PublishDialog", () => {
 		expect(screen.queryByRole("tab", { name: "CommCare HQ" })).toBeNull();
 		expect(screen.getByRole("tab", { name: "Web" })).toBeTruthy();
 		expect(screen.getByRole("button", { name: "Download JSON" })).toBeTruthy();
-		await screen.findByText("Required in the destination project space");
+		await screen.findByText("Feature flags needed in CommCare HQ");
+	});
+
+	it("keeps HQ requirements hidden until HQ is connected and offers recovery", async () => {
+		const onLoadFeatureFlags = vi.fn((domain?: string) =>
+			featureFlagPreflight(domain),
+		);
+		const onRefreshHqConnection = vi.fn();
+		renderDialog({
+			availableDomains: [],
+			onLoadFeatureFlags,
+			onRefreshHqConnection,
+		});
+
+		expect(screen.getByText("Connect CommCare HQ to upload")).toBeTruthy();
+		expect(
+			screen.getByText(/still download your app from the Web or Mobile tab/i),
+		).toBeTruthy();
+		expect(onLoadFeatureFlags).not.toHaveBeenCalled();
+		expect(
+			screen.queryByText("Feature flags needed in CommCare HQ"),
+		).toBeNull();
+		const settings = screen.getByRole("link", { name: "Open Settings" });
+		expect(settings.getAttribute("href")).toBe("/settings");
+		expect(settings.getAttribute("target")).toBe("_blank");
+
+		fireEvent.click(screen.getByRole("button", { name: "Check connection" }));
+		expect(onRefreshHqConnection).toHaveBeenCalledOnce();
+
+		fireEvent.click(screen.getByRole("tab", { name: "Web" }));
+		await screen.findByText("Feature flags needed in CommCare HQ");
+		expect(onLoadFeatureFlags).toHaveBeenCalledWith(
+			undefined,
+			expect.any(AbortSignal),
+		);
+		fireEvent.click(screen.getByRole("tab", { name: "CommCare HQ" }));
+		expect(screen.getByText("Connect CommCare HQ to upload")).toBeTruthy();
+		expect(
+			screen.queryByText("Feature flags needed in CommCare HQ"),
+		).toBeNull();
 	});
 
 	it("rechecks the live Project capability before starting an HQ upload", async () => {
@@ -152,23 +193,21 @@ describe("PublishDialog", () => {
 		const { props } = renderDialog();
 		fireEvent.click(screen.getByRole("tab", { name: "Web" }));
 
-		await screen.findByText("Required in the destination project space");
+		await screen.findByText("Feature flags needed in CommCare HQ");
 		expect(props.onDownloadJson).not.toHaveBeenCalled();
-		expect(screen.getByText("search_claim")).toBeTruthy();
-		expect(screen.getByText("support@dimagi.com")).toBeTruthy();
-		expect(screen.queryByText(/is not enabled/i)).toBeNull();
+		expect(screen.queryByText("search_claim")).toBeNull();
+		expect(screen.getAllByText("support@dimagi.com")).toHaveLength(1);
+		expect(screen.queryByText(/isn't enabled/i)).toBeNull();
 
 		fireEvent.click(
 			await screen.findByRole("button", { name: "Download JSON" }),
 		);
 
 		await screen.findByText("Web app file downloaded");
-		expect(
-			screen.getByText(/cannot check a downloaded file's destination/i),
-		).toBeTruthy();
-		expect(screen.getByText("search_claim")).toBeTruthy();
-		expect(screen.getByText("support@dimagi.com")).toBeTruthy();
-		expect(screen.queryByText(/is not enabled/i)).toBeNull();
+		expect(screen.getByText(/That space hasn't been checked/i)).toBeTruthy();
+		expect(screen.queryByText("search_claim")).toBeNull();
+		expect(screen.getAllByText("support@dimagi.com")).toHaveLength(1);
+		expect(screen.queryByText(/isn't enabled/i)).toBeNull();
 		expect(props.onDownloadJson).toHaveBeenCalledOnce();
 		const learnMore = screen.getByRole("link", {
 			name: /Learn more about Simple Case Search/,
@@ -182,27 +221,27 @@ describe("PublishDialog", () => {
 		);
 		renderDialog({ onLoadFeatureFlags });
 
-		await screen.findByText("Required feature flags verified");
+		await screen.findByText("Feature flags are ready");
 		expect(onLoadFeatureFlags).toHaveBeenCalledWith(
 			"project-space",
 			expect.any(AbortSignal),
 		);
-		fireEvent.click(screen.getByRole("button", { name: "Refresh check" }));
+		fireEvent.click(screen.getByRole("button", { name: "Check again" }));
 		await waitFor(() => expect(onLoadFeatureFlags).toHaveBeenCalledTimes(2));
 	});
 
-	it("clears an old report while checking a newly selected project space", async () => {
-		let resolveDomainCheck:
-			| ((outcome: Awaited<ReturnType<typeof featureFlagPreflight>>) => void)
-			| undefined;
-		const domainCheck = new Promise<
-			Awaited<ReturnType<typeof featureFlagPreflight>>
-		>((resolve) => {
-			resolveDomainCheck = resolve;
+	it("waits for an explicit project space before checking HQ flags", async () => {
+		type FeatureFlagOutcome = Awaited<ReturnType<typeof featureFlagPreflight>>;
+		const domainResolvers = new Map<
+			string,
+			(outcome: FeatureFlagOutcome) => void
+		>();
+		const onLoadFeatureFlags = vi.fn((domain?: string) => {
+			if (!domain) return featureFlagPreflight();
+			return new Promise<FeatureFlagOutcome>((resolve) => {
+				domainResolvers.set(domain, resolve);
+			});
 		});
-		const onLoadFeatureFlags = vi.fn((domain?: string) =>
-			domain ? domainCheck : featureFlagPreflight(),
-		);
 		renderDialog({
 			availableDomains: [
 				{ name: "alpha-space", displayName: "Alpha Space" },
@@ -211,15 +250,18 @@ describe("PublishDialog", () => {
 			onLoadFeatureFlags,
 		});
 
-		await screen.findByText("Required in the destination project space");
+		expect(onLoadFeatureFlags).not.toHaveBeenCalled();
+		expect(
+			screen.queryByText("Feature flags needed in CommCare HQ"),
+		).toBeNull();
 		fireEvent.click(screen.getByRole("combobox", { name: "Project space" }));
 		fireEvent.click(await screen.findByRole("option", { name: "Alpha Space" }));
 
 		expect(
-			screen.queryByText("Required in the destination project space"),
+			screen.queryByText("Feature flags needed in CommCare HQ"),
 		).toBeNull();
 		expect(
-			screen.getByText("Checking feature flags for this project space..."),
+			screen.getByText("Checking feature flags for this project space"),
 		).toBeTruthy();
 		expect(
 			screen.getByRole("button", { name: "Upload" }).hasAttribute("disabled"),
@@ -232,9 +274,11 @@ describe("PublishDialog", () => {
 		);
 
 		await act(async () => {
-			resolveDomainCheck?.(await featureFlagPreflight("alpha-space"));
+			domainResolvers.get("alpha-space")?.(
+				await featureFlagPreflight("alpha-space"),
+			);
 		});
-		await screen.findByText("Required feature flags verified");
+		await screen.findByText("Feature flags are ready");
 	});
 
 	it("surfaces flags HQ confirmed missing after a successful upload", async () => {
@@ -245,7 +289,7 @@ describe("PublishDialog", () => {
 			missing_flags: [caseSearch],
 			unverified_flags: [],
 			message:
-				"Simple Case Search (search_claim) is not enabled for the project-space project space. The app was still published. Contact support@dimagi.com.",
+				"Simple Case Search (search_claim) isn't enabled for the project-space project space. The app was still published. Contact support@dimagi.com.",
 		};
 		mocks.fetch.mockResolvedValueOnce(
 			new Response(
@@ -260,13 +304,14 @@ describe("PublishDialog", () => {
 		);
 
 		renderDialog();
-		await screen.findByText("Required feature flags verified");
+		await screen.findByText("Feature flags are ready");
 		fireEvent.click(await screen.findByRole("button", { name: "Upload" }));
-		await screen.findByText("CommCare HQ settings need attention");
+		await screen.findByText("Feature flags aren't enabled");
 		expect(
-			screen.getByText(/is not enabled for the project-space/i),
+			screen.getByText(/isn't enabled for the “project-space” project space/i),
 		).toBeTruthy();
-		expect(screen.getByText("support@dimagi.com")).toBeTruthy();
+		expect(screen.queryByText("search_claim")).toBeNull();
+		expect(screen.getAllByText("support@dimagi.com")).toHaveLength(1);
 	});
 
 	it("ignores a download completion from a closed dialog after it reopens", async () => {
@@ -295,6 +340,8 @@ describe("PublishDialog", () => {
 							{ name: "project-space", displayName: "Project Space" },
 						]}
 						canUploadToHq
+						isRefreshingHqConnection={false}
+						onRefreshHqConnection={vi.fn()}
 						onLoadFeatureFlags={(domain, _signal) =>
 							featureFlagPreflight(domain)
 						}
@@ -307,7 +354,7 @@ describe("PublishDialog", () => {
 
 		render(<Harness />);
 		fireEvent.click(screen.getByRole("tab", { name: "Web" }));
-		await screen.findByText("Required in the destination project space");
+		await screen.findByText("Feature flags needed in CommCare HQ");
 		fireEvent.click(
 			await screen.findByRole("button", { name: "Download JSON" }),
 		);

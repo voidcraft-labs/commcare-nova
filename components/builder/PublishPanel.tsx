@@ -12,6 +12,7 @@
  * emission boundaries.
  */
 "use client";
+import { useRouter } from "next/navigation";
 import {
 	memo,
 	useCallback,
@@ -19,6 +20,7 @@ import {
 	useEffect,
 	useRef,
 	useState,
+	useTransition,
 } from "react";
 import {
 	PublishDialog,
@@ -153,12 +155,14 @@ export const PublishPanel = memo(function PublishPanel({
 	commcareConfigured,
 	commcareAvailableDomains,
 }: PublishPanelProps) {
+	const router = useRouter();
 	const docStore = useContext(BlueprintDocContext);
 	const session = useBuilderSessionApi();
 	const canEdit = useCanEdit();
 	const reconciler = useReconcilerContext();
 	const projectToast = useProjectToast();
 	const [publishDialogOpen, setPublishDialogOpen] = useState(false);
+	const [isRefreshingHqConnection, startHqConnectionRefresh] = useTransition();
 	const downloadControllersRef = useRef(new Set<AbortController>());
 	useEffect(
 		() =>
@@ -274,7 +278,7 @@ export const PublishPanel = memo(function PublishPanel({
 			if (start.accessPhase !== "authorized" || !appId) {
 				return {
 					ok: false,
-					message: "Feature-flag requirements are not available right now.",
+					message: "Feature flag information isn't available right now",
 				};
 			}
 			const scopeEpoch = start.scopeEpoch;
@@ -293,7 +297,7 @@ export const PublishPanel = memo(function PublishPanel({
 				) {
 					return {
 						ok: false,
-						message: "Feature-flag check was cancelled.",
+						message: "The feature flag check was canceled",
 					};
 				}
 				const body = (await response.json().catch(() => null)) as {
@@ -305,7 +309,7 @@ export const PublishPanel = memo(function PublishPanel({
 						ok: false,
 						message:
 							body?.error ??
-							"Nova could not check feature-flag requirements. You can retry without leaving this dialog.",
+							"The feature flag check didn't finish. Try again in this window",
 					};
 				}
 				return { ok: true, report: body.feature_flag_requirements };
@@ -314,12 +318,12 @@ export const PublishPanel = memo(function PublishPanel({
 					signal.aborted ||
 					(error instanceof DOMException && error.name === "AbortError")
 				) {
-					return { ok: false, message: "Feature-flag check was cancelled." };
+					return { ok: false, message: "The feature flag check was canceled" };
 				}
 				return {
 					ok: false,
 					message:
-						"Nova could not check feature-flag requirements. You can retry without leaving this dialog.",
+						"The feature flag check didn't finish. Try again in this window",
 				};
 			}
 		},
@@ -341,6 +345,11 @@ export const PublishPanel = memo(function PublishPanel({
 		downloadControllersRef.current.clear();
 		setPublishDialogOpen(false);
 	}, []);
+	const handleRefreshHqConnection = useCallback(() => {
+		startHqConnectionRefresh(() => {
+			router.refresh();
+		});
+	}, [router]);
 
 	return (
 		<>
@@ -353,6 +362,8 @@ export const PublishPanel = memo(function PublishPanel({
 				getAppId={getAppId}
 				availableDomains={commcareConfigured ? commcareAvailableDomains : []}
 				canUploadToHq={canEdit}
+				isRefreshingHqConnection={isRefreshingHqConnection}
+				onRefreshHqConnection={handleRefreshHqConnection}
 				onLoadFeatureFlags={loadFeatureFlags}
 				onDownloadJson={handleDownloadJson}
 				onDownloadCcz={handleDownloadCcz}

@@ -234,9 +234,9 @@ describe("registerGetAgentPrompt — build modes", () => {
 
 		expect(text).toContain("Publishing FYI");
 		expect(text).toContain("call get_app_hq_feature_flags exactly once");
-		expect(text).toContain("terminal handoff");
+		expect(text).toContain("final handoff");
 		expect(text).toContain("Do not call it after individual mutations");
-		expect(text).toContain("never a Nova authoring gate");
+		expect(text).toContain("not a Nova authoring gate");
 		expect(text).toContain("do not remove, undo, avoid, or revise");
 		expect(text).toContain("feature_flag_requirements.required_flags");
 		expect(text).toContain("domain_checked: false");

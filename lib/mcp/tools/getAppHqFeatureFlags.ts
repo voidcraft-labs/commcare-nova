@@ -1,5 +1,5 @@
 /**
- * `nova.get_app_hq_feature_flags` — explain the CommCare HQ feature flags an
+ * `nova.get_app_hq_feature_flags`: explain the CommCare HQ feature flags an
  * owned app requires, and optionally check those requirements against one
  * explicitly selected connected HQ project space.
  *

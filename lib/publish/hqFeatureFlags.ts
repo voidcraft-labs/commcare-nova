@@ -147,8 +147,8 @@ export function featureFlagReportForUnverifiedRequirements(
 	if (required.length === 0) return noRequirementsReport();
 	const message =
 		context === "download"
-			? `This app requires ${flagNames(required)} in the CommCare HQ project space where it will be used. Nova cannot check a downloaded file's destination. If a required flag is not enabled, contact ${HQ_FEATURE_FLAG_SUPPORT_EMAIL} and name the project space.`
-			: `This app requires ${flagNames(required)} in the CommCare HQ project space where it will be used. No project space has been checked yet, so these are requirements, not flags known to be off. If a required flag is not enabled, contact ${HQ_FEATURE_FLAG_SUPPORT_EMAIL} and name the project space.`;
+			? `This app requires ${flagNames(required)} in its destination CommCare HQ project space. The downloaded file isn't connected to that space, so these flags are requirements, not confirmed missing. If a required flag isn't enabled, contact ${HQ_FEATURE_FLAG_SUPPORT_EMAIL} and name the project space.`
+			: `This app requires ${flagNames(required)} in its destination CommCare HQ project space. No project space has been checked, so these flags are requirements, not confirmed missing. If a required flag isn't enabled, contact ${HQ_FEATURE_FLAG_SUPPORT_EMAIL} and name the project space.`;
 	return {
 		verification: "not_checked",
 		required_flags: required,
@@ -183,16 +183,16 @@ export function featureFlagReportForUpload(
 
 	let message: string;
 	if (verification === "verified" && missing.length === 0) {
-		message = `Nova verified that every required feature flag is enabled for the “${domain}” project space.`;
+		message = `All required feature flags are enabled for the “${domain}” project space.`;
 	} else {
 		const parts: string[] = [];
 		if (missing.length > 0) {
 			parts.push(
-				`${flagNames(missing)} ${missing.length === 1 ? "is" : "are"} not enabled for the “${domain}” project space`,
+				`${flagNames(missing)} ${missing.length === 1 ? "isn't" : "aren't"} enabled for the “${domain}” project space`,
 			);
 		}
 		if (unverified.length > 0) {
-			parts.push(`Nova could not verify ${flagNames(unverified)}`);
+			parts.push(`CommCare HQ couldn't confirm ${flagNames(unverified)}`);
 		}
 		const outcome =
 			context === "after_upload" ? " The app was still published." : "";
@@ -221,7 +221,7 @@ function noRequirementsReport(domain?: string): HqFeatureFlagReport {
 		support_email: HQ_FEATURE_FLAG_SUPPORT_EMAIL,
 		docs_url: HQ_FEATURE_FLAGS_DOCS_URL,
 		message:
-			"This app does not use a Nova feature that needs an HQ feature flag.",
+			"This app doesn't use any features that need a CommCare HQ feature flag.",
 	};
 }
 
@@ -232,7 +232,7 @@ function flagNames(flags: readonly HqFeatureFlagRequirement[]): string {
 	return `${names.slice(0, -1).join(", ")}, and ${names.at(-1)}`;
 }
 
-/** Model-facing FYI used by autonomous plugin runs. It deliberately places the
+/** Model-facing deployment note used by autonomous plugin runs. It places the
  * check after authoring is over so deployment disclosure can never become an
  * authoring gate or provoke the model to negotiate against requested features. */
-export const AUTONOMOUS_FEATURE_FLAG_GUIDANCE = `At the terminal handoff of each autonomous_build request—only after every requested mutation and validation task is final, and when no more app edits are planned—call get_app_hq_feature_flags exactly once without a domain, using the app_id returned by create_app. Do not call it after individual mutations, while planning, or while editing. This is a passive CommCare HQ deployment disclosure, never a Nova authoring gate: regardless of the response, do not remove, undo, avoid, or revise requested functionality, and do not make another mutation because of it. Use only feature_flag_requirements.required_flags from this response; do not infer requirements from the blueprint or a catalog. If that list is non-empty, append a brief FYI to the normal completion message using only the returned labels, slugs, reasons, descriptions, documentation links, and ${HQ_FEATURE_FLAG_SUPPORT_EMAIL}. Preserve domain_checked: false: these are requirements for the eventual CommCare HQ project space, not flags known to be off. If the list is empty, omit the FYI. If the read fails or is unavailable, finish normally without retrying, creating a document, inventing another communication channel, or changing the app.`;
+export const AUTONOMOUS_FEATURE_FLAG_GUIDANCE = `At the final handoff of each autonomous_build request, after every requested mutation and validation task is complete and no more app edits are planned, call get_app_hq_feature_flags exactly once without a domain, using the app_id returned by create_app. Do not call it after individual mutations, while planning, or while editing. This is CommCare HQ deployment information, not a Nova authoring gate. No matter what the response says, do not remove, undo, avoid, or revise requested functionality, and do not make another mutation because of it. Use only feature_flag_requirements.required_flags from this response. Do not infer requirements from the blueprint or a catalog. If that list is non-empty, add a brief note to the normal completion message using only the returned labels, slugs, reasons, descriptions, documentation links, and ${HQ_FEATURE_FLAG_SUPPORT_EMAIL}. Preserve domain_checked: false because these are requirements for the eventual CommCare HQ project space, not flags known to be off. If the list is empty, omit the note. If the read fails or is unavailable, finish normally without retrying, creating a document, inventing another communication channel, or changing the app.`;
