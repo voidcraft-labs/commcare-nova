@@ -480,6 +480,14 @@
 	/* Ambient depth: a soft well and a hairline drop. */
 	--shadow-inset: inset 0 1px 2px rgba(0, 0, 0, 0.22);
 	--shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.25);
+	/* What a bare `transition-*` utility means. Tailwind's own defaults are
+	   150ms and its own curve; the system publishes 0.2s on `--ease-default`
+	   and every hand-written rule in this file already uses those, so a
+	   `transition-colors` on a call site has to land on the same scale or
+	   the product animates at two speeds depending on how a rule was
+	   written. */
+	--default-transition-duration: 0.2s;
+	--default-transition-timing-function: cubic-bezier(0.46, 0.03, 0.52, 0.96);
 }
 
 /* Global styles */
