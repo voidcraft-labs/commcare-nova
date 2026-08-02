@@ -2047,6 +2047,15 @@ html.dark {
 	white-space: nowrap;
 }
 
+/* The docs 404 is a bare `main` dropped straight into the layout grid,
+   so it landed in the SIDEBAR track: a 184px column of content beside
+   two thirds of empty screen at every width below the sidebar's own
+   breakpoint. Real docs pages avoid it by going through fumadocs' page
+   wrapper, which places itself. This one says where it belongs. */
+.nova-docs #nd-docs-layout > main {
+	grid-column: 1 / -1;
+}
+
 /* The docs header row must yield to its own controls.
  *
  * At 320px the brand lockup held its full width and pushed the search
