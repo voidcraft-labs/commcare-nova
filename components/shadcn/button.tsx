@@ -73,6 +73,17 @@ const buttonVariants = cva(
 				icon: "size-11 px-0",
 			},
 		},
+		compoundVariants: [
+			{
+				variant: "field",
+				size: "default",
+				// A field trigger stands beside real inputs, so it takes the
+				// input's inset rather than the keycap's wider one. The size
+				// variant is composed after the variant, so this has to be here
+				// to land after both.
+				class: "px-3.5",
+			},
+		],
 		defaultVariants: {
 			variant: "default",
 			size: "default",
